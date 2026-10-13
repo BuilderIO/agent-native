@@ -84,6 +84,12 @@ import {
   type NativeSourcePaintGroup,
   type NativeSourcePaintNode,
 } from "../../../../shared/native-source-composition-tree";
+import {
+  nativeStatefulResetValuesChanged,
+  snapshotNativeStatefulResetValues,
+  NativeStatefulResetValueError,
+  type NativeStatefulResetValues,
+} from "../../../../shared/native-stateful-reset-values";
 import { isStatefulResourceGraph } from "../../../../shared/native-stateful-resource-graph";
 import {
   isStatelessComputeDispatch,
@@ -604,7 +610,7 @@ type Mount = {
     executor: NativeStatefulResourceSession;
     definitionHash: string;
     seed: number;
-    resetPropertyValues: readonly (readonly [string, number])[];
+    resetPropertyValues: NativeStatefulResetValues;
     seekRevision: number;
     sourceIdentity: string;
     sourceRevision: string;
@@ -8063,19 +8069,18 @@ class NativeShaderRuntime {
     const declared = new Map(
       (definition.resources ?? []).map((resource) => [resource.name, resource]),
     );
-    const readNumber = (name: string): number => {
-      const value =
-        instance.params[name] ?? definition.properties[name]?.default;
-      if (typeof value !== "number" || !Number.isFinite(value))
-        throw new NativeSourceError(
-          "stateful-params-invalid",
-          `Property ${name} must be finite.`,
-        );
-      return value;
-    };
-    const resetPropertyValues = (graph.resetProperties ?? []).map(
-      (name) => [name, readNumber(name)] as const,
-    );
+    let resetPropertyValues: NativeStatefulResetValues;
+    try {
+      resetPropertyValues = snapshotNativeStatefulResetValues(
+        definition,
+        instance.params,
+        graph.resetProperties ?? [],
+      );
+    } catch (error) {
+      if (error instanceof NativeStatefulResetValueError)
+        throw new NativeSourceError(error.code, error.message);
+      throw error;
+    }
     const prior = draft ? draft.stateful : mount.stateful;
     if (
       prior &&
@@ -8085,7 +8090,7 @@ class NativeShaderRuntime {
         prior.sourceWidth !== (source?.width ?? mount.width) ||
         prior.sourceHeight !== (source?.height ?? mount.height) ||
         prior.seekRevision !== (instance.timing.seekRevision ?? 0) ||
-        nativeFeedbackResetValuesChanged(
+        nativeStatefulResetValuesChanged(
           prior.resetPropertyValues,
           resetPropertyValues,
         ))
@@ -8328,12 +8333,15 @@ class NativeShaderRuntime {
               ? this.renderEpoch
               : (mount.provider?.sourceEpoch?.() ?? null),
       drawCount: (property, maximum, stepTime) => {
-        const count = resolveNativeParameterAnimation(
+        const animated = resolveNativeParameterAnimation(
           definition,
           instance.params,
           instance.animation,
           stepTime,
-        )[property];
+        );
+        const count = Object.prototype.hasOwnProperty.call(animated, property)
+          ? animated[property]
+          : definition.properties[property]?.default;
         if (
           typeof count !== "number" ||
           !Number.isSafeInteger(count) ||

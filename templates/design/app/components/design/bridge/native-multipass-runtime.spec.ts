@@ -3,6 +3,7 @@ import { build } from "esbuild";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CATALOG_GENERATOR_CANDIDATES } from "../../../../shared/native-effect-catalog-generators";
+import { CONTENT_BOUNDS_TRACKER_EFFECT } from "../../../../shared/native-effect-owned-ar-content-bounds-tracker";
 import { RADIAL_BURST_EFFECT } from "../../../../shared/native-effect-owned-bm-radial-burst";
 import { DESIGN_OWNED_STATEFUL_DEFINITIONS } from "../../../../shared/native-effect-owned-dynamics";
 import {
@@ -4123,11 +4124,14 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
             max: 1,
             step: 0.01,
           },
+          detect: CONTENT_BOUNDS_TRACKER_EFFECT.properties.detect,
+          cells: CONTENT_BOUNDS_TRACKER_EFFECT.properties.cells,
         },
         resourceGraph: {
           abi: "stateful-resource-v1",
           timing: { fixedDt: 1 / 60, maxStepsPerCall: 8, maxStepIndex: 600 },
           stateResources: ["history"],
+          resetProperties: ["detect"],
         },
         resources: [
           {
@@ -4256,6 +4260,31 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       pairMount = internal.mounts.get(
         "two-texture-instance",
       ) as typeof pairMount;
+      const defaultEnumMount = pairMount;
+      const defaultEnumState = (
+        pairMount as typeof pairMount & { stateful: object }
+      ).stateful;
+      expect(defaultEnumState).toBeTruthy();
+      manifest.textContent = JSON.stringify({
+        schemaVersion: 2,
+        definitions: [publishedStatefulDefinition],
+        instances: [
+          {
+            ...publishedStatefulInstance,
+            params: { amount: 0.5, detect: "dark" },
+          },
+        ],
+      });
+      await runtime!.scan();
+      if (internal.running) await internal.running;
+      expect((await internal.renderInternal(0, true)).failures).toEqual([]);
+      pairMount = internal.mounts.get(
+        "two-texture-instance",
+      ) as typeof pairMount;
+      expect(pairMount).toBe(defaultEnumMount);
+      expect(
+        (pairMount as typeof pairMount & { stateful: object }).stateful,
+      ).not.toBe(defaultEnumState);
       const statefulProbe = internal as typeof internal & {
         draft: {
           stateful: {
@@ -4562,6 +4591,70 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       expect(
         publishedBanks.every((texture) => !destroyed.includes(texture.id)),
       ).toBe(true);
+
+      const trackerHash = await hashEffectDefinition(
+        CONTENT_BOUNDS_TRACKER_EFFECT,
+      );
+      const trackerInstance: EffectInstance = {
+        ...pairMount.instance,
+        definitionId: CONTENT_BOUNDS_TRACKER_EFFECT.id,
+        definitionVersion: CONTENT_BOUNDS_TRACKER_EFFECT.version,
+        params: {},
+        timing: { speed: 1, paused: true, time: 0 },
+      };
+      manifest.textContent = JSON.stringify({
+        schemaVersion: 2,
+        definitions: [CONTENT_BOUNDS_TRACKER_EFFECT],
+        instances: [trackerInstance],
+      });
+      approval.textContent = JSON.stringify({
+        schemaVersion: 1,
+        hashes: [trackerHash],
+      });
+      internal.loadStandaloneApprovals();
+      await runtime!.scan();
+      if (internal.running) await internal.running;
+      expect((await internal.renderInternal(0, true)).failures).toEqual([]);
+      expect(
+        (
+          internal.mounts.get("two-texture-instance") as typeof pairMount & {
+            stateful: object;
+          }
+        ).stateful,
+      ).toBeTruthy();
+      manifest.textContent = JSON.stringify({
+        schemaVersion: 2,
+        definitions: [CONTENT_BOUNDS_TRACKER_EFFECT],
+        instances: [{ ...trackerInstance, params: { cells: null } }],
+      });
+      await runtime!.scan();
+      if (internal.running) await internal.running;
+      expect((await internal.renderInternal(0, true)).failures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "manifest-invalid" }),
+        ]),
+      );
+      manifest.textContent = JSON.stringify({
+        schemaVersion: 2,
+        definitions: [publishedStatefulDefinition],
+        instances: [
+          {
+            ...publishedStatefulInstance,
+            params: { amount: 0.5, detect: "dark" },
+          },
+        ],
+      });
+      approval.textContent = JSON.stringify({
+        schemaVersion: 1,
+        hashes: [publishedStatefulHash],
+      });
+      internal.loadStandaloneApprovals();
+      await runtime!.scan();
+      if (internal.running) await internal.running;
+      expect((await internal.renderInternal(0, true)).failures).toEqual([]);
+      pairMount = internal.mounts.get(
+        "two-texture-instance",
+      ) as typeof pairMount;
 
       // Test-only private ABI consumer; no catalog or oracle promotion.
       const statelessProbe = internal as typeof internal & {

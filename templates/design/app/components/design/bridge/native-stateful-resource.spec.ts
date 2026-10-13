@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { FLUID_COLOR_FIELD_EFFECT } from "../../../../shared/native-effect-owned-source-free-fluid-field";
 import type {
   EffectDefinition,
   EffectPass,
@@ -862,6 +863,188 @@ describe("NativeStatefulResourceSession", () => {
     });
     expect(session.lastCompletedStep).toBe(-1);
     expect(gpu.leases()).toBe(0);
+  });
+
+  it("resolves a repeated Fluid Color Field frame from committed density alone", async () => {
+    const gpu = fakeGpu();
+    const session = Session.create(
+      gpu.device,
+      gpu.allocator,
+      FLUID_COLOR_FIELD_EFFECT,
+      8,
+      8,
+    );
+    const fluidPasses = FLUID_COLOR_FIELD_EFFECT.passes;
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const options = {
+      encoder: gpu.encoder,
+      source: null,
+      target: gpu.target,
+      externalTextures: new Map<string, GPUTexture>(),
+      inputEpochs: new Map<string, number | null>(),
+      pipelines: new Map(
+        fluidPasses.map((pass) => [
+          pass.id,
+          pipeline as unknown as GPUComputePipeline,
+        ]),
+      ),
+      passes: fluidPasses,
+      steps: [0],
+      fixedDt: 1 / 60,
+      seed: 7,
+      sourceIdentity: "source-free:fluid",
+      sourceRevision: "source-free:fluid",
+      sourceEpoch: null,
+      drawCount: () => 1,
+      uniforms: () => new Float32Array(136),
+    };
+    const first = session.encode(options);
+    expect(gpu.groups).toHaveLength(fluidPasses.length);
+    const committedDensity = (
+      gpu.groups[fluidPasses.length - 2]!.entries.find(
+        (entry) => entry.binding === 18,
+      )!.resource as { texture: GPUTexture }
+    ).texture;
+    const firstCommit = first.commit();
+    gpu.waits.shift()!();
+    await firstCommit;
+
+    const groupsBeforeRepeat = gpu.groups.length;
+    const repeated = session.encode(options);
+    expect(gpu.groups).toHaveLength(groupsBeforeRepeat + 1);
+    expect(
+      (
+        gpu.groups[groupsBeforeRepeat]!.entries.find(
+          (entry) => entry.binding === 2,
+        )!.resource as { texture: GPUTexture }
+      ).texture,
+    ).toBe(committedDensity);
+    const repeatCommit = repeated.commit();
+    gpu.waits.shift()!();
+    await repeatCommit;
+    expect(session.lastCompletedStep).toBe(0);
+    const groupsBeforeAdvance = gpu.groups.length;
+    const advanced = session.encode({ ...options, steps: [1] });
+    expect(gpu.groups).toHaveLength(groupsBeforeAdvance + fluidPasses.length);
+    expect(
+      (
+        gpu.groups[groupsBeforeAdvance + fluidPasses.length - 2]!.entries.find(
+          (entry) => entry.binding === 3,
+        )!.resource as { texture: GPUTexture }
+      ).texture,
+    ).toBe(committedDensity);
+    advanced.abandon();
+    session.dispose();
+  });
+
+  it("keeps a scratch resolve chain on repeat and skips unrelated scratch", async () => {
+    const gpu = fakeGpu();
+    const scratch = (name: string) => ({
+      name,
+      kind: "texture-2d" as const,
+      size: "fixed" as const,
+      width: 8,
+      height: 8,
+      format: "rgba16float" as const,
+      usage: ["sampled", "storage"] as ("sampled" | "storage")[],
+    });
+    const scratchPasses: EffectPass[] = [
+      ...passes.slice(0, 2),
+      {
+        id: "unused",
+        kind: "compute",
+        wgsl: "@compute @workgroup_size(8,8,1) fn cs() {}",
+        reads: ["source"],
+        output: "unused",
+        dispatch: { elements: "output-texture", workgroupSize: [8, 8, 1] },
+      },
+      {
+        id: "paint",
+        kind: "compute",
+        wgsl: "@compute @workgroup_size(8,8,1) fn cs() {}",
+        reads: ["particles"],
+        output: "paint",
+        dispatch: { elements: "output-texture", workgroupSize: [8, 8, 1] },
+      },
+      { ...passes[2]!, reads: ["source", "paint"] },
+    ];
+    const scratchDefinition = {
+      ...definition,
+      passes: scratchPasses,
+      resources: [
+        ...definition.resources!,
+        scratch("unused"),
+        scratch("paint"),
+      ],
+    } as EffectDefinition;
+    const session = Session.create(
+      gpu.device,
+      gpu.allocator,
+      scratchDefinition,
+      8,
+      8,
+    );
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const options = {
+      encoder: gpu.encoder,
+      source: gpu.source,
+      target: gpu.target,
+      pipelines: new Map(
+        scratchPasses.map((pass) => [
+          pass.id,
+          pipeline as unknown as GPUComputePipeline,
+        ]),
+      ),
+      passes: scratchPasses,
+      steps: [0],
+      fixedDt: 1 / 60,
+      seed: 1,
+      sourceIdentity: "asset:still.png",
+      sourceRevision: "asset:still.png",
+      sourceEpoch: null,
+      drawCount: () => 4,
+      uniforms: () => new Float32Array(136),
+    };
+    const first = session.encode(options);
+    expect(gpu.groups).toHaveLength(scratchPasses.length);
+    const committedParticles = (
+      gpu.groups[1]!.entries.find((entry) => entry.binding === 18)!
+        .resource as { buffer: GPUBuffer }
+    ).buffer;
+    const firstCommit = first.commit();
+    gpu.waits.shift()!();
+    await firstCommit;
+
+    const groupsBeforeRepeat = gpu.groups.length;
+    const repeated = session.encode(options);
+    expect(gpu.groups).toHaveLength(groupsBeforeRepeat + 2);
+    const paintGroup = gpu.groups[groupsBeforeRepeat]!;
+    const resolveGroup = gpu.groups[groupsBeforeRepeat + 1]!;
+    expect(
+      (
+        paintGroup.entries.find((entry) => entry.binding === 2)!.resource as {
+          buffer: GPUBuffer;
+        }
+      ).buffer,
+    ).toBe(committedParticles);
+    expect(
+      (
+        resolveGroup.entries.find((entry) => entry.binding === 3)!.resource as {
+          texture: GPUTexture;
+        }
+      ).texture,
+    ).toBe(
+      (
+        paintGroup.entries.find((entry) => entry.binding === 18)!.resource as {
+          texture: GPUTexture;
+        }
+      ).texture,
+    );
+    const repeatCommit = repeated.commit();
+    gpu.waits.shift()!();
+    await repeatCommit;
+    expect(session.lastCompletedStep).toBe(0);
+    session.dispose();
   });
 
   it("rerenders a repeated step from committed fields without integrating them again", async () => {

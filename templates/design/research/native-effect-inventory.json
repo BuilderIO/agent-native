@@ -10,10 +10,10 @@
   },
   "counts": {
     "distinctDefinitions": 377,
-    "exactVersions": 439,
-    "registeredPresets": 880,
-    "presetsTargetingLatestVersions": 784,
-    "presetsTargetingHistoricalVersions": 96,
+    "exactVersions": 440,
+    "registeredPresets": 882,
+    "presetsTargetingLatestVersions": 783,
+    "presetsTargetingHistoricalVersions": 99,
     "latestByKind": {
       "generator": 167,
       "processor": 203,
@@ -21,7 +21,7 @@
     },
     "fullByKind": {
       "generator": 210,
-      "processor": 221,
+      "processor": 222,
       "simulation": 8
     },
     "latestByAnimation": {
@@ -29,7 +29,7 @@
       "static": 248
     },
     "fullByAnimation": {
-      "animated": 154,
+      "animated": 155,
       "static": 285
     },
     "latestByPlacement": {
@@ -39,8 +39,8 @@
     },
     "fullByPlacement": {
       "fill": 213,
-      "layer": 230,
-      "backdrop": 184
+      "layer": 231,
+      "backdrop": 185
     },
     "fullyValidatedDefinitions": 0
   },
@@ -5409,6 +5409,128 @@
         "an-preset-catalog-noise-displacement-1",
         "an-preset-catalog-noise-displacement-2",
         "an-preset-catalog-noise-displacement-3"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-noise-displacement",
+      "name": "Noise Displacement",
+      "version": 2,
+      "executionHash": "3dbce1d147e06957149571e144e7b5ff38df25fb897d1df0fa71f93aac3dc562",
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "distance": {
+          "type": "float",
+          "label": "Distance",
+          "default": 16,
+          "min": 0,
+          "max": 60,
+          "step": 0.01
+        },
+        "scale": {
+          "type": "float",
+          "label": "Scale",
+          "default": 6,
+          "min": 0.5,
+          "max": 32,
+          "step": 0.01
+        },
+        "movement": {
+          "type": "float",
+          "label": "Movement",
+          "default": 0.3,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "edge": {
+          "type": "enum",
+          "label": "Edges",
+          "default": "clamp",
+          "options": [
+            "transparent",
+            "clamp",
+            "repeat",
+            "mirror"
+          ],
+          "advanced": true
+        },
+        "horizontalNoiseSpeed": {
+          "type": "float",
+          "label": "Horizontal noise speed",
+          "default": 1,
+          "min": -3,
+          "max": 3,
+          "step": 0.01
+        },
+        "verticalNoiseSpeed": {
+          "type": "float",
+          "label": "Vertical noise speed",
+          "default": 1,
+          "min": -3,
+          "max": 3,
+          "step": 0.01
+        }
+      },
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "usage": [
+            "sampled"
+          ],
+          "external": true,
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "presetIds": [
+        "an-preset-noise-displacement-v2-countercurrent",
+        "an-preset-noise-displacement-v2-held-crossflow"
       ],
       "animationCapability": "animated"
     },

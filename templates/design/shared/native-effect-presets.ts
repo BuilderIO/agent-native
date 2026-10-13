@@ -24,6 +24,10 @@ import {
 } from "./native-effect-highlight-streaks";
 import { BLOOM_EFFECT, GAUSSIAN_BLUR_EFFECT } from "./native-effect-multipass";
 import {
+  NOISE_DISPLACEMENT_V2_EFFECT,
+  NOISE_DISPLACEMENT_V2_PRESETS,
+} from "./native-effect-noise-displacement-v2";
+import {
   FLOCKING_SWARM_EFFECT,
   FLOCKING_SWARM_PRESETS,
 } from "./native-effect-owned-aa-flocking";
@@ -842,6 +846,7 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ),
   ...PRE_COORDINATE_RANDOM_LATEST_DEFINITIONS,
   COLOR_GRADE_V2_EFFECT,
+  NOISE_DISPLACEMENT_V2_EFFECT,
   FLUID_COLOR_FIELD_EFFECT,
   ...NATIVE_COORDINATE_RANDOM_DEFINITIONS,
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
@@ -937,6 +942,7 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
 
 const currentDefinitionCandidates: readonly EffectDefinition[] = [
   COLOR_GRADE_V2_EFFECT,
+  NOISE_DISPLACEMENT_V2_EFFECT,
   FLUID_COLOR_FIELD_EFFECT,
   ...coordinateRandomCatalog.latest,
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
@@ -1184,6 +1190,7 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
 export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PRE_COORDINATE_RANDOM_PRESETS,
   ...COLOR_GRADE_V2_PRESETS,
+  ...NOISE_DISPLACEMENT_V2_PRESETS,
   ...FLUID_COLOR_FIELD_PRESETS,
   ...NATIVE_COORDINATE_RANDOM_PRESETS,
   ...NATIVE_PERIMETER_FOCAL_PRESETS,

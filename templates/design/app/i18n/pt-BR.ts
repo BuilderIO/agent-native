@@ -1172,6 +1172,8 @@ export default {
           vertexOffset: "Deslocamento do vértice",
           wind: "vento",
           zoneAngle: "Ângulo da zona",
+          horizontalNoiseSpeed: "Velocidade do ruído horizontal",
+          verticalNoiseSpeed: "Velocidade do ruído vertical",
           brightnessOffset: "Ajuste de brilho",
           rotationSpeed: "Velocidade de rotação",
           speedVariation: "Variação de velocidade",
@@ -2762,6 +2764,9 @@ export default {
           "an-preset-catalog-noise-displacement-1": "Bruma de calor",
           "an-preset-catalog-noise-displacement-2": "Liquefazer",
           "an-preset-catalog-noise-displacement-3": "Estática fina",
+          "an-preset-noise-displacement-v2-countercurrent": "Contracorrente",
+          "an-preset-noise-displacement-v2-held-crossflow":
+            "Fluxo cruzado parado",
           "an-preset-catalog-vignette-1": "Foco suave",
           "an-preset-catalog-vignette-2": "Borda de cinema",
           "an-preset-catalog-vignette-3": "Abertura escura",

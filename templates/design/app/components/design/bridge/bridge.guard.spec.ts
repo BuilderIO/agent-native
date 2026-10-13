@@ -730,6 +730,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/native-shader-validation",
     "../../../../shared/native-source-composition-tree",
     "../../../../shared/native-source-sizing",
+    "../../../../shared/native-stateful-reset-values",
     "../../../../shared/native-stateful-resource-graph",
     "../../../../shared/native-stateless-compute",
     "../../../../shared/native-uniform-timing",

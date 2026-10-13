@@ -231,6 +231,25 @@ function textureSize(
     : [viewportWidth, viewportHeight];
 }
 
+function repeatedPassIndexes(
+  passes: readonly EffectPass[],
+  resources: ReadonlyMap<string, EffectResourceSpec>,
+  states: ReadonlyMap<string, StateBanks>,
+  outputName: string,
+): ReadonlySet<number> {
+  const needed = new Set([outputName]);
+  const selected = new Set<number>();
+  for (let index = passes.length - 1; index >= 0; index -= 1) {
+    const pass = passes[index]!;
+    if (!needed.has(pass.output) || states.has(pass.output)) continue;
+    needed.delete(pass.output);
+    selected.add(index);
+    for (const name of pass.reads)
+      if (!states.has(name) && !resources.get(name)?.external) needed.add(name);
+  }
+  return selected;
+}
+
 export class NativeStatefulResourceSession {
   private readonly states = new Map<string, StateBanks>();
   private readonly scratch = new Map<string, Resource>();
@@ -659,6 +678,14 @@ export class NativeStatefulResourceSession {
           }
         }
       }
+      const repeatPasses = options.steps.includes(this.completed)
+        ? repeatedPassIndexes(
+            options.passes,
+            this.resources,
+            this.states,
+            this.outputName,
+          )
+        : null;
       for (const [ordinal, step] of options.steps.entries()) {
         const repeat = this.completed >= 0 && step === this.completed;
         const writeBank = work[workIndex % 2]!;
@@ -671,7 +698,7 @@ export class NativeStatefulResourceSession {
           (this.completed < 0 && ordinal === 0) || step === this.completed
             ? 0
             : options.fixedDt;
-        for (const pass of options.passes) {
+        for (const [index, pass] of options.passes.entries()) {
           if (repeat && this.states.has(pass.output)) continue;
           const spec = this.resources.get(pass.output);
           const pipeline = options.pipelines.get(pass.id);
@@ -679,6 +706,7 @@ export class NativeStatefulResourceSession {
             throw new NativeStatefulResourceError(
               "stateful-definition-invalid",
             );
+          if (repeat && !repeatPasses?.has(index)) continue;
           const output =
             pass.output === this.outputName
               ? options.target

@@ -435,6 +435,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "animated"
     ],
     [
+      "3dbce1d147e06957149571e144e7b5ff38df25fb897d1df0fa71f93aac3dc562",
+      "animated"
+    ],
+    [
       "3ef4c6828a76d721207d8e88a96583abf08d90e6bde66bc2dc649aa4e971826f",
       "animated"
     ],
@@ -6201,6 +6205,99 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       firstBox = false;
     }
     return { ok: true, root: flatten(root), nodeCount };
+  }
+
+  // shared/native-stateful-reset-values.ts
+  var NativeStatefulResetValueError = class extends Error {
+    constructor(name) {
+      super(\`Reset property \${name} has an invalid value.\`);
+      __publicField(this, "code", "stateful-params-invalid");
+    }
+  };
+  function colorValue(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const color = value;
+    const components2 = color.components;
+    if (color.space !== "srgb" && color.space !== "display-p3" || !Array.isArray(components2) || components2.length !== 3 || !Array.from(
+      { length: 4 },
+      (_, index) => index === 3 ? color.alpha : components2[index]
+    ).every(
+      (part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 1
+    ))
+      return null;
+    return [
+      color.space,
+      components2[0],
+      components2[1],
+      components2[2],
+      color.alpha
+    ];
+  }
+  function snapshotNativeStatefulResetValues(definition, params, names) {
+    return names.map((name) => {
+      const property = definition.properties[name];
+      if (!property) throw new NativeStatefulResetValueError(name);
+      const value = Object.prototype.hasOwnProperty.call(params, name) ? params[name] : property.default;
+      let normalized;
+      switch (property.type) {
+        case "float":
+        case "int":
+          if (typeof value !== "number" || !Number.isFinite(value) || property.type === "int" && !Number.isInteger(value) || property.min !== void 0 && value < property.min || property.max !== void 0 && value > property.max)
+            throw new NativeStatefulResetValueError(name);
+          normalized = value;
+          break;
+        case "bool":
+          if (typeof value !== "boolean")
+            throw new NativeStatefulResetValueError(name);
+          normalized = value;
+          break;
+        case "enum":
+          if (typeof value !== "string" || !property.options.includes(value))
+            throw new NativeStatefulResetValueError(name);
+          normalized = value;
+          break;
+        case "color":
+          normalized = colorValue(value);
+          if (!normalized) throw new NativeStatefulResetValueError(name);
+          break;
+        case "vec2":
+          if (!Array.isArray(value) || value.length !== 2 || ![value[0], value[1]].every(
+            (part) => typeof part === "number" && Number.isFinite(part)
+          ) || property.min !== void 0 && value.some((part) => part < property.min) || property.max !== void 0 && value.some((part) => part > property.max))
+            throw new NativeStatefulResetValueError(name);
+          normalized = [...value];
+          break;
+        case "position":
+          if (!isNativePositionValue(value))
+            throw new NativeStatefulResetValueError(name);
+          normalized = packNativePosition(value);
+          break;
+        case "color-array":
+          if (!Array.isArray(value) || value.length > property.maxCount)
+            throw new NativeStatefulResetValueError(name);
+          normalized = Array.from(value, (item) => {
+            const color = colorValue(item);
+            if (!color) throw new NativeStatefulResetValueError(name);
+            return color;
+          });
+          break;
+        case "texture":
+          if (value === null) {
+            normalized = null;
+            break;
+          }
+          if (!value || typeof value !== "object" || Array.isArray(value) || !("kind" in value) || value.kind !== "asset" || !("url" in value) || !checkEffectAssetUrl(value.url).ok)
+            throw new NativeStatefulResetValueError(name);
+          normalized = value.url;
+          break;
+      }
+      return [name, JSON.stringify([property.type, normalized])];
+    });
+  }
+  function nativeStatefulResetValuesChanged(previous, next) {
+    return previous.length !== next.length || previous.some(
+      ([name, value], index) => next[index]?.[0] !== name || next[index]?.[1] !== value
+    );
   }
 
   // shared/native-static-generator-pass-cache.ts
@@ -15315,6 +15412,19 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
   function textureSize(spec, viewportWidth, viewportHeight) {
     return spec.size === "fixed" ? [spec.width ?? 0, spec.height ?? 0] : [viewportWidth, viewportHeight];
   }
+  function repeatedPassIndexes(passes, resources, states, outputName) {
+    const needed = /* @__PURE__ */ new Set([outputName]);
+    const selected = /* @__PURE__ */ new Set();
+    for (let index = passes.length - 1; index >= 0; index -= 1) {
+      const pass = passes[index];
+      if (!needed.has(pass.output) || states.has(pass.output)) continue;
+      needed.delete(pass.output);
+      selected.add(index);
+      for (const name of pass.reads)
+        if (!states.has(name) && !resources.get(name)?.external) needed.add(name);
+    }
+    return selected;
+  }
   var NativeStatefulResourceSession = class _NativeStatefulResourceSession {
     constructor(device, allocator, resources, outputName, width, height, abi) {
       this.device = device;
@@ -15609,6 +15719,12 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
             }
           }
         }
+        const repeatPasses = options.steps.includes(this.completed) ? repeatedPassIndexes(
+          options.passes,
+          this.resources,
+          this.states,
+          this.outputName
+        ) : null;
         for (const [ordinal, step] of options.steps.entries()) {
           const repeat = this.completed >= 0 && step === this.completed;
           const writeBank = work[workIndex % 2];
@@ -15618,7 +15734,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               values.set(name, state.banks[readBank]);
           const stepTime = step * options.fixedDt;
           const dt = this.completed < 0 && ordinal === 0 || step === this.completed ? 0 : options.fixedDt;
-          for (const pass of options.passes) {
+          for (const [index, pass] of options.passes.entries()) {
             if (repeat && this.states.has(pass.output)) continue;
             const spec = this.resources.get(pass.output);
             const pipeline = options.pipelines.get(pass.id);
@@ -15626,6 +15742,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               throw new NativeStatefulResourceError(
                 "stateful-definition-invalid"
               );
+            if (repeat && !repeatPasses?.has(index)) continue;
             const output = pass.output === this.outputName ? options.target : this.states.get(pass.output)?.banks[writeBank] ?? this.scratch.get(pass.output);
             if (!output)
               throw new NativeStatefulResourceError(
@@ -15645,16 +15762,16 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               { binding: 0, resource: { buffer: uniform } },
               { binding: 1, resource: this.sampler }
             ];
-            for (const [index, name] of [
+            for (const [index2, name] of [
               ...pass.reads,
               ...pass.previousFrameReads ?? []
             ].entries()) {
-              const resource = index < pass.reads.length ? values.get(name) : this.states.get(name)?.banks[readBank];
+              const resource = index2 < pass.reads.length ? values.get(name) : this.states.get(name)?.banks[readBank];
               const readSpec = this.resources.get(name);
               if (!resource || !readSpec)
                 throw new NativeStatefulResourceError("stateful-input-missing");
               entries.push({
-                binding: index + 2,
+                binding: index2 + 2,
                 resource: readSpec.kind === "buffer" ? { buffer: resource } : resource.createView()
               });
             }
@@ -24482,20 +24599,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const declared = new Map(
         (definition.resources ?? []).map((resource) => [resource.name, resource])
       );
-      const readNumber = (name) => {
-        const value = instance.params[name] ?? definition.properties[name]?.default;
-        if (typeof value !== "number" || !Number.isFinite(value))
-          throw new NativeSourceError(
-            "stateful-params-invalid",
-            \`Property \${name} must be finite.\`
-          );
-        return value;
-      };
-      const resetPropertyValues = (graph.resetProperties ?? []).map(
-        (name) => [name, readNumber(name)]
-      );
+      let resetPropertyValues;
+      try {
+        resetPropertyValues = snapshotNativeStatefulResetValues(
+          definition,
+          instance.params,
+          graph.resetProperties ?? []
+        );
+      } catch (error) {
+        if (error instanceof NativeStatefulResetValueError)
+          throw new NativeSourceError(error.code, error.message);
+        throw error;
+      }
       const prior2 = draft ? draft.stateful : mount.stateful;
-      if (prior2 && (prior2.definitionHash !== definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== (source?.width ?? mount.width) || prior2.sourceHeight !== (source?.height ?? mount.height) || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeFeedbackResetValuesChanged(
+      if (prior2 && (prior2.definitionHash !== definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== (source?.width ?? mount.width) || prior2.sourceHeight !== (source?.height ?? mount.height) || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeStatefulResetValuesChanged(
         prior2.resetPropertyValues,
         resetPropertyValues
       ))) {
@@ -24690,12 +24807,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         ...inputEpochs ? { inputEpochs } : {},
         sourceEpoch: source === null || graph.abi === "stateful-resource-v3" ? null : sourceIdentity.startsWith("authored:") ? mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null : sourceIdentity === "camera" ? this.renderEpoch : mount.provider?.sourceEpoch?.() ?? null,
         drawCount: (property, maximum, stepTime) => {
-          const count2 = resolveNativeParameterAnimation(
+          const animated = resolveNativeParameterAnimation(
             definition,
             instance.params,
             instance.animation,
             stepTime
-          )[property];
+          );
+          const count2 = Object.prototype.hasOwnProperty.call(animated, property) ? animated[property] : definition.properties[property]?.default;
           if (typeof count2 !== "number" || !Number.isSafeInteger(count2) || count2 < 1 || count2 > maximum)
             throw new NativeSourceError(
               "stateful-params-invalid",

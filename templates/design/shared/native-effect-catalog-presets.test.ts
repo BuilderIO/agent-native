@@ -18,6 +18,10 @@ import {
 } from "./native-effect-color-grade-v2";
 import { editNativeEffectHtml } from "./native-effect-edits";
 import {
+  NOISE_DISPLACEMENT_V2_EFFECT,
+  NOISE_DISPLACEMENT_V2_PRESETS,
+} from "./native-effect-noise-displacement-v2";
+import {
   FLUID_ADVECTED_PARTICLES_EFFECT,
   FLUID_ADVECTED_PARTICLES_PRESETS,
 } from "./native-effect-owned-aq-fluid-particles";
@@ -233,10 +237,10 @@ describe("Design-owned catalog", () => {
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
     ).toBe(377);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(439);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(880);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(440);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(882);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      880,
+      882,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -260,7 +264,7 @@ describe("Design-owned catalog", () => {
     }
   });
 
-  it("registers AV through CK with localized controls and pinned predecessor versions", () => {
+  it("registers AV through CK with localized controls and pinned predecessor versions", async () => {
     expect(
       NATIVE_EFFECT_DEFINITION_CATALOG.find(
         (item) =>
@@ -286,6 +290,7 @@ describe("Design-owned catalog", () => {
       [SHAPE_GOO_3D_EFFECT, SHAPE_GOO_3D_PRESETS],
       [FLOWING_SHAPE_CHROME_V2_EFFECT, FLOWING_SHAPE_CHROME_V2_PRESETS],
       [COLOR_GRADE_V2_EFFECT, COLOR_GRADE_V2_PRESETS],
+      [NOISE_DISPLACEMENT_V2_EFFECT, NOISE_DISPLACEMENT_V2_PRESETS],
       [OWNED_T_CONCENTRIC_ROTOR_V2, OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS],
       [FLUID_COLOR_FIELD_EFFECT, FLUID_COLOR_FIELD_PRESETS],
       [FRAME_MOSH_V2_EFFECT, FRAME_MOSH_V2_PRESETS],
@@ -380,6 +385,19 @@ describe("Design-owned catalog", () => {
           (item) => item.id === definition.id,
         ).map((item) => item.version),
       ).toEqual([1, 2]);
+    const noiseVersions = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
+      (item) => item.id === NOISE_DISPLACEMENT_V2_EFFECT.id,
+    );
+    expect(noiseVersions.map((item) => item.version)).toEqual([1, 2]);
+    expect(await hashEffectDefinition(noiseVersions[0]!)).toBe(
+      "1a56e5eb8dcc2ff89320c6955a1e447591deea981829da259417ca89d3d63ba0",
+    );
+    expect(
+      NOISE_DISPLACEMENT_V2_EFFECT.properties.horizontalNoiseSpeed.default,
+    ).toBe(1);
+    expect(
+      NOISE_DISPLACEMENT_V2_EFFECT.properties.verticalNoiseSpeed.default,
+    ).toBe(1);
   });
 
   it("registers AQ in the normal layer and backdrop library with localized controls", () => {

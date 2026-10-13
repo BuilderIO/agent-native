@@ -427,6 +427,10 @@ export const nativeBuiltinExecutionMetadata = [
     "animated",
   ],
   [
+    "3dbce1d147e06957149571e144e7b5ff38df25fb897d1df0fa71f93aac3dc562",
+    "animated",
+  ],
+  [
     "3ef4c6828a76d721207d8e88a96583abf08d90e6bde66bc2dc649aa4e971826f",
     "animated",
   ],

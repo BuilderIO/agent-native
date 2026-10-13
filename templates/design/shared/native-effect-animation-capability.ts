@@ -340,6 +340,7 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-woven-fabric@1",
   "an-native-ripple-distortion@1",
   "an-native-noise-displacement@1",
+  "an-native-noise-displacement@2",
   "an-native-film-grain@1",
   "an-native-particle-flow@1",
   "an-native-owned-mycelium-trails@2",

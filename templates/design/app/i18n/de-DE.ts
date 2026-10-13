@@ -1166,6 +1166,8 @@ export default {
           vertexOffset: "Eckpunktversatz",
           wind: "Wind",
           zoneAngle: "Zonenwinkel",
+          horizontalNoiseSpeed: "Horizontale Rauschgeschwindigkeit",
+          verticalNoiseSpeed: "Vertikale Rauschgeschwindigkeit",
           brightnessOffset: "Helligkeitsversatz",
           rotationSpeed: "Drehgeschwindigkeit",
           speedVariation: "Geschwindigkeitsvariation",
@@ -2888,6 +2890,9 @@ export default {
           "an-preset-catalog-noise-displacement-1": "Hitzeschleier",
           "an-preset-catalog-noise-displacement-2": "Verflüssigen",
           "an-preset-catalog-noise-displacement-3": "Feine Störung",
+          "an-preset-noise-displacement-v2-countercurrent": "Gegenströmung",
+          "an-preset-noise-displacement-v2-held-crossflow":
+            "Angehaltener Querfluss",
           "an-preset-catalog-vignette-1": "Weicher Fokus",
           "an-preset-catalog-vignette-2": "Kinokante",
           "an-preset-catalog-vignette-3": "Dunkle Blende",
