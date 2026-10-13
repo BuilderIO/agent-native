@@ -1,6 +1,28 @@
 import { parseNativeEmbeddedAssetRegistry } from "@shared/native-embedded-assets";
+import {
+  planNativeInputResources,
+  type NativeExternalTextureInput,
+} from "@shared/native-input-resources";
 
-import type { PreparedNativeThumbnail } from "./native-thumbnail-plan";
+import {
+  NativeThumbnailError,
+  type PreparedNativeThumbnail,
+} from "./native-thumbnail-plan";
+
+const OWNED_THUMBNAIL_ASSETS = new Set([
+  "/shaders/gate-image-contrast.svg",
+  "/shaders/gate-image.svg",
+]);
+
+export function nativeThumbnailInputAvailable(
+  input: NativeExternalTextureInput,
+): boolean {
+  return (
+    input.kind === "builtin" ||
+    input.kind === "fallback" ||
+    (input.kind === "asset" && OWNED_THUMBNAIL_ASSETS.has(input.url))
+  );
+}
 
 export const NATIVE_THUMBNAIL_SYNTHETIC_INPUT_PATH =
   "/__native-thumbnail__/synthetic-image-v1.png";
@@ -27,6 +49,20 @@ export function isolateNativeThumbnailInputs(
   entry: PreparedNativeThumbnail,
 ): PreparedNativeThumbnail {
   const definition = entry.item.definition;
+  if (entry.item.inputMode === "preset-exact") {
+    const plan = planNativeInputResources(definition, entry.instance);
+    if (!plan.ok) throw new NativeThumbnailError(plan.code, plan.detail);
+    if (
+      [...plan.inputs.values()].some(
+        (input) => !nativeThumbnailInputAvailable(input),
+      )
+    )
+      throw new NativeThumbnailError(
+        "thumbnail-preset-input-unavailable",
+        "thumbnail-preset-input-unavailable",
+      );
+    return entry;
+  }
   const produced = new Set(
     definition.passes.flatMap((pass) => [
       pass.output,

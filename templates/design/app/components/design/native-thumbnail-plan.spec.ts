@@ -1,3 +1,4 @@
+import { GUIDED_FLUID_PARTICLES_EFFECT } from "@shared/native-effect-owned-au-guided-fluid-particles";
 import { OWNED_INTRINSIC_IMAGE_TEST_EFFECT } from "@shared/native-effect-owned-source-test-fixtures";
 import { PARTICLE_FLOW_EFFECT } from "@shared/native-effect-particle-flow";
 import {
@@ -152,6 +153,41 @@ describe("native GPU thumbnail plan", () => {
     expect(prepared.results).toMatchObject([
       { id: "invalid", code: "thumbnail-placement-unsupported" },
     ]);
+  });
+
+  it("separates cache identities by placement and effective guide binding", async () => {
+    const heat = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (definition) => definition.id === "an-native-owned-af-heat-tint",
+    );
+    if (!heat) throw new Error("Heat Tint fixture is unavailable.");
+    const placements = await prepareNativeThumbnailBatch({
+      items: (["fill", "layer", "backdrop"] as const).map((placement) => ({
+        ...item(`heat-${placement}`),
+        definition: heat,
+        placement,
+      })),
+      approvedExecutionHashes: [],
+    });
+    expect(placements.results).toEqual([]);
+    expect(
+      new Set(placements.prepared.map((entry) => entry.cacheKey)).size,
+    ).toBe(3);
+    const guides = await prepareNativeThumbnailBatch({
+      items: [
+        "/shaders/gate-image-contrast.svg",
+        "/shaders/gate-image.svg",
+      ].map((url, index) => ({
+        ...item(`guide-${index}`),
+        definition: GUIDED_FLUID_PARTICLES_EFFECT,
+        placement: "layer" as const,
+        params: { guideEnabled: true },
+        bindings: { guide: { kind: "asset" as const, url } },
+        inputMode: "preset-exact" as const,
+      })),
+      approvedExecutionHashes: [],
+    });
+    expect(guides.results).toEqual([]);
+    expect(guides.prepared[0].cacheKey).not.toBe(guides.prepared[1].cacheKey);
   });
 
   it("validates an intrinsic processor with the neutral image's declared dimensions", async () => {

@@ -1,3 +1,7 @@
+import {
+  GUIDED_FLUID_PARTICLES_EFFECT,
+  GUIDED_FLUID_PARTICLES_PRESETS,
+} from "@shared/native-effect-owned-au-guided-fluid-particles";
 import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
 import { parseNativeEmbeddedAssetRegistryText } from "@shared/native-embedded-assets";
 import { planNativeInputResources } from "@shared/native-input-resources";
@@ -25,6 +29,72 @@ const item = (definition = environment) => ({
 });
 
 describe("isolated native thumbnail image inputs", () => {
+  it("retains an exact bundled guide and rejects an arbitrary preset asset", async () => {
+    const preset = GUIDED_FLUID_PARTICLES_PRESETS[0];
+    const { prepared, results } = await prepareNativeThumbnailBatch({
+      items: [
+        {
+          ...item(GUIDED_FLUID_PARTICLES_EFFECT),
+          placement: preset.placement,
+          params: preset.params,
+          bindings: preset.bindings,
+          inputMode: "preset-exact",
+        },
+      ],
+      approvedExecutionHashes: [],
+    });
+    expect(results).toEqual([]);
+    const exact = isolateNativeThumbnailInputs(prepared[0]);
+    expect(exact).toBe(prepared[0]);
+    const exactPlan = planNativeInputResources(
+      GUIDED_FLUID_PARTICLES_EFFECT,
+      exact.instance,
+    );
+    expect(exactPlan.ok).toBe(true);
+    if (!exactPlan.ok) throw new Error(exactPlan.code);
+    expect(exactPlan.inputs.get("guide")).toMatchObject({
+      kind: "asset",
+      url: "/shaders/gate-image-contrast.svg",
+    });
+    const arbitrary = await prepareNativeThumbnailBatch({
+      items: [
+        {
+          ...item(GUIDED_FLUID_PARTICLES_EFFECT),
+          placement: preset.placement,
+          params: preset.params,
+          bindings: {
+            guide: { kind: "asset", url: "/private/saved-guide.png" },
+          },
+          inputMode: "preset-exact",
+        },
+      ],
+      approvedExecutionHashes: [],
+    });
+    expect(() =>
+      isolateNativeThumbnailInputs(arbitrary.prepared[0]),
+    ).toThrowError(
+      expect.objectContaining({ code: "thumbnail-preset-input-unavailable" }),
+    );
+    const missing = await prepareNativeThumbnailBatch({
+      items: [
+        {
+          ...item(GUIDED_FLUID_PARTICLES_EFFECT),
+          placement: preset.placement,
+          params: preset.params,
+          inputMode: "preset-exact",
+        },
+      ],
+      approvedExecutionHashes: [],
+    });
+    expect(missing.prepared).toHaveLength(0);
+    expect(missing.results).toEqual([
+      expect.objectContaining({
+        code: "thumbnail-definition-invalid",
+        message: expect.stringContaining("input-conditional-binding-required"),
+      }),
+    ]);
+  });
+
   it("keeps the genuine required-image error outside isolated thumbnail substitution", async () => {
     const { prepared, results } = await prepareNativeThumbnailBatch({
       items: [item()],

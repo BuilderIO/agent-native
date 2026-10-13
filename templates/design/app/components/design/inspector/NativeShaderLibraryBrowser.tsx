@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { nativeThumbnailInputAvailable } from "../native-thumbnail-inputs";
 import type {
   NativeThumbnailItem,
   NativeThumbnailResult,
@@ -481,8 +482,7 @@ export function NativeShaderLibraryBrowser({
                     };
                   if (
                     [...inputPlan.inputs.values()].some(
-                      (input) =>
-                        input.kind !== "builtin" && input.kind !== "fallback",
+                      (input) => !nativeThumbnailInputAvailable(input),
                     )
                   )
                     return {
@@ -501,6 +501,8 @@ export function NativeShaderLibraryBrowser({
                       definition,
                       placement,
                       params,
+                      bindings: preset?.bindings,
+                      inputMode: "preset-exact",
                       seed: 1,
                       sourceRevision: entry.itemKey,
                       sourceSizing: preset?.sourceSizing,
@@ -527,24 +529,39 @@ export function NativeShaderLibraryBrowser({
                   selected.definition,
                   selected.preset,
                 );
-                if (!inputPlan.ok) throw new Error(inputPlan.detail);
+                if (!inputPlan.ok)
+                  return {
+                    key: entry.itemKey,
+                    error: {
+                      id: `thumb-${index}`,
+                      status: "error",
+                      code: inputPlan.code,
+                      message: inputPlan.detail,
+                    },
+                  };
                 if (
-                  Object.keys(selected.preset.bindings ?? {}).some((name) => {
-                    const resource =
-                      selected.definition.inputs?.[name]?.resource;
-                    return (
-                      resource &&
-                      inputPlan.inputs.get(resource)?.kind !== "fallback"
-                    );
-                  })
+                  [...inputPlan.inputs.values()].some(
+                    (input) => !nativeThumbnailInputAvailable(input),
+                  )
                 )
-                  throw new Error("Preview needs the saved input's scene");
+                  return {
+                    key: entry.itemKey,
+                    error: {
+                      id: `thumb-${index}`,
+                      status: "error",
+                      code: "thumbnail-preset-input-unavailable",
+                      message: "thumbnail-preset-input-unavailable",
+                    },
+                  };
                 return {
                   key: entry.itemKey,
                   item: {
                     id: `thumb-${index}`,
                     definition: selected.definition,
+                    placement: selected.preset.placement,
                     params: selected.preset.params,
+                    bindings: selected.preset.bindings,
+                    inputMode: "preset-exact",
                     seed: 1,
                     sourceRevision: entry.executionHash,
                     sourceSizing: selected.preset.sourceSizing,

@@ -1126,7 +1126,7 @@ describe("NativeShaderLibraryBrowser", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reports an unavailable custom preset input instead of previewing unrelated defaults", async () => {
+  it("previews a bundled guide asset with the exact guided preset binding", async () => {
     let observe:
       | ((items: Array<{ target: Element; isIntersecting: boolean }>) => void)
       | undefined;
@@ -1164,6 +1164,14 @@ describe("NativeShaderLibraryBrowser", () => {
         selectedEntry: null,
       },
     });
+    renderThumbnailBatch.mockResolvedValue([
+      {
+        id: "thumb-0",
+        status: "ready",
+        objectUrl: "blob:guided-thumbnail",
+        executionHash: "a".repeat(64),
+      },
+    ]);
     await act(async () =>
       root.render(
         <NativeShaderLibraryBrowser
@@ -1181,10 +1189,114 @@ describe("NativeShaderLibraryBrowser", () => {
     expect(card).not.toBeNull();
     await act(async () => observe?.([{ target: card!, isIntersecting: true }]));
     await act(async () => Promise.resolve());
-    expect(card?.getAttribute("data-native-thumbnail-error")).toBe(
-      "thumbnail-preset-input-unavailable",
+    expect(renderThumbnailBatch).toHaveBeenCalledOnce();
+    expect(renderThumbnailBatch.mock.calls[0]?.[0].items).toMatchObject([
+      {
+        definition: { id: GUIDED_FLUID_PARTICLES_EFFECT.id },
+        placement: "layer",
+        params: GUIDED_FLUID_PARTICLES_PRESETS[0]?.params,
+        bindings: GUIDED_FLUID_PARTICLES_PRESETS[0]?.bindings,
+        inputMode: "preset-exact",
+      },
+    ]);
+    expect(
+      host.querySelector('img[src="blob:guided-thumbnail"]'),
+    ).not.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("carries a saved bundled guide binding into its exact thumbnail", async () => {
+    let observe:
+      | ((items: Array<{ target: Element; isIntersecting: boolean }>) => void)
+      | undefined;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          callback: (
+            items: Array<{ target: Element; isIntersecting: boolean }>,
+          ) => void,
+        ) {
+          observe = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
     );
-    expect(renderThumbnailBatch).not.toHaveBeenCalled();
+    const preset = GUIDED_FLUID_PARTICLES_PRESETS[0]!;
+    callAction.mockImplementation(
+      (name: string, args: { libraryEntryId?: string }) =>
+        Promise.resolve(
+          name === "get-shader" && args.libraryEntryId
+            ? {
+                library: {
+                  selectedEntry: {
+                    definition: GUIDED_FLUID_PARTICLES_EFFECT,
+                    preset,
+                  },
+                },
+              }
+            : {
+                approvedDefinitionHashes: [],
+                library: {
+                  builtins: [],
+                  items: [
+                    {
+                      id: "saved-guide",
+                      itemKey: "library:saved-guide",
+                      name: "Saved guide",
+                      placements: ["layer"],
+                      presetPlacement: "layer",
+                      favorite: false,
+                      lastUsedAt: null,
+                      executionHash: "a".repeat(64),
+                    },
+                  ],
+                  hasMore: false,
+                  nextCursor: null,
+                  selectedEntry: null,
+                },
+              },
+        ),
+    );
+    renderThumbnailBatch.mockResolvedValue([
+      {
+        id: "thumb-0",
+        status: "ready",
+        objectUrl: "blob:saved-guide-thumbnail",
+        executionHash: "a".repeat(64),
+      },
+    ]);
+    await act(async () =>
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="effect"
+          search=""
+          disabled={false}
+          nodeId="target"
+          onApplyBuiltin={vi.fn()}
+          onApplySaved={vi.fn()}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 230)));
+    const card = host.querySelector("[data-native-library-item-key]");
+    expect(card).not.toBeNull();
+    await act(async () => observe?.([{ target: card!, isIntersecting: true }]));
+    await act(async () => Promise.resolve());
+    expect(renderThumbnailBatch).toHaveBeenCalledOnce();
+    expect(renderThumbnailBatch.mock.calls[0]?.[0].items).toMatchObject([
+      {
+        definition: { id: GUIDED_FLUID_PARTICLES_EFFECT.id },
+        placement: preset.placement,
+        params: preset.params,
+        bindings: preset.bindings,
+        inputMode: "preset-exact",
+      },
+    ]);
+    expect(
+      host.querySelector('img[src="blob:saved-guide-thumbnail"]'),
+    ).not.toBeNull();
     vi.unstubAllGlobals();
   });
 });

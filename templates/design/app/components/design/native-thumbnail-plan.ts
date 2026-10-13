@@ -21,6 +21,8 @@ export interface NativeThumbnailItem {
   definition: EffectDefinition;
   placement?: EffectInstance["placement"];
   params: EffectInstance["params"];
+  bindings?: EffectInstance["bindings"];
+  inputMode?: "preset-exact" | "synthetic-fixture";
   seed: number;
   sourceRevision: string;
   sourceSizing?: NativeSourceSizing;
@@ -33,7 +35,10 @@ export interface NativeValidationFixture {
   rounded: boolean;
 }
 
-export interface NativeValidationItem extends NativeThumbnailItem {
+export interface NativeValidationItem extends Omit<
+  NativeThumbnailItem,
+  "bindings" | "inputMode"
+> {
   placement: EffectInstance["placement"];
   fixture: NativeValidationFixture;
   timeSeconds?: number;
@@ -252,6 +257,7 @@ export async function prepareNativeThumbnailBatch(input: {
       definitionVersion: item.definition.version,
       placement,
       params: item.params,
+      ...(item.bindings ? { bindings: item.bindings } : {}),
       enabled: true,
       opacity: 1,
       seed: item.seed,
@@ -300,10 +306,17 @@ export async function prepareNativeThumbnailBatch(input: {
     seenDefinitions.set(definitionKey, executionHash);
     const cacheKey = JSON.stringify([
       executionHash,
-      Object.entries(item.params).sort(([a], [b]) => a.localeCompare(b)),
+      instance.placement,
+      Object.entries(instance.params).sort(([a], [b]) => a.localeCompare(b)),
+      Object.entries(instance.bindings ?? {}).sort(([a], [b]) =>
+        a.localeCompare(b),
+      ),
       item.seed,
       item.sourceRevision,
       instance.sourceSizing,
+      instance.clip,
+      instance.timing,
+      item.inputMode ?? "synthetic-fixture",
     ]);
     prepared.push({ item, executionHash, cacheKey, instance });
   }

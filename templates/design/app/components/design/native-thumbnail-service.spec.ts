@@ -1,3 +1,7 @@
+import {
+  GUIDED_FLUID_PARTICLES_EFFECT,
+  GUIDED_FLUID_PARTICLES_PRESETS,
+} from "@shared/native-effect-owned-au-guided-fluid-particles";
 import { OWNED_INTRINSIC_IMAGE_TEST_EFFECT } from "@shared/native-effect-owned-source-test-fixtures";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "@shared/native-effect-owned-test-fixtures";
 import { PARTICLE_FLOW_EFFECT } from "@shared/native-effect-particle-flow";
@@ -37,6 +41,34 @@ const options = (id: string) => ({
 });
 
 describe("shared native thumbnail work queue", () => {
+  it("returns an exact-preset input error without substituting the synthetic image", async () => {
+    const service = new NativeThumbnailService();
+    services.push(service);
+    const preset = GUIDED_FLUID_PARTICLES_PRESETS[0];
+    const result = await service.renderBatch({
+      ...options("unavailable-guide"),
+      items: [
+        {
+          ...options("unavailable-guide").items[0],
+          definition: GUIDED_FLUID_PARTICLES_EFFECT,
+          placement: preset.placement,
+          params: preset.params,
+          bindings: {
+            guide: { kind: "asset", url: "/private/saved-guide.png" },
+          },
+          inputMode: "preset-exact",
+        },
+      ],
+    });
+    expect(result).toMatchObject([
+      {
+        id: "unavailable-guide",
+        status: "error",
+        code: "thumbnail-preset-input-unavailable",
+      },
+    ]);
+  });
+
   it("reports an untrusted builtin thumbnail without waiting for the frame deadline", async () => {
     const service = new NativeThumbnailService();
     services.push(service);

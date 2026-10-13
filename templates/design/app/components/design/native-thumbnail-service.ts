@@ -1216,8 +1216,21 @@ export class NativeThumbnailService {
       THUMBNAIL_DEADLINE_MS,
       "thumbnail-prepare-timeout",
     );
-    const prepared = candidates.map(isolateNativeThumbnailInputs);
     const output = new Map(results.map((result) => [result.id, result]));
+    const prepared: PreparedNativeThumbnail[] = [];
+    for (const candidate of candidates) {
+      try {
+        prepared.push(isolateNativeThumbnailInputs(candidate));
+      } catch (error) {
+        if (!(error instanceof NativeThumbnailError)) throw error;
+        output.set(candidate.item.id, {
+          id: candidate.item.id,
+          status: "error",
+          code: error.code,
+          message: error.message,
+        });
+      }
+    }
     const misses: PreparedNativeThumbnail[] = [];
     for (const entry of prepared) {
       const url = this.cache.get(entry.cacheKey);
