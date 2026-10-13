@@ -134,6 +134,46 @@ describe("withGenerationAttempt", () => {
     ).resolves.toBe(7);
   });
 
+  it("reports an unreadable file count as unknown, never as nothing saved", async () => {
+    await run(async (attempt) => {
+      attempt.start(start);
+      attempt.savedFileCount = () => {
+        throw new Error("counter broke");
+      };
+    });
+    expect(names()).toEqual(["generation_started", "generation_completed"]);
+    expect(event("generation_completed")).toMatchObject({ outcome: "unknown" });
+    expect(event("generation_completed")).not.toHaveProperty("file_count");
+
+    track.mockClear();
+    const error = new Error("boom");
+    await expect(
+      run(async (attempt) => {
+        attempt.start(start);
+        attempt.savedFileCount = () => {
+          throw new Error("counter broke");
+        };
+        throw error;
+      }),
+    ).rejects.toBe(error);
+    expect(event("generation_failed")).not.toHaveProperty("files_saved");
+  });
+
+  it("rethrows the original error even when reading it throws", async () => {
+    const hostile = new Proxy(new Error("real"), {
+      get(target, key) {
+        if (key === "statusCode" || key === "name") throw new Error("getter");
+        return Reflect.get(target, key);
+      },
+    });
+    await expect(
+      run(async (attempt) => {
+        attempt.start(start);
+        throw hostile;
+      }),
+    ).rejects.toBe(hostile);
+  });
+
   it("never records the prompt text", async () => {
     await run(async (attempt) => {
       attempt.start({ ...start, prompt: "Project Nightjar launch" });

@@ -34,8 +34,9 @@ export interface GenerationAttempt {
 /**
  * One call of a Design generation action is one attempt. Nothing is recorded
  * until the handler calls `attempt.start()`; after that, exactly one of
- * `generation_completed` (at least one file saved) or `generation_failed`
- * (the handler threw, or saved nothing) follows. A failure is recorded and
+ * `generation_completed` (at least one file saved, or `outcome: "unknown"`
+ * when the count could not be read) or `generation_failed` (the handler
+ * threw, or saved nothing) follows. A failure is recorded and
  * the original error rethrown unchanged.
  */
 export function withGenerationAttempt<
@@ -89,12 +90,13 @@ export function withGenerationAttempt<
         partial = true;
       },
     };
-    const filesSaved = (): number => {
+    // `null` means the count could not be read, which is not "nothing saved".
+    const filesSaved = (): number | null => {
       try {
         return attempt.savedFileCount();
       } catch {
-        // coercion-ok: a broken counter loses one property, never the attempt's terminal event.
-        return 0;
+        // coercion-ok: an unreadable count is reported as unknown, never as zero.
+        return null;
       }
     };
 
@@ -104,16 +106,22 @@ export function withGenerationAttempt<
     } catch (error) {
       const base = started.base;
       if (base) {
-        trackDesign(
-          "generation_failed",
-          {
-            ...terminalProperties,
-            ...base,
-            error_type: trackingErrorType(error),
-            files_saved: filesSaved(),
-          },
-          context,
-        );
+        // Inside its own guard: reading the error must never replace it.
+        try {
+          const saved = filesSaved();
+          trackDesign(
+            "generation_failed",
+            {
+              ...terminalProperties,
+              ...base,
+              error_type: trackingErrorType(error),
+              ...(saved === null ? {} : { files_saved: saved }),
+            },
+            context,
+          );
+        } catch {
+          // coercion-ok: losing the failure event must not change the error the caller sees.
+        }
       }
       throw error;
     }
@@ -122,16 +130,18 @@ export function withGenerationAttempt<
     if (!base) return result;
     const fileCount = filesSaved();
     trackDesign(
-      fileCount > 0 ? "generation_completed" : "generation_failed",
+      fileCount === 0 ? "generation_failed" : "generation_completed",
       {
         ...terminalProperties,
         ...base,
-        ...(fileCount > 0
-          ? {
-              outcome: partial ? "partial" : "completed",
-              file_count: fileCount,
-            }
-          : { error_type: "no_files_saved", files_saved: 0 }),
+        ...(fileCount === null
+          ? { outcome: "unknown" }
+          : fileCount > 0
+            ? {
+                outcome: partial ? "partial" : "completed",
+                file_count: fileCount,
+              }
+            : { error_type: "no_files_saved", files_saved: 0 }),
       },
       context,
     );

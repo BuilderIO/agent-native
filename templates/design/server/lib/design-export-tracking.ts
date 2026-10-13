@@ -81,15 +81,20 @@ export function withDesignExportFailureTracking<TArgs>(
       try {
         return await run(args, ctx, facts);
       } catch (error) {
-        trackDesignExported(
-          {
-            ...facts,
-            exportFormat,
-            status: "failed",
-            errorType: designExportErrorType(error),
-          },
-          ctx,
-        );
+        // Inside its own guard: reading the error must never replace it.
+        try {
+          trackDesignExported(
+            {
+              ...facts,
+              exportFormat,
+              status: "failed",
+              errorType: designExportErrorType(error),
+            },
+            ctx,
+          );
+        } catch {
+          // coercion-ok: losing the failure event must not change the error the caller sees.
+        }
         throw error;
       }
     };
