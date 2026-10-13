@@ -82,10 +82,13 @@ error message, URL, or visible flow is enough to start tracing its owner; don't
 wait for details that would not change the reproduction attempt. Phase 2's
 local reproduction procedure applies to all defect reports, not only bashes.
 
-If no safe repo-owned fix is evident after that attempt, record the specific
-evidence limit. Ask only a question whose answer could change the reproduction
-or unblock a fix; after four days without an answer, record **Abandoned - no
-answer in 4 days**.
+If no safe repo-owned fix is evident after reproduction, record the evidence
+limit. Ask only when reporter input changes reproduction or unblocks the fix.
+Ask a direct question naming the exact item or action and why it gates the fix;
+do not merely describe the need or label the thread **Open**. Inspect supplied
+run IDs, logs, links, and artifacts yourself. Keep internal access, config,
+observability, and deployment gaps internal; never ask reporters for developer
+traces. After four days unanswered, record **Abandoned - no answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. **Open - no question**
 means you found neither a fix nor a useful question; state why in the thread.
@@ -448,9 +451,11 @@ instruction or prompt exception.
 
 ## Phase 3: reply
 
-Thank issue reporters for opening it and Slack reporters for sharing. Give the
-status or ask a useful question. Follow `address-feedback-with-replies` for
-Slack voice. End each Slack reply with `this was sent from a bot.` after its
+Thank issue reporters for opening it and Slack reporters for sharing. Give an
+active status while work continues. If reporter input gates a fix, ask the
+direct question specified in Phase 0; do not substitute **Open**, **pending**,
+or an evidence description. Follow `address-feedback-with-replies` for Slack
+voice. End each Slack reply with `this was sent from a bot.` after its
 plain-language status.
 
 Short replies: say the change, limits, and next step. Link merged PRs and say
@@ -474,32 +479,26 @@ needed. Do not reopen Slack in later runs to reply.
   observations may be silent; merged Slack fixes still get the reply above.
   **Shipped** is for upvoted improvements.
 - **In progress** — name continuing work and its owner; ask nothing.
-- **A question** — subject to the budget below.
+- **A question** — follow the rules below.
 
-Unclaimed scope/noise gets an internal recap row. Ask about an unverified defect
-only when one answer would unblock it; otherwise record **Open - no question**
-once. Cluster duplicates. Before re-reading any thread to reply, apply the Slack
-ownership gate; stay out of marked messages and active human work.
+Unclaimed scope/noise gets an internal recap row. Cluster duplicates. Before
+replying, apply the Slack ownership gate; stay out of marked messages and active
+human work.
 
-### The question budget
+### Ask only answerable questions
 
-**At most three questions per run, across all sources.** Most runs ask zero or
-one.
+Ask one direct question for each distinct blocked defect when the reporter's
+answer or action changes reproduction or unblocks the fix. There is no per-run
+cap; do not replace a useful question with **Open** or an in-progress status.
+Keep one pending question per thread. After an answer, try the fix before asking
+anything else. Never ask for supplied logs/IDs, internal access/config/tooling,
+subjective choices, or details that do not change the next step. If a
+user-visible link or ID alone blocks reproduction, ask for it and say where to
+find it.
 
-So rank before you ask. For each candidate, state: *if I get this answer, I
-can ship the fix.* Ask the three with the strongest answer. If fewer than
-three clear that bar, ask fewer. Everything below the cut is an internal open
-item, not a message.
-
-Never ask for supplied/inspectable evidence, irrelevant IDs/build numbers,
-subjective choices, or internal blockers. If a user-visible link or ID is the
-sole blocker, ask plainly and say where to find it.
-
-At most one clarification question may be pending per thread at a time. Once it
-is answered or resolved, attempt the fix; if that exposes a different required
-detail, ask at most one new, non-repeating question. Never stack questions or
-repeat a pending one. If a needed artifact is inaccessible to you, ask for a
-fresh link - not for its contents again.
+If an answer exposes a different required detail, ask at most one new,
+non-repeating question. If an artifact is inaccessible, request a fresh link,
+not its contents.
 
 ## Verification and identity
 
@@ -576,12 +575,11 @@ Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complet
 Unavailable or unverified: ...
 ```
 
-`Open - no question` is a last resort, not a success state. It requires that
-you worked the defect, could not fix it, and could not form a question that would
-unblock it; a run whose ledger is mostly `Open - no question` has under-asked, not
-finished. It keeps our eye and has no checkmark. "Nothing
-matched" is valid only after each source was queried successfully, with the
-cursor stated.
+`Open - no question` follows reproduction when there is no safe fix and no
+reporter answer or action that changes the next step. Ask when reporter input
+unblocks the fix; keep internal access/tooling blockers internal. Mostly open
+ledgers mean under-asking. Keep `👀`, no `✅`. "Nothing matched" is valid only
+after every source was queried successfully and the cursor is stated.
 
 ## Related skills
 

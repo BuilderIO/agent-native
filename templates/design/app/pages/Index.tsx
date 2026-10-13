@@ -193,6 +193,8 @@ type HomeSuggestionsResult =
       suggestions: [];
     };
 
+const HOME_SUGGESTIONS_UI_TIMEOUT_MS = 12_000;
+
 function isReadyHomeSuggestions(
   result: HomeSuggestionsResult | undefined,
 ): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
@@ -437,13 +439,42 @@ export default function Index() {
     homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
       : null;
-  const homeSuggestionsUnavailable =
+  const homeSuggestionsQueryUnavailable =
     !homeSuggestionsQuery.isFetching &&
     quickActionsEnabled &&
     (homeSuggestionsQuery.isError ||
       homeSuggestionsQuery.data?.status === "unavailable" ||
       (homeSuggestionsQuery.data?.status === "ready" &&
         homeSuggestionsQuery.data.suggestions.length !== 3));
+  const [homeSuggestionsTimeoutScope, setHomeSuggestionsTimeoutScope] =
+    useState<string | null>(null);
+  const homeSuggestionsTimedOut =
+    quickActionsEnabled &&
+    homeSuggestionsTimeoutScope === homeSuggestionsIdentityScope;
+  useEffect(() => {
+    if (
+      !quickActionsEnabled ||
+      homeSuggestionsSnapshot !== null ||
+      readyHomeSuggestions !== null ||
+      homeSuggestionsQueryUnavailable
+    ) {
+      setHomeSuggestionsTimeoutScope(null);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setHomeSuggestionsTimeoutScope(homeSuggestionsIdentityScope),
+      HOME_SUGGESTIONS_UI_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    quickActionsEnabled,
+    homeSuggestionsSnapshot,
+    readyHomeSuggestions,
+    homeSuggestionsQueryUnavailable,
+    homeSuggestionsIdentityScope,
+  ]);
+  const homeSuggestionsUnavailable =
+    homeSuggestionsQueryUnavailable || homeSuggestionsTimedOut;
   useEffect(() => {
     if (homeSuggestionsSnapshot !== null) return;
     const result = homeSuggestionsQuery.data;
@@ -460,7 +491,7 @@ export default function Index() {
     } else if (
       quickActionsEnabled &&
       homeSuggestionsProfileReady &&
-      homeSuggestionsUnavailable
+      homeSuggestionsQueryUnavailable
     ) {
       setHomeSuggestionsSnapshotState({
         scope: homeSuggestionsIdentityScope,
@@ -474,7 +505,7 @@ export default function Index() {
     homeSuggestionsIdentityScope,
     quickActionsEnabled,
     homeSuggestionsProfileReady,
-    homeSuggestionsUnavailable,
+    homeSuggestionsQueryUnavailable,
     fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
@@ -484,6 +515,7 @@ export default function Index() {
   const homeSuggestionsLoading =
     homeSuggestionsSnapshot === null &&
     readyHomeSuggestions === null &&
+    !homeSuggestionsTimedOut &&
     (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
