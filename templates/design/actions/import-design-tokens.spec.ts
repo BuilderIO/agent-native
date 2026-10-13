@@ -529,6 +529,39 @@ Bad radius: 12px} body { color: red
     expect(result.rejectedCount).toBe(1);
   });
 
+  it("skips long whitespace-heavy labels before matching them", async () => {
+    const startedAt = performance.now();
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "Spacing:" + " ".repeat(16_000) + "12px",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.tokens).toEqual([]);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it("rejects unbalanced syntax in non-color token values", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: ["Spacing: calc(12px", "Spacing valid: 12px"].join("\n"),
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.rejectedCount).toBe(1);
+    expect(result.tokens).toEqual([
+      expect.objectContaining({
+        cssVar: "--spacing-valid",
+        value: "12px",
+      }),
+    ]);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({
+      "--spacing-valid": "12px",
+    });
+  });
+
   it("keeps an earlier valid token when a later duplicate is invalid", async () => {
     const result = await action.run({
       designId: "design_1",

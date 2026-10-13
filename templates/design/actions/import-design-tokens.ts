@@ -260,6 +260,8 @@ function addLooseTextSignals(
   }
 }
 
+const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
+
 function parseNamedLines(
   files: { filename: string; content: string }[],
 ): ImportedDesignToken[] {
@@ -268,7 +270,7 @@ function parseNamedLines(
   for (const file of files) {
     for (const rawLine of file.content.split(/\r?\n/)) {
       const line = rawLine.trim();
-      if (!line || line.length > 220) continue;
+      if (!line || line.length > MAX_TOKEN_LABEL_LINE_LENGTH) continue;
 
       const match = line.match(
         /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/,
@@ -381,6 +383,7 @@ function isProseTokenLabelLine(
   line: string,
   allowSingleWordLabel = false,
 ): boolean {
+  if (line.length > MAX_TOKEN_LABEL_LINE_LENGTH) return false;
   const match = line.match(TOKEN_LABEL_LINE);
   return Boolean(
     match &&
@@ -862,7 +865,11 @@ function isValidCssColor(value: string): boolean {
 }
 
 function isValidImportedToken(token: ImportedDesignToken): boolean {
-  if (!isSafeCssVarName(token.cssVar) || !isSafeCssTokenValue(token.value)) {
+  if (
+    !isSafeCssVarName(token.cssVar) ||
+    !isSafeCssTokenValue(token.value) ||
+    !hasBalancedCssValueSyntax(token.value)
+  ) {
     return false;
   }
   if (/\b(?:url|expression)\s*\(/i.test(token.value)) return false;
