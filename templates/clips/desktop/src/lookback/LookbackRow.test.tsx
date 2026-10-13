@@ -134,6 +134,15 @@ describe("LookbackRow with Rewind off", () => {
     expect(document.body.textContent).toContain(
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
     );
+    expect(
+      document
+        .querySelector(".rewind-off-popover-reveal")
+        ?.getAttribute("data-state"),
+    ).toBe("open");
+    expect(buttonWithText("What is this?")?.className).toContain("w-full");
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "justify-center",
+    );
 
     const turnOn = buttonWithText("Turn on Rewind");
     expect(turnOn).toBeDefined();
