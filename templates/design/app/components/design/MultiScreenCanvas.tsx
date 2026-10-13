@@ -261,6 +261,8 @@ const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
 const AUTOFIT_MIN_ZOOM = DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM;
 const MAX_WHEEL_PAN_DELTA = 240;
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
+const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
+  "--an-breakpoint-label-gesture-visibility";
 const LIVE_EDITOR_ADMIT_IDLE_MS = 250;
 // Each costs a document on the main thread; this many skip a reboot on zoom-in.
 const WARM_LIVE_EDITORS = 3;
@@ -9931,6 +9933,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       wheelGestureChromeConsumersRef.current = null;
       if (world) {
         world.style.willChange = "";
+        world.style.removeProperty(BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR);
         world.style.setProperty(
           CHROME_SCALE_CSS_VAR,
           String(zoomRef.current > 0 ? 100 / zoomRef.current : 1),
@@ -10113,6 +10116,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const markWheelGestureActive = useCallback(
     (zoomChangesChrome: boolean) => {
       const world = worldRef.current;
+      if (zoomChangesChrome) {
+        world?.style.setProperty(
+          BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+          "hidden",
+        );
+      }
       const collectChromeConsumers = () => {
         if (!world) return;
         const consumersByFrameId = new Map<string, HTMLElement[]>();
@@ -14618,7 +14627,9 @@ function BreakpointPreviewRow({
                 style={
                   {
                     "--an-breakpoint-label-max-width": frameLabelMaxWidth,
-                    visibility: frameLabelHidden ? "hidden" : undefined,
+                    visibility: frameLabelHidden
+                      ? "hidden"
+                      : `var(${BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR}, visible)`,
                     transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                     transformOrigin: "left center",
                     transition: getChromeLabelTransition(chromeSettling),

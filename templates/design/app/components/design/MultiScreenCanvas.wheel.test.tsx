@@ -46,6 +46,8 @@ function trustedWheel(tick: WheelTick) {
 }
 
 const WHEEL_STEP_PER_NOTCH = 1.1;
+const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
+  "--an-breakpoint-label-gesture-visibility";
 
 function notchFactor(deltaY: number) {
   return Math.pow(WHEEL_STEP_PER_NOTCH, Math.abs(deltaY) / 100);
@@ -179,10 +181,14 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     const label = container.querySelector<HTMLElement>(
       "[data-breakpoint-frame] [data-frame-label]",
     );
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
     const surface = container.querySelector<HTMLElement>(
       "[data-multi-screen-canvas-surface]",
     );
     expect(label).not.toBeNull();
+    expect(world).not.toBeNull();
     expect(surface).not.toBeNull();
     const width = label!.style.getPropertyValue(
       "--an-breakpoint-label-max-width",
@@ -193,11 +199,26 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
 
     expect(view.scale).toBeLessThan(1);
     expect(
+      world!.style.getPropertyValue(
+        BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+      ),
+    ).toBe("hidden");
+    expect(
       Number(label!.style.getPropertyValue("--an-chrome-scale")),
     ).toBeCloseTo(1 / view.scale, 6);
     expect(
       label!.style.getPropertyValue("--an-breakpoint-label-max-width"),
     ).toBe(width);
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+    });
+
+    expect(
+      world!.style.getPropertyValue(
+        BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+      ),
+    ).toBe("");
   });
 
   it("still runs a genuine trackpad pinch on the pinch curve", async () => {
