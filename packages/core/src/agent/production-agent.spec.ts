@@ -2390,8 +2390,8 @@ describe("buildUserContentWithAttachments", () => {
               {
                 type: "tool-result",
                 toolCallId: "call-1",
-                content:
-                  "Awaiting human approval to run the action. This action did NOT execute.",
+                content: "The action paused before execution.",
+                approvalPause: true,
               },
             ],
           },
@@ -2428,6 +2428,7 @@ describe("buildUserContentWithAttachments", () => {
                 toolCallId: "call-1",
                 content:
                   "Awaiting human approval. This action did NOT execute.",
+                approvalPause: true,
               },
             ],
           },
@@ -2445,6 +2446,7 @@ describe("buildUserContentWithAttachments", () => {
                 toolCallId: "call-2",
                 content:
                   "Awaiting human approval. This action did NOT execute.",
+                approvalPause: true,
               },
             ],
           },
@@ -2452,6 +2454,118 @@ describe("buildUserContentWithAttachments", () => {
         [approvalKey],
       ),
     ).toEqual({ status: "ambiguous" });
+  });
+
+  it("ignores completed outputs that mention approval when finding the pending call", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-completed",
+                name: "send-email",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-completed",
+                content:
+                  "The report says ‘awaiting human approval’ and ‘did not execute’.",
+                approvalPause: false,
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-pending",
+                name: "send-email",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-pending",
+                content: "The action paused before execution.",
+                approvalPause: true,
+              },
+            ],
+          },
+        ],
+        [approvalKey],
+      ),
+    ).toEqual({
+      status: "found",
+      toolCall: { callId: "call-pending", name: "send-email", input },
+    });
+  });
+
+  it("preserves explicit approval-pause markers through structured history and backfill", () => {
+    const messages = structuredHistoryToEngineMessages([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-1", name: "send-email", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Neutral pause text.",
+            approvalPause: true,
+          },
+        ],
+      },
+    ]);
+
+    expect(messages?.[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call-1",
+      approvalPause: true,
+    });
+  });
+
+  it("does not select a completed result that mentions approval in its output", () => {
+    expect(
+      findApprovedToolResultLocation(
+        [
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                toolName: "send-email",
+                toolInput: '{"to":"a@b.com"}',
+                content:
+                  "The audit text says ‘awaiting human approval’ and ‘did not execute’.",
+                approvalPause: false,
+              },
+            ],
+          },
+        ],
+        { name: "send-email", input: { to: "a@b.com" }, callId: "call-1" },
+      ),
+    ).toBeUndefined();
   });
 
   it("replaces the latest matching pending result when history reuses a call id", () => {
@@ -2500,6 +2614,7 @@ describe("buildUserContentWithAttachments", () => {
             toolName: "publish-release",
             toolInput: '{"release":"1.0.0"}',
             content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: false,
           },
         ],
       },
@@ -2529,6 +2644,7 @@ describe("buildUserContentWithAttachments", () => {
             toolName: "publish-release",
             toolInput: '{"release":"1.2.3"}',
             content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
           },
           {
             type: "tool-result",
@@ -2561,6 +2677,7 @@ describe("buildUserContentWithAttachments", () => {
       toolName: "publish-release",
       content: "Release accepted",
       isError: false,
+      approvalPause: false,
     });
     expect(updated[3]).toEqual(messages[3]);
     expect(updated[1]).toEqual(messages[1]);
@@ -3520,6 +3637,7 @@ describe("createProductionAgentHandler", () => {
                   toolName: "send-email",
                   toolInput: '{"to":"a@b.com"}',
                   content: "Awaiting human approval to run send-email.",
+                  approvalPause: true,
                 },
               ],
             },
@@ -3579,6 +3697,7 @@ describe("createProductionAgentHandler", () => {
                   toolCallId: "call-1",
                   content:
                     "Awaiting human approval. This action did NOT execute.",
+                  approvalPause: true,
                 },
               ],
             },
@@ -3596,6 +3715,7 @@ describe("createProductionAgentHandler", () => {
                   toolCallId: "call-2",
                   content:
                     "Awaiting human approval. This action did NOT execute.",
+                  approvalPause: true,
                 },
               ],
             },

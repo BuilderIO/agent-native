@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Clear stale approval metadata from later continuations, reject ambiguous approval replay history, and keep approval pauses from triggering automatic continuation.
+Preserve approved tool inputs across reloads, identify approval pauses with structured metadata, require exact input matches for reader-local calls, and keep pauses from triggering automatic continuation.

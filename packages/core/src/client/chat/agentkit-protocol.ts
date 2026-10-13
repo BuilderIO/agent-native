@@ -888,6 +888,9 @@ function runtimePartToProtocolPart(
           name: part.toolName,
           input: part.input,
           inputText: part.inputText,
+          ...(part.approval?.approvalKey
+            ? { approvalKey: part.approval.approvalKey }
+            : {}),
         },
       } satisfies DataPart;
     case "tool-result":
@@ -900,6 +903,9 @@ function runtimePartToProtocolPart(
           result: part.result,
           resultText: part.resultText,
           isError: part.isError,
+          ...(typeof part.approvalPause === "boolean"
+            ? { approvalPause: part.approvalPause }
+            : {}),
         },
       } satisfies DataPart;
     case "data":
@@ -971,6 +977,10 @@ function protocolPartToRuntimePart(
           ...(typeof data.inputText === "string"
             ? { inputText: data.inputText }
             : {}),
+          ...(typeof data.approvalKey === "string" &&
+          data.approvalKey.length > 0
+            ? { approval: { approvalKey: data.approvalKey } }
+            : {}),
         };
       }
       if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
@@ -989,6 +999,9 @@ function protocolPartToRuntimePart(
             ? { resultText: data.resultText }
             : {}),
           ...(data.isError === true ? { isError: true } : {}),
+          ...(typeof data.approvalPause === "boolean"
+            ? { approvalPause: data.approvalPause }
+            : {}),
         };
       }
       return {

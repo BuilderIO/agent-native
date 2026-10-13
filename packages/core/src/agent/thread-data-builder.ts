@@ -25,6 +25,7 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
+import { toolInputsMatch } from "../shared/tool-inputs.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -49,6 +50,7 @@ interface ContentPart {
   args?: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  approvalPause?: true;
   outcome?: "unknown";
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
@@ -364,6 +366,7 @@ export function buildAssistantMessage(
         content,
         event.tool ?? "unknown",
         event.toolCallId,
+        event.input,
       );
 
       const part = content[matchingIndex];
@@ -414,6 +417,11 @@ export function buildAssistantMessage(
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
+        if (event.approvalPause === true) {
+          part.approvalPause = true;
+        } else {
+          delete part.approvalPause;
+        }
         if (event.isError !== undefined) part.isError = event.isError;
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";
@@ -682,6 +690,7 @@ function findApprovalToolCallIndex(
   content: ContentPart[],
   toolName: string,
   toolCallId?: string,
+  approvalInput?: unknown,
 ): number {
   if (toolCallId) {
     for (let i = content.length - 1; i >= 0; i--) {
@@ -703,7 +712,8 @@ function findApprovalToolCallIndex(
         part.toolName === toolName &&
         part.result === undefined &&
         typeof part.toolCallId === "string" &&
-        /^tc_\d+$/.test(part.toolCallId)
+        /(?:^|:)tc_\d+$/.test(part.toolCallId) &&
+        toolInputsMatch(part.args, approvalInput)
       ) {
         readerLocalCandidates.push(i);
       }
@@ -711,17 +721,21 @@ function findApprovalToolCallIndex(
     return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
   }
 
-  for (let i = content.length - 1; i >= 0; i--) {
+  const matchingInputCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
     const part = content[i];
     if (
       part.type === "tool-call" &&
       part.toolName === toolName &&
-      part.result === undefined
+      part.result === undefined &&
+      toolInputsMatch(part.args, approvalInput)
     ) {
-      return i;
+      matchingInputCandidates.push(i);
     }
   }
-  return -1;
+  return matchingInputCandidates.length === 1
+    ? matchingInputCandidates[0]!
+    : -1;
 }
 
 function normalizeContentForFingerprint(content: unknown): unknown {

@@ -3408,6 +3408,9 @@ export function structuredHistoryToEngineMessages(
           toolInput,
           content: wire.content,
           ...(part.isError ? { isError: true } : {}),
+          ...(typeof part.approvalPause === "boolean"
+            ? { approvalPause: part.approvalPause }
+            : {}),
         });
       }
     }
@@ -4948,15 +4951,6 @@ export function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
-function isApprovalPauseResult(result: string | undefined): boolean {
-  const normalized = result?.toLowerCase() ?? "";
-  return (
-    normalized.includes("did not execute") ||
-    normalized.includes("awaiting human approval") ||
-    normalized.includes("waiting for your approval")
-  );
-}
-
 export function findApprovedStructuredToolCall(
   history: AgentChatStructuredMessage[] | undefined,
   approvedToolCalls: readonly string[] | undefined,
@@ -5002,7 +4996,7 @@ export function findApprovedStructuredToolCall(
       if (!call || !approved.has(toolCallCacheKey(call.name, call.input))) {
         continue;
       }
-      if (!isApprovalPauseResult(part.content)) continue;
+      if (part.approvalPause !== true) continue;
       matches.push({ ...call, callId: part.toolCallId });
     }
   }
@@ -5032,7 +5026,7 @@ export function findApprovedToolResultLocation(
         part.type !== "tool-result" ||
         part.toolCallId !== toolCall.callId ||
         part.toolName !== toolCall.name ||
-        !isApprovalPauseResult(part.content)
+        part.approvalPause !== true
       ) {
         continue;
       }
@@ -5071,6 +5065,7 @@ export function replaceApprovedToolResult(
     ...part,
     content: execution.output,
     isError: execution.status === "failed",
+    approvalPause: false,
   };
   const updatedMessages = [...messages];
   updatedMessages[location.messageIndex] = { ...message, content };

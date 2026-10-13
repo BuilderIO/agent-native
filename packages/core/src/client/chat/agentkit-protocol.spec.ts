@@ -5,6 +5,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
   resumeEntryFromApproval,
@@ -316,6 +317,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 id: "call-get-document",
                 name: "get_document",
                 input: { documentId: "doc-1" },
+                approvalKey: "get_document:approved",
               },
             },
             {
@@ -325,6 +327,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 id: "call-get-document",
                 name: "get_document",
                 resultText: "Document title: Project Brief",
+                approvalPause: true,
               },
             },
             {
@@ -387,12 +390,14 @@ describe("createAgentKitProtocolAdapter", () => {
               toolCallId: "call-get-document",
               toolName: "get_document",
               input: { documentId: "doc-1" },
+              approval: { approvalKey: "get_document:approved" },
             },
             {
               type: "tool-result",
               toolCallId: "call-get-document",
               toolName: "get_document",
               resultText: "Document title: Project Brief",
+              approvalPause: true,
             },
             {
               type: "tool-call",
@@ -1190,6 +1195,72 @@ describe("createAgentKitProtocolAdapter", () => {
     result.forEach((event) =>
       expect(() => parseAgentEvent(event)).not.toThrow(),
     );
+  });
+
+  it("serializes approval metadata with structured tool history", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-approval-history",
+              toolName: "send-large-data",
+              input: { payload: "large" },
+              approval: { approvalKey: "send-large-data:approved" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-approval-history",
+              toolName: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Save approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const created = result.find((event) => event.type === "message.created");
+
+    expect(created).toMatchObject({
+      type: "message.created",
+      message: {
+        parts: [
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+            data: {
+              id: "call-approval-history",
+              name: "send-large-data",
+              input: { payload: "large" },
+              approvalKey: "send-large-data:approved",
+            },
+          },
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+            data: {
+              id: "call-approval-history",
+              name: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+            },
+          },
+        ],
+      },
+    });
   });
 
   it("translates Core turn events and supports in-process sequence replay", async () => {

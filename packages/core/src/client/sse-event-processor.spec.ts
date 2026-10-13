@@ -4804,6 +4804,70 @@ describe("SSE event processor tool id matching", () => {
     });
   });
 
+  it("does not attach a server-id approval to a reader-local call with different input", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: 'send-email:{"to":"second@example.test"}',
+            input: { to: "second@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "tc_1",
+      toolName: "send-email",
+      args: { to: "first@example.test" },
+    });
+    expect(content[0]?.approval).toBeUndefined();
+  });
+
+  it("matches a server-id approval to a reader-local call with the same input", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "second@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: 'send-email:{"to":"second@example.test"}',
+            input: { to: "second@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(content[0]?.approval).toEqual({
+      approvalKey: 'send-email:{"to":"second@example.test"}',
+    });
+  });
+
   it("matches id-less approvals with nested input values", async () => {
     const approvalInput = {
       recipients: ["first@example.test", { address: "second@example.test" }],

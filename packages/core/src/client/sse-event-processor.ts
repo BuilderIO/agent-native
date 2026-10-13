@@ -14,6 +14,7 @@ import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
+import { toolInputsMatch } from "../shared/tool-inputs.js";
 import { emitChatFirstOpenApp } from "./chat-first-state.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -574,51 +575,6 @@ function findPendingToolCallIndexById(
   return -1;
 }
 
-function toolInputValuesMatch(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return (
-      Array.isArray(left) &&
-      Array.isArray(right) &&
-      left.length === right.length &&
-      left.every((value, index) => toolInputValuesMatch(value, right[index]))
-    );
-  }
-  if (
-    left === null ||
-    right === null ||
-    typeof left !== "object" ||
-    typeof right !== "object"
-  ) {
-    return false;
-  }
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  return (
-    leftKeys.length === rightKeys.length &&
-    leftKeys.every(
-      (key) =>
-        Object.hasOwn(right, key) &&
-        toolInputValuesMatch(
-          (left as Record<string, unknown>)[key],
-          (right as Record<string, unknown>)[key],
-        ),
-    )
-  );
-}
-
-function toolInputsMatch(callInput: unknown, approvalInput: unknown): boolean {
-  return (
-    callInput !== null &&
-    approvalInput !== null &&
-    typeof callInput === "object" &&
-    typeof approvalInput === "object" &&
-    !Array.isArray(callInput) &&
-    !Array.isArray(approvalInput) &&
-    toolInputValuesMatch(callInput, approvalInput)
-  );
-}
-
 /**
  * Locate the tool call an `approval_required` event refers to.
  *
@@ -670,6 +626,7 @@ export function findApprovalToolCallIndex(
       part.type === "tool-call" &&
       part.toolName === toolName &&
       part.result === undefined &&
+      toolInputsMatch(part.args, approvalInput) &&
       /^tc_\d+$/.test(part.toolCallId)
     ) {
       readerLocalCandidates.push(i);

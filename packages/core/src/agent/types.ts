@@ -186,6 +186,7 @@ export type AgentChatStructuredContentPart =
       toolInput?: string;
       content: string;
       isError?: boolean;
+      approvalPause?: boolean;
     };
 
 export interface AgentChatStructuredMessage {

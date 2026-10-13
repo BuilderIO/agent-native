@@ -1065,6 +1065,7 @@ describe("buildAssistantMessage", () => {
             result:
               'Awaiting human approval to run "create-builder-branch". ' +
               "This action did NOT execute.",
+            approvalPause: true,
           },
         },
       ],
@@ -1075,12 +1076,47 @@ describe("buildAssistantMessage", () => {
       expect.objectContaining({
         type: "tool-call",
         toolName: "create-builder-branch",
+        approvalPause: true,
         result:
           'Awaiting human approval to run "create-builder-branch". ' +
           "This action did NOT execute.",
         approval: { approvalKey: "create-builder-branch:approval" },
       }),
     ]);
+  });
+
+  it("does not attach a reader-local approval to a call with different input", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: "send-email:second",
+            input: { to: "second@example.test" },
+          },
+        },
+      ],
+      "run-reader-local-approval",
+    );
+
+    expect(message?.content).toHaveLength(1);
+    expect(message?.content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "run-reader-local-approval:tc_1",
+      toolName: "send-email",
+    });
+    expect(message?.content[0]?.approval).toBeUndefined();
   });
 
   it("persists per-call-only approval policy when rebuilding thread history", () => {

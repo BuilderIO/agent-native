@@ -89,6 +89,7 @@ export interface AgentChatRuntimeToolCallPart extends AgentChatRuntimeContentPar
   readonly toolName: string;
   readonly input?: unknown;
   readonly inputText?: string;
+  readonly approval?: { readonly approvalKey: string };
   /** Keeps the exact approved invocation available within the continuation budget. */
   readonly approvedReplay?: true;
 }
@@ -99,6 +100,7 @@ export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentP
   readonly result?: unknown;
   readonly resultText?: string;
   readonly isError?: boolean;
+  readonly approvalPause?: boolean;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -3156,8 +3158,10 @@ function nativeStructuredHistoryFromMessages(
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
+  approvedToolCalls: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const approvedToolCallSet = new Set(approvedToolCalls);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
   const resultReferences: StructuredToolHistoryResultReference[] = [];
   const toolHistoryParts = new Set<StructuredToolHistoryPart>();
@@ -3256,7 +3260,9 @@ function nativeStructuredHistoryFromMessages(
               ? undefined
               : toolInputForStructuredHistory(
                   part.input,
-                  part.approvedReplay === true
+                  part.approvedReplay === true ||
+                    (part.approval !== undefined &&
+                      approvedToolCallSet.has(part.approval.approvalKey))
                     ? MAX_ADDED_TOOL_HISTORY_BYTES
                     : MAX_TOOL_HISTORY_VALUE_BYTES,
                 );
@@ -3305,6 +3311,7 @@ function nativeStructuredHistoryFromMessages(
                 part.resultText,
               ),
               ...(part.isError ? { isError: true } : {}),
+              ...(part.approvalPause === true ? { approvalPause: true } : {}),
             };
         results.push(resultPart);
         toolHistoryParts.add(resultPart);
@@ -3453,6 +3460,7 @@ function pendingApprovalRuntimeMessages(
               ? "Awaiting human approval. This action did NOT execute."
               : part.result,
           ...(part.isError ? { isError: true } : {}),
+          ...(isApprovedPendingCall ? { approvalPause: true } : {}),
         },
       ],
     });
@@ -4667,6 +4675,7 @@ export function createAgentNativeChatRuntime(
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
+        approvedToolCalls,
       );
       return {
         message: prompt,

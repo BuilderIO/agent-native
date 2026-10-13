@@ -254,6 +254,9 @@ export function backfillEngineMessagesToolResults(
         toolInput,
         content: interrupted ? INTERRUPTED_TOOL_RESULT_FOR_MODEL : part.content,
         ...(part.isError || interrupted ? { isError: true } : {}),
+        ...(part.approvalPause === undefined
+          ? {}
+          : { approvalPause: part.approvalPause }),
         ...(part.images && part.images.length > 0
           ? { images: part.images }
           : {}),
