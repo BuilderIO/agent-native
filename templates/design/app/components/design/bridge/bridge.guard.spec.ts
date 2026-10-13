@@ -762,6 +762,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-raf-interval",
     "./native-runtime-epoch",
     "./native-simulation-timeline",
+    "./native-simulation-transaction",
     "./native-source-affine-geometry",
     "./native-source-coordinate-scale",
     "./native-source-provider",
