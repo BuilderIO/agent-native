@@ -310,6 +310,10 @@ const messages = {
     transcriptionCompleted: "Transcription terminée",
     transcriptNotReady: "La transcription n'est pas encore prête",
     tryAfterTranscription: "Réessayez une fois la transcription terminée.",
+    silenceTranscriptNeedsTimestampsTitle:
+      "Les horodatages de la transcription manquent",
+    silenceTranscriptNeedsTimestampsDescription:
+      "Régénérez la transcription pour ajouter les horodatages, puis réessayez de supprimer les silences.",
     titleGenerationQueued: "Génération du titre…",
     descriptionQueued: "Génération de la description…",
     chapterQueued: "Génération des chapitres…",

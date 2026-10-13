@@ -298,6 +298,9 @@ const messages = {
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
+    silenceTranscriptNeedsTimestampsTitle: "ट्रांसक्रिप्ट में टाइमस्टैम्प नहीं हैं",
+    silenceTranscriptNeedsTimestampsDescription:
+      "टाइमस्टैम्प जोड़ने के लिए ट्रांसक्रिप्ट फिर से बनाएँ, फिर मौन हटाने का दोबारा प्रयास करें।",
     titleGenerationQueued: "शीर्षक बनाया जा रहा है…",
     descriptionQueued: "विवरण बनाया जा रहा है…",
     chapterQueued: "अध्याय बनाए जा रहे हैं…",

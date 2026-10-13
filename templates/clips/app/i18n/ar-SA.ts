@@ -298,6 +298,9 @@ const messages = {
     transcriptionCompleted: "اكتمل النسخ",
     transcriptNotReady: "النص ليس جاهزا بعد",
     tryAfterTranscription: "حاول مرة أخرى بعد انتهاء النسخ.",
+    silenceTranscriptNeedsTimestampsTitle: "الطوابع الزمنية للنص غير متوفرة",
+    silenceTranscriptNeedsTimestampsDescription:
+      "أعِد إنشاء النص لإضافة الطوابع الزمنية، ثم حاول إزالة فترات الصمت مرة أخرى.",
     titleGenerationQueued: "جارٍ إنشاء العنوان…",
     descriptionQueued: "جارٍ إنشاء الوصف…",
     chapterQueued: "جارٍ إنشاء الفصول…",

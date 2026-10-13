@@ -305,6 +305,10 @@ const messages = {
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
+    silenceTranscriptNeedsTimestampsTitle:
+      "文字起こしにタイムスタンプがありません",
+    silenceTranscriptNeedsTimestampsDescription:
+      "タイムスタンプを追加するために文字起こしを再生成してから、無音の削除をもう一度お試しください。",
     titleGenerationQueued: "タイトルを生成中…",
     descriptionQueued: "説明を生成中…",
     chapterQueued: "チャプターを生成中…",

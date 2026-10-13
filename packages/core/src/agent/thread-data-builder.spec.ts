@@ -2087,6 +2087,117 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("drops a saved assistant prefix when the same run completes its full reply", () => {
+    const prompt = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Explain this result" }],
+    };
+    const partial = {
+      id: "assistant-partial",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows" }],
+    };
+    const completed = {
+      id: "assistant-completed",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows a clear increase." }],
+    };
+    const run = (
+      status: "running" | "completed",
+      lastSequence: number,
+      activeMessageId: string,
+    ) => ({
+      id: "run-1",
+      status,
+      lastSequence,
+      activeMessageId,
+    });
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          messages: [prompt, partial],
+          runs: [run("running", 168, partial.id)],
+        },
+      },
+      {
+        agentKit: {
+          messages: [prompt, partial, completed],
+          runs: [run("completed", 856, completed.id)],
+          events: [
+            {
+              id: "run-1:852",
+              runId: "run-1",
+              sequence: 852,
+              type: "message.completed",
+              message: { id: completed.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages).toEqual([prompt, completed]);
+  });
+
+  it("keeps a prefix that has its own completion event", () => {
+    const prompt = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Explain this result" }],
+    };
+    const partial = {
+      id: "assistant-first",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows" }],
+    };
+    const completed = {
+      id: "assistant-second",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows a clear increase." }],
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {},
+      {
+        agentKit: {
+          messages: [prompt, partial, completed],
+          runs: [
+            {
+              id: "run-1",
+              status: "completed",
+              lastSequence: 856,
+              activeMessageId: completed.id,
+            },
+          ],
+          events: [
+            {
+              id: "run-1:500",
+              runId: "run-1",
+              sequence: 500,
+              type: "message.completed",
+              message: { id: partial.id, role: "assistant" },
+            },
+            {
+              id: "run-1:852",
+              runId: "run-1",
+              sequence: 852,
+              type: "message.completed",
+              message: { id: completed.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages).toEqual([prompt, partial, completed]);
+  });
+
   it("keeps a completed tool call's later assistant message link", () => {
     const merged = mergeThreadDataForClientSave(
       {

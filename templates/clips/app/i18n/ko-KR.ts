@@ -301,6 +301,9 @@ const messages = {
     transcriptionCompleted: "전사가 완료되었습니다.",
     transcriptNotReady: "스크립트가 아직 준비되지 않았습니다.",
     tryAfterTranscription: "전사가 완료된 후 다시 시도하세요.",
+    silenceTranscriptNeedsTimestampsTitle: "스크립트에 타임스탬프가 없습니다",
+    silenceTranscriptNeedsTimestampsDescription:
+      "타임스탬프를 추가하도록 스크립트를 다시 생성한 다음 무음 제거를 다시 시도하세요.",
     titleGenerationQueued: "제목 생성 중…",
     descriptionQueued: "설명 생성 중…",
     chapterQueued: "챕터 생성 중…",

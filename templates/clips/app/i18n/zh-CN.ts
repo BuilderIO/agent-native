@@ -290,6 +290,9 @@ const messages = {
     transcriptionCompleted: "转录完成",
     transcriptNotReady: "成绩单尚未准备好",
     tryAfterTranscription: "转录完成后重试。",
+    silenceTranscriptNeedsTimestampsTitle: "转录内容缺少时间戳",
+    silenceTranscriptNeedsTimestampsDescription:
+      "重新生成转录以添加时间戳，然后再次尝试删除静音。",
     titleGenerationQueued: "正在生成标题…",
     descriptionQueued: "正在生成描述…",
     chapterQueued: "正在生成章节…",

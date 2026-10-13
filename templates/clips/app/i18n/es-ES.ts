@@ -309,6 +309,10 @@ const messages = {
     transcriptNotReady: "La transcripción aún no está lista",
     tryAfterTranscription:
       "Inténtelo de nuevo después de que finalice la transcripción.",
+    silenceTranscriptNeedsTimestampsTitle:
+      "Faltan marcas de tiempo en la transcripción",
+    silenceTranscriptNeedsTimestampsDescription:
+      "Regenera la transcripción para añadir marcas de tiempo y vuelve a intentar eliminar los silencios.",
     titleGenerationQueued: "Generando título…",
     descriptionQueued: "Generando descripción…",
     chapterQueued: "Generando capítulos…",

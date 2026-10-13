@@ -242,6 +242,9 @@ const messages = {
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
+    silenceTranscriptNeedsTimestampsTitle: "Transcript timestamps are missing",
+    silenceTranscriptNeedsTimestampsDescription:
+      "Regenerate the transcript to add timestamps, then try removing silences again.",
     titleGenerationQueued: "Generating title…",
     descriptionQueued: "Generating description…",
     chapterQueued: "Generating chapters…",

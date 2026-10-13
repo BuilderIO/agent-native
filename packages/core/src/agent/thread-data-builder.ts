@@ -1782,6 +1782,101 @@ function snapshotAssistantTextKey(
   ]);
 }
 
+function snapshotAssistantText(message: any): string | undefined {
+  if (
+    message?.role !== "assistant" ||
+    !Array.isArray(message.parts) ||
+    message.parts.length === 0 ||
+    !message.parts.every(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+  ) {
+    return undefined;
+  }
+  return message.parts.map((part: any) => part.text).join("");
+}
+
+function removeSupersededAgentKitMessagePrefixes(
+  messages: unknown,
+  agentKit: Record<string, unknown>,
+): unknown[] | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  const completedMessagesByRun = new Map<string, Set<string>>();
+  for (const event of Array.isArray(agentKit.events) ? agentKit.events : []) {
+    const messageId = event?.message?.id;
+    if (
+      event?.type !== "message.completed" ||
+      event.message?.role !== "assistant" ||
+      typeof event.runId !== "string" ||
+      typeof messageId !== "string"
+    ) {
+      continue;
+    }
+    const messageIds =
+      completedMessagesByRun.get(event.runId) ?? new Set<string>();
+    messageIds.add(messageId);
+    completedMessagesByRun.set(event.runId, messageIds);
+  }
+  if (completedMessagesByRun.size === 0) return messages;
+
+  const runIds = snapshotMessageRunIds(agentKit);
+  const removedIds = new Set<string>();
+  for (const run of Array.isArray(agentKit.runs) ? agentKit.runs : []) {
+    if (
+      run?.status !== "completed" ||
+      typeof run.id !== "string" ||
+      typeof run.activeMessageId !== "string" ||
+      !completedMessagesByRun.get(run.id)?.has(run.activeMessageId)
+    ) {
+      continue;
+    }
+    const completedIndex = messages.findIndex(
+      (entry) =>
+        snapshotEntryId(entry, "message") === run.activeMessageId &&
+        entry?.role === "assistant",
+    );
+    if (completedIndex === -1) continue;
+    const completedText = snapshotAssistantText(messages[completedIndex]);
+    if (completedText === undefined) continue;
+
+    let lastUserIndex = -1;
+    for (let index = completedIndex - 1; index >= 0; index--) {
+      if (messages[index]?.role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    if (lastUserIndex === -1) continue;
+
+    for (let index = lastUserIndex + 1; index < completedIndex; index++) {
+      const candidate = messages[index];
+      const candidateId = snapshotEntryId(candidate, "message");
+      const candidateRunId = candidateId ? runIds.get(candidateId) : undefined;
+      const candidateText = snapshotAssistantText(candidate);
+      if (
+        candidate?.role === "assistant" &&
+        typeof candidateId === "string" &&
+        candidateId !== run.activeMessageId &&
+        !completedMessagesByRun.get(run.id)?.has(candidateId) &&
+        (candidateRunId === undefined || candidateRunId === run.id) &&
+        candidateText !== undefined &&
+        candidateText.length > 0 &&
+        candidateText.length < completedText.length &&
+        completedText.startsWith(candidateText)
+      ) {
+        removedIds.add(candidateId);
+      }
+    }
+  }
+
+  return removedIds.size === 0
+    ? messages
+    : messages.filter((entry) => {
+        const id = snapshotEntryId(entry, "message");
+        return !id || !removedIds.has(id);
+      });
+}
+
 function preferIncomingSnapshotEntry(
   kind: "message" | "toolCall" | "widget",
   existing: any,
@@ -3148,6 +3243,11 @@ function mergeAgentKitHistory(
       );
       if (annotations) initial.annotations = annotations;
     }
+    const messages = removeSupersededAgentKitMessagePrefixes(
+      initial.messages,
+      initial,
+    );
+    if (messages) initial.messages = messages;
     delete initial._snapshotDelta;
     delete initial.eventRunReplacements;
     delete initial.eventRunSnapshotWatermarks;
@@ -3363,6 +3463,11 @@ function mergeAgentKitHistory(
       merged._eventRunWatermarks = previous._eventRunWatermarks;
     }
   }
+  const messages = removeSupersededAgentKitMessagePrefixes(
+    merged.messages,
+    merged,
+  );
+  if (messages) merged.messages = messages;
   delete merged._snapshotDelta;
   delete merged.eventRunReplacements;
   delete merged.eventRunSnapshotWatermarks;
