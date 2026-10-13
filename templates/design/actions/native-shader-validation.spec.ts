@@ -1992,6 +1992,21 @@ describe("foreground native shader GPU validation actions", () => {
       status: "validation-complete",
       results: [{ caseId: "particleMounted", status: "ready" }],
     });
+    const measured = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [
+        {
+          ...item,
+          mountedMeasurement: {
+            warmupRafIntervals: 120,
+            measuredRafIntervals: 840,
+          },
+        },
+      ],
+    });
+    expect(measured).toMatchObject({ status: "pending", caseCount: 1 });
   });
 
   it("prepares the saved backdrop placement and a simulation text fill without changing the source", async () => {

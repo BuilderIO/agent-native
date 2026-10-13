@@ -119,7 +119,8 @@ export async function verifyNativeShaderValidationCases(
     if (
       nativeEffectRequiresStateSession(definition) &&
       !item.fixture &&
-      !item.mountedFrame
+      !item.mountedFrame &&
+      !item.mountedMeasurement
     )
       fail(
         `Stateful native validation case ${item.caseId} requires a bounded held frame.`,

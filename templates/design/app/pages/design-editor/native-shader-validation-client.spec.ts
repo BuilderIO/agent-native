@@ -1899,6 +1899,7 @@ describe("foreground native shader GPU result", () => {
   });
 
   it("rejects malformed live benchmark payloads and accepts only the exact window", async () => {
+    addFluidSibling();
     const runtime = (
       frameMock.current!.contentWindow as unknown as {
         __anNativeShaders: Record<string, unknown>;

@@ -1235,7 +1235,7 @@ export async function validateNativeShaderCaseInEditor(args: {
         return unavailable(item, detail.code, detail.message);
       }
     }
-    if (stateful && !item.mountedFrame)
+    if (stateful && !item.mountedFrame && !item.mountedMeasurement)
       return unavailable(
         item,
         "stateful-frame-required",
