@@ -80,6 +80,7 @@ describe("Figma secret registration", () => {
     expect(result).toEqual({
       ok: false,
       error: "Paste a Figma access token, not a Figma file URL.",
+      validationCode: "figma_file_url_as_token",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -1122,6 +1122,30 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("marks missing Google Sheets connections as workspace connections", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({ provider: "google_sheets", path: "/spreadsheets" })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "connect",
+      appId: "analytics",
+      source: {
+        id: "google_sheets",
+        kind: "workspace_connection",
+        label: "Google Sheets",
+      },
+    });
+  });
+
   it("turns a missing Slack bearer connection into a contextual request", async () => {
     const runtime = createProviderApiRuntime({
       appId: "dispatch",

@@ -546,6 +546,27 @@ export async function runAgentLoopDirectWithSoftTimeout(
         ) {
           opts.send({ type: "clear" });
         }
+        const cooldownResult = await waitForBackgroundRateLimitCooldown(
+          turnSignal,
+          roundChunkSignal,
+          rateLimitCooldown,
+        );
+        if (cooldownResult === "turn_aborted" || turnSignal.aborted) {
+          reportFinalOutcome(turnAbortOutcome());
+          const abortError = new Error("Agent run was aborted.");
+          abortError.name = "AbortError";
+          throw abortError;
+        }
+        if (cooldownResult === "chunk_aborted") {
+          const chunkBoundaryReason = recoverableChunkBoundary();
+          if (chunkBoundaryReason) {
+            await continueFromChunkBoundary(
+              chunkBoundaryReason,
+              localTurnEvents.slice(attemptStartIndex),
+            );
+            continue;
+          }
+        }
         await appendContinuationAndJournal(
           opts.messages,
           "rate_limited",
@@ -554,20 +575,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
         );
-        const cooldownResult = await waitForBackgroundRateLimitCooldown(
-          turnSignal,
-          roundChunkSignal,
-          rateLimitCooldown,
-        );
-        if (cooldownResult === "chunk_aborted") {
-          const chunkBoundaryReason = recoverableChunkBoundary();
-          if (chunkBoundaryReason) {
-            await continueFromChunkBoundary(
-              chunkBoundaryReason,
-              localTurnEvents.slice(attemptStartIndex),
-            );
-          }
-        }
         continue;
       }
       if (!turnSignal.aborted && transientRateLimit) {

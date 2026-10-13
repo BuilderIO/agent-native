@@ -76,19 +76,14 @@ routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
 Follow the reply reference before marking an item replied.
 
-For every concrete objective defect, attempt to reproduce it before recording
-an evidence limit or asking the reporter for more information. A screenshot,
-error message, URL, or visible flow is enough to start tracing its owner; don't
-wait for details that would not change the reproduction attempt. Phase 2's
-local reproduction procedure applies to all defect reports, not only bashes.
-
-If reproduction and source tracing do not yield a safe fix, state what remains
-unknown. Inspect supplied run IDs, logs, and artifacts first; internal access,
-config, observability, and deployment gaps stay ours. For each unresolved
-defect, ask one precise question when a reporter fact changes the next action,
-and say why it gates progress. Otherwise state the internal action and its
-owner or ownership gap. Never use **Open**/**Open pending** instead of either
-response. After four days unanswered, record **Abandoned - no answer in 4 days**.
+Before recording an evidence limit or asking, try to reproduce every defect
+from its screenshot, URL, error, supplied run ID, logs, or artifacts. Investigate
+internal access, config, observability, and deployment gaps ourselves; don't
+ask reporters to use developer tools. If a fact only the reporter can provide
+changes the next action, ask one direct question naming it and why it gates
+progress. Otherwise name the internal action and owner. Never reply only with
+**Open**/**Open pending** and a symptom restatement. After four days without an
+answer, record **Abandoned - no answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. In the ledger,
 **Open - no question** means reporter input cannot change the internal next

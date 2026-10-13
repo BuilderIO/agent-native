@@ -1909,9 +1909,16 @@ describe("chunk-boundary recovery", () => {
       const nextAttempt = new Promise<void>((resolve) => {
         resolveNextAttempt = resolve;
       });
-      mockRunAgentLoop.mockImplementation(async () => {
+      mockRunAgentLoop.mockImplementation(async (opts: any) => {
         attempts++;
         if (attempts === 1) {
+          opts.send({
+            type: "tool_start",
+            tool: "read-data",
+            id: "tool-1",
+            input: { query: "recent rows" },
+          });
+          opts.send({ type: "text", text: "partial answer" });
           throw new EngineError("429 status code (no body)", {
             errorCode: "http_429",
             statusCode: 429,
@@ -1949,6 +1956,69 @@ describe("chunk-boundary recovery", () => {
 
       expect(resumedBeforeCooldown).toBe(true);
       expect(attempts).toBe(2);
+      expect(
+        messages.filter((message) =>
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(
+                "Tool-call journal from the interrupted attempt",
+              ),
+          ),
+        ),
+      ).toHaveLength(1);
+      expect(
+        messages.filter((message) =>
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(
+                AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+              ),
+          ),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects when the turn is stopped during a rate-limit cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      const turn = new AbortController();
+      const { control } = makeControl(turn.signal);
+      const outcomes: AgentLoopOutcome[] = [];
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          control.chunkSignal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      turn.abort("stopped_by_reviewer");
+
+      await expect(run).rejects.toThrow("Agent run was aborted.");
+      expect(attempts).toBe(1);
+      expect(outcomes.at(-1)).toEqual({
+        state: "canceled",
+        message: "Agent run was aborted.",
+      });
     } finally {
       vi.useRealTimers();
     }

@@ -143,6 +143,7 @@ export function FigmaHydrationDialog({
           err,
           t("common.genericError"),
           'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
+          t("designEditor.import.errors.figmaTokenMustBeToken"),
         ),
       );
     } finally {

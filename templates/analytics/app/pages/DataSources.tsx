@@ -94,7 +94,7 @@ import {
   focusedDataSourceFromSearchParams,
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
-  getGoogleDriveConnection,
+  getGoogleSheetsConnection,
   isWorkspaceOAuthSource,
   isSourceReady,
   isSourceLocallyConfigured,
@@ -2135,7 +2135,7 @@ export default function DataSources() {
 
   const firstParty = useFirstPartyAnalyticsData();
   const googleSheetsConnected =
-    getGoogleDriveConnection(statusData)?.grantState === "connected";
+    getGoogleSheetsConnection(statusData)?.grantState === "connected";
 
   const handleSaved = () => {
     void queryClient.invalidateQueries({
@@ -2290,7 +2290,7 @@ export default function DataSources() {
       .toLowerCase(),
     detail: (
       <WorkspaceOAuthView
-        provider="google_drive"
+        provider="google_sheets"
         label={t("dataSources.googleSheets")}
         connected={googleSheetsConnected}
       />

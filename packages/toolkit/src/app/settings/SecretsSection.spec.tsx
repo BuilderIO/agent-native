@@ -341,6 +341,64 @@ describe("SecretsSection", () => {
     expect(container.textContent).toContain("Saved");
   });
 
+  it("localizes a Figma file URL rejected by the secret validator", async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (
+        url.endsWith("/secrets/FIGMA_ACCESS_TOKEN") &&
+        init?.method === "POST"
+      ) {
+        return Promise.resolve(
+          Response.json(
+            {
+              error: "Paste a Figma access token, not a Figma file URL.",
+              errorCode: "secret_rejected",
+              validationCode: "figma_file_url_as_token",
+            },
+            { status: 400 },
+          ),
+        );
+      }
+      return Promise.resolve(
+        Response.json([
+          {
+            key: "FIGMA_ACCESS_TOKEN",
+            label: "Figma access token",
+            scope: "user",
+            kind: "api-key",
+            required: false,
+            status: "unset",
+          },
+        ]),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root, "FIGMA_ACCESS_TOKEN");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Figma access token"]',
+    );
+    expect(input).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "https://www.figma.com/design/FileKey1/Checkout");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(findButton("Save"));
+
+    expect(container.textContent).toContain(
+      "Paste a Figma access token, not a Figma file URL.",
+    );
+  });
+
   it("aborts the request on unmount without logging a load error", async () => {
     vi.useFakeTimers();
     const consoleError = vi

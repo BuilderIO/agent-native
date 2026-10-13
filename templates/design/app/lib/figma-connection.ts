@@ -3,7 +3,10 @@ import {
   agentNativePath,
 } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
-import { isFigmaFileUrl } from "@shared/figma-url";
+import {
+  FIGMA_FILE_URL_TOKEN_VALIDATION_CODE,
+  isFigmaFileUrl,
+} from "@shared/figma-url";
 
 export const FIGMA_ACCESS_TOKEN_SECRET_KEY = "FIGMA_ACCESS_TOKEN";
 
@@ -158,7 +161,17 @@ export async function saveFigmaAccessToken(
     throw new Error(redactSubmittedSecret(message, token));
   }
   if (!response.ok) {
-    const message = await responseError(response, "Could not connect Figma");
+    const payload = (await response.json()) as {
+      error?: unknown;
+      validationCode?: unknown;
+    };
+    if (payload?.validationCode === FIGMA_FILE_URL_TOKEN_VALIDATION_CODE) {
+      throw new FigmaFileUrlUsedAsTokenError();
+    }
+    const message =
+      typeof payload?.error === "string" && payload.error.trim()
+        ? payload.error
+        : `Could not connect Figma (${response.status})`;
     throw new Error(redactSubmittedSecret(message, token));
   }
 

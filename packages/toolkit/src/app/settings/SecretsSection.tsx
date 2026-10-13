@@ -394,11 +394,18 @@ function SecretCard({
         },
       );
       if (!res.ok) {
-        const err = await res
-          .json()
-          .then((j: { error?: string }) => j.error)
-          .catch(() => null);
-        setToastAndClear("err", err ?? `Save failed (${res.status})`);
+        const body = (await res.json()) as {
+          error?: string;
+          validationCode?: string;
+        };
+        if (
+          secret.key === "FIGMA_ACCESS_TOKEN" &&
+          body?.validationCode === "figma_file_url_as_token"
+        ) {
+          setToastAndClear("err", t("agentChat.secrets.figmaTokenMustBeToken"));
+          return;
+        }
+        setToastAndClear("err", body?.error ?? `Save failed (${res.status})`);
         return;
       }
       setValue("");

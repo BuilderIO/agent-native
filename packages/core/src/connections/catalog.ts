@@ -277,7 +277,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     recommendedTemplateUses: ["analytics", "brain", "content", "dispatch"],
     oauth: googleOAuth([
       ...GOOGLE_IDENTITY_SCOPES,
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
+      "https://www.googleapis.com/auth/drive.file",
     ]),
   }),
   defineWorkspaceConnectionProvider({

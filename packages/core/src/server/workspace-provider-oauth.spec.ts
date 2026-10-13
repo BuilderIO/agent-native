@@ -508,6 +508,46 @@ describe("workspace provider OAuth", () => {
     );
   });
 
+  it("isolates Google Sheets consent and requests only file-level access", async () => {
+    const email = "requester@example.com";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/google_sheets/start",
+    );
+    requestUrl.searchParams.set("appId", "analytics");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(
+      event,
+      "google_sheets",
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    const authorizationUrl = new URL(
+      (result as Response).headers.get("Location")!,
+    );
+    expect(authorizationUrl.searchParams.get("include_granted_scopes")).toBe(
+      "false",
+    );
+    expect(authorizationUrl.searchParams.get("scope")?.split(" ")).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
+  });
+
   it("keeps the Google account chooser and preselects the signed-in identity", () => {
     const provider = getWorkspaceConnectionProvider("google_calendar")!;
     const url = new URL(

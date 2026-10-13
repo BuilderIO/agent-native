@@ -1,6 +1,9 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-import { isFigmaFileUrl } from "../shared/figma-url.js";
+import {
+  FIGMA_FILE_URL_TOKEN_VALIDATION_CODE,
+  isFigmaFileUrl,
+} from "../shared/figma-url.js";
 
 registerRequiredSecret({
   key: "GITHUB_TOKEN",
@@ -75,6 +78,7 @@ registerRequiredSecret({
       return {
         ok: false,
         error: "Paste a Figma access token, not a Figma file URL.",
+        validationCode: FIGMA_FILE_URL_TOKEN_VALIDATION_CODE,
       };
     }
     try {

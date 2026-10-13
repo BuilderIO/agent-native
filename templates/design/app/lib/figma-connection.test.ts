@@ -215,6 +215,25 @@ describe("Figma connection client", () => {
     );
   });
 
+  it("maps the typed server validation code to the Figma token error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Paste a Figma access token, not a Figma file URL.",
+            validationCode: "figma_file_url_as_token",
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    await expect(saveFigmaAccessToken(EXAMPLE_TOKEN)).rejects.toBeInstanceOf(
+      FigmaFileUrlUsedAsTokenError,
+    );
+  });
+
   it("redacts URL-encoded and JSON-escaped reflections of a failed token", async () => {
     const token = '<FIGMA "ACCESS" \\ TOKEN>';
     const jsonEscaped = JSON.stringify(token).slice(1, -1);

@@ -81,6 +81,7 @@ export const PROVIDER_API_IDS = [
   "gong",
   "google_calendar",
   "google_drive",
+  "google_sheets",
   "google_slides",
   "granola",
   "grafana",
@@ -1242,6 +1243,37 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
+    ],
+  },
+  google_sheets: {
+    id: "google_sheets",
+    label: "Google Sheets API",
+    defaultBaseUrl: "https://sheets.googleapis.com/v4",
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "google",
+      tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_sheets",
+    },
+    credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developers.google.com/workspace/sheets/api/reference/rest",
+    ],
+    specUrls: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
+    allowedHostSuffixes: ["googleapis.com"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "Create a spreadsheet", method: "POST", path: "/spreadsheets" },
+      {
+        label: "Write spreadsheet values",
+        method: "PUT",
+        path: "/spreadsheets/{spreadsheetId}/values/{range}",
+      },
+    ],
+    notes: [
+      "Uses the current user's Google Sheets connection and the non-sensitive drive.file scope, limited to files created by this app or explicitly selected by the user.",
+      "Google Sheets authorization is isolated from scopes previously granted to other Google integrations.",
+      "Pass accountId when the user has multiple Google accounts connected.",
     ],
   },
   google_slides: {

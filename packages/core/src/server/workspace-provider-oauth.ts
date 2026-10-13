@@ -345,7 +345,8 @@ export async function handleWorkspaceProviderOAuthStart(
         state,
         challenge,
         loginHint: session.email,
-        includeGrantedScopes: providerId !== "google_calendar",
+        includeGrantedScopes:
+          providerId !== "google_calendar" && providerId !== "google_sheets",
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
