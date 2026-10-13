@@ -99,7 +99,9 @@ function formatTick(
   value: number,
   formatter?: ReportChartValueFormatter,
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") {
+    return `${value < 0 ? "-" : ""}$${Math.abs(value).toLocaleString()}`;
+  }
   if (formatter === "percent") {
     const percent = value <= 1 && value >= -1 ? value * 100 : value;
     return `${percent.toFixed(2)}%`;

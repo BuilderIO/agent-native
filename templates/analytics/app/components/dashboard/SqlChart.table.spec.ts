@@ -19,6 +19,24 @@ describe("SqlChart table helpers", () => {
     expect(formatCell("-2.5", "delta")).toBe("-2.5%");
   });
 
+  it("puts the sign before the dollar sign for currency cells", () => {
+    expect(formatCell(-7505, "currency")).toBe("-$7,505");
+    expect(formatCell(111090, "currency")).toBe("$111,090");
+    expect(formatCell(0, "currency")).toBe("$0");
+  });
+
+  it("sorts negative formatted currency strings numerically", () => {
+    const rows = [
+      { revenue: "$9" },
+      { revenue: "-$7,505" },
+      { revenue: "$1,000" },
+    ];
+
+    expect(sortTableRows(rows, [{ key: "revenue", direction: "asc" }])).toEqual(
+      [{ revenue: "-$7,505" }, { revenue: "$9" }, { revenue: "$1,000" }],
+    );
+  });
+
   it("sorts by multiple columns while treating numeric strings as numbers", () => {
     const rows = [
       { team: "B", value: "10" },

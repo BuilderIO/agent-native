@@ -251,7 +251,9 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") {
+    return `${value < 0 ? "-" : ""}$${Math.abs(value).toLocaleString()}`;
+  }
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -278,7 +280,9 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   if (value == null) return "";
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
-    if (format === "currency") return `$${value.toLocaleString()}`;
+    if (format === "currency") {
+      return `${value < 0 ? "-" : ""}$${Math.abs(value).toLocaleString()}`;
+    }
     if (format === "percent") {
       const pct = value <= 1 && value >= -1 ? value * 100 : value;
       return `${pct.toFixed(2)}%`;

@@ -42,6 +42,11 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("1234", "number")).toBe("1,234");
   });
 
+  it("puts the sign before the dollar sign for currency", () => {
+    expect(formatMetricValue(-7505, "currency")).toBe("-$7,505");
+    expect(formatMetricValue(111090, "currency")).toBe("$111,090");
+  });
+
   it("honors a valueLabels override before any coercion", () => {
     expect(formatMetricValue("3", "number", { "3": "Tier 3" })).toBe("Tier 3");
   });
