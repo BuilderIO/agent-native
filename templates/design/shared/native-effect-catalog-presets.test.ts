@@ -34,6 +34,10 @@ import {
   FEATURE_TRAILS_PRESETS,
 } from "./native-effect-owned-as-feature-trails";
 import {
+  ASCII_PRINT_V2_EFFECT,
+  ASCII_PRINT_V2_PRESETS,
+} from "./native-effect-owned-ascii-print-v2";
+import {
   CONTENT_BOUNDS_TRACKER_V2_EFFECT,
   CONTENT_BOUNDS_TRACKER_V2_PRESETS,
 } from "./native-effect-owned-at-content-bounds-tracker-v2";
@@ -222,6 +226,10 @@ import {
   OWNED_O_STUDIO_LIGHT_RIG_V2_PRESETS,
 } from "./native-effect-owned-o-studio-light-rig-v2";
 import {
+  TRIANGULAR_BEAM_LATTICE_V2_EFFECT,
+  TRIANGULAR_BEAM_LATTICE_V2_PRESETS,
+} from "./native-effect-owned-s-triangular-beam-lattice-v2";
+import {
   FLUID_COLOR_FIELD_EFFECT,
   FLUID_COLOR_FIELD_PRESETS,
 } from "./native-effect-owned-source-free-fluid-field";
@@ -249,10 +257,10 @@ describe("Design-owned catalog", () => {
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
     ).toBe(378);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(443);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(888);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(445);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(892);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      888,
+      892,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -306,6 +314,8 @@ describe("Design-owned catalog", () => {
       [OWNED_O_STUDIO_LIGHT_RIG_V2, OWNED_O_STUDIO_LIGHT_RIG_V2_PRESETS],
       [WATERLINE_MIRROR_V2_EFFECT, WATERLINE_MIRROR_V2_PRESETS],
       [TAPERED_LIGHT_BEAM_EFFECT, TAPERED_LIGHT_BEAM_PRESETS],
+      [ASCII_PRINT_V2_EFFECT, ASCII_PRINT_V2_PRESETS],
+      [TRIANGULAR_BEAM_LATTICE_V2_EFFECT, TRIANGULAR_BEAM_LATTICE_V2_PRESETS],
       [OWNED_T_CONCENTRIC_ROTOR_V2, OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS],
       [FLUID_COLOR_FIELD_EFFECT, FLUID_COLOR_FIELD_PRESETS],
       [FRAME_MOSH_V2_EFFECT, FRAME_MOSH_V2_PRESETS],
@@ -368,7 +378,8 @@ describe("Design-owned catalog", () => {
           definition === COLOR_GRADE_V2_EFFECT ||
           definition === OWNED_O_STUDIO_LIGHT_RIG_V2 ||
           definition === WATERLINE_MIRROR_V2_EFFECT ||
-          definition === TAPERED_LIGHT_BEAM_EFFECT
+          definition === TAPERED_LIGHT_BEAM_EFFECT ||
+          definition === ASCII_PRINT_V2_EFFECT
           ? "static"
           : "animated",
       );
@@ -425,12 +436,24 @@ describe("Design-owned catalog", () => {
         WATERLINE_MIRROR_V2_EFFECT,
         "3b10336b563336801b02086105476df86f2a97df906bf4dcfab80dda0be90cc7",
       ],
+      [
+        ASCII_PRINT_V2_EFFECT,
+        "20981a7a89a0bd663f303d06e3443f44739424473901bd3be14498e0d81536a3",
+      ],
+      [
+        TRIANGULAR_BEAM_LATTICE_V2_EFFECT,
+        "ad10f5b6c5994439bf139af78dd145a6ad05b6b82cb743796915128c9f375553",
+      ],
     ] as const) {
       const versions = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
         (item) => item.id === definition.id,
       );
-      expect(versions.map((item) => item.version)).toEqual([1, 2]);
-      expect(await hashEffectDefinition(versions[0]!)).toBe(priorHash);
+      expect(versions.map((item) => item.version).sort()).toEqual([1, 2]);
+      expect(
+        await hashEffectDefinition(
+          versions.find((item) => item.version === 1)!,
+        ),
+      ).toBe(priorHash);
     }
   });
 

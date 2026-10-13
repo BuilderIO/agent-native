@@ -104,6 +104,7 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-vignette@1",
   "an-native-crosshatch@1",
   "an-native-ascii-print@1",
+  "an-native-ascii-print@2",
   "an-native-gaussian-blur@2",
   "an-native-bloom@2",
   "an-native-owned-directional-smear@1",
@@ -299,6 +300,7 @@ const STATIC_BUILTIN_VERSIONS = new Set([
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
+  "an-native-owned-s-triangular-beam-lattice@2",
   "an-native-owned-source-free-fluid-color-field@1",
   "an-native-owned-t-concentric-rotor@2",
   "an-native-owned-al-film-response@1",

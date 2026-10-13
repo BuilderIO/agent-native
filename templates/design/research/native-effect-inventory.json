@@ -10,27 +10,27 @@
   },
   "counts": {
     "distinctDefinitions": 378,
-    "exactVersions": 443,
-    "registeredPresets": 888,
-    "presetsTargetingLatestVersions": 785,
-    "presetsTargetingHistoricalVersions": 103,
+    "exactVersions": 445,
+    "registeredPresets": 892,
+    "presetsTargetingLatestVersions": 784,
+    "presetsTargetingHistoricalVersions": 108,
     "latestByKind": {
       "generator": 168,
       "processor": 203,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 212,
-      "processor": 223,
+      "generator": 213,
+      "processor": 224,
       "simulation": 8
     },
     "latestByAnimation": {
-      "animated": 129,
-      "static": 249
+      "animated": 130,
+      "static": 248
     },
     "fullByAnimation": {
-      "animated": 155,
-      "static": 288
+      "animated": 156,
+      "static": 289
     },
     "latestByPlacement": {
       "fill": 171,
@@ -38,9 +38,9 @@
       "backdrop": 172
     },
     "fullByPlacement": {
-      "fill": 215,
-      "layer": 232,
-      "backdrop": 186
+      "fill": 216,
+      "layer": 233,
+      "backdrop": 187
     },
     "fullyValidatedDefinitions": 0
   },
@@ -60381,6 +60381,386 @@
         "an-preset-owned-cl-tapered-light-beam-neon-sweep"
       ],
       "animationCapability": "static"
+    },
+    {
+      "id": "an-native-ascii-print",
+      "name": "ASCII Print",
+      "version": 2,
+      "executionHash": "7e23fcfbdc5111b88ad71714bb76951c5fedb1e3f199d296e59085ebcb0675cc",
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "palette": {
+          "type": "color-array",
+          "label": "Palette",
+          "default": [
+            {
+              "space": "srgb",
+              "components": [
+                0.015,
+                0.1,
+                0.16
+              ],
+              "alpha": 1
+            },
+            {
+              "space": "srgb",
+              "components": [
+                0.035,
+                0.56,
+                0.59
+              ],
+              "alpha": 1
+            },
+            {
+              "space": "srgb",
+              "components": [
+                0.74,
+                0.93,
+                0.85
+              ],
+              "alpha": 1
+            }
+          ],
+          "maxCount": 8
+        },
+        "cellSize": {
+          "type": "float",
+          "label": "Cell size",
+          "default": 12,
+          "min": 6,
+          "max": 40,
+          "step": 0.01
+        },
+        "edge": {
+          "type": "enum",
+          "label": "Edges",
+          "default": "clamp",
+          "options": [
+            "transparent",
+            "clamp",
+            "repeat",
+            "mirror"
+          ],
+          "advanced": true
+        },
+        "gamma": {
+          "type": "float",
+          "label": "Gamma",
+          "default": 1,
+          "min": 0.25,
+          "max": 4,
+          "step": 0.01
+        },
+        "glyphSpacing": {
+          "type": "float",
+          "label": "Glyph spacing",
+          "default": 0,
+          "min": 0,
+          "max": 24,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Alpha threshold",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "glyphMode": {
+          "type": "enum",
+          "label": "Glyph source",
+          "default": "builtin",
+          "options": [
+            "builtin",
+            "atlas"
+          ]
+        },
+        "atlasImage": {
+          "type": "texture",
+          "label": "Glyph atlas",
+          "default": null,
+          "input": "glyphAtlas",
+          "visibleWhen": {
+            "property": "glyphMode",
+            "equals": "atlas"
+          }
+        },
+        "atlasColumns": {
+          "type": "int",
+          "label": "Atlas columns",
+          "default": 8,
+          "min": 1,
+          "max": 16,
+          "step": 1,
+          "visibleWhen": {
+            "property": "glyphMode",
+            "equals": "atlas"
+          }
+        },
+        "atlasRows": {
+          "type": "int",
+          "label": "Atlas rows",
+          "default": 1,
+          "min": 1,
+          "max": 16,
+          "step": 1,
+          "visibleWhen": {
+            "property": "glyphMode",
+            "equals": "atlas"
+          }
+        },
+        "atlasGlyphLimit": {
+          "type": "int",
+          "label": "Glyph limit",
+          "default": 8,
+          "min": 1,
+          "max": 256,
+          "step": 1,
+          "visibleWhen": {
+            "property": "glyphMode",
+            "equals": "atlas"
+          }
+        },
+        "atlasCoverage": {
+          "type": "enum",
+          "label": "Atlas coverage",
+          "default": "alpha",
+          "options": [
+            "alpha",
+            "luminance"
+          ],
+          "visibleWhen": {
+            "property": "glyphMode",
+            "equals": "atlas"
+          }
+        }
+      },
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [
+            "source",
+            "glyphAtlas"
+          ],
+          "output": "color"
+        }
+      ],
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        },
+        "glyphAtlas": {
+          "kind": "texture-2d",
+          "resource": "glyphAtlas",
+          "enabledWhen": {
+            "property": "glyphMode",
+            "equals": "atlas"
+          },
+          "fallback": "transparent-data"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "usage": [
+            "sampled"
+          ],
+          "external": true,
+          "size": "viewport"
+        },
+        {
+          "name": "glyphAtlas",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport",
+          "sampleEncoding": "srgb-color-premultiplied"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "presetIds": [
+        "an-preset-ascii-print-v2-newsprint-grid",
+        "an-preset-ascii-print-v2-copper-display"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-s-triangular-beam-lattice",
+      "name": "Triangular Beam Lattice",
+      "version": 2,
+      "executionHash": "aee1820f25ebfdc4dfd152108c86c8367afcc922039b0b3c7bdb3087a4177cf7",
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "pitch": {
+          "type": "float",
+          "label": "Pitch",
+          "default": 48,
+          "min": 16,
+          "max": 120,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "stroke": {
+          "type": "float",
+          "label": "Beam",
+          "default": 2,
+          "min": 0.5,
+          "max": 12,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "joint": {
+          "type": "float",
+          "label": "Joint radius",
+          "default": 3,
+          "min": 0,
+          "max": 15,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "beam": {
+          "type": "color",
+          "label": "Beam",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.8,
+              0.72,
+              0.54
+            ],
+            "alpha": 1
+          }
+        },
+        "ground": {
+          "type": "color",
+          "label": "Ground",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.07,
+              0.12,
+              0.16
+            ],
+            "alpha": 1
+          }
+        },
+        "variation": {
+          "type": "float",
+          "label": "Face variation",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "faceColor": {
+          "type": "color",
+          "label": "Variation color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.2,
+              0.35,
+              0.44
+            ],
+            "alpha": 1
+          }
+        },
+        "rowMotion": {
+          "type": "float",
+          "label": "Row motion",
+          "default": 0,
+          "min": 0,
+          "max": 48,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "rowSpeed": {
+          "type": "float",
+          "label": "Row speed",
+          "default": 0.6,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "speedVariance": {
+          "type": "float",
+          "label": "Row speed variance",
+          "default": 0.35,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "presetIds": [
+        "an-preset-owned-s-triangular-beam-lattice-v2-mineral-mesh",
+        "an-preset-owned-s-triangular-beam-lattice-v2-drifting-neon"
+      ],
+      "animationCapability": "animated"
     }
   ],
   "defaultCanvasGpuEvidence": {
