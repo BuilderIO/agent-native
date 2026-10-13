@@ -362,8 +362,13 @@ function boundedList(
   return [...included, marker].join(separator);
 }
 
-function boundedExcerpt(value: string, max: number): string {
+function boundedExcerpt(
+  value: string,
+  max: number,
+  scanSummary: SourceIndexScanSummary,
+): string {
   if (value.length <= max) return value;
+  scanSummary.truncatedFields += 1;
   const marker = " … [definition excerpt truncated; inspect source]";
   return `${value.slice(0, max - marker.length).trimEnd()}${marker}`;
 }
@@ -489,8 +494,7 @@ function safeDescription(
     return undefined;
   }
   if (normalized.length > MAX_DESCRIPTION_LENGTH) {
-    scanSummary.truncatedFields += 1;
-    return boundedExcerpt(normalized, MAX_DESCRIPTION_LENGTH);
+    return boundedExcerpt(normalized, MAX_DESCRIPTION_LENGTH, scanSummary);
   }
   return normalized;
 }
@@ -1647,8 +1651,7 @@ function safeOwnerName(
     return undefined;
   }
   if (normalized.length > 160) {
-    scanSummary.truncatedFields += 1;
-    return boundedExcerpt(normalized, 160);
+    return boundedExcerpt(normalized, 160, scanSummary);
   }
   return normalized;
 }
@@ -1735,6 +1738,7 @@ function semanticModelEntries(
         ...(timeDimension ? [`Time dimension: ${timeDimension}`] : []),
       ].join(". "),
       5_000,
+      scanSummary,
     );
     const entry: SourceIndexEntry = {
       id: entryId(root.id, "semantic-model", name),
@@ -1821,6 +1825,7 @@ function semanticModelEntries(
             : []),
         ].join(". "),
         5_000,
+        scanSummary,
       );
       const entry: SourceIndexEntry = {
         id: entryId(root.id, "semantic-model", name),
@@ -1903,6 +1908,7 @@ function semanticModelEntries(
           ...(semanticModel ? [`Semantic model: ${semanticModel.name}`] : []),
         ].join(". "),
         5_000,
+        scanSummary,
       );
       return [
         {
@@ -1969,6 +1975,7 @@ function semanticModelEntries(
           `Semantic model: ${semanticModel.name}`,
         ].join(". "),
         5_000,
+        scanSummary,
       );
       return [
         {
@@ -2987,8 +2994,7 @@ function modelEntries(
       : []),
   ];
   const fullDefinition = definitionParts.join(" ");
-  const definition = boundedExcerpt(fullDefinition, 5_000);
-  if (fullDefinition.length > 5_000) scanSummary.truncatedFields += 1;
+  const definition = boundedExcerpt(fullDefinition, 5_000, scanSummary);
   const columnNames = columns.map((column) => column.name);
   const columnsUsed = boundedList(columnNames, 10_000, ", ", scanSummary);
   const modelGotchas = [
@@ -3122,6 +3128,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
               ? `dbt singular test referencing ${boundedList(dependencies, 4_000, ", ", scanSummary)}`
               : "dbt singular test.",
             5_000,
+            scanSummary,
           ),
           source: root.id,
           semanticScope: inferSemanticScope(name),
@@ -3238,6 +3245,7 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
               ? `Tracked event with properties: ${boundedList(properties, 4_000, ", ", scanSummary)}`
               : "Tracked application event.",
             5_000,
+            scanSummary,
           ),
           source: root.id,
           sourceKind: "code",

@@ -727,6 +727,11 @@ describe("compileSourceIndex", () => {
         "      - name: order_status",
         "        dimension:",
         "          type: categorical",
+        ...Array.from({ length: 100 }, (_, index) => [
+          `      - name: dimension_${String(index).padStart(3, "0")}_${"segment".repeat(6)}`,
+          "        dimension:",
+          "          type: categorical",
+        ]).flat(),
         "    metrics:",
         "      - name: order_total",
         "        description: Total order amount.",
@@ -767,6 +772,13 @@ describe("compileSourceIndex", () => {
     expect(semanticModel?.definition).toContain(
       "Dimensions: ordered_at (time, day); order_status (categorical)",
     );
+    expect(semanticModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(model?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(bundle.scanSummary.truncatedFields).toBe(2);
     expect(metric).toMatchObject({
       metric: "metric:order_total",
       owner: "Revenue Analytics",

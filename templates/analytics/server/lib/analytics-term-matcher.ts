@@ -341,14 +341,22 @@ export function stripNonPositiveInstructions(value: string): string {
     ]
       .filter((candidate): candidate is RegExpExecArray => candidate !== null)
       .sort((left, right) => left.index - right.index)[0];
-    return continuation ? ` ${match.slice(continuation.index).trim()}` : " ";
+    const retainedContinuation = continuation
+      ? match
+          .slice(continuation.index)
+          .trim()
+          .split(/\s+/)
+          .slice(0, 12)
+          .join(" ")
+      : "";
+    return retainedContinuation ? ` ${retainedContinuation}` : " ";
   };
 
   return value
     .replace(/(?:^|[;,.!?])\s*metadata only\b/gi, " ")
     .replace(
       /(?:^|[;,.!?]|\bbut\b|\band\b)\s*(?:please\s+)?(?:do\s+not|don't|never|avoid)\s+(?:report|return|show|include|provide|display)\s+(?:any\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b(?:(?!\b(?:but|and)\s+(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b)[^;,.!?])*/gi,
-      " ",
+      keepPositiveContinuation,
     )
     .replace(
       /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*(?:with\s+)?\bno\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,

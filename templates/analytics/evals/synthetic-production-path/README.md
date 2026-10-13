@@ -15,7 +15,14 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
-## Latest measured comparison (v11)
+## Historical v11 comparison (candidate snapshot `fb583843`)
+
+This is the latest checked-in comparison, but it measures candidate commit
+`fb583843666f597c9eced3d7f4f297fd5cdcec26`, not the current branch. Later
+ranking and source-index changes are not covered by its 32/32 after score. Treat
+v11 as historical evidence and do not use that score as a claim about current
+branch quality until a fresh comparison is recorded. Its fixture supplies a
+hard-coded synthetic source index and does not invoke `build-source-index.ts`.
 
 The v11 comparison adds the case `negated-counts-preserve-role-detail` to cover
 the review finding where a negated count request lost the following role

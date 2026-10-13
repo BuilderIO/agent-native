@@ -580,7 +580,7 @@ function hasActiveOnlyMembershipEvidence(
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
-  return /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/.test(
+  return /(?:\b(?<!non )active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b|\b(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?(?<!non )active\b)/.test(
     searchable,
   );
 }
@@ -591,7 +591,7 @@ function activeMemberPhrasePolarity(search: string): {
 } {
   const intent = stripNonPositiveInstructions(search);
   const activeMemberPhrase =
-    /\b(?:active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)|(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?active)\b/gi;
+    /\b(?<!non[- ])(?:active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)|(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?active)\b/gi;
   const negativeInstructionBeforePhrase =
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
   const negatedRemovalBeforePhrase =
@@ -1085,7 +1085,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
   ];
 
   const requestedScope = requestedSemanticScope(rankingIntent);
-  const requestedActiveMembers = requestsActiveMembers(rankingIntent);
+  const requestedActiveMembers =
+    (requestedScope === "membership" ||
+      requestedScope === "membership_roster") &&
+    requestsActiveMembers(rankingIntent);
   const aggregateRequest =
     /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
       rankingIntent,
@@ -1103,6 +1106,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
+  const excludesMembershipForActivity = requestedScope === "product_activity";
   const excludesActiveOnlyMembership =
     !requestedActiveMembers &&
     (rosterRequest || plainMembershipRequest || activeMemberIntent.negated);
@@ -1158,6 +1162,12 @@ export function rankAnalyticsQueryCatalogPage(args: {
       !(
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
+      ) &&
+      !(
+        excludesMembershipForActivity &&
+        ["membership", "membership_roster"].includes(
+          candidateSemanticScope(candidate),
+        )
       ),
   );
   const strongestScopeMatch = Math.max(

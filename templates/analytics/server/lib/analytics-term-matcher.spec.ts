@@ -154,6 +154,16 @@ describe("Analytics term matching", () => {
       ),
     ).toBe("workspace users but show the monthly trend");
     expect(
+      stripNonPositiveInstructions(
+        "workspace users, do not report live counts by role",
+      ),
+    ).toBe("workspace users by role");
+    const boundedContinuation = stripNonPositiveInstructions(
+      `workspace users with no counts by role ${"detail ".repeat(30)}`,
+    );
+    expect(boundedContinuation).toContain("by role");
+    expect(boundedContinuation.split(/\s+/)).toHaveLength(14);
+    expect(
       semanticScopeForSearch(
         "workspace users, don't report live counts but show the monthly trend",
       ),

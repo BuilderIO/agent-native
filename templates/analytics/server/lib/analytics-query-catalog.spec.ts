@@ -252,7 +252,7 @@ describe("analytics query catalog", () => {
 
   it("rejects active-only sources and historical snapshots for an unfiltered current roster", () => {
     const results = rankAnalyticsQueryCatalog({
-      search: "list workspace user roster with roles",
+      search: "list full workspace member roster with roles",
       limit: 6,
       dashboards: [],
       dictionaryEntries: [
@@ -263,6 +263,16 @@ describe("analytics query catalog", () => {
             "Current active users associated with each workspace, with their role and membership grain.",
           table: "active_users_by_org",
           columnsUsed: "user_id, org_id, role",
+          grain: "One row per user-organization membership",
+          semanticScope: "membership",
+        },
+        {
+          id: "active-members-only-by-workspace",
+          metric: "Workspace member role details",
+          definition:
+            "Only members who are active in the workspace are included with assigned role details.",
+          table: "active_workspace_member_roles",
+          columnsUsed: "user_id, workspace_id, role",
           grain: "One row per user-organization membership",
           semanticScope: "membership",
         },
@@ -298,6 +308,60 @@ describe("analytics query catalog", () => {
           : candidate.dashboardId,
       ),
     ).toEqual(["daily-refreshed-current-workspace-roles"]);
+  });
+
+  it("does not treat non-active members as a request for active-only membership rows", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace members with no counts for non-active members",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "active-members-only",
+          metric: "Active workspace members",
+          definition: "Only active workspace members and their roles.",
+          table: "active_workspace_member_roles",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+        },
+        {
+          id: "all-workspace-members",
+          metric: "Workspace member roles",
+          definition: "Current roles for all workspace memberships.",
+          table: "workspace_member_roles",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "all-workspace-members",
+    });
+  });
+
+  it("does not return membership sources for product-activity searches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "active users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "active-workspace-members",
+          metric: "Active workspace members",
+          definition: "Current active users associated with each workspace.",
+          table: "active_users_by_workspace",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
   });
 
   it.each([
@@ -725,6 +789,7 @@ describe("analytics query catalog", () => {
   it.each([
     "workspace users, no live counts",
     "workspace users without a count",
+    "workspace users, do not report live counts by role",
     "workspace users. Metadata only; do not report live counts or values.",
     "Find the catalog reference for workspace users, no live counts. Metadata only; do not report live counts or values.",
   ])(
