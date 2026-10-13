@@ -1215,6 +1215,8 @@ export default {
         "{{count}} jetons importés. {{skipped}} éléments non valides ignorés. Non traités en raison des limites (jetons : {{omittedTokens}}, fichiers : {{omittedFiles}}).",
       importedWithReadFailures:
         "{{count}} jetons importés, mais {{readFailures}} fichiers n'ont pas pu être lus. Sélectionnez-les à nouveau et réessayez.",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} jetons importés. {{readFailures}} fichiers n'ont pas pu être lus. {{skipped}} éléments non valides ont aussi été ignorés, et les limites ont laissé {{omittedTokens}} jetons et {{omittedFiles}} fichiers non traités. Sélectionnez à nouveau les fichiers illisibles et réessayez.",
       noTokensFound:
         "Aucun jeton valide trouvé. Vérifiez le format du fichier et les valeurs.",
       count: "{{count}} jetons",

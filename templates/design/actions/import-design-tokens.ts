@@ -1609,6 +1609,59 @@ function cssMathDimensionForNode(
           dimensions[0]!,
         );
     }
+    if (name === "clamp") {
+      const args = splitCssMathNodeArguments([...node.children]);
+      if (args.length !== 3) return "invalid";
+      const dimensions = args.flatMap((argument, index) => {
+        const isNone =
+          argument.length === 1 &&
+          argument[0]?.type === "Identifier" &&
+          csstree.ident.decode(argument[0].name).toLowerCase() === "none";
+        if (isNone && (index === 0 || index === 2)) return [];
+        if (isNone) return ["invalid" as const];
+        return [cssMathDimensionForNodes(argument, unknownRanges)];
+      });
+      if (dimensions.length === 0) return "invalid";
+      return dimensions
+        .slice(1)
+        .reduce(
+          (dimension, next) => compatibleCssMathDimensions(dimension, next),
+          dimensions[0]!,
+        );
+    }
+    if (name === "round" || name === "mod" || name === "rem") {
+      const args = splitCssMathNodeArguments([...node.children]);
+      if (name === "round") {
+        const hasStrategy =
+          args[0]?.length === 1 &&
+          args[0][0]?.type === "Identifier" &&
+          cssRoundingStrategies.has(
+            csstree.ident.decode(args[0][0].name).toLowerCase(),
+          );
+        const calculationArgs = hasStrategy ? args.slice(1) : args;
+        if (
+          calculationArgs.length < 1 ||
+          calculationArgs.length > 2 ||
+          (args.length === 3 && !hasStrategy)
+        ) {
+          return "invalid";
+        }
+        const dimensions = calculationArgs.map((argument) =>
+          cssMathDimensionForNodes(argument, unknownRanges),
+        );
+        return dimensions
+          .slice(1)
+          .reduce(
+            (dimension, next) => compatibleCssMathDimensions(dimension, next),
+            dimensions[0]!,
+          );
+      }
+      if (args.length !== 2) return "invalid";
+      return compatibleCssMathDimensions(
+        cssMathDimensionForNodes(args[0]!, unknownRanges),
+        cssMathDimensionForNodes(args[1]!, unknownRanges),
+      );
+    }
     return "invalid";
   }
 
@@ -1773,18 +1826,16 @@ function isValidCssMathFunction(
     );
   }
   if (name === "clamp") {
-    const isCalculationOrNone = (part: string, dimension: CssMathDimension) =>
-      part.trim().toLowerCase() === "none" || dimension !== "invalid";
+    const isNone = (part: string) => part.trim().toLowerCase() === "none";
     const clampDimensions = parts
-      .map((part, index) =>
-        part.trim().toLowerCase() === "none" ? "unknown" : dimensions[index]!,
-      )
-      .filter((_, index) => parts[index]!.trim().toLowerCase() !== "none");
+      .map((part, index) => (isNone(part) ? "unknown" : dimensions[index]!))
+      .filter((_, index) => !isNone(parts[index]!));
     return (
       parts.length === 3 &&
-      isCalculationOrNone(parts[0]!, dimensions[0]!) &&
-      isCalculationOrNone(parts[1]!, dimensions[1]!) &&
-      isCalculationOrNone(parts[2]!, dimensions[2]!) &&
+      (isNone(parts[0]!) || dimensions[0] !== "invalid") &&
+      !isNone(parts[1]!) &&
+      dimensions[1] !== "invalid" &&
+      (isNone(parts[2]!) || dimensions[2] !== "invalid") &&
       dimensions.every(isSupportedResultDimension) &&
       argumentsCompatible(clampDimensions)
     );
@@ -1804,6 +1855,9 @@ function isValidCssMathFunction(
       calculationParts.length <= 2 &&
       calculationDimensions.every((dimension) => dimension !== "invalid") &&
       calculationDimensions.every(isSupportedResultDimension) &&
+      (calculationParts.length === 2 ||
+        calculationDimensions[0] === "number" ||
+        calculationDimensions[0] === "unknown") &&
       argumentsCompatible(calculationDimensions)
     );
   }

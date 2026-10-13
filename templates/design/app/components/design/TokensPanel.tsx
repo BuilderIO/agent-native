@@ -112,6 +112,7 @@ export function getTokenImportStatus(result: {
     | "designEditor.tokens.importedWithSkipped"
     | "designEditor.tokens.importedWithOmissions"
     | "designEditor.tokens.importedWithReadFailures"
+    | "designEditor.tokens.importedWithReadFailuresAndOmissions"
     | "designEditor.tokens.noTokensFound";
   values?: {
     count: number;
@@ -126,6 +127,18 @@ export function getTokenImportStatus(result: {
   const omittedTokenCount = result.omittedTokenCount ?? 0;
   const omittedFileCount = result.omittedFileCount ?? 0;
   if (readFailureCount > 0) {
+    if (skippedCount > 0 || omittedTokenCount > 0 || omittedFileCount > 0) {
+      return {
+        key: "designEditor.tokens.importedWithReadFailuresAndOmissions",
+        values: {
+          count: result.importedCount,
+          skipped: skippedCount,
+          omittedTokens: omittedTokenCount,
+          omittedFiles: omittedFileCount,
+          readFailures: readFailureCount,
+        },
+      };
+    }
     return {
       key: "designEditor.tokens.importedWithReadFailures",
       values: { count: result.importedCount, readFailures: readFailureCount },

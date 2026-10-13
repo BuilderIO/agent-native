@@ -1319,6 +1319,8 @@ export default {
         "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效項目。因匯入限制未處理的數量：權杖 {{omittedTokens}}，檔案 {{omittedFiles}}。",
       importedWithReadFailures:
         "已匯入 {{count}} 個權杖，但無法讀取 {{readFailures}} 個檔案。請重新選取並重試。",
+      importedWithReadFailuresAndOmissions:
+        "已匯入 {{count}} 個權杖。無法讀取 {{readFailures}} 個檔案。另略過了 {{skipped}} 個無效項目，且因匯入限制未處理 {{omittedTokens}} 個權杖和 {{omittedFiles}} 個檔案。請重新選取無法讀取的檔案並重試。",
       noTokensFound: "找不到有效權杖。請檢查檔案格式和權杖值。",
       count: "{{count}} 個權杖",
       search: "搜尋權杖",

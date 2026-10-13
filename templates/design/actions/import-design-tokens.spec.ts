@@ -1313,6 +1313,8 @@ Bad radius: 12px} body { color: red
         "Spacing malformed: calc(12px +)",
         "Spacing min malformed: min(12px,)",
         "Spacing clamp malformed: clamp(1px, 2px)",
+        "Spacing clamp middle none: clamp(1px, none, 3px)",
+        "Spacing clamp mismatch: calc(clamp(1px, 2s, 3px) + 1px)",
         "Spacing fallback malformed: var(--spacing, calc(1px +))",
         "Spacing math fallback malformed: calc(var(--spacing, 1px + ) + 1px)",
         "Spacing var name malformed: calc(var(not-a-custom-property, 2px) + 1px)",
@@ -1333,6 +1335,9 @@ Bad radius: 12px} body { color: red
         "Spacing attr syntax malformed: calc(attr(data-gap <length> nonsense) + 1px)",
         "Spacing attr syntax malformed words: calc(attr(data-gap length nonsense) + 1px)",
         "Spacing round malformed: round(1px,)",
+        "Spacing round length missing step: round(2px)",
+        "Spacing round length missing step strategy: round(down, 2px)",
+        "Spacing nested round mismatch: calc(round(2px, 1s) + 1px)",
         "Spacing var valid: calc(var(--spacing-gap, 2px) + 1px)",
         "Spacing var empty fallback: calc(var(--spacing-gap,) + 1px)",
         "Spacing env valid: calc(env(safe-area-inset-top, 2px) + 1px)",
@@ -1351,10 +1356,16 @@ Bad radius: 12px} body { color: red
         "Spacing min valid: min(12px, 24px)",
         "Spacing round valid: round(down, 5px, 2px)",
         "Spacing clamp none: clamp(none, 5px, none)",
+        "Spacing nested clamp: calc(clamp(1px, 2px, 3px) + 1px)",
+        "Spacing nested clamp none: calc(clamp(none, 2px, none) + 1px)",
+        "Spacing nested round: calc(round(2px, 1px) + 1px)",
+        "Spacing round number default step: round(2)",
+        "Spacing nested mod: calc(mod(5px, 2px) + 1px)",
+        "Spacing nested rem: calc(rem(5px, 2px) + 1px)",
       ].join("\n"),
     });
-    expect(result.importedCount).toBe(18);
-    expect(result.rejectedCount).toBe(23);
+    expect(result.importedCount).toBe(24);
+    expect(result.rejectedCount).toBe(28);
     expect(result.tokens).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1428,6 +1439,30 @@ Bad radius: 12px} body { color: red
         expect.objectContaining({
           cssVar: "--spacing-clamp-none",
           value: "clamp(none, 5px, none)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-nested-clamp",
+          value: "calc(clamp(1px, 2px, 3px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-nested-clamp-none",
+          value: "calc(clamp(none, 2px, none) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-nested-round",
+          value: "calc(round(2px, 1px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-round-number-default-step",
+          value: "round(2)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-nested-mod",
+          value: "calc(mod(5px, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-nested-rem",
+          value: "calc(rem(5px, 2px) + 1px)",
         }),
       ]),
     );

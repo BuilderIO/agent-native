@@ -113,6 +113,21 @@ describe("getTokenImportStatus", () => {
         skippedCount: 1,
       }),
     ).toEqual({
+      key: "designEditor.tokens.importedWithReadFailuresAndOmissions",
+      values: {
+        count: 1,
+        skipped: 3,
+        omittedTokens: 0,
+        omittedFiles: 1,
+        readFailures: 2,
+      },
+    });
+  });
+
+  it("reports unreadable files when no other items were skipped", () => {
+    expect(
+      getTokenImportStatus({ importedCount: 1, readFailureCount: 2 }),
+    ).toEqual({
       key: "designEditor.tokens.importedWithReadFailures",
       values: { count: 1, readFailures: 2 },
     });
