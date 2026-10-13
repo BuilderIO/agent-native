@@ -4162,6 +4162,98 @@ export async function runAuthoringFuzz(
           return 0;
       }
     }, result);
+  const inlineShortcutText = (result: string, value: string) => {
+    if (result === "bold" || result === "strike") return value.slice(2, -2);
+    if (result === "italic" || result === "code") return value.slice(1, -1);
+    return null;
+  };
+  const inlineShortcutIsActive = async (
+    format: string,
+    value: string,
+    expectedTextLength: number,
+  ) =>
+    editor.evaluate(
+      (
+        root: HTMLElement,
+        expected: { format: string; text: string; textLength: number },
+      ) => {
+        const selection = window.getSelection();
+        const anchor =
+          selection?.anchorNode instanceof HTMLElement
+            ? selection.anchorNode
+            : selection?.anchorNode?.parentElement;
+        const block =
+          anchor?.closest<HTMLElement>(
+            "p,li,blockquote,pre,h1,h2,h3,h4,h5,h6,div",
+          ) ?? root;
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          nodes.push(node as Text);
+        }
+        const text = nodes.map((node) => node.data).join("");
+        if (text.length !== expected.textLength) return false;
+        const tokenStart = text.length - expected.text.length;
+        if (tokenStart < 0 || !text.endsWith(expected.text)) return false;
+
+        const hasFormat = (node: Text) => {
+          for (
+            let element = node.parentElement;
+            element && root.contains(element);
+            element = element.parentElement
+          ) {
+            const style = window.getComputedStyle(element);
+            if (expected.format === "bold") {
+              const weight = style.fontWeight;
+              if (
+                element.tagName === "B" ||
+                element.tagName === "STRONG" ||
+                weight === "bold" ||
+                (Number.parseFloat(weight) || 0) >= 600
+              ) {
+                return true;
+              }
+            } else if (expected.format === "italic") {
+              if (
+                element.tagName === "I" ||
+                element.tagName === "EM" ||
+                style.fontStyle === "italic" ||
+                style.fontStyle === "oblique"
+              ) {
+                return true;
+              }
+            } else if (expected.format === "strike") {
+              if (
+                element.tagName === "S" ||
+                element.tagName === "DEL" ||
+                style.textDecorationLine.includes("line-through") ||
+                style.textDecoration.includes("line-through")
+              ) {
+                return true;
+              }
+            } else if (element.tagName === "CODE") {
+              return true;
+            }
+            if (element === block) break;
+          }
+          return false;
+        };
+
+        let offset = 0;
+        let checked = 0;
+        for (const node of nodes) {
+          const end = offset + node.data.length;
+          if (end > tokenStart && offset < text.length) {
+            if (!hasFormat(node)) return false;
+            checked +=
+              Math.min(end, text.length) - Math.max(offset, tokenStart);
+          }
+          offset = end;
+        }
+        return checked === expected.text.length;
+      },
+      { format, text: value, textLength: expectedTextLength },
+    );
   const shortcutState = async () =>
     editor.evaluate((root: HTMLElement) => {
       const selection = window.getSelection();
@@ -4217,10 +4309,20 @@ export async function runAuthoringFuzz(
   const assertShortcut = async (
     result: string,
     before: number,
-    beforeTrigger?: unknown,
+    value: string,
+    beforeTrigger: Awaited<ReturnType<typeof shortcutState>>,
   ) => {
     const after = await shortcutResultCount(result);
-    if (after <= before) {
+    const content = inlineShortcutText(result, value);
+    const produced =
+      content === null
+        ? after > before
+        : await inlineShortcutIsActive(
+            result,
+            content,
+            beforeTrigger.blockTextLength - (value.length - 1 - content.length),
+          );
+    if (!produced) {
       const state = await shortcutState();
       throw new Error(
         `markdown shortcut did not produce ${result} (${before} -> ${after}; before trigger=${JSON.stringify(beforeTrigger)}; after=${JSON.stringify(state)})`,
@@ -5493,7 +5595,12 @@ export async function runAuthoringFuzz(
             await typeBurst(prefix, operation.result !== "divider");
             const beforeTrigger = await shortcutState();
             await typeBurst(trigger, false);
-            await assertShortcut(operation.result, before, beforeTrigger);
+            await assertShortcut(
+              operation.result,
+              before,
+              operation.value,
+              beforeTrigger,
+            );
             await typeBurst("q", true);
           }
           break;

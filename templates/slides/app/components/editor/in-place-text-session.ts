@@ -929,6 +929,19 @@ function rowMarker(row: HTMLElement): HTMLElement | null {
   return first instanceof HTMLElement && isBulletMarker(first) ? first : null;
 }
 
+function placeCaretAtRowEdge(
+  row: HTMLElement,
+  caret: Range,
+  edge: "start" | "end",
+) {
+  const marker = rowMarker(row);
+  const text = rowTextRange(row, marker);
+  placeCaret(
+    ...(rowTextVisualLinePoint(text, marker, row, caret, edge) ??
+      rowTextPoint(text, marker, row, edge)),
+  );
+}
+
 function isEmptyRow(row: HTMLElement) {
   const marker = rowMarker(row);
   return !Array.from(row.childNodes).some(
@@ -5122,22 +5135,12 @@ export function startInPlaceTextSession(
       (key === "arrowleft" || key === "arrowright")
     ) {
       const range = selectionFocusRange();
-      const row = range && legacyRowAt(range.startContainer);
+      const row =
+        range &&
+        (listItemAt(range.startContainer) ?? legacyRowAt(range.startContainer));
       if (range && row) {
         event.preventDefault();
-        const marker = rowMarker(row);
-        const text = rowTextRange(row, marker);
-        if (key === "arrowleft") {
-          placeCaret(
-            ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
-              rowTextPoint(text, marker, row, "start")),
-          );
-        } else {
-          placeCaret(
-            ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
-              rowTextPoint(text, marker, row, "end")),
-          );
-        }
+        placeCaretAtRowEdge(row, range, key === "arrowleft" ? "start" : "end");
         return;
       }
     }
@@ -5150,15 +5153,12 @@ export function startInPlaceTextSession(
       !/Mac|iPhone|iPad/.test(navigator.platform)
     ) {
       const range = selectionFocusRange();
-      const row = range && legacyRowAt(range.startContainer);
+      const row =
+        range &&
+        (listItemAt(range.startContainer) ?? legacyRowAt(range.startContainer));
       if (range && row) {
         event.preventDefault();
-        const marker = rowMarker(row);
-        const text = rowTextRange(row, marker);
-        placeCaret(
-          ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
-            rowTextPoint(text, marker, row, "start")),
-        );
+        placeCaretAtRowEdge(row, range, "start");
         return;
       }
     }
@@ -5233,15 +5233,12 @@ export function startInPlaceTextSession(
       !event.shiftKey
     ) {
       const range = selectionFocusRange();
-      const row = range && legacyRowAt(range.startContainer);
+      const row =
+        range &&
+        (listItemAt(range.startContainer) ?? legacyRowAt(range.startContainer));
       if (range && row && !/Mac|iPhone|iPad/.test(navigator.platform)) {
         event.preventDefault();
-        const marker = rowMarker(row);
-        const text = rowTextRange(row, marker);
-        placeCaret(
-          ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
-            rowTextPoint(text, marker, row, "end")),
-        );
+        placeCaretAtRowEdge(row, range, "end");
       } else {
         // One character in, the caret is on the text's own line for End.
         const selection = selectionRange();

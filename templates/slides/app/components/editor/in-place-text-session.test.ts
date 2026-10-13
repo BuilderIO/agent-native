@@ -1113,6 +1113,37 @@ describe("in-place text session: the caret at the click point", () => {
   );
 
   it.each([
+    ["Home", "Linux x86_64", false, 0],
+    ["End", "Linux x86_64", false, 16],
+    ["ArrowLeft", "MacIntel", true, 0],
+    ["ArrowRight", "MacIntel", true, 16],
+  ] as const)(
+    "%s keeps the caret in a real list item on %s",
+    (keyName, platform, metaKey, expectedOffset) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+      const el = mount(
+        '<div id="t"><ul><li>Alpha beta gamma<ul><li>Nested line</li></ul></li></ul></div>',
+      );
+      session = startInPlaceTextSession(el);
+      const text = textOf(el, "Alpha beta gamma");
+      caret(text, 8);
+
+      const event = key(el, { key: keyName, metaKey });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect([
+        window.getSelection()!.anchorNode,
+        window.getSelection()!.anchorOffset,
+      ]).toEqual([text, expectedOffset]);
+      expect(
+        el
+          .querySelector(":scope > ul > li")
+          ?.contains(window.getSelection()!.anchorNode),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
     ["Home", false, 6],
     ["End", false, 10],
     ["ArrowLeft", true, 6],
