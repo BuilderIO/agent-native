@@ -337,6 +337,23 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it("does not count production-path failure codes as completed runs", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
+    const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+    for (let index = afterStart; index < afterStart + 5; index += 1) {
+      const columns = rows[index]!.split(",");
+      columns[7] = "0";
+      columns[8] = "production_path_failed";
+      columns[9] = "";
+      columns[10] = "false";
+      rows[index] = columns.join(",");
+    }
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "At least 90% of each phase must complete the production path before comparison.",
+    );
+  });
+
   it("retains a completed retrieval miss for honest quality reporting", () => {
     const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;

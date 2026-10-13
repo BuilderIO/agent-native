@@ -665,6 +665,7 @@ export function validateProductionPathComparisonCsv(
     const phaseRows = rows.filter((row) => row.phase === phase);
     const completedRows = phaseRows.filter(
       (row) =>
+        RANK_REASON_CODES.has(row.reason_code) &&
         row.completed &&
         !row.aborted &&
         row.find_data_calls === 1 &&
