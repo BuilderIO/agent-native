@@ -124,9 +124,13 @@ function formatDimension(value: Json): string | null {
 }
 
 function formatFontFamily(value: Json): string | null {
-  const families = Array.isArray(value) ? value : [value];
-  if (!families.every((family) => typeof family === "string")) return null;
-  return (families as string[])
+  // A string is already CSS (often a whole stack like "Inter, sans-serif");
+  // only array entries are single names that may need quoting.
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || !value.every((f) => typeof f === "string")) {
+    return null;
+  }
+  return (value as string[])
     .map((family) => (/\s/.test(family) ? `"${family}"` : family))
     .join(", ");
 }

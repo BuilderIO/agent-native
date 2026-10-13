@@ -140,6 +140,31 @@ describe("parseDtcgTokens", () => {
     ]);
   });
 
+  it("keeps a string font stack as written and quotes array names", () => {
+    const tokens = parseDtcgTokens(
+      JSON.stringify({
+        font: {
+          $type: "fontFamily",
+          stack: { $value: "Inter, sans-serif" },
+          list: { $value: ["Inter Variable", "sans-serif"] },
+        },
+      }),
+    );
+
+    expect(tokens).toEqual([
+      {
+        cssVar: "--font-stack",
+        value: "Inter, sans-serif",
+        type: "font-family",
+      },
+      {
+        cssVar: "--font-list",
+        value: '"Inter Variable", sans-serif',
+        type: "font-family",
+      },
+    ]);
+  });
+
   it("formats shadows and expands typography composites", () => {
     const tokens = parseDtcgTokens(
       JSON.stringify({
