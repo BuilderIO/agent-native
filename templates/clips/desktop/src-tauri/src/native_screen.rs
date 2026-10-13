@@ -8715,12 +8715,15 @@ fn prepare_audio_sidecar_slices(
 ) -> Result<(Vec<NativeMediaSlice>, PreparedSliceFiles), String> {
     let ffmpeg = resolve_ffmpeg_path()
         .ok_or_else(|| "Rewind audio materialization requires ffmpeg".to_string())?;
+    let has_sidecar_audio = slices
+        .iter()
+        .any(|slice| slice.system_audio_path.is_some() || slice.microphone_path.is_some());
     let mut prepared = Vec::with_capacity(slices.len());
     let mut temporary = Vec::new();
     for (index, slice) in slices.iter().enumerate() {
         let system = slice.system_audio_path.as_deref();
         let microphone = slice.microphone_path.as_deref();
-        if system.is_none() && microphone.is_none() {
+        if system.is_none() && microphone.is_none() && !has_sidecar_audio {
             prepared.push(slice.clone());
             continue;
         }
@@ -8917,6 +8920,56 @@ mod audio_sidecar_materialization_tests {
                 "{name} selection did not leave silence in the other slot: {placeholder:?}"
             );
         }
+    }
+
+    #[test]
+    fn normalizes_silent_slices_when_other_slices_have_audio() {
+        let ffmpeg = resolve_ffmpeg_path().expect("ffmpeg is required for this test");
+        let directory = TempDirectory::new();
+        let video = directory.0.join("video.mp4");
+        let audio = directory.0.join("audio.wav");
+        create_test_video(&ffmpeg, &video);
+        create_test_audio(&ffmpeg, &audio);
+
+        let silent_output = directory.0.join("silent-prepared.mp4");
+        let slices = [
+            NativeMediaSlice {
+                path: video.clone(),
+                system_audio_path: None,
+                microphone_path: None,
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+            NativeMediaSlice {
+                path: video,
+                system_audio_path: Some(audio),
+                microphone_path: None,
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+        ];
+
+        let (prepared, _temporary_files) =
+            prepare_audio_sidecar_slices(&slices, &silent_output).unwrap();
+
+        assert_eq!(prepared.len(), 2);
+        for track in 0..2 {
+            let signal = probe_audio_track(&ffmpeg, &prepared[0].path, track);
+            assert!(
+                signal.mean_volume_db.is_some_and(|mean| mean <= -60.0),
+                "silent slice track {track} contains signal: {signal:?}"
+            );
+        }
+        let system = probe_audio_track(&ffmpeg, &prepared[1].path, 0);
+        assert!(
+            system.mean_volume_db.is_some_and(|mean| mean > -60.0),
+            "audio-bearing slice lost its system audio: {system:?}"
+        );
+        let microphone = probe_audio_track(&ffmpeg, &prepared[1].path, 1);
+        assert!(
+            microphone.mean_volume_db.is_some_and(|mean| mean <= -60.0),
+            "audio-bearing slice has signal in the microphone slot: {microphone:?}"
+        );
     }
 }
 
