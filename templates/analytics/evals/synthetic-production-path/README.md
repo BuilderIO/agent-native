@@ -15,7 +15,44 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
-## Current v12 comparison (candidate snapshot `35fdffa8`)
+## Current v13 comparison (candidate snapshot `586b87b5`)
+
+The checked-in v13 artifact runs twenty-one synthetic cases twice in each
+phase through the same production agent loop. The baseline is current
+`origin/main` at `afe2ee7e45f6f3f380571a6d18918fc49d71c6e1`; the candidate
+source snapshot is `586b87b50a99fe0d5023637df9c735bafb47d035`. The new case
+places an approved monthly workspace-membership aggregate beside an unapproved
+generated row-level membership bridge and checks that a plain membership
+lookup selects the row-grain source. All prompts, models, identities, and
+warehouse names are synthetic.
+
+The baseline passed both the top-1 retrieval and production-path checks in
+6/42 runs (14.3%) and retrieved the expected candidate in the top five in
+20/42 runs (47.6%). The candidate passed 42/42 (100%) on both measures. All 84
+runs completed without aborts; each made one `find-data` call and no other or
+failed action. Each run exercised the production prompt, caller and
+organization context, final-response guard, and usage capture. The deterministic
+in-memory engine does not call a hosted model, BigQuery, or a connected data
+source. These scores measure synthetic retrieval and production-path
+integrity, not hosted-model answer quality or production latency.
+
+Evaluated code hashes are
+`sha256:5efa951a394abdcc5d39090b58d0277f1e0392a0ca1c984c96def8935cabcafe`
+before and
+`sha256:f1cda350256c3ec48f87bf151c7284291ecf4467b2c1f9fa5c5062e5fea8b764`
+after. Both phases use identical harness bytes, hash
+`sha256:91a1a65cebb864d1368b624b9dac7e2ab4c32710357e52c4a9c25c6c705a7d97`.
+The harness checked the source bytes against each pinned commit when it emitted
+the CSV. The checked-in validator pins those revisions and hashes; it does not
+recompute Git-object hashes.
+
+The CSV contains only synthetic case IDs, source revisions, coded ranks and
+scores, action counts, completion state, token totals, and elapsed time. It
+contains no prompts, tool inputs, SQL, identities, or source values. The v13
+artifact is
+[`SYNTHETIC-analytics-production-path-v13-before-after.csv`](./SYNTHETIC-analytics-production-path-v13-before-after.csv).
+
+## Historical v12 comparison (candidate snapshot `35fdffa8`)
 
 The checked-in v12 artifact runs twenty synthetic cases twice in each phase
 through the same production agent loop. The baseline is `origin/main` at

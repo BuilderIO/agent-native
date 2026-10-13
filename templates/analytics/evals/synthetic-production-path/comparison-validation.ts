@@ -53,7 +53,12 @@ const V12_CASE_IDS = [
   "later-independent-exclusion-excludes-active-members",
 ] as const;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V12_CASE_IDS;
+const V13_CASE_IDS = [
+  ...V12_CASE_IDS,
+  "workspace-membership-prefers-row-grain",
+] as const;
+
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V13_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -101,6 +106,18 @@ const PINNED_EVALUATIONS = [
     harnessRevision:
       "sha256:ca70d1a86c17bff2777ac22b4428f4f4370e4d71ad96e60266f22a54a6ba2792",
     caseIds: V12_CASE_IDS,
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v13",
+    baselineRevision: "afe2ee7e45f6f3f380571a6d18918fc49d71c6e1",
+    baselineCodeRevision:
+      "sha256:5efa951a394abdcc5d39090b58d0277f1e0392a0ca1c984c96def8935cabcafe",
+    candidateRevision: "586b87b50a99fe0d5023637df9c735bafb47d035",
+    candidateCodeRevision:
+      "sha256:f1cda350256c3ec48f87bf151c7284291ecf4467b2c1f9fa5c5062e5fea8b764",
+    harnessRevision:
+      "sha256:91a1a65cebb864d1368b624b9dac7e2ab4c32710357e52c4a9c25c6c705a7d97",
+    caseIds: V13_CASE_IDS,
   },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(

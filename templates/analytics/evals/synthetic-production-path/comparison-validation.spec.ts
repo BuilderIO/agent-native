@@ -32,6 +32,12 @@ const V12_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V13_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v13-before-after.csv",
+    import.meta.url,
+  ),
+);
 const CSV_COLUMNS = [
   "case_id",
   "phase",
@@ -58,7 +64,7 @@ const CSV_COLUMNS = [
 function makeComparisonCsv(): string {
   const rows = [CSV_COLUMNS.join(",")];
   const beforeRanks: readonly (number | null)[] = [
-    3,
+    4,
     null,
     null,
     null,
@@ -67,17 +73,18 @@ function makeComparisonCsv(): string {
     null,
     4,
     1,
+    1,
+    3,
+    null,
     4,
     1,
-    2,
+    4,
+    5,
+    null,
+    null,
+    null,
     null,
     3,
-    1,
-    3,
-    null,
-    null,
-    null,
-    null,
   ];
   for (const phase of ["before", "after"] as const) {
     for (const [
@@ -138,17 +145,17 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(makeComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 20,
+      cases: 21,
       before: {
-        rows: 40,
+        rows: 42,
         top1: 6,
-        hitAt5: 18,
+        hitAt5: 20,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
-        rows: 40,
-        top1: 40,
-        hitAt5: 40,
+        rows: 42,
+        top1: 42,
+        hitAt5: 42,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });
@@ -335,10 +342,10 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      rows: 40,
-      top1: 39,
-      retrievalTop1: 39,
-      hitAt5: 39,
+      rows: 42,
+      top1: 41,
+      retrievalTop1: 41,
+      hitAt5: 41,
       failedRuns: 1,
       abortedRuns: 1,
     });
@@ -356,9 +363,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      top1: 39,
-      retrievalTop1: 39,
-      hitAt5: 39,
+      top1: 41,
+      retrievalTop1: 41,
+      hitAt5: 41,
       failedRuns: 1,
       abortedRuns: 0,
     });
@@ -403,15 +410,50 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         hitAt5: 18,
         failedRuns: 34,
         abortedRuns: 0,
-        revision: PRODUCTION_PATH_BASELINE_REVISION,
-        codeRevision: PRODUCTION_PATH_BASELINE_CODE_REVISION,
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        revision: "1999aef1ad68dcf9d44423fa95df1a7acb67e8c5",
+        codeRevision:
+          "sha256:5bf2d8b224e03b2fb8081a0f61e6e626d420a51c2a3de60c6d6d50595063e8f7",
+        harnessRevision:
+          "sha256:ca70d1a86c17bff2777ac22b4428f4f4370e4d71ad96e60266f22a54a6ba2792",
       },
       after: {
         rows: 40,
         top1: 40,
         retrievalTop1: 40,
         hitAt5: 40,
+        failedRuns: 0,
+        abortedRuns: 0,
+        revision: "35fdffa8f309e2a7820d6c6e1e5decad04ebf989",
+        codeRevision:
+          "sha256:7b4e074cb1b62a254e00af4924c37ac923ff280dfdf74b63fb000a207d929e38",
+        harnessRevision:
+          "sha256:ca70d1a86c17bff2777ac22b4428f4f4370e4d71ad96e60266f22a54a6ba2792",
+      },
+    });
+  });
+
+  it("validates the current v13 production-path comparison", async () => {
+    const csv = await readFile(V13_COMPARISON_CSV, "utf8");
+    const result = validateProductionPathComparisonCsv(csv);
+
+    expect(result).toMatchObject({
+      cases: 21,
+      before: {
+        rows: 42,
+        top1: 6,
+        retrievalTop1: 6,
+        hitAt5: 20,
+        failedRuns: 36,
+        abortedRuns: 0,
+        revision: PRODUCTION_PATH_BASELINE_REVISION,
+        codeRevision: PRODUCTION_PATH_BASELINE_CODE_REVISION,
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+      after: {
+        rows: 42,
+        top1: 42,
+        retrievalTop1: 42,
+        hitAt5: 42,
         failedRuns: 0,
         abortedRuns: 0,
         revision: PRODUCTION_PATH_CANDIDATE_REVISION,
