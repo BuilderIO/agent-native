@@ -3648,23 +3648,54 @@ export async function runAuthoringFuzz(
         { selector: editorSelector, id: listboxId },
       );
     try {
-      await page.waitForFunction(
-        ({ selector, id }: { selector: string; id: string }) => {
-          const editor = document.querySelector<HTMLElement>(selector);
-          const menu = document.getElementById(id);
-          const style = menu ? window.getComputedStyle(menu) : null;
-          const visible =
-            !!menu &&
-            !!style &&
-            !menu.hidden &&
-            style.display !== "none" &&
-            style.visibility !== "hidden" &&
-            menu.getClientRects().length > 0;
-          return editor?.getAttribute("aria-controls") !== id && !visible;
-        },
+      const closed = await page.evaluate(
+        ({ selector, id }: { selector: string; id: string }) =>
+          new Promise<boolean>((resolve) => {
+            let observer: MutationObserver | undefined;
+            let timer: number | undefined;
+            const finish = (isClosed: boolean) => {
+              observer?.disconnect();
+              if (timer !== undefined) window.clearTimeout(timer);
+              resolve(isClosed);
+            };
+            const isClosed = () => {
+              const editor = document.querySelector<HTMLElement>(selector);
+              const menu = document.getElementById(id);
+              const style = menu ? window.getComputedStyle(menu) : null;
+              const visible =
+                !!menu &&
+                !!style &&
+                !menu.hidden &&
+                style.display !== "none" &&
+                style.visibility !== "hidden" &&
+                menu.getClientRects().length > 0;
+              return editor?.getAttribute("aria-controls") !== id && !visible;
+            };
+            observer = new MutationObserver(() => {
+              if (isClosed()) finish(true);
+            });
+            observer.observe(document.documentElement, {
+              subtree: true,
+              childList: true,
+              attributes: true,
+              attributeFilter: [
+                "aria-controls",
+                "aria-expanded",
+                "aria-hidden",
+                "class",
+                "data-state",
+                "hidden",
+                "id",
+                "role",
+                "style",
+              ],
+            });
+            timer = window.setTimeout(() => finish(isClosed()), 1500);
+            if (isClosed()) finish(true);
+          }),
         { selector: editorSelector, id: listboxId },
-        { timeout: 1500 },
       );
+      if (!closed) throw new Error("timeout 1500ms exceeded");
     } catch (error) {
       const closeState = await state();
       const reason = error instanceof Error ? error.message : String(error);
