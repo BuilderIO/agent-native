@@ -82,6 +82,7 @@ import { resolveLeftSidebarWidth } from "./left-sidebar-width";
 import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities";
 import { hasMinimalInspectorSelection } from "./minimal-inspector";
 import { mergePresenceUsers } from "./presence-users";
+import { shouldDisableExportsUntilCanvasFramesExist } from "./selection-state";
 import { getDesignBottomToolbarMode } from "./tool-state";
 import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
@@ -209,6 +210,7 @@ export function renderDesignEditorView({
     handleQuestionsSkip,
     pendingQuestionsVisible,
     pendingGenerationActive,
+    generating,
     designLoading,
     refetchDesign,
     designAccessStatus,
@@ -258,6 +260,7 @@ export function renderDesignEditorView({
     boardFileId,
     hasLocalhostScreens,
     editorShareUrl,
+    canvasFrameGeometryById,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -440,6 +443,11 @@ export function renderDesignEditorView({
     runtimeLayerSnapshotReadiness.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
+  const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
+    canvasFrameCount: Object.keys(canvasFrameGeometryById).length,
+    generating,
+    pendingGenerationActive,
+  });
 
   const shareExportOptions: Array<{
     value: ShareExportFormat;
@@ -459,7 +467,8 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "One self-contained file that works offline.",
       Icon: IconCode,
-      disabled: !activeFile || exportHtmlMutation.isPending,
+      disabled:
+        !activeFile || exportsUnavailable || exportHtmlMutation.isPending,
       onDownload: handleDownloadHtml,
     },
     {
@@ -470,7 +479,7 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Snapshot of the current screen.",
       Icon: IconPhoto,
-      disabled: !activeFile || pngExporting,
+      disabled: !activeFile || exportsUnavailable || pngExporting,
       onDownload: () => void handleDownloadPng(),
     },
     {
@@ -481,7 +490,7 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Scalable snapshot of the current screen.",
       Icon: IconCode,
-      disabled: !activeFile || svgExporting,
+      disabled: !activeFile || exportsUnavailable || svgExporting,
       onDownload: () => void handleDownloadSvg(),
     },
     {
@@ -492,7 +501,8 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Every file in this design, zipped.",
       Icon: IconArchive,
-      disabled: !activeFile || exportZipMutation.isPending,
+      disabled:
+        !activeFile || exportsUnavailable || exportZipMutation.isPending,
       onDownload: handleDownloadZip,
     },
   ];

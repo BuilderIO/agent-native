@@ -299,6 +299,553 @@ describe("stored legacy defaults in MDX source", () => {
     );
   });
 
+  it("preserves idless block IDs when a new block is inserted before them", async () => {
+    const previous = await parsePlanMdxFolder({
+      "plan.mdx": [
+        "---",
+        'title: "Idless source blocks"',
+        "version: 2",
+        "---",
+        "",
+        '<HtmlBlock html="<div>First</div>" />',
+        '<HtmlBlock html="<div>Second</div>" />',
+      ].join("\n"),
+    });
+    const folder = {
+      "plan.mdx": [
+        "---",
+        'title: "Idless source blocks"',
+        "version: 2",
+        "---",
+        "",
+        '<HtmlBlock html="<div>Inserted</div>" />',
+        '<HtmlBlock html="<div>First</div>" />',
+        '<HtmlBlock html="<div>Second</div>" />',
+      ].join("\n"),
+    };
+
+    const parsed = await parsePlanMdxFolder(folder, {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks).toHaveLength(3);
+    expect(parsed.blocks[0]?.id).toBeTruthy();
+    expect(parsed.blocks[1]?.id).toBe(previous.blocks[0]?.id);
+    expect(parsed.blocks[2]?.id).toBe(previous.blocks[1]?.id);
+    expect(parsed.blocks[0]?.id).not.toBe(previous.blocks[0]?.id);
+    expect(parsed.blocks[0]?.id).not.toBe(previous.blocks[1]?.id);
+
+    const reparsed = await parsePlanMdxFolder(folder, {
+      validateAuthoringChangesAgainst: parsed,
+    });
+    expect(reparsed.blocks.map((block) => block.id)).toEqual(
+      parsed.blocks.map((block) => block.id),
+    );
+  });
+
+  it("preserves nested IDs when a moved Columns block gains a child", async () => {
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": [
+        "---",
+        'title: "Moved Columns with an insertion"',
+        "version: 2",
+        "---",
+        "",
+        ...blocks,
+      ].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(
+      makeFolder([
+        '<HtmlBlock html="<div>Before</div>" />',
+        "<Columns>",
+        "  <Column>",
+        '    <HtmlBlock html="<div>A</div>" />',
+        '    <HtmlBlock html="<div>B</div>" />',
+        "  </Column>",
+        "  <Column>",
+        '    <HtmlBlock html="<div>C</div>" />',
+        '    <HtmlBlock html="<div>D</div>" />',
+        "  </Column>",
+        "</Columns>",
+      ]),
+    );
+    const parsed = await parsePlanMdxFolder(
+      makeFolder([
+        '<HtmlBlock html="<div>Inserted</div>" />',
+        '<HtmlBlock html="<div>Before</div>" />',
+        "<Columns>",
+        "  <Column>",
+        '    <HtmlBlock html="<div>New</div>" />',
+        '    <HtmlBlock html="<div>A</div>" />',
+        '    <HtmlBlock html="<div>B</div>" />',
+        "  </Column>",
+        "  <Column>",
+        '    <HtmlBlock html="<div>New right</div>" />',
+        '    <HtmlBlock html="<div>C</div>" />',
+        '    <HtmlBlock html="<div>D</div>" />',
+        "  </Column>",
+        "</Columns>",
+      ]),
+      { validateAuthoringChangesAgainst: previous },
+    );
+    const oldColumns = previous.blocks[1];
+    const newColumns = parsed.blocks[2];
+    if (oldColumns?.type !== "columns" || newColumns?.type !== "columns") {
+      throw new Error("expected columns");
+    }
+
+    expect(newColumns.id).toBe(oldColumns.id);
+    const allChildIds: string[] = [];
+    for (const [index, oldColumn] of oldColumns.data.columns.entries()) {
+      const newColumn = newColumns.data.columns[index];
+      if (!newColumn) throw new Error("expected matching column");
+      expect(newColumn.id).toBe(oldColumn.id);
+      expect(newColumn.blocks).toHaveLength(3);
+      expect(newColumn.blocks[0]?.id).not.toBe(oldColumn.blocks[0]?.id);
+      expect(newColumn.blocks[0]?.id).not.toBe(oldColumn.blocks[1]?.id);
+      expect(newColumn.blocks[1]?.id).toBe(oldColumn.blocks[0]?.id);
+      expect(newColumn.blocks[2]?.id).toBe(oldColumn.blocks[1]?.id);
+      allChildIds.push(...newColumn.blocks.map((block) => block.id));
+    }
+    expect(new Set(allChildIds).size).toBe(allChildIds.length);
+  });
+
+  it("preserves nested Tabs IDs across a move and insertion without rewriting explicit IDs", async () => {
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": [
+        "---",
+        'title: "Moved Tabs with an insertion"',
+        "version: 2",
+        "---",
+        "",
+        ...blocks,
+      ].join("\n"),
+    });
+    const previousTabs = [
+      {
+        label: "Details",
+        blocks: [
+          { type: "custom-html", data: { html: "A" } },
+          { type: "custom-html", data: { html: "B" } },
+        ],
+      },
+    ];
+    const previous = await parsePlanMdxFolder(
+      makeFolder([
+        '<HtmlBlock html="<div>Before</div>" />',
+        `<TabsBlock tabs={${JSON.stringify(previousTabs)}} />`,
+      ]),
+    );
+    const editedTabs = [
+      {
+        label: "Details",
+        blocks: [
+          { type: "custom-html", data: { html: "New" } },
+          { type: "custom-html", id: "authored-a", data: { html: "A" } },
+          { type: "custom-html", data: { html: "B" } },
+        ],
+      },
+    ];
+    const parsed = await parsePlanMdxFolder(
+      makeFolder([
+        '<HtmlBlock html="<div>Inserted</div>" />',
+        '<HtmlBlock html="<div>Before</div>" />',
+        `<TabsBlock tabs={${JSON.stringify(editedTabs)}} />`,
+      ]),
+      { validateAuthoringChangesAgainst: previous },
+    );
+    const oldTabs = previous.blocks[1];
+    const newTabs = parsed.blocks[2];
+    if (oldTabs?.type !== "tabs" || newTabs?.type !== "tabs") {
+      throw new Error("expected tabs");
+    }
+
+    expect(newTabs.id).toBe(oldTabs.id);
+    const oldTab = oldTabs.data.tabs[0];
+    const newTab = newTabs.data.tabs[0];
+    if (!oldTab || !newTab) throw new Error("expected first tab");
+    expect(newTab.id).toBe(oldTab.id);
+    expect(newTab.blocks[0]?.id).not.toBe(oldTab.blocks[0]?.id);
+    expect(newTab.blocks[1]?.id).toBe("authored-a");
+    expect(newTab.blocks[2]?.id).toBe(oldTab.blocks[1]?.id);
+    const childIds = newTab.blocks.map((block) => block.id);
+    expect(childIds).toHaveLength(3);
+    expect(new Set(childIds).size).toBe(3);
+  });
+
+  it("matches moved parents through an inserted nested child inside one child", async () => {
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": [
+        "---",
+        'title: "Nested insertion under a moved parent"',
+        "version: 2",
+        "---",
+        "",
+        ...blocks,
+      ].join("\n"),
+    });
+    const previousTabs = [
+      {
+        label: "Details",
+        blocks: [
+          { type: "custom-html", data: { html: "A" } },
+          { type: "custom-html", data: { html: "B" } },
+        ],
+      },
+    ];
+    const previous = await parsePlanMdxFolder(
+      makeFolder([
+        '<HtmlBlock html="<div>Before</div>" />',
+        "<Columns>",
+        "  <Column>",
+        `    <TabsBlock tabs={${JSON.stringify(previousTabs)}} />`,
+        "  </Column>",
+        "</Columns>",
+      ]),
+    );
+    const editedTabs = [
+      {
+        label: "Details",
+        blocks: [
+          { type: "custom-html", data: { html: "New" } },
+          { type: "custom-html", data: { html: "A" } },
+          { type: "custom-html", data: { html: "B" } },
+        ],
+      },
+    ];
+    const parsed = await parsePlanMdxFolder(
+      makeFolder([
+        '<HtmlBlock html="<div>Inserted</div>" />',
+        '<HtmlBlock html="<div>Before</div>" />',
+        "<Columns>",
+        "  <Column>",
+        `    <TabsBlock tabs={${JSON.stringify(editedTabs)}} />`,
+        "  </Column>",
+        "</Columns>",
+      ]),
+      { validateAuthoringChangesAgainst: previous },
+    );
+    const oldColumns = previous.blocks[1];
+    const newColumns = parsed.blocks[2];
+    if (oldColumns?.type !== "columns" || newColumns?.type !== "columns") {
+      throw new Error("expected columns");
+    }
+    expect(newColumns.id).toBe(oldColumns.id);
+    const oldColumn = oldColumns.data.columns[0];
+    const newColumn = newColumns.data.columns[0];
+    if (!oldColumn || !newColumn) throw new Error("expected first column");
+    expect(newColumn.id).toBe(oldColumn.id);
+    const oldTabsBlock = oldColumn.blocks[0];
+    const newTabsBlock = newColumn.blocks[0];
+    if (oldTabsBlock?.type !== "tabs" || newTabsBlock?.type !== "tabs") {
+      throw new Error("expected nested tabs");
+    }
+    expect(newTabsBlock.id).toBe(oldTabsBlock.id);
+    const oldTab = oldTabsBlock.data.tabs[0];
+    const newTab = newTabsBlock.data.tabs[0];
+    if (!oldTab || !newTab) throw new Error("expected first tab");
+    expect(newTab.id).toBe(oldTab.id);
+    expect(newTab.blocks[0]?.id).not.toBe(oldTab.blocks[0]?.id);
+    expect(newTab.blocks[1]?.id).toBe(oldTab.blocks[0]?.id);
+    expect(newTab.blocks[2]?.id).toBe(oldTab.blocks[1]?.id);
+  });
+
+  it("keeps existing identical idless siblings when another is appended", async () => {
+    const makeFolder = (count: number) => ({
+      "plan.mdx": [
+        "---",
+        "version: 2",
+        "---",
+        "",
+        ...Array.from(
+          { length: count },
+          () => '<HtmlBlock html="<div>Repeated</div>" />',
+        ),
+      ].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(makeFolder(2));
+    const parsed = await parsePlanMdxFolder(makeFolder(3), {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks.slice(0, 2).map((block) => block.id)).toEqual(
+      previous.blocks.map((block) => block.id),
+    );
+    expect(previous.blocks.map((block) => block.id)).not.toContain(
+      parsed.blocks[2]?.id,
+    );
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(3);
+  });
+
+  it("preserves the maximum run of repeated idless siblings", async () => {
+    const makeFolder = (count: number) => ({
+      "plan.mdx": [
+        "---",
+        "version: 2",
+        "---",
+        "",
+        ...Array.from(
+          { length: count },
+          () => '<HtmlBlock html="<div>Repeated</div>" />',
+        ),
+      ].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(makeFolder(199));
+    const parsed = await parsePlanMdxFolder(makeFolder(200), {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks.slice(0, 199).map((block) => block.id)).toEqual(
+      previous.blocks.map((block) => block.id),
+    );
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(200);
+  }, 10_000);
+
+  it("preserves a large repeated run when its unique anchor moves across it", async () => {
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const unique = '<HtmlBlock html="<div>Unique</div>" />';
+    const repeatedBlocks = Array.from({ length: 100 }, () => repeated);
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": ["---", "version: 2", "---", "", ...blocks].join("\n"),
+    });
+
+    for (const uniqueStartsAtBeginning of [false, true]) {
+      const previousNodes = uniqueStartsAtBeginning
+        ? [unique, ...repeatedBlocks]
+        : [...repeatedBlocks, unique];
+      const currentNodes = uniqueStartsAtBeginning
+        ? [...repeatedBlocks, unique]
+        : [unique, ...repeatedBlocks];
+      const previous = await parsePlanMdxFolder(makeFolder(previousNodes));
+      const parsed = await parsePlanMdxFolder(makeFolder(currentNodes), {
+        validateAuthoringChangesAgainst: previous,
+      });
+
+      expect(parsed.blocks).toHaveLength(101);
+      if (uniqueStartsAtBeginning) {
+        expect(parsed.blocks.slice(0, 100).map((block) => block.id)).toEqual(
+          previous.blocks.slice(1).map((block) => block.id),
+        );
+        expect(parsed.blocks[100]?.id).toBe(previous.blocks[0]?.id);
+      } else {
+        expect(parsed.blocks[0]?.id).toBe(previous.blocks[100]?.id);
+        expect(parsed.blocks.slice(1).map((block) => block.id)).toEqual(
+          previous.blocks.slice(0, 100).map((block) => block.id),
+        );
+      }
+    }
+  }, 20_000);
+
+  it("preserves the repeated run when moved anchors precede a new sibling", async () => {
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const firstAnchor = '<HtmlBlock html="<div>First anchor</div>" />';
+    const secondAnchor = '<HtmlBlock html="<div>Second anchor</div>" />';
+    const previousNodes = [
+      ...Array.from({ length: 100 }, () => repeated),
+      firstAnchor,
+      secondAnchor,
+    ];
+    const currentNodes = [
+      firstAnchor,
+      secondAnchor,
+      ...Array.from({ length: 101 }, () => repeated),
+    ];
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": ["---", "version: 2", "---", "", ...blocks].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(makeFolder(previousNodes));
+    const parsed = await parsePlanMdxFolder(makeFolder(currentNodes), {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks[0]?.id).toBe(previous.blocks[100]?.id);
+    expect(parsed.blocks[1]?.id).toBe(previous.blocks[101]?.id);
+    expect(parsed.blocks.slice(2, 102).map((block) => block.id)).toEqual(
+      previous.blocks.slice(0, 100).map((block) => block.id),
+    );
+    expect(previous.blocks.map((block) => block.id)).not.toContain(
+      parsed.blocks[102]?.id,
+    );
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(103);
+  }, 20_000);
+
+  it("uses occurrence order when one anchor crosses a repeated run", async () => {
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const firstAnchor = '<HtmlBlock html="<div>First anchor</div>" />';
+    const secondAnchor = '<HtmlBlock html="<div>Second anchor</div>" />';
+    const repeatedBlocks = Array.from({ length: 100 }, () => repeated);
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": ["---", "version: 2", "---", "", ...blocks].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(
+      makeFolder([...repeatedBlocks, firstAnchor, secondAnchor]),
+    );
+    const parsed = await parsePlanMdxFolder(
+      makeFolder([firstAnchor, ...repeatedBlocks, repeated, secondAnchor]),
+      { validateAuthoringChangesAgainst: previous },
+    );
+
+    expect(parsed.blocks[0]?.id).toBe(previous.blocks[100]?.id);
+    expect(parsed.blocks.slice(1, 101).map((block) => block.id)).toEqual(
+      previous.blocks.slice(0, 100).map((block) => block.id),
+    );
+    expect(previous.blocks.map((block) => block.id)).not.toContain(
+      parsed.blocks[101]?.id,
+    );
+    expect(parsed.blocks[102]?.id).toBe(previous.blocks[101]?.id);
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(103);
+  }, 20_000);
+
+  it("preserves a repeated run when moved anchors follow its new sibling", async () => {
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const firstAnchor = '<HtmlBlock html="<div>First anchor</div>" />';
+    const secondAnchor = '<HtmlBlock html="<div>Second anchor</div>" />';
+    const repeatedBlocks = Array.from({ length: 100 }, () => repeated);
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": ["---", "version: 2", "---", "", ...blocks].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(
+      makeFolder([firstAnchor, secondAnchor, ...repeatedBlocks]),
+    );
+    const parsed = await parsePlanMdxFolder(
+      makeFolder([...repeatedBlocks, repeated, firstAnchor, secondAnchor]),
+      { validateAuthoringChangesAgainst: previous },
+    );
+
+    expect(parsed.blocks.slice(0, 100).map((block) => block.id)).toEqual(
+      previous.blocks.slice(2).map((block) => block.id),
+    );
+    expect(previous.blocks.map((block) => block.id)).not.toContain(
+      parsed.blocks[100]?.id,
+    );
+    expect(parsed.blocks[101]?.id).toBe(previous.blocks[0]?.id);
+    expect(parsed.blocks[102]?.id).toBe(previous.blocks[1]?.id);
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(103);
+  }, 20_000);
+
+  it("uses source anchors to keep a large repeated run stable after an insertion", async () => {
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const separator = '<HtmlBlock html="<div>Separator</div>" />';
+    const trailing = '<HtmlBlock html="<div>Trailing</div>" />';
+    const makeFolder = (count: number) => ({
+      "plan.mdx": [
+        "---",
+        "version: 2",
+        "---",
+        "",
+        ...Array.from({ length: count }, () => repeated),
+        separator,
+        trailing,
+      ].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(makeFolder(100));
+    const parsed = await parsePlanMdxFolder(makeFolder(101), {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks[0]?.id).not.toBe(previous.blocks[0]?.id);
+    expect(parsed.blocks.slice(1, 101).map((block) => block.id)).toEqual(
+      previous.blocks.slice(0, 100).map((block) => block.id),
+    );
+  });
+
+  it("does not count whitespace-only MDX before a block as a Markdown block", async () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Whitespace before a block",
+      blocks: [
+        { id: "persisted-checklist", type: "checklist", data: { items: [] } },
+      ],
+    });
+    const parsed = await parsePlanMdxFolder(
+      {
+        "plan.mdx": [
+          "---",
+          'title: "Whitespace before a block"',
+          "version: 2",
+          "---",
+          "",
+          "   ",
+          "",
+          "<Checklist />",
+        ].join("\n"),
+      },
+      {
+        allowStoredLegacyDefaults: true,
+        validateAuthoringChangesAgainst: previous,
+      },
+    );
+
+    expect(parsed.blocks[0]).toMatchObject({
+      id: "persisted-checklist",
+      type: "checklist",
+      data: { items: [] },
+    });
+  });
+
+  it("uses neighboring blocks to match repeated idless source blocks", async () => {
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": [
+        "---",
+        'title: "Repeated idless source blocks"',
+        "version: 2",
+        "---",
+        "",
+        ...blocks,
+      ].join("\n"),
+    });
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const separator = '<HtmlBlock html="<div>Separator</div>" />';
+    const trailing = '<HtmlBlock html="<div>Trailing</div>" />';
+
+    const previousBefore = await parsePlanMdxFolder(
+      makeFolder([repeated, separator, trailing]),
+    );
+    const insertedBefore = await parsePlanMdxFolder(
+      makeFolder([repeated, repeated, separator, trailing]),
+      { validateAuthoringChangesAgainst: previousBefore },
+    );
+    expect(insertedBefore.blocks[1]?.id).toBe(previousBefore.blocks[0]?.id);
+    expect(insertedBefore.blocks[0]?.id).not.toBe(previousBefore.blocks[0]?.id);
+
+    const previousAfter = await parsePlanMdxFolder(
+      makeFolder([repeated, separator, trailing]),
+    );
+    const insertedAfter = await parsePlanMdxFolder(
+      makeFolder([repeated, separator, repeated, trailing]),
+      { validateAuthoringChangesAgainst: previousAfter },
+    );
+    expect(insertedAfter.blocks[0]?.id).toBe(previousAfter.blocks[0]?.id);
+    expect(insertedAfter.blocks[2]?.id).not.toBe(previousAfter.blocks[0]?.id);
+  });
+
+  it("parses long prose runs before a block without splitting the Markdown", async () => {
+    const markdown = Array.from(
+      { length: 1_500 },
+      (_, index) => `Paragraph ${index} contains ordinary plan prose.`,
+    ).join("\n\n");
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": [
+        "---",
+        "version: 2",
+        "---",
+        "",
+        markdown,
+        '<HtmlBlock html="<div>After prose</div>" />',
+      ].join("\n"),
+    });
+
+    expect(parsed.blocks).toHaveLength(2);
+    expect(parsed.blocks[0]).toMatchObject({
+      type: "rich-text",
+      data: { markdown },
+    });
+    expect(parsed.blocks[1]).toMatchObject({
+      type: "custom-html",
+      data: { html: "<div>After prose</div>" },
+    });
+  }, 10_000);
+
   it("validates raw MDX fields before applying stored defaults", async () => {
     const previous = storedPlanContentSchema.parse({
       version: 2,
