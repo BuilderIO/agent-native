@@ -696,6 +696,38 @@ describe("stored legacy defaults in MDX source", () => {
     expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(103);
   }, 20_000);
 
+  it("does not let authored IDs shift id-less occurrence ranks", async () => {
+    const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
+    const authoredRepeated =
+      '<HtmlBlock id="authored-new" html="<div>Repeated</div>" />';
+    const firstAnchor = '<HtmlBlock html="<div>First anchor</div>" />';
+    const secondAnchor = '<HtmlBlock html="<div>Second anchor</div>" />';
+    const repeatedBlocks = Array.from({ length: 100 }, () => repeated);
+    const makeFolder = (blocks: string[]) => ({
+      "plan.mdx": ["---", "version: 2", "---", "", ...blocks].join("\n"),
+    });
+    const previous = await parsePlanMdxFolder(
+      makeFolder([...repeatedBlocks, firstAnchor, secondAnchor]),
+    );
+    const parsed = await parsePlanMdxFolder(
+      makeFolder([
+        firstAnchor,
+        authoredRepeated,
+        ...repeatedBlocks,
+        secondAnchor,
+      ]),
+      { validateAuthoringChangesAgainst: previous },
+    );
+
+    expect(parsed.blocks[0]?.id).toBe(previous.blocks[100]?.id);
+    expect(parsed.blocks[1]?.id).toBe("authored-new");
+    expect(parsed.blocks.slice(2, 102).map((block) => block.id)).toEqual(
+      previous.blocks.slice(0, 100).map((block) => block.id),
+    );
+    expect(parsed.blocks[102]?.id).toBe(previous.blocks[101]?.id);
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(103);
+  }, 20_000);
+
   it("preserves a repeated run when moved anchors follow its new sibling", async () => {
     const repeated = '<HtmlBlock html="<div>Repeated</div>" />';
     const firstAnchor = '<HtmlBlock html="<div>First anchor</div>" />';

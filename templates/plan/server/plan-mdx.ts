@@ -2004,7 +2004,9 @@ function preserveIdlessBlockIds(
     return fingerprint ? `${matchKind}:${fingerprint}` : undefined;
   };
   parsedNodes.forEach((node) => {
-    if (node.type !== "block") return;
+    if (node.type !== "block" || node.hasSourceId || !node.matchPrevious) {
+      return;
+    }
     const ranks = new Map<string, number>();
     for (const matchKind of ["exact", "legacy", "nested-shell"] as const) {
       const key = candidateMatchKey(node, matchKind);
