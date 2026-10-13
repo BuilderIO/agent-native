@@ -186,7 +186,6 @@ export function useNativeShaderValidationRequests(args: {
     const tabId = getBrowserTabId();
     const controller = new AbortController();
     let busy = false;
-    let seenId: string | null = null;
     const poll = async () => {
       if (busy || controller.signal.aborted) return;
       busy = true;
@@ -196,8 +195,7 @@ export function useNativeShaderValidationRequests(args: {
         );
         if (raw === null) return;
         const state = nativeShaderValidationStateSchema.parse(raw);
-        if (state.status !== "pending" || state.requestId === seenId) return;
-        seenId = state.requestId;
+        if (state.status !== "pending") return;
         await runNativeShaderValidationRequest({
           request: state,
           designId,

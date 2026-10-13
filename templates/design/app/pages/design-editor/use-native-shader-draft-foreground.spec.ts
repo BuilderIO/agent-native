@@ -1,11 +1,28 @@
+// @vitest-environment jsdom
 import { nativeDraftForegroundStateSchema } from "@shared/native-shader-draft-foreground";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearCanceledNativeShaderDraft,
   previewNativeShaderDraftInEditor,
 } from "./native-shader-draft-foreground-client";
-import { runNativeShaderDraftForeground } from "./use-native-shader-draft-foreground";
+import {
+  runNativeShaderDraftForeground,
+  useNativeShaderDraftForeground,
+} from "./use-native-shader-draft-foreground";
+
+const appState = vi.hoisted(() => ({
+  callAction: vi.fn(),
+  readClientAppState: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: appState.callAction,
+  getBrowserTabId: () => "tab-owned",
+  readClientAppState: appState.readClientAppState,
+}));
 
 vi.mock("./native-shader-draft-foreground-client", () => ({
   previewNativeShaderDraftInEditor: vi.fn(),
@@ -41,7 +58,66 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("Agent-Native draft foreground delivery", () => {
+  it("retries a pending request after a transient pre-claim failure", async () => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let status: "pending" | "completed" = "pending";
+    let claimAttempts = 0;
+    appState.readClientAppState.mockImplementation(async () => ({
+      ...request,
+      status,
+      expiresAt: Date.now() + 30_000,
+    }));
+    appState.callAction.mockImplementation(async (_name, input) => {
+      if (input.kind === "claim") {
+        claimAttempts += 1;
+        if (claimAttempts === 1) throw new Error("transient-claim-failure");
+        return {
+          ...request,
+          status: "running",
+          expiresAt: Date.now() + 30_000,
+        };
+      }
+      if (input.kind === "open")
+        return {
+          state: { ...request, status: "running" },
+          payload: { definition: {}, params: {}, seed: 77, time: 1 },
+        };
+      status = "completed";
+      return { ...request, status };
+    });
+    vi.mocked(previewNativeShaderDraftInEditor).mockResolvedValue({
+      status: "ready",
+      displayed: "draft-current",
+      executionHash: "b".repeat(64),
+      diagnostics: [],
+    });
+    const onError = vi.fn();
+    const root = createRoot(document.createElement("div"));
+    function Harness() {
+      useNativeShaderDraftForeground({
+        designId: request.designId,
+        enabled: true,
+        onError,
+      });
+      return null;
+    }
+    await act(async () => root.render(createElement(Harness)));
+    expect(claimAttempts).toBe(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "transient-claim-failure" }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+    });
+    expect(claimAttempts).toBe(2);
+    expect(status).toBe("completed");
+    expect(previewNativeShaderDraftInEditor).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
   it("claims once and reports the located GPU result once, without source in the result", async () => {
     vi.mocked(previewNativeShaderDraftInEditor).mockResolvedValue({
       status: "last-good",

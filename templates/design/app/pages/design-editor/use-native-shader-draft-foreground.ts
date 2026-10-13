@@ -149,7 +149,6 @@ export function useNativeShaderDraftForeground(args: {
     const tabId = getBrowserTabId();
     const controller = new AbortController();
     let busy = false;
-    let seen: string | null = null;
     const poll = async () => {
       if (busy || controller.signal.aborted) return;
       busy = true;
@@ -159,8 +158,7 @@ export function useNativeShaderDraftForeground(args: {
         );
         if (raw === null) return;
         const state = nativeDraftForegroundStateSchema.parse(raw);
-        if (state.status !== "pending" || state.requestId === seen) return;
-        seen = state.requestId;
+        if (state.status !== "pending") return;
         await runNativeShaderDraftForeground({
           state,
           designId,

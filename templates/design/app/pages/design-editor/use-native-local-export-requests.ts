@@ -253,7 +253,6 @@ export function useNativeLocalExportRequests(args: {
     const documentId = nativeLocalExportDocumentId(document);
     const controller = new AbortController();
     let busy = false;
-    let seenRequestId: string | null = null;
     let registering = false;
     let registrationFailures = 0;
     const register = async () => {
@@ -282,9 +281,7 @@ export function useNativeLocalExportRequests(args: {
         );
         if (raw === null) return;
         const request = nativeLocalExportStateSchema.parse(raw);
-        if (request.status !== "pending" || request.requestId === seenRequestId)
-          return;
-        seenRequestId = request.requestId;
+        if (request.status !== "pending") return;
         await executeNativeLocalExportRequest({
           request,
           designId,
