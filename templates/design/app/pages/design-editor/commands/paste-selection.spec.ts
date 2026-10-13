@@ -941,6 +941,46 @@ describe("pasting copied layers while the original is off-screen", () => {
     expect(pixels(copy.style.top)).toBe(130);
   });
 
+  it("centers in the view once the original's screen has moved off-screen", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_HOME_VIEW,
+    });
+    args.canvasFrameGeometryById = {
+      ...SCREEN_FRAMES,
+      home: { x: 8000, y: 0, width: 390, height: 844 },
+    };
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(500);
+    expect(pixels(copy.style.top)).toBe(400);
+  });
+
+  it("pastes next to the original once its screen has moved into view", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_OTHER_VIEW,
+    });
+    args.canvasFrameGeometryById = {
+      ...SCREEN_FRAMES,
+      home: { x: 4950, y: 250, width: 390, height: 844 },
+    };
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+  });
+
   it("keeps pasting into a selected screen that is in view", async () => {
     const { args, writes } = harness({
       files: viewFiles(),

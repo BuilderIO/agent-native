@@ -29,6 +29,7 @@ export const LeftPanelSearchField = forwardRef<
             if (event.key === "Escape" && !value.trim()) onEscapeWhenEmpty();
           }}
           placeholder={placeholder}
+          aria-label={placeholder}
           className="h-6 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-6 text-[11px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>

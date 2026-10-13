@@ -22,6 +22,8 @@ const OFF_SCREEN_VIEW: VisibleCanvasRect = {
   height: 600,
 };
 
+const IN_VIEW: VisibleCanvasRect = { x: 0, y: 0, width: 1000, height: 800 };
+
 function ref<T>(current: T): RefObject<T> {
   return { current } as RefObject<T>;
 }
@@ -29,16 +31,28 @@ function ref<T>(current: T): RefObject<T> {
 function screen(
   canvasFrame: DesignClipboardScreenEntry["canvasFrame"],
   filename = "index.html",
+  sourceScreenId?: string,
 ): DesignClipboardScreenEntry {
-  return { filename, fileType: "html", content: SCREEN_CONTENT, canvasFrame };
+  return {
+    filename,
+    fileType: "html",
+    content: SCREEN_CONTENT,
+    sourceScreenId,
+    canvasFrame,
+  };
 }
 
-function harness(overrides: { visibleRect?: VisibleCanvasRect | null } = {}) {
+function harness(
+  overrides: {
+    visibleRect?: VisibleCanvasRect | null;
+    currentFrames?: CanvasFrameGeometryById;
+  } = {},
+) {
   const saved: CanvasFrameGeometryById[] = [];
   let created = 0;
   const args: PasteCopiedScreensArgs = {
     canEditDesign: true,
-    canvasFrameGeometryById: {},
+    canvasFrameGeometryById: overrides.currentFrames ?? {},
     createFileMutation: {
       mutate: (_variables: unknown, options: any) => {
         created += 1;
@@ -48,6 +62,17 @@ function harness(overrides: { visibleRect?: VisibleCanvasRect | null } = {}) {
     files: [],
     getVisibleCanvasRect: () => overrides.visibleRect ?? null,
     id: "design-1",
+    overviewScreens: Object.keys(overrides.currentFrames ?? {}).map(
+      (screenId) => ({
+        id: screenId,
+        filename: `${screenId}.html`,
+        content: SCREEN_CONTENT,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        heightPinned: false,
+        width: 390,
+        height: 844,
+      }),
+    ),
     pasteCascadeRef: ref(0),
     queryClient: {
       invalidateQueries: vi.fn(),
@@ -148,6 +173,111 @@ describe("pasting copied screens with no explicit drop point", () => {
     runPasteCopiedScreens(args, [
       screen({ x: 0, y: 0, width: 390, height: 844 }),
     ]);
+
+    expect(saved[0]!["copy-1"]).toMatchObject({ x: 32, y: 32 });
+  });
+
+  it("centers a screen in the view when it was in view at copy time but has since moved off-screen", () => {
+    const { args, saved } = harness({
+      visibleRect: IN_VIEW,
+      currentFrames: { source: { x: 5000, y: 0, width: 390, height: 844 } },
+    });
+
+    runPasteCopiedScreens(args, [
+      screen(
+        { x: 100, y: 50, width: 390, height: 844 },
+        "index.html",
+        "source",
+      ),
+    ]);
+
+    expect(saved[0]!["copy-1"]).toMatchObject({
+      x: 500 - 195,
+      y: 400 - 422,
+    });
+  });
+
+  it("pastes beside the original's current position when it moved into view after being copied off-screen", () => {
+    const { args, saved } = harness({
+      visibleRect: IN_VIEW,
+      currentFrames: { source: { x: 100, y: 50, width: 390, height: 844 } },
+    });
+
+    runPasteCopiedScreens(args, [
+      screen(
+        { x: 5000, y: 0, width: 390, height: 844 },
+        "index.html",
+        "source",
+      ),
+    ]);
+
+    expect(saved[0]!["copy-1"]).toMatchObject({ x: 132, y: 82 });
+  });
+
+  it("falls back to where the screen was copied from when the clipboard has no source id", () => {
+    const { args, saved } = harness({
+      visibleRect: IN_VIEW,
+      currentFrames: { other: { x: 5000, y: 0, width: 390, height: 844 } },
+    });
+
+    runPasteCopiedScreens(args, [
+      screen({ x: 100, y: 50, width: 390, height: 844 }),
+    ]);
+
+    expect(saved[0]!["copy-1"]).toMatchObject({ x: 132, y: 82 });
+  });
+
+  it("falls back to where the screen was copied from when the original was deleted", () => {
+    const { args, saved } = harness({
+      visibleRect: IN_VIEW,
+      currentFrames: { other: { x: 0, y: 0, width: 390, height: 844 } },
+    });
+
+    runPasteCopiedScreens(args, [
+      screen({ x: 5000, y: 0, width: 390, height: 844 }, "index.html", "gone"),
+    ]);
+    runPasteCopiedScreens(args, [
+      screen({ x: 100, y: 50, width: 390, height: 844 }, "index.html", "gone"),
+    ]);
+
+    expect(saved[0]!["copy-1"]).toMatchObject({
+      x: 500 - 195,
+      y: 400 - 422,
+    });
+    expect(saved[1]!["copy-2"]).toMatchObject({ x: 148, y: 98 });
+  });
+
+  it("lays out screens copied together by where their originals are now", () => {
+    const { args, saved } = harness({
+      visibleRect: OFF_SCREEN_VIEW,
+      currentFrames: {
+        first: { x: 0, y: 0, width: 390, height: 844 },
+        second: { x: 800, y: 300, width: 390, height: 844 },
+      },
+    });
+
+    runPasteCopiedScreens(args, [
+      screen({ x: 0, y: 0, width: 390, height: 844 }, "first.html", "first"),
+      screen(
+        { x: 500, y: 100, width: 390, height: 844 },
+        "second.html",
+        "second",
+      ),
+    ]);
+
+    const first = saved[0]!["copy-1"]!;
+    const second = saved[1]!["copy-2"]!;
+    expect(second.x! - first.x!).toBe(800);
+    expect(second.y! - first.y!).toBe(300);
+  });
+
+  it("keeps pasting beside a screen whose current frame was never saved, using where it renders now", () => {
+    const { args, saved } = harness({
+      visibleRect: IN_VIEW,
+      currentFrames: { source: {} },
+    });
+
+    runPasteCopiedScreens(args, [screen(undefined, "index.html", "source")]);
 
     expect(saved[0]!["copy-1"]).toMatchObject({ x: 32, y: 32 });
   });

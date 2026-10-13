@@ -12,7 +12,12 @@ import {
   normalizedDesignFileType,
   reassignDuplicatedNodeIds,
 } from "@/pages/design-editor/canvas-primitive-insert";
-import { resolveScreenViewPastePositions } from "@/pages/design-editor/commands/paste-view-position";
+import {
+  resolveCopiedScreenSourceFrame,
+  resolveScreenViewPastePositions,
+} from "@/pages/design-editor/commands/paste-view-position";
+import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import { getAllScreenFrameEntries } from "@/pages/design-editor/overview-camera";
 import type { DesignFile, DesignTool } from "@/pages/design-editor/types";
 
 export interface PasteCopiedScreensArgs {
@@ -24,6 +29,7 @@ export interface PasteCopiedScreensArgs {
   files: DesignFile[];
   getVisibleCanvasRect: () => VisibleCanvasRect | null;
   id: string | undefined;
+  overviewScreens: OverviewScreen[];
   pasteCascadeRef: RefObject<number>;
   queryClient: QueryClient;
   queueFrameGeometrySave: (geometryById: CanvasFrameGeometryById) => void;
@@ -45,6 +51,7 @@ export function runPasteCopiedScreens(
     files,
     getVisibleCanvasRect,
     id,
+    overviewScreens,
     pasteCascadeRef,
     queryClient,
     queueFrameGeometrySave,
@@ -62,19 +69,26 @@ export function runPasteCopiedScreens(
 ) {
   if (!id || !canEditDesign || screens.length === 0) return;
   const pasteOffset = 32 + pasteCascadeRef.current * 16;
+  const currentFrames = getAllScreenFrameEntries({
+    overviewScreens,
+    canvasFrameGeometryById,
+  });
+  const sourceFrames = screens.map((screen) =>
+    resolveCopiedScreenSourceFrame(screen, currentFrames),
+  );
   const viewPositions = position
     ? null
     : resolveScreenViewPastePositions({
         visibleRect:
           viewModeRef.current === "overview" ? getVisibleCanvasRect() : null,
-        sourceFrames: screens.map((screen) => screen.canvasFrame),
+        sourceFrames,
         cascadeOffset: pasteCascadeRef.current * 16,
       });
   pasteCascadeRef.current += 1;
   screens.forEach((screen, index) => {
     const filename = nextDuplicatedFilename(files, screen.filename);
     const content = reassignDuplicatedNodeIds(screen.content);
-    const sourceGeometry = screen.canvasFrame;
+    const sourceFrame = sourceFrames[index];
     createFileMutation.mutate(
       {
         designId: id,
@@ -93,16 +107,16 @@ export function runPasteCopiedScreens(
             ? position.x + index * 16
             : viewPositions
               ? viewPositions[index]!.x
-              : (sourceGeometry?.x ?? 0) + pasteOffset;
+              : (sourceFrame?.x ?? 0) + pasteOffset;
           const nextY = position
             ? position.y + index * 16
             : viewPositions
               ? viewPositions[index]!.y
-              : (sourceGeometry?.y ?? 0) + pasteOffset;
+              : (sourceFrame?.y ?? 0) + pasteOffset;
           queueFrameGeometrySave({
             ...canvasFrameGeometryById,
             [nextId]: {
-              ...sourceGeometry,
+              ...screen.canvasFrame,
               x: nextX,
               y: nextY,
             },

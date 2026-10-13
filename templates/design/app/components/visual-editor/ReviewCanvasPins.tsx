@@ -43,6 +43,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -107,6 +108,7 @@ import {
   reviewRegionClipPath,
   type ReviewDraftPin,
   type ReviewPinPosition,
+  type ReviewPopoverPlacement,
   type ReviewVisibleRegion,
 } from "./review-canvas-state";
 
@@ -182,9 +184,11 @@ const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
   "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
 
-type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement> & {
-  box: ReturnType<typeof getReviewPopoverBox>;
-};
+interface ReviewPopoverAnchor {
+  clientPoint: ReviewCanvasPoint;
+  region: ReviewVisibleRegion;
+  preferred: ReviewPopoverPlacement;
+}
 
 interface CanvasCameraSnapshot {
   camera: { x: number; y: number; zoom: number };
@@ -2236,20 +2240,18 @@ export function ReviewCanvasPins({
       x: rect.left + (position.point.xPct / 100) * rect.width,
       y: rect.top + (position.point.yPct / 100) * rect.height,
     };
-  const popoverPlacementFor = (
+  const popoverAnchorFor = (
     point: ReviewAnchorPoint,
-    anchor: ReviewCanvasPoint,
-  ): ReviewPopoverPlacement => {
-    const placement = getReviewPopoverPlacement(
+    clientPoint: ReviewCanvasPoint,
+  ): ReviewPopoverAnchor => ({
+    clientPoint,
+    region,
+    preferred: getReviewPopoverPlacement(
       point,
-      { x: anchor.x - region.left, y: anchor.y - region.top },
+      { x: clientPoint.x - region.left, y: clientPoint.y - region.top },
       { width: region.width, height: region.height },
-    );
-    return {
-      ...placement,
-      box: getReviewPopoverBox(anchor.x, region, placement.horizontal),
-    };
-  };
+    ),
+  });
 
   const visibleThreads = threads.filter((thread) => thread.root.anchor);
   // Pin numbers stay stable while panning: index before dropping pins whose
@@ -2479,7 +2481,7 @@ export function ReviewCanvasPins({
                     onSetUnread={(unread) => setThreadUnread(thread, unread)}
                     onDelete={() => setDeleteCandidate(thread.root)}
                     canDelete={canPost && (thread.root.canDelete ?? false)}
-                    placement={popoverPlacementFor(position.point, clientPoint)}
+                    anchor={popoverAnchorFor(position.point, clientPoint)}
                     replyDraft={replyDraft}
                     replyMentions={replyMentions}
                     mentionOptions={mentionOptions}
@@ -2634,7 +2636,7 @@ export function ReviewCanvasPins({
                   )
                 }
                 initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
-                placement={popoverPlacementFor(
+                anchor={popoverAnchorFor(
                   draftPinPosition.point,
                   draftClientPoint,
                 )}
@@ -3041,6 +3043,57 @@ function ReviewImageAttachments({
   );
 }
 
+// Placement depends on the popover's own height, which is only known once its
+// content has rendered, so the frame measures itself before the first paint.
+function ReviewPopoverFrame({
+  anchor,
+  children,
+}: {
+  anchor: ReviewPopoverAnchor;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  const measure = useCallback(() => {
+    const element = ref.current;
+    if (!element) return;
+    // scrollHeight is the full content height even while maxHeight scrolls it.
+    setHeight(
+      element.scrollHeight + element.offsetHeight - element.clientHeight,
+    );
+  }, []);
+  useLayoutEffect(measure);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure]);
+  const box = getReviewPopoverBox(
+    anchor.clientPoint,
+    anchor.region,
+    anchor.preferred,
+    height,
+  );
+  return (
+    <div
+      ref={ref}
+      data-review-popover
+      className="absolute z-[260] overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-popover shadow-xl"
+      style={{
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        maxHeight: box.maxHeight,
+      }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
 function DraftComposer({
   value,
   mentions,
@@ -3056,7 +3109,7 @@ function DraftComposer({
   showAgentAction,
   smartAgentAvailable,
   initialAgentMode,
-  placement,
+  anchor,
   commentSubmitting,
   agentSubmitting,
 }: {
@@ -3074,7 +3127,7 @@ function DraftComposer({
   showAgentAction: boolean;
   smartAgentAvailable: boolean;
   initialAgentMode: "auto" | NodeRepromptSendMode;
-  placement: ReviewPopoverPlacement;
+  anchor: ReviewPopoverAnchor;
   commentSubmitting: boolean;
   agentSubmitting: boolean;
 }) {
@@ -3155,15 +3208,7 @@ function DraftComposer({
     </div>
   ) : undefined;
   return (
-    <div
-      data-review-popover
-      className={cn(
-        "absolute z-[260] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.vertical === "above" ? "bottom-3" : "top-1",
-      )}
-      style={{ left: placement.box.left, width: placement.box.width }}
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ReviewPopoverFrame anchor={anchor}>
       <div className="flex items-center justify-between px-3 pb-2 pt-3">
         <span className="text-sm font-medium">
           {initialAgentMode === "preview"
@@ -3238,7 +3283,7 @@ function DraftComposer({
         enterSubmitTarget={initialAgentMode === "preview" ? "agent" : "human"}
         onEscape={onCancel}
       />
-    </div>
+    </ReviewPopoverFrame>
   );
 }
 
@@ -3376,7 +3421,7 @@ function ReviewThreadPopover({
   onSetUnread,
   onDelete,
   canDelete,
-  placement,
+  anchor,
   replyDraft,
   replyMentions,
   mentionOptions,
@@ -3413,7 +3458,7 @@ function ReviewThreadPopover({
   onSetUnread: (unread: boolean) => void;
   onDelete: () => void;
   canDelete: boolean;
-  placement: ReviewPopoverPlacement;
+  anchor: ReviewPopoverAnchor;
   replyDraft: string;
   replyMentions: readonly ReviewMention[];
   mentionOptions: readonly ReviewMention[];
@@ -3431,15 +3476,7 @@ function ReviewThreadPopover({
   const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   const [replyUploading, setReplyUploading] = useState(false);
   return (
-    <div
-      data-review-popover
-      className={cn(
-        "absolute z-[260] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.vertical === "above" ? "bottom-3" : "top-1",
-      )}
-      style={{ left: placement.box.left, width: placement.box.width }}
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ReviewPopoverFrame anchor={anchor}>
       <div className="flex items-start gap-2.5 p-3">
         <Avatar className="size-7 shrink-0">
           {avatarUrl ? <AvatarImage src={avatarUrl} alt={rootAuthor} /> : null}
@@ -3664,7 +3701,7 @@ function ReviewThreadPopover({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </ReviewPopoverFrame>
   );
 }
 

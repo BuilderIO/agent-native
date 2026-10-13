@@ -83,6 +83,21 @@ export interface CopiedScreenSourceFrame {
   height?: number;
 }
 
+/**
+ * Where a copied screen's original sits now. `canvasFrame` is only where it sat
+ * when copied, so it answers only when the original has no current frame
+ * (deleted, or copied from another design).
+ */
+export function resolveCopiedScreenSourceFrame(
+  screen: { sourceScreenId?: string; canvasFrame?: CopiedScreenSourceFrame },
+  currentFrames: ReadonlyArray<FrameEntry>,
+): CopiedScreenSourceFrame | undefined {
+  const current = screen.sourceScreenId
+    ? currentFrames.find((frame) => frame.id === screen.sourceScreenId)
+    : undefined;
+  return current?.geometry ?? screen.canvasFrame;
+}
+
 function locatedScreenFrame(
   frame: CopiedScreenSourceFrame | undefined,
 ): CanvasRect | null {
