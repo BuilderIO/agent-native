@@ -328,6 +328,72 @@ Bad radius: 12px} body { color: red
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
   });
 
+  it("does not scrape colors from an incomplete pasted stylesheet", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "button { color: #2563eb;",
+    });
+
+    expect(result.filesAnalyzed).toEqual([]);
+    expect(result.importedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(result.tokens).toEqual([]);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("rejects invalid color functions but keeps CSS variable references", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --color-invalid: rgb(not-a-color);
+  --color-reference: var(--color-base);
+}`,
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.rejectedCount).toBe(1);
+    expect(result.tokens).toEqual([
+      expect.objectContaining({
+        cssVar: "--color-reference",
+        value: "var(--color-base)",
+        type: "color",
+      }),
+    ]);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({
+      "--color-reference": "var(--color-base)",
+    });
+  });
+
+  it("accepts SCSS and LESS files with line comments", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.scss",
+          content: ":root { --color-scss: #2563eb; // primary color\n}",
+        },
+        {
+          filename: "tokens.less",
+          content: ":root { --color-less: rgb(255, 0, 0); // primary color\n}",
+        },
+      ],
+    });
+
+    expect(result.filesAnalyzed).toEqual(["tokens.scss", "tokens.less"]);
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--color-scss", value: "#2563eb" }),
+        expect.objectContaining({
+          cssVar: "--color-less",
+          value: "rgb(255, 0, 0)",
+        }),
+      ]),
+    );
+  });
+
   it("keeps an earlier valid token when a later duplicate is invalid", async () => {
     const result = await action.run({
       designId: "design_1",

@@ -13,6 +13,7 @@ import {
   extractDocumentFonts,
 } from "@agent-native/core/server/design-token-utils";
 import { assertAccess } from "@agent-native/core/sharing";
+import * as csstree from "css-tree";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import postcss from "postcss";
@@ -338,10 +339,84 @@ function looksLikePastedJson(content: string): boolean {
 }
 
 function looksLikePastedCss(content: string): boolean {
-  return (
+  if (
     /(?:^|\n)\s*--[\w-]+\s*:/m.test(content) ||
     /(?:^|\n)\s*:root\s*\{/m.test(content)
-  );
+  ) {
+    return true;
+  }
+
+  if (
+    /^\s*(?:export\s+default\b|module\.exports\s*=|(?:const|let|var)\s+\w+\s*=)/m.test(
+      content,
+    )
+  ) {
+    return false;
+  }
+
+  return /\{[^{}]*\b(?:--[\w-]+|[-a-z][\w-]*)\s*:/i.test(content);
+}
+
+function stripScssLessLineComments(content: string): string {
+  let output = "";
+  let quote: "'" | '"' | null = null;
+  let inBlockComment = false;
+  let escaped = false;
+  let parentheses = 0;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const char = content[index]!;
+    const next = content[index + 1];
+
+    if (inBlockComment) {
+      output += char;
+      if (char === "*" && next === "/") {
+        output += next;
+        index += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (quote) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      output += "/*";
+      index += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (
+      char === "/" &&
+      next === "/" &&
+      parentheses === 0 &&
+      (index === 0 || /[\s;{}]/.test(content[index - 1]!))
+    ) {
+      while (index < content.length && !/[\r\n]/.test(content[index]!)) {
+        index += 1;
+      }
+      index -= 1;
+      continue;
+    }
+
+    if (char === "'" || char === '"') quote = char;
+    if (char === "(") parentheses += 1;
+    if (char === ")") parentheses = Math.max(0, parentheses - 1);
+    output += char;
+  }
+
+  return output;
 }
 
 function isValidImportFile(file: {
@@ -383,10 +458,11 @@ function isValidImportFile(file: {
           .join("\n"),
       ]
     : [file.content];
+  const isScssOrLess = /\.(scss|less)$/.test(filename);
 
   for (const css of cssCandidates) {
     try {
-      postcss.parse(css);
+      postcss.parse(isScssOrLess ? stripScssLessLineComments(css) : css);
       return true;
     } catch (error) {
       if (!(error instanceof Error && error.name === "CssSyntaxError")) {
@@ -395,6 +471,82 @@ function isValidImportFile(file: {
     }
   }
   return false;
+}
+
+function readSingleCssFunctionArguments(
+  value: string,
+  functionName: string,
+): string | null {
+  const input = value.trim();
+  const prefix = `${functionName}(`;
+  if (!input.toLowerCase().startsWith(prefix)) return null;
+
+  let depth = 1;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (let index = prefix.length; index < input.length; index += 1) {
+    const char = input[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "(") {
+      depth += 1;
+    } else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return index === input.length - 1
+          ? input.slice(prefix.length, index)
+          : null;
+      }
+    }
+  }
+  return null;
+}
+
+function splitCssFunctionArguments(value: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if (char === "," && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  parts.push(value.slice(start).trim());
+  return parts;
+}
+
+function isValidCssColor(value: string): boolean {
+  const normalized = value.trim();
+  if (csstree.lexer.matchType("color", normalized).matched) return true;
+
+  const args = readSingleCssFunctionArguments(normalized, "var");
+  if (args === null) return false;
+  const [name, ...fallbackParts] = splitCssFunctionArguments(args);
+  if (!/^--[-_a-zA-Z0-9]+$/.test(name ?? "")) return false;
+  return (
+    fallbackParts.length === 0 || isValidCssColor(fallbackParts.join(", "))
+  );
 }
 
 function isValidImportedToken(token: ImportedDesignToken): boolean {
@@ -410,7 +562,7 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
   ) {
     return false;
   }
-  return true;
+  return token.type !== "color" || isValidCssColor(token.value);
 }
 
 function tokensFromFiles(files: { filename: string; content: string }[]) {

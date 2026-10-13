@@ -6102,6 +6102,9 @@ importers:
       alpinejs:
         specifier: ^3.15.12
         version: 3.15.12
+      css-tree:
+        specifier: 3.2.1
+        version: 3.2.1
       diff-match-patch:
         specifier: ^1.0.5
         version: 1.0.5
@@ -6274,6 +6277,9 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+      '@types/css-tree':
+        specifier: 3.2.0
+        version: 3.2.0
       '@types/diff-match-patch':
         specifier: ^1.0.36
         version: 1.0.36
@@ -16169,6 +16175,9 @@ packages:
 
   '@types/css-font-loading-module@0.0.7':
     resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
+
+  '@types/css-tree@3.2.0':
+    resolution: {integrity: sha512-J5KXmk6BFIepOT7280FdFyNs4c5fh0Uee0otjKEvzchrRs38Ii9qminqc4ds0L19X8Zd/rT+brR9jkBthygjWw==}
 
   '@types/culori@4.0.1':
     resolution: {integrity: sha512-43M51r/22CjhbOXyGT361GZ9vncSVQ39u62x5eJdBQFviI8zWp2X5jzqg7k4M6PVgDQAClpy2bUe2dtwEgEDVQ==}
@@ -32907,6 +32916,8 @@ snapshots:
       '@types/node': 25.9.3
 
   '@types/css-font-loading-module@0.0.7': {}
+
+  '@types/css-tree@3.2.0': {}
 
   '@types/culori@4.0.1': {}
 
