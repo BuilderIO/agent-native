@@ -1303,10 +1303,13 @@ function parseBlocksFromNodes(
       `${idContext}-${index}`,
       options.preserveAuthoringFieldPresence,
     );
-    const block =
-      parsedBlock && options.preserveAuthoringFieldPresence
-        ? preserveMissingAuthoringField(parsedBlock, child)
-        : parsedBlock;
+    const block = parsedBlock
+      ? validateAndPreserveAuthoringField(
+          parsedBlock,
+          child,
+          options.preserveAuthoringFieldPresence === true,
+        )
+      : parsedBlock;
     if (block) {
       flushLoose();
       parsedNodes.push({ type: "block", block });
@@ -1354,15 +1357,17 @@ const requiredAuthoringFieldByBlockType: Partial<
   "annotated-code": "code",
 };
 
-function preserveMissingAuthoringField(
+function validateAndPreserveAuthoringField(
   block: PlanBlock,
   node: MdxNode,
+  preserveMissing: boolean,
 ): PlanBlock {
   const field = requiredAuthoringFieldByBlockType[block.type];
   if (!field) return block;
   const attribute = findAttribute(node, field);
-  const data = { ...block.data } as Record<string, unknown>;
   if (!attribute) {
+    if (!preserveMissing) return block;
+    const data = { ...block.data } as Record<string, unknown>;
     delete data[field];
     return { ...block, data } as PlanBlock;
   }

@@ -178,31 +178,22 @@ describe("stored legacy defaults in MDX source", () => {
 
   it.each([
     {
-      block: { id: "legacy-checklist", type: "checklist", data: {} },
       source: '<Checklist id="legacy-checklist" items="not-an-array" />',
       message: /attribute "items" must resolve to an array/,
     },
     {
-      block: { id: "legacy-code", type: "annotated-code", data: {} },
       source: '<AnnotatedCode id="legacy-code" code={42} />',
       message: /attribute "code" must resolve to a string/,
     },
   ])(
-    "rejects wrong-typed authored fields on unchanged legacy blocks",
-    async ({ block, source, message }) => {
-      const previous = storedPlanContentSchema.parse({
-        version: 2,
-        blocks: [block],
-      });
+    "rejects wrong-typed authored fields without prior content",
+    async ({ source, message }) => {
       const folder = await replacePlanSource(
         ["---", "version: 2", "---", "", source].join("\n"),
       );
 
       await expect(
-        parsePlanMdxFolder(folder, {
-          allowStoredLegacyDefaults: true,
-          validateAuthoringChangesAgainst: previous,
-        }),
+        parsePlanMdxFolder(folder, { allowStoredLegacyDefaults: true }),
       ).rejects.toThrow(message);
     },
   );
