@@ -148,6 +148,9 @@ export function sourceIndexDictionaryEntries(
     ...(entry.inferredMembershipKeys
       ? { inferredMembershipKeys: entry.inferredMembershipKeys }
       : {}),
+    ...(entry.inferredMembershipKeyRoles
+      ? { inferredMembershipKeyRoles: entry.inferredMembershipKeyRoles }
+      : {}),
     dependencies: entry.dependencies ?? "",
     joinPattern: entry.joinPattern ?? "",
     commonQuestions: entry.commonQuestions ?? "",

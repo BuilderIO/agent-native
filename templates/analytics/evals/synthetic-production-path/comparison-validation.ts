@@ -69,7 +69,10 @@ const V15_CASE_IDS = [
   "approved-stale-generated-entry-yields-to-current-roster",
 ] as const;
 
-const V16_CASE_IDS = V15_CASE_IDS;
+const V16_CASE_IDS = [
+  ...V15_CASE_IDS,
+  "aliased-membership-keys-preserve-roster-grain",
+] as const;
 
 export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V16_CASE_IDS;
 

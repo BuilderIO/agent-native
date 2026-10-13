@@ -104,6 +104,7 @@ function makeComparisonCsv(): string {
     4,
     1,
     null,
+    null,
   ];
   for (const phase of ["before", "after"] as const) {
     for (const [

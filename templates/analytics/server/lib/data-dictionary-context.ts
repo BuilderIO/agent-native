@@ -94,6 +94,22 @@ function renderEntry(
       `  - membership row keys inferred from structural dbt SQL analysis: ${inferredMembershipKeys}`,
     );
   }
+  const membershipKeyRoles =
+    entry.inferredMembershipKeyRoles &&
+    typeof entry.inferredMembershipKeyRoles === "object" &&
+    !Array.isArray(entry.inferredMembershipKeyRoles)
+      ? (entry.inferredMembershipKeyRoles as Record<string, unknown>)
+      : null;
+  const userMembershipKey = compact(membershipKeyRoles?.user, 120);
+  const organizationMembershipKey = compact(
+    membershipKeyRoles?.organization,
+    120,
+  );
+  if (userMembershipKey && organizationMembershipKey) {
+    lines.push(
+      `  - inferred membership key roles: user key ${userMembershipKey}; organization key ${organizationMembershipKey}`,
+    );
+  }
   const cuts = compact(entry.cuts, 240);
   if (cuts) lines.push(`  - standard cuts: ${cuts}`);
   const template = compact(entry.queryTemplate, 240);

@@ -8,6 +8,7 @@ const SOURCE_INDEX_FIELDS = [
   "sourceRevision",
   "sqlProjectedColumns",
   "inferredMembershipKeys",
+  "inferredMembershipKeyRoles",
   "sourceIndexGeneratedAt",
   "sourceIndexSources",
   "sourceIndexStale",

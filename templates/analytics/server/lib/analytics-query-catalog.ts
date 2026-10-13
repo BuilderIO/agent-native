@@ -124,6 +124,7 @@ export type AnalyticsQueryCatalogCandidate =
       columnsUsed?: string;
       sqlProjectedColumns?: string;
       inferredMembershipKeys?: string[];
+      inferredMembershipKeyRoles?: { user: string; organization: string };
       queryTemplate?: string;
       knownGotchas?: string;
       commonQuestions?: string;
@@ -193,6 +194,22 @@ export type AnalyticsDictionarySearchResult = {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function membershipKeyRoles(
+  value: unknown,
+): { user: string; organization: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const roles = value as Record<string, unknown>;
+  const user = text(roles.user);
+  const organization = text(roles.organization);
+  return user &&
+    organization &&
+    user.toLowerCase() !== organization.toLowerCase()
+    ? { user, organization }
+    : undefined;
 }
 
 async function listFavoriteDashboardIds(email: string): Promise<Set<string>> {
@@ -399,6 +416,7 @@ function hasMembershipRoleField(candidate: AnalyticsQueryCatalogCandidate) {
     candidate.kind === "data-dictionary"
       ? [
           candidate.columnsUsed,
+          candidate.sqlProjectedColumns,
           candidate.table,
           candidate.joinPattern,
           candidate.semanticModel,
@@ -438,13 +456,23 @@ function hasInferredMembershipIdentityKeys(
   ) {
     return false;
   }
+  const roles = candidate.inferredMembershipKeyRoles;
+  if (!roles) return false;
+  const inferredKeys = new Set(
+    (candidate.inferredMembershipKeys ?? []).map((key) => key.toLowerCase()),
+  );
+  const projectedColumns = new Set(
+    (candidate.sqlProjectedColumns ?? "")
+      .split(",")
+      .map((column) => column.trim().toLowerCase())
+      .filter(Boolean),
+  );
   return (
-    (candidate.inferredMembershipKeys ?? []).some((key) =>
-      /^(?:user|member|person)_id$/i.test(key),
-    ) &&
-    (candidate.inferredMembershipKeys ?? []).some((key) =>
-      /^(?:organization|org|workspace|team)_id$/i.test(key),
-    )
+    roles.user.toLowerCase() !== roles.organization.toLowerCase() &&
+    inferredKeys.has(roles.user.toLowerCase()) &&
+    inferredKeys.has(roles.organization.toLowerCase()) &&
+    projectedColumns.has(roles.user.toLowerCase()) &&
+    projectedColumns.has(roles.organization.toLowerCase())
   );
 }
 
@@ -976,6 +1004,10 @@ function dictionaryCandidates(
     const status = sourceEntryStatus(entry.status);
     const id = text(entry.id);
     const metric = text(entry.metric);
+    const inferredMembershipKeyRoles =
+      isSourceIndex && entrySourceKind === "dbt"
+        ? membershipKeyRoles(entry.inferredMembershipKeyRoles)
+        : undefined;
     if (!id || !metric) return [];
     return [
       {
@@ -1010,6 +1042,7 @@ function dictionaryCandidates(
         )
           ? { inferredMembershipKeys: entry.inferredMembershipKeys }
           : {}),
+        ...(inferredMembershipKeyRoles ? { inferredMembershipKeyRoles } : {}),
         ...(text(entry.queryTemplate)
           ? { queryTemplate: text(entry.queryTemplate) }
           : {}),

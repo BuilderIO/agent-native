@@ -145,6 +145,10 @@ describe("renderDataDictionary", () => {
         definition: "Generated dbt source metadata.",
         sqlProjectedColumns: "user_id, organization_id, role",
         inferredMembershipKeys: ["user_id", "organization_id"],
+        inferredMembershipKeyRoles: {
+          user: "user_id",
+          organization: "organization_id",
+        },
         approved: false,
         aiGenerated: true,
       },
@@ -155,6 +159,9 @@ describe("renderDataDictionary", () => {
     );
     expect(context).toContain(
       "membership row keys inferred from structural dbt SQL analysis: user_id, organization_id",
+    );
+    expect(context).toContain(
+      "inferred membership key roles: user key user_id; organization key organization_id",
     );
   });
 

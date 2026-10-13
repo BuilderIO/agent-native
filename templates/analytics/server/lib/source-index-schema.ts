@@ -80,6 +80,18 @@ export const sourceIndexEntrySchema = z
       .min(2)
       .max(8)
       .optional(),
+    inferredMembershipKeyRoles: z
+      .object({
+        user: z.string().regex(SAFE_COLUMN),
+        organization: z.string().regex(SAFE_COLUMN),
+      })
+      .strict()
+      .refine(
+        ({ user, organization }) =>
+          user.toLowerCase() !== organization.toLowerCase(),
+        "membership identity columns must be distinct",
+      )
+      .optional(),
     dependencies: z.string().trim().max(4_000).optional(),
     joinPattern: z.string().trim().max(4_000).optional(),
     commonQuestions: z.string().trim().max(2_000).optional(),
@@ -147,6 +159,33 @@ export const sourceIndexBundleSchema = z
             code: "custom",
             path: ["entries", index, "inferredMembershipKeys"],
             message: "must not contain personal, secret, or URL-like text",
+          });
+        }
+      }
+      if (entry.inferredMembershipKeyRoles) {
+        const { user, organization } = entry.inferredMembershipKeyRoles;
+        const membershipKeys = new Set(
+          (entry.inferredMembershipKeys ?? []).map((column) =>
+            column.toLowerCase(),
+          ),
+        );
+        const projectedColumns = new Set(
+          (entry.sqlProjectedColumns ?? "")
+            .split(",")
+            .map((column) => column.trim().toLowerCase())
+            .filter(Boolean),
+        );
+        if (
+          !membershipKeys.has(user.toLowerCase()) ||
+          !membershipKeys.has(organization.toLowerCase()) ||
+          !projectedColumns.has(user.toLowerCase()) ||
+          !projectedColumns.has(organization.toLowerCase())
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["entries", index, "inferredMembershipKeyRoles"],
+            message:
+              "membership identity columns must be present in inferred and projected columns",
           });
         }
       }

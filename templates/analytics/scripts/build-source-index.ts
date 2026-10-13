@@ -92,6 +92,7 @@ export interface SourceIndexEntry {
   columnsUsed?: string;
   sqlProjectedColumns?: string;
   inferredMembershipKeys?: string[];
+  inferredMembershipKeyRoles?: { user: string; organization: string };
   dependencies?: string;
   joinPattern?: string;
   commonQuestions?: string;
@@ -173,6 +174,7 @@ interface ModelDoc {
   explicitGrain?: string;
   inferredGrain?: string;
   inferredGrainKeyCandidates?: string[][];
+  inferredMembershipKeyRoles?: { user: string; organization: string };
   sqlProjectedColumns?: string[];
   passThroughModel?: string;
   passThroughColumns?: string[] | "*";
@@ -3024,12 +3026,47 @@ function projectedGrainKeyCandidates(
   });
 }
 
+function projectedMembershipKeyRoles(
+  upstream: ModelDoc,
+  model: ModelDoc,
+): { user: string; organization: string } | undefined {
+  const upstreamRoles = upstream.inferredMembershipKeyRoles;
+  if (!upstreamRoles) return undefined;
+  if (model.passThroughColumns === "*") return upstreamRoles;
+  if (!model.passThroughProjections?.length) return undefined;
+
+  const project = (inputColumn: string): string | undefined => {
+    const outputColumns = model
+      .passThroughProjections!.filter(
+        (projection) =>
+          projection.inputColumn.toLowerCase() === inputColumn.toLowerCase(),
+      )
+      .map((projection) => projection.outputColumn.toLowerCase());
+    return outputColumns.length === 1 ? outputColumns[0] : undefined;
+  };
+  const user = project(upstreamRoles.user);
+  const organization = project(upstreamRoles.organization);
+  if (!user || !organization || user === organization) return undefined;
+  return { user, organization };
+}
+
 function inheritPassThroughGrains(models: ModelDoc[]): void {
   const byName = new Map(models.map((model) => [model.name, model]));
   let changed = true;
   while (changed) {
     changed = false;
     for (const model of models) {
+      const upstream = model.passThroughModel
+        ? byName.get(model.passThroughModel)
+        : undefined;
+      if (!upstream) continue;
+      if (!model.inferredMembershipKeyRoles) {
+        const membershipKeyRoles = projectedMembershipKeyRoles(upstream, model);
+        if (membershipKeyRoles) {
+          model.inferredMembershipKeyRoles = membershipKeyRoles;
+          changed = true;
+        }
+      }
       if (
         model.inferredGrain ||
         model.explicitGrain ||
@@ -3041,9 +3078,6 @@ function inheritPassThroughGrains(models: ModelDoc[]): void {
       ) {
         continue;
       }
-      const upstream = model.passThroughModel
-        ? byName.get(model.passThroughModel)
-        : undefined;
       const upstreamGrain = modelDeclaredGrain(upstream);
       if (
         !upstream ||
@@ -3108,14 +3142,25 @@ function modelEntries(
   const projectedColumnNames = new Set(
     (model.sqlProjectedColumns ?? []).map((column) => column.toLowerCase()),
   );
-  const inferredMembershipKeys = model.inferredGrainKeyCandidates?.find(
-    (candidate) =>
-      candidate.length === 2 &&
-      new Set(candidate.map((column) => column.toLowerCase())).size === 2 &&
-      candidate.every((column) =>
-        projectedColumnNames.has(column.toLowerCase()),
-      ),
-  );
+  const inferredMembershipKeyRoles = model.inferredMembershipKeyRoles;
+  const hasProjectedMembershipKeyRoles =
+    inferredMembershipKeyRoles !== undefined &&
+    projectedColumnNames.has(inferredMembershipKeyRoles.user.toLowerCase()) &&
+    projectedColumnNames.has(
+      inferredMembershipKeyRoles.organization.toLowerCase(),
+    );
+  const inferredMembershipKeys =
+    inferredMembershipKeyRoles &&
+    hasProjectedMembershipKeyRoles &&
+    model.inferredGrainKeyCandidates?.some((candidate) => {
+      const columns = new Set(candidate.map((column) => column.toLowerCase()));
+      return (
+        candidate.length === 2 &&
+        columns.size === 2 &&
+        columns.has(inferredMembershipKeyRoles.user.toLowerCase()) &&
+        columns.has(inferredMembershipKeyRoles.organization.toLowerCase())
+      );
+    });
   const modelGotchas = [
     ...[...model.tests].sort().map((test) => `model: ${test}`),
     ...columns.flatMap((column) =>
@@ -3138,7 +3183,15 @@ function modelEntries(
       ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
       ...(sqlProjectedColumns ? { sqlProjectedColumns } : {}),
-      ...(inferredMembershipKeys ? { inferredMembershipKeys } : {}),
+      ...(inferredMembershipKeyRoles && inferredMembershipKeys
+        ? {
+            inferredMembershipKeys: [
+              inferredMembershipKeyRoles.user,
+              inferredMembershipKeyRoles.organization,
+            ],
+            inferredMembershipKeyRoles,
+          }
+        : {}),
       ...(dependencies.length
         ? {
             dependencies: boundedList(dependencies, 4_000, "; ", scanSummary),
@@ -3293,6 +3346,14 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       ...(inferredGrain ? { inferredGrain } : {}),
       ...(inferredGrain
         ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
+        : {}),
+      ...(inferredGrain
+        ? {
+            inferredMembershipKeyRoles: {
+              user: "user_id",
+              organization: "organization_id",
+            },
+          }
         : {}),
       ...(passThrough
         ? {

@@ -62,6 +62,32 @@ describe("parseSourceIndexBundle scan summary compatibility", () => {
 
     expect(bundle.scanSummary?.unresolvedTrackingCallSites).toBeUndefined();
   });
+
+  it("requires inferred membership roles to name projected membership keys", () => {
+    expect(() =>
+      parseSourceIndexBundle({
+        schemaVersion: 1,
+        generatedAt: "2026-10-09T12:00:00.000Z",
+        sources: [{ id: "dbt", revision: "abcdef123456" }],
+        entries: [
+          {
+            id: "model-aliased-members",
+            metric: "model:aliased_members",
+            definition: "Parser-inferred membership keys.",
+            source: "dbt",
+            sourceKind: "dbt",
+            table: "aliased_members",
+            sqlProjectedColumns: "member_key, workspace_key",
+            inferredMembershipKeys: ["member_key", "workspace_key"],
+            inferredMembershipKeyRoles: {
+              user: "user_id",
+              organization: "organization_id",
+            },
+          },
+        ],
+      }),
+    ).toThrow("membership identity columns must be present");
+  });
 });
 
 describe("sourceIndexDictionaryEntries", () => {
@@ -81,6 +107,10 @@ describe("sourceIndexDictionaryEntries", () => {
           table: "users",
           sqlProjectedColumns: "user_id, organization_id",
           inferredMembershipKeys: ["user_id", "organization_id"],
+          inferredMembershipKeyRoles: {
+            user: "user_id",
+            organization: "organization_id",
+          },
         },
       ],
     });
@@ -91,6 +121,10 @@ describe("sourceIndexDictionaryEntries", () => {
     expect(sourceIndexDictionaryEntries(bundle)[0]).toMatchObject({
       sqlProjectedColumns: "user_id, organization_id",
       inferredMembershipKeys: ["user_id", "organization_id"],
+      inferredMembershipKeyRoles: {
+        user: "user_id",
+        organization: "organization_id",
+      },
     });
   });
 

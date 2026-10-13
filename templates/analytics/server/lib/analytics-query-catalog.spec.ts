@@ -446,6 +446,10 @@ describe("analytics query catalog", () => {
             "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
           sqlProjectedColumns: "user_id, organization_id",
           inferredMembershipKeys: ["user_id", "organization_id"],
+          inferredMembershipKeyRoles: {
+            user: "user_id",
+            organization: "organization_id",
+          },
           sourceKind: "dbt",
           sourceIndex: true,
           approved: false,
@@ -459,6 +463,71 @@ describe("analytics query catalog", () => {
       id: "dbt-un-nested-membership",
       inferredMembershipKeys: ["user_id", "organization_id"],
     });
+  });
+
+  it("uses role-mapped aliases and projected role fields for dbt rosters", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-aliased-membership",
+          metric: "model:user_organization_aliases",
+          definition:
+            "Expanded array-backed membership rows with role detail.",
+          table: "user_organization_aliases",
+          grain:
+            "One row per member-workspace membership",
+          semanticScope: "membership",
+          sqlProjectedColumns: "member_key, workspace_key, role_code",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          inferredMembershipKeyRoles: {
+            user: "member_key",
+            organization: "workspace_key",
+          },
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-aliased-membership",
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+  });
+
+  it("does not infer membership roles from aliases without source role metadata", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-unverified-aliases",
+          metric: "model:unverified_aliases",
+          definition: "An imported model with ambiguous output keys.",
+          table: "unverified_aliases",
+          grain: "One row per member-workspace pair.",
+          sqlProjectedColumns: "member_key, workspace_key",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
   });
 
   it("accepts member identity keys for workspace roster questions", () => {

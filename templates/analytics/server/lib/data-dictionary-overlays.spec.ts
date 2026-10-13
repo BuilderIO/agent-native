@@ -13,6 +13,10 @@ describe("data dictionary overlays", () => {
       sourceIndexGeneratedAt: "2000-01-01T00:00:00.000Z",
       sqlProjectedColumns: "user_id, organization_id",
       inferredMembershipKeys: ["user_id", "organization_id"],
+      inferredMembershipKeyRoles: {
+        user: "user_id",
+        organization: "organization_id",
+      },
     };
     const overlay = {
       id: generated.id,
@@ -22,6 +26,10 @@ describe("data dictionary overlays", () => {
       sourceIndexStaleAfterDays: 36_500,
       sqlProjectedColumns: "account_id AS user_id",
       inferredMembershipKeys: ["account_id", "organization_id"],
+      inferredMembershipKeyRoles: {
+        user: "account_id",
+        organization: "organization_id",
+      },
     };
 
     expect(mergeDataDictionaryEntry(generated, overlay)).toMatchObject({
@@ -33,6 +41,10 @@ describe("data dictionary overlays", () => {
       sourceIndexGeneratedAt: "2000-01-01T00:00:00.000Z",
       sqlProjectedColumns: "user_id, organization_id",
       inferredMembershipKeys: ["user_id", "organization_id"],
+      inferredMembershipKeyRoles: {
+        user: "user_id",
+        organization: "organization_id",
+      },
     });
   });
 });
