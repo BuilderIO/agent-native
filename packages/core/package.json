@@ -499,6 +499,7 @@
     "./client/app-model-default": "./dist/client/app-model-default.js",
     "./client/appearance": "./dist/client/appearance.js",
     "./client/auth/change-email": "./dist/client/auth/change-email.js",
+    "./client/auth/resend-verification-email": "./dist/client/auth/resend-verification-email.js",
     "./client/auth/two-factor": "./dist/client/auth/two-factor.js",
     "./client/browser-tab-id": "./dist/client/browser-tab-id.js",
     "./client/builder-frame": "./dist/client/builder-frame.js",

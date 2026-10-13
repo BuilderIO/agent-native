@@ -7801,6 +7801,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.failureProps.info.errorCode).toBe("credits-limit-daily");
   });
 
+  it("passes the unverified session email to run recovery", async () => {
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationEmail).toBe(
+      "person@example.test",
+    );
+  });
+
   it("deduplicates credit-limit cards when failed runs share a timestamp", async () => {
     chatMocks.failureError = {
       code: "credits-limit-daily",

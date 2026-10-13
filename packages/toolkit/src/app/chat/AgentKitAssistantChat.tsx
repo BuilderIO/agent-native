@@ -6449,6 +6449,7 @@ function AgentKitRunFailure({
   runId: string;
   threadId: string;
 }) {
+  const { session } = useSession();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const surface = useAgentKitSurface();
@@ -6611,6 +6612,9 @@ function AgentKitRunFailure({
     <>
       <RunErrorRecoveryCard
         info={info}
+        verificationEmail={
+          session?.emailVerified === true ? null : session?.email
+        }
         onContinue={continueStoppedRun}
         continueError={
           continueFailed ? t("agentChat.recovery.continueUnavailable") : null
