@@ -446,8 +446,8 @@ function assignActiveMessage(
     ...thread,
     runs: { ...thread.runs, [runId]: { ...run, activeMessageId: messageId } },
   };
-  // A continuation that starts after its predecessor finished still writes to
-  // the predecessor's reply, so that reply has to take text again.
+  // A continuation can write after its predecessor completes the message,
+  // even before that predecessor's run finishes.
   const message = next.messages.find((item) => item.id === messageId);
   if (
     run.activeMessageId !== messageId &&
@@ -456,8 +456,9 @@ function assignActiveMessage(
     Object.values(thread.runs).some(
       (other) =>
         other.id !== runId &&
-        isTerminalRunStatus(other.status) &&
-        other.activeMessageId === messageId,
+        (holdsMessage(other, messageId) ||
+          (isTerminalRunStatus(other.status) &&
+            other.activeMessageId === messageId)),
     )
   ) {
     next = {

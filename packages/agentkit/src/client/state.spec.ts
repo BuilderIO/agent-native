@@ -523,6 +523,72 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("appends a continuation after message completion but before predecessor run completion", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+      event(3, {
+        type: "message.completed",
+        message: {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(thread.messages[0]?.status).toBe("complete");
+    expect(thread.runs["run-1"]?.status).toBe("running");
+
+    thread = [
+      {
+        ...event(1, { type: "run.started" }),
+        id: "run-2-started",
+        runId: "run-2",
+      },
+      {
+        ...event(2, {
+          type: "message.delta",
+          messageId: "assistant-shared",
+          text: " still",
+        }),
+        id: "run-2-delta",
+        runId: "run-2",
+      },
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+
+    thread = reduceAgentEvent(thread, event(4, { type: "run.completed" }));
+
+    expect(thread.messages[0]?.status).toBe("streaming");
+
+    thread = reduceAgentEvent(thread, {
+      ...event(3, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
   it("appends a continuation that starts after its predecessor completed the shared reply", () => {
     let thread = [
       event(1, { type: "run.started" }),
