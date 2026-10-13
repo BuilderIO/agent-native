@@ -282,9 +282,37 @@ describe("import-design-tokens", () => {
       "char_length(left(",
     );
     expect(filePriority.strings?.join("")).toContain("~*");
-    expect(filePriority.strings?.join("")).toContain("css|scss|less|json");
+    expect(filePriority.strings?.join("")).toContain(
+      "css|scss|less|json|md|mdx|txt",
+    );
     expect(result.filesAnalyzed).toEqual(["tokens.css"]);
     expect(result.omittedFileCount).toBe(1);
+  });
+
+  it("filters oversized current-design candidates before the row limit", async () => {
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 22 }])
+      .mockResolvedValueOnce([
+        { id: "small", filename: "tokens.md", contentBytes: 24 },
+      ])
+      .mockResolvedValueOnce([
+        { id: "small", content: "Primary color: #2563eb" },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
+      conditions?: { strings?: string[] }[];
+    };
+    const candidateByteFilter =
+      candidateFilter.conditions?.[2]?.strings?.join("") ?? "";
+    expect(candidateByteFilter).toContain("octet_length(left(");
+    expect(candidateByteFilter).toContain(" <= ");
+    expect(result.filesAnalyzed).toEqual(["tokens.md"]);
+    expect(result.omittedFileCount).toBe(21);
   });
 
   it("keeps current-design contents under the aggregate byte limit", async () => {
@@ -912,11 +940,12 @@ Bad radius: 12px} body { color: red
   --custom-image: image("https://example.com/image.png");
   --custom-image-set: image-set("https://example.com/image.png" 1x);
   --custom-prefixed-image-set: -webkit-image-set("https://example.com/image.png" 1x);
+  --custom-escaped-image-set: image-set("https\\3a //example.com/image.png" 1x);
 }`,
     });
 
     expect(result.importedCount).toBe(0);
-    expect(result.rejectedCount).toBe(6);
+    expect(result.rejectedCount).toBe(7);
     expect(result.tokens).toEqual([]);
   });
 
@@ -1172,6 +1201,50 @@ Primary color: #2563eb`,
     expect(result.tokens).toContainEqual(
       expect.objectContaining({
         cssVar: "--color-primary",
+        value: "#2563eb",
+      }),
+    );
+  });
+
+  it("imports pasted CSS declarations after a numbered prose heading", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "[1] Brand palette\n--color-accent: #60a5fa;",
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-accent",
+        value: "#60a5fa",
+      }),
+    );
+    expect(result.skippedCount).toBe(0);
+  });
+
+  it("does not count theme config structure lines as invalid tokens", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "theme.md",
+          content: `colors: {
+  accent: "#2563eb"
+}
+fontFamily: [
+  "Inter"
+]`,
+        },
+      ],
+    });
+
+    expect(result.importedCount).toBeGreaterThan(0);
+    expect(result.rejectedCount).toBe(0);
+    expect(result.skippedCount).toBe(0);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-accent",
         value: "#2563eb",
       }),
     );

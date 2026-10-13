@@ -165,7 +165,7 @@ describe("readImportFiles", () => {
     });
   });
 
-  it("omits overlong submitted file names and paths, then continues", async () => {
+  it("uses a short basename for long folder paths and continues", async () => {
     let readCount = 0;
     const content = ":root { --color-accent: #2563eb; }";
     const files = [
@@ -183,7 +183,7 @@ describe("readImportFiles", () => {
         size: 1,
         text: async () => {
           readCount += 1;
-          return "should not be read";
+          return content;
         },
       },
       {
@@ -198,10 +198,13 @@ describe("readImportFiles", () => {
 
     const result = await readImportFiles(files);
 
-    expect(readCount).toBe(1);
+    expect(readCount).toBe(2);
     expect(result).toEqual({
-      files: [{ filename: "later.css", content }],
-      omittedFileCount: 2,
+      files: [
+        { filename: "tokens.css", content },
+        { filename: "later.css", content },
+      ],
+      omittedFileCount: 1,
     });
   });
 
@@ -272,7 +275,7 @@ describe("readImportFiles", () => {
       },
       {
         name: "later.css",
-        size: content.length,
+        size: 40,
         text: async () => content,
       },
     ] as File[];

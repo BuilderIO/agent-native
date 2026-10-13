@@ -307,6 +307,10 @@ const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
 const TOKEN_LABEL_LINE =
   /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/().&'’.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
 
+function isConfigStructureOpenerValue(value: string): boolean {
+  return /^(?:\{|\[)\s*,?$/.test(value.trim());
+}
+
 function parseNamedLines(
   files: { filename: string; content: string }[],
 ): ImportedDesignToken[] {
@@ -322,7 +326,7 @@ function parseNamedLines(
           ? line.slice(1, -1).trim()
           : line;
       const match = namedLine.match(TOKEN_LABEL_LINE);
-      if (!match) continue;
+      if (!match || isConfigStructureOpenerValue(match[2] ?? "")) continue;
 
       const label = match[1].replace(/\*\*/g, "").trim();
       const rawValue = match[2].trim();
@@ -433,7 +437,13 @@ function removeMalformedNamedLines(content: string): {
   const lines = content.split(/\r?\n/).filter((line) => {
     if (line.length > MAX_TOKEN_LABEL_LINE_LENGTH) return true;
     const match = line.trim().match(TOKEN_LABEL_LINE);
-    if (!match || hasBalancedCssValueSyntax(match[2] ?? "")) return true;
+    if (
+      !match ||
+      isConfigStructureOpenerValue(match[2] ?? "") ||
+      hasBalancedCssValueSyntax(match[2] ?? "")
+    ) {
+      return true;
+    }
     rejectedCount += 1;
     return false;
   });
@@ -464,7 +474,8 @@ function pastedTokenListCssCandidate(content: string): string | null {
     if (
       !line ||
       isProseTokenLabelLine(line, true) ||
-      /^\[[^\]\r\n]{1,80}\]$/.test(line)
+      /^\[[^\]\r\n]{1,80}\]$/.test(line) ||
+      /^\[\s*\d+\s*\]\s+[^\]\r\n]{1,80}$/.test(line)
     ) {
       continue;
     }
@@ -1182,10 +1193,11 @@ export default defineAction({
               and(
                 eq(schema.designFiles.designId, designId),
                 sql`char_length(left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`,
+                sql`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1})) <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES}`,
               ),
             )
             .orderBy(
-              sql<number>`case when ${schema.designFiles.filename} ~* '\\.(css|scss|less|json)$' then 0 else 1 end`,
+              sql<number>`case when ${schema.designFiles.filename} ~* '\\.(css|scss|less|json|md|mdx|txt)$' then 0 else 1 end`,
               asc(
                 sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`,
               ),

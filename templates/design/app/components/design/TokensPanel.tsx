@@ -689,10 +689,14 @@ export async function readImportFiles(
   let omittedFileCount = selectedFiles.length - selected.length;
 
   for (const file of selected) {
-    const filename =
+    const relativePath =
       (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
       file.name;
+    let filename = relativePath.trim();
     if (filename.length > DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS) {
+      filename = file.name.trim();
+    }
+    if (!filename || filename.length > DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS) {
       omittedFileCount += 1;
       continue;
     }
@@ -713,14 +717,13 @@ export async function readImportFiles(
       omittedFileCount += 1;
       continue;
     }
-    readBytes += file.size;
-
     const encodedSize = encoder.encode(content).byteLength;
     if (contentBytes + encodedSize > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
       omittedFileCount += 1;
       continue;
     }
 
+    readBytes += file.size;
     contentBytes += encodedSize;
     files.push({
       filename,

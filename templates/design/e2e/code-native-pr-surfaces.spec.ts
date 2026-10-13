@@ -6,6 +6,7 @@ import {
   type Response,
 } from "@playwright/test";
 
+import { DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES } from "../shared/design-token-import-limits";
 import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
@@ -297,6 +298,49 @@ test("token CSS-var edits update the iframe live and persist after reload", asyn
   await expect
     .poll(() => tokenSampleBackground(page))
     .toBe("rgb(255, 51, 102)");
+});
+
+test("token file import continues after an oversized selection", async ({
+  page,
+}) => {
+  await openTokensPanel(page);
+  await page
+    .getByRole("button", { name: "Import tokens", exact: true })
+    .click();
+  await page.getByRole("button", { name: /Import from a file/ }).click();
+
+  const fileInput = page
+    .locator(
+      'input[type="file"][accept=".css,.scss,.less,.json,.ts,.tsx,.js,.jsx,.md,.mdx,.txt"]',
+    )
+    .first();
+  const response = await waitForAction(page, "import-design-tokens", () =>
+    fileInput.setInputFiles([
+      {
+        name: "too-large.css",
+        mimeType: "text/css",
+        buffer: Buffer.alloc(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1, " "),
+      },
+      {
+        name: "tokens.css",
+        mimeType: "text/css",
+        buffer: Buffer.from(":root { --color-upload: #aabbcc; }"),
+      },
+    ]),
+  );
+
+  expect(response.ok()).toBe(true);
+  expect(response.request().postDataJSON()).toMatchObject({
+    source: "files",
+    files: [
+      {
+        filename: "tokens.css",
+        content: ":root { --color-upload: #aabbcc; }",
+      },
+    ],
+  });
+  await expect(page.getByRole("status")).toContainText("Imported 1 tokens.");
+  await expect(page.getByRole("status")).toContainText("files: 1");
 });
 
 test("Review panel runs an audit and applies an inline a11y fix", async ({
