@@ -85,6 +85,18 @@ const strictAjv = new Ajv(strictAjvOptions);
 const validateAnyObject = strictAjv.compile({ type: "object" });
 // allErrors reports every failure; the model needs the first few.
 const MAX_REPORTED_INPUT_ERRORS = 10;
+// Compiling is synchronous and costs about as much as the schema is large, and
+// a caller's tools rarely change between runs, so validators are reused by
+// checked schema text. Each is compiled in its own Ajv instance, because Ajv
+// keeps every schema it compiles in instance-wide state; evicting an entry
+// frees it. The cache is bounded by expanded subschemas and by entries.
+const MAX_CACHED_VALIDATOR_NODES = 60_000;
+const MAX_CACHED_VALIDATORS = 256;
+const validatorCache = new Map<
+  string,
+  { validate: ValidateFunction; expanded: number }
+>();
+let cachedValidatorNodes = 0;
 
 // The keywords app schemas may use, by the shape of their value. Every other
 // key in a schema is refused by name rather than ignored. Ajv's identifier scan
@@ -227,7 +239,6 @@ export async function resolveAppAdditionalActions(
   const schemaBudget: SchemaBudget = {
     remaining: MAX_TOTAL_SCHEMA_JSON_CHARS,
     expandedRemaining: MAX_TOTAL_SCHEMA_EXPANDED_NODES,
-    compilers: {},
   };
   for (const name of names.slice(0, MAX_ADDITIONAL_ACTIONS)) {
     const entry: unknown = entries[name];
@@ -308,7 +319,7 @@ function prepareActionEntry(
     if (typeof checked === "string") return checked;
     ({ schema: parameters, expanded: expandedSize } = checked);
     try {
-      validate = compileStrict(parameters, schemaBudget.compilers);
+      validate = compileStrict(parameters, expandedSize);
     } catch (error) {
       return `has a tool schema that does not compile: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -452,10 +463,6 @@ function checkParameterSchema(
 interface SchemaBudget {
   remaining: number;
   expandedRemaining: number;
-  // Ajv keeps every schema it compiles in instance-wide state that
-  // removeSchema does not clear, so each request compiles in its own
-  // instances, which are freed with that request's validators.
-  compilers: { draft7?: Ajv; draft2020?: Ajv2020 };
 }
 
 interface SchemaWalk {
@@ -708,18 +715,37 @@ function inputFitsUnits(input: unknown, maxUnits: number): boolean {
 
 function compileStrict(
   schema: Record<string, unknown>,
-  compilers: SchemaBudget["compilers"],
+  expanded: number,
 ): ValidateFunction {
   const declared = schema.$schema;
   const dialect =
     typeof declared === "string" ? declared.replace(/#$/, "") : undefined;
-  const ajv =
-    dialect === "https://json-schema.org/draft/2020-12/schema"
-      ? (compilers.draft2020 ??= new Ajv2020(strictAjvOptions))
-      : (compilers.draft7 ??= new Ajv(strictAjvOptions));
+  const is2020 = dialect === "https://json-schema.org/draft/2020-12/schema";
+  const key = `${is2020 ? "2020" : "7"} ${JSON.stringify(schema)}`;
+  const cached = validatorCache.get(key);
+  if (cached) {
+    validatorCache.delete(key);
+    validatorCache.set(key, cached);
+    return cached.validate;
+  }
+  const ajv = is2020
+    ? new Ajv2020(strictAjvOptions)
+    : new Ajv(strictAjvOptions);
   const validate = ajv.compile(schema);
   if ((validate as { $async?: unknown }).$async) {
     throw new Error("the schema validates asynchronously");
+  }
+  validatorCache.set(key, { validate, expanded });
+  cachedValidatorNodes += expanded;
+  for (const [oldest, entry] of validatorCache) {
+    if (
+      cachedValidatorNodes <= MAX_CACHED_VALIDATOR_NODES &&
+      validatorCache.size <= MAX_CACHED_VALIDATORS
+    ) {
+      break;
+    }
+    validatorCache.delete(oldest);
+    cachedValidatorNodes -= entry.expanded;
   }
   return validate;
 }

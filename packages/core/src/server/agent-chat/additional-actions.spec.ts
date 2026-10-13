@@ -519,36 +519,53 @@ describe("resolveAppAdditionalActions", () => {
       expect(reads).toBe(1);
     });
 
-    it("compiles each request's schemas in that request's own Ajv instances", async () => {
+    it("reuses a validator for an unchanged schema from a bounded cache, one Ajv instance each", async () => {
       const { default: Ajv } = await import("ajv");
-      const instances = new Set<unknown>();
+      const instances: unknown[] = [];
       const compile = Ajv.prototype.compile;
       vi.spyOn(Ajv.prototype, "compile").mockImplementation(function (
         this: InstanceType<typeof Ajv>,
         ...args: Parameters<typeof compile>
       ) {
-        instances.add(this);
+        instances.push(this);
         return compile.apply(this, args);
       } as typeof compile);
-      const resolver = () => ({
-        "per-request": entry("x", {
-          tool: {
-            description: "x",
-            parameters: {
-              type: "object",
-              properties: { a: { type: "string" } },
-            },
-          },
-        }),
+      const schemaFor = (name: string) => ({
+        type: "object" as const,
+        properties: { [name]: { type: "string" as const } },
       });
+      const resolveSchemas = (names: string[]) =>
+        resolveAppAdditionalActions(
+          config({
+            resolver: () =>
+              Object.fromEntries(
+                names.map((name) => [
+                  name,
+                  entry("x", {
+                    tool: { description: "x", parameters: schemaFor(name) },
+                  }),
+                ]),
+              ),
+          }),
+          alice,
+          {},
+        );
 
-      for (let i = 0; i < 3; i += 1) {
-        await resolveAppAdditionalActions(config({ resolver }), alice, {});
+      for (let i = 0; i < 3; i += 1) await resolveSchemas(["cached-tool"]);
+      expect(instances).toHaveLength(1);
+
+      // Fill the cache past its entry bound, which evicts the oldest schema.
+      for (let batch = 0; batch < 3; batch += 1) {
+        await resolveSchemas(
+          Array.from({ length: 100 }, (_, i) => `filler-${batch}-${i}`),
+        );
       }
+      await resolveSchemas(["cached-tool"]);
 
+      expect(instances).toHaveLength(302);
       // Ajv keeps every compiled schema in instance-wide state, so a shared
-      // instance would grow with every request.
-      expect(instances.size).toBe(3);
+      // instance would grow with every new schema.
+      expect(new Set(instances).size).toBe(302);
     });
 
     it("shows the model the checked copy of the schema, not the app's object", async () => {
