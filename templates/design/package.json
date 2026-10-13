@@ -57,6 +57,7 @@
     "playwright": "^1.63.0",
     "postcss": "^8.5.28",
     "postcss-less": "6.0.0",
+    "postcss-scss": "4.0.9",
     "prettier": "^3.9.4",
     "react": "catalog:",
     "react-dom": "catalog:",

@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import postcss from "postcss";
 import postcssLess from "postcss-less";
+import postcssScss from "postcss-scss";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -493,11 +494,25 @@ function looksLikePastedJson(content: string): boolean {
   }
 
   const [firstLine = "", ...remainingLines] = trimmed.split(/\r?\n/);
+  const firstLineLooksLikeJsonArray = /^\[\s*(?:\{|\[|")/.test(firstLine);
   const isNoteWithTokenList =
     /^\[[^\]\r\n]{1,80}\]$/.test(firstLine.trim()) &&
+    !firstLineLooksLikeJsonArray &&
     remainingLines.some((line) => /^--[\w-]+\s*:/.test(line.trim()));
 
-  return !isNoteWithTokenList;
+  if (isNoteWithTokenList || /^\[[^\]\r\n]+\]\s*\{/.test(trimmed)) {
+    return false;
+  }
+
+  const arrayContent = trimmed.slice(1).trimStart();
+  return (
+    arrayContent.startsWith("]") ||
+    arrayContent.startsWith("{") ||
+    arrayContent.startsWith("[") ||
+    arrayContent.startsWith('"') ||
+    /^[-\d]/.test(arrayContent) ||
+    /^(?:true|false|null)(?=\s*(?:,|\]|$))/.test(arrayContent)
+  );
 }
 
 function looksLikePastedCss(content: string): boolean {
@@ -622,11 +637,13 @@ function isValidImportFile(file: {
     : [file.content];
   const isScssOrLess = /\.(scss|less)$/.test(filename);
   const isLess = filename.endsWith(".less");
+  const isScss = filename.endsWith(".scss");
 
   for (const css of cssCandidates) {
     try {
       const normalizedCss = isScssOrLess ? stripScssLessLineComments(css) : css;
       if (isLess) postcssLess.parse(normalizedCss);
+      else if (isScss) postcssScss.parse(normalizedCss);
       else postcss.parse(normalizedCss);
       return true;
     } catch (error) {

@@ -5,6 +5,7 @@ import {
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../../../shared/design-token-import-limits";
 import {
+  createEmptyFilesImportResult,
   getTokenImportStatus,
   isColorValue,
   normalizeCssVarName,
@@ -72,6 +73,21 @@ describe("snapshotImportFiles", () => {
 });
 
 describe("getTokenImportStatus", () => {
+  it("reports an all-omitted file selection without a server import", () => {
+    const result = createEmptyFilesImportResult("design_1", 2);
+
+    expect(result).toEqual({
+      designId: "design_1",
+      importedCount: 0,
+      filesAnalyzed: [],
+      omittedFileCount: 2,
+    });
+    expect(getTokenImportStatus(result)).toEqual({
+      key: "designEditor.tokens.importedWithOmissions",
+      values: { count: 0, skipped: 0, omittedTokens: 0, omittedFiles: 2 },
+    });
+  });
+
   it("shows skipped counts when no tokens were imported", () => {
     expect(
       getTokenImportStatus({

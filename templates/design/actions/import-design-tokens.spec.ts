@@ -430,6 +430,38 @@ Bad radius: 12px} body { color: red
     expect(result.skippedCount).toBe(1);
   });
 
+  it("imports tokens from SCSS files with interpolated property names", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "theme.scss",
+          content: [
+            "$property: margin;",
+            ":root {",
+            "  #{$property}: 1px;",
+            "  --color-scss-accent: #2563eb;",
+            "}",
+          ].join("\n"),
+        },
+        {
+          filename: "invalid.scss",
+          content: ":root { --color-invalid: #ef4444;",
+        },
+      ],
+    });
+
+    expect(result.filesAnalyzed).toEqual(["theme.scss"]);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-scss-accent",
+        value: "#2563eb",
+      }),
+    );
+    expect(result.skippedCount).toBe(1);
+  });
+
   it("imports single-word labels alongside pasted token declarations", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -614,6 +646,36 @@ Primary color: #2563eb
         }),
       ]),
     );
+  });
+
+  it("imports tokens from pasted CSS with an attribute selector", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: '[data-theme="dark"] { --color-accent: #60a5fa; }',
+    });
+
+    expect(result.filesAnalyzed).toEqual(["pasted-tokens.txt"]);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-accent",
+        value: "#60a5fa",
+      }),
+    );
+    expect(result.skippedCount).toBe(0);
+  });
+
+  it("does not mine tokens from malformed pasted JSON arrays", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: '[{"colors": }]\n--color-accent: #60a5fa;',
+    });
+
+    expect(result.filesAnalyzed).toEqual([]);
+    expect(result.importedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(result.tokens).toEqual([]);
   });
 
   it("reports valid tokens omitted by the import limit", async () => {

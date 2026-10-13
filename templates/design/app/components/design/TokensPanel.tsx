@@ -75,6 +75,18 @@ interface ImportDesignTokensResult {
   resolvedCssVars?: Record<string, string>;
 }
 
+export function createEmptyFilesImportResult(
+  designId: string,
+  omittedFileCount: number,
+): ImportDesignTokensResult {
+  return {
+    designId,
+    importedCount: 0,
+    filesAnalyzed: [],
+    omittedFileCount,
+  };
+}
+
 export function getTokenImportStatus(result: {
   importedCount: number;
   rejectedCount?: number;
@@ -767,6 +779,10 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     files: TokenImportFile[],
     clientOmittedFileCount: number,
   ) => {
+    if (files.length === 0) {
+      return createEmptyFilesImportResult(designId, clientOmittedFileCount);
+    }
+
     const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
