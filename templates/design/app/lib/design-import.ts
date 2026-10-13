@@ -108,7 +108,7 @@ export function figmaHydrationErrorMessage(
     source?.errorCode === "figma_request_failed" &&
     (source.statusCode === 403 || source.details?.figmaStatus === 403);
 
-  if (source?.name === "FigmaFileUrlUsedAsTokenError") {
+  if (error instanceof Error && error.name === "FigmaFileUrlUsedAsTokenError") {
     return fileUrlTokenMessage;
   }
   if (isFigmaForbidden) return forbiddenMessage;
