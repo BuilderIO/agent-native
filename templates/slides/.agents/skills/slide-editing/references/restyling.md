@@ -1,20 +1,16 @@
-# Style-only edits and copying a look across the deck
+# Restyling slides and copying a look across the deck
 
-## Style-Only Edits
+## Style edits
 
 For a request that changes appearance and nothing else — colors, borders,
-shadows, background — set `styleOnly: true` on `update-slide`.
-
-`styleOnly` accepts the structured `edits` array and nothing else. `fullContent`
-and the top-level legacy `find` / `replace` / `objectId` fields are rejected in
-this mode, so even a single replacement goes as one `edits` entry:
+shadows, background — send `edits` that change only the requested CSS
+declarations, and leave text, element order, and layout properties (padding,
+margin, gap, font-size, line-height, dimensions, positioning) as they are:
 
 ```jsonc
 {
   "deckId": "...",
   "slideId": "...",
-  "styleOnly": true,
-  "baseContentHash": "<contentHash from get-deck>",
   "edits": [
     {
       "find": "background:#111111",
@@ -25,9 +21,9 @@ this mode, so even a single replacement goes as one `edits` entry:
 }
 ```
 
-The action then rejects any result that changes text, markup, element order, or
-protected layout CSS (padding, margin, gap, font-size, line-height, dimensions,
-positioning), so the edit can only move the declarations you targeted.
+Deck palettes usually live in `--deck-*` variables on the `.fmd-slide`
+wrapper; change the variable (`--deck-muted: #647968`) rather than every
+element that uses it.
 
 Use `occurrence: 1` rather than `expectedMatches: 1` when a declaration may
 appear more than once on the slide: the `edits` path refuses an ambiguous
@@ -52,26 +48,22 @@ repeats across all of them before any rejection comes back.
    `compact=false` read when they are not. Take the reference background from
    its `.fmd-slide` wrapper — not a child. `deckStyle` summarizes the whole
    deck, including interior gradients, so it is not a substitute for the
-   wrapper's own value. Keep each returned `contentHash` with its exact HTML.
+   wrapper's own value.
 2. Send one `patch-deck` call carrying every affected slide, each as a
    `patch-slide` with `edits: [{"find":"...","replace":"...","occurrence":1}]`
    for the declarations that change, then verify once with `get-deck` using the
    same `slideIds` and `compact=false`. Edits apply to the current HTML and need
    no `baseContentHash`; regenerating full `fields.content` for a color swap
-   costs tens of seconds per slide and risks a structure rejection.
+   costs tens of seconds per slide.
 
-Set `styleOnly: true` on each CSS-only content operation. `patch-deck` enforces
-that text, markup, element order, and protected layout CSS stay unchanged, and
-rejects stale per-slide hashes before writing. For content or structural edits,
-omit `styleOnly` and include the complete intended slide HTML. Use
-`update-slide` for a focused single-slide edit or when a person is actively
+Use `update-slide` for a focused single-slide edit or when a person is actively
 editing and the smaller scoped mutation matters.
-
-When a person is actively editing the deck or making a focused change, use
-`update-slide` with `baseContentHash` to keep the write scoped to that slide.
 
 Either way, change only the `.fmd-slide` wrapper's background. Interior card
 fills, image backgrounds, and gradients are separate visual elements; leave them
 alone unless the user asked for those too. A slide whose wrapper carries no
 background declaration needs one added to the wrapper's `style`, not a
 find/replace against a declaration that is not there.
+
+After restyling, check text contrast and fit once with `audit-contrast` and
+`get-layout-overflows` together.
