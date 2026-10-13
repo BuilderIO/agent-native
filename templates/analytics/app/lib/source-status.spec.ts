@@ -103,6 +103,13 @@ describe("sourceHealthState", () => {
                 hasGrantedWorkspaceConnection: true,
                 hasActiveWorkspaceConnection: false,
                 statuses: ["checking"],
+                connections: [
+                  {
+                    id: "analytics-checking-connection",
+                    status: "checking",
+                    grantedToApp: true,
+                  },
+                ],
               },
             },
           ],
@@ -274,6 +281,13 @@ describe("sourceHealthState", () => {
       hasGrantedWorkspaceConnection: true,
       hasActiveWorkspaceConnection: true,
       statuses: ["connected", "error"],
+      connections: [
+        {
+          id: "analytics-connected-connection",
+          status: "connected",
+          grantedToApp: true,
+        },
+      ],
     };
     expect(
       sourceHealthState(
@@ -357,7 +371,19 @@ describe("sourceHealthState", () => {
           appId: "analytics",
           available: true,
           error: null,
-          providers: [{ ...base, statuses: [status] }],
+          providers: [
+            {
+              ...base,
+              statuses: [status],
+              connections: [
+                {
+                  id: "analytics-granted-connection",
+                  status,
+                  grantedToApp: true,
+                },
+              ],
+            },
+          ],
         },
       });
 
@@ -365,6 +391,46 @@ describe("sourceHealthState", () => {
       "needs_reauth",
     );
     expect(sourceHealthState("github", withStatus("error"))).toBe("error");
+  });
+
+  it("ignores errors from connections that are not granted to Analytics", () => {
+    const connection: WorkspaceConnectionProviderSummary = {
+      provider: "github",
+      grantState: "granted",
+      connectionCount: 2,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["disabled", "error"],
+      connections: [
+        {
+          id: "analytics-disabled-connection",
+          status: "disabled",
+          grantedToApp: true,
+        },
+      ],
+    };
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: true,
+              configuredKeys: [],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+              workspaceConnection: connection,
+            },
+          ],
+        }),
+      ),
+    ).toBe("configured");
   });
 
   it("distinguishes an unconfigured provider from an unavailable status", () => {

@@ -251,6 +251,13 @@ describe("data source status", () => {
             hasGrantedWorkspaceConnection: true,
             hasActiveWorkspaceConnection: false,
             statuses: ["error"],
+            connections: [
+              {
+                id: "analytics-granted-connection",
+                status: "error",
+                grantedToApp: true,
+              },
+            ],
           },
         },
       ],
@@ -261,6 +268,41 @@ describe("data source status", () => {
     expect(getConfiguredDataSources(envStatus, status)).not.toContain(hubspot);
     expect(getSharedConnectionStatus(hubspot, status, envStatus)?.kind).toBe(
       "error",
+    );
+  });
+
+  it("ignores ungranted connection errors when mapping Analytics health", () => {
+    const hubspot = dataSources.find((source) => source.id === "hubspot")!;
+    const status: DataSourceStatusResponse = {
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        error: null,
+        providers: [
+          {
+            provider: "hubspot",
+            grantState: "granted",
+            connectionCount: 2,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 0,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: false,
+            statuses: ["disabled", "error"],
+            connections: [
+              {
+                id: "analytics-disabled-connection",
+                status: "disabled",
+                grantedToApp: true,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(getSharedConnectionStatus(hubspot, status, [])?.kind).toBe(
+      "needs_credentials",
     );
   });
 
@@ -311,6 +353,13 @@ describe("data source status", () => {
             hasGrantedWorkspaceConnection: true,
             hasActiveWorkspaceConnection: false,
             statuses: ["error"],
+            connections: [
+              {
+                id: "analytics-granted-connection",
+                status: "error",
+                grantedToApp: true,
+              },
+            ],
           },
         },
       ],
@@ -450,7 +499,19 @@ describe("data source status", () => {
             appId: "analytics",
             available: true,
             error: null,
-            providers: [{ ...connection, statuses: ["needs_reauth"] }],
+            providers: [
+              {
+                ...connection,
+                statuses: ["needs_reauth"],
+                connections: [
+                  {
+                    id: "sentry-reauth",
+                    status: "needs_reauth",
+                    grantedToApp: true,
+                  },
+                ],
+              },
+            ],
           },
         },
         envStatus,
@@ -463,7 +524,15 @@ describe("data source status", () => {
           appId: "analytics",
           available: true,
           error: null,
-          providers: [{ ...connection, statuses: ["error"] }],
+          providers: [
+            {
+              ...connection,
+              statuses: ["error"],
+              connections: [
+                { id: "sentry-error", status: "error", grantedToApp: true },
+              ],
+            },
+          ],
         },
       },
       envStatus,

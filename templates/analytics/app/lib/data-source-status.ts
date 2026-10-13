@@ -13,6 +13,19 @@ export type WorkspaceConnectionGrantState =
   | "needs_grant"
   | "not_connected";
 
+export type WorkspaceConnectionStatus =
+  | "connected"
+  | "checking"
+  | "needs_reauth"
+  | "error"
+  | "disabled";
+
+export interface WorkspaceConnectionStatusEntry {
+  id: string;
+  status: WorkspaceConnectionStatus;
+  grantedToApp: boolean;
+}
+
 export interface WorkspaceConnectionProviderSummary {
   id?: string;
   provider: string;
@@ -25,9 +38,8 @@ export interface WorkspaceConnectionProviderSummary {
   hasWorkspaceConnection: boolean;
   hasGrantedWorkspaceConnection: boolean;
   hasActiveWorkspaceConnection: boolean;
-  statuses?: Array<
-    "connected" | "checking" | "needs_reauth" | "error" | "disabled"
-  >;
+  statuses?: WorkspaceConnectionStatus[];
+  connections?: WorkspaceConnectionStatusEntry[];
 }
 
 export interface DataSourceProviderStatus {
@@ -255,6 +267,16 @@ export function getWorkspaceConnectionForSource(
   );
 }
 
+export function getGrantedWorkspaceConnectionStatuses(
+  connection: WorkspaceConnectionProviderSummary | undefined,
+): WorkspaceConnectionStatus[] {
+  return (
+    connection?.connections
+      ?.filter(({ grantedToApp }) => grantedToApp)
+      .map(({ status }) => status) ?? []
+  );
+}
+
 export function getProviderStatusForSource(
   source: DataSource,
   data: DataSourceStatusResponse | undefined,
@@ -272,6 +294,9 @@ export function getSharedConnectionStatus(
   if (!providerId) return null;
 
   const connection = getWorkspaceConnectionForSource(source, data);
+  const grantedStatuses = new Set(
+    getGrantedWorkspaceConnectionStatuses(connection),
+  );
   const localConfigured = isSourceConfigured(source, envStatus);
   const providerLabel =
     data?.providers?.find((provider) => provider.provider === providerId)
@@ -290,13 +315,13 @@ export function getSharedConnectionStatus(
   } else if (
     (connection?.grantState === "granted" ||
       connection?.hasGrantedWorkspaceConnection === true) &&
-    connection?.statuses?.includes("needs_reauth")
+    grantedStatuses.has("needs_reauth")
   ) {
     kind = "needs_reauth";
   } else if (
     (connection?.grantState === "granted" ||
       connection?.hasGrantedWorkspaceConnection === true) &&
-    connection?.statuses?.includes("error")
+    grantedStatuses.has("error")
   ) {
     kind = "error";
   } else if (localConfigured) {

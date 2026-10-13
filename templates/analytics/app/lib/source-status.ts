@@ -5,7 +5,10 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 
-import type { DataSourceStatusResponse } from "./data-source-status";
+import {
+  getGrantedWorkspaceConnectionStatuses,
+  type DataSourceStatusResponse,
+} from "./data-source-status";
 
 export const SOURCE_HEALTH_SOURCES = [
   { id: "github", label: "GitHub", icon: IconBrandGithub },
@@ -41,12 +44,11 @@ export function sourceHealthState(
       (candidate) =>
         candidate.provider === sourceId || candidate.id === sourceId,
     );
-  const statuses = new Set(connection?.statuses ?? []);
+  const statuses = new Set(getGrantedWorkspaceConnectionStatuses(connection));
 
   const grantState = connection?.grantState;
-  // The core status list includes connections granted to other apps. The
-  // Analytics grant state must therefore decide whether those statuses apply
-  // to this app before the status labels can influence health.
+  // The aggregate status list includes connections granted to other apps.
+  // Use the per-connection list filtered for Analytics when assessing health.
   if (grantState === "connected") return "connected";
   if (grantState === "needs_grant") {
     const missingRequiredKeys = provider?.missingRequiredKeys;

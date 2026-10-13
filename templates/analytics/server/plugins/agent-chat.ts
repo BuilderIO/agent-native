@@ -1053,8 +1053,16 @@ export function realDataFinalGuard(
     sourceStatus.configuredSourceLabels,
     sourceStatus.availableExternalSources,
   );
+  const hasUsableExternalSource = sourceStatus.availableExternalSources.some(
+    ({ workspaceGrantState, credentialsConfigured }) =>
+      credentialsConfigured === true || workspaceGrantState === "connected",
+  );
+  const noUsableExternalSources =
+    sourceStatus.checked &&
+    !hasUsableExternalSource &&
+    !hasUnknownExternalSourceStatus;
   const firstPartySourceShouldBeTried =
-    noConfiguredExternalSources && !externalSourceRequest;
+    noUsableExternalSources && !externalSourceRequest;
   const needsDataSourceLink =
     sourceStatus.checked &&
     externalSourceRequest &&

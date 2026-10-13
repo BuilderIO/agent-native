@@ -1012,6 +1012,65 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("tries first-party Analytics when the only external source has an unhealthy grant", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "how many Builder signups did we get last week",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                  queryAction: "query-agent-native-analytics",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "workspace-grant",
+                  setupLink: "/data-sources?source=hubspot",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: false,
+                  configuredKeys: [],
+                  missingRequiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+                  optionalKeys: [],
+                  workspaceConnection: {
+                    provider: "hubspot",
+                    grantState: "granted",
+                    connectionCount: 1,
+                    grantedConnectionCount: 1,
+                    activeConnectionCount: 0,
+                    hasWorkspaceConnection: true,
+                    hasGrantedWorkspaceConnection: true,
+                    hasActiveWorkspaceConnection: false,
+                    statuses: ["needs_reauth"],
+                  },
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("query-agent-native-analytics"),
+      maxRetries: 2,
+      expandToolSurface: true,
+    });
+  });
+
   it("does not demand a connect-sources link when data-source-status never ran", () => {
     const result = realDataFinalGuard(
       guardContext({
