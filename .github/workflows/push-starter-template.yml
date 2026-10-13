@@ -33,6 +33,7 @@ jobs:
         id: source
         env:
           INPUT_VERSION: ${{ inputs.core_version }}
+          PUBLISHED_PACKAGES: ${{ github.event.client_payload.publishedPackages }}
         run: |
           set -euo pipefail
           # Registry failures retry, then fail loudly: no later dispatch will
@@ -51,7 +52,25 @@ jobs:
           }
           version="${INPUT_VERSION:-}"
           if [ -z "$version" ]; then
-            version="$(npm_view @agent-native/core version)"
+            # Right after a publish, `latest` can still read the previous
+            # release; wait for it to reach the version this dispatch announced.
+            expected="$(printf '%s' "${PUBLISHED_PACKAGES:-[]}" \
+              | jq -r 'if type == "string" then fromjson else . end | .[]? | select(.name == "@agent-native/core") | .version' \
+              | head -n 1)"
+            reached() {
+              [ -z "$expected" ] ||
+                [ "$(printf '%s\n%s\n' "$expected" "$version" | sort -V | head -n 1)" = "$expected" ]
+            }
+            for attempt in $(seq 1 20); do
+              version="$(npm_view @agent-native/core version)"
+              reached && break
+              echo "npm latest is ${version}; waiting for ${expected} (attempt ${attempt}/20)..."
+              sleep 15
+            done
+            if ! reached; then
+              echo "::error::npm latest is still ${version} after waiting for the dispatched core ${expected}."
+              exit 1
+            fi
           fi
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Not a stable core version: ${version}"
