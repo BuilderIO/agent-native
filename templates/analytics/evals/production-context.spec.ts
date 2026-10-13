@@ -28,7 +28,7 @@ describe("Analytics production eval context", () => {
     expect(prompt).toContain("Reference details");
     expect(prompt).toContain("Some preloaded context was unavailable");
     expect(prompt).toContain(
-      "search for anything relevant with the available tools",
+      "if the request depends on workspace knowledge",
     );
   });
 
@@ -43,7 +43,7 @@ describe("Analytics production eval context", () => {
       "Preloaded context was unavailable this turn (timed out)",
     );
     expect(prompt).toContain(
-      "search for anything relevant with the available tools",
+      "if the request depends on workspace knowledge",
     );
   });
 
