@@ -149,7 +149,7 @@ describe("RegistryBlockDataProvider", () => {
       act(() => {
         root.render(
           <BlockRegistryProvider registry={registry} ctx={{}}>
-            <RegistryBlockDataProvider value={value}>
+            <RegistryBlockDataProvider value={value} interactive>
               <Probe />
             </RegistryBlockDataProvider>
           </BlockRegistryProvider>,
@@ -159,6 +159,7 @@ describe("RegistryBlockDataProvider", () => {
       const fallback = container.querySelector("[data-block-render-error]");
       expect(fallback).not.toBeNull();
       expect(fallback?.textContent).not.toContain("renderer failed");
+      expect(fallback?.hasAttribute("data-plan-interactive")).toBe(true);
     } finally {
       logError.mockRestore();
     }

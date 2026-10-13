@@ -26,6 +26,7 @@ export function BlockView({
   onChange,
   ctx,
   compactVisuals,
+  interactive = false,
 }: {
   spec: BlockSpec<any>;
   block: { id: string; title?: string; summary?: string; data: unknown };
@@ -34,6 +35,7 @@ export function BlockView({
   onChange?: (nextData: unknown, meta?: BlockDataChangeMeta) => void;
   ctx: BlockRenderContext;
   compactVisuals?: boolean;
+  interactive?: boolean;
 }) {
   const [panelHovered, setPanelHovered] = useState(false);
   const Read = spec.Read;
@@ -42,6 +44,7 @@ export function BlockView({
       blockId={block.id}
       blockType={spec.type}
       resetKey={block.data}
+      interactive={interactive}
     >
       <Suspense
         fallback={
@@ -86,6 +89,7 @@ export function BlockView({
       blockId={block.id}
       blockType={spec.type}
       resetKey={block.data}
+      interactive={interactive}
     >
       <Suspense
         fallback={

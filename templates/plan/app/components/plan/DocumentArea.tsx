@@ -202,6 +202,7 @@ function PlanBlockViewInner({
         }
         ctx={blockRegistry.ctx}
         compactVisuals={compactVisuals}
+        interactive
       />
     );
     const surface = blockEditSurface(spec);

@@ -21,9 +21,11 @@ export function RegistryBlockDataProvider<
 >({
   value,
   children,
+  interactive = false,
 }: {
   value: RegistryBlockDataValue<TBlock>;
   children: ReactNode;
+  interactive?: boolean;
 }) {
   const registryValue = useOptionalBlockRegistry();
   const renderRegisteredBlock = useCallback(
@@ -44,6 +46,7 @@ export function RegistryBlockDataProvider<
           blockId={block.id}
           blockType={blockType}
           resetKey={blockData}
+          interactive={interactive}
         >
           <Suspense
             fallback={
@@ -72,6 +75,7 @@ export function RegistryBlockDataProvider<
             blockId={block.id}
             blockType={blockType}
             resetKey={blockData}
+            interactive={interactive}
           >
             <Suspense
               fallback={

@@ -91,6 +91,7 @@ describe("BlockRenderErrorBoundary", () => {
               block={{ id: "note-1", data: {} }}
               editing={false}
               ctx={{}}
+              interactive
             />
           </AgentNativeI18nProvider>,
         ),
@@ -100,6 +101,11 @@ describe("BlockRenderErrorBoundary", () => {
         "This block is temporarily unavailable.",
       );
       expect(container.textContent).not.toContain("renderer failed");
+      expect(
+        container.querySelector(
+          "[data-block-render-error][data-plan-interactive]",
+        ),
+      ).not.toBeNull();
     } finally {
       logError.mockRestore();
     }
