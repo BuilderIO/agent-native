@@ -124,6 +124,7 @@ async function renderNativeCapture(args: {
     fileId: args.sourceFileId,
     expectedVersionHash: sourcePin.expectedVersionHash,
     assertStillViewed,
+    viewedFrame: args.iframe,
     ...(args.crop && { sourceViewport }),
     viewport: {
       width: args.crop?.width ?? args.iframe.clientWidth,

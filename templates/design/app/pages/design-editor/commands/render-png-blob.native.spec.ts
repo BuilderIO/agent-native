@@ -16,6 +16,11 @@ vi.mock(
   }),
 );
 
+import {
+  invalidateNativeViewedSource,
+  registerNativeViewedSource,
+} from "@/components/design/design-canvas/native-viewed-source-lease";
+
 import { NativeSceneExportError } from "../native-scene-export-client";
 import { resolvePngSourceFileId, runRenderPngBlob } from "./render-png-blob";
 
@@ -35,6 +40,7 @@ function nativeTarget(sourceFileId: string | undefined = "board-1") {
     contentWindow: { configurable: true, value: viewedWindow },
   });
   document.body.appendChild(iframe);
+  registerNativeViewedSource(iframe, doc, "12:abc");
   return { doc, iframe, cropSelection: null, sourceFileId };
 }
 
@@ -98,6 +104,7 @@ describe("native Design PNG command routing", () => {
       fileId: "board-1",
       expectedVersionHash: "12:abc",
       assertStillViewed: expect.any(Function),
+      viewedFrame: expect.any(HTMLIFrameElement),
       viewport: { width: 1200, height: 800 },
       pixelRatio: 2,
       format: "png",
@@ -106,11 +113,7 @@ describe("native Design PNG command routing", () => {
 
   it("refuses a native capture when the viewed source has no version", async () => {
     const target = nativeTarget();
-    (
-      target.iframe.contentWindow as Window & {
-        __agentNativeSourceProvenance: { versionHash: string };
-      }
-    ).__agentNativeSourceProvenance.versionHash = "";
+    invalidateNativeViewedSource(target.iframe, target.doc);
     await expect(
       runRenderPngBlob(
         {

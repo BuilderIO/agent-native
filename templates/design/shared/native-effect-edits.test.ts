@@ -22,6 +22,7 @@ import {
   type NativeSourceSizing,
 } from "./native-effects";
 import { defaultNativeIntrinsicSourceSizing } from "./native-source-sizing";
+import { ensureNativeShaderRuntime } from "./shader-fills";
 
 const source =
   '<html><body><div data-agent-native-node-id="hero">Editable</div></body></html>';
@@ -364,12 +365,37 @@ describe("native effect source edits", () => {
     const result = applied();
     const document = parseEffectsFromHtml(result.html).document!;
     expect(result.html).toContain("Editable");
-    expect(result.html).toContain("data-agent-native-native-shader-runtime");
+    expect(result.html).not.toContain(
+      "data-agent-native-native-shader-runtime",
+    );
     expect(document.instances).toHaveLength(1);
     expect(document.instances[0].definitionVersion).toBe(
       GRAIN_GRADIENT_EFFECT.version,
     );
     expect(result.instanceIds).toEqual([document.instances[0].id]);
+  });
+
+  it("compacts an older runtime-bearing source on the next native edit", () => {
+    const prior = ensureNativeShaderRuntime(applied().html).replace(
+      "</body>",
+      "<script>window.authoredBehavior = true</script></body>",
+    );
+    const instanceId = parseEffectsFromHtml(prior).document!.instances[0]!.id;
+    const result = editNativeEffectHtml(prior, {
+      kind: "set-params",
+      instanceId,
+      params: { scale: 1.5 },
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.html).not.toContain(
+      "data-agent-native-native-shader-runtime",
+    );
+    expect(result.html).toContain(
+      "<script>window.authoredBehavior = true</script>",
+    );
+    expect(parseEffectsFromHtml(result.html).document?.instances[0]?.id).toBe(
+      instanceId,
+    );
   });
 
   it("rejects malformed custom definitions without throwing or changing source", () => {

@@ -303,6 +303,10 @@ export const nativeBuiltinExecutionMetadata = [
     "static",
   ],
   [
+    "2d973431492df313f0ecb40e9be743ba9a218cffdb006d9c2dcb5c1a6cbaea45",
+    "animated",
+  ],
+  [
     "2e00e4362139db253f9155066e9f6b9295a37254504e5cf63171220553d3b110",
     "static",
   ],
@@ -404,6 +408,10 @@ export const nativeBuiltinExecutionMetadata = [
   ],
   [
     "3ca77bc6f59100256ac08d8416b440eb8b6470364c9785190a9f076c397c7dd8",
+    "animated",
+  ],
+  [
+    "3ef4c6828a76d721207d8e88a96583abf08d90e6bde66bc2dc649aa4e971826f",
     "animated",
   ],
   [
@@ -591,6 +599,10 @@ export const nativeBuiltinExecutionMetadata = [
     "static",
   ],
   [
+    "5e7c361c2df4cb72c4da3f4ec9641a4d7eb8f6929818ec11326a0195e98d7d79",
+    "animated",
+  ],
+  [
     "5ea0cacfd28fc224558c40d99629cf85971b2737a0a6417684f59a48050099b7",
     "static",
   ],
@@ -629,6 +641,10 @@ export const nativeBuiltinExecutionMetadata = [
   [
     "64a07c7316061831dafd1b2e478746e05e5d4b462047d4f6d8d18dc46451aac4",
     "static",
+  ],
+  [
+    "65fcdca8f4742c8ef4751f3865d2d919d265688e9b5dda1d7a284754751a4aaf",
+    "animated",
   ],
   [
     "6666f568620eebec9a5ccd25dab72d9c3de9aab274a63a2d0aeb60e234e02378",
@@ -829,6 +845,10 @@ export const nativeBuiltinExecutionMetadata = [
   [
     "84cd534e4fc2d6b9632803653c9725bdc3d19831b7ce28406e715905510ce663",
     "static",
+  ],
+  [
+    "85338c2497f9a328acba6729aba5efb9954f8e8e135f6185080d81dcac076c32",
+    "animated",
   ],
   [
     "8581ff72ed4386d8f980edcd502a44bddefca3a59ffc48d1bdbc8c153b291785",
@@ -1077,10 +1097,6 @@ export const nativeBuiltinExecutionMetadata = [
   [
     "abaea5b7c5208ae7ceb0b05cd1d8d08a7610cf96486c8dee38a303873e9359a1",
     "static",
-  ],
-  [
-    "abdc36f957e070e58cdfa309c9e40e741fec4959ca6590000f4d2750ad0fb5c3",
-    "animated",
   ],
   [
     "ad10f5b6c5994439bf139af78dd145a6ad05b6b82cb743796915128c9f375553",
@@ -1428,6 +1444,10 @@ export const nativeBuiltinExecutionMetadata = [
   ],
   [
     "e698a7bd5c21d85559813942c16e7dfc7229ba9be0f69a103e3902dbca663b82",
+    "static",
+  ],
+  [
+    "e7196b89fb7c9a0272f76fd4a02acea15d87fbc406dce9dd10678551b1a39bbc",
     "static",
   ],
   [

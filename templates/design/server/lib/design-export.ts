@@ -3,7 +3,11 @@ import { parse } from "parse5";
 
 import { ensureGroupRuntime } from "../../shared/group-runtime.js";
 import { parseEffectsFromHtml } from "../../shared/native-effects.js";
-import { ensureNativeShaderRuntime } from "../../shared/shader-fills.js";
+import {
+  ensureNativeShaderRuntime,
+  ensureShaderRuntime,
+  listShaderMounts,
+} from "../../shared/shader-fills.js";
 import {
   isActiveXmlAttributeValue,
   isNonStaticExportElement,
@@ -98,15 +102,19 @@ export function hasRenderableBoardArtwork(content: string | null): boolean {
 }
 
 function ensureNativeExportRuntime(html: string): string {
-  if (!html.includes("application/x-agent-native-effects")) return html;
-  const parsed = parseEffectsFromHtml(html);
-  if (parsed.errors.length)
-    throw new Error(
-      `Native effect manifest is unreadable: ${parsed.errors.join("; ")}`,
-    );
-  return parsed.document?.instances.length
-    ? ensureNativeShaderRuntime(html)
-    : html;
+  let withNativeRuntime = html;
+  if (html.includes("application/x-agent-native-effects")) {
+    const parsed = parseEffectsFromHtml(html);
+    if (parsed.errors.length)
+      throw new Error(
+        `Native effect manifest is unreadable: ${parsed.errors.join("; ")}`,
+      );
+    if (parsed.document?.instances.length)
+      withNativeRuntime = ensureNativeShaderRuntime(html);
+  }
+  return listShaderMounts(withNativeRuntime).length
+    ? ensureShaderRuntime(withNativeRuntime)
+    : withNativeRuntime;
 }
 
 function embeddedLibraryTags(libraries?: ExportRuntimeLibraries): string {

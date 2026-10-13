@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ensureGroupRuntime } from "../../shared/group-runtime";
 import { GRAIN_GRADIENT_EFFECT } from "../../shared/native-effect-presets";
 import { applyNativeEffectToHtml } from "../../shared/native-effects";
+import { applyShaderToHtml } from "../../shared/shader-fills";
 import {
   buildStandaloneHtml,
   buildSvgForeignObject,
@@ -166,6 +167,34 @@ describe("design export helpers", () => {
     expect(html).toContain("data:image/svg+xml;base64,");
     expect(html).not.toContain("/shaders/gate-image.svg");
     expect(html).not.toContain("cdn.jsdelivr.net");
+  });
+
+  it("restores the legacy GLSL runtime for a compact standalone source", () => {
+    const source =
+      '<html><body><div data-agent-native-node-id="hero">Authored</div></body></html>';
+    const applied = applyShaderToHtml(source, {
+      nodeId: "hero",
+      def: {
+        id: "an-shader-export",
+        name: "Export shader",
+        mode: "fill",
+        glsl: "precision highp float; uniform vec2 u_resolution; uniform float u_time; void main() { gl_FragColor = vec4(1.0); }",
+        uniforms: {},
+      },
+    });
+    expect(applied.errors).toEqual([]);
+    expect(applied.html).not.toContain("data-agent-native-shader-runtime");
+    const html = buildStandaloneHtml({
+      title: "GLSL export",
+      files: [
+        { filename: "index.html", fileType: "html", content: applied.html },
+      ],
+    });
+    expect(html.match(/data-agent-native-shader-runtime/g)).toHaveLength(1);
+    expect(html.match(/data-agent-native-native-shader-runtime/g)).toHaveLength(
+      1,
+    );
+    expect(html).toContain("Authored");
   });
 
   it("includes board artwork only when authored board nodes exist", () => {

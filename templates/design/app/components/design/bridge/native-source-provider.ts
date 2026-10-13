@@ -186,6 +186,7 @@ export interface NativeSceneProvider {
   ): Promise<NativeSourceRecord[]>;
   replaySafety(
     records: readonly NativeSourceRecord[],
+    nativeMode?: "committed-native",
   ): Promise<NativeReplaySafety>;
   setGroupLocalBackdropSource(enabled: boolean): void;
   groupLocalBackdropClipState(canvas: HTMLCanvasElement): "empty" | "nonempty";
@@ -5483,6 +5484,7 @@ class SceneProvider implements NativeSceneProvider {
 
   async replaySafety(
     records: readonly NativeSourceRecord[],
+    nativeMode?: "committed-native",
   ): Promise<NativeReplaySafety> {
     const read = this.replayReads.get(records);
     const unchanged = () =>
@@ -5494,7 +5496,11 @@ class SceneProvider implements NativeSceneProvider {
     let safety: NativeReplaySafety = "immutable";
     for (const record of records) {
       if (!unchanged()) return "unknown";
-      if (record.kind === "native" || record.kind === "video") return "dynamic";
+      if (record.kind === "native") {
+        if (nativeMode === "committed-native") continue;
+        return "dynamic";
+      }
+      if (record.kind === "video") return "dynamic";
       if (record.kind === "canvas") {
         if (record.sourceRole !== "viewport-background") return "dynamic";
         continue;

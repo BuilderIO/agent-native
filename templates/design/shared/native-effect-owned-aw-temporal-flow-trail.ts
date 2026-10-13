@@ -5,6 +5,7 @@ const trailAdvanceWgsl = `${NATIVE_GRAPH_GLOBALS}
 @group(0) @binding(2) var sourceTexture: texture_2d<f32>;
 @group(0) @binding(3) var priorTrail: texture_2d<f32>;
 @group(0) @binding(4) var priorSource: texture_2d<f32>;
+@group(0) @binding(5) var<storage, read> priorClock: array<vec4f>;
 @group(0) @binding(18) var nextTrail: texture_storage_2d<rgba16float, write>;
 
 fn sourceAt(uv: vec2f) -> vec4f {
@@ -24,17 +25,17 @@ fn tentAt(uv: vec2f, texel: vec2f) -> vec4f {
     + historyAt(uv + vec2f(-texel.x, texel.y));
   return (historyAt(uv) * 4.0 + axial * 2.0 + diagonal) * (1.0 / 16.0);
 }
-
 @compute @workgroup_size(8, 8, 1)
 fn cs(@builtin(global_invocation_id) invocation: vec3u) {
   let dimensions = textureDimensions(nextTrail);
   if (any(invocation.xy >= dimensions)) { return; }
   let uv = (vec2f(invocation.xy) + vec2f(0.5)) / vec2f(dimensions);
-  let dt = globals.clock.w;
-  if (dt <= 0.0) {
+  let capturedClock = priorClock[0];
+  if (globals.clock.w <= 0.0 || capturedClock.y <= 0.0) {
     textureStore(nextTrail, vec2i(invocation.xy), vec4f(0.0));
     return;
   }
+  let dt = max(globals.clock.w, globals.clock.x - capturedClock.x);
 
   let drift = vec2f(globals.params[5].x, globals.params[6].x);
   let driftUv = drift * globals.clock.z * dt / globals.viewport.xy;
@@ -55,6 +56,13 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
   let fresh = current * (stamp / max(current.a, 0.00001));
   let combined = fresh + retained * (1.0 - stamp);
   textureStore(nextTrail, vec2i(invocation.xy), vec4f(combined.rgb, clamp(combined.a, 0.0, 1.0)));
+}`;
+
+const clockCaptureWgsl = `${NATIVE_GRAPH_GLOBALS}
+@group(0) @binding(18) var<storage, read_write> nextClock: array<vec4f>;
+@compute @workgroup_size(1, 1, 1)
+fn cs(@builtin(global_invocation_id) invocation: vec3u) {
+  nextClock[invocation.x] = vec4f(globals.clock.x, 1.0, 0.0, 0.0);
 }`;
 
 const sourceCaptureWgsl = `${NATIVE_GRAPH_GLOBALS}
@@ -213,6 +221,14 @@ export const TEMPORAL_FLOW_TRAIL_EFFECT: EffectDefinition = {
     fixedState("trail"),
     fixedState("priorSource"),
     {
+      name: "captureClock",
+      kind: "buffer",
+      usage: ["storage"],
+      persistent: true,
+      size: "fixed",
+      byteLength: 16,
+    },
+    {
       name: "color",
       kind: "texture-2d",
       format: "rgba16float",
@@ -223,7 +239,7 @@ export const TEMPORAL_FLOW_TRAIL_EFFECT: EffectDefinition = {
   resourceGraph: {
     abi: "stateful-resource-v1",
     timing: { fixedDt: 1 / 60, maxStepsPerCall: 8, maxStepIndex: 36000 },
-    stateResources: ["trail", "priorSource"],
+    stateResources: ["trail", "priorSource", "captureClock"],
     sourceHistory: "sequential-captures",
   },
   passes: [
@@ -231,7 +247,7 @@ export const TEMPORAL_FLOW_TRAIL_EFFECT: EffectDefinition = {
       id: "advance-trail",
       kind: "compute",
       reads: ["source"],
-      previousFrameReads: ["trail", "priorSource"],
+      previousFrameReads: ["trail", "priorSource", "captureClock"],
       output: "trail",
       dispatch: { elements: "output-texture", workgroupSize: [8, 8, 1] },
       wgsl: trailAdvanceWgsl,
@@ -243,6 +259,14 @@ export const TEMPORAL_FLOW_TRAIL_EFFECT: EffectDefinition = {
       output: "priorSource",
       dispatch: { elements: "output-texture", workgroupSize: [8, 8, 1] },
       wgsl: sourceCaptureWgsl,
+    },
+    {
+      id: "capture-clock",
+      kind: "compute",
+      reads: [],
+      output: "captureClock",
+      dispatch: { elements: "output-buffer", workgroupSize: [1, 1, 1] },
+      wgsl: clockCaptureWgsl,
     },
     {
       id: "composite",

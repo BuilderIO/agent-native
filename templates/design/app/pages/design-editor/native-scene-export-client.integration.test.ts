@@ -12,6 +12,7 @@ import { PARTICLE_FLOW_EFFECT } from "../../../shared/native-effect-particle-flo
 import { writeEffectsToHtml } from "../../../shared/native-effects";
 import {
   DEFAULT_NATIVE_VIDEO_SETTINGS,
+  nativeExportCommittedInstanceEvidence,
   renderSelectedNativeCodePackage,
   renderSelectedNativeSceneBlob,
   renderSelectedNativeSceneMp4Blob,
@@ -168,14 +169,48 @@ describe("selected native straight PNG exports", () => {
     expect(blob.type).toBe("video/mp4");
     expect(runtime.nextCameraClipFrame).not.toHaveBeenCalled();
   });
-  it("preserves exact partial-alpha and transparent RGB in the selected PNG", async () => {
+  it("freezes the committed preview pixels for PNG without replaying persistent state", async () => {
     const runtime = preparedFrame();
-    const png = await renderSelectedNativeSceneBlob({ ...args, format: "png" });
+    runtime.captureCommittedCompositionPixels = vi.fn(async () => ({
+      width: 2,
+      height: 1,
+      colorSpace: "srgb" as const,
+      alpha: "straight" as const,
+      rgba: rgba.slice(),
+      committedInstances: [
+        {
+          instanceId: instance.id,
+          payloadSha256: "a".repeat(64),
+          localTime: 1.25,
+        },
+      ],
+    }));
+    const viewedFrame = document.createElement("iframe");
+    viewedFrame.setAttribute("data-screen-iframe-id", "file-1");
+    document.body.appendChild(viewedFrame);
+    Object.assign(viewedFrame.contentWindow!, {
+      __anNativeShaders: runtime,
+      __agentNativeSourceProvenance: { versionHash: "v1" },
+    });
+    const png = await renderSelectedNativeSceneBlob({
+      ...args,
+      viewedFrame,
+      format: "png",
+    });
     expect(png.type).toBe("image/png");
     expect([...decodePng(new Uint8Array(await png.arrayBuffer()))]).toEqual([
       ...rgba,
     ]);
-    expect(runtime.renderCompositionFramePixels).toHaveBeenCalledOnce();
+    expect(runtime.captureCommittedCompositionPixels).toHaveBeenCalledOnce();
+    expect(nativeExportCommittedInstanceEvidence(png)).toEqual([
+      {
+        instanceId: instance.id,
+        payloadSha256: "a".repeat(64),
+        localTime: 1.25,
+      },
+    ]);
+    expect(runtime.renderCompositionFramePixels).not.toHaveBeenCalled();
+    expect(runtime.beginSimulationExportSession).not.toHaveBeenCalled();
     expect(callAction).toHaveBeenCalledWith(
       "prepare-native-scene-export",
       expect.objectContaining({ pixelRatio: 1 }),
@@ -201,7 +236,34 @@ describe("selected native straight PNG exports", () => {
       vi.stubGlobal("CompressionStream", undefined);
       const exportWork =
         kind === "png"
-          ? renderSelectedNativeSceneBlob({ ...args, format: "png" })
+          ? renderSelectedNativeSceneBlob({
+              ...args,
+              viewedFrame: (() => {
+                const frame = document.createElement("iframe");
+                document.body.appendChild(frame);
+                Object.assign(frame.contentWindow!, {
+                  __anNativeShaders: {
+                    captureCommittedCompositionPixels: async () => ({
+                      width: 2,
+                      height: 1,
+                      colorSpace: "srgb",
+                      alpha: "straight",
+                      rgba: rgba.slice(),
+                      committedInstances: [
+                        {
+                          instanceId: instance.id,
+                          payloadSha256: "a".repeat(64),
+                          localTime: 1.25,
+                        },
+                      ],
+                    }),
+                  },
+                  __agentNativeSourceProvenance: { versionHash: "v1" },
+                });
+                return frame;
+              })(),
+              format: "png",
+            })
           : renderSelectedNativeCodePackage(args);
       await expect(exportWork).rejects.toMatchObject({
         code: "pixels-unreadable",

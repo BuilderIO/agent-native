@@ -2,7 +2,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { classifyNativeImageReplaySafety } from "./native-image-replay-safety";
-import { createNativeSceneProvider } from "./native-source-provider";
+import {
+  createNativeSceneProvider,
+  type NativeSourceRecord,
+} from "./native-source-provider";
 
 const png = Uint8Array.from(
   atob(
@@ -183,6 +186,12 @@ describe("scene capture replay safety", () => {
       const captured = await provider!.readScene();
       expect(captured).toEqual([]);
       expect(await provider!.replaySafety(captured)).toBe("immutable");
+      captured.push({ kind: "native" } as NativeSourceRecord);
+      expect(await provider!.replaySafety(captured)).toBe("dynamic");
+      expect(await provider!.replaySafety(captured, "committed-native")).toBe(
+        "immutable",
+      );
+      captured.pop();
       Object.defineProperty(target, "getAnimations", {
         configurable: true,
         value: () => [{ playState: "running" }],

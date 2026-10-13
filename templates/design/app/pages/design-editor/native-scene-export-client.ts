@@ -23,6 +23,7 @@ import {
 } from "@/pages/design-editor/native-raster-encoding";
 
 import { nativeEffectRequiresStateSession } from "../../../shared/native-effect-state-capability";
+import { hashEffectDefinition } from "../../../shared/native-effect-trust";
 import { parseEffectsFromHtml } from "../../../shared/native-effects";
 import { planNativeInputResources } from "../../../shared/native-input-resources";
 import { nativeVideoCodedDimensions } from "../../../shared/native-local-export";
@@ -121,9 +122,24 @@ type PreparedNativeScene = {
 };
 
 const localQaSinkEnabledByBlob = new WeakMap<Blob, boolean>();
+type NativeCommittedInstanceEvidence = {
+  instanceId: string;
+  payloadSha256: string;
+  localTime: number;
+};
+const committedInstanceEvidenceByBlob = new WeakMap<
+  Blob,
+  readonly NativeCommittedInstanceEvidence[]
+>();
 
 export function nativeExportLocalQaSinkEnabled(blob: Blob): boolean {
   return localQaSinkEnabledByBlob.get(blob) === true;
+}
+
+export function nativeExportCommittedInstanceEvidence(
+  blob: Blob,
+): readonly NativeCommittedInstanceEvidence[] | undefined {
+  return committedInstanceEvidenceByBlob.get(blob);
 }
 
 type NativePixelResult = {
@@ -180,6 +196,28 @@ export type NativePixelRuntime = {
     timeoutMs?: number;
   }) => Promise<{ sessionId: string }>;
   endSimulationExportSession?: (sessionId: string) => Promise<void>;
+  captureCommittedCompositionPixels?: (options: {
+    viewport: { width: number; height: number };
+    pixelRatio: number;
+    expectedDefinitions: readonly {
+      id: string;
+      version: number;
+      executionHash: string;
+    }[];
+    expectedInstances: readonly {
+      id: string;
+      nodeId: string;
+      definitionId: string;
+      definitionVersion: number;
+      placement: "fill" | "layer" | "backdrop";
+    }[];
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }) => Promise<
+    NativePixelResult & {
+      committedInstances: NativeCommittedInstanceEvidence[];
+    }
+  >;
   renderCompositionFramePixels(options: {
     frameIndex: number;
     fps: number;
@@ -839,6 +877,7 @@ type SelectedNativeSceneArgs = {
   viewport: { width: number; height: number };
   pixelRatio: number;
   expectedVersionHash?: string;
+  viewedFrame?: HTMLIFrameElement;
   assertStillViewed?: () => void;
   signal?: AbortSignal;
   crop?: {
@@ -1456,6 +1495,229 @@ export async function encodeNativeScenePng(
   }
 }
 
+async function renderViewedNativeStillPixels(
+  args: SelectedNativeSceneArgs,
+): Promise<{
+  pixels: NativePixelResult;
+  scene: PreparedNativeScene;
+  committedInstances: readonly NativeCommittedInstanceEvidence[];
+}> {
+  const viewedFrame = args.viewedFrame;
+  const viewport = args.sourceViewport ?? args.viewport;
+  if (!viewedFrame?.isConnected || !args.expectedVersionHash)
+    throw new NativeSceneExportError(
+      "frame-unavailable",
+      "A persistent still needs its current mounted preview and source version.",
+    );
+  expectedNativeScenePixels(viewport, args.pixelRatio);
+  args.assertStillViewed?.();
+  const response = await callAction<unknown>(
+    "prepare-native-scene-export",
+    {
+      designId: args.designId,
+      fileId: args.fileId,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      pixelRatio: args.pixelRatio,
+    },
+    { method: "GET", signal: args.signal },
+  );
+  const scene = readPreparedScene(response, {
+    designId: args.designId,
+    fileId: args.fileId,
+    width: viewport.width,
+    height: viewport.height,
+    pixelRatio: args.pixelRatio,
+    expectedVersionHash: args.expectedVersionHash,
+  });
+  const frameWindow = viewedFrame.contentWindow as
+    | (Window & {
+        __anNativeShaders?: NativePixelRuntime;
+        __agentNativeSourceProvenance?: { versionHash?: string };
+      })
+    | null;
+  if (
+    !viewedFrame.isConnected ||
+    !frameWindow ||
+    frameWindow.__agentNativeSourceProvenance?.versionHash !==
+      args.expectedVersionHash
+  )
+    throw new NativeSceneExportError(
+      "source-stale",
+      "The viewed native scene changed before still capture.",
+    );
+  const runtime = frameWindow.__anNativeShaders;
+  if (!runtime?.captureCommittedCompositionPixels)
+    throw new NativeSceneExportError(
+      "native-unavailable",
+      "The mounted native renderer cannot freeze its committed frame.",
+    );
+  const parsed = parseEffectsFromHtml(scene.html);
+  if (parsed.errors.length || !parsed.document)
+    throw new NativeSceneExportError(
+      "scene-unreadable",
+      "The saved native effect manifest is unreadable for still capture.",
+    );
+  const expectedDefinitions = await Promise.all(
+    parsed.document.definitions.map(async (definition) => ({
+      id: definition.id,
+      version: definition.version,
+      executionHash: await hashEffectDefinition(definition),
+    })),
+  );
+  args.assertStillViewed?.();
+  const raw = await runtime.captureCommittedCompositionPixels({
+    viewport,
+    pixelRatio: args.pixelRatio,
+    expectedDefinitions,
+    expectedInstances: parsed.document.instances
+      .filter((instance) => instance.enabled)
+      .map((instance) => ({
+        id: instance.id,
+        nodeId: instance.nodeId,
+        definitionId: instance.definitionId,
+        definitionVersion: instance.definitionVersion,
+        placement: instance.placement,
+      })),
+    signal: args.signal,
+    timeoutMs: 30_000,
+  });
+  args.assertStillViewed?.();
+  if (
+    !viewedFrame.isConnected ||
+    frameWindow.__agentNativeSourceProvenance?.versionHash !==
+      args.expectedVersionHash
+  )
+    throw new NativeSceneExportError(
+      "source-stale",
+      "The viewed native scene changed during still capture.",
+    );
+  const expectedInstanceIds = new Set(
+    parsed.document.instances
+      .filter((instance) => instance.enabled)
+      .map((instance) => instance.id),
+  );
+  const committedInstances = raw.committedInstances;
+  if (
+    !Array.isArray(committedInstances) ||
+    committedInstances.length !== expectedInstanceIds.size ||
+    committedInstances.some(
+      (entry) =>
+        !expectedInstanceIds.delete(entry.instanceId) ||
+        !/^[0-9a-f]{64}$/.test(entry.payloadSha256) ||
+        !Number.isFinite(entry.localTime) ||
+        entry.localTime < 0,
+    ) ||
+    expectedInstanceIds.size
+  )
+    throw new NativeSceneExportError(
+      "pixels-unreadable",
+      "The visible native frame did not include committed effect state evidence.",
+    );
+  const pixels = readNativeScenePixels(raw, viewport, args.pixelRatio);
+  return {
+    pixels: {
+      ...pixels,
+      colorSpace: "srgb",
+      alpha: "straight",
+      rgba: new Uint8Array(pixels.rgba),
+    },
+    scene,
+    committedInstances,
+  };
+}
+
+async function encodeSelectedNativeRaster(
+  args: SelectedNativeSceneArgs & { format: NativeRasterFormat },
+  pixels: NativePixelResult,
+  scene: PreparedNativeScene,
+  signal: AbortSignal,
+): Promise<Blob> {
+  let encoded: Blob | null;
+  if (args.format === "png") {
+    encoded = await encodeNativeScenePng(pixels, signal);
+  } else {
+    const canvas = document.createElement("canvas");
+    canvas.width = pixels.width;
+    canvas.height = pixels.height;
+    const context = canvas.getContext("2d");
+    if (!context)
+      throw new NativeSceneExportError(
+        "pixels-unreadable",
+        "The browser cannot encode native export pixels.",
+      );
+    context.putImageData(
+      new ImageData(
+        new Uint8ClampedArray(
+          args.format === "jpg"
+            ? flattenStraightRgbaOnWhite(new Uint8Array(pixels.rgba))
+            : pixels.rgba,
+        ),
+        pixels.width,
+        pixels.height,
+      ),
+      0,
+      0,
+    );
+    encoded = await encodeNativeRasterCanvas(
+      canvas,
+      rasterMimeType(args.format),
+      0.95,
+      signal,
+    );
+  }
+  let blob: Blob;
+  try {
+    blob = await validateEncodedRasterBlob(encoded, args.format);
+  } catch (error) {
+    if (
+      error instanceof NativeRasterEncodingError &&
+      error.code === "raster-format-unsupported"
+    )
+      throw new NativeSceneExportError("format-unavailable", error.message);
+    throw new NativeSceneExportError(
+      "pixels-unreadable",
+      `The browser could not encode the requested image format: ${String(error)}`,
+    );
+  }
+  if (signal.aborted)
+    throw new NativeSceneExportError(
+      "pixels-unreadable",
+      "The native export was canceled before image encoding finished.",
+    );
+  localQaSinkEnabledByBlob.set(blob, scene.localQaSinkEnabled);
+  return blob;
+}
+
+function findViewedNativeFrame(
+  fileId: string,
+  versionHash: string | undefined,
+): HTMLIFrameElement | undefined {
+  if (!versionHash) return undefined;
+  const candidates = [
+    ...document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-screen-iframe-id],iframe[data-design-preview-iframe]",
+    ),
+  ].filter((frame) => {
+    if (!frame.isConnected) return false;
+    const source = frame.contentWindow as
+      | (Window & {
+          __agentNativeSourceProvenance?: { versionHash?: string };
+        })
+      | null;
+    return (
+      frame.getAttribute("data-screen-iframe-id") === fileId &&
+      source?.__agentNativeSourceProvenance?.versionHash === versionHash
+    );
+  });
+  if (candidates.length > 1)
+    throw new NativeSceneExportError(
+      "frame-unavailable",
+      "More than one mounted native preview matches the requested still.",
+    );
+  return candidates[0];
+}
+
 export async function renderSelectedNativeSceneBlob(
   args: SelectedNativeSceneArgs & {
     format: NativeRasterFormat;
@@ -1466,9 +1728,40 @@ export async function renderSelectedNativeSceneBlob(
       "scene-unreadable",
       "Selected native raster export needs the mounted full-scene viewport.",
     );
+  const viewedFrame =
+    args.viewedFrame ??
+    findViewedNativeFrame(args.fileId, args.expectedVersionHash);
+  if (viewedFrame) {
+    const {
+      pixels: fullPixels,
+      scene,
+      committedInstances,
+    } = await renderViewedNativeStillPixels({ ...args, viewedFrame });
+    const pixels = args.crop
+      ? cropNativeScenePixels(
+          fullPixels,
+          args.crop,
+          scene.viewport,
+          args.pixelRatio,
+        )
+      : fullPixels;
+    const blob = await encodeSelectedNativeRaster(
+      args,
+      pixels,
+      scene,
+      args.signal ?? new AbortController().signal,
+    );
+    committedInstanceEvidenceByBlob.set(blob, committedInstances);
+    return blob;
+  }
   return withSelectedNativeScene(
     { ...args, deadlineMs: RASTER_EXPORT_TIMEOUT_MS },
     async (runtime, scene, signal) => {
+      if (sceneRequiresNativeStateSession(scene.html))
+        throw new NativeSceneExportError(
+          "frame-unavailable",
+          "A persistent still needs the current mounted preview rather than a reset replay.",
+        );
       const fullPixels = await renderOneNativeFrame(
         runtime,
         scene,
@@ -1484,60 +1777,7 @@ export async function renderSelectedNativeSceneBlob(
             args.pixelRatio,
           )
         : fullPixels;
-      let encoded: Blob | null;
-      if (args.format === "png") {
-        encoded = await encodeNativeScenePng(pixels, signal);
-      } else {
-        const canvas = document.createElement("canvas");
-        canvas.width = pixels.width;
-        canvas.height = pixels.height;
-        const context = canvas.getContext("2d");
-        if (!context)
-          throw new NativeSceneExportError(
-            "pixels-unreadable",
-            "The browser cannot encode native export pixels.",
-          );
-        context.putImageData(
-          new ImageData(
-            new Uint8ClampedArray(
-              args.format === "jpg"
-                ? flattenStraightRgbaOnWhite(new Uint8Array(pixels.rgba))
-                : pixels.rgba,
-            ),
-            pixels.width,
-            pixels.height,
-          ),
-          0,
-          0,
-        );
-        encoded = await encodeNativeRasterCanvas(
-          canvas,
-          rasterMimeType(args.format),
-          0.95,
-          signal,
-        );
-      }
-      let blob: Blob;
-      try {
-        blob = await validateEncodedRasterBlob(encoded, args.format);
-      } catch (error) {
-        if (
-          error instanceof NativeRasterEncodingError &&
-          error.code === "raster-format-unsupported"
-        )
-          throw new NativeSceneExportError("format-unavailable", error.message);
-        throw new NativeSceneExportError(
-          "pixels-unreadable",
-          `The browser could not encode the requested image format: ${String(error)}`,
-        );
-      }
-      if (signal.aborted)
-        throw new NativeSceneExportError(
-          "pixels-unreadable",
-          "The native export was canceled before image encoding finished.",
-        );
-      localQaSinkEnabledByBlob.set(blob, scene.localQaSinkEnabled);
-      return blob;
+      return encodeSelectedNativeRaster(args, pixels, scene, signal);
     },
   );
 }

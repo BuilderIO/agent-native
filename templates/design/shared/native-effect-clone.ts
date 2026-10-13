@@ -9,7 +9,7 @@ import {
   type EffectInstance,
 } from "./native-effects";
 import { planNativeInputResources } from "./native-input-resources";
-import { ensureNativeShaderRuntime } from "./shader-fills";
+import { stripGeneratedShaderRuntimes } from "./shader-fills";
 import { sourceContentHash } from "./source-workspace";
 
 export interface NativeEffectCloneSnapshot {
@@ -206,7 +206,7 @@ export function mergeNativeEffectsForClone(
     return { html: destinationHtml, errors: validation.errors };
   try {
     return {
-      html: ensureNativeShaderRuntime(
+      html: stripGeneratedShaderRuntimes(
         writeEffectsToHtml(destinationHtml, next),
       ),
       errors: [],

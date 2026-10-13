@@ -272,6 +272,7 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-z-content-repeater@1",
   "an-native-owned-ab-region-bounds@1",
   "an-native-owned-ac-coverage-atlas@1",
+  "an-native-owned-ba-layer-map-displacement@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
@@ -402,6 +403,10 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-exposure-trail@2",
   "an-native-owned-ax-spring-liquify@1",
   "an-native-owned-an-cursor-run-sort@2",
+  "an-native-owned-az-cursor-wave-ripples@1",
+  "an-native-owned-bb-projected-dye-flow@1",
+  "an-native-owned-bc-shape-goo-3d@1",
+  "an-native-owned-bd-flowing-shape-chrome@1",
   "an-native-owned-ar-content-bounds-tracker@1",
   "an-native-owned-ar-content-bounds-tracker@2",
   "an-native-owned-as-feature-trails@1",

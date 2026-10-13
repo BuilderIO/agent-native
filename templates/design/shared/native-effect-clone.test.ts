@@ -9,16 +9,24 @@ import {
   applyNativeEffectToHtml,
   parseEffectsFromHtml,
 } from "./native-effects";
+import { ensureNativeShaderRuntime } from "./shader-fills";
 
 const SOURCE =
   '<!doctype html><html><head></head><body><section data-agent-native-node-id="group"><div data-agent-native-node-id="image">Image</div><div data-agent-native-node-id="mask">Mask</div></section></body></html>';
 const FRAGMENT =
   '<section data-agent-native-node-id="group"><div data-agent-native-node-id="image">Image</div><div data-agent-native-node-id="mask">Mask</div></section>';
+const CLONE_EFFECT = {
+  ...GRAIN_GRADIENT_EFFECT,
+  passes: GRAIN_GRADIENT_EFFECT.passes.map((pass) => ({
+    ...pass,
+    reads: ["mask"],
+  })),
+};
 
 function sourceWithEffect() {
   const applied = applyNativeEffectToHtml(SOURCE, {
     nodeId: "image",
-    definition: GRAIN_GRADIENT_EFFECT,
+    definition: CLONE_EFFECT,
     placement: "fill",
     bindings: {
       mask: { kind: "authored-node", nodeId: "mask", capture: "content" },
@@ -33,7 +41,7 @@ describe("native effect layer clone", () => {
     const source = sourceWithEffect();
     const captured = captureNativeEffectsForClone(source, FRAGMENT);
     expect(captured.errors).toEqual([]);
-    const destination = source.replace(
+    const destination = ensureNativeShaderRuntime(source).replace(
       "</body>",
       `${FRAGMENT.split('"group"').join('"group-copy"').split('"image"').join('"image-copy"').split('"mask"').join('"mask-copy"')}</body>`,
     );
@@ -48,6 +56,9 @@ describe("native effect layer clone", () => {
       ]),
     );
     expect(merged.errors).toEqual([]);
+    expect(merged.html).not.toContain(
+      "data-agent-native-native-shader-runtime",
+    );
     const instances = parseEffectsFromHtml(merged.html).document?.instances;
     expect(instances).toHaveLength(2);
     expect(instances?.[1]).toMatchObject({
@@ -76,7 +87,7 @@ describe("native effect layer clone", () => {
     );
     expect(merged.errors).toEqual([]);
     expect(parseEffectsFromHtml(merged.html).document?.definitions).toEqual([
-      GRAIN_GRADIENT_EFFECT,
+      CLONE_EFFECT,
     ]);
     expect(merged.html).not.toMatch(
       /<script[^>]+application\/x-agent-native-effect-approvals/,

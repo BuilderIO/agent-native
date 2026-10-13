@@ -311,6 +311,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "2d973431492df313f0ecb40e9be743ba9a218cffdb006d9c2dcb5c1a6cbaea45",
+      "animated"
+    ],
+    [
       "2e00e4362139db253f9155066e9f6b9295a37254504e5cf63171220553d3b110",
       "static"
     ],
@@ -412,6 +416,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "3ca77bc6f59100256ac08d8416b440eb8b6470364c9785190a9f076c397c7dd8",
+      "animated"
+    ],
+    [
+      "3ef4c6828a76d721207d8e88a96583abf08d90e6bde66bc2dc649aa4e971826f",
       "animated"
     ],
     [
@@ -599,6 +607,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "5e7c361c2df4cb72c4da3f4ec9641a4d7eb8f6929818ec11326a0195e98d7d79",
+      "animated"
+    ],
+    [
       "5ea0cacfd28fc224558c40d99629cf85971b2737a0a6417684f59a48050099b7",
       "static"
     ],
@@ -637,6 +649,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "64a07c7316061831dafd1b2e478746e05e5d4b462047d4f6d8d18dc46451aac4",
       "static"
+    ],
+    [
+      "65fcdca8f4742c8ef4751f3865d2d919d265688e9b5dda1d7a284754751a4aaf",
+      "animated"
     ],
     [
       "6666f568620eebec9a5ccd25dab72d9c3de9aab274a63a2d0aeb60e234e02378",
@@ -837,6 +853,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "84cd534e4fc2d6b9632803653c9725bdc3d19831b7ce28406e715905510ce663",
       "static"
+    ],
+    [
+      "85338c2497f9a328acba6729aba5efb9954f8e8e135f6185080d81dcac076c32",
+      "animated"
     ],
     [
       "8581ff72ed4386d8f980edcd502a44bddefca3a59ffc48d1bdbc8c153b291785",
@@ -1085,10 +1105,6 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "abaea5b7c5208ae7ceb0b05cd1d8d08a7610cf96486c8dee38a303873e9359a1",
       "static"
-    ],
-    [
-      "abdc36f957e070e58cdfa309c9e40e741fec4959ca6590000f4d2750ad0fb5c3",
-      "animated"
     ],
     [
       "ad10f5b6c5994439bf139af78dd145a6ad05b6b82cb743796915128c9f375553",
@@ -1436,6 +1452,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "e698a7bd5c21d85559813942c16e7dfc7229ba9be0f69a103e3902dbca663b82",
+      "static"
+    ],
+    [
+      "e7196b89fb7c9a0272f76fd4a02acea15d87fbc406dce9dd10678551b1a39bbc",
       "static"
     ],
     [
@@ -11342,7 +11362,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         if (metrics) metrics.wallMs += performance.now() - readStarted;
       }
     }
-    async replaySafety(records) {
+    async replaySafety(records, nativeMode) {
       const read = this.replayReads.get(records);
       const unchanged = () => !this.disposed && read?.sourceEpoch === this.sourceGeneration && read.authoredEpoch === this.authoredSourceGeneration;
       if (!read || !unchanged()) return "unknown";
@@ -11350,7 +11370,11 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       let safety = "immutable";
       for (const record5 of records) {
         if (!unchanged()) return "unknown";
-        if (record5.kind === "native" || record5.kind === "video") return "dynamic";
+        if (record5.kind === "native") {
+          if (nativeMode === "committed-native") continue;
+          return "dynamic";
+        }
+        if (record5.kind === "video") return "dynamic";
         if (record5.kind === "canvas") {
           if (record5.sourceRole !== "viewport-background") return "dynamic";
           continue;
@@ -18742,6 +18766,187 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         options,
         async ({ pixels }) => pixels
       );
+      this.captureCommittedCompositionPixels = async (options) => {
+        this.assertCompositionIdle();
+        if (this.disposed)
+          throw new NativeSourceError("runtime-disposed", "runtime-disposed");
+        if (options.viewport.width !== innerWidth || options.viewport.height !== innerHeight)
+          throw new NativeSourceError(
+            "composition-viewport-stale",
+            "The visible native preview viewport differs from the requested still."
+          );
+        const timeoutMs = options.timeoutMs ?? 15e3;
+        if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 6e4)
+          throw new NativeSourceError(
+            "composition-invalid-frame",
+            "The still capture timeout is invalid."
+          );
+        const controller = new AbortController();
+        const abort = () => controller.abort(options.signal?.reason);
+        if (options.signal?.aborted) abort();
+        else options.signal?.addEventListener("abort", abort, { once: true });
+        const timer = setTimeout(
+          () => controller.abort(
+            new NativeSourceError(
+              "composition-timeout",
+              "The visible native frame did not settle before still capture."
+            )
+          ),
+          timeoutMs
+        );
+        this.compositionPixelBusy = true;
+        cancelAnimationFrame(this.raf);
+        this.raf = 0;
+        let snapshot = null;
+        try {
+          await this.drainPreviewFrame(controller.signal);
+          if (controller.signal.aborted) throw controller.signal.reason;
+          this.compositionAbort = controller;
+          this.compositionDone = new Promise((resolve) => {
+            this.resolveCompositionDone = resolve;
+          });
+          snapshot = this.suspendForComposition();
+          const manifests = this.parse();
+          if (!manifests)
+            throw new NativeSourceError(
+              this.parseFailure?.code ?? "manifest-invalid",
+              this.parseFailure?.message ?? "The visible effect manifest is unreadable."
+            );
+          const expected = new Map(
+            options.expectedDefinitions.map((definition) => [
+              \`\${definition.id}:\${definition.version}\`,
+              definition.executionHash
+            ])
+          );
+          const enabled = manifests.flatMap(
+            (manifest) => manifest.instances.filter((instance) => instance.enabled)
+          );
+          const expectedInstances = new Map(
+            options.expectedInstances.map((instance) => [instance.id, instance])
+          );
+          const sameInstanceIdentity = (current, expected2) => !!current && !!expected2 && current.id === expected2.id && current.nodeId === expected2.nodeId && current.definitionId === expected2.definitionId && current.definitionVersion === expected2.definitionVersion && current.placement === expected2.placement;
+          if (enabled.length !== this.mounts.size || enabled.length !== expectedInstances.size || enabled.some(
+            (instance) => !sameInstanceIdentity(instance, expectedInstances.get(instance.id))
+          ))
+            throw new NativeSourceError(
+              "composition-instance-stale",
+              "The visible native effect set differs from the saved scene."
+            );
+          const device = this.device;
+          const deviceEpoch = this.deviceEpoch;
+          if (!device)
+            throw new NativeSourceError(
+              "device-unavailable",
+              "The visible native GPU device is unavailable."
+            );
+          const scene = this.scenePresentation;
+          const frozenSource = scene?.surface.resourceTextures.get("source");
+          const scenePayloads = scene?.committedInstancePayloads;
+          if (scene && !frozenSource)
+            throw new NativeSourceError(
+              "composition-preview-stale",
+              "The visible full-scene native frame has no committed texture."
+            );
+          if (frozenSource && (this.colorPresented !== "srgb" || this.dynamicRangePresented !== "sdr"))
+            throw new NativeSourceError(
+              "composition-color-unsupported",
+              "The visible native frame uses a color mode that this still encoder cannot preserve."
+            );
+          const committed = [...this.mounts.values()].map((mount) => ({
+            mount,
+            output: mount.outputTexture,
+            frameCount: mount.frameCount,
+            instancePayload: scene ? scenePayloads?.get(mount.instance.id) ?? null : mount.committedInstancePayload !== null && mount.committedLocalTime !== null ? {
+              payload: mount.committedInstancePayload,
+              localTime: mount.committedLocalTime
+            } : null,
+            sourceEpoch: mount.committedSourceEpoch,
+            inputEpochs: new Map(mount.committedInputEpochs)
+          }));
+          for (const entry of committed) {
+            const { mount } = entry;
+            if (!entry.output || !entry.instancePayload || !sameInstanceIdentity(
+              JSON.parse(entry.instancePayload.payload),
+              expectedInstances.get(mount.instance.id)
+            ) || !mount.suppressed || mount.frozenReason || mount.target.getAttribute("data-an-native-status") !== "ready" || !frozenSource && (entry.sourceEpoch === null || mount.provider?.sourceEpoch?.() !== entry.sourceEpoch) || !expected.has(\`\${mount.definition.id}:\${mount.definition.version}\`) || await hashEffectDefinition(mount.definition) !== expected.get(\`\${mount.definition.id}:\${mount.definition.version}\`))
+              throw new NativeSourceError(
+                "composition-preview-stale",
+                \`Native effect \${mount.instance.id} has no current committed preview frame.\`
+              );
+            for (const [name, { capture, sourceEpoch }] of entry.inputEpochs)
+              if (!frozenSource && (mount.authoredInputs.get(name) !== capture || capture.capturedSourceEpoch !== sourceEpoch || capture.provider.sourceEpoch?.() !== sourceEpoch))
+                throw new NativeSourceError(
+                  "composition-preview-stale",
+                  \`Authored input \${name} changed after the visible frame committed.\`
+                );
+          }
+          const frame = {
+            frameIndex: 0,
+            fps: 60,
+            startTimeSeconds: snapshot.time,
+            timeSeconds: snapshot.time,
+            signal: controller.signal
+          };
+          const pixels = await this.readCompositionPixels(
+            {
+              frameIndex: 0,
+              fps: 60,
+              sourceContract: "declarative-only",
+              viewport: options.viewport,
+              pixelRatio: options.pixelRatio,
+              signal: controller.signal,
+              timeoutMs
+            },
+            frame,
+            frozenSource
+          );
+          const committedInstances = await Promise.all(
+            committed.map(async ({ mount, instancePayload }) => {
+              const digest = await crypto.subtle.digest(
+                "SHA-256",
+                new TextEncoder().encode(instancePayload.payload)
+              );
+              return {
+                instanceId: mount.instance.id,
+                payloadSha256: Array.from(
+                  new Uint8Array(digest),
+                  (byte) => byte.toString(16).padStart(2, "0")
+                ).join(""),
+                localTime: instancePayload.localTime
+              };
+            })
+          );
+          if (controller.signal.aborted || this.device !== device || this.deviceEpoch !== deviceEpoch || this.scenePresentation !== scene || committed.some(
+            ({
+              mount,
+              output,
+              frameCount,
+              instancePayload,
+              sourceEpoch,
+              inputEpochs
+            }) => this.mounts.get(mount.instance.id) !== mount || mount.outputTexture !== output || mount.frameCount !== frameCount || !scene && (mount.committedInstancePayload !== instancePayload?.payload || mount.committedLocalTime !== instancePayload?.localTime) || mount.target.getAttribute("data-an-native-status") !== "ready" || !frozenSource && mount.provider?.sourceEpoch?.() !== sourceEpoch || !frozenSource && [...inputEpochs].some(
+              ([name, { capture, sourceEpoch: epoch }]) => mount.authoredInputs.get(name) !== capture || capture.provider.sourceEpoch?.() !== epoch
+            )
+          ) || scene && (scene.surface.resourceTextures.get("source") !== frozenSource || scene.committedInstancePayloads !== scenePayloads))
+            throw new NativeSourceError(
+              "composition-preview-stale",
+              "The visible native scene changed during still capture."
+            );
+          return { ...pixels, committedInstances };
+        } finally {
+          if (snapshot) this.restoreFromComposition(snapshot);
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", abort);
+          this.compositionAbort = null;
+          this.resolveCompositionDone?.();
+          this.resolveCompositionDone = null;
+          this.compositionDone = null;
+          this.compositionPixelBusy = false;
+          if (this.rescanPending) queueMicrotask(() => this.requestScan());
+          if (this.playing && this.mounts.size && !this.raf && !this.disposed)
+            this.frame();
+        }
+      };
       this.compositionSceneDiagnostic = () => ({
         ...this.lastCompositionSceneDiagnostic,
         viewport: { ...this.lastCompositionSceneDiagnostic.viewport },
@@ -19437,6 +19642,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           },
           suppressedElements: /* @__PURE__ */ new Set(),
           committedInstances: /* @__PURE__ */ new Set(),
+          committedInstancePayloads: /* @__PURE__ */ new Map(),
+          committedSourceEpoch: null,
           onViewportChange: () => {
             if (this.scenePresentation !== scene) return;
             this.releaseScenePresentation();
@@ -19660,6 +19867,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         };
         for (const id of nativeRecordIds) visitCommittedInputs(id);
         scene.committedInstances = committedInstances;
+        scene.committedInstancePayloads = new Map(
+          [...this.mounts.values()].flatMap(
+            (mounted) => mounted.committedInstancePayload !== null && mounted.committedLocalTime !== null ? [
+              [
+                mounted.instance.id,
+                {
+                  payload: mounted.committedInstancePayload,
+                  localTime: mounted.committedLocalTime
+                }
+              ]
+            ] : []
+          )
+        );
+        scene.committedSourceEpoch = sourceEpoch;
         scene.canvas.style.visibility = "visible";
         if (sceneWallPhases)
           sceneWallPhases.publicationWallMs += performance.now() - scenePublicationStarted;
@@ -20948,6 +21169,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         inputMaskUsedFrame: -1,
         suppressed: false,
         frameCount: 0,
+        committedSourceEpoch: null,
+        committedInstancePayload: null,
+        committedLocalTime: null,
+        committedInputEpochs: /* @__PURE__ */ new Map(),
         imageRasters: 0,
         sourceDownsamples: 0,
         previousLayerId,
@@ -26942,6 +27167,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "Particle simulation is still catching up to the presentation clock."
           );
         }
+        mount.committedSourceEpoch = sourceEpoch ?? null;
+        mount.committedInstancePayload = JSON.stringify(mount.instance);
+        mount.committedLocalTime = mount.clock.local;
+        mount.committedInputEpochs = new Map(mount.pendingGraphInputEpochs ?? []);
         mount.frameCount += 1;
         mount.target.setAttribute(
           "data-an-native-frames",
@@ -28131,7 +28360,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       return { pixelRatio, width, height };
     }
-    async readCompositionPixels(options, frame) {
+    async readCompositionPixels(options, frame, frozenSource) {
       if (frame.signal.aborted) throw frame.signal.reason;
       const root = document.documentElement;
       const { pixelRatio, width, height } = this.pixelFrameDimensions(options);
@@ -28152,13 +28381,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "composition-budget-exceeded",
           "The aligned GPU pixel buffer exceeds the export resource budget."
         );
-      const provider = createNativeSceneProvider(root, "layer");
-      if (!provider)
+      const provider = frozenSource ? null : createNativeSceneProvider(root, "layer");
+      if (!frozenSource && !provider)
         throw new NativeSourceError(
           "composition-source-unavailable",
           "The authored scene cannot be read for export."
         );
-      provider.setDensity(pixelRatio);
+      provider?.setDensity(pixelRatio);
       const surface = {
         target: root,
         width,
@@ -28185,7 +28414,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       try {
         const device = await this.ensureDevice();
         const deviceEpoch = this.deviceEpoch;
-        const scene = await provider.readScene();
+        const scene = frozenSource ? [] : await provider.readScene();
+        const authoredEpoch = frozenSource ? null : provider.sourceEpoch?.();
+        if (!frozenSource && await provider.replaySafety(scene, "committed-native") !== "immutable")
+          throw new NativeSourceError(
+            "composition-source-history-unavailable",
+            "The visible authored source cannot be frozen from its committed native frame."
+          );
         const nativeRecords = scene.filter(
           (record5) => record5.nativeInstanceId && record5.rect.width > 0 && record5.rect.height > 0 && record5.clip.width > 0 && record5.clip.height > 0 && record5.rect.x < options.viewport.width && record5.rect.y < options.viewport.height && record5.rect.x + record5.rect.width > 0 && record5.rect.y + record5.rect.height > 0
         );
@@ -28201,7 +28436,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const visibleMounts = [...this.mounts.values()].filter(
           (mount) => mount.isTopLayer && mount.suppressed && !!mount.outputTexture && !this.groupLocalNoncontributing(mount) && nativePresentationVisible(mount.canvas, options.viewport)
         );
-        const missingVisibleMountIds = visibleMounts.filter((mount) => !representedNativeIds.has(mount.instance.id)).map((mount) => mount.instance.id);
+        const missingVisibleMountIds = visibleMounts.filter(
+          (mount) => !frozenSource && !representedNativeIds.has(mount.instance.id)
+        ).map((mount) => mount.instance.id);
         const mounted = [...this.mounts.values()];
         this.lastCompositionSceneDiagnostic = {
           stage: "scene-read",
@@ -28236,7 +28473,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "device-generation-changed",
             "The GPU device changed during full-scene acquisition."
           );
-        const cssEncoded = this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr";
+        const cssEncoded = !frozenSource && this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr";
         const pipeline = await this.pipeline(
           cssEncoded ? exportCssPixelsWgsl : exportPixelsWgsl,
           "rgba8unorm"
@@ -28250,7 +28487,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         scopeOpen = true;
         scopedDevice = device;
         const encoder = device.createCommandEncoder();
-        const source = await this.composeScene(
+        const source = frozenSource ?? await this.composeScene(
           surface,
           scene,
           encoder,
@@ -28340,6 +28577,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         const padded = new Uint8Array(buffer.getMappedRange());
         const rgba = rgbaFromAlignedRows(padded, width, height, bytesPerRow);
+        if (!frozenSource && provider.sourceEpoch?.() !== authoredEpoch)
+          throw new NativeSourceError(
+            "composition-preview-stale",
+            "The authored scene changed during committed still readback."
+          );
         pixels = { width, height, colorSpace: "srgb", alpha: "straight", rgba };
       } catch (error) {
         failed = true;
@@ -28360,7 +28602,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         });
       if (mapped) await clean(() => buffer?.unmap());
       await clean(() => buffer?.destroy());
-      await clean(() => provider.dispose());
+      if (provider) await clean(() => provider.dispose());
       for (const mount of pinned)
         await clean(() => {
           this.activeMounts.delete(mount);

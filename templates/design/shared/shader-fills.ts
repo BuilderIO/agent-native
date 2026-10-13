@@ -1,3 +1,5 @@
+import { parse, type DefaultTreeAdapterTypes } from "parse5";
+
 import { nativeShaderRuntimeBridgeScript } from "../.generated/bridge/native-shader-runtime.generated";
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
 
@@ -472,19 +474,94 @@ export const NATIVE_SHADER_RUNTIME_SOURCE: string =
   nativeShaderRuntimeBridgeScript;
 const NATIVE_RUNTIME_ATTR = "data-agent-native-native-shader-runtime";
 
+type LocatedHtmlNode = DefaultTreeAdapterTypes.Node;
+type RuntimeScript = {
+  native: boolean;
+  start: number;
+  end: number;
+  verified: boolean;
+};
+
+function isGeneratedShaderRuntime(source: string, native: boolean): boolean {
+  const body = source.trim();
+  if (
+    body ===
+    (native ? NATIVE_SHADER_RUNTIME_SOURCE : SHADER_RUNTIME_SOURCE).trim()
+  )
+    return true;
+  return native
+    ? body.startsWith(
+        '"use strict";\n(() => {\n  var __defProp = Object.defineProperty;',
+      ) &&
+        body.includes("nativeBuiltinExecutionMetadata") &&
+        body.includes("window.__anNativeShaders = runtime;") &&
+        body.endsWith("else runtime.start();\n})();")
+    : body.startsWith(
+        '"use strict";\n(() => {\n  // app/components/design/bridge/shader-runtime.bridge.ts',
+      ) &&
+        body.includes("W.__anShaders = {") &&
+        body.endsWith("})();\n})();");
+}
+
+function inspectRuntimeScripts(html: string): RuntimeScript[] {
+  if (
+    !html.includes(NATIVE_RUNTIME_ATTR) &&
+    !html.includes(SHADER_RUNTIME_ATTR)
+  )
+    return [];
+  const scripts: RuntimeScript[] = [];
+  const visit = (node: LocatedHtmlNode): void => {
+    if (node.nodeName === "script") {
+      const script = node as DefaultTreeAdapterTypes.Element;
+      const native = script.attrs.some(
+        (attribute) => attribute.name === NATIVE_RUNTIME_ATTR,
+      );
+      const legacy = script.attrs.some(
+        (attribute) => attribute.name === SHADER_RUNTIME_ATTR,
+      );
+      const location = script.sourceCodeLocation;
+      const version = script.attrs.find(
+        (attribute) => attribute.name === "data-runtime-version",
+      )?.value;
+      if ((native || legacy) && location?.startTag && location.endTag) {
+        const body = html.slice(
+          location.startTag.endOffset,
+          location.endTag.startOffset,
+        );
+        scripts.push({
+          native,
+          start: location.startOffset,
+          end: location.endOffset,
+          verified:
+            ((native && version === "2") || (legacy && version === "1")) &&
+            isGeneratedShaderRuntime(body, native),
+        });
+      }
+    }
+    if ("childNodes" in node) node.childNodes.forEach(visit);
+  };
+  visit(parse(html, { sourceCodeLocationInfo: true }));
+  return scripts;
+}
+
+/** Removes only parsed, marked runtime scripts with a verified generated body. */
+export function stripGeneratedShaderRuntimes(html: string): string {
+  const spans = inspectRuntimeScripts(html).filter((script) => script.verified);
+  let compact = html;
+  for (const span of spans.reverse())
+    compact = compact.slice(0, span.start) + compact.slice(span.end);
+  return compact;
+}
+
 export function ensureNativeShaderRuntime(html: string): string {
   const tag = `<script ${NATIVE_RUNTIME_ATTR} data-runtime-version="2">\n${NATIVE_SHADER_RUNTIME_SOURCE}\n</script>`;
-  const existing =
-    /<script\s+data-agent-native-native-shader-runtime[^>]*>[\s\S]*?<\/script\s*>/i.exec(
-      html,
-    );
+  const scripts = inspectRuntimeScripts(html).filter((script) => script.native);
+  if (scripts.length > 1 || scripts.some((script) => !script.verified))
+    throw new Error("Native shader runtime marker has unrecognized content");
+  const existing = scripts[0];
   if (existing) {
-    if (existing[0] === tag) return html;
-    return (
-      html.slice(0, existing.index) +
-      tag +
-      html.slice(existing.index + existing[0].length)
-    );
+    if (html.slice(existing.start, existing.end) === tag) return html;
+    return html.slice(0, existing.start) + tag + html.slice(existing.end);
   }
   const bodyClose = html.toLowerCase().lastIndexOf("</body>");
   if (bodyClose !== -1)
@@ -503,20 +580,19 @@ export function buildShaderRuntimeScriptTag(): string {
   );
 }
 
-const RUNTIME_BLOCK_RE = new RegExp(
-  "<script\\s+" + SHADER_RUNTIME_ATTR + "[^>]*>[\\s\\S]*?<\\/script\\s*>",
-  "i",
-);
-
 export function ensureShaderRuntime(html: string): string {
   const tag = buildShaderRuntimeScriptTag();
-  const existing = RUNTIME_BLOCK_RE.exec(html);
+  const scripts = inspectRuntimeScripts(html).filter(
+    (script) => !script.native,
+  );
+  if (scripts.length > 1 || scripts.some((script) => !script.verified))
+    throw new Error("GLSL shader runtime marker has unrecognized content");
+  const existing = scripts[0];
   if (existing) {
-    if (existing[0] === tag) return ensureNativeShaderRuntime(html);
+    if (html.slice(existing.start, existing.end) === tag)
+      return ensureNativeShaderRuntime(html);
     return ensureNativeShaderRuntime(
-      html.slice(0, existing.index) +
-        tag +
-        html.slice(existing.index + existing[0].length),
+      html.slice(0, existing.start) + tag + html.slice(existing.end),
     );
   }
   const bodyClose = html.toLowerCase().lastIndexOf("</body>");
@@ -817,7 +893,7 @@ export function applyShaderToHtml(
     return { html, changed: false, errors: validation.errors };
   }
   let next = upsertShaderInHtml(html, options.def);
-  next = ensureShaderRuntime(next);
+  next = stripGeneratedShaderRuntimes(next);
   const annotated = annotateNodeWithShader(next, {
     nodeId: options.nodeId,
     shaderId: options.def.id,

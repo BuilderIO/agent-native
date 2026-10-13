@@ -20,9 +20,9 @@ import {
   type NativeSourceSizing,
 } from "./native-effects";
 import {
-  ensureNativeShaderRuntime,
   listShaderMounts,
   removeShaderFromNode,
+  stripGeneratedShaderRuntimes,
 } from "./shader-fills";
 
 export type NativeEffectEdit =
@@ -136,10 +136,9 @@ function finish(
 ): NativeEffectEditResult {
   const validation = validateEffectDocument(document);
   if (!validation.valid) return failed(html, validation.errors);
-  const authoredHtml = writeEffectsToHtml(html, document);
-  const nextHtml = document.instances.length
-    ? ensureNativeShaderRuntime(authoredHtml)
-    : removeNativeRuntime(authoredHtml);
+  const nextHtml = stripGeneratedShaderRuntimes(
+    writeEffectsToHtml(html, document),
+  );
   return {
     html: nextHtml,
     errors: [],
@@ -148,13 +147,6 @@ function finish(
       ...new Set(document.instances.map((instance) => instance.nodeId)),
     ],
   };
-}
-
-function removeNativeRuntime(html: string): string {
-  return html.replace(
-    /<script\s+data-agent-native-native-shader-runtime\b[^>]*>[\s\S]*?<\/script\s*>\s*/gi,
-    "",
-  );
 }
 
 function failed(html: string, errors: string[]): NativeEffectEditResult {
@@ -207,7 +199,8 @@ export function clearNativeFillFromHtml(
     nextHtml = removed.html;
   }
   const nextDocument = parseEffectsFromHtml(nextHtml).document;
-  if (!nextDocument?.instances.length) nextHtml = removeNativeRuntime(nextHtml);
+  if (!nextDocument?.instances.length)
+    nextHtml = stripGeneratedShaderRuntimes(nextHtml);
   return { html: nextHtml, errors: [] };
 }
 

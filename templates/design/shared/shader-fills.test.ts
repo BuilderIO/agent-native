@@ -20,6 +20,7 @@ import {
   removeShaderFromNode,
   sanitizeShaderFallbackColor,
   serializeManifestComment,
+  stripGeneratedShaderRuntimes,
   serializeShaderScriptBlock,
   SHADER_BUILTIN_UNIFORMS,
   SHADER_EFFECT_ATTR,
@@ -374,6 +375,22 @@ describe("shader script breakout hardening (serialize/parse)", () => {
 });
 
 describe("shader runtime embedding", () => {
+  it("compacts only generated runtime scripts while preserving authored bytes", () => {
+    const authored =
+      '<script>const note = "<script data-agent-native-native-shader-runtime>";</script>';
+    const markedAuthored =
+      '<script data-agent-native-shader-runtime data-runtime-version="1">window.authored = true</script>';
+    const withRuntimes = ensureShaderRuntime(DOC).replace(
+      "</body>",
+      `${authored}${markedAuthored}</body>`,
+    );
+    const compact = stripGeneratedShaderRuntimes(withRuntimes);
+    expect(compact).toContain(authored);
+    expect(compact).toContain(markedAuthored);
+    expect(compact).not.toContain("window.__anNativeShaders = runtime;");
+    expect(compact).not.toContain("W.__anShaders = {");
+    expect(stripGeneratedShaderRuntimes(compact)).toBe(compact);
+  });
   it("runtime source is embeddable (no closing script tag, IIFE, versioned)", () => {
     expect(SHADER_RUNTIME_SOURCE.length).toBeGreaterThan(1000);
     expect(/<\/script/i.test(SHADER_RUNTIME_SOURCE)).toBe(false);
@@ -405,17 +422,25 @@ describe("shader runtime embedding", () => {
     expect(once).not.toContain(`<script ${SHADER_RUNTIME_ATTR}`);
   });
 
-  it("upgrades a stale embedded runtime in place", () => {
-    const stale = DOC.replace(
-      "</body>",
-      `<script ${SHADER_RUNTIME_ATTR} data-runtime-version="0">old()</script></body>`,
+  it("refreshes a recognized generated runtime and rejects an unknown marked script", () => {
+    const stale = ensureShaderRuntime(DOC).replace(
+      `${SHADER_RUNTIME_ATTR} data-runtime-version="1"`,
+      `${SHADER_RUNTIME_ATTR} data-runtime-version="1" nonce="old"`,
     );
     const upgraded = ensureShaderRuntime(stale);
-    expect(upgraded).not.toContain("old()");
+    expect(upgraded).not.toContain('nonce="old"');
     expect(upgraded.match(new RegExp(SHADER_RUNTIME_ATTR, "g"))).toHaveLength(
       1,
     );
     expect(upgraded).toContain("__anShaders");
+    const authored = DOC.replace(
+      "</body>",
+      `<script ${SHADER_RUNTIME_ATTR} data-runtime-version="1">old()</script></body>`,
+    );
+    expect(() => ensureShaderRuntime(authored)).toThrow(
+      "GLSL shader runtime marker has unrecognized content",
+    );
+    expect(authored).toContain("old()");
   });
 });
 
@@ -567,9 +592,10 @@ describe("applyShaderToHtml", () => {
     expect(result.changed).toBe(true);
 
     expect(listShadersInHtml(result.html)).toEqual([def]);
-    expect(
-      result.html.match(new RegExp(SHADER_RUNTIME_ATTR, "g")),
-    ).toHaveLength(1);
+    expect(result.html).not.toContain(SHADER_RUNTIME_ATTR);
+    expect(result.html).not.toContain(
+      "data-agent-native-native-shader-runtime",
+    );
     expect(listShaderMounts(result.html)).toEqual([
       {
         nodeId: "hero",
@@ -586,9 +612,7 @@ describe("applyShaderToHtml", () => {
       values: { u_speed: 0.5 },
     });
     expect(listShadersInHtml(again.html)).toHaveLength(1);
-    expect(again.html.match(new RegExp(SHADER_RUNTIME_ATTR, "g"))).toHaveLength(
-      1,
-    );
+    expect(again.html).not.toContain(SHADER_RUNTIME_ATTR);
   });
 
   it("rejects invalid definitions without touching the html", () => {
