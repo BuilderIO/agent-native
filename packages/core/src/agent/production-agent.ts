@@ -4632,6 +4632,7 @@ export interface ExecuteAgentToolCallOptions {
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  continueWithModelResponse?: boolean;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -4694,6 +4695,13 @@ export async function executeAgentToolCall(
   const events: AgentChatEvent[] = [];
   const send = (event: AgentChatEvent) => {
     events.push(event);
+    if (
+      options.continueWithModelResponse &&
+      (event.type === "done" ||
+        (event.type === "text" && event.text === "Tool execution complete."))
+    ) {
+      return;
+    }
     options.send?.(event);
   };
   const controller = options.signal ? null : new AbortController();
@@ -4990,6 +4998,49 @@ export function findApprovedStructuredToolCall(
   }
 
   return match;
+}
+
+export function replaceApprovedToolResult(
+  messages: EngineMessage[],
+  toolCall: { name: string; callId: string },
+  execution: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): EngineMessage[] {
+  let replacementCount = 0;
+  const updatedMessages = messages.map((message): EngineMessage => {
+    if (message.role !== "user") return message;
+    return {
+      ...message,
+      content: message.content.map((part) => {
+        if (
+          part.type !== "tool-result" ||
+          part.toolCallId !== toolCall.callId
+        ) {
+          return part;
+        }
+        if (part.toolName !== toolCall.name) {
+          throw new Error(
+            `Approved tool result ${toolCall.callId} belongs to ${part.toolName}, not ${toolCall.name}`,
+          );
+        }
+        replacementCount += 1;
+        return {
+          ...part,
+          content: execution.output,
+          isError: execution.status === "failed",
+        };
+      }),
+    };
+  });
+
+  if (replacementCount !== 1) {
+    throw new Error(
+      `Expected one pending result for approved tool call ${toolCall.callId}, found ${replacementCount}`,
+    );
+  }
+  return updatedMessages;
 }
 
 const INTERRUPTED_TOOL_LEDGER_POLL_MS =
@@ -13216,7 +13267,7 @@ export function createProductionAgentHandler(
               label: `Running approved ${exactApprovedToolCall.name} action`,
               tool: exactApprovedToolCall.name,
             });
-            await executeAgentToolCall({
+            const execution = await executeAgentToolCall({
               actions: requestActions,
               name: exactApprovedToolCall.name,
               input: exactApprovedToolCall.input,
@@ -13231,9 +13282,16 @@ export function createProductionAgentHandler(
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
+              continueWithModelResponse: true,
               send,
             });
-            return;
+            if (execution.status === "approval_required") return;
+            agentLoopOpts.messages = replaceApprovedToolResult(
+              agentLoopOpts.messages,
+              exactApprovedToolCall,
+              execution,
+            );
+            agentLoopOpts.approvedToolCalls = undefined;
           }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =

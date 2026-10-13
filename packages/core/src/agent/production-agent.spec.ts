@@ -122,6 +122,7 @@ import {
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
+  replaceApprovedToolResult,
   hydrateStructuredHistoryImageReferences,
   trimOldToolResults,
   type ActionEntry,
@@ -2401,6 +2402,71 @@ describe("buildUserContentWithAttachments", () => {
       name: "create-builder-branch",
       input: { branchName: "feature/test" },
     });
+  });
+
+  it("replaces only the approved call's pending tool result with execution output", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-approved",
+            name: "publish-release",
+            input: { release: "1.2.3" },
+          },
+          {
+            type: "tool-call",
+            id: "call-sibling",
+            name: "publish-release",
+            input: { release: "2.0.0" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-approved",
+            toolName: "publish-release",
+            toolInput: '{"release":"1.2.3"}',
+            content: "Awaiting human approval. This action did NOT execute.",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-sibling",
+            toolName: "publish-release",
+            toolInput: '{"release":"2.0.0"}',
+            content: "Sibling result stays intact.",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      replaceApprovedToolResult(
+        messages,
+        { name: "publish-release", callId: "call-approved" },
+        { status: "completed", output: "Release accepted" },
+      ),
+    ).toEqual([
+      messages[0],
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-approved",
+            toolName: "publish-release",
+            toolInput: '{"release":"1.2.3"}',
+            content: "Release accepted",
+            isError: false,
+          },
+          messages[1]!.content[1],
+        ],
+      },
+    ]);
   });
 
   it("appends a text note when a sibling tool-result is orphaned", () => {
