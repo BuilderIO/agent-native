@@ -63,15 +63,16 @@ and results, SQL, identities, and fixture values are never serialized. Scores
 measure retrieval and production-path integrity with a deterministic test
 engine; they do not measure hosted-model answer quality.
 
-The current five-case comparison is in
-`SYNTHETIC-analytics-production-path-v3-before-after.csv`. It has two runs per
+The current seven-case comparison is in
+`SYNTHETIC-analytics-production-path-v4-before-after.csv`. It has two runs per
 case for both the pinned baseline and candidate, using the same deterministic
 synthetic engine, storage fixtures, action allowlist, and production agent
-loop. The cases cover a current roster, a monthly count, product activity,
-product-user identities, and active product users. It records Git and
-source-code revisions separately so reviewers can verify both implementations.
-Top-1 retrieval improved from 4/10 baseline runs to 10/10 candidate runs;
-hit@5 remained 10/10 in both phases. The earlier four-case comparison remains
-unchanged in `SYNTHETIC-analytics-production-path-before-after.csv` for
-historical reference. The broader eight-case synthetic retrieval benchmark is
-recorded separately in `../synthetic-retrieval/SYNTHETIC-analytics-retrieval.csv`.
+loop. In addition to the earlier roster, monthly count, product activity,
+product-user identity, and active product-user cases, it covers active
+workspace members with roles and a row-level lookup with negated count wording.
+It records Git and source-code revisions separately so reviewers can verify
+both implementations. Top-1 retrieval improved from 4/14 baseline runs to
+14/14 candidate runs; hit@5 improved from 12/14 to 14/14. The five-case v3
+comparison and earlier four-case comparison remain unchanged for historical
+reference. The eleven-case synthetic retrieval benchmark is recorded
+separately in `../synthetic-retrieval/SYNTHETIC-analytics-retrieval.csv`.
