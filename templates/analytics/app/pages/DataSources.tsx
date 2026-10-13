@@ -555,10 +555,15 @@ function GitHubOAuthView({
   );
 }
 
-function startWorkspaceOAuth(provider: string, returnPath: string): void {
+function startWorkspaceOAuth(
+  provider: string,
+  returnPath: string,
+  scope: "user" | "organization" = "organization",
+): void {
   const params = new URLSearchParams({
     appId: "analytics",
     return: returnPath,
+    scope,
   });
   window.location.assign(
     agentNativePath(
@@ -572,11 +577,17 @@ function WorkspaceOAuthView({
   label,
   connected,
   returnPath = "/data-sources",
+  scope = "organization",
+  showDescription = true,
+  onAddLocalCredentials,
 }: {
   provider: string;
   label: string;
   connected: boolean;
   returnPath?: string;
+  scope?: "user" | "organization";
+  showDescription?: boolean;
+  onAddLocalCredentials?: () => void;
 }) {
   const t = useT();
 
@@ -589,19 +600,33 @@ function WorkspaceOAuthView({
           </div>
           <div className="min-w-0 space-y-1">
             <p className="text-xs font-medium text-foreground">{label}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("dataSources.sharedIntegration")}
-            </p>
+            {showDescription && (
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.sharedIntegration")}
+              </p>
+            )}
           </div>
         </div>
-        <Button
-          size="sm"
-          variant={connected ? "outline" : "default"}
-          onClick={() => startWorkspaceOAuth(provider, returnPath)}
-          className="shrink-0 text-xs"
-        >
-          {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {onAddLocalCredentials && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onAddLocalCredentials}
+              className="text-xs"
+            >
+              {t("dataSources.addLocalCredentials")}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant={connected ? "outline" : "default"}
+            onClick={() => startWorkspaceOAuth(provider, returnPath, scope)}
+            className="shrink-0 text-xs"
+          >
+            {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -675,6 +700,7 @@ function WorkspaceReadyView({
   oauthReturnPath,
   onSaved,
   onAddLocalCredentials,
+  showDescription = true,
 }: {
   source: DataSource;
   sharedConnectionStatus: SharedConnectionStatus | null;
@@ -682,6 +708,7 @@ function WorkspaceReadyView({
   oauthReturnPath: string;
   onSaved: () => void;
   onAddLocalCredentials: () => void;
+  showDescription?: boolean;
 }) {
   const t = useT();
   const [testResult, setTestResult] = useState<{
@@ -705,9 +732,11 @@ function WorkspaceReadyView({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {t("dataSources.workspaceReadyDescription")}
-      </p>
+      {showDescription && (
+        <p className="text-xs text-muted-foreground">
+          {t("dataSources.workspaceReadyDescription")}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
@@ -740,7 +769,13 @@ function WorkspaceReadyView({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => startWorkspaceOAuth(source.id, oauthReturnPath)}
+            onClick={() =>
+              startWorkspaceOAuth(
+                source.id,
+                oauthReturnPath,
+                source.id === "bigquery" ? "user" : "organization",
+              )
+            }
             className="text-xs"
           >
             {t("dataSources.reconnect")}
@@ -1263,7 +1298,10 @@ function DataSourceDetail({
     !readyViaWorkspace &&
     !showLocalCredentials;
   const workspaceRoleLoading =
-    isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
+    isWorkspaceOAuthSource(source) &&
+    source.id !== "bigquery" &&
+    !ready &&
+    !orgLoaded;
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
   if (showUnknownStatus) {
@@ -1326,7 +1364,8 @@ function DataSourceDetail({
           </div>
         </div>
       )}
-      {sharedConnectionStatus &&
+      {source.id !== "bigquery" &&
+        sharedConnectionStatus &&
         sharedConnectionStatus.kind !== "needs_credentials" &&
         sharedConnectionStatus.kind !== "needs_grant" && (
           <SharedConnectionStatusRow status={sharedConnectionStatus} />
@@ -1345,15 +1384,26 @@ function DataSourceDetail({
           oauthReturnPath={oauthReturnPath}
           onSaved={onSaved}
           onAddLocalCredentials={() => setShowLocalCredentials(true)}
+          showDescription={source.id !== "bigquery"}
         />
       ) : workspaceRoleLoading ? (
         <Skeleton className="h-9 w-full rounded-md" />
-      ) : preferWorkspaceSetup && canManageOrg ? (
+      ) : preferWorkspaceSetup && (canManageOrg || source.id === "bigquery") ? (
         <WorkspaceOAuthView
           provider={source.id}
           label={source.name}
-          connected={sharedConnectionStatus?.kind === "needs_grant"}
+          connected={
+            sharedConnectionStatus?.connection?.grantState === "connected" ||
+            sharedConnectionStatus?.kind === "needs_grant"
+          }
           returnPath={oauthReturnPath}
+          scope={source.id === "bigquery" ? "user" : "organization"}
+          showDescription={source.id !== "bigquery"}
+          onAddLocalCredentials={
+            source.id === "bigquery"
+              ? () => setShowLocalCredentials(true)
+              : undefined
+          }
         />
       ) : preferWorkspaceSetup ? (
         <Button

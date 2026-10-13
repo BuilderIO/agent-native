@@ -94,6 +94,68 @@ describe("data source status", () => {
     ).toBe(true);
   });
 
+  it("requires a project and either personal OAuth or a service account for BigQuery", () => {
+    const bigquery = dataSources.find((source) => source.id === "bigquery")!;
+    const projectOnly: EnvKeyStatus[] = [
+      {
+        key: "BIGQUERY_PROJECT_ID",
+        label: "BigQuery Project ID",
+        required: true,
+        configured: true,
+      },
+    ];
+    const oauthStatus: DataSourceStatusResponse = {
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        error: null,
+        providers: [
+          {
+            provider: "bigquery",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+        ],
+      },
+    };
+
+    expect(isSourceReady(bigquery, undefined, projectOnly)).toBe(false);
+    expect(isSourceConfigured(bigquery, projectOnly)).toBe(false);
+    expect(isSourceReady(bigquery, oauthStatus, projectOnly)).toBe(true);
+    expect(isSourceLocallyConfigured(bigquery, oauthStatus, projectOnly)).toBe(
+      false,
+    );
+    expect(
+      shouldOfferWorkspaceOAuthReconnect(
+        bigquery,
+        {
+          kind: "ready",
+          label: "Ready",
+          providerId: "bigquery",
+          providerLabel: "BigQuery",
+        },
+        false,
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isSourceReady(bigquery, undefined, [
+        ...projectOnly,
+        {
+          key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+          label: "Google Cloud",
+          required: false,
+          configured: true,
+        },
+      ]),
+    ).toBe(true);
+  });
+
   it("accepts either HubSpot token key for local source configuration", () => {
     const hubspot = dataSources.find((source) => source.id === "hubspot");
     const envStatus: EnvKeyStatus[] = [

@@ -4,6 +4,7 @@ import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 import { signRs256Jwt } from "./sign-jwt";
 
 async function getProjectId(): Promise<string> {
@@ -299,6 +300,30 @@ export async function getAccessToken(signal?: AbortSignal): Promise<string> {
   });
 
   return data.access_token;
+}
+
+export async function getBigQueryAccessToken(
+  signal?: AbortSignal,
+): Promise<string> {
+  const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
+  const projectId = await raceWithAbort(
+    resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+    signal,
+  );
+  throwIfSignalAborted(signal);
+  if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
+
+  const oauthCredential = await raceWithAbort(
+    resolveAnalyticsProviderCredential({
+      provider: "bigquery",
+      keys: [],
+      ctx,
+    }),
+    signal,
+  );
+  if (oauthCredential) return oauthCredential.value;
+
+  return getAccessToken(signal);
 }
 
 function cacheSet(key: string, data: unknown) {

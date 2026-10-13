@@ -2829,6 +2829,43 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("uses the personal Google OAuth grant for BigQuery provider requests", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "google-account-1",
+        displayName: "Analyst Google",
+        tokens: { access_token: "bigquery-user-oauth" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "bigquery-connection-1",
+        label: "Analyst Google",
+        accountId: "google-account-1",
+        ownerEmail: "ada@example.com",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+
+    await expect(
+      resolveProviderApiOAuthAccessToken(
+        { provider: "bigquery", connectionId: "bigquery-connection-1" },
+        {
+          appId: "analytics",
+          providerIds: ["bigquery"],
+          getCredentialContext: () => credentialContext,
+        },
+      ),
+    ).resolves.toMatchObject({
+      accessToken: "bigquery-user-oauth",
+      accountId: "google-account-1",
+      connectionId: "bigquery-connection-1",
+    });
+  });
+
   it("catalogs the Google Slides read-only provider", async () => {
     const runtime = createProviderApiRuntime({
       appId: "creative-context",

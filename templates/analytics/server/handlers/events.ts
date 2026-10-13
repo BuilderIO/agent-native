@@ -14,7 +14,8 @@ import {
   getCredentialContextFromEvent,
   resolveCredential,
 } from "../lib/credentials";
-import { getAccessToken } from "../lib/gcloud";
+import { getBigQueryAccessToken } from "../lib/gcloud";
+import { resolveAnalyticsProviderCredential } from "../lib/provider-credentials";
 
 // The legacy client sends `data` as a JSON string; anything unparseable is
 // stored as it came.
@@ -110,13 +111,20 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       ? await runWithRequestContext(
           { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
           async () => {
-            const [credentials, projectId] = await Promise.all([
-              resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
-              resolveCredential("BIGQUERY_PROJECT_ID", ctx),
-            ]);
-            if (!credentials || !projectId) return null;
+            const [credentials, projectId, oauthCredential] = await Promise.all(
+              [
+                resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+                resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+                resolveAnalyticsProviderCredential({
+                  provider: "bigquery",
+                  keys: [],
+                  ctx,
+                }),
+              ],
+            );
+            if ((!credentials && !oauthCredential) || !projectId) return null;
             const [token, table] = await Promise.all([
-              getAccessToken(),
+              getBigQueryAccessToken(),
               getAppEventsTable(projectId, ctx),
             ]);
             return { token, table };

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getCredentialContextFromEvent: vi.fn(),
   readBody: vi.fn(),
   resolveCredential: vi.fn(),
+  resolveAnalyticsProviderCredential: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
@@ -19,6 +20,9 @@ vi.mock("../lib/credentials", () => ({
   getCredentialContextFromEvent: mocks.getCredentialContextFromEvent,
   resolveCredential: mocks.resolveCredential,
 }));
+vi.mock("../lib/provider-credentials", () => ({
+  resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
+}));
 vi.mock("../lib/bigquery", () => ({
   getAppEventsTable: async () => ({
     projectId: "example-project",
@@ -26,7 +30,9 @@ vi.mock("../lib/bigquery", () => ({
     tableId: "events_partitioned",
   }),
 }));
-vi.mock("../lib/gcloud", () => ({ getAccessToken: async () => "token" }));
+vi.mock("../lib/gcloud", () => ({
+  getBigQueryAccessToken: async () => "token",
+}));
 
 import { resetAppConfigForTests } from "@agent-native/core/app-config";
 
@@ -41,6 +47,8 @@ describe("handleTrackEvent", () => {
     });
     mocks.resolveCredential.mockReset();
     mocks.resolveCredential.mockResolvedValue(undefined);
+    mocks.resolveAnalyticsProviderCredential.mockReset();
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValue(null);
   });
 
   it("does not ship a test identity's events to the warehouse", async () => {

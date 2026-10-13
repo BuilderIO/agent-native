@@ -5,6 +5,8 @@ const insertValues = vi.hoisted(() => vi.fn());
 const insert = vi.hoisted(() => vi.fn());
 const getDb = vi.hoisted(() => vi.fn());
 const select = vi.hoisted(() => vi.fn());
+const hasCredential = vi.hoisted(() => vi.fn());
+const resolveAnalyticsProviderCredential = vi.hoisted(() => vi.fn());
 const getBackend = vi.hoisted(() => vi.fn());
 const getBigQueryMetrics = vi.hoisted(() => vi.fn());
 const getDeliveryHealth = vi.hoisted(() => vi.fn());
@@ -16,7 +18,10 @@ vi.mock("../db/index.js", async (importOriginal) => ({
   getDb,
 }));
 vi.mock("./credentials.js", () => ({
-  hasCredential: vi.fn().mockResolvedValue(true),
+  hasCredential,
+}));
+vi.mock("./provider-credentials.js", () => ({
+  resolveAnalyticsProviderCredential,
 }));
 vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: getBackend,
@@ -43,6 +48,8 @@ beforeEach(() => {
   insert.mockReset();
   getDb.mockReset();
   select.mockReset();
+  hasCredential.mockReset();
+  resolveAnalyticsProviderCredential.mockReset();
   getBackend.mockReset();
   getBigQueryMetrics.mockReset();
   getDeliveryHealth.mockReset();
@@ -55,6 +62,8 @@ beforeEach(() => {
     from: () => ({ where: async () => [] }),
   });
   getDb.mockReturnValue({ insert, select });
+  hasCredential.mockResolvedValue(true);
+  resolveAnalyticsProviderCredential.mockResolvedValue(null);
   getBackend.mockResolvedValue({
     sink: "bigquery",
     table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
@@ -170,6 +179,23 @@ describe("first-party analytics pressure", () => {
       ]),
     );
     expect(health.bigQuery.id).toBe("bigquery");
+  });
+
+  it("counts a personal BigQuery OAuth grant as a configured backend", async () => {
+    hasCredential.mockImplementation(
+      async (key: string) => key === "BIGQUERY_PROJECT_ID",
+    );
+    resolveAnalyticsProviderCredential.mockResolvedValue({
+      value: "google-oauth-token",
+    });
+
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+    });
+
+    expect(health.bigQuery.configured).toBe(true);
+    expect(health.bigQuery.missingRequiredKeys).toEqual([]);
   });
 
   it("reports degraded delivery while the queue migration is pending", async () => {

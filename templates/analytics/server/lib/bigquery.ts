@@ -5,11 +5,10 @@ import { getDbExec } from "@agent-native/core/db";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { resolveCredential } from "./credentials";
 import {
-  credentialCacheScope,
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
-import { getAccessToken, raceWithAbort } from "./gcloud";
+import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
 
 async function getProjectContext(signal?: AbortSignal): Promise<{
@@ -26,9 +25,13 @@ async function getProjectContext(signal?: AbortSignal): Promise<{
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
   return {
     projectId,
-    cacheScope: credentialCacheScope("BIGQUERY_PROJECT_ID", ctx),
+    cacheScope: cacheScopeForContext(ctx),
     ctx,
   };
+}
+
+function cacheScopeForContext(ctx: CredentialContext): string {
+  return `u:${ctx.userEmail}:o:${ctx.orgId ?? "none"}`;
 }
 
 export async function getBigQueryProjectId(
@@ -218,7 +221,7 @@ export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const token = await getAccessToken();
+  const token = await getBigQueryAccessToken(signal);
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -342,7 +345,7 @@ export async function getBigQueryTableMetadata(
   signal?: AbortSignal,
   { fresh = false }: { fresh?: boolean } = {},
 ): Promise<BigQueryTableMetadata> {
-  const key = `${credentialCacheScope("BIGQUERY_PROJECT_ID")}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
+  const key = `${cacheScopeForContext(requireRequestCredentialContext("BIGQUERY_PROJECT_ID"))}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
   const hit = tableMetadataCache.get(key);
   if (!fresh && hit && hit.expiresAt > Date.now()) return hit.metadata;
   const metadata = await bigQueryGet<BigQueryTableMetadata>(
@@ -1035,7 +1038,7 @@ export async function dryRunQuerySchema(
       appEventsTable,
       options.signal,
     );
-    token = await getAccessToken(options.signal);
+    token = await getBigQueryAccessToken(options.signal);
   } catch (error) {
     if (
       options.signal?.aborted ||
@@ -1185,7 +1188,7 @@ export async function runQuery(
   let token: string | null = null;
   let cancelJob = false;
   try {
-    token = await getAccessToken(signal);
+    token = await getBigQueryAccessToken(signal);
     throwIfAborted(signal);
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();

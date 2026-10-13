@@ -72,6 +72,7 @@ export interface SharedConnectionStatus {
 }
 
 const dataSourceWorkspaceProviderIds: Record<string, string> = {
+  bigquery: "bigquery",
   github: "github",
   hubspot: "hubspot",
   jira: "jira",
@@ -81,6 +82,7 @@ const dataSourceWorkspaceProviderIds: Record<string, string> = {
 };
 
 const workspaceOAuthSourceIds = new Set([
+  "bigquery",
   "notion",
   "hubspot",
   "jira",
@@ -97,7 +99,7 @@ export function shouldShowWorkspaceOAuthSetup(
   canManageOrg: boolean,
 ): boolean {
   return (
-    canManageOrg &&
+    (canManageOrg || source.id === "bigquery") &&
     (status?.kind === "needs_credentials" ||
       status?.kind === "needs_grant" ||
       status?.kind === "needs_reauth" ||
@@ -114,6 +116,7 @@ export function shouldShowWorkspaceOAuthAdminNotice(
   hasOrg = true,
 ): boolean {
   return (
+    source.id !== "bigquery" &&
     orgLoaded &&
     hasOrg &&
     !canManageOrg &&
@@ -129,7 +132,7 @@ export function shouldOfferWorkspaceOAuthReconnect(
   connectionTestFailed: boolean,
 ): boolean {
   return (
-    canManageOrg &&
+    (canManageOrg || source.id === "bigquery") &&
     connectionTestFailed &&
     status?.kind === "ready" &&
     isWorkspaceOAuthSource(source)
@@ -213,6 +216,12 @@ export function isSourceConfigured(
   const statusMap = new Map(
     envStatus.map((s) => [normalizeCredentialKey(s.key), s.configured]),
   );
+  if (source.id === "bigquery") {
+    return (
+      statusMap.get("BIGQUERY_PROJECT_ID") === true &&
+      statusMap.get("GOOGLE_APPLICATION_CREDENTIALS_JSON") === true
+    );
+  }
   const optionalKeys = getOptionalCredentialKeys(source);
   const requiredKeys = source.envKeys.filter(
     (key) => !optionalKeys.has(normalizeCredentialKey(key)),
@@ -281,7 +290,15 @@ export function getSharedConnectionStatus(
     source.name;
 
   let kind: SharedConnectionStatusKind;
-  if (connection?.grantState === "connected") {
+  const bigQueryProjectConfigured = envStatus.some(
+    (status) =>
+      normalizeCredentialKey(status.key) === "BIGQUERY_PROJECT_ID" &&
+      status.configured,
+  );
+  if (
+    connection?.grantState === "connected" &&
+    (source.id !== "bigquery" || bigQueryProjectConfigured)
+  ) {
     kind = "ready";
   } else if (connection?.statuses?.includes("needs_reauth")) {
     kind = "needs_reauth";
@@ -309,6 +326,24 @@ export function isSourceReady(
   data: DataSourceStatusResponse | undefined,
   envStatus: EnvKeyStatus[],
 ): boolean {
+  if (source.id === "bigquery") {
+    const projectConfigured = envStatus.some(
+      (status) =>
+        normalizeCredentialKey(status.key) === "BIGQUERY_PROJECT_ID" &&
+        status.configured,
+    );
+    const serviceAccountConfigured = envStatus.some(
+      (status) =>
+        normalizeCredentialKey(status.key) ===
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON" && status.configured,
+    );
+    return (
+      projectConfigured &&
+      (serviceAccountConfigured ||
+        getWorkspaceConnectionForSource(source, data)?.grantState ===
+          "connected")
+    );
+  }
   return (
     isSourceConfigured(source, envStatus) ||
     getProviderStatusForSource(source, data)?.configured === true ||
@@ -321,6 +356,20 @@ export function isSourceLocallyConfigured(
   data: DataSourceStatusResponse | undefined,
   envStatus: EnvKeyStatus[],
 ): boolean {
+  if (source.id === "bigquery") {
+    return (
+      envStatus.some(
+        (status) =>
+          normalizeCredentialKey(status.key) === "BIGQUERY_PROJECT_ID" &&
+          status.configured,
+      ) &&
+      envStatus.some(
+        (status) =>
+          normalizeCredentialKey(status.key) ===
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON" && status.configured,
+      )
+    );
+  }
   if (isSourceConfigured(source, envStatus)) return true;
   const providerStatus = getProviderStatusForSource(source, data);
   if (!providerStatus?.configured) return false;

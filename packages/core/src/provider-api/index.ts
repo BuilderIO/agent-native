@@ -330,6 +330,8 @@ export type ProviderApiAuthKind =
   | {
       type: "google-service-account";
       scopes: readonly string[];
+      oauthProvider?: string;
+      workspaceProvider?: string;
     }
   | {
       type: "oauth-bearer";
@@ -723,10 +725,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/bigquery",
       ],
+      oauthProvider: "google",
+      workspaceProvider: "bigquery",
     },
     credentialKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     ],
     docsUrls: ["https://cloud.google.com/bigquery/docs/reference/rest"],
     specUrls: ["https://bigquery.googleapis.com/$discovery/rest?version=v2"],
@@ -2243,7 +2247,14 @@ export async function resolveProviderApiOAuthAccessToken(
               tokenLabel: auth.tokenLabel,
               workspaceProvider: auth.workspaceProvider,
             }
-          : null;
+          : auth.type === "google-service-account" && auth.oauthProvider
+            ? {
+                type: "oauth-bearer" as const,
+                oauthProvider: auth.oauthProvider,
+                tokenLabel: "Google OAuth token",
+                workspaceProvider: auth.workspaceProvider,
+              }
+            : null;
   if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
@@ -4016,6 +4027,29 @@ async function resolveAuth(
     };
   }
   if (auth.type === "google-service-account") {
+    if (auth.oauthProvider && auth.workspaceProvider) {
+      const oauthCredential =
+        await resolveOptionalConnectionBoundOAuthBearerToken({
+          auth: {
+            type: "oauth-bearer",
+            oauthProvider: auth.oauthProvider,
+            tokenLabel: "Google OAuth token",
+            workspaceProvider: auth.workspaceProvider,
+          },
+          runtime,
+          ctx,
+          workspaceProvider: auth.workspaceProvider,
+          connectionId: args.connectionId,
+          accountId: args.accountId,
+        });
+      if (oauthCredential) {
+        return {
+          headers: { Authorization: `Bearer ${oauthCredential.value}` },
+          credentialSources: [omitCredentialValue(oauthCredential)],
+          secretValues: [oauthCredential.value],
+        };
+      }
+    }
     const token = await getGoogleServiceAccountToken(auth.scopes, runtime, ctx);
     return {
       headers: { Authorization: `Bearer ${token}` },
