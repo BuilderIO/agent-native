@@ -249,6 +249,39 @@ describe("import-design-tokens", () => {
     );
   });
 
+  it("bounds current-design filenames in the database query", async () => {
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([
+        {
+          id: "file-1",
+          filename: "tokens.css",
+          contentBytes: 10,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: "file-1", content: ":root { --spacing-gap: 8px; }" },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    const metadataSelection = mockSelect.mock.calls[1]?.[0] as
+      | Record<string, { strings?: string[] }>
+      | undefined;
+    const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
+      conditions?: { strings?: string[] }[];
+    };
+    expect(metadataSelection?.filename?.strings?.join("")).toContain("left(");
+    expect(candidateFilter.conditions?.[1]?.strings?.join("")).toContain(
+      "char_length(left(",
+    );
+    expect(result.filesAnalyzed).toEqual(["tokens.css"]);
+    expect(result.omittedFileCount).toBe(1);
+  });
+
   it("keeps current-design contents under the aggregate byte limit", async () => {
     mockWhere
       .mockResolvedValueOnce([{ fileCount: 2 }])

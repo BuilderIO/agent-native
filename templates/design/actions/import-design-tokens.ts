@@ -12,7 +12,7 @@ import {
 } from "@agent-native/core/server/design-token-utils";
 import { assertAccess } from "@agent-native/core/sharing";
 import * as csstree from "css-tree";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import postcss from "postcss";
 import postcssLess from "postcss-less";
@@ -29,6 +29,7 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import {
   DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
   DESIGN_TOKEN_IMPORT_MAX_FILES,
+  DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../shared/design-token-import-limits.js";
 import {
@@ -75,7 +76,7 @@ function tokenSourceLabel(token: ImportedDesignToken, sourceLabel: string) {
 const tokenFileSchema = z.object({
   filename: z
     .string()
-    .max(256)
+    .max(DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS)
     .trim()
     .min(1)
     .describe("File name or relative path"),
@@ -1128,11 +1129,16 @@ export default defineAction({
           const candidates = await tx
             .select({
               id: schema.designFiles.id,
-              filename: schema.designFiles.filename,
+              filename: sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`,
               contentBytes: sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`,
             })
             .from(schema.designFiles)
-            .where(eq(schema.designFiles.designId, designId))
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                sql`char_length(left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`,
+              ),
+            )
             .orderBy(
               asc(schema.designFiles.filename),
               asc(schema.designFiles.id),
