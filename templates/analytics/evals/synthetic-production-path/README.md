@@ -15,7 +15,46 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
-## Current v13 comparison (candidate snapshot `586b87b5`)
+## Current v14 comparison (candidate snapshot `ba536105`)
+
+The checked-in v14 artifact runs twenty-two synthetic cases twice in each
+phase through the same production agent loop. The baseline is `origin/main` at
+`0fb4de3ed8bd4e317543575c9b188b93db392d26`; the candidate source snapshot is
+`ba53610515501c3f8657168c2c7346a713ac03df`. The added stale-index case places
+an approved current workspace-assignment definition beside an old generated
+roster entry. Both phases rank the approved definition first. The candidate
+also labels the old entry as stale and unapproved, preserves it as a discovery
+lead, and tells the agent to verify current schema and owner-approved
+definitions. The explicit stale-entry marker appears in 0/44 baseline rows and
+2/44 candidate rows, one for each run of that case.
+
+Across the full case set, the baseline passed top-1 retrieval and production
+path checks in 8/44 runs (18.2%) and returned the expected candidate in the top
+five in 22/44 (50%). The candidate passed 44/44 (100%) on both measures. All 88
+runs completed without aborts; each made one `find-data` call and no other or
+failed action. Each run exercised the production prompt, caller and
+organization context, final-response guard, and usage capture. The deterministic
+in-memory engine does not call a hosted model, BigQuery, or a connected data
+source. These scores measure synthetic retrieval and production-path
+integrity, not hosted-model answer quality or production latency.
+
+Evaluated code hashes are
+`sha256:16768496b83db90ba30f74df6ea49f934c1ee11e6ba3fb8d1c7f65ee089e44ac`
+before and
+`sha256:70424c4be93310ac67c21eaf3af6d68e10c18d87e495bce2653c5c40b409e07c`
+after. Both phases use identical harness bytes, hash
+`sha256:04428dd484b504b646a93e1b6b35151fcc344568c8c1cd7780fa498822df8a93`.
+The harness checked the source bytes against each pinned commit when it emitted
+the CSV. The checked-in validator pins those revisions and hashes; it does not
+recompute Git-object hashes.
+
+The CSV contains only synthetic case IDs, source revisions, coded ranks and
+scores, action counts, completion state, token totals, elapsed time, and the
+stale-index marker. It contains no prompts, tool inputs, SQL, identities, or
+source values. The v14 artifact is
+[`SYNTHETIC-analytics-production-path-v14-before-after.csv`](./SYNTHETIC-analytics-production-path-v14-before-after.csv).
+
+## Historical v13 comparison (candidate snapshot `586b87b5`)
 
 The checked-in v13 artifact runs twenty-one synthetic cases twice in each
 phase through the same production agent loop. The baseline is current

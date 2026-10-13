@@ -38,6 +38,12 @@ const V13_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V14_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v14-before-after.csv",
+    import.meta.url,
+  ),
+);
 const CSV_COLUMNS = [
   "case_id",
   "phase",
@@ -59,6 +65,7 @@ const CSV_COLUMNS = [
   "output_tokens",
   "llm_calls",
   "latency_ms",
+  "stale_index_marked",
 ] as const;
 
 function makeComparisonCsv(): string {
@@ -71,20 +78,21 @@ function makeComparisonCsv(): string {
     null,
     null,
     null,
-    4,
-    1,
-    1,
-    3,
+    null,
+    null,
+    null,
     null,
     4,
     1,
-    4,
     5,
-    null,
-    null,
-    null,
-    null,
+    1,
     3,
+    3,
+    null,
+    4,
+    1,
+    4,
+    1,
   ];
   for (const phase of ["before", "after"] as const) {
     for (const [
@@ -128,6 +136,9 @@ function makeComparisonCsv(): string {
           output_tokens: 48,
           llm_calls: 2,
           latency_ms: 20 + run,
+          stale_index_marked:
+            phase === "after" &&
+            caseId === "stale-generated-index-yields-to-current-source",
         };
         rows.push(
           CSV_COLUMNS.map((column) =>
@@ -145,17 +156,19 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(makeComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 21,
+      cases: 22,
       before: {
-        rows: 42,
-        top1: 6,
-        hitAt5: 20,
+        rows: 44,
+        top1: 8,
+        hitAt5: 22,
+        staleIndexMarked: 0,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
-        rows: 42,
-        top1: 42,
-        hitAt5: 42,
+        rows: 44,
+        top1: 44,
+        hitAt5: 44,
+        staleIndexMarked: 2,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });
@@ -307,6 +320,34 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it("pins stale-index markers to both candidate runs of the stale case", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const header = rows[0]!.split(",");
+    const markerIndex = header.indexOf("stale_index_marked");
+    const beforeRowIndex = rows.findIndex((line) =>
+      line.startsWith("stale-generated-index-yields-to-current-source,before,"),
+    );
+    const beforeColumns = rows[beforeRowIndex]!.split(",");
+    beforeColumns[markerIndex] = "true";
+    rows[beforeRowIndex] = beforeColumns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "stale-index markers must match the pinned candidate case",
+    );
+
+    const validRows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const afterRowIndex = validRows.findIndex((line) =>
+      line.startsWith("stale-generated-index-yields-to-current-source,after,"),
+    );
+    const afterColumns = validRows[afterRowIndex]!.split(",");
+    afterColumns[markerIndex] = "false";
+    validRows[afterRowIndex] = afterColumns.join(",");
+
+    expect(() =>
+      validateProductionPathComparisonCsv(validRows.join("\n")),
+    ).toThrow("must record stale-index marking only for both candidate runs");
+  });
+
   it("rejects before/after rows made with different harness bytes", () => {
     const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
     for (let index = 1; index < rows.length; index++) {
@@ -342,10 +383,10 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      rows: 42,
-      top1: 41,
-      retrievalTop1: 41,
-      hitAt5: 41,
+      rows: 44,
+      top1: 43,
+      retrievalTop1: 43,
+      hitAt5: 43,
       failedRuns: 1,
       abortedRuns: 1,
     });
@@ -363,9 +404,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      top1: 41,
-      retrievalTop1: 41,
-      hitAt5: 41,
+      top1: 43,
+      retrievalTop1: 43,
+      hitAt5: 43,
       failedRuns: 1,
       abortedRuns: 0,
     });
@@ -432,7 +473,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     });
   });
 
-  it("validates the current v13 production-path comparison", async () => {
+  it("validates the preserved v13 production-path comparison", async () => {
     const csv = await readFile(V13_COMPARISON_CSV, "utf8");
     const result = validateProductionPathComparisonCsv(csv);
 
@@ -445,9 +486,11 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         hitAt5: 20,
         failedRuns: 36,
         abortedRuns: 0,
-        revision: PRODUCTION_PATH_BASELINE_REVISION,
-        codeRevision: PRODUCTION_PATH_BASELINE_CODE_REVISION,
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        revision: "afe2ee7e45f6f3f380571a6d18918fc49d71c6e1",
+        codeRevision:
+          "sha256:5efa951a394abdcc5d39090b58d0277f1e0392a0ca1c984c96def8935cabcafe",
+        harnessRevision:
+          "sha256:91a1a65cebb864d1368b624b9dac7e2ab4c32710357e52c4a9c25c6c705a7d97",
       },
       after: {
         rows: 42,
@@ -456,6 +499,41 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         hitAt5: 42,
         failedRuns: 0,
         abortedRuns: 0,
+        revision: "586b87b50a99fe0d5023637df9c735bafb47d035",
+        codeRevision:
+          "sha256:f1cda350256c3ec48f87bf151c7284291ecf4467b2c1f9fa5c5062e5fea8b764",
+        harnessRevision:
+          "sha256:91a1a65cebb864d1368b624b9dac7e2ab4c32710357e52c4a9c25c6c705a7d97",
+      },
+    });
+  });
+
+  it("validates the current v14 comparison and explicit stale-index signal", async () => {
+    const csv = await readFile(V14_COMPARISON_CSV, "utf8");
+    const result = validateProductionPathComparisonCsv(csv);
+
+    expect(result).toMatchObject({
+      cases: 22,
+      before: {
+        rows: 44,
+        top1: 8,
+        retrievalTop1: 8,
+        hitAt5: 22,
+        failedRuns: 36,
+        abortedRuns: 0,
+        staleIndexMarked: 0,
+        revision: PRODUCTION_PATH_BASELINE_REVISION,
+        codeRevision: PRODUCTION_PATH_BASELINE_CODE_REVISION,
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+      after: {
+        rows: 44,
+        top1: 44,
+        retrievalTop1: 44,
+        hitAt5: 44,
+        failedRuns: 0,
+        abortedRuns: 0,
+        staleIndexMarked: 2,
         revision: PRODUCTION_PATH_CANDIDATE_REVISION,
         codeRevision: PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,

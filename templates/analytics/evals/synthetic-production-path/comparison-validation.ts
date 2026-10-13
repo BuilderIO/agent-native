@@ -1,4 +1,4 @@
-const CSV_COLUMNS = [
+const LEGACY_CSV_COLUMNS = [
   "case_id",
   "phase",
   "git_revision",
@@ -20,6 +20,7 @@ const CSV_COLUMNS = [
   "llm_calls",
   "latency_ms",
 ] as const;
+const CSV_COLUMNS = [...LEGACY_CSV_COLUMNS, "stale_index_marked"] as const;
 
 // Keep each immutable case set aligned with its production-path harness run.
 const V10_CASE_IDS = [
@@ -58,7 +59,12 @@ const V13_CASE_IDS = [
   "workspace-membership-prefers-row-grain",
 ] as const;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V13_CASE_IDS;
+const V14_CASE_IDS = [
+  ...V13_CASE_IDS,
+  "stale-generated-index-yields-to-current-source",
+] as const;
+
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V14_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -68,6 +74,7 @@ type PinnedEvaluation = {
   candidateCodeRevision: string;
   harnessRevision: string;
   caseIds: readonly string[];
+  staleIndexMarker?: boolean;
 };
 
 const PINNED_EVALUATIONS = [
@@ -118,6 +125,19 @@ const PINNED_EVALUATIONS = [
     harnessRevision:
       "sha256:91a1a65cebb864d1368b624b9dac7e2ab4c32710357e52c4a9c25c6c705a7d97",
     caseIds: V13_CASE_IDS,
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v14",
+    baselineRevision: "0fb4de3ed8bd4e317543575c9b188b93db392d26",
+    baselineCodeRevision:
+      "sha256:16768496b83db90ba30f74df6ea49f934c1ee11e6ba3fb8d1c7f65ee089e44ac",
+    candidateRevision: "ba53610515501c3f8657168c2c7346a713ac03df",
+    candidateCodeRevision:
+      "sha256:70424c4be93310ac67c21eaf3af6d68e10c18d87e495bce2653c5c40b409e07c",
+    harnessRevision:
+      "sha256:04428dd484b504b646a93e1b6b35151fcc344568c8c1cd7780fa498822df8a93",
+    caseIds: V14_CASE_IDS,
+    staleIndexMarker: true,
   },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
@@ -198,6 +218,7 @@ type ComparisonRow = {
   output_tokens: number;
   llm_calls: number;
   latency_ms: number;
+  stale_index_marked: boolean;
 };
 
 export type PhaseComparisonSummary = {
@@ -209,6 +230,7 @@ export type PhaseComparisonSummary = {
   hitAt5: number;
   failedRuns: number;
   abortedRuns: number;
+  staleIndexMarked: number;
   revision: string;
   codeRevision: string;
   harnessRevision: string;
@@ -239,7 +261,8 @@ function parseBoolean(value: string, field: string): boolean {
 
 function parseComparisonRows(csv: string): ComparisonRow[] {
   const lines = csv.trim().split(/\r?\n/);
-  if (lines[0] !== CSV_COLUMNS.join(",")) {
+  const hasStaleIndexMarker = lines[0] === CSV_COLUMNS.join(",");
+  if (!hasStaleIndexMarker && lines[0] !== LEGACY_CSV_COLUMNS.join(",")) {
     throw new Error(
       "Comparison CSV header does not match the privacy-safe schema.",
     );
@@ -250,11 +273,12 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
 
   return lines.slice(1).map((line) => {
     const values = line.split(",");
-    if (values.length !== CSV_COLUMNS.length) {
+    const columns = hasStaleIndexMarker ? CSV_COLUMNS : LEGACY_CSV_COLUMNS;
+    if (values.length !== columns.length) {
       throw new Error("Comparison CSV row has an unexpected field count.");
     }
     const row = Object.fromEntries(
-      CSV_COLUMNS.map((column, index) => [column, values[index] ?? ""]),
+      columns.map((column, index) => [column, values[index] ?? ""]),
     );
     const phase = row.phase;
     if (phase !== "before" && phase !== "after") {
@@ -298,6 +322,9 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
       output_tokens: parseInteger(row.output_tokens, "output_tokens"),
       llm_calls: parseInteger(row.llm_calls, "llm_calls"),
       latency_ms: parseInteger(row.latency_ms, "latency_ms"),
+      stale_index_marked: hasStaleIndexMarker
+        ? parseBoolean(row.stale_index_marked, "stale_index_marked")
+        : false,
     };
     if (
       parsed.failed_action_calls >
@@ -351,6 +378,7 @@ function summarizePhase(
     hitAt5: phaseRows.filter((row) => row.hit_at_5).length,
     failedRuns: phaseRows.filter((row) => row.score === 0).length,
     abortedRuns: phaseRows.filter((row) => row.aborted).length,
+    staleIndexMarked: phaseRows.filter((row) => row.stale_index_marked).length,
     revision,
     codeRevision,
     harnessRevision,
@@ -372,6 +400,13 @@ export function validateProductionPathComparisonCsv(
     : undefined;
   if (!pinnedEvaluation) {
     throw new Error("Comparison CSV fixture revision is not pinned.");
+  }
+  const hasStaleIndexMarker =
+    csv.trim().split(/\r?\n/, 1)[0] === CSV_COLUMNS.join(",");
+  if (Boolean(pinnedEvaluation.staleIndexMarker) !== hasStaleIndexMarker) {
+    throw new Error(
+      "Comparison CSV schema does not match its fixture revision.",
+    );
   }
   const pinnedCodeRevisions = CODE_REVISIONS_BY_FIXTURE.get(fixtureRevision);
   if (!pinnedCodeRevisions) {
@@ -398,6 +433,16 @@ export function validateProductionPathComparisonCsv(
     if (row.hit_at_5 !== expectedHitAt5) {
       throw new Error(
         "Comparison CSV hit_at_5 does not match its measured rank.",
+      );
+    }
+    if (
+      row.stale_index_marked &&
+      (!pinnedEvaluation.staleIndexMarker ||
+        row.phase !== "after" ||
+        row.case_id !== "stale-generated-index-yields-to-current-source")
+    ) {
+      throw new Error(
+        "Comparison CSV stale-index markers must match the pinned candidate case.",
       );
     }
     if (
@@ -539,6 +584,25 @@ export function validateProductionPathComparisonCsv(
           throw new Error("Comparison CSV before/after pairs do not align.");
         }
       }
+    }
+  }
+
+  if (pinnedEvaluation.staleIndexMarker) {
+    const staleCaseRows = rows.filter(
+      (row) => row.case_id === "stale-generated-index-yields-to-current-source",
+    );
+    if (
+      staleCaseRows
+        .filter((row) => row.phase === "before")
+        .some((row) => row.stale_index_marked) ||
+      staleCaseRows.filter((row) => row.phase === "after").length !== 2 ||
+      staleCaseRows
+        .filter((row) => row.phase === "after")
+        .some((row) => !row.stale_index_marked)
+    ) {
+      throw new Error(
+        "Comparison CSV must record stale-index marking only for both candidate runs.",
+      );
     }
   }
 
