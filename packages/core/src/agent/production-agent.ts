@@ -4948,6 +4948,15 @@ export function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
+function isApprovalPauseResult(result: string | undefined): boolean {
+  const normalized = result?.toLowerCase() ?? "";
+  return (
+    normalized.includes("did not execute") ||
+    normalized.includes("awaiting human approval") ||
+    normalized.includes("waiting for your approval")
+  );
+}
+
 export function findApprovedStructuredToolCall(
   history: AgentChatStructuredMessage[] | undefined,
   approvedToolCalls: readonly string[] | undefined,
@@ -4985,15 +4994,48 @@ export function findApprovedStructuredToolCall(
       if (!call || !approved.has(toolCallCacheKey(call.name, call.input))) {
         continue;
       }
-      const result = part.content.toLowerCase();
+      if (!isApprovalPauseResult(part.content)) continue;
+      match = { ...call, callId: part.toolCallId };
+    }
+  }
+
+  return match;
+}
+
+export function findApprovedToolResultLocation(
+  messages: EngineMessage[],
+  toolCall: { name: string; input: unknown; callId: string },
+): { messageIndex: number; contentIndex: number } | undefined {
+  let match: { messageIndex: number; contentIndex: number } | undefined;
+  const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
+
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const message = messages[messageIndex]!;
+    if (message.role !== "user") continue;
+    for (
+      let contentIndex = 0;
+      contentIndex < message.content.length;
+      contentIndex++
+    ) {
+      const part = message.content[contentIndex]!;
       if (
-        !result.includes("did not execute") &&
-        !result.includes("awaiting human approval") &&
-        !result.includes("waiting for your approval")
+        part.type !== "tool-result" ||
+        part.toolCallId !== toolCall.callId ||
+        part.toolName !== toolCall.name ||
+        !isApprovalPauseResult(part.content)
       ) {
         continue;
       }
-      match = { ...call, callId: part.toolCallId };
+      let resultInput: unknown;
+      try {
+        resultInput = JSON.parse(part.toolInput);
+      } catch {
+        continue;
+      }
+      if (toolCallCacheKey(toolCall.name, resultInput) !== approvalKey) {
+        continue;
+      }
+      match = { messageIndex, contentIndex };
     }
   }
 
@@ -5002,44 +5044,26 @@ export function findApprovedStructuredToolCall(
 
 export function replaceApprovedToolResult(
   messages: EngineMessage[],
-  toolCall: { name: string; callId: string },
+  location: { messageIndex: number; contentIndex: number },
   execution: Exclude<
     AgentToolCallExecutionResult,
     { status: "approval_required" }
   >,
 ): EngineMessage[] {
-  let replacementCount = 0;
-  const updatedMessages = messages.map((message): EngineMessage => {
-    if (message.role !== "user") return message;
-    return {
-      ...message,
-      content: message.content.map((part) => {
-        if (
-          part.type !== "tool-result" ||
-          part.toolCallId !== toolCall.callId
-        ) {
-          return part;
-        }
-        if (part.toolName !== toolCall.name) {
-          throw new Error(
-            `Approved tool result ${toolCall.callId} belongs to ${part.toolName}, not ${toolCall.name}`,
-          );
-        }
-        replacementCount += 1;
-        return {
-          ...part,
-          content: execution.output,
-          isError: execution.status === "failed",
-        };
-      }),
-    };
-  });
-
-  if (replacementCount !== 1) {
-    throw new Error(
-      `Expected one pending result for approved tool call ${toolCall.callId}, found ${replacementCount}`,
-    );
+  const message = messages[location.messageIndex];
+  const part =
+    message?.role === "user" ? message.content[location.contentIndex] : null;
+  if (part?.type !== "tool-result") {
+    throw new Error("Approved tool result location is no longer valid");
   }
+  const content = [...message.content];
+  content[location.contentIndex] = {
+    ...part,
+    content: execution.output,
+    isError: execution.status === "failed",
+  };
+  const updatedMessages = [...messages];
+  updatedMessages[location.messageIndex] = { ...message, content };
   return updatedMessages;
 }
 
@@ -13262,6 +13286,15 @@ export function createProductionAgentHandler(
             approvedToolCallsForExecution &&
             requestActions[exactApprovedToolCall.name]
           ) {
+            const approvedToolResultLocation = findApprovedToolResultLocation(
+              agentLoopOpts.messages,
+              exactApprovedToolCall,
+            );
+            if (!approvedToolResultLocation) {
+              throw new Error(
+                `Could not locate the pending result for approved tool call ${exactApprovedToolCall.callId}`,
+              );
+            }
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,
@@ -13288,7 +13321,7 @@ export function createProductionAgentHandler(
             if (execution.status === "approval_required") return;
             agentLoopOpts.messages = replaceApprovedToolResult(
               agentLoopOpts.messages,
-              exactApprovedToolCall,
+              approvedToolResultLocation,
               execution,
             );
             agentLoopOpts.approvedToolCalls = undefined;

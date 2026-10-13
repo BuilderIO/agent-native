@@ -4762,7 +4762,14 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("matches an id-less approval to the unique same-name call with matching input", async () => {
-    const approvalInput = { to: "second@example.test" };
+    const approvalInput = {
+      to: "second@example.test",
+      delivery: { attempts: 2, watchers: ["primary", { id: "backup" }] },
+    };
+    const otherInput = {
+      to: "first@example.test",
+      delivery: { attempts: 2, watchers: ["primary", { id: "other" }] },
+    };
     const approvalKey = `send-email:${JSON.stringify(approvalInput)}`;
     const fetchMock = vi
       .fn()
@@ -4772,7 +4779,7 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool_start",
             id: "call-1",
             tool: "send-email",
-            input: { to: "first@example.test" },
+            input: otherInput,
           },
           {
             type: "tool_start",
@@ -5033,6 +5040,77 @@ describe("createAgentNativeChatRuntime", () => {
           ],
         },
       },
+    );
+  });
+
+  it("does not replay stale approval metadata for a completed empty-result call", async () => {
+    const approvalInput = { release: "1.2.3" };
+    const approvalKey = 'publish-release:{"release":"1.2.3"}';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-empty-result",
+            tool: "publish-release",
+            input: approvalInput,
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey,
+            input: approvalInput,
+            toolCallId: "call-empty-result",
+          },
+          {
+            type: "tool_done",
+            id: "call-empty-result",
+            tool: "publish-release",
+            result: "",
+            completedSideEffect: true,
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-stale-empty-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-stale-empty-approval",
+      threadId: "thread-stale-empty-approval",
+    });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalKey, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const history = request.structuredHistory as Array<{
+      content: Array<{ type: string; content?: string; toolCallId?: string }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-empty-result",
+        content: "",
+      }),
+    );
+    expect(parts).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-empty-result",
+        content: expect.stringContaining("did NOT execute"),
+      }),
     );
   });
 

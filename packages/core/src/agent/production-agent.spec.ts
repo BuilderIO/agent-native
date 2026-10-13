@@ -122,6 +122,7 @@ import {
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
+  findApprovedToolResultLocation,
   replaceApprovedToolResult,
   hydrateStructuredHistoryImageReferences,
   trimOldToolResults,
@@ -2404,16 +2405,63 @@ describe("buildUserContentWithAttachments", () => {
     });
   });
 
-  it("replaces only the approved call's pending tool result with execution output", () => {
+  it("replaces the latest matching pending result when history reuses a call id", () => {
+    const input = { release: "1.2.3" };
     const messages: EngineMessage[] = [
       {
         role: "assistant",
         content: [
           {
             type: "tool-call",
-            id: "call-approved",
+            id: "tc_1",
             name: "publish-release",
-            input: { release: "1.2.3" },
+            input: { release: "0.9.0" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tc_1",
+            toolName: "publish-release",
+            toolInput: '{"release":"0.9.0"}',
+            content: "",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc_1",
+            name: "publish-release",
+            input: { release: "1.0.0" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tc_1",
+            toolName: "publish-release",
+            toolInput: '{"release":"1.0.0"}',
+            content: "Awaiting human approval. This action did NOT execute.",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc_1",
+            name: "publish-release",
+            input,
           },
           {
             type: "tool-call",
@@ -2428,7 +2476,7 @@ describe("buildUserContentWithAttachments", () => {
         content: [
           {
             type: "tool-result",
-            toolCallId: "call-approved",
+            toolCallId: "tc_1",
             toolName: "publish-release",
             toolInput: '{"release":"1.2.3"}',
             content: "Awaiting human approval. This action did NOT execute.",
@@ -2444,29 +2492,34 @@ describe("buildUserContentWithAttachments", () => {
       },
     ];
 
+    const location = findApprovedToolResultLocation(messages, {
+      name: "publish-release",
+      input,
+      callId: "tc_1",
+    });
+    expect(location).toEqual({ messageIndex: 5, contentIndex: 0 });
+    if (!location) throw new Error("Expected approved tool result location");
+
+    const updated = replaceApprovedToolResult(messages, location, {
+      status: "completed",
+      output: "Release accepted",
+    });
     expect(
-      replaceApprovedToolResult(
-        messages,
-        { name: "publish-release", callId: "call-approved" },
-        { status: "completed", output: "Release accepted" },
-      ),
-    ).toEqual([
-      messages[0],
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "call-approved",
-            toolName: "publish-release",
-            toolInput: '{"release":"1.2.3"}',
-            content: "Release accepted",
-            isError: false,
-          },
-          messages[1]!.content[1],
-        ],
-      },
-    ]);
+      updated[5]?.role === "user" ? updated[5].content[0] : undefined,
+    ).toMatchObject({
+      type: "tool-result",
+      toolCallId: "tc_1",
+      toolName: "publish-release",
+      content: "Release accepted",
+      isError: false,
+    });
+    expect(updated[3]).toEqual(messages[3]);
+    expect(updated[1]).toEqual(messages[1]);
+    expect(
+      updated[5]?.role === "user" ? updated[5].content[1] : undefined,
+    ).toEqual(
+      messages[5]?.role === "user" ? messages[5].content[1] : undefined,
+    );
   });
 
   it("appends a text note when a sibling tool-result is orphaned", () => {

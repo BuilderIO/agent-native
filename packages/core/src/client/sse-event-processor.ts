@@ -570,20 +570,48 @@ function findPendingToolCallIndexById(
   return -1;
 }
 
-function toolInputsMatch(
-  callInput: Record<string, string>,
-  approvalInput: Record<string, string> | undefined,
-): boolean {
-  if (!approvalInput) return false;
-  const callKeys = Object.keys(callInput);
-  const approvalKeys = Object.keys(approvalInput);
+function toolInputValuesMatch(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => toolInputValuesMatch(value, right[index]))
+    );
+  }
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
   return (
-    callKeys.length === approvalKeys.length &&
-    callKeys.every(
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
       (key) =>
-        Object.hasOwn(approvalInput, key) &&
-        callInput[key] === approvalInput[key],
+        Object.hasOwn(right, key) &&
+        toolInputValuesMatch(
+          (left as Record<string, unknown>)[key],
+          (right as Record<string, unknown>)[key],
+        ),
     )
+  );
+}
+
+function toolInputsMatch(callInput: unknown, approvalInput: unknown): boolean {
+  return (
+    callInput !== null &&
+    approvalInput !== null &&
+    typeof callInput === "object" &&
+    typeof approvalInput === "object" &&
+    !Array.isArray(callInput) &&
+    !Array.isArray(approvalInput) &&
+    toolInputValuesMatch(callInput, approvalInput)
   );
 }
 
@@ -607,7 +635,7 @@ export function findApprovalToolCallIndex(
   content: readonly ContentPart[],
   toolName: string,
   toolCallId?: string,
-  approvalInput?: Record<string, string>,
+  approvalInput?: unknown,
 ): number {
   if (!toolCallId) {
     if (!approvalInput) return -1;
@@ -715,6 +743,15 @@ function findCompletedToolCallIndex(
     }
   }
   return -1;
+}
+
+function isApprovalPauseResult(result: string | undefined): boolean {
+  const normalized = result?.toLowerCase() ?? "";
+  return (
+    normalized.includes("did not execute") ||
+    normalized.includes("awaiting human approval") ||
+    normalized.includes("waiting for your approval")
+  );
 }
 
 function appendActivityTrail(
@@ -1948,8 +1985,19 @@ export function processEvent(
     // so a tool_done frame with an undefined tool name still matches its
     // pending tool-call entry instead of leaving it forever unresolved.
     const doneTool = ev.tool ?? "unknown";
-    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
-      return { action: "continue" };
+    const completedIndex = findCompletedToolCallIndex(content, ev.id);
+    let approvedResumeIndex = -1;
+    if (completedIndex >= 0) {
+      const completedPart = content[completedIndex];
+      if (
+        completedPart?.type === "tool-call" &&
+        isApprovalPauseResult(completedPart.result) &&
+        !isApprovalPauseResult(ev.result)
+      ) {
+        approvedResumeIndex = completedIndex;
+      } else {
+        return { action: "continue" };
+      }
     }
     emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
@@ -1972,11 +2020,17 @@ export function processEvent(
     dispatchActivityClear(tabId);
     // Use id-based lookup when available so parallel same-name tool calls
     // get their results correctly assigned; fall back to name-matching.
-    const doneIdx = findPendingToolCallIndex(content, doneTool, ev.id);
+    const doneIdx =
+      approvedResumeIndex >= 0
+        ? approvedResumeIndex
+        : findPendingToolCallIndex(content, doneTool, ev.id);
     if (doneIdx >= 0) {
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
+        if (!isApprovalPauseResult(part.result)) {
+          delete part.approval;
+        }
         if (ev.isError !== undefined) part.isError = ev.isError;
         if (ev.completedSideEffect !== undefined) {
           part.completedSideEffect = ev.completedSideEffect;

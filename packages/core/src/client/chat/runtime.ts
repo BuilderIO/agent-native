@@ -3363,6 +3363,26 @@ interface BoundedPendingApprovalRuntimeMessages {
   toolHistoryOmitted: boolean;
 }
 
+function isApprovalPauseResult(result: string | undefined): boolean {
+  const normalized = result?.toLowerCase() ?? "";
+  return (
+    normalized.includes("did not execute") ||
+    normalized.includes("awaiting human approval") ||
+    normalized.includes("waiting for your approval")
+  );
+}
+
+function isPendingApprovedToolCall(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+  approvedToolCallSet: ReadonlySet<string>,
+): boolean {
+  return (
+    part.approval !== undefined &&
+    approvedToolCallSet.has(part.approval.approvalKey) &&
+    (part.result === undefined || isApprovalPauseResult(part.result))
+  );
+}
+
 function pendingApprovalRuntimeMessages(
   state: AgentNativeMessageProjectionState,
   approvedToolCalls: readonly string[],
@@ -3372,8 +3392,7 @@ function pendingApprovalRuntimeMessages(
   const approvedCallCount = state.message.content.filter(
     (part) =>
       part.type === "tool-call" &&
-      part.approval !== undefined &&
-      approvedToolCallSet.has(part.approval.approvalKey),
+      isPendingApprovedToolCall(part, approvedToolCallSet),
   ).length;
   const reservedApprovalCallCount = Math.min(
     approvedCallCount,
@@ -3409,8 +3428,8 @@ function pendingApprovalRuntimeMessages(
     }
     if (part.type !== "tool-call") continue;
     const isApprovedPendingCall =
-      part.approval !== undefined &&
-      approvedToolCallSet.has(part.approval.approvalKey);
+      part.type === "tool-call" &&
+      isPendingApprovedToolCall(part, approvedToolCallSet);
     if (part.result === undefined && !isApprovedPendingCall) continue;
     if (isApprovedPendingCall) {
       if (selectedApprovalCallCount >= MAX_TOOL_HISTORY_CALLS) {
@@ -3805,7 +3824,11 @@ function mapAgentNativeEvent(
       (storedToolCall?.type === "tool-call" ? storedToolCall.toolCallId : "");
     const structuredMeta = agentNativeStructuredMeta(ev);
     if (storedToolCall?.type === "tool-call") {
-      storedToolCall.result = agentNativeToolResultText(ev.result);
+      const resultText = agentNativeToolResultText(ev.result);
+      storedToolCall.result = resultText;
+      if (!isApprovalPauseResult(resultText)) {
+        delete storedToolCall.approval;
+      }
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);
       storedToolCall.completedSideEffect = ev.completedSideEffect === true;
       if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
