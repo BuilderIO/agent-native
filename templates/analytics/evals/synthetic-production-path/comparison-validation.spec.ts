@@ -166,7 +166,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     expect(result).toMatchObject({
       cases: 11,
-      before: { rows: 22, top1: 4, hitAt5: 12 },
+      before: { rows: 22, top1: 6, hitAt5: 14 },
       after: { rows: 22, top1: 22, hitAt5: 22 },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
