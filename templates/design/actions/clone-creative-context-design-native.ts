@@ -77,6 +77,7 @@ export default defineAction({
     const created = await createDesign.run({
       title: args.title?.trim() || "Context design",
       projectType: "prototype",
+      creationMethod: "template",
     });
     const saved = await saveImportedDesignFiles({
       designId: created.id,

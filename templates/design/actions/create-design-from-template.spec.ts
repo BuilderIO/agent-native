@@ -11,9 +11,11 @@ const testState = vi.hoisted(() => ({
   targetDesignFiles: [] as Array<Record<string, unknown>>,
   targetDesignRows: [] as Array<Record<string, unknown>>,
   transactionCount: 0,
+  insertError: null as unknown,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => "owner@example.com",
   getRequestOrgId: () => "org-1",
 }));
@@ -98,6 +100,7 @@ vi.mock("../server/db/index.js", () => {
           insert: (table) => ({
             values: async (values) => {
               if (table.table === "designs") {
+                if (testState.insertError) throw testState.insertError;
                 testState.insertedDesign = values as Record<string, unknown>;
               } else {
                 testState.insertedFiles = values as Array<
@@ -120,6 +123,9 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import action from "./create-design-from-template.js";
 
@@ -134,6 +140,8 @@ describe("create-design-from-template", () => {
     testState.targetDesignFiles = [];
     testState.targetDesignRows = [];
     testState.transactionCount = 0;
+    testState.insertError = null;
+    track.mockReset();
     testState.assertAccess.mockResolvedValue(undefined);
     testState.resolveAccess.mockImplementation(
       async (type: string, id: string) => {
@@ -507,5 +515,66 @@ describe("create-design-from-template", () => {
       title: "Saved campaign",
     });
     expect(retryKey.length).toBeLessThanOrEqual(128);
+  });
+  describe("design_created", () => {
+    const createdEvents = () =>
+      track.mock.calls.filter(([name]) => name === "design_created");
+
+    it("fires once for a new design copied from a template", async () => {
+      const result = await action.run({ templateId: "saved-template" }, {
+        caller: "frontend",
+        actionName: "create-design-from-template",
+      } as never);
+
+      expect(createdEvents()).toHaveLength(1);
+      expect(createdEvents()[0]![1]).toMatchObject({
+        output_id: result.id,
+        output_type: "design",
+        creation_method: "template",
+        project_type: "prototype",
+        template_id: "saved-template",
+        design_system_id: "linked-system",
+      });
+    });
+
+    it("does not fire when it fills a design that already exists", async () => {
+      await action.run({
+        templateId: "saved-template",
+        targetDesignId: "existing-design",
+      } as never);
+
+      expect(createdEvents()).toHaveLength(0);
+    });
+
+    it("does not fire when the insert fails", async () => {
+      testState.insertError = new Error("insert failed");
+
+      await expect(
+        action.run({ templateId: "saved-template" }),
+      ).rejects.toThrow("insert failed");
+      expect(createdEvents()).toHaveLength(0);
+    });
+
+    it("does not fire again when a retry returns the design an earlier call created", async () => {
+      testState.insertError = Object.assign(new Error("duplicate key"), {
+        code: "23505",
+      });
+
+      await expect(
+        action.run({ templateId: "saved-template", newId: "retry-id" }),
+      ).rejects.toThrow(/cannot be reused/i);
+      expect(createdEvents()).toHaveLength(0);
+    });
+
+    it("returns the new design when tracking throws", async () => {
+      track.mockImplementation(() => {
+        throw new Error("analytics down");
+      });
+
+      const result = await action.run({ templateId: "saved-template" });
+
+      expect(result.id).toBe("copied-design");
+      expect(track).toHaveBeenCalledTimes(1);
+    });
   });
 });

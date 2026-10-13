@@ -96,6 +96,7 @@ export function HomeImportButton() {
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
         projectType: "prototype",
         designSystemId: null,
+        creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
       setPendingDesignImport(result.id, { kind: "file", file });

@@ -12,6 +12,7 @@ export type DesignCreationMethod =
   | "import_document"
   | "import_code"
   | "import_project"
+  | "import_analytics"
   | "agent";
 
 export type DesignGenerationPath = "generate_design" | "variants" | "screens";
