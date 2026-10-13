@@ -1,6 +1,6 @@
 import type { OutsideSnapshot } from "./lib/in-page.ts";
 import { outsideChangesFor } from "./lib/metrics.ts";
-import { rethrowIfHarnessUnavailable } from "./run-outcomes.ts";
+import { CouldNotRun, getHarnessUnavailableError } from "./run-outcomes.ts";
 
 export const AUTHORING_FUZZ_STYLE_PROPERTIES = [
   "font-family",
@@ -318,6 +318,38 @@ export function isPostNavigationBrowserSessionTraffic(
   );
 }
 
+export function isCompetingRetiredBrowserSessionTraffic(candidate: {
+  pathname: string;
+  requestStartedDuringNavigation: boolean;
+  requestStartedAfterNavigation: boolean;
+  requestSourceIsMainFrame: boolean;
+  requestFrameUrl: string | null;
+  outgoingDocumentUrl: string | null;
+  requestSessionId: string | null;
+  retiredSessionId: string | null;
+}) {
+  if (
+    !isPostNavigationBrowserSessionTraffic(
+      candidate.pathname,
+      candidate.requestStartedDuringNavigation,
+      candidate.requestStartedAfterNavigation,
+    )
+  ) {
+    return false;
+  }
+
+  const isOutgoingRetiredSessionRequest =
+    candidate.requestStartedDuringNavigation &&
+    candidate.requestSourceIsMainFrame &&
+    candidate.requestSessionId !== null &&
+    candidate.requestSessionId === candidate.retiredSessionId &&
+    normalizeDocumentUrl(candidate.requestFrameUrl) !== null &&
+    normalizeDocumentUrl(candidate.requestFrameUrl) ===
+      normalizeDocumentUrl(candidate.outgoingDocumentUrl);
+
+  return !isOutgoingRetiredSessionRequest;
+}
+
 type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
@@ -488,11 +520,61 @@ type OutgoingBrowserSessionNavigationAbort = {
   competingSameTypeRequest: boolean;
 };
 
+type DeferredOutgoingBrowserSessionAbort = {
+  failureAt: number | null;
+  failureText: string | null;
+  outgoingNavigationAbort: boolean;
+  pendingOutgoingAbort: boolean;
+};
+
+export function finalizeDeferredOutgoingBrowserSessionAbort(
+  candidate: DeferredOutgoingBrowserSessionAbort,
+  isExpected: (failureAt: number, failureText: string) => boolean,
+) {
+  if (
+    !candidate.pendingOutgoingAbort ||
+    candidate.failureAt === null ||
+    candidate.failureText === null
+  ) {
+    return "not-pending" as const;
+  }
+
+  candidate.pendingOutgoingAbort = false;
+  candidate.outgoingNavigationAbort = isExpected(
+    candidate.failureAt,
+    candidate.failureText,
+  );
+  return candidate.outgoingNavigationAbort
+    ? ("expected" as const)
+    : ("unexpected" as const);
+}
+
 function normalizeDocumentUrl(value: string | null) {
   if (!value || !URL.canParse(value)) return null;
   const url = new URL(value);
   url.hash = "";
   return url.href;
+}
+
+export function isCompetingOutgoingBrowserSessionRequest(
+  requestKind: "poll" | "heartbeat" | null,
+  outgoingDocumentUrl: string | null,
+  candidate: {
+    outgoingRequestKind: "poll" | "heartbeat" | null;
+    requestSourceIsMainFrame: boolean;
+    requestFrameUrl: string | null;
+    finishedSuccessfully: boolean;
+  },
+) {
+  return (
+    requestKind !== null &&
+    candidate.outgoingRequestKind === requestKind &&
+    candidate.requestSourceIsMainFrame &&
+    !candidate.finishedSuccessfully &&
+    normalizeDocumentUrl(candidate.requestFrameUrl) !== null &&
+    normalizeDocumentUrl(candidate.requestFrameUrl) ===
+      normalizeDocumentUrl(outgoingDocumentUrl)
+  );
 }
 
 export function isExpectedOutgoingBrowserSessionNavigationAbort(
@@ -1807,13 +1889,19 @@ export async function runAuthoringFuzz(
       },
     );
   };
-  const hasPostNavigationBrowserSessionTraffic = () =>
+  const hasCompetingNewBrowserSessionTraffic = () =>
     [...reloadNavigationRequests.entries()].some(([request, candidate]) =>
-      isPostNavigationBrowserSessionTraffic(
-        new URL(request.url()).pathname,
-        candidate.requestStartedDuringNavigation,
-        candidate.requestStartedAfterNavigation,
-      ),
+      isCompetingRetiredBrowserSessionTraffic({
+        pathname: new URL(request.url()).pathname,
+        requestStartedDuringNavigation:
+          candidate.requestStartedDuringNavigation,
+        requestStartedAfterNavigation: candidate.requestStartedAfterNavigation,
+        requestSourceIsMainFrame: candidate.requestSourceIsMainFrame,
+        requestFrameUrl: candidate.requestFrameUrl,
+        outgoingDocumentUrl: candidate.outgoingDocumentUrl,
+        requestSessionId: candidate.requestSessionId,
+        retiredSessionId: candidate.retiredSessionId,
+      }),
     );
   const hasCompetingOutgoingSessionRequest = (request: any) => {
     const requestUrl = new URL(request.url());
@@ -1824,19 +1912,13 @@ export async function runAuthoringFuzz(
     return (
       requestKind !== null &&
       [...reloadNavigationRequests.entries()].some(
-        ([otherRequest, otherCandidate]) => {
-          const otherUrl = new URL(otherRequest.url());
-          return (
-            otherRequest !== request &&
-            browserSessionNavigationRequestKind(
-              otherRequest.method(),
-              otherUrl.pathname,
-            ) === requestKind &&
-            otherCandidate.requestSourceIsMainFrame &&
-            normalizeDocumentUrl(otherCandidate.requestFrameUrl) ===
-              normalizeDocumentUrl(outgoingDocumentUrlAtReload)
-          );
-        },
+        ([otherRequest, otherCandidate]) =>
+          otherRequest !== request &&
+          isCompetingOutgoingBrowserSessionRequest(
+            requestKind,
+            outgoingDocumentUrlAtReload,
+            otherCandidate,
+          ),
       )
     );
   };
@@ -1869,30 +1951,22 @@ export async function runAuthoringFuzz(
     competingSameTypeRequest: hasCompetingOutgoingSessionRequest(request),
   });
   const finalizePendingOutgoingAborts = () => {
+    const errors: string[] = [];
     for (const [request, candidate] of reloadNavigationRequests.entries()) {
-      if (
-        !candidate.pendingOutgoingAbort ||
-        candidate.failureAt === null ||
-        candidate.failureText === null
-      ) {
-        continue;
-      }
-      candidate.pendingOutgoingAbort = false;
-      candidate.outgoingNavigationAbort =
-        isExpectedOutgoingBrowserSessionNavigationAbort(
-          outgoingAbortFacts(
-            request,
-            candidate,
-            candidate.failureAt,
-            candidate.failureText,
+      const outcome = finalizeDeferredOutgoingBrowserSessionAbort(
+        candidate,
+        (failureAt, failureText) =>
+          isExpectedOutgoingBrowserSessionNavigationAbort(
+            outgoingAbortFacts(request, candidate, failureAt, failureText),
           ),
-        );
-      if (candidate.outgoingNavigationAbort) continue;
-      reloadNavigationRequests.delete(request);
-      pageErrors.push(
-        `watched request failed: ${request.method()} ${request.url()} (${candidate.failureText})`,
       );
+      if (outcome !== "unexpected") continue;
+      reloadNavigationRequests.delete(request);
+      const error = `watched request failed: ${request.method()} ${request.url()} (${candidate.failureText})`;
+      pageErrors.push(error);
+      errors.push(error);
     }
+    return errors;
   };
   const scheduleOutgoingAbortFinalization = () => {
     const timer = setTimeout(() => {
@@ -2011,6 +2085,8 @@ export async function runAuthoringFuzz(
     const consoleText = message.text();
     const consolePhase = activePhase;
     const now = Date.now();
+    const consoleSessionId = currentBrowserSessionId;
+    const competingSessionTraffic = hasCompetingNewBrowserSessionTraffic();
     // Captured now, not when the log runs: Firefox normalization finishes
     // asynchronously, after reload state may have been reset. Offsets use the
     // latest reload start, which is never reset (negative = started before it).
@@ -2040,8 +2116,8 @@ export async function runAuthoringFuzz(
           text,
           consolePhase,
           now,
-          currentBrowserSessionId,
-          hasPostNavigationBrowserSessionTraffic(),
+          consoleSessionId,
+          competingSessionTraffic,
         );
       pageErrors.push(...retiredSessionPollResult.errors);
       if (retiredSessionPollResult.matched) {
@@ -2086,7 +2162,7 @@ export async function runAuthoringFuzz(
         pageErrorText,
         activePhase,
         now,
-        hasPostNavigationBrowserSessionTraffic(),
+        hasCompetingNewBrowserSessionTraffic(),
       );
     pageErrors.push(...retiredSessionPageErrorResult.errors);
     if (retiredSessionPageErrorResult.matched) {
@@ -6374,7 +6450,15 @@ export async function runAuthoringFuzz(
       redoSteps: redoCount,
     };
   } catch (error) {
-    rethrowIfHarnessUnavailable(error);
+    const deferredOutgoingAbortErrors = finalizePendingOutgoingAborts();
+    clearOutgoingAbortTimers();
+    const unavailableError = getHarnessUnavailableError(error);
+    if (unavailableError) {
+      if (!deferredOutgoingAbortErrors.length) throw unavailableError;
+      throw new CouldNotRun(
+        `${unavailableError.message}\ndeferred outgoing request failure(s): ${deferredOutgoingAbortErrors.join("; ")}`,
+      );
+    }
     const prefix = replay();
     let diagnostics:
       | { status: "available"; value: Record<string, unknown> }
@@ -6494,18 +6578,36 @@ export async function runAuthoringFuzz(
       seed,
       activePhase,
       prefix,
-      `${String(error)}\ndiagnostics: ${JSON.stringify(diagnostics)}`,
+      [
+        String(error),
+        ...(deferredOutgoingAbortErrors.length
+          ? [
+              `deferred outgoing request failure(s): ${deferredOutgoingAbortErrors.join("; ")}`,
+            ]
+          : []),
+        `diagnostics: ${JSON.stringify(diagnostics)}`,
+      ].join("\n"),
       options.browser,
     );
   } finally {
     if (traceWatchdog) clearInterval(traceWatchdog);
-    clearOutgoingAbortTimers();
-    page.off("console", onConsole);
-    page.off("pageerror", onPageError);
-    page.off("response", onResponse);
-    page.off("request", onRequest);
-    page.off("requestfinished", onRequestSettled);
-    page.off("requestfailed", onRequestFailed);
-    page.off("framenavigated", onFrameNavigated);
+    let deferredOutgoingAbortErrors: string[] = [];
+    try {
+      deferredOutgoingAbortErrors = finalizePendingOutgoingAborts();
+    } finally {
+      clearOutgoingAbortTimers();
+      page.off("console", onConsole);
+      page.off("pageerror", onPageError);
+      page.off("response", onResponse);
+      page.off("request", onRequest);
+      page.off("requestfinished", onRequestSettled);
+      page.off("requestfailed", onRequestFailed);
+      page.off("framenavigated", onFrameNavigated);
+    }
+    if (deferredOutgoingAbortErrors.length) {
+      throw new Error(
+        `deferred outgoing request failure(s): ${deferredOutgoingAbortErrors.join("; ")}`,
+      );
+    }
   }
 }

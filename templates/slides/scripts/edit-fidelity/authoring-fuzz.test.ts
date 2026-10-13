@@ -23,8 +23,11 @@ import {
   resolveAuthoringFuzzScratchDeck,
   retryAuthoringFuzzScratchDeckLookup,
   formatAuthoringFuzzFailure,
+  finalizeDeferredOutgoingBrowserSessionAbort,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
+  isCompetingOutgoingBrowserSessionRequest,
+  isCompetingRetiredBrowserSessionTraffic,
   isPostNavigationBrowserSessionTraffic,
   isCaretScrollOnlyChange,
   isExpectedCleanupBrowserSessionHeartbeatConsoleError,
@@ -2170,6 +2173,102 @@ it("recognizes claim and registration traffic that starts after navigation", () 
       false,
     ),
   ).toBe(false);
+});
+
+it("distinguishes outgoing retired-session traffic from a competing new session", () => {
+  const outgoingRequest = {
+    pathname: "/_agent-native/browser-sessions/retired-session/requests/claim",
+    requestStartedDuringNavigation: true,
+    requestStartedAfterNavigation: false,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost:34123/deck/slide-1#editing",
+    outgoingDocumentUrl: "http://localhost:34123/deck/slide-1",
+    requestSessionId: "retired-session",
+    retiredSessionId: "retired-session",
+  };
+
+  expect(isCompetingRetiredBrowserSessionTraffic(outgoingRequest)).toBe(false);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      pathname: "/_agent-native/browser-sessions/new-session/requests/claim",
+      requestSessionId: "new-session",
+    }),
+  ).toBe(true);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      requestSessionId: null,
+    }),
+  ).toBe(true);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      requestStartedDuringNavigation: false,
+      requestStartedAfterNavigation: true,
+    }),
+  ).toBe(true);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      requestSourceIsMainFrame: false,
+    }),
+  ).toBe(true);
+});
+
+it("does not let a completed same-kind request block abort correlation", () => {
+  const request = {
+    outgoingRequestKind: "poll" as const,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost:34123/deck/slide-1#editing",
+    finishedSuccessfully: false,
+  };
+  const outgoingDocumentUrl = "http://localhost:34123/deck/slide-1";
+
+  expect(
+    isCompetingOutgoingBrowserSessionRequest(
+      "poll",
+      outgoingDocumentUrl,
+      request,
+    ),
+  ).toBe(true);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      finishedSuccessfully: true,
+    }),
+  ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest(
+      "heartbeat",
+      outgoingDocumentUrl,
+      request,
+    ),
+  ).toBe(false);
+});
+
+it("finalizes a deferred outgoing request before cleanup can discard it", () => {
+  const candidate = {
+    failureAt: 120,
+    failureText: "NS_BINDING_ABORTED",
+    outgoingNavigationAbort: false,
+    pendingOutgoingAbort: true,
+  };
+
+  expect(
+    finalizeDeferredOutgoingBrowserSessionAbort(candidate, (at, errorText) => {
+      expect(at).toBe(120);
+      expect(errorText).toBe("NS_BINDING_ABORTED");
+      return false;
+    }),
+  ).toBe("unexpected");
+  expect(candidate).toMatchObject({
+    outgoingNavigationAbort: false,
+    pendingOutgoingAbort: false,
+  });
+  expect(
+    finalizeDeferredOutgoingBrowserSessionAbort(candidate, () => false),
+  ).toBe("not-pending");
 });
 
 it("pairs retired-session reload errors in either event order and retains late errors", () => {
