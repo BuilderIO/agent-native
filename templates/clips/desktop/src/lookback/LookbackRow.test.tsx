@@ -127,6 +127,8 @@ describe("LookbackRow with Rewind off", () => {
   it("opens the explanation popover instead of the dropdown", () => {
     const handlers = render({ seconds: 30, rewindOn: false });
 
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
+
     act(() => trigger().click());
 
     expect(menuItemTexts()).toEqual([]);
@@ -134,10 +136,32 @@ describe("LookbackRow with Rewind off", () => {
     expect(document.body.textContent).toContain(
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
     );
+    expect(
+      document
+        .querySelector(".rewind-off-popover-reveal")
+        ?.getAttribute("data-state"),
+    ).toBe("open");
+    expect(buttonWithText("What is this?")?.className).toContain("w-full");
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "justify-center",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-offset-0",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-offset-0",
+    );
 
     const turnOn = buttonWithText("Turn on Rewind");
     expect(turnOn).toBeDefined();
     act(() => turnOn?.click());
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
     expect(handlers.onTurnOnRewind).toHaveBeenCalledTimes(1);
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
   });

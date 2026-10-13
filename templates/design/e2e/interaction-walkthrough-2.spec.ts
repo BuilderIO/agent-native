@@ -13,6 +13,8 @@ import {
   elementInner,
   expandAllLayers,
   gotoEditor,
+  selectTool,
+  type ToolbarTool,
 } from "./helpers";
 
 function nodeIdForText(html: string, text: string, occurrence = 0): string {
@@ -209,13 +211,11 @@ async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
 
 async function drawWithTool(
   page: Page,
-  toolLabel: string,
+  toolLabel: ToolbarTool,
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
-  await page
-    .locator(`[data-design-bottom-toolbar] button[aria-label="${toolLabel}"]`)
-    .click();
+  await selectTool(page, toolLabel);
   await page.waitForTimeout(300);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -227,7 +227,7 @@ async function drawBoardShapeAndWaitStable(
   page: Page,
   request: APIRequestContext,
   designId: string,
-  toolLabel: string,
+  toolLabel: ToolbarTool,
   size = 120,
   attempts = 3,
 ): Promise<string> {
@@ -307,7 +307,7 @@ async function typeCanvasTextOnce(
   const textToolButton = page.locator(
     '[data-design-bottom-toolbar] button[aria-label="Text"]',
   );
-  await textToolButton.click();
+  await selectTool(page, "Text");
   await expect(textToolButton).toHaveAttribute("aria-pressed", "true");
   await page.mouse.click(pageX, pageY);
   await page.waitForFunction(

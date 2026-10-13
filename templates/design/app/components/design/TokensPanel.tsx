@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { parseCssColorExtended } from "@shared/color-utils";
 import {
   DESIGN_TOKEN_GROUPS,
   groupDesignTokens,
@@ -47,6 +48,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import { TokenColorPicker } from "./TokenColorPicker";
 
 interface IndexDesignTokensResult {
   designId: string;
@@ -111,18 +114,31 @@ function groupLabel(group: DesignTokenGroupName): {
 function TokenLeadingVisual({
   type,
   value,
+  name,
+  onColorCommit,
 }: {
   type: DesignTokenType;
   value: string;
+  /** Given for saved tokens: their swatch opens a color picker. */
+  name?: string;
+  onColorCommit?: (value: string) => Promise<void>;
 }) {
   if (type === "color" && isColorValue(value)) {
     return (
       <span className="flex size-4 shrink-0 items-center justify-center">
-        <span
-          className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
-          style={{ backgroundColor: value }}
-          aria-hidden
-        />
+        {name && onColorCommit && parseCssColorExtended(value) ? (
+          <TokenColorPicker
+            name={name}
+            value={value}
+            onCommit={onColorCommit}
+          />
+        ) : (
+          <span
+            className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
+            style={{ backgroundColor: value }}
+            aria-hidden
+          />
+        )}
       </span>
     );
   }
@@ -138,6 +154,7 @@ interface TokenRowProps {
   onCommit: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
+  onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenRow({
@@ -148,6 +165,7 @@ function TokenRow({
   onCommit,
   onStartEdit,
   onCancelEdit,
+  onColorCommit,
 }: TokenRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -166,7 +184,12 @@ function TokenRow({
       )}
     >
       <span className="size-4 shrink-0" aria-hidden />
-      <TokenLeadingVisual type={token.type} value={token.value} />
+      <TokenLeadingVisual
+        type={token.type}
+        value={token.value}
+        name={token.name}
+        onColorCommit={(value) => onColorCommit(token.cssVar, value)}
+      />
       <button
         type="button"
         className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left !text-[11px] leading-4 tracking-[0.055px] text-foreground"
@@ -213,6 +236,7 @@ interface TokenGroupSectionProps {
   onCommit: () => void;
   onCancelEdit: () => void;
   draftRow?: React.ReactNode;
+  onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenGroupSection({
@@ -224,6 +248,7 @@ function TokenGroupSection({
   onCommit,
   onCancelEdit,
   draftRow,
+  onColorCommit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { label } = groupLabel(section.group);
@@ -262,6 +287,7 @@ function TokenGroupSection({
                 onCommit={onCommit}
                 onStartEdit={() => onStartEdit(token.cssVar, token.value)}
                 onCancelEdit={onCancelEdit}
+                onColorCommit={onColorCommit}
               />
             ))}
         </div>
@@ -650,6 +676,19 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     );
   };
 
+  const commitTokenColor = async (cssVar: string, value: string) => {
+    const requestDesignId = designId;
+    const result = (await applyMutation.mutateAsync({
+      designId,
+      edits: [{ cssVar, value }],
+    })) as { resolvedCssVars?: Record<string, string> };
+    if (designIdRef.current !== requestDesignId) return;
+    await refetch();
+    if (result?.resolvedCssVars && onTokensApplied) {
+      onTokensApplied(result.resolvedCssVars);
+    }
+  };
+
   const commitEdit = () => {
     if (!editingKey || !editDraft.trim()) {
       cancelEdit();
@@ -859,6 +898,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
                     />
                   ) : undefined
                 }
+                onColorCommit={commitTokenColor}
               />
             ))}
           </div>

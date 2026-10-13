@@ -465,7 +465,6 @@ test("committing an inspector width value then one undo restores the exact previ
   const id = await newDesign(page);
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 
   const wField = page.getByLabel("W size in pixels");
   await expect(wField).toBeVisible({ timeout: 10_000 });

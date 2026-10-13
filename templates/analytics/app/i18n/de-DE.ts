@@ -1945,8 +1945,13 @@ export default {
     presetWeekdays: "Werktags um 06:00",
     presetWeekly: "Wöchentlich montags um 06:00",
     status: "Status",
+    unsafeEntriesOmitted: "Durch Sicherheitsprüfungen ausgelassene Einträge",
+    unsafeFieldsOmitted: "Durch Sicherheitsprüfungen ausgelassene Felder",
+    truncatedFields: "Gekürzte Felder",
     unresolvedTrackingCallSites: "Nicht aufgelöste Tracking-Aufrufe",
     unresolvedTrackingCallSitesUnavailable: "Nicht verfügbar",
+    sourceIndexCoverageCaveat:
+      "Sicherheitsprüfungen können Einträge oder Felder auslassen; gekürzte Felder und nicht aufgelöste Tracking-Aufrufe können die Abdeckung ebenfalls einschränken.",
     dynamicTrackingCoverageCaveat:
       "Aufrufe mit zur Laufzeit berechneten Ereignisnamen sind ausgeschlossen; Aliase oder andere Tracking-APIs werden möglicherweise nicht erkannt.",
     overviewFailed: "Der Erstellungsstatus konnte nicht geladen werden.",

@@ -1,3 +1,4 @@
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import { type CanvasFrameGeometry } from "@shared/canvas-frames";
 import {
   applyVisualEdit,
@@ -11,6 +12,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
+import type { CanvasAgentPreset } from "@/components/design/CanvasContextMenu";
 import { trace } from "@/components/design/design-trace";
 import {
   getInitialFrameGeometry,
@@ -18,7 +20,6 @@ import {
 } from "@/components/design/multi-screen/frame-geometry";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type {
-  CanvasLayerHitCandidate,
   ElementInfo,
   PortableStyleSnapshot,
   RuntimeStructureDeleteRequest,
@@ -29,6 +30,7 @@ import {
   type DesignHotkeyAlignEdge,
   type DesignHotkeyDistributeAxis,
 } from "@/hooks/useDesignHotkeys";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   DESIGN_HISTORY_OPEN_EVENT,
   DESIGN_UI_TOGGLE_EVENT,
@@ -96,6 +98,15 @@ import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-pre
 import type { EditorScreenChangeHandlers } from "./use-editor-screen-change-handlers";
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
+
+// Sent to the agent as the node-rewrite instruction; not user-facing copy.
+const AGENT_PRESET_INSTRUCTIONS: Record<CanvasAgentPreset, string> = {
+  inspiration: "Explore multiple variants of this layer.",
+  polish: "Polish this layer: improve visual hierarchy and consistency.",
+  debug: "Debug this layer: find and fix any issues.",
+  states: "Generate empty, loading, and error states for this layer.",
+  responsive: "Make this layer responsive so it adapts to narrow widths.",
+};
 
 export function useEditorLayoutAndStructure({
   editorCore,
@@ -946,8 +957,13 @@ export function useEditorLayoutAndStructure({
   );
 
   const openRepromptComposer = useCallback(
-    (screenId: string, info: ElementInfo, breakpointWidthPx?: number) => {
-      if (!id || !canEditDesign) return;
+    (
+      screenId: string,
+      info: ElementInfo,
+      breakpointWidthPx?: number,
+      instruction?: string,
+    ): boolean => {
+      if (!id || !canEditDesign) return false;
       const screen = overviewScreens.find(
         (candidate) => candidate.id === screenId,
       );
@@ -955,7 +971,7 @@ export function useEditorLayoutAndStructure({
         !screen ||
         resolveOverviewScreenSourceType(screen, designSourceType) !== "inline"
       ) {
-        return;
+        return false;
       }
       const projection = getCodeLayerProjectionForScreen(screenId);
       const node = projection
@@ -964,7 +980,7 @@ export function useEditorLayoutAndStructure({
       const stableNodeId =
         node?.dataAttributes["data-agent-native-node-id"]?.trim() ?? node?.id;
       const selector = node?.selector ?? info.selector;
-      if (!stableNodeId && !selector) return;
+      if (!stableNodeId && !selector) return false;
 
       handleScreenElementSelect(screenId, info, undefined, {
         persistPendingNodeId: false,
@@ -986,7 +1002,9 @@ export function useEditorLayoutAndStructure({
           ...(stableNodeId ? { nodeId: stableNodeId } : {}),
           ...(selector ? { selector } : {}),
         },
+        ...(instruction ? { instruction, submit: true } : {}),
       });
+      return true;
     },
     [
       canEditDesign,
@@ -999,27 +1017,61 @@ export function useEditorLayoutAndStructure({
     ],
   );
 
-  const handleContextMenuReprompt = useCallback(() => {
-    const screenId = activeFile?.id ?? activeFileId;
-    if (!screenId || !selectedElement) return;
-    openRepromptComposer(
-      screenId,
-      selectedElement,
-      activeBreakpointWidthStateRef.current,
-    );
-  }, [activeFile?.id, activeFileId, openRepromptComposer, selectedElement]);
-
-  const handleContextMenuRepromptLayer = useCallback(
-    (candidate: CanvasLayerHitCandidate) => {
-      const screenId = candidate.screenId ?? activeFile?.id ?? activeFileId;
-      if (!screenId) return;
-      openRepromptComposer(
-        screenId,
-        candidate.info,
-        candidate.breakpointWidthPx,
+  const handleContextMenuAgentPreset = useCallback(
+    (preset: CanvasAgentPreset) => {
+      const instruction = AGENT_PRESET_INSTRUCTIONS[preset];
+      const screenId =
+        selectedElement?.sourceLayerIdentity?.screenId ??
+        activeFile?.id ??
+        activeFileId;
+      const selectedLayerIds = selectedLayerIdsState.filter(
+        (layerId) => !layerId.startsWith("__"),
       );
+      // Delivery is confirmed by the agent panel, so it must be mounted
+      // before the preset submits or the confirmation times out.
+      openAgentSidebar();
+      if (
+        selectedLayerIds.length <= 1 &&
+        screenId &&
+        selectedElement &&
+        openRepromptComposer(
+          screenId,
+          selectedElement,
+          activeBreakpointWidthStateRef.current,
+          instruction,
+        )
+      ) {
+        return;
+      }
+      // A node rewrite targets one layer, and board shapes and non-inline
+      // screens cannot take one, so the agent gets the request with the
+      // whole current selection as context.
+      sendToDesignAgentChat({
+        message: instruction,
+        context: [
+          id ? `Design id: ${id}` : "",
+          screenId ? `Screen id: ${screenId}` : "",
+          selectedLayerIds.length > 0
+            ? `Selected layers: ${selectedLayerIds.join(", ")}`
+            : "",
+          selectedLayerIds.length <= 1 && selectedElement?.selector
+            ? `Selected element: ${selectedElement.selector}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        submit: true,
+        openSidebar: true,
+      });
     },
-    [activeFile?.id, activeFileId, openRepromptComposer],
+    [
+      activeFile?.id,
+      activeFileId,
+      id,
+      openRepromptComposer,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
   );
   const handleToggleComments = useCallback(() => {
     toggleViewSetting("commentsHidden");
@@ -1574,8 +1626,7 @@ export function useEditorLayoutAndStructure({
     autoLayoutSuggestionPreview,
     setAutoLayoutSuggestionPreview,
     boardFrameGeometry,
-    handleContextMenuReprompt,
-    handleContextMenuRepromptLayer,
+    handleContextMenuAgentPreset,
     getActiveFileSelectedNodeIds,
     handleApplyLayoutFlow,
     handleDisableAutoLayout,

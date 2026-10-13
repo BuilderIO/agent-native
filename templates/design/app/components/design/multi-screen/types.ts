@@ -187,6 +187,8 @@ export interface MultiScreenCanvasProps {
   interactMode?: boolean;
   interactScreenId?: string | null;
   focusedInteractViewport?: { width: number; height: number } | null;
+  /** The corner class of the focused Interact frame; a string, so the memoised canvas compares it by value. */
+  focusedInteractCornerClass?: string | null;
   readOnly?: boolean;
   editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;

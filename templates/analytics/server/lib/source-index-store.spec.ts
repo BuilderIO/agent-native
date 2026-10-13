@@ -125,4 +125,33 @@ describe("sourceIndexDictionaryEntries", () => {
       },
     ]);
   });
+
+  it("stamps generated entries with the index freshness used for retrieval", () => {
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-07-01T00:00:00.000Z",
+      sources: [{ id: "dbt", revision: "abcdef123456" }],
+      entries: [
+        {
+          id: "workspace-members",
+          metric: "Workspace members",
+          definition: "One row per workspace member.",
+          source: "dbt",
+        },
+      ],
+    });
+
+    expect(
+      sourceIndexDictionaryEntries(bundle, {
+        ageDays: 104,
+        staleAfterDays: 90,
+        stale: true,
+      })[0],
+    ).toMatchObject({
+      sourceIndexAgeDays: 104,
+      sourceIndexStaleAfterDays: 90,
+      sourceIndexStale: true,
+      approved: false,
+    });
+  });
 });

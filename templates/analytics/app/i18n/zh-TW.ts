@@ -1789,8 +1789,13 @@ export default {
     presetWeekdays: "平日 06:00",
     presetWeekly: "每週一 06:00",
     status: "狀態",
+    unsafeEntriesOmitted: "安全檢查省略的項目",
+    unsafeFieldsOmitted: "安全檢查省略的欄位",
+    truncatedFields: "已截斷欄位",
     unresolvedTrackingCallSites: "未解析的追蹤呼叫",
     unresolvedTrackingCallSitesUnavailable: "無法使用",
+    sourceIndexCoverageCaveat:
+      "安全檢查可能會省略項目或欄位；截斷欄位和未解析的追蹤呼叫也可能限制涵蓋範圍。",
     dynamicTrackingCoverageCaveat:
       "事件名稱在執行階段計算的呼叫不會納入索引；別名或其他追蹤 API 可能無法偵測。",
     overviewFailed: "無法載入建置狀態。",

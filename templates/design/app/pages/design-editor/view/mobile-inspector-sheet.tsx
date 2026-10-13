@@ -46,7 +46,8 @@ export function renderMobileInspectorSheet({
       !minimalUi &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
-      mode === "edit" ? (
+      mode === "edit" &&
+      !editPanelProps.readOnly ? (
         <Sheet modal={!motionDockOpen}>
           <SheetTrigger asChild>
             <Button

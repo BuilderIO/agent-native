@@ -106,19 +106,19 @@ test.describe("interaction: right-click canvas context menu", () => {
       const menu = page.getByRole("menu").last();
 
       const designMenuOrder = [
+        "Edit with Agent",
+        "Copy link",
         "Copy",
-        "Paste here",
         "Paste to replace",
-        "Bring to front",
-        "Send to back",
-        "Group selection",
+        "Copy/Paste as",
+        "Rename",
         "Frame selection",
         "Add auto layout",
         "Create component",
         "Hide",
         "Lock",
-        "Flip horizontal",
-        "Flip vertical",
+        "Arrange",
+        "Transform",
       ];
       const items = menu.getByRole("menuitem");
       const itemCount = await items.count();
@@ -145,7 +145,12 @@ test.describe("interaction: right-click canvas context menu", () => {
       );
       expect(beforeOrder.indexOf("a")).toBeLessThan(beforeOrder.indexOf("b"));
 
-      await menu.getByText("Bring to front", { exact: true }).click();
+      await menu.getByRole("menuitem", { name: "Arrange" }).hover();
+      await page
+        .getByRole("menu")
+        .last()
+        .getByText("Bring to front", { exact: true })
+        .click();
       await expect
         .poll(async () =>
           frame.locator("body").evaluate((body) =>
@@ -184,6 +189,11 @@ test.describe("interaction: right-click canvas context menu", () => {
         );
 
       await rightClickNode(page, "b");
+      await page
+        .getByRole("menu")
+        .last()
+        .getByRole("menuitem", { name: "Arrange" })
+        .hover();
       await page
         .getByRole("menu")
         .last()
@@ -234,7 +244,7 @@ test.describe("interaction: right-click canvas context menu", () => {
     }
   });
 
-  test("Rename is not on the canvas context menu but is on the layer row's context menu", async ({
+  test("Rename is on both the canvas context menu and the layer row's context menu", async ({
     page,
     request,
   }) => {
@@ -248,8 +258,8 @@ test.describe("interaction: right-click canvas context menu", () => {
       const canvasMenu = page.getByRole("menu").last();
       await expect(canvasMenu).toBeVisible();
       await expect(
-        canvasMenu.getByRole("menuitem", { name: /rename/i }),
-      ).toHaveCount(0);
+        canvasMenu.getByRole("menuitem", { name: /^Rename/ }),
+      ).toHaveCount(1);
       await page.keyboard.press("Escape");
       await expect(canvasMenu).toBeHidden();
 
@@ -260,7 +270,7 @@ test.describe("interaction: right-click canvas context menu", () => {
         .first();
       await rowButton.click({ button: "right" });
       const rowMenu = page.getByRole("menu").last();
-      const rename = rowMenu.getByRole("menuitem", { name: /^Rename layer/ });
+      const rename = rowMenu.getByRole("menuitem", { name: /^Rename/ });
       await expect(rename).toBeVisible();
       await rename.click();
       const renameInput = page.getByRole("textbox", { name: /rename/i });
@@ -291,46 +301,6 @@ test.describe("interaction: right-click canvas context menu", () => {
       const trigger = menu.getByText("Select layer", { exact: true });
       await expect(trigger).toBeVisible();
       await trigger.hover();
-      const submenu = page.getByRole("menu").last();
-
-      const panelLabel = (
-        (await page
-          .locator(
-            '[data-layer-row-content][data-layer-selection="primary"] [data-layer-row-button] span.flex-1',
-          )
-          .first()
-          .textContent()) ?? ""
-      ).trim();
-      expect(panelLabel.length).toBeGreaterThan(0);
-
-      await expect(
-        submenu.getByText(panelLabel, { exact: true }),
-      ).toBeVisible();
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
-  });
-
-  test("Edit with AI submenu label for the same unnamed container also matches the layers panel name", async ({
-    page,
-    request,
-  }) => {
-    const designId = await createFixture(request, NAME_MISMATCH_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
-      await expandAllLayers(page);
-
-      await rightClickNode(page, "card");
-      const menu = page.getByRole("menu").last();
-      const repromptTrigger = menu.getByText("Edit with AI…", {
-        exact: true,
-      });
-      await expect(repromptTrigger).toBeVisible();
-      await repromptTrigger.hover();
       const submenu = page.getByRole("menu").last();
 
       const panelLabel = (
@@ -474,13 +444,9 @@ test.describe("interaction: right-click canvas context menu", () => {
 
       await rightClickNode(page, "a");
       const firstMenu = page.getByRole("menu").last();
-      const firstPaste = firstMenu.getByRole("menuitem", {
-        name: /Paste here/,
-      });
       const firstReplace = firstMenu.getByRole("menuitem", {
         name: /Paste to replace/,
       });
-      await expect(firstPaste).toBeEnabled();
       await expect(firstReplace).toBeEnabled();
 
       await page.keyboard.press("Escape");
@@ -493,9 +459,6 @@ test.describe("interaction: right-click canvas context menu", () => {
 
       await rightClickNode(page, "a");
       const secondMenu = page.getByRole("menu").last();
-      await expect(
-        secondMenu.getByRole("menuitem", { name: /Paste here/ }),
-      ).toBeDisabled();
       await expect(
         secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
       ).toBeDisabled();
@@ -511,7 +474,7 @@ test.describe("interaction: right-click canvas context menu", () => {
     }
   });
 
-  test("right-click on empty canvas (no selection) shows only Paste here and Show/Hide UI/comments", async ({
+  test("right-click on empty canvas (no selection) shows Explore with Agent, Copy link, Paste here and Show/Hide UI/comments", async ({
     page,
     request,
   }) => {
@@ -542,6 +505,10 @@ test.describe("interaction: right-click canvas context menu", () => {
       await waitForBridge(page, "element-contextmenu");
       const menu = page.getByRole("menu").last();
       await expect(menu.getByText("Paste here", { exact: true })).toBeVisible();
+      await expect(
+        menu.getByText("Explore with Agent", { exact: true }),
+      ).toBeVisible();
+      await expect(menu.getByText("Copy link", { exact: true })).toBeVisible();
       const texts = (await menu.getByRole("menuitem").allTextContents()).map(
         (t) => t.trim(),
       );
