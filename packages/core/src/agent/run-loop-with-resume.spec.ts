@@ -1989,6 +1989,9 @@ describe("chunk-boundary recovery", () => {
       const turn = new AbortController();
       const { control } = makeControl(turn.signal);
       const outcomes: AgentLoopOutcome[] = [];
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+      ];
       let attempts = 0;
       mockRunAgentLoop.mockImplementation(async () => {
         attempts++;
@@ -1999,18 +2002,22 @@ describe("chunk-boundary recovery", () => {
       });
 
       const run = runAgentLoopDirectWithSoftTimeout(
-        makeOpts(
-          [{ role: "user", content: [{ type: "text", text: "go" }] }],
-          control.chunkSignal,
-          undefined,
-          undefined,
-          outcomes,
-        ),
+        makeOpts(messages, control.chunkSignal, undefined, undefined, outcomes),
         60_000,
         { backgroundFunction: true },
         control,
       );
       await vi.advanceTimersByTimeAsync(0);
+      expect(
+        messages.some((message) =>
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
+              part.text.includes("temporarily rate limited"),
+          ),
+        ),
+      ).toBe(true);
       turn.abort("stopped_by_reviewer");
 
       await expect(run).rejects.toThrow("Agent run was aborted.");

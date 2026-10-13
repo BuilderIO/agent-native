@@ -1251,7 +1251,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultBaseUrl: "https://sheets.googleapis.com/v4",
     auth: {
       type: "oauth-bearer",
-      oauthProvider: "google",
+      oauthProvider: "google_sheets",
       tokenLabel: "Google OAuth token",
       workspaceProvider: "google_sheets",
     },
@@ -4526,30 +4526,75 @@ async function resolveOAuthBearerToken(options: {
   connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
+  const requestedAccountId = options.accountId?.trim();
   const accounts = await listOAuthAccountsByOwner(
     options.auth.oauthProvider,
     ownerEmail,
   );
-  if (accounts.length === 0) {
-    if (options.auth.workspaceProvider) {
-      return throwWorkspaceConnectionRequired({
-        runtime: options.runtime,
-        provider: options.auth.workspaceProvider,
-        connectionId: options.connectionId,
-        message: `${options.auth.tokenLabel} requires an available workspace connection.`,
-      });
+  const account = requestedAccountId
+    ? accounts.find((entry) => entry.accountId === requestedAccountId)
+    : accounts[0];
+  if (
+    !account &&
+    options.auth.oauthProvider === "google_sheets" &&
+    requestedAccountId &&
+    options.connectionId?.trim()
+  ) {
+    const legacyAccounts = await listOAuthAccountsByOwner("google", ownerEmail);
+    const legacyAccount = legacyAccounts.find(
+      (entry) => entry.accountId === requestedAccountId,
+    );
+    const legacyTokens = legacyAccount?.tokens as OAuthTokens | undefined;
+    const legacyAccessToken =
+      legacyTokens?.access_token ?? legacyTokens?.accessToken;
+    const legacyExpiresAt =
+      legacyTokens?.expiry_date ?? legacyTokens?.expiresAt;
+    if (
+      legacyAccount &&
+      typeof legacyAccessToken === "string" &&
+      legacyAccessToken &&
+      typeof legacyExpiresAt === "number" &&
+      Number.isFinite(legacyExpiresAt) &&
+      legacyExpiresAt > Date.now() + 60_000
+    ) {
+      return {
+        key: "GOOGLE_OAUTH_TOKEN",
+        value: legacyAccessToken,
+        source: "oauth_token",
+        provider: "google",
+        accountId: legacyAccount.accountId,
+        accountLabel: legacyAccount.displayName,
+      };
+    }
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.auth.workspaceProvider ?? "google_sheets",
+      connectionId: options.connectionId,
+      message:
+        "Google Sheets needs to be reconnected because its saved access token is missing or expired.",
+      reason: "reauthorize",
+    });
+  }
+  if (!account) {
+    if (accounts.length === 0) {
+      if (options.auth.workspaceProvider) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.auth.workspaceProvider,
+          connectionId: options.connectionId,
+          message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+          ...(options.auth.oauthProvider === "google_sheets" &&
+          options.connectionId
+            ? { reason: "reauthorize" as const }
+            : {}),
+        });
+      }
+      throw new Error(
+        `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
+      );
     }
     throw new Error(
-      `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
-    );
-  }
-  const accountId = options.accountId?.trim();
-  const account = accountId
-    ? accounts.find((entry) => entry.accountId === accountId)
-    : accounts[0];
-  if (!account) {
-    throw new Error(
-      `${options.auth.tokenLabel} account ${accountId} is not available to ${ownerEmail}.`,
+      `${options.auth.tokenLabel} account ${requestedAccountId} is not available to ${ownerEmail}.`,
     );
   }
   const tokens = account.tokens as OAuthTokens;
@@ -4594,8 +4639,9 @@ async function throwWorkspaceConnectionRequired(options: {
   provider: string;
   connectionId?: string | null;
   message: string;
+  reason?: "connect" | "grant" | "reauthorize";
 }): Promise<never> {
-  let reason: "connect" | "grant" | "reauthorize" = "connect";
+  let reason: "connect" | "grant" | "reauthorize" = options.reason ?? "connect";
   const resolved = await resolveWorkspaceConnectionForApp({
     appId: options.runtime.appId,
     provider: options.provider,
@@ -4603,9 +4649,14 @@ async function throwWorkspaceConnectionRequired(options: {
     includeDisabled: true,
     requireConnected: false,
   });
-  if (resolved.connection && resolved.appAccess?.available === false) {
+  if (
+    !options.reason &&
+    resolved.connection &&
+    resolved.appAccess?.available === false
+  ) {
     reason = "grant";
   } else if (
+    !options.reason &&
     resolved.connection &&
     resolved.connection.status !== "connected"
   ) {
@@ -4665,6 +4716,21 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       });
     }
     return null;
+  }
+  if (
+    options.workspaceProvider === "google_sheets" &&
+    !resolved.connection.scopes.includes(
+      "https://www.googleapis.com/auth/drive.file",
+    )
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId,
+      message:
+        "Google Sheets needs to be reconnected to grant file-level access.",
+      reason: "reauthorize",
+    });
   }
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
@@ -4730,7 +4796,8 @@ async function getValidOAuthAccessToken(options: {
   if (!refreshToken) return accessToken;
   if (
     options.oauthProvider === "google" ||
-    options.oauthProvider === "google-docs"
+    options.oauthProvider === "google-docs" ||
+    options.oauthProvider === "google_sheets"
   ) {
     return refreshGoogleOAuthToken(options, refreshToken);
   }

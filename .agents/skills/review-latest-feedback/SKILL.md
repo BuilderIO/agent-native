@@ -79,11 +79,14 @@ Follow the reply reference before marking an item replied.
 Before recording an evidence limit or asking, try to reproduce every defect
 from its screenshot, URL, error, supplied run ID, logs, or artifacts. Investigate
 internal access, config, observability, and deployment gaps ourselves; don't
-ask reporters to use developer tools. If a fact only the reporter can provide
-changes the next action, ask one direct question naming it and why it gates
-progress. Otherwise name the internal action and owner. Never reply only with
-**Open**/**Open pending** and a symptom restatement. After four days without an
-answer, record **Abandoned - no answer in 4 days**.
+ask reporters to use developer tools. For each distinct defect, either do the
+next internal investigation/fix or ask one direct, concrete question when a
+reporter-only fact changes that next action. Name exactly what is needed and
+why it gates progress. Don't ask for supplied evidence, send a generic "more
+details" question, or bundle unrelated defects into one ask. If nothing from the
+reporter changes the next action, state the internal action and owner. Never
+reply only with **Open**/**Open pending** and a symptom restatement. After four
+days without an answer, record **Abandoned - no answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. In the ledger,
 **Open - no question** means reporter input cannot change the internal next

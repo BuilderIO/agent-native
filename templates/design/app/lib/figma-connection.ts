@@ -161,10 +161,10 @@ export async function saveFigmaAccessToken(
     throw new Error(redactSubmittedSecret(message, token));
   }
   if (!response.ok) {
-    const payload = (await response.json()) as {
+    const payload = (await response.json().catch(() => null)) as {
       error?: unknown;
       validationCode?: unknown;
-    };
+    } | null;
     if (payload?.validationCode === FIGMA_FILE_URL_TOKEN_VALIDATION_CODE) {
       throw new FigmaFileUrlUsedAsTokenError();
     }
