@@ -112,7 +112,7 @@ describe("import-design-tokens", () => {
     };
   });
 
-  it("bounds file count and content before action execution", () => {
+  it("bounds file count, raw names, and content before action execution", () => {
     const tooManyFiles = action.schema.safeParse({
       designId: "design_1",
       source: "files",
@@ -130,6 +130,11 @@ describe("import-design-tokens", () => {
           content: "x".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1),
         },
       ],
+    });
+    const oversizedFilename = action.schema.safeParse({
+      designId: "design_1",
+      source: "files",
+      files: [{ filename: `a${" ".repeat(256)}`, content: "" }],
     });
     const oversizedBatch = action.schema.safeParse({
       designId: "design_1",
@@ -152,6 +157,7 @@ describe("import-design-tokens", () => {
 
     expect(tooManyFiles.success).toBe(false);
     expect(oversizedFile.success).toBe(false);
+    expect(oversizedFilename.success).toBe(false);
     expect(oversizedBatch.success).toBe(false);
   });
 

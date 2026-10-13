@@ -75,9 +75,9 @@ function tokenSourceLabel(token: ImportedDesignToken, sourceLabel: string) {
 const tokenFileSchema = z.object({
   filename: z
     .string()
+    .max(256)
     .trim()
     .min(1)
-    .max(256)
     .describe("File name or relative path"),
   content: z
     .string()
@@ -830,14 +830,20 @@ function isValidImportFile(file: {
   const isScss = filename.endsWith(".scss");
 
   for (const css of cssCandidates) {
+    const normalizedCss = isScssOrLess ? stripScssLessLineComments(css) : css;
     try {
-      const normalizedCss = isScssOrLess ? stripScssLessLineComments(css) : css;
       if (isLess) postcssLess.parse(normalizedCss);
       else if (isScss) postcssScss.parse(normalizedCss);
       else postcss.parse(normalizedCss);
       return true;
     } catch (error) {
-      if (!(error instanceof Error)) throw error;
+      if (
+        (isLess && error instanceof TypeError) ||
+        (error instanceof Error && error.name === "CssSyntaxError")
+      ) {
+        continue;
+      }
+      throw error;
     }
   }
   return false;
