@@ -554,7 +554,7 @@ function findPendingToolCallIndex(
 }
 
 function findPendingToolCallIndexById(
-  content: ContentPart[],
+  content: readonly ContentPart[],
   toolCallId: string,
 ): number {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -570,6 +570,23 @@ function findPendingToolCallIndexById(
   return -1;
 }
 
+function toolInputsMatch(
+  callInput: Record<string, string>,
+  approvalInput: Record<string, string> | undefined,
+): boolean {
+  if (!approvalInput) return false;
+  const callKeys = Object.keys(callInput);
+  const approvalKeys = Object.keys(approvalInput);
+  return (
+    callKeys.length === approvalKeys.length &&
+    callKeys.every(
+      (key) =>
+        Object.hasOwn(approvalInput, key) &&
+        callInput[key] === approvalInput[key],
+    )
+  );
+}
+
 /**
  * Locate the tool call an `approval_required` event refers to.
  *
@@ -580,17 +597,35 @@ function findPendingToolCallIndexById(
  * approvalKey to a *different* in-flight call of the same action — putting the
  * wrong key behind a visible Approve button.
  *
- * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
- * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
- * looks when an older server omitted the id on `tool_start`.
+ * Without an event id, the required input must identify one pending call by
+ * itself. A name-only match can attach a stale approval to a different
+ * same-name call. With an event id, the only tolerated fallback is a single
+ * unambiguous reader-local (`tc_N`) placeholder, which is how a call looks
+ * when an older server omitted the id on `tool_start`.
  */
-function findApprovalToolCallIndex(
-  content: ContentPart[],
+export function findApprovalToolCallIndex(
+  content: readonly ContentPart[],
   toolName: string,
   toolCallId?: string,
+  approvalInput?: Record<string, string>,
 ): number {
   if (!toolCallId) {
-    return findPendingToolCallIndex(content, toolName);
+    if (!approvalInput) return -1;
+    const matchingInputCandidates: number[] = [];
+    for (let i = 0; i < content.length; i += 1) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        part.result === undefined &&
+        toolInputsMatch(part.args, approvalInput)
+      ) {
+        matchingInputCandidates.push(i);
+      }
+    }
+    return matchingInputCandidates.length === 1
+      ? matchingInputCandidates[0]!
+      : -1;
   }
 
   const exactIndex = findPendingToolCallIndexById(content, toolCallId);
@@ -1887,6 +1922,7 @@ export function processEvent(
         content,
         approvalTool,
         ev.toolCallId ?? ev.id,
+        ev.input,
       );
       if (idx >= 0) {
         const part = content[idx];

@@ -21,6 +21,7 @@ import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
+  findApprovalToolCallIndex,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
@@ -3368,8 +3369,14 @@ function pendingApprovalRuntimeMessages(
 ): BoundedPendingApprovalRuntimeMessages {
   const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
   const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedCallCount = state.message.content.filter(
+    (part) =>
+      part.type === "tool-call" &&
+      part.approval !== undefined &&
+      approvedToolCallSet.has(part.approval.approvalKey),
+  ).length;
   const reservedApprovalCallCount = Math.min(
-    approvedToolCallSet.size,
+    approvedCallCount,
     MAX_TOOL_HISTORY_CALLS,
   );
   const unapprovedToolPartLimit =
@@ -3877,20 +3884,17 @@ function mapAgentNativeEvent(
   if (ev.type === "approval_required") {
     input.message.approvalPending = true;
     const approvalKey = ev.approvalKey;
+    let approvalToolCallId = ev.toolCallId ?? ev.id;
     if (typeof approvalKey === "string" && approvalKey.length > 0) {
-      const toolCallId = ev.toolCallId ?? ev.id;
-      const toolName = ev.tool;
-      for (let index = input.message.content.length - 1; index >= 0; index--) {
-        const part = input.message.content[index];
-        if (
-          part?.type !== "tool-call" ||
-          part.result !== undefined ||
-          (toolCallId
-            ? part.toolCallId !== toolCallId
-            : part.toolName !== toolName)
-        ) {
-          continue;
-        }
+      const approvalToolCallIndex = findApprovalToolCallIndex(
+        input.message.content,
+        ev.tool ?? "unknown",
+        approvalToolCallId,
+        ev.input,
+      );
+      const part = input.message.content[approvalToolCallIndex];
+      if (part?.type === "tool-call") {
+        approvalToolCallId ??= part.toolCallId;
         part.approval = {
           approvalKey,
           ...(ev.askId ? { askId: ev.askId } : {}),
@@ -3898,7 +3902,6 @@ function mapAgentNativeEvent(
             ? { allowPersistentApproval: false }
             : {}),
         };
-        break;
       }
     }
     return [
@@ -3907,9 +3910,8 @@ function mapAgentNativeEvent(
         ...base,
         approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
         // `approval_required` carries the model-side call id as `toolCallId`,
-        // not `id`. Without this the request falls back to matching by tool
-        // name, which picks the wrong call when two are pending at once.
-        toolCallId: ev.toolCallId ?? ev.id,
+        // not `id`. When older frames omit both ids, use the unique input match.
+        toolCallId: approvalToolCallId,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,

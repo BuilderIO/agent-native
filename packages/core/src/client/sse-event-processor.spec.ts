@@ -4700,6 +4700,85 @@ describe("SSE event processor tool id matching", () => {
     });
   });
 
+  it("matches an id-less approval by its exact input", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-1",
+            input: { to: "first@example.test" },
+          },
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-2",
+            input: { to: "second@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: 'send-email:{"to":"second@example.test"}',
+            input: { to: "second@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find(
+        (part: any) => part.type === "tool-call" && part.toolCallId === id,
+      );
+    expect(byId("call-1")?.approval).toBeUndefined();
+    expect(byId("call-2")?.approval).toEqual({
+      approvalKey: 'send-email:{"to":"second@example.test"}',
+    });
+  });
+
+  it("leaves an id-less approval unmatched when identical calls are ambiguous", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-1",
+            input: { to: "same@example.test" },
+          },
+          {
+            type: "tool_start",
+            tool: "send-email",
+            id: "call-2",
+            input: { to: "same@example.test" },
+          },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: 'send-email:{"to":"same@example.test"}',
+            input: { to: "same@example.test" },
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(
+      content
+        .filter((part: any) => part.type === "tool-call")
+        .map((part: any) => part.approval),
+    ).toEqual([undefined, undefined]);
+  });
+
   it("prefers toolCallId over id when an approval carries both", async () => {
     const content: any[] = [];
     await drain(
