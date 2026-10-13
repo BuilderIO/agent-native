@@ -4,6 +4,7 @@ import {
   assertPlanContentAuthoringChanges,
   agentPlanContentSchema,
   applyPlanContentPatches,
+  PlanContentValidationError,
   migratePlanContent,
   planContentSchema,
   storedPlanContentSchema,
@@ -1699,6 +1700,9 @@ describe("parsePlanContent per-block salvage", () => {
       ],
     });
 
+    expect(() => assertPlanContentAuthoringChanges(incomplete, null)).toThrow(
+      PlanContentValidationError,
+    );
     expect(() => assertPlanContentAuthoringChanges(incomplete, null)).toThrow(
       /question-form blocks require at least one questions entry/,
     );

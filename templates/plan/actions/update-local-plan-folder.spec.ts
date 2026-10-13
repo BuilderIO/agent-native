@@ -293,6 +293,8 @@ describe("update-local-plan-folder", () => {
       content,
       url: "/local-plans/new-empty-full-update",
     });
+    const planPath = path.join(tmpDir, "new-empty-full-update", "plan.mdx");
+    const originalPlanMdx = await fs.readFile(planPath, "utf-8");
 
     const replacement = storedPlanContentSchema.parse({
       ...content,
@@ -306,7 +308,39 @@ describe("update-local-plan-folder", () => {
         slug: "new-empty-full-update",
         content: replacement,
       }),
-    ).rejects.toThrow(/require at least one questions entry/i);
+    ).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringMatching(/require at least one questions entry/i),
+    });
+    expect(await fs.readFile(planPath, "utf-8")).toBe(originalPlanMdx);
+  });
+
+  it("blocks writes when a malformed source block was salvaged for reading", async () => {
+    const content = sampleContent();
+    await writePlanLocalFolder({
+      slug: "salvaged-source-write",
+      planId: "local-salvaged-source-write",
+      title: content.title ?? "Checkout review",
+      brief: content.brief,
+      content,
+      url: "/local-plans/salvaged-source-write",
+    });
+    const planPath = path.join(tmpDir, "salvaged-source-write", "plan.mdx");
+    const validSource = await fs.readFile(planPath, "utf-8");
+    const malformedSource = `${validSource}\n<UnknownPlanBlock />\n`;
+    await fs.writeFile(planPath, malformedSource, "utf-8");
+
+    await expect(
+      updateLocalPlanFolder.run({
+        slug: "salvaged-source-write",
+        title: "Changed title",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "plan_source_salvage_write_blocked",
+      statusCode: 422,
+    });
+    expect(await fs.readFile(planPath, "utf-8")).toBe(malformedSource);
   });
 
   it("rejects clearing a previously populated required field in a full update", async () => {

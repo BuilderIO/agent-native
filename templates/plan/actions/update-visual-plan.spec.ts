@@ -1615,7 +1615,7 @@ describe("update-visual-plan comments", () => {
 
   it("rejects new incomplete fields in full replacements", async () => {
     request.email = "editor@example.com";
-    useSuccessfulDb();
+    const { transactionMock } = useSuccessfulDb();
     loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
     const action = updateVisualPlan as unknown as {
       schema: { parse: (input: unknown) => unknown };
@@ -1640,10 +1640,53 @@ describe("update-visual-plan comments", () => {
       consumedCommentIds: [],
     });
 
-    await expect(action.run(args)).rejects.toThrow(
-      /question-form blocks require at least one questions entry/,
-    );
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringMatching(
+        /question-form blocks require at least one questions entry/,
+      ),
+    });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for an invalid replacement patch before snapshotting or writing", async () => {
+    request.email = "editor@example.com";
+    const { transactionMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: normalizedStructuredContent }),
+    );
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        contentPatches: [
+          {
+            op: "replace-block",
+            blockId: "intro",
+            block: {
+              id: "intro",
+              type: "question-form",
+              data: { questions: [] },
+            },
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringMatching(
+        /question-form blocks require at least one questions entry/,
+      ),
+    });
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
   it("returns a validation error for schema-invalid full replacements", async () => {
@@ -1682,6 +1725,34 @@ describe("update-visual-plan comments", () => {
       message: expect.stringContaining("items"),
     });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves unexpected errors while mapping only content validation", async () => {
+    request.email = "editor@example.com";
+    const { transactionMock } = useSuccessfulDb();
+    const unexpectedError = new Error("unexpected normalization failure");
+    normalizePlanContentMock.mockImplementation(() => {
+      throw unexpectedError;
+    });
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      run: (input: unknown) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: structuredContent,
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toBe(unexpectedError);
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
   it.each([

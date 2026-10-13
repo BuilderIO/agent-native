@@ -107,6 +107,198 @@ describe("stored legacy defaults in MDX source", () => {
     ).rejects.toThrow();
   });
 
+  it("reuses persisted IDs for unchanged legacy nested source without IDs", async () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Legacy columns",
+      blocks: [
+        {
+          id: "persisted-columns",
+          type: "columns",
+          data: {
+            columns: [
+              {
+                id: "persisted-column",
+                blocks: [
+                  {
+                    id: "persisted-checklist",
+                    type: "checklist",
+                    data: { items: [] },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const folder = {
+      "plan.mdx": [
+        "---",
+        'title: "Legacy columns"',
+        "version: 2",
+        "---",
+        "",
+        "<Columns>",
+        "  <Column>",
+        "    <Checklist />",
+        "  </Column>",
+        "</Columns>",
+      ].join("\n"),
+    };
+
+    const parsed = await parsePlanMdxFolder(folder, {
+      allowStoredLegacyDefaults: true,
+      validateAuthoringChangesAgainst: previous,
+    });
+    const columns = parsed.blocks[0];
+    if (columns?.type !== "columns") throw new Error("expected columns");
+    expect(columns.id).toBe("persisted-columns");
+    expect(columns.data.columns[0]?.id).toBe("persisted-column");
+    expect(columns.data.columns[0]?.blocks[0]).toMatchObject({
+      id: "persisted-checklist",
+      type: "checklist",
+      data: { items: [] },
+    });
+  });
+
+  it("reuses persisted nested IDs in Tabs attributes before legacy validation", async () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Legacy tabs",
+      blocks: [
+        {
+          id: "persisted-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "persisted-tab",
+                label: "Details",
+                blocks: [
+                  {
+                    id: "persisted-checklist",
+                    type: "checklist",
+                    data: { items: [] },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const parsed = await parsePlanMdxFolder(
+      {
+        "plan.mdx": [
+          "---",
+          'title: "Legacy tabs"',
+          "version: 2",
+          "---",
+          "",
+          '<TabsBlock tabs={[{"label":"Details","blocks":[{"type":"checklist","data":{}}]}]} />',
+        ].join("\n"),
+      },
+      {
+        allowStoredLegacyDefaults: true,
+        validateAuthoringChangesAgainst: previous,
+      },
+    );
+    const tabs = parsed.blocks[0];
+    if (tabs?.type !== "tabs") throw new Error("expected tabs");
+
+    expect(tabs.id).toBe("persisted-tabs");
+    expect(tabs.data.tabs[0]?.id).toBe("persisted-tab");
+    expect(tabs.data.tabs[0]?.blocks[0]).toMatchObject({
+      id: "persisted-checklist",
+      type: "checklist",
+      data: { items: [] },
+    });
+  });
+
+  it("keeps a changed idless nested block subject to authored-field validation", async () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Legacy columns",
+      blocks: [
+        {
+          id: "persisted-columns",
+          type: "columns",
+          data: {
+            columns: [
+              {
+                id: "persisted-column",
+                blocks: [
+                  {
+                    id: "persisted-checklist",
+                    type: "checklist",
+                    data: { items: [] },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await expect(
+      parsePlanMdxFolder(
+        {
+          "plan.mdx": [
+            "---",
+            'title: "Legacy columns"',
+            "version: 2",
+            "---",
+            "",
+            "<Columns>",
+            "  <Column>",
+            '    <Checklist title="New checklist" />',
+            "  </Column>",
+            "</Columns>",
+          ].join("\n"),
+        },
+        {
+          allowStoredLegacyDefaults: true,
+          validateAuthoringChangesAgainst: previous,
+        },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("assigns repeatable IDs to unchanged idless nested MDX", async () => {
+    const folder = {
+      "plan.mdx": [
+        "---",
+        'title: "Idless columns"',
+        "version: 2",
+        "---",
+        "",
+        "<Columns>",
+        "  <Column>",
+        '    <HtmlBlock html="<div>Stable</div>" />',
+        "  </Column>",
+        "</Columns>",
+      ].join("\n"),
+    };
+    const first = await parsePlanMdxFolder(folder);
+    const second = await parsePlanMdxFolder(folder);
+
+    expect(second.blocks[0]?.id).toBe(first.blocks[0]?.id);
+    if (
+      first.blocks[0]?.type !== "columns" ||
+      second.blocks[0]?.type !== "columns"
+    ) {
+      throw new Error("expected columns");
+    }
+    expect(second.blocks[0].data.columns[0]?.id).toBe(
+      first.blocks[0].data.columns[0]?.id,
+    );
+    expect(second.blocks[0].data.columns[0]?.blocks[0]?.id).toBe(
+      first.blocks[0].data.columns[0]?.blocks[0]?.id,
+    );
+  });
+
   it("validates raw MDX fields before applying stored defaults", async () => {
     const previous = storedPlanContentSchema.parse({
       version: 2,

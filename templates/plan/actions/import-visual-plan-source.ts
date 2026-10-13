@@ -37,6 +37,7 @@ import {
   writeEvent,
 } from "../server/plans.js";
 import { type PlanContent } from "../shared/plan-content.js";
+import type { PlanKind } from "../shared/types.js";
 
 export default defineAction({
   description:
@@ -97,19 +98,23 @@ export default defineAction({
   },
   run: async (args) => {
     let previousContent: PlanContent | null | undefined;
+    let previousKind: PlanKind | undefined;
     if (args.planId) {
       await assertPlanEditor(args.planId);
-      previousContent = (await loadPlanBundle(args.planId)).plan.content;
+      const existing = await loadPlanBundle(args.planId);
+      previousContent = existing.plan.content;
+      previousKind = existing.plan.kind;
     }
+    const effectiveKind = args.kind ?? previousKind ?? "plan";
 
     let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
     try {
       content = await parsePlanMdxFolder(args.mdx, {
         allowStoredLegacyDefaults: previousContent != null,
-        salvageInvalidBlocks: args.kind === "recap",
+        salvageInvalidBlocks: effectiveKind === "recap",
         validateAuthoringChangesAgainst: previousContent ?? null,
       });
-      if (args.kind === "recap") {
+      if (effectiveKind === "recap") {
         assertRecapWireframesHaveContent(content);
       }
     } catch (err) {

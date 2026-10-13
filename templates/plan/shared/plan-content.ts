@@ -2023,6 +2023,20 @@ const requiredAuthoringDataFields: Partial<
   "annotated-code": { field: "code" },
 };
 
+export class PlanContentValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlanContentValidationError";
+  }
+}
+
+export function getPlanContentValidationMessage(error: unknown): string | null {
+  return error instanceof PlanContentValidationError ||
+    error instanceof z.ZodError
+    ? error.message
+    : null;
+}
+
 function validateAuthoringBlocks(
   roots: Array<{ block: unknown; path: Array<string | number> }>,
   context: PlanContentValidationContext,
@@ -2192,7 +2206,12 @@ export function assertPlanContentAuthoringChanges(
   previous: PlanContent | null | undefined,
 ): void {
   if (!previous) {
-    planContentSchema.parse(content);
+    try {
+      planContentSchema.parse(content);
+    } catch (error) {
+      if (!(error instanceof z.ZodError)) throw error;
+      throw new PlanContentValidationError(error.message);
+    }
     return;
   }
 
@@ -2208,7 +2227,9 @@ export function assertPlanContentAuthoringChanges(
       current.depth > PLAN_BLOCK_MAX_DEPTH ||
       visits > PLAN_BLOCK_MAX_VISITS
     ) {
-      throw new Error("Previous plan exceeds authoring validation bounds.");
+      throw new PlanContentValidationError(
+        "Previous plan exceeds authoring validation bounds.",
+      );
     }
 
     const block = current.block;
@@ -2237,7 +2258,7 @@ export function assertPlanContentAuthoringChanges(
   if (issues.length > 0) {
     const first = issues[0];
     const location = first?.path.length ? ` at ${first.path.join(".")}` : "";
-    throw new Error(
+    throw new PlanContentValidationError(
       `Plan source edit contains invalid authored block data${location}: ${first?.message ?? "validation failed"}`,
     );
   }

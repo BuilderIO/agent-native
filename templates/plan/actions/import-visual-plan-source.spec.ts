@@ -8,7 +8,7 @@ const {
   createPlanVersionSnapshotMock,
   writeEventMock,
 } = vi.hoisted(() => ({
-  state: { content: null as unknown },
+  state: { content: null as unknown, kind: "plan" as "plan" | "recap" },
   updateMock: vi.fn(),
   insertMock: vi.fn(),
   assertPlanEditorMock: vi.fn(),
@@ -87,7 +87,7 @@ vi.mock("../server/plans.js", async () => {
         id: planId,
         title: "Legacy plan",
         brief: "Stored plan.",
-        kind: "plan",
+        kind: state.kind,
         status: "review",
         updatedAt: "revision-1",
         content: state.content,
@@ -133,6 +133,7 @@ function legacyContent() {
 describe("import-visual-plan-source stored legacy defaults", () => {
   beforeEach(() => {
     state.content = legacyContent();
+    state.kind = "plan";
     updateMock.mockReset();
     insertMock.mockReset().mockImplementation(() => ({
       values: async (values: { content: string }) => {
@@ -207,6 +208,43 @@ describe("import-visual-plan-source stored legacy defaults", () => {
 
     expect(result).toMatchObject({ planId: "new-plan" });
     expect(insertMock).toHaveBeenCalledOnce();
+    expect(state.content).toMatchObject({
+      blocks: [
+        {
+          id: "missing-items",
+          type: "callout",
+          data: { tone: "warning" },
+        },
+        {
+          type: "rich-text",
+          data: { markdown: "The review completed." },
+        },
+      ],
+    });
+  });
+
+  it("uses the stored recap kind when replacing source without a kind override", async () => {
+    state.kind = "recap";
+
+    const result = await runAction({
+      planId: "existing-recap",
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "Review recap"',
+          'kind: "recap"',
+          "version: 2",
+          "---",
+          "",
+          '<Checklist id="missing-items" />',
+          "",
+          "The review completed.",
+        ].join("\n"),
+      },
+    });
+
+    expect(result).toMatchObject({ planId: "existing-recap" });
+    expect(assertPlanEditorMock).toHaveBeenCalledWith("existing-recap");
     expect(state.content).toMatchObject({
       blocks: [
         {

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PlanContentValidationError } from "../shared/plan-content.js";
+
 const agentTouchDocumentMock = vi.hoisted(() => vi.fn());
 const applyPlanMdxSourcePatchesMock = vi.hoisted(() => vi.fn());
 const assertPlanEditorMock = vi.hoisted(() => vi.fn());
@@ -183,6 +185,36 @@ describe("patch-visual-plan-source guardrails", () => {
     expect(exportPlanContentToMdxFolderMock).not.toHaveBeenCalled();
     expect(applyPlanMdxSourcePatchesMock).not.toHaveBeenCalled();
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for invalid authored source before snapshotting or writing", async () => {
+    parsePlanMdxFolderMock.mockRejectedValueOnce(
+      new PlanContentValidationError(
+        "Plan source edit contains invalid authored block data.",
+      ),
+    );
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        expectedUpdatedAt: "revision-1",
+        patches: [
+          {
+            op: "replace-markdown-block",
+            blockId: "block_1",
+            markdown: "Updated source",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: "Plan source edit contains invalid authored block data.",
+    });
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(dbUpdateMock).not.toHaveBeenCalled();
+    expect(writeEventMock).not.toHaveBeenCalled();
   });
 
   it.each([

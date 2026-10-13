@@ -55,6 +55,7 @@ import {
   assertPlanContentAuthoringInput,
   applyPlanContentPatches,
   findBlock,
+  getPlanContentValidationMessage,
   planContentPatchesSchema,
   storedPlanContentSchema,
   type PlanBlock,
@@ -63,6 +64,12 @@ import {
 } from "../shared/plan-content.js";
 
 const CONTENT_PATCH_EXCERPT_LIMIT = 520;
+
+function failInvalidPlanContent(error: unknown): never {
+  const message = getPlanContentValidationMessage(error);
+  if (message === null) throw error;
+  fail(message, { errorCode: "invalid_plan_content", statusCode: 422 });
+}
 
 function compactExcerpt(value: unknown, limit = CONTENT_PATCH_EXCERPT_LIMIT) {
   const text =
@@ -755,24 +762,20 @@ export default defineAction({
         nextContent = normalizePlanContent(args.content as PlanContent, {
           allowStoredLegacyDefaults: true,
         });
+        if (!nextContent) {
+          fail("Full plan content must be a structured object.", {
+            errorCode: "invalid_plan_content",
+            statusCode: 422,
+          });
+        }
+        assertPlanContentAuthoringInput(
+          args.content,
+          nextContent,
+          bundleAtLoad?.plan.content,
+        );
       } catch (error) {
-        if (!(error instanceof z.ZodError)) throw error;
-        fail(error.message, {
-          errorCode: "invalid_plan_content",
-          statusCode: 422,
-        });
+        failInvalidPlanContent(error);
       }
-      if (!nextContent) {
-        fail("Full plan content must be a structured object.", {
-          errorCode: "invalid_plan_content",
-          statusCode: 422,
-        });
-      }
-      assertPlanContentAuthoringInput(
-        args.content,
-        nextContent,
-        bundleAtLoad?.plan.content,
-      );
     }
 
     if (args.content === undefined && args.contentPatches.length > 0) {
@@ -782,10 +785,14 @@ export default defineAction({
           { errorCode: "plan_not_structured", statusCode: 422 },
         );
       }
-      nextContent = applyPlanContentPatches(
-        bundleAtLoad.plan.content,
-        args.contentPatches,
-      );
+      try {
+        nextContent = applyPlanContentPatches(
+          bundleAtLoad.plan.content,
+          args.contentPatches,
+        );
+      } catch (error) {
+        failInvalidPlanContent(error);
+      }
     }
     const normalizedContentAtLoad = bundleAtLoad?.plan.content
       ? storedPlanContentSchema.parse(bundleAtLoad.plan.content)

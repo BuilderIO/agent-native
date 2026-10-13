@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+
 import {
   BlockRegistry,
   prop,
@@ -26,6 +29,7 @@ import {
   PLAN_BLOCK_MAX_DEPTH,
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
+  PlanContentValidationError,
   planContentSchema,
   storedPlanContentSchema,
   type PlanAnnotation,
@@ -33,6 +37,7 @@ import {
   type PlanArtboard,
   type PlanBlock,
   type PlanBoardSection,
+  type PlanColumnsBlock,
   type PlanConnector,
   type PlanContent,
   type PlanLegacyWireframeBlock,
@@ -1067,7 +1072,7 @@ function parsePlanMdxFile(
           ? error.message
           : String(error);
     const location = line && column ? `:${line + lineOffset}:${column}` : "";
-    throw new Error(`${filename}${location}: ${reason}`);
+    throw new PlanContentValidationError(`${filename}${location}: ${reason}`);
   }
 }
 
@@ -1290,26 +1295,37 @@ function parseBlocksFromNodes(
     preserveAuthoringFieldPresence?: boolean;
     salvageInvalidBlocks?: boolean;
     blockDepth?: number;
+    previousBlocks?: PlanBlock[];
   } = {},
 ): PlanBlock[] {
   const parsedNodes: ParsedPlanNode[] = [];
   const looseNodes: MdxNode[] = [];
+  let previousBlockIndex = 0;
   const flushLoose = () => {
     const markdown = stringifyChildren(looseNodes).trim();
     looseNodes.length = 0;
     if (!markdown) return;
     parsedNodes.push({ type: "markdown", markdown });
+    previousBlockIndex += 1;
   };
 
-  for (const [index, child] of (nodes ?? []).entries()) {
+  for (const child of nodes ?? []) {
+    const pendingMarkdown = stringifyChildren(looseNodes).trim();
+    const blockIndex = previousBlockIndex + (pendingMarkdown ? 1 : 0);
+    const sourceIdAttribute = findAttribute(child, "id");
+    const sourceId = stringAttr(child, "id");
+    const previousBlock = sourceIdAttribute
+      ? options.previousBlocks?.find((candidate) => candidate.id === sourceId)
+      : options.previousBlocks?.[blockIndex];
     let block: PlanBlock | null;
     try {
       const parsedBlock = parseBlock(
         child,
-        `${idContext}-${index}`,
+        `${idContext}-${blockIndex}`,
         options.preserveAuthoringFieldPresence,
         options.salvageInvalidBlocks,
         options.blockDepth ?? 0,
+        previousBlock,
       );
       block = parsedBlock
         ? validateAndPreserveAuthoringField(
@@ -1318,23 +1334,36 @@ function parseBlocksFromNodes(
             options.preserveAuthoringFieldPresence === true,
           )
         : parsedBlock;
+      if (block && previousBlock) {
+        block = reuseMatchingNestedBlockIds(block, previousBlock);
+      }
+      if (
+        block &&
+        !sourceIdAttribute &&
+        previousBlock &&
+        samePlanBlockSource(block, previousBlock)
+      ) {
+        block = { ...block, id: previousBlock.id };
+      }
     } catch (error) {
       if (!options.salvageInvalidBlocks) throw error;
       flushLoose();
       parsedNodes.push({
         type: "block",
         block: invalidBlockWarningPlaceholder(
-          stringAttr(child, "id") ?? createPlanBlockId("block"),
+          sourceId ?? createStablePlanSourceId(`${idContext}-${blockIndex}`),
           elementName(child) ?? "unknown",
           stringAttr(child, "title"),
           error,
         ),
       });
+      previousBlockIndex += 1;
       continue;
     }
     if (block) {
       flushLoose();
       parsedNodes.push({ type: "block", block });
+      previousBlockIndex += 1;
     } else {
       looseNodes.push(child);
     }
@@ -1398,6 +1427,261 @@ const requiredAuthoringFieldByBlockType: Partial<
   "annotated-code": "code",
 };
 
+function isLegacyDefault(value: unknown): boolean {
+  return (Array.isArray(value) && value.length === 0) || value === "";
+}
+
+function stripBlockIdsForSourceComparison(
+  current: Record<string, unknown>,
+  previous: Record<string, unknown>,
+): void {
+  if (current.type !== previous.type) return;
+  delete current.id;
+  delete previous.id;
+
+  const type = current.type as PlanBlock["type"];
+  const currentData = current.data as Record<string, unknown> | undefined;
+  const previousData = previous.data as Record<string, unknown> | undefined;
+  if (!currentData || !previousData) return;
+
+  const requiredField = requiredAuthoringFieldByBlockType[type];
+  if (
+    requiredField &&
+    currentData[requiredField] === undefined &&
+    isLegacyDefault(previousData[requiredField])
+  ) {
+    delete currentData[requiredField];
+    delete previousData[requiredField];
+  }
+
+  const nestedKey =
+    type === "tabs" ? "tabs" : type === "columns" ? "columns" : null;
+  if (!nestedKey) return;
+  const currentGroups = currentData[nestedKey];
+  const previousGroups = previousData[nestedKey];
+  if (!Array.isArray(currentGroups) || !Array.isArray(previousGroups)) return;
+
+  for (
+    let index = 0;
+    index < Math.min(currentGroups.length, previousGroups.length);
+    index += 1
+  ) {
+    const currentGroup = currentGroups[index];
+    const previousGroup = previousGroups[index];
+    if (
+      !currentGroup ||
+      typeof currentGroup !== "object" ||
+      !previousGroup ||
+      typeof previousGroup !== "object"
+    ) {
+      continue;
+    }
+    delete (currentGroup as Record<string, unknown>).id;
+    delete (previousGroup as Record<string, unknown>).id;
+    const currentBlocks = (currentGroup as Record<string, unknown>).blocks;
+    const previousBlocks = (previousGroup as Record<string, unknown>).blocks;
+    if (!Array.isArray(currentBlocks) || !Array.isArray(previousBlocks))
+      continue;
+    for (
+      let blockIndex = 0;
+      blockIndex < Math.min(currentBlocks.length, previousBlocks.length);
+      blockIndex += 1
+    ) {
+      const currentBlock = currentBlocks[blockIndex];
+      const previousBlock = previousBlocks[blockIndex];
+      if (
+        currentBlock &&
+        typeof currentBlock === "object" &&
+        previousBlock &&
+        typeof previousBlock === "object"
+      ) {
+        stripBlockIdsForSourceComparison(
+          currentBlock as Record<string, unknown>,
+          previousBlock as Record<string, unknown>,
+        );
+      }
+    }
+  }
+}
+
+function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
+  if (current.type !== previous.type) return false;
+  const currentCopy = JSON.parse(JSON.stringify(current)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(previous)) as Record<
+    string,
+    unknown
+  >;
+  stripBlockIdsForSourceComparison(currentCopy, previousCopy);
+  return isDeepStrictEqual(currentCopy, previousCopy);
+}
+
+function samePlanColumnSource(
+  current: PlanColumnsBlock["data"]["columns"][number],
+  previous: PlanColumnsBlock["data"]["columns"][number],
+): boolean {
+  const currentCopy = JSON.parse(JSON.stringify(current)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(previous)) as Record<
+    string,
+    unknown
+  >;
+  delete currentCopy.id;
+  delete previousCopy.id;
+  const currentBlocks = currentCopy.blocks;
+  const previousBlocks = previousCopy.blocks;
+  if (Array.isArray(currentBlocks) && Array.isArray(previousBlocks)) {
+    for (
+      let index = 0;
+      index < Math.min(currentBlocks.length, previousBlocks.length);
+      index += 1
+    ) {
+      const currentBlock = currentBlocks[index];
+      const previousBlock = previousBlocks[index];
+      if (
+        currentBlock &&
+        typeof currentBlock === "object" &&
+        previousBlock &&
+        typeof previousBlock === "object"
+      ) {
+        stripBlockIdsForSourceComparison(
+          currentBlock as Record<string, unknown>,
+          previousBlock as Record<string, unknown>,
+        );
+      }
+    }
+  }
+  return isDeepStrictEqual(currentCopy, previousCopy);
+}
+
+function samePlanNestedGroupSource(
+  current: Record<string, unknown>,
+  previous: Record<string, unknown>,
+): boolean {
+  const currentCopy = JSON.parse(JSON.stringify(current)) as Record<
+    string,
+    unknown
+  >;
+  const previousCopy = JSON.parse(JSON.stringify(previous)) as Record<
+    string,
+    unknown
+  >;
+  delete currentCopy.id;
+  delete previousCopy.id;
+
+  const currentBlocks = currentCopy.blocks;
+  const previousBlocks = previousCopy.blocks;
+  if (Array.isArray(currentBlocks) && Array.isArray(previousBlocks)) {
+    if (currentBlocks.length !== previousBlocks.length) return false;
+    const blocksMatch = currentBlocks.every((block, index) => {
+      const previousBlock = previousBlocks[index];
+      return (
+        !!block &&
+        typeof block === "object" &&
+        !!previousBlock &&
+        typeof previousBlock === "object" &&
+        samePlanBlockSource(block as PlanBlock, previousBlock as PlanBlock)
+      );
+    });
+    if (!blocksMatch) return false;
+    delete currentCopy.blocks;
+    delete previousCopy.blocks;
+  }
+  return isDeepStrictEqual(currentCopy, previousCopy);
+}
+
+function reuseMatchingNestedBlockIds(
+  current: PlanBlock,
+  previous: PlanBlock,
+): PlanBlock {
+  if (current.type !== previous.type) return current;
+  const nestedKey =
+    current.type === "tabs"
+      ? "tabs"
+      : current.type === "columns"
+        ? "columns"
+        : null;
+  if (!nestedKey) return current;
+
+  const currentData = current.data as Record<string, unknown>;
+  const previousData = previous.data as Record<string, unknown>;
+  const currentGroups = currentData[nestedKey];
+  const previousGroups = previousData[nestedKey];
+  if (!Array.isArray(currentGroups) || !Array.isArray(previousGroups)) {
+    return current;
+  }
+
+  const groups = currentGroups.map((group, groupIndex) => {
+    const previousGroup = previousGroups[groupIndex];
+    if (
+      !group ||
+      typeof group !== "object" ||
+      !previousGroup ||
+      typeof previousGroup !== "object"
+    ) {
+      return group;
+    }
+
+    const currentGroup = group as Record<string, unknown>;
+    const previousGroupRecord = previousGroup as Record<string, unknown>;
+    const currentBlocks = currentGroup.blocks;
+    const previousBlocks = previousGroupRecord.blocks;
+    const blocks =
+      Array.isArray(currentBlocks) && Array.isArray(previousBlocks)
+        ? currentBlocks.map((block, blockIndex) => {
+            const previousBlock = previousBlocks[blockIndex];
+            if (
+              !block ||
+              typeof block !== "object" ||
+              !previousBlock ||
+              typeof previousBlock !== "object"
+            ) {
+              return block;
+            }
+            const currentBlock = block as PlanBlock;
+            const previousNestedBlock = previousBlock as PlanBlock;
+            const hasCurrentId =
+              typeof currentBlock.id === "string" && currentBlock.id;
+            if (
+              (hasCurrentId && currentBlock.id !== previousNestedBlock.id) ||
+              (!hasCurrentId &&
+                !samePlanBlockSource(currentBlock, previousNestedBlock))
+            ) {
+              return block;
+            }
+            return reuseMatchingNestedBlockIds(
+              {
+                ...currentBlock,
+                id: hasCurrentId ? currentBlock.id : previousNestedBlock.id,
+              },
+              previousNestedBlock,
+            );
+          })
+        : currentBlocks;
+
+    const updatedGroup: Record<string, unknown> = {
+      ...currentGroup,
+      ...(Array.isArray(currentBlocks) ? { blocks } : {}),
+    };
+    if (
+      !(typeof currentGroup.id === "string" && currentGroup.id) &&
+      samePlanNestedGroupSource(updatedGroup, previousGroupRecord)
+    ) {
+      updatedGroup.id = previousGroupRecord.id;
+    }
+    return updatedGroup;
+  });
+
+  return {
+    ...current,
+    data: { ...currentData, [nestedKey]: groups },
+  } as PlanBlock;
+}
+
 function validateAndPreserveAuthoringField(
   block: PlanBlock,
   node: MdxNode,
@@ -1420,7 +1704,7 @@ function validateAndPreserveAuthoringField(
       : Array.isArray(fieldValue);
   if (!valid) {
     const expected = field === "code" ? "a string" : "an array";
-    throw new Error(
+    throw new PlanContentValidationError(
       `Plan MDX <${elementName(node) ?? block.type}> attribute "${field}" must resolve to ${expected}.`,
     );
   }
@@ -1444,7 +1728,7 @@ function requiredStringAttr(node: MdxNode, name: string): string | undefined {
   if (!attr) return undefined;
   const value = attributeValue(attr);
   if (typeof value !== "string") {
-    throw new Error(
+    throw new PlanContentValidationError(
       `Wireframe <Screen> attribute "${name}" must resolve to a string, got ${typeof value}. Use a quoted string or a static template literal.`,
     );
   }
@@ -1471,9 +1755,9 @@ function dataAttr<T>(node: MdxNode, name: string): T | undefined {
   return value && typeof value === "object" ? (value as T) : undefined;
 }
 
-function baseBlock(node: MdxNode) {
+function baseBlock(node: MdxNode, idContext: string) {
   return {
-    id: stringAttr(node, "id") ?? createPlanBlockId("block"),
+    id: stringAttr(node, "id") ?? createStablePlanSourceId(idContext),
     title: stringAttr(node, "title"),
     summary: stringAttr(node, "summary"),
     editable: boolAttr(node, "editable"),
@@ -1548,6 +1832,7 @@ function parseBlock(
   preserveAuthoringFieldPresence = false,
   salvageInvalidBlocks = false,
   blockDepth = 0,
+  previousBlock?: PlanBlock,
 ): PlanBlock | null {
   const rawName = elementName(node);
   const dispatchNode: MdxNode = rawName
@@ -1557,7 +1842,9 @@ function parseBlock(
   node = dispatchNode;
   if (name === "Columns") {
     if (blockDepth >= PLAN_BLOCK_MAX_DEPTH) {
-      throw new Error(`Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`);
+      throw new PlanContentValidationError(
+        `Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`,
+      );
     }
     const parsed = parseReadableColumnsBlock(
       node,
@@ -1565,16 +1852,17 @@ function parseBlock(
       preserveAuthoringFieldPresence,
       salvageInvalidBlocks,
       blockDepth,
+      previousBlock,
     );
     if (parsed) return parsed;
   }
   if (name && WIREFRAME_ONLY_COMPONENTS.has(name)) {
-    throw new Error(
+    throw new PlanContentValidationError(
       `Malformed wireframe: <${name}> must be nested inside a <WireframeBlock> (plan.mdx) or <Artboard> (canvas.mdx), not used as a standalone block.`,
     );
   }
   if (name && planMdxRegistry.hasTag(name)) {
-    const base = baseBlock(node);
+    const base = baseBlock(node, idContext);
     const parsed = parseSpecBlock(
       planMdxRegistry,
       node as unknown as MdxJsxNode,
@@ -1599,7 +1887,7 @@ function parseBlock(
       const known = knownBlockTags().join(", ");
       const suggestion = suggestBlockTag(rawName);
       const hint = suggestion ? ` Did you mean <${suggestion}>?` : "";
-      throw new Error(
+      throw new PlanContentValidationError(
         `Unknown plan block <${rawName}> (plan.mdx).${hint} Known blocks: ${known}. ` +
           `If you meant a different block, use its exact tag. Lowercase HTML tags ` +
           `inside RichText are fine; capitalized component tags must be real blocks.`,
@@ -1607,7 +1895,7 @@ function parseBlock(
     }
     return null;
   }
-  const base = baseBlock(node);
+  const base = baseBlock(node, idContext);
   if (name === "RichText") {
     return {
       ...base,
@@ -1752,32 +2040,55 @@ function parseReadableColumnsBlock(
   preserveAuthoringFieldPresence = false,
   salvageInvalidBlocks = false,
   blockDepth = 0,
+  previousBlock?: PlanBlock,
 ): PlanBlock | null {
   const columnNodes = (node.children ?? []).filter(
     (child) => elementName(child) === "Column",
   );
   if (columnNodes.length === 0) return null;
-  const base = baseBlock(node);
+  const base = baseBlock(node, idContext);
+  const previousColumns =
+    previousBlock?.type === "columns" ? previousBlock.data.columns : [];
   return {
     ...base,
     type: "columns",
     data: {
       columns: columnNodes.map((column, index) => {
+        const sourceId = stringAttr(column, "id");
         const id =
-          stringAttr(column, "id") ?? createPlanBlockId(`column-${index + 1}`);
-        return {
-          id,
-          label: stringAttr(column, "label")?.trim() || undefined,
-          blocks: parseBlocksFromNodes(
-            column.children,
-            `${idContext}-${base.id}-${id}`,
+          sourceId ??
+          createStablePlanSourceId(`${idContext}-${base.id}-column-${index}`);
+        const previousColumn = sourceId
+          ? previousColumns.find((candidate) => candidate.id === sourceId)
+          : previousColumns[index];
+        const blocks = parseBlocksFromNodes(
+          column.children,
+          `${idContext}-${base.id}-${id}`,
+          {
+            firstMarkdownBlockId: stringAttr(column, "contentId"),
+            preserveAuthoringFieldPresence,
+            salvageInvalidBlocks,
+            blockDepth: blockDepth + 1,
+            previousBlocks: previousColumn?.blocks,
+          },
+        );
+        const columnId =
+          !sourceId &&
+          previousColumn &&
+          samePlanColumnSource(
             {
-              firstMarkdownBlockId: stringAttr(column, "contentId"),
-              preserveAuthoringFieldPresence,
-              salvageInvalidBlocks,
-              blockDepth: blockDepth + 1,
+              id,
+              label: stringAttr(column, "label")?.trim() || undefined,
+              blocks,
             },
-          ),
+            previousColumn,
+          )
+            ? previousColumn.id
+            : id;
+        return {
+          id: columnId,
+          label: stringAttr(column, "label")?.trim() || undefined,
+          blocks,
         };
       }),
     },
@@ -1817,6 +2128,10 @@ function createStableWireframeNodeId(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+}
+
+function createStablePlanSourceId(context: string): string {
+  return `source-${createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
 }
 
 function parseWireframeNode(
@@ -1866,6 +2181,7 @@ export async function parsePlanMdxFolder(
     preserveAuthoringFieldPresence:
       options.validateAuthoringChangesAgainst !== undefined,
     salvageInvalidBlocks: options.salvageInvalidBlocks,
+    previousBlocks: options.validateAuthoringChangesAgainst?.blocks,
   });
 
   const canvas = files["canvas.mdx"]
@@ -1913,7 +2229,9 @@ export async function parsePlanMdxFolder(
     salvageInvalidBlocks: options.salvageInvalidBlocks,
   });
   if (!normalized)
-    throw new Error("MDX source did not parse into valid plan content.");
+    throw new PlanContentValidationError(
+      "MDX source did not parse into valid plan content.",
+    );
   return normalized;
 }
 
@@ -2105,7 +2423,9 @@ function parsePlanState(source: string | undefined) {
   try {
     return planMdxStateSchema.parse(JSON.parse(source));
   } catch {
-    throw new Error(".plan-state.json is not valid visual plan state.");
+    throw new PlanContentValidationError(
+      ".plan-state.json is not valid visual plan state.",
+    );
   }
 }
 
