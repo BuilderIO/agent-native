@@ -2866,6 +2866,63 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("preserves the shared Google grant when BigQuery needs reauthorization", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "vault-google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "vault-google-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "google-account-1",
+        displayName: "Analyst Google",
+        tokens: {
+          access_token: "expired-google-access-token",
+          refresh_token: "invalid-google-refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "bigquery-connection-1",
+        label: "Analyst Google",
+        accountId: "google-account-1",
+        ownerEmail: "ada@example.com",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "invalid_grant" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const failure = await resolveProviderApiOAuthAccessToken(
+      { provider: "bigquery", connectionId: "bigquery-connection-1" },
+      {
+        appId: "analytics",
+        providerIds: ["bigquery"],
+        getCredentialContext: () => credentialContext,
+      },
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "bigquery",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
   it("catalogs the Google Slides read-only provider", async () => {
     const runtime = createProviderApiRuntime({
       appId: "creative-context",

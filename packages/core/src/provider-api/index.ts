@@ -4682,13 +4682,35 @@ async function resolveOAuthBearerToken(options: {
     );
   }
   const tokens = account.tokens as OAuthTokens;
-  const token = await getValidOAuthAccessToken({
-    oauthProvider: options.auth.oauthProvider,
-    accountId: account.accountId,
-    ownerEmail,
-    tokens,
-    salesforceLoginUrl: options.salesforceLoginUrl,
-  });
+  const preserveSharedGoogleGrant =
+    options.auth.oauthProvider === "google" &&
+    Boolean(options.auth.workspaceProvider);
+  let token: string;
+  try {
+    token = await getValidOAuthAccessToken({
+      oauthProvider: options.auth.oauthProvider,
+      accountId: account.accountId,
+      ownerEmail,
+      tokens,
+      preserveTokensOnPermanentFailure: preserveSharedGoogleGrant,
+      salesforceLoginUrl: options.salesforceLoginUrl,
+    });
+  } catch (error) {
+    if (
+      preserveSharedGoogleGrant &&
+      options.auth.workspaceProvider &&
+      isPermanentGoogleOAuthRefreshFailure(error)
+    ) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.auth.workspaceProvider,
+        connectionId: options.connectionId,
+        message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+        reason: "reauthorize",
+      });
+    }
+    throw error;
+  }
   return {
     key: `${options.auth.oauthProvider.toUpperCase()}_OAUTH_TOKEN`,
     value: token,

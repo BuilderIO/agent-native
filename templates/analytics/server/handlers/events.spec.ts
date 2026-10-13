@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getBigQueryAccessToken: vi.fn(),
   getCredentialContextFromEvent: vi.fn(),
   readBody: vi.fn(),
   resolveCredential: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock("../lib/bigquery", () => ({
   }),
 }));
 vi.mock("../lib/gcloud", () => ({
-  getBigQueryAccessToken: async () => "token",
+  getBigQueryAccessToken: mocks.getBigQueryAccessToken,
 }));
 
 import { resetAppConfigForTests } from "@agent-native/core/app-config";
@@ -45,6 +46,8 @@ describe("handleTrackEvent", () => {
       userEmail: "real@example.com",
       orgId: null,
     });
+    mocks.getBigQueryAccessToken.mockReset();
+    mocks.getBigQueryAccessToken.mockResolvedValue("token");
     mocks.resolveCredential.mockReset();
     mocks.resolveCredential.mockResolvedValue(undefined);
     mocks.resolveAnalyticsProviderCredential.mockReset();
@@ -114,6 +117,42 @@ describe("handleTrackEvent", () => {
     await handleTrackEvent({} as any);
 
     expect(mocks.resolveCredential).toHaveBeenCalledTimes(4);
+    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the resolved BigQuery OAuth grant for event inserts", async () => {
+    const oauthCredential = {
+      value: "user-google-token",
+      key: "BIGQUERY_OAUTH_TOKEN",
+      provider: "bigquery",
+      source: "workspace_connection",
+    };
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "BIGQUERY_PROJECT_ID" ? "test-project" : undefined,
+    );
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValueOnce(
+      oauthCredential,
+    );
+    mocks.readBody.mockResolvedValueOnce({
+      event: "page_view",
+      userId: "real@example.com",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}")),
+    );
+
+    try {
+      await handleTrackEvent({} as any);
+
+      expect(mocks.getBigQueryAccessToken).toHaveBeenCalledWith({
+        projectId: "test-project",
+        oauthCredential,
+      });
+      expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   describe("a retained exception", () => {

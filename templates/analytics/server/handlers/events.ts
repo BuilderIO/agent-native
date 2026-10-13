@@ -124,7 +124,7 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
             );
             if ((!credentials && !oauthCredential) || !projectId) return null;
             const [token, table] = await Promise.all([
-              getBigQueryAccessToken(),
+              getBigQueryAccessToken({ projectId, oauthCredential }),
               getAppEventsTable(projectId, ctx),
             ]);
             return { token, table };

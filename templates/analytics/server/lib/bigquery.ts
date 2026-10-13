@@ -221,7 +221,7 @@ export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const token = await getBigQueryAccessToken(signal);
+  const token = await getBigQueryAccessToken({ signal });
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1038,7 +1038,7 @@ export async function dryRunQuerySchema(
       appEventsTable,
       options.signal,
     );
-    token = await getBigQueryAccessToken(options.signal);
+    token = await getBigQueryAccessToken({ signal: options.signal });
   } catch (error) {
     if (
       options.signal?.aborted ||
@@ -1188,7 +1188,7 @@ export async function runQuery(
   let token: string | null = null;
   let cancelJob = false;
   try {
-    token = await getBigQueryAccessToken(signal);
+    token = await getBigQueryAccessToken({ signal });
     throwIfAborted(signal);
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();

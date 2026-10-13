@@ -123,4 +123,24 @@ describe("getBigQueryAccessToken", () => {
       ctx: {},
     });
   });
+
+  it("reuses resolved project and OAuth credentials", async () => {
+    vi.mocked(resolveCredential).mockReset();
+    resolveAnalyticsProviderCredential.mockReset();
+    const oauthCredential = {
+      value: "user-google-token",
+      key: "BIGQUERY_OAUTH_TOKEN",
+      provider: "bigquery",
+      source: "workspace_connection" as const,
+    };
+
+    await expect(
+      getBigQueryAccessToken({
+        projectId: "test-project",
+        oauthCredential,
+      }),
+    ).resolves.toBe("user-google-token");
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(resolveAnalyticsProviderCredential).not.toHaveBeenCalled();
+  });
 });

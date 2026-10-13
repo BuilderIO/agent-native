@@ -4,7 +4,10 @@ import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
-import { resolveAnalyticsProviderCredential } from "./provider-credentials";
+import {
+  resolveAnalyticsProviderCredential,
+  type AnalyticsProviderCredential,
+} from "./provider-credentials";
 import { signRs256Jwt } from "./sign-jwt";
 
 async function getProjectId(): Promise<string> {
@@ -303,24 +306,34 @@ export async function getAccessToken(signal?: AbortSignal): Promise<string> {
 }
 
 export async function getBigQueryAccessToken(
-  signal?: AbortSignal,
+  options: {
+    signal?: AbortSignal;
+    projectId?: string;
+    oauthCredential?: AnalyticsProviderCredential | null;
+  } = {},
 ): Promise<string> {
+  const { signal } = options;
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
-  const projectId = await raceWithAbort(
-    resolveCredential("BIGQUERY_PROJECT_ID", ctx),
-    signal,
-  );
+  const projectId =
+    options.projectId ??
+    (await raceWithAbort(
+      resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+      signal,
+    ));
   throwIfSignalAborted(signal);
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
 
-  const oauthCredential = await raceWithAbort(
-    resolveAnalyticsProviderCredential({
-      provider: "bigquery",
-      keys: [],
-      ctx,
-    }),
-    signal,
-  );
+  const oauthCredential =
+    options.oauthCredential === undefined
+      ? await raceWithAbort(
+          resolveAnalyticsProviderCredential({
+            provider: "bigquery",
+            keys: [],
+            ctx,
+          }),
+          signal,
+        )
+      : options.oauthCredential;
   if (oauthCredential) return oauthCredential.value;
 
   return getAccessToken(signal);
