@@ -591,7 +591,7 @@ function activeMemberPhrasePolarity(search: string): {
 } {
   const intent = stripNonPositiveInstructions(search);
   const activeMemberPhrase =
-    /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/gi;
+    /\b(?:active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)|(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?active)\b/gi;
   const negativeInstructionBeforePhrase =
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
   const negatedRemovalBeforePhrase =

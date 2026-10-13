@@ -300,39 +300,45 @@ describe("analytics query catalog", () => {
     ).toEqual(["daily-refreshed-current-workspace-roles"]);
   });
 
-  it("uses an active-only membership source when the request explicitly asks for active members", () => {
-    const results = rankAnalyticsQueryCatalog({
-      search: "list active workspace members with roles",
-      limit: 6,
-      dashboards: [],
-      dictionaryEntries: [
-        {
-          id: "active-members-by-workspace",
-          metric: "Active members by workspace",
-          definition:
-            "Current active members associated with each workspace, with their role and membership grain.",
-          table: "active_members_by_workspace",
-          columnsUsed: "user_id, workspace_id, role",
-          grain: "One row per user-workspace membership",
-          semanticScope: "membership",
-        },
-        {
-          id: "all-workspace-members",
-          metric: "Workspace member roles",
-          definition: "Current roles for all workspace memberships.",
-          table: "workspace_member_roles",
-          columnsUsed: "user_id, workspace_id, role",
-          grain: "One row per user-workspace membership",
-          semanticScope: "membership",
-        },
-      ],
-    });
+  it.each([
+    "list active workspace members with roles",
+    "list workspace members who are active with roles",
+  ])(
+    "uses an active-only membership source when the request explicitly asks for active members: %s",
+    (search) => {
+      const results = rankAnalyticsQueryCatalog({
+        search,
+        limit: 6,
+        dashboards: [],
+        dictionaryEntries: [
+          {
+            id: "active-members-by-workspace",
+            metric: "Active members by workspace",
+            definition:
+              "Current active members associated with each workspace, with their role and membership grain.",
+            table: "active_members_by_workspace",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+          },
+          {
+            id: "all-workspace-members",
+            metric: "Workspace member roles",
+            definition: "Current roles for all workspace memberships.",
+            table: "workspace_member_roles",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+          },
+        ],
+      });
 
-    expect(results[0]).toMatchObject({
-      kind: "data-dictionary",
-      id: "active-members-by-workspace",
-    });
-  });
+      expect(results[0]).toMatchObject({
+        kind: "data-dictionary",
+        id: "active-members-by-workspace",
+      });
+    },
+  );
 
   it("keeps active-only aggregate metrics eligible for non-roster searches", () => {
     const results = rankAnalyticsQueryCatalog({

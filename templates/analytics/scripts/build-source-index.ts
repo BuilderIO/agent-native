@@ -2986,7 +2986,9 @@ function modelEntries(
       ? [`Columns: ${columnDefinitions.join("; ")}`]
       : []),
   ];
-  const definition = boundedExcerpt(definitionParts.join(" "), 5_000);
+  const fullDefinition = definitionParts.join(" ");
+  const definition = boundedExcerpt(fullDefinition, 5_000);
+  if (fullDefinition.length > 5_000) scanSummary.truncatedFields += 1;
   const columnNames = columns.map((column) => column.name);
   const columnsUsed = boundedList(columnNames, 10_000, ", ", scanSummary);
   const modelGotchas = [

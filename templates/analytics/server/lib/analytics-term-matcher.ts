@@ -330,7 +330,15 @@ export function stripNonPositiveInstructions(value: string): string {
       /\band\s+(?!(?:no|not|never|without|don't|do\s+not|avoid)\b)(?:(?:a|an|the|my|your|his|her|its|our|their|this|that|these|those|all|both|each|some|any)\s+)?[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+){0,2}(?=\s+(?:but|and)\b|$)/iu.exec(
         match,
       );
-    const continuation = [actionContinuation, nounPhraseContinuation]
+    const qualifierContinuation =
+      /\b(?:by|with|for|from|per|at|in|on|over|across|between)\s+(?!(?:no|not|never|without|don't|do\s+not|avoid)\b)[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+){0,2}/iu.exec(
+        match,
+      );
+    const continuation = [
+      actionContinuation,
+      nounPhraseContinuation,
+      qualifierContinuation,
+    ]
       .filter((candidate): candidate is RegExpExecArray => candidate !== null)
       .sort((left, right) => left.index - right.index)[0];
     return continuation ? ` ${match.slice(continuation.index).trim()}` : " ";
@@ -343,7 +351,7 @@ export function stripNonPositiveInstructions(value: string): string {
       " ",
     )
     .replace(
-      /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*(?:with\s+)?no\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*(?:with\s+)?\bno\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
       keepPositiveContinuation,
     )
     .replace(

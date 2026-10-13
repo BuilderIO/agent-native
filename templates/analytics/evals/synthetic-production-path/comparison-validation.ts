@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 const CSV_COLUMNS = [
   "case_id",
   "phase",

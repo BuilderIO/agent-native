@@ -800,6 +800,15 @@ describe("compileSourceIndex", () => {
         "  - name: long_model",
         "    description: >",
         `      ${"Business context ".repeat(200)}`,
+        "  - name: long_column_model",
+        "    description: Short model summary.",
+        "    columns:",
+        "      - name: first_column",
+        "        description: " + "Column context ".repeat(120),
+        "      - name: second_column",
+        "        description: " + "Column context ".repeat(120),
+        "      - name: third_column",
+        "        description: " + "Column context ".repeat(120),
       ].join("\n"),
     );
 
@@ -813,6 +822,9 @@ describe("compileSourceIndex", () => {
     const longModel = bundle.entries.find(
       (entry) => entry.metric === "model:long_model",
     );
+    const longColumnModel = bundle.entries.find(
+      (entry) => entry.metric === "model:long_column_model",
+    );
 
     expect(validModel?.status).toBe("active");
     expect(validModel?.definition).toContain(
@@ -824,16 +836,19 @@ describe("compileSourceIndex", () => {
     expect(longModel?.definition).toContain(
       "definition excerpt truncated; inspect source",
     );
+    expect(longColumnModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
     expect(bundle.scanSummary).toMatchObject({
       unsafeEntriesOmitted: 1,
-      truncatedFields: 1,
+      truncatedFields: 2,
     });
     expect(sourceIndexBundleSchema.parse(bundle).scanSummary).toEqual(
       bundle.scanSummary,
     );
   });
 
-  it("counts dbt column and dependency list omissions in scan coverage", async () => {
+  it("counts dbt definition, column, and dependency truncations in scan coverage", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
     await mkdir(path.join(dbtRoot, "models"), { recursive: true });
@@ -870,9 +885,12 @@ describe("compileSourceIndex", () => {
       (entry) => entry.metric === "model:wide_model",
     );
 
+    expect(model?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
     expect(model?.columnsUsed).toContain("additional entries omitted");
     expect(model?.dependencies).toContain("additional entries omitted");
-    expect(bundle.scanSummary.truncatedFields).toBe(2);
+    expect(bundle.scanSummary.truncatedFields).toBe(3);
   });
 
   it("fails loudly on a malformed quoted dbt YAML scalar", async () => {
