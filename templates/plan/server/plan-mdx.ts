@@ -23,9 +23,11 @@ import {
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import {
   assertPlanContentAuthoringChanges,
+  PLAN_BLOCK_MAX_DEPTH,
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanAnnotation,
   type PlanAnnotationPlacement,
   type PlanArtboard,
@@ -1287,6 +1289,7 @@ function parseBlocksFromNodes(
     markdownBlocks?: MarkdownBlockState[];
     preserveAuthoringFieldPresence?: boolean;
     salvageInvalidBlocks?: boolean;
+    blockDepth?: number;
   } = {},
 ): PlanBlock[] {
   const parsedNodes: ParsedPlanNode[] = [];
@@ -1305,6 +1308,8 @@ function parseBlocksFromNodes(
         child,
         `${idContext}-${index}`,
         options.preserveAuthoringFieldPresence,
+        options.salvageInvalidBlocks,
+        options.blockDepth ?? 0,
       );
       block = parsedBlock
         ? validateAndPreserveAuthoringField(
@@ -1541,6 +1546,8 @@ function parseBlock(
   node: MdxNode,
   idContext = "block",
   preserveAuthoringFieldPresence = false,
+  salvageInvalidBlocks = false,
+  blockDepth = 0,
 ): PlanBlock | null {
   const rawName = elementName(node);
   const dispatchNode: MdxNode = rawName
@@ -1549,10 +1556,15 @@ function parseBlock(
   const name = dispatchNode.name;
   node = dispatchNode;
   if (name === "Columns") {
+    if (blockDepth >= PLAN_BLOCK_MAX_DEPTH) {
+      throw new Error(`Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`);
+    }
     const parsed = parseReadableColumnsBlock(
       node,
       idContext,
       preserveAuthoringFieldPresence,
+      salvageInvalidBlocks,
+      blockDepth,
     );
     if (parsed) return parsed;
   }
@@ -1738,6 +1750,8 @@ function parseReadableColumnsBlock(
   node: MdxNode,
   idContext: string,
   preserveAuthoringFieldPresence = false,
+  salvageInvalidBlocks = false,
+  blockDepth = 0,
 ): PlanBlock | null {
   const columnNodes = (node.children ?? []).filter(
     (child) => elementName(child) === "Column",
@@ -1760,6 +1774,8 @@ function parseReadableColumnsBlock(
             {
               firstMarkdownBlockId: stringAttr(column, "contentId"),
               preserveAuthoringFieldPresence,
+              salvageInvalidBlocks,
+              blockDepth: blockDepth + 1,
             },
           ),
         };
@@ -1905,13 +1921,47 @@ function salvageInvalidAuthoringBlocks(
   content: PlanContent,
   previous: PlanContent | null | undefined,
 ): PlanContent {
-  const blocks = content.blocks.map((block) => {
+  const blocks = salvageAuthoringBlockList(
+    content.blocks,
+    content.version,
+    previous,
+    0,
+  );
+  return { ...content, blocks };
+}
+
+function salvageAuthoringBlockList(
+  blocks: PlanBlock[],
+  version: number,
+  previous: PlanContent | null | undefined,
+  depth: number,
+): PlanBlock[] {
+  return blocks.map((block) => {
+    const nested = salvageNestedAuthoringBlocks(
+      block,
+      version,
+      previous,
+      depth,
+    );
+    const validationSchema = previous
+      ? storedPlanContentSchema
+      : planContentSchema;
+    const result = validationSchema.safeParse({ version, blocks: [nested] });
+    if (!result.success) {
+      return invalidBlockWarningPlaceholder(
+        block.id,
+        block.type,
+        block.title,
+        result.error,
+      );
+    }
+
     try {
       assertPlanContentAuthoringChanges(
-        { version: content.version, blocks: [block] },
+        { version, blocks: [nested] },
         previous,
       );
-      return block;
+      return nested;
     } catch (error) {
       if (
         previous &&
@@ -1932,7 +1982,67 @@ function salvageInvalidAuthoringBlocks(
       );
     }
   });
-  return { ...content, blocks };
+}
+
+function salvageNestedAuthoringBlocks(
+  block: PlanBlock,
+  version: number,
+  previous: PlanContent | null | undefined,
+  depth: number,
+): PlanBlock {
+  const record = block as unknown as Record<string, unknown>;
+  const data = record.data;
+  if (!data || typeof data !== "object") return block;
+  const nestedKey =
+    record.type === "tabs"
+      ? "tabs"
+      : record.type === "columns"
+        ? "columns"
+        : null;
+  if (!nestedKey) return block;
+
+  const nestedData = data as Record<string, unknown>;
+  const groups = nestedData[nestedKey];
+  if (!Array.isArray(groups)) return block;
+  if (depth >= PLAN_BLOCK_MAX_DEPTH && hasNestedBlocks(groups)) {
+    return invalidBlockWarningPlaceholder(
+      block.id,
+      block.type,
+      block.title,
+      new Error(`Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`),
+    );
+  }
+
+  return {
+    ...block,
+    data: {
+      ...nestedData,
+      [nestedKey]: groups.map((group) => {
+        if (!group || typeof group !== "object") return group;
+        const groupRecord = group as Record<string, unknown>;
+        if (!Array.isArray(groupRecord.blocks)) return group;
+        return {
+          ...groupRecord,
+          blocks: salvageAuthoringBlockList(
+            groupRecord.blocks as PlanBlock[],
+            version,
+            previous,
+            depth + 1,
+          ),
+        };
+      }),
+    },
+  } as PlanBlock;
+}
+
+function hasNestedBlocks(groups: unknown[]): boolean {
+  return groups.some(
+    (group) =>
+      !!group &&
+      typeof group === "object" &&
+      Array.isArray((group as Record<string, unknown>).blocks) &&
+      ((group as Record<string, unknown>).blocks as unknown[]).length > 0,
+  );
 }
 
 function parsePrototype(tree: MdxNode): PlanPrototype | undefined {

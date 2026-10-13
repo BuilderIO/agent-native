@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   state,
   updateMock,
+  insertMock,
   assertPlanEditorMock,
   createPlanVersionSnapshotMock,
   writeEventMock,
 } = vi.hoisted(() => ({
   state: { content: null as unknown },
   updateMock: vi.fn(),
+  insertMock: vi.fn(),
   assertPlanEditorMock: vi.fn(),
   createPlanVersionSnapshotMock: vi.fn(),
   writeEventMock: vi.fn(),
@@ -30,7 +32,10 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ update: (...args: unknown[]) => updateMock(...args) }),
+  getDb: () => ({
+    insert: (...args: unknown[]) => insertMock(...args),
+    update: (...args: unknown[]) => updateMock(...args),
+  }),
   schema: { plans: { id: "plans.id", updatedAt: "plans.updatedAt" } },
 }));
 
@@ -129,6 +134,11 @@ describe("import-visual-plan-source stored legacy defaults", () => {
   beforeEach(() => {
     state.content = legacyContent();
     updateMock.mockReset();
+    insertMock.mockReset().mockImplementation(() => ({
+      values: async (values: { content: string }) => {
+        state.content = JSON.parse(values.content);
+      },
+    }));
     updateMock.mockImplementation(() => ({
       set: (values: { content?: string }) => ({
         where: async () => {
@@ -175,6 +185,41 @@ describe("import-visual-plan-source stored legacy defaults", () => {
 
     await expect(runAction({ mdx })).rejects.toMatchObject({ statusCode: 422 });
     expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("salvages missing required fields when creating recap imports", async () => {
+    const result = await runAction({
+      kind: "recap",
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "Review recap"',
+          'kind: "recap"',
+          "version: 2",
+          "---",
+          "",
+          '<Checklist id="missing-items" />',
+          "",
+          "The review completed.",
+        ].join("\n"),
+      },
+    });
+
+    expect(result).toMatchObject({ planId: "new-plan" });
+    expect(insertMock).toHaveBeenCalledOnce();
+    expect(state.content).toMatchObject({
+      blocks: [
+        {
+          id: "missing-items",
+          type: "callout",
+          data: { tone: "warning" },
+        },
+        {
+          type: "rich-text",
+          data: { markdown: "The review completed." },
+        },
+      ],
+    });
   });
 
   it("keeps hosted replacements strict when the stored content is null", async () => {

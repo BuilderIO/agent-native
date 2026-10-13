@@ -943,7 +943,7 @@ const elNameSchema = z.enum([
 
 const WIREFRAME_MAX_DEPTH = 8;
 const WIREFRAME_MAX_NODES = 400;
-const PLAN_BLOCK_MAX_DEPTH = 40;
+export const PLAN_BLOCK_MAX_DEPTH = 40;
 const PLAN_BLOCK_MAX_VISITS = 5_000;
 
 const wireframeNodeSchema: z.ZodType<PlanWireframeNode> = z.lazy(() =>

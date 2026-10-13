@@ -950,6 +950,77 @@ describe("plan MDX round-trip fidelity per block type", () => {
     expect(after.data.markdown).toBe("New generated form");
   });
 
+  it("salvages an invalid nested readable-column block and keeps its siblings", async () => {
+    const result = await parsePlanMdxFolder(
+      {
+        "plan.mdx": [
+          "---",
+          'title: "Readable columns"',
+          "version: 2",
+          "---",
+          "",
+          '<Columns id="columns">',
+          '  <Column id="left">',
+          "    Before the issue.",
+          '    <Checklist id="broken" items={42} />',
+          "    After the issue.",
+          "  </Column>",
+          "</Columns>",
+        ].join("\n"),
+      },
+      { salvageInvalidBlocks: true },
+    );
+    const columns = findBlock(result, "columns");
+    if (columns?.type !== "columns") throw new Error("expected columns");
+
+    const children = columns.data.columns[0]?.blocks ?? [];
+    expect(children.map((block) => block.type)).toEqual([
+      "rich-text",
+      "callout",
+      "rich-text",
+    ]);
+    expect(children[0]?.data).toMatchObject({
+      markdown: "Before the issue.",
+    });
+    expect(children[1]).toMatchObject({
+      id: "broken",
+      data: { tone: "warning" },
+    });
+    expect(children[2]?.data).toMatchObject({
+      markdown: "After the issue.",
+    });
+  });
+
+  it("salvages authoring-invalid blocks inside tabs without replacing the tab", async () => {
+    const result = await parsePlanMdxFolder(
+      {
+        "plan.mdx": [
+          "---",
+          'title: "Tabs recap"',
+          "version: 2",
+          "---",
+          "",
+          '<TabsBlock id="tabs" tabs={[{"id":"details","label":"Details","blocks":[{"id":"missing-items","type":"checklist","data":{}},{"id":"valid","type":"rich-text","data":{"markdown":"Kept text."}}]}]} />',
+        ].join("\n"),
+      },
+      {
+        salvageInvalidBlocks: true,
+        validateAuthoringChangesAgainst: null,
+      },
+    );
+    const tabs = findBlock(result, "tabs");
+    if (tabs?.type !== "tabs") throw new Error("expected tabs");
+
+    expect(tabs.data.tabs[0]?.blocks).toMatchObject([
+      { id: "missing-items", type: "callout", data: { tone: "warning" } },
+      {
+        id: "valid",
+        type: "rich-text",
+        data: { markdown: "Kept text." },
+      },
+    ]);
+  });
+
   it("visual-questions: round-trips questions, options, embedded wireframe/diagram", async () => {
     const content: PlanContent = {
       version: 2,
