@@ -391,6 +391,42 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it.each(["do not exclude active members", "do not skip active members"])(
+    "keeps active-only membership sources when explicitly retained: %s",
+    (search) => {
+      const results = rankAnalyticsQueryCatalog({
+        search,
+        limit: 6,
+        dashboards: [],
+        dictionaryEntries: [
+          {
+            id: "active-members-by-workspace",
+            metric: "Active workspace members",
+            definition: "A filtered list of active workspace memberships.",
+            table: "active_members_by_workspace",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+          },
+          {
+            id: "all-workspace-members",
+            metric: "Workspace member roles",
+            definition: "Current roles for all workspace memberships.",
+            table: "workspace_member_roles",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+          },
+        ],
+      });
+
+      expect(results[0]).toMatchObject({
+        kind: "data-dictionary",
+        id: "active-members-by-workspace",
+      });
+    },
+  );
+
   it.each([
     "not active workspace members",
     "exclude active workspace members",

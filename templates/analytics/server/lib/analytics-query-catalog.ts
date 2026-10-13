@@ -588,6 +588,8 @@ function activeMemberPhrasePolarity(search: string): {
     /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/gi;
   const negativeInstructionBeforePhrase =
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+  const negatedExclusionBeforePhrase =
+    /\b(?:do\s+not|don't|never|cannot|can't)\s+(?:exclude|skip|omit|remove|filter(?:\s+out)?|leave\s+out)\s+(?:(?:all|any|the|those)\s+)?$/iu;
   const negativeInstructionAfterPhrase =
     /^\s*(?:(?:are|were|will be|should be|must be|need to be|have been)\s+)?(?:excluded|omitted|removed|left\s+out|filtered\s+out|not\s+included)\b/iu;
   const positiveContinuation =
@@ -601,7 +603,12 @@ function activeMemberPhrasePolarity(search: string): {
     const scopedPrefix = lastContinuation
       ? prefix.slice((lastContinuation.index ?? 0) + lastContinuation[0].length)
       : prefix;
-    if (negativeInstructionBeforePhrase.test(scopedPrefix)) return true;
+    if (
+      negativeInstructionBeforePhrase.test(scopedPrefix) &&
+      !negatedExclusionBeforePhrase.test(scopedPrefix)
+    ) {
+      return true;
+    }
     const end = (match.index ?? 0) + match[0].length;
     return negativeInstructionAfterPhrase.test(intent.slice(end));
   };

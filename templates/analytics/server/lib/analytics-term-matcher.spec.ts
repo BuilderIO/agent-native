@@ -95,6 +95,8 @@ describe("Analytics term matching", () => {
       "membership",
     );
     expect(semanticScopeForSearch("active workspace users")).toBe("membership");
+    expect(semanticScopeForSearch("active organizations")).toBe("organization");
+    expect(semanticScopeForSearch("active users")).toBe("product_activity");
     expect(semanticScopeForSearch("workspace member roles")).toBe(
       "membership_roster",
     );

@@ -303,7 +303,13 @@ export function semanticScopeForSearch(value: string): string {
   ) {
     return "membership";
   }
-  if (has("active")) return "product_activity";
+  if (
+    has("active") &&
+    has("user", "person", "people") &&
+    !has("organization", "org", "company", "workspace", "team")
+  ) {
+    return "product_activity";
+  }
   if (has("builder", "product") && has("user", "person", "people", "member")) {
     return "product_user";
   }
