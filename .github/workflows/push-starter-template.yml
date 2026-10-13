@@ -1,15 +1,17 @@
 name: Push Builder Code starter template to starter
 
+# Runs only after a stable publish, from the release commit. Building from main
+# HEAD paired unreleased template changes (scripts calling new CLI commands)
+# with the previous published core, breaking every app scaffolded in between.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "templates/chat/**"
-      - "packages/core/src/templates/builder-code-starter/**"
-      - ".github/workflows/push-starter-template.yml"
   repository_dispatch:
     types: [agent-native-packages-published]
   workflow_dispatch:
+    inputs:
+      core_version:
+        description: "Published @agent-native/core version to mirror (default: npm latest)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -23,9 +25,34 @@ jobs:
     name: Materialize and push template branch
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the release commit
+        id: source
+        env:
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          INPUT_VERSION: ${{ inputs.core_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DISPATCH_SHA:-}" ]; then
+            if ! [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Dispatch sha is not a full commit SHA: ${DISPATCH_SHA}"
+              exit 1
+            fi
+            echo "ref=${DISPATCH_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ]; then
+            version="$(npm view @agent-native/core version --prefer-online)"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Not a stable core version: ${version}"
+            exit 1
+          fi
+          echo "ref=refs/tags/@agent-native/core@${version}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: main
+          ref: ${{ steps.source.outputs.ref }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -34,8 +61,7 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
-      - name: Gate on the pinned core version being published
-        id: gate
+      - name: Require the pinned core version to be published
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/core/package.json').version")"
@@ -43,8 +69,7 @@ jobs:
           # authoritative answer, so membership is definitive. A failed query
           # means the registry was unreachable (timeout / DNS / 5xx / rate
           # limit) — NOT that the version is unpublished; retry, then fail
-          # loudly, because a silent publishable=false on a template-only push
-          # has no guaranteed later dispatch to retry it.
+          # loudly, because no later dispatch will retry this run.
           versions=""; ok=""
           for attempt in 1 2 3; do
             if versions="$(npm view "@agent-native/core" versions --json --prefer-online 2>/dev/null)"; then
@@ -59,28 +84,23 @@ jobs:
           fi
           if printf '%s' "$versions" \
             | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
-            echo "core ${version} is on npm — mirroring HEAD."
-            echo "publishable=true" >> "$GITHUB_OUTPUT"
+            echo "core ${version} is on npm — mirroring its release commit."
           else
-            echo "core ${version} is not on npm yet (publish in flight); skipping."
-            echo "The publish dispatch will re-run this once ${version} lands."
-            echo "publishable=false" >> "$GITHUB_OUTPUT"
+            echo "::error::The release commit pins core ${version}, which is not on npm; refusing to mirror a template for an unpublished core."
+            exit 1
           fi
 
-      - if: steps.gate.outputs.publishable == 'true'
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
       # builder-code-starter is a layer over templates/chat: materialize copies Chat,
       # then applies the starter's deletions, unified-diff patches, new files,
       # and package.json fields.
       - name: Materialize the bundled builder-code-starter template
-        if: steps.gate.outputs.publishable == 'true'
         run: >-
           pnpm exec tsx packages/core/src/cli/index.ts template materialize
           --template builder-code-starter --name app --out ./dist/template
 
       - name: Pin toolkit to the published core's compatible range
-        if: steps.gate.outputs.publishable == 'true'
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/core/package.json').version")"
@@ -118,7 +138,6 @@ jobs:
 
       - name: Generate app token
         id: app-token
-        if: steps.gate.outputs.publishable == 'true'
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
@@ -127,7 +146,6 @@ jobs:
           repositories: builder-agent-native-starter
 
       - name: Push to starter template branch
-        if: steps.gate.outputs.publishable == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
