@@ -324,6 +324,8 @@ function addCssCustomProperty(
   state: ReturnType<typeof createCodeAnalysisState>,
   cssVar: string,
   rawValue: string,
+  importanceByProperty?: Map<string, boolean>,
+  important = false,
 ): boolean {
   const name = cssVar.slice(2);
   const value = normalizeCssCustomPropertyWhitespace(rawValue);
@@ -337,7 +339,13 @@ function addCssCustomProperty(
   };
   if (!isValidImportedToken(token)) return false;
 
+  const previousImportance =
+    importanceByProperty?.get(cssVar) ??
+    (state.cssCustomProperties[cssVar] === undefined ? undefined : false);
+  if (previousImportance && !important) return true;
+
   state.cssCustomProperties[cssVar] = value;
+  importanceByProperty?.set(cssVar, important);
   if (
     /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground/i.test(
       name,
@@ -361,7 +369,9 @@ function addLooseCssCustomProperties(
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     if (!addCssCustomProperty(state, `--${match[1]}`, match[2]!)) {
-      rejectedCount += 1;
+      const lineStart = content.lastIndexOf("\n", match.index - 1) + 1;
+      const prefix = content.slice(lineStart, match.index);
+      if (/^\s*(?:[^{}]*\{\s*)?$/.test(prefix)) rejectedCount += 1;
     }
   }
   return rejectedCount;
@@ -370,11 +380,13 @@ function addLooseCssCustomProperties(
 function addCssCustomPropertiesFromRoot(
   state: ReturnType<typeof createCodeAnalysisState>,
   root: postcss.Root | postcss.Document,
+  importanceByProperty: Map<string, boolean>,
 ): number {
   if (root.type === "document") {
     return root.nodes.reduce(
       (rejectedCount, child) =>
-        rejectedCount + addCssCustomPropertiesFromRoot(state, child),
+        rejectedCount +
+        addCssCustomPropertiesFromRoot(state, child, importanceByProperty),
       0,
     );
   }
@@ -382,7 +394,15 @@ function addCssCustomPropertiesFromRoot(
   let rejectedCount = 0;
   root.walkDecls((declaration) => {
     if (!declaration.prop.startsWith("--")) return;
-    if (!addCssCustomProperty(state, declaration.prop, declaration.value)) {
+    if (
+      !addCssCustomProperty(
+        state,
+        declaration.prop,
+        declaration.value,
+        importanceByProperty,
+        declaration.important,
+      )
+    ) {
       rejectedCount += 1;
     }
   });
@@ -426,6 +446,7 @@ function addStylesheetCustomProperties(
   state: ReturnType<typeof createCodeAnalysisState>,
   filename: string,
   content: string,
+  importanceByProperty: Map<string, boolean>,
 ): number {
   const lowerFilename = filename.toLowerCase();
   const root = lowerFilename.endsWith(".less")
@@ -433,7 +454,7 @@ function addStylesheetCustomProperties(
     : lowerFilename.endsWith(".scss")
       ? postcssScss.parse(content)
       : postcss.parse(content);
-  return addCssCustomPropertiesFromRoot(state, root);
+  return addCssCustomPropertiesFromRoot(state, root, importanceByProperty);
 }
 
 const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
@@ -2566,6 +2587,181 @@ function isUnsafeCssImageSource(node: csstree.CssNode): boolean {
   return unsafe;
 }
 
+function importedTokenGrammars(
+  token: ImportedDesignToken,
+): { kind: "property" | "type"; name: string }[] | null {
+  const name = token.cssVar.slice(2).toLowerCase();
+  const properties = (...names: string[]) =>
+    names.map((property) => ({ kind: "property" as const, name: property }));
+
+  if (token.type === "radius") return properties("border-radius");
+  if (token.type === "spacing") {
+    if (/gap/.test(name)) return properties("gap");
+    if (/margin/.test(name)) return properties("margin");
+    if (/padding/.test(name)) return properties("padding");
+    return [{ kind: "type", name: "length-percentage" }];
+  }
+  if (token.type === "typography") {
+    if (/font[-_]?family/.test(name)) return properties("font-family");
+    if (/weight/.test(name)) return properties("font-weight");
+    if (/line[-_]?height|leading/.test(name)) return properties("line-height");
+    if (/tracking|letter[-_]?spacing/.test(name)) {
+      return properties("letter-spacing");
+    }
+    if (/size|text/.test(name)) return properties("font-size");
+    return properties(
+      "font",
+      "font-size",
+      "font-family",
+      "font-weight",
+      "line-height",
+      "letter-spacing",
+    );
+  }
+  if (token.type === "shadow") {
+    return properties(/text/.test(name) ? "text-shadow" : "box-shadow");
+  }
+  if (token.type === "motion") {
+    if (/duration/.test(name)) {
+      return properties("animation-duration", "transition-duration");
+    }
+    if (/delay/.test(name)) {
+      return properties("animation-delay", "transition-delay");
+    }
+    if (/easing|ease|timing/.test(name)) {
+      return properties(
+        "animation-timing-function",
+        "transition-timing-function",
+      );
+    }
+    if (/transition/.test(name)) return properties("transition");
+    if (/animation/.test(name)) return properties("animation");
+    return properties(
+      "animation-duration",
+      "animation-timing-function",
+      "animation",
+      "transition",
+    );
+  }
+  return null;
+}
+
+function matchesImportedTokenGrammar(
+  token: ImportedDesignToken,
+  value: string,
+): boolean {
+  if (
+    token.type === "spacing" &&
+    cssMathExpressionDimension(value) === "number" &&
+    csstree.lexer.matchType("number", value).matched !== null
+  ) {
+    return true;
+  }
+  const grammars = importedTokenGrammars(token);
+  if (!grammars) return true;
+  return grammars.some(({ kind, name }) =>
+    kind === "type"
+      ? csstree.lexer.matchType(name, value).matched !== null
+      : csstree.lexer.matchProperty(name, value).matched !== null,
+  );
+}
+
+function cssSubstitutionPlaceholders(token: ImportedDesignToken): string[] {
+  const name = token.cssVar.slice(2).toLowerCase();
+  if (token.type === "radius" || token.type === "spacing") return ["1px"];
+  if (token.type === "typography") {
+    if (/font[-_]?family/.test(name)) return ["serif"];
+    if (/weight/.test(name)) return ["400"];
+    if (/line[-_]?height|leading/.test(name)) return ["1.5"];
+    if (/tracking|letter[-_]?spacing/.test(name)) return ["1px"];
+    if (/size|text/.test(name)) return ["1rem"];
+    return ["400", "1rem", "serif", "normal 400 1rem/1.5 serif"];
+  }
+  if (token.type === "shadow") return ["1px", "black", "0 0 1px black"];
+  if (token.type === "motion") {
+    if (/duration|delay/.test(name)) return ["1s"];
+    if (/easing|ease|timing/.test(name)) return ["ease"];
+    return ["1s", "ease", "fade-in", "opacity 1s ease"];
+  }
+  return [];
+}
+
+function isValidTypedCssTokenValue(
+  token: ImportedDesignToken,
+  value: string,
+  depth = 0,
+): boolean {
+  if (depth > 5) return false;
+  const ranges: { end: number; fallback?: string; start: number }[] = [];
+  let valid = true;
+
+  csstree.tokenize(value, (type, start, end) => {
+    if (!valid || type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (!["var", "env", "attr"].includes(name)) return;
+    const functionValue = readCssFunctionAt(value, end);
+    if (
+      !functionValue ||
+      !isValidCssSubstitutionFunction(name, functionValue.args)
+    ) {
+      valid = false;
+      return;
+    }
+
+    const parts = splitCssFunctionArguments(functionValue.args);
+    if (parts.length > 1 && parts.slice(1).join(",").trim()) {
+      valid = isValidTypedCssTokenValue(
+        token,
+        parts.slice(1).join(",").trim(),
+        depth + 1,
+      );
+      if (!valid) return;
+    }
+
+    if (
+      !ranges.some(
+        (range) => range.start < start && range.end >= functionValue.end,
+      )
+    ) {
+      ranges.push({ start, end: functionValue.end });
+    }
+  });
+
+  if (!valid) return false;
+  if (ranges.length === 0) return matchesImportedTokenGrammar(token, value);
+  if (ranges.length > 5) return false;
+
+  const placeholders = cssSubstitutionPlaceholders(token);
+  if (placeholders.length === 0) return false;
+  const matchesWith = (index: number, replacements: string[]): boolean => {
+    if (index === ranges.length) {
+      let candidate = value;
+      for (
+        let rangeIndex = ranges.length - 1;
+        rangeIndex >= 0;
+        rangeIndex -= 1
+      ) {
+        const range = ranges[rangeIndex]!;
+        candidate =
+          candidate.slice(0, range.start) +
+          replacements[rangeIndex]! +
+          candidate.slice(range.end);
+      }
+      return matchesImportedTokenGrammar(token, candidate);
+    }
+
+    for (const placeholder of placeholders) {
+      replacements[index] = placeholder;
+      if (matchesWith(index + 1, replacements)) return true;
+    }
+    return false;
+  };
+
+  return matchesWith(0, []);
+}
+
 function isValidImportedToken(token: ImportedDesignToken): boolean {
   if (
     !isSafeCssVarName(token.cssVar) ||
@@ -2584,7 +2780,9 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
   ) {
     return false;
   }
-  return token.type !== "color" || isValidCssColor(token.value);
+  if (token.type === "color") return isValidCssColor(token.value);
+  if (token.type === "other") return true;
+  return isValidTypedCssTokenValue(token, token.value);
 }
 
 function tokensFromFiles(
@@ -2611,6 +2809,7 @@ function tokensFromFiles(
   }
 
   let malformedNamedLineCount = 0;
+  const cssCustomPropertyImportance = new Map<string, boolean>();
   const validFiles = accepted.filter(isValidImportFile).map((file) => {
     let content = /\.(scss|less)$/i.test(file.filename)
       ? stripScssLessLineComments(file.content)
@@ -2660,6 +2859,7 @@ function tokensFromFiles(
           state,
           file.filename,
           file.content,
+          cssCustomPropertyImportance,
         );
       }
     }
@@ -2670,7 +2870,7 @@ function tokensFromFiles(
       state,
       file.filename,
       file.content,
-      !isStylesheet && !isPastedStylesheet,
+      !isStylesheet && !isPastedStylesheet && !/\.html?$/i.test(file.filename),
     );
     if (isPastedStylesheet) {
       const tokenListCandidate = pastedTokenListCssCandidate(file.content);
@@ -2687,6 +2887,7 @@ function tokensFromFiles(
             state,
             "pasted.css",
             candidate,
+            cssCustomPropertyImportance,
           );
           extracted = true;
           break;
@@ -2707,6 +2908,7 @@ function tokensFromFiles(
         state,
         "embedded-style.css",
         stylesheet,
+        cssCustomPropertyImportance,
       );
     }
   }

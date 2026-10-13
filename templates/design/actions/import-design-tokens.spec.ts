@@ -948,6 +948,34 @@ button:focus-visible {
     );
   });
 
+  it("scans HTML stylesheets but ignores CSS-like prose and script text", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content: `<style>:root { --color-from-style: #123456; }</style>
+<p>--color-from-prose: #234567</p>
+<script>const note = "--color-from-script: #345678";</script>`,
+        },
+      ],
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-from-style",
+        value: "#123456",
+      }),
+    );
+    expect(result.tokens).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--color-from-prose" }),
+        expect.objectContaining({ cssVar: "--color-from-script" }),
+      ]),
+    );
+  });
+
   it("does not extract custom properties from a malformed HTML style block", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -1828,6 +1856,87 @@ Bad radius: 12px} body { color: red
       ]),
     );
     expect(result.rejectedCount).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [
+      "important beats a later normal declaration",
+      "#2563eb !important; --color-accent: #ef4444",
+      "#2563eb",
+    ],
+    [
+      "later important beats an earlier normal declaration",
+      "#2563eb; --color-accent: #ef4444 !important",
+      "#ef4444",
+    ],
+    [
+      "later normal declaration wins at equal priority",
+      "#2563eb; --color-accent: #ef4444",
+      "#ef4444",
+    ],
+    [
+      "later important declaration wins at equal priority",
+      "#2563eb !important; --color-accent: #ef4444 !important",
+      "#ef4444",
+    ],
+  ])(
+    "honors CSS declaration importance: %s",
+    async (_label, declarations, expected) => {
+      const first = declarations.startsWith("#2563eb !important")
+        ? "--color-accent: #2563eb !important"
+        : "--color-accent: #2563eb";
+      const second = declarations.includes("--color-accent: #ef4444")
+        ? declarations.slice(declarations.indexOf("--color-accent: #ef4444"))
+        : "--color-accent: #ef4444";
+      const result = await action.run({
+        designId: "design_1",
+        source: "paste",
+        text: `:root { ${first}; ${second}; }`,
+      });
+
+      expect(result.tokens).toContainEqual(
+        expect.objectContaining({ cssVar: "--color-accent", value: expected }),
+      );
+    },
+  );
+
+  it("rejects spacing values with trailing tokens while keeping valid CSS math", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --spacing-invalid: calc(12px) red;
+  --spacing-invalid-fallback: calc(var(--spacing-gap, 2px red) + 1px);
+  --spacing-valid: calc(var(--spacing-gap, 2px) + 1px);
+}`,
+    });
+
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--spacing-invalid" }),
+    );
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--spacing-invalid-fallback" }),
+    );
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--spacing-valid",
+        value: "calc(var(--spacing-gap, 2px) + 1px)",
+      }),
+    );
+    expect(result.rejectedCount).toBeGreaterThan(0);
+  });
+
+  it("rejects trailing tokens in named spacing values", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "Spacing: calc(12px) red",
+    });
+
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--spacing-spacing" }),
+    );
+    expect(result.rejectedCount).toBe(1);
   });
 
   it("keeps an earlier valid custom property when loose text has an invalid duplicate", async () => {

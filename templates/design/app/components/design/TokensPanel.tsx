@@ -713,6 +713,8 @@ const TOKEN_IMPORT_ACCEPT = [
   ".css",
   ".scss",
   ".less",
+  ".html",
+  ".htm",
   ".json",
   ".ts",
   ".tsx",
