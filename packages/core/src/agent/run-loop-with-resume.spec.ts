@@ -947,6 +947,41 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
+  it("keeps the provider rate-limit terminal when a 429 hits the loop-attempt cap", async () => {
+    let attempts = 0;
+    const outcomes: AgentLoopOutcome[] = [];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts < MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS) {
+        throw new Error("socket hang up");
+      }
+      throw new EngineError("429 status code (no body)", {
+        errorCode: "http_429",
+        statusCode: 429,
+      });
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+      ),
+    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+
+    expect(attempts).toBe(MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS);
+    expect(outcomes.at(-1)).toMatchObject({
+      state: "failed",
+      code: PROVIDER_RATE_LIMITED_ERROR_CODE,
+    });
+  });
+
   it("also grants the foreground lane a cooled-down retry when the budget covers it", async () => {
     vi.useFakeTimers();
     try {
@@ -1859,6 +1894,64 @@ describe("chunk-boundary recovery", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationNote).toBeDefined();
+  });
+
+  it("interrupts a rate-limit cooldown when a recoverable chunk deadline expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const turn = new AbortController();
+      const { control, checkpoint } = makeControl(turn.signal);
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+      ];
+      let attempts = 0;
+      let resolveNextAttempt!: () => void;
+      const nextAttempt = new Promise<void>((resolve) => {
+        resolveNextAttempt = resolve;
+      });
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        resolveNextAttempt();
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(messages, control.chunkSignal),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBeGreaterThan(1);
+      checkpoint("no_progress");
+      const resumedBeforeCooldown = await Promise.race([
+        nextAttempt.then(() => true),
+        vi.advanceTimersByTimeAsync(100).then(() => false),
+      ]);
+      if (!resumedBeforeCooldown) {
+        await vi.advanceTimersByTimeAsync(
+          BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+        );
+      }
+      await run;
+
+      expect(resumedBeforeCooldown).toBe(true);
+      expect(attempts).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names the server bound that ended the turn instead of calling it a cancel", async () => {
