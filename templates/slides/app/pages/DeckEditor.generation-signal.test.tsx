@@ -2209,6 +2209,82 @@ describe("DeckEditor generation signal wiring", () => {
     );
   });
 
+  it("keeps the original request visible and reusable after a retry fails", async () => {
+    const originalPrompt = "Create a deck about coastal restoration.";
+    Object.assign(mocks.deck.generationContext, {
+      originalPrompt,
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    const retryAttemptId = String(
+      mocks.deck.generationContext.generationAttemptId,
+    );
+    expect(retryAttemptId).not.toBe("attempt-1");
+    expect(mocks.submitAndConfirm).toHaveBeenNthCalledWith(
+      1,
+      originalPrompt,
+      expect.stringContaining("Continue the original deck generation"),
+      expect.objectContaining({ generationOutputId: "deck-1" }),
+    );
+
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: retryAttemptId,
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    mocks.attemptRunError = true;
+    mocks.attemptRunErrorCode = "provider_http_503";
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationAttemptId: retryAttemptId,
+        generationFailureCode: "agent_error",
+        originalPrompt,
+      }),
+    );
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    expect(mocks.submitAndConfirm).toHaveBeenNthCalledWith(
+      2,
+      originalPrompt,
+      expect.stringContaining("Continue the original deck generation"),
+      expect.objectContaining({ generationOutputId: "deck-1" }),
+    );
+  });
+
   it("shows and restores the generated request from the missing-deck route", async () => {
     const originalPrompt = "Create a deck about coastal restoration.";
     mocks.deckMissing = true;
@@ -2255,6 +2331,40 @@ describe("DeckEditor generation signal wiring", () => {
       recoveryRouter.state.location.pathname +
         recoveryRouter.state.location.search,
     ).not.toContain(originalPrompt);
+  });
+
+  it("keeps the blocked home retry prompt when generation route state is gone", async () => {
+    const originalPrompt = "Create a deck about coastal restoration.";
+    const recoveryRouter = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <HomeRouteProbe /> },
+      ],
+      {
+        initialEntries: [
+          {
+            pathname: "/deck/deck-1",
+            search: "?generating=1&generation_attempt_id=attempt-1",
+            state: null,
+          },
+        ],
+      },
+    );
+    router = recoveryRouter;
+
+    render(<RouterProvider router={recoveryRouter} />);
+    await act(async () => {
+      await recoveryRouter.navigate("/home", {
+        state: { retryPrompt: originalPrompt },
+      });
+    });
+
+    await waitFor(() =>
+      expect(recoveryRouter.state.location.pathname).toBe("/home"),
+    );
+    expect(
+      JSON.parse(screen.getByTestId("home-route-state").textContent!),
+    ).toEqual({ retryPrompt: originalPrompt });
   });
 
   it("explains when generation ends without creating slides", () => {

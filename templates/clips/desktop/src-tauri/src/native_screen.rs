@@ -8715,11 +8715,20 @@ fn prepare_audio_sidecar_slices(
 ) -> Result<(Vec<NativeMediaSlice>, PreparedSliceFiles), String> {
     let ffmpeg = resolve_ffmpeg_path()
         .ok_or_else(|| "Rewind audio materialization requires ffmpeg".to_string())?;
+    prepare_audio_sidecar_slices_with_ffmpeg(slices, output, &ffmpeg)
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_audio_sidecar_slices_with_ffmpeg(
+    slices: &[NativeMediaSlice],
+    output: &Path,
+    ffmpeg: &str,
+) -> Result<(Vec<NativeMediaSlice>, PreparedSliceFiles), String> {
     let has_sidecar_audio = slices
         .iter()
         .any(|slice| slice.system_audio_path.is_some() || slice.microphone_path.is_some());
     let mut prepared = Vec::with_capacity(slices.len());
-    let mut temporary = Vec::new();
+    let mut temporary_files = PreparedSliceFiles(Vec::new());
     for (index, slice) in slices.iter().enumerate() {
         let system = slice.system_audio_path.as_deref();
         let microphone = slice.microphone_path.as_deref();
@@ -8739,6 +8748,7 @@ fn prepare_audio_sidecar_slices(
         }
         let muxed = output.with_extension(format!("sidecar-{index}.mp4"));
         let _ = std::fs::remove_file(&muxed);
+        temporary_files.0.push(muxed.clone());
         let mut command = Command::new(&ffmpeg);
         command
             .args(["-y", "-v", "error", "-nostdin", "-i"])
@@ -8784,14 +8794,14 @@ fn prepare_audio_sidecar_slices(
         prepared_slice.system_audio_path = None;
         prepared_slice.microphone_path = None;
         prepared.push(prepared_slice);
-        temporary.push(muxed);
     }
-    Ok((prepared, PreparedSliceFiles(temporary)))
+    Ok((prepared, temporary_files))
 }
 
 #[cfg(all(test, target_os = "macos"))]
 mod audio_sidecar_materialization_tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
@@ -8924,6 +8934,80 @@ mod audio_sidecar_materialization_tests {
                 "{name} selection did not leave silence in the other slot: {placeholder:?}"
             );
         }
+    }
+
+    #[test]
+    fn removes_partial_sidecar_output_when_mux_fails() {
+        let directory = TempDirectory::new();
+        let video = directory.0.join("video.mp4");
+        let audio = directory.0.join("audio.wav");
+        let output = directory.0.join("prepared.mp4");
+        let muxed = output.with_extension("sidecar-0.mp4");
+        let ffmpeg = directory.0.join("partial-ffmpeg");
+        std::fs::write(&video, b"video input").unwrap();
+        std::fs::write(&audio, b"audio input").unwrap();
+        std::fs::write(
+            &ffmpeg,
+            "#!/bin/sh\nfor output do :; done\nprintf partial > \"$output\"\nexit 1\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&ffmpeg).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&ffmpeg, permissions).unwrap();
+        let slice = NativeMediaSlice {
+            path: video,
+            system_audio_path: Some(audio),
+            microphone_path: None,
+            start_ms: 0,
+            end_ms: 1_000,
+        };
+
+        let error =
+            prepare_audio_sidecar_slices_with_ffmpeg(&[slice], &output, ffmpeg.to_str().unwrap())
+                .err()
+                .expect("failed FFmpeg mux should return an error");
+
+        assert!(error.contains("Rewind sidecar mux"));
+        assert!(!muxed.exists(), "failed mux left its output behind");
+    }
+
+    #[test]
+    fn removes_completed_sidecars_when_a_later_slice_is_incomplete() {
+        let ffmpeg = resolve_ffmpeg_path().expect("ffmpeg is required for this test");
+        let directory = TempDirectory::new();
+        let video = directory.0.join("video.mp4");
+        let audio = directory.0.join("audio.wav");
+        let missing_video = directory.0.join("missing-video.mp4");
+        let output = directory.0.join("prepared.mp4");
+        let first_muxed = output.with_extension("sidecar-0.mp4");
+        create_test_video(&ffmpeg, &video);
+        create_test_audio(&ffmpeg, &audio);
+        let slices = [
+            NativeMediaSlice {
+                path: video,
+                system_audio_path: Some(audio),
+                microphone_path: None,
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+            NativeMediaSlice {
+                path: missing_video.clone(),
+                system_audio_path: None,
+                microphone_path: None,
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+        ];
+
+        let error = prepare_audio_sidecar_slices(&slices, &output)
+            .err()
+            .expect("missing video should fail sidecar preparation");
+
+        assert!(error.contains(&missing_video.display().to_string()));
+        assert!(
+            !first_muxed.exists(),
+            "a completed sidecar was left behind after a later slice failed"
+        );
     }
 
     #[test]

@@ -533,6 +533,12 @@ function clearEmptyGenerationRecovery(
   }
 }
 
+function retryPromptFromLocationState(state: unknown): string | null {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return null;
+  const prompt = (state as Record<string, unknown>).retryPrompt;
+  return typeof prompt === "string" && prompt.trim() ? prompt : null;
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -654,6 +660,13 @@ export default function DeckEditor() {
     isNewDeckGenerationRoute &&
     (deck?.slides.length ?? 0) === 0 &&
     pendingDeckNavigationBlocker.location.pathname === "/home";
+  const blockedHomeRetryPrompt =
+    pendingDeckNavigationBlocker.state === "blocked"
+      ? retryPromptFromLocationState(
+          pendingDeckNavigationBlocker.location.state,
+        )
+      : null;
+  const retryPromptForHome = blockedHomeRetryPrompt ?? generationRetryPrompt;
   const pendingDeckNavigationWarningOpen =
     pendingDeckNavigationBlocker.state === "blocked" &&
     !isRestoringPromptBeforeLeavingGeneration;
@@ -1077,8 +1090,8 @@ export default function DeckEditor() {
         pendingDeckNavigationBlocker.reset();
         void navigate("/home", {
           replace: true,
-          ...(generationRetryPrompt
-            ? { state: { retryPrompt: generationRetryPrompt } }
+          ...(retryPromptForHome
+            ? { state: { retryPrompt: retryPromptForHome } }
             : {}),
         });
       },
@@ -1090,12 +1103,12 @@ export default function DeckEditor() {
     );
   }, [
     flushDeckSave,
-    generationRetryPrompt,
     generationContext,
     id,
     isRestoringPromptBeforeLeavingGeneration,
     navigate,
     pendingDeckNavigationBlocker,
+    retryPromptForHome,
     t,
   ]);
   useEffect(() => {
