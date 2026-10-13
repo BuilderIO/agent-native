@@ -273,6 +273,9 @@ const storage = vi.hoisted(() => ({
           includeAliasedRoster &&
           process.env.ANALYTICS_EVAL_PHASE === "before"
         ) {
+          // The baseline schema predates parser-projected membership metadata.
+          delete baselineCompatibleEntry.sqlProjectedColumns;
+          delete baselineCompatibleEntry.inferredMembershipKeys;
           delete baselineCompatibleEntry.inferredMembershipKeyRoles;
         }
         return baselineCompatibleEntry;
