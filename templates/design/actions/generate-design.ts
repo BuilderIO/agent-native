@@ -765,7 +765,10 @@ const generateDesignAction = defineAction({
     // A call filling a still-pending frame of a generate-screens plan is that
     // plan's attempt; the plan itself saves no files and records no attempt.
     const fillsPlannedScreen = Boolean(
-      generationSession?.frames.some(
+      generationSession &&
+      generationSession.status !== "done" &&
+      generationSession.status !== "cancelled" &&
+      generationSession.frames.some(
         (frame) =>
           frame.status !== "done" &&
           files.some((file) => file.filename === frame.filename),

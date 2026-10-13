@@ -1540,7 +1540,7 @@ describe("present-design-variants", () => {
         generation_path: "variants",
         outcome: "completed",
         file_count: 2,
-        has_reference_design_system: false,
+        has_linked_design_system: false,
       });
       expect(events("variants_generated")).toEqual([
         expect.objectContaining({

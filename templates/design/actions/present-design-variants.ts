@@ -1252,7 +1252,7 @@ export default defineAction({
     await deleteAppState("design-variants").catch(() => false);
 
     attempt.addProperties({
-      has_reference_design_system: Boolean(linkedDesign?.designSystemId),
+      has_linked_design_system: Boolean(linkedDesign?.designSystemId),
     });
     trackDesign(
       "variants_generated",

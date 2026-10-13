@@ -2847,6 +2847,39 @@ describe("generate-design: generation attempt tracking", () => {
     }
   });
 
+  it("keeps the generate_design path once the plan was cancelled, even with queued frames", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "cancelled",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "queued",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    const [started] = events("generation_started");
+    expect(started.generation_path).toBe("generate_design");
+    expect(started).not.toHaveProperty("generation_session_id");
+  });
+
   it("keeps the generate_design path for a file outside the pending plan", async () => {
     mocks.readAppState.mockResolvedValue({
       id: "session-1",
