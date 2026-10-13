@@ -659,9 +659,10 @@ and add a keyframe animation that autosaves to managed CSS with a visible diff �
 
 ## 14. Risks & mitigations
 
-- **Split motion source of truth** — CSS is truth, JSON is metadata,
-  `apply-motion-edit` updates both atomically, store `compiled_hash` + revision,
-  provide rollback/diff proof.
+- **Motion source of truth** — the typed, versioned Motion document embedded in
+  managed source is canonical; CSS is compiled runtime output and the SQL row is
+  a recoverable index with a compiled hash. Source edits use the localhost
+  bridge's version check before updating that index.
 - **Overclaiming localhost/React writes** — strict capability matrix; read-only /
   preview-only fallback; CTA when the source lacks fidelity. (`readFile` /
   `applyEdit` / `writeFile` are `planned` today.)

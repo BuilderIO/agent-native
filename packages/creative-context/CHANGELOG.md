@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.39
+
+### Patch Changes
+
+- 1c4a192: Use authored synthetic fixtures for imported creative context evaluation.
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.38
 
 ### Patch Changes

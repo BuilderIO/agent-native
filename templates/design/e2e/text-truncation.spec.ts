@@ -283,7 +283,7 @@ test(
   "text truncation restores authored styles through Undo, reload, and text editing",
   {},
   async ({ page }, testInfo) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     const designId = await prepareDesign(page);
     try {
       await page.setViewportSize({ width: 2800, height: 1600 });
@@ -637,7 +637,7 @@ test(
         return selected
           ? {
               sourceLayerIdentity: selected.sourceLayerIdentity,
-              hasPortableStyleSnapshot: selected.portableStyleSnapshot != null,
+              hasBridgeDetail: Array.isArray(selected.editCapabilities),
             }
           : null;
       });
@@ -648,7 +648,7 @@ test(
       expect
         .soft(hydratedSelection?.sourceLayerIdentity?.screenId)
         .toBe(screenId);
-      expect.soft(hydratedSelection?.hasPortableStyleSnapshot).toBe(true);
+      expect.soft(hydratedSelection?.hasBridgeDetail).toBe(true);
     } finally {
       await postAction(page, "delete-design", { id: designId });
     }

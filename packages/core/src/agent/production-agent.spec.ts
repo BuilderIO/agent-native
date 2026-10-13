@@ -17024,7 +17024,7 @@ describe("runAgentLoop model fallback", () => {
     expect(modelsUsed).toEqual([BUILDER_MODEL_CONFIG.defaultModel]);
   });
 
-  it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
+  it("uses the rate-limit retry budget before switching to the fallback model", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -17045,7 +17045,7 @@ describe("runAgentLoop model fallback", () => {
         modelsUsed.push(opts.model);
         if (opts.model === "claude-haiku-4-5") {
           throw new EngineError("429 status code (no body)", {
-            errorCode: "http_429",
+            errorCode: "builder_gateway_error",
             statusCode: 429,
           });
         }

@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-12
+
+### Fixed
+
+- Cached templates remain available during temporary refresh errors, with an option to retry.
+
 ## 2026-10-11
 
 ### Improved
@@ -12,6 +18,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Accept authenticated private storyboard uploads from Analytics.
+- Analytics can securely add replay screenshots to a Design storyboard
+- Analytics replay screenshots can use the active workspace upload connection while keeping the storyboard private.
+- Check private screenshot storage before creating a storyboard
+- Design history no longer saves a stale version when the design changes during a large snapshot upload.
+- Design history now includes saved files before collaboration starts.
+- Design keeps browser zoom keys out of inspector inputs, restores Control+Shift+? on Mac, and keeps cut from deleting content edited while the clipboard write is pending.
+- Design now preserves source consistency when checkpointing edits and deleting files during collaboration.
+- Saved templates appear when you return to the template library.
+- Scrubbing after a numeric edit keeps the latest committed value when the gesture is canceled.
+- The Home composer waits for your organization to load before accepting a new design prompt.
 - Replay screenshots can be handed off to Design boards.
 
   Agent reads of Design boards require authentication, including WebMCP reads. Anonymous WebMCP no longer offers `get-design`; public shared-design links and HTTP reads remain available under their existing access checks.
@@ -20,6 +37,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The fill picker's color swatches now include the Tailwind colors used inside the selected layer.
 - Canvas navigation does less work on large boards.
 - ChatGPT and other MCP widgets open the standard minimal-UI editor, with the title and share bar, the bottom tool bar, and the inspector as a right panel at every width.
 - Images are optimized automatically before prompt upload.
@@ -29,6 +47,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design layer snapshots no longer include temporary editor elements.
+- Position controls keep accurate coordinates when a canvas preview refreshes.
 - Board Position values stay consistent when selecting and editing layers
 - Design preserves small reference images when you attach larger documents
 - Home suggestions keep their slot stable through profile errors and generation.
@@ -46,6 +66,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design keeps hidden Code source reads quiet and speeds layer identity work.
+- Design keeps Layers rows and rename focus stable as layers are inserted.
+- Share button now has an export chevron menu with downloads, agent prompt, and publish
+- Undo on large screens responds faster, and saving an edit uploads only the change instead of the whole screen.
 - Journey storyboards keep full branch names and percentages readable and explain grouped paths.
 - Journey storyboards support up to 2,000 steps.
 - Large Design storyboards stay responsive during pan and zoom
@@ -60,6 +84,16 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Canvas selection follows the depth of the selected layers.
+- Delete includes Screens added by a Shift-marquee to an existing selection.
+- Design keeps canvas gestures and shortcuts working during editor interactions.
+- Design protects Cut and undo history, and improves text and shadow handling for imports.
+- Dragging a heading by a styled word now moves the whole text, and short drags inside a stack of text reorder within that stack
+- Nudging a screen with the arrow keys no longer briefly snaps it back to its old position
+- Selecting an element on a large screen no longer freezes the editor, and the agent now always sees what you selected
+- Selecting an element that is hidden at a breakpoint no longer draws a stray box in that frame's corner
+- The editor no longer says changes will save when reconnected when a save failed for another reason.
+- The layers panel lists auto-layout children in the same order they appear on the canvas, and dragging rows reorders them the way the panel shows
 - Canvas selection keeps keyboard shortcuts active after clicking editor tabs
 - Design creates a mobile leaderboard on the fixed 320 × 50 ad canvas.
 - Fix private replay screenshot previews across Design canvases and previews

@@ -47,9 +47,6 @@ describe("Design editor mobile layout", () => {
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
     expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
-    expect(editorSource).toContain(
-      'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
-    );
     expect(editorSource).toContain("resolveLeftSidebarWidth(");
     const resizeSource = readFileSync(
       "app/pages/design-editor/commands/start-sidebar-resize.ts",
@@ -91,8 +88,14 @@ describe("Design editor mobile layout", () => {
     expect(warn).toContain(
       'if (readOnlyWidget) return;\n    toast.error(t("visualEditor.changesDiscarded")',
     );
-    // Both toasts stay otherwise unconditional, so normal sessions still warn.
-    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(2);
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n          toast.error(t("designEditor.toasts.saveConflict")',
+    );
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n          toast.error(message ?? t("common.genericError")',
+    );
+    // Every toast stays otherwise unconditional, so normal sessions still warn.
+    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(4);
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

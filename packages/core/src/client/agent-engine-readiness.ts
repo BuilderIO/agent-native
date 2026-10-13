@@ -509,6 +509,13 @@ async function ensureStoreReadiness(
         if (store.inFlight === request) store.inFlight = null;
         return ensureStoreReadiness(store);
       }
+      if (nextState === "unavailable" && store.state === "configured") {
+        // Keep the cache expired so the hook retries, and publish the failure
+        // so the composer can explain why dispatch is temporarily blocked.
+        store.resolvedAt = 0;
+        publish(store, "unavailable");
+        return nextState;
+      }
       store.resolvedAt = Date.now();
       publish(store, nextState);
       return nextState;

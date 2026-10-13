@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Rewindをオンにする",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "Rewindは画面のローカル履歴を保持するため、録画前の直近数分間を含めることができます。映像は、含めることを選んだか承認した場合にのみアップロードされます。",
+      "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:

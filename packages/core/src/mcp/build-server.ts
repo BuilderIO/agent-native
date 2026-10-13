@@ -1811,6 +1811,11 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
       },
       required: ["sourceTicket"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
     _meta: { ui: { visibility: ["app"] } },
   } as Tool;
 }

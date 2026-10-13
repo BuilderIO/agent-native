@@ -143,6 +143,7 @@ import { resolveGoogleSlidesImportPayload } from "@/lib/google-slides-reference-
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
+  validateUploadedDeckImport,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
 import {
@@ -162,6 +163,7 @@ import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { getDesignSystemIndexingStatus } from "../../shared/design-system-validation.js";
 import { generationTimingFields } from "../../shared/generation-timing.js";
 
 const LazyDesignSystemSetup = lazy(() =>
@@ -423,44 +425,65 @@ function mergeUploadedFilesForRetry(
 }
 
 interface DesignSystemGenerationContextResult {
-  title?: string;
   agentContext?: string;
+  builder?: {
+    docCount: number | null;
+    tokenValues: Record<string, string>;
+    warning?: string;
+  } | null;
 }
+
+type LoadedDesignSystemGenerationContext =
+  | { status: "none"; context: "" }
+  | { status: "loaded"; context: string }
+  | { status: "indexing"; context: "" }
+  | { status: "unavailable"; context: "" };
 
 async function loadDesignSystemGenerationContext(
   designSystemId?: string | null,
-): Promise<string> {
-  if (!designSystemId) return "";
+): Promise<LoadedDesignSystemGenerationContext> {
+  if (!designSystemId) return { status: "none", context: "" };
   try {
     const result = (await callAction(
       "get-design-system",
       { id: designSystemId },
       { method: "GET" },
     )) as DesignSystemGenerationContextResult | undefined;
-    if (result?.agentContext?.trim()) {
-      return [
-        "",
-        result.agentContext.trim(),
-        "",
-        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, imagery, or slide components.",
-      ].join("\n");
+    if (
+      result?.builder &&
+      (typeof result.builder.docCount !== "number" ||
+        !result.builder.tokenValues ||
+        typeof result.builder.tokenValues !== "object" ||
+        Array.isArray(result.builder.tokenValues))
+    ) {
+      return { status: "unavailable", context: "" };
     }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "unknown loading error";
-    return [
-      "",
-      "## Selected Design System Context",
-      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
-      "Before adding slides, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
-    ].join("\n");
+    if (result?.builder) {
+      const indexingStatus = getDesignSystemIndexingStatus({
+        source: "builder",
+        docCount: result.builder.docCount,
+        tokenValues: result.builder.tokenValues,
+        warning: result.builder.warning,
+      });
+      if (indexingStatus !== "ready") {
+        return { status: indexingStatus, context: "" };
+      }
+    }
+    if (result?.agentContext?.trim()) {
+      return {
+        status: "loaded",
+        context: [
+          "",
+          result.agentContext.trim(),
+          "",
+          "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, imagery, or slide components.",
+        ].join("\n"),
+      };
+    }
+    return { status: "unavailable", context: "" };
+  } catch {
+    return { status: "unavailable", context: "" };
   }
-  return [
-    "",
-    "## Selected Design System Context",
-    `The selected design system id "${designSystemId}" returned no generation context.`,
-    "Call `get-design-system` for this id before adding slides. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
-  ].join("\n");
 }
 
 interface ReferenceDeckContextResult {
@@ -469,11 +492,10 @@ interface ReferenceDeckContextResult {
   linkedDesignSystemStatus?: "available" | "unavailable" | "none";
 }
 
-interface LoadedReferenceDeckContext {
-  status: "none" | "loaded" | "unavailable";
-  agentContext: string;
-  designSystemId: string | null;
-}
+type LoadedReferenceDeckContext =
+  | { status: "none"; agentContext: ""; designSystemId: null }
+  | { status: "loaded"; agentContext: string; designSystemId: string | null }
+  | { status: "unavailable"; agentContext: ""; designSystemId: null };
 
 async function loadReferenceDeckGenerationContext(
   referenceDeckId?: string | null,
@@ -513,37 +535,20 @@ async function loadReferenceDeckGenerationContext(
       }
       return {
         status: "unavailable",
-        agentContext: [
-          "",
-          "## Reference Deck",
-          `The user picked deck "${referenceDeckId}" as a style reference, but the reference action returned incomplete linked-system status.`,
-          "Retry `get-deck-reference-context`; if it still fails, stop instead of generating with an assumed style.",
-        ].join("\n"),
+        agentContext: "",
         designSystemId: null,
       };
     }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "unknown loading error";
+  } catch {
     return {
       status: "unavailable",
-      agentContext: [
-        "",
-        "## Reference Deck",
-        `The user picked deck "${referenceDeckId}" as a style reference, but it could not be loaded before generation: ${message}`,
-        "Before adding slides, call `get-deck-reference-context` for this id. If it still fails, tell the user the reference deck is unavailable instead of inventing a style.",
-      ].join("\n"),
+      agentContext: "",
       designSystemId: null,
     };
   }
   return {
     status: "unavailable",
-    agentContext: [
-      "",
-      "## Reference Deck",
-      `The user picked deck "${referenceDeckId}" as a style reference, but it returned no usable context.`,
-      `Call \`get-deck --id ${referenceDeckId}\` before adding slides. If that deck is empty, tell the user instead of silently generating without a reference.`,
-    ].join("\n"),
+    agentContext: "",
     designSystemId: null,
   };
 }
@@ -1323,6 +1328,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     const generationAttemptId = nanoid();
     const generationStartedAt = Date.now();
     let generationFailureTracked = false;
+    let sourceImportMayHaveWrittenSlides = false;
     const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
       app_name: "slides",
@@ -1379,7 +1385,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryModelSelection(modelSelection);
       setIsStartingNewDeck(false);
       clearStartedGenerationAttempt(generationAttemptId, deckId);
-      deleteDeck(deckId);
+      if (!sourceImportMayHaveWrittenSlides) deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
         typeof window !== "undefined" &&
@@ -1405,26 +1411,12 @@ export default function Index({ active = true }: { active?: boolean }) {
       prompt,
       filesForSourceImprovement,
     );
-    let deckPersisted = false;
-    if (sourceImprovementRequest) {
-      const persisted = await ensureDeckPersisted(deck.id);
-      if (!persisted.persisted) {
-        recoverFromGenerationSetupFailure(
-          describeDeckPersistenceFailure(
-            persisted,
-            t("home.generationStartFailedDescription"),
-          ),
-        );
-        return;
-      }
-      deckPersisted = true;
-    }
+    let sourceDeckPaths: string[] = [];
     if (sourceImprovementRequest) {
       try {
-        importedSourceDeck = await importUploadedDeckIntoDeck(
+        sourceDeckPaths = validateUploadedDeckImport(
           filesForSourceImprovement,
-          deckId,
-        );
+        ).map((file) => file.path);
       } catch (error) {
         recoverFromGenerationSetupFailure(
           error instanceof Error
@@ -1434,16 +1426,27 @@ export default function Index({ active = true }: { active?: boolean }) {
         return;
       }
     }
+    let deckPersisted = false;
 
-    const referenceHydration = await hydrateReferenceDocuments(
-      filesForGeneration,
-      {
+    let referenceHydration: Awaited<
+      ReturnType<typeof hydrateReferenceDocuments>
+    >;
+    try {
+      referenceHydration = await hydrateReferenceDocuments(filesForGeneration, {
         excludePaths: [
           ...(importedReferenceFilePath ? [importedReferenceFilePath] : []),
-          ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
+          ...sourceDeckPaths,
         ],
-      },
-    );
+      });
+    } catch (error) {
+      recoverFromGenerationSetupFailure(
+        error instanceof Error
+          ? error.message
+          : t("home.generationStartFailedDescription"),
+        "reference_hydration_failed",
+      );
+      return;
+    }
     if (referenceHydration.status === "unreadable") {
       recoverFromGenerationSetupFailure(referenceHydration.message);
       return;
@@ -1456,15 +1459,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       referenceHydration.status === "hydrated" &&
       referenceHydration.measuredDesignCount > 0;
 
-    clearPendingPromptForRetry();
-    setNewDeckInitialPrompt(null);
-    setNewDeckRetryFiles([]);
-    setNewDeckRetryReferenceSelection(undefined);
-    setNewDeckRetryContext(undefined);
-    setNewDeckRetryPrompt(undefined);
-    setNewDeckRetryRequiresExactPrompt(false);
-    setNewDeckRetryAttachments([]);
-    setNewDeckRetryModelSelection(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
       (value) => value.includes("<google-doc "),
@@ -1490,11 +1484,89 @@ export default function Index({ active = true }: { active?: boolean }) {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const [loadedReferenceDeckContext, hydratedDesignSystemContext] =
-      await Promise.all([
-        loadReferenceDeckGenerationContext(referenceDeckId),
-        loadDesignSystemGenerationContext(designSystemId),
-      ]);
+    let loadedReferenceDeckContext: LoadedReferenceDeckContext;
+    let hydratedDesignSystemContext: LoadedDesignSystemGenerationContext;
+    try {
+      [loadedReferenceDeckContext, hydratedDesignSystemContext] =
+        await Promise.all([
+          loadReferenceDeckGenerationContext(referenceDeckId),
+          loadDesignSystemGenerationContext(designSystemId),
+        ]);
+    } catch (error) {
+      recoverFromGenerationSetupFailure(
+        t("home.generationContextUnavailableDescription"),
+        "generation_context_load_failed",
+      );
+      return;
+    }
+    if (
+      (referenceDeckId && loadedReferenceDeckContext.status !== "loaded") ||
+      hydratedDesignSystemContext.status === "unavailable" ||
+      hydratedDesignSystemContext.status === "indexing"
+    ) {
+      recoverFromGenerationSetupFailure(
+        hydratedDesignSystemContext.status === "indexing"
+          ? t("designSystemSetup.sourceIndexingDescription")
+          : t("home.generationContextUnavailableDescription"),
+        "generation_context_load_failed",
+      );
+      return;
+    }
+
+    if (sourceImprovementRequest) {
+      let persisted: Awaited<ReturnType<typeof ensureDeckPersisted>>;
+      try {
+        persisted = await ensureDeckPersisted(deck.id);
+      } catch {
+        recoverFromGenerationSetupFailure(
+          t("home.generationStartFailedDescription"),
+          "deck_persistence_failed",
+        );
+        return;
+      }
+      if (!persisted.persisted) {
+        recoverFromGenerationSetupFailure(
+          describeDeckPersistenceFailure(
+            persisted,
+            t("home.generationStartFailedDescription"),
+          ),
+        );
+        return;
+      }
+      deckPersisted = true;
+
+      try {
+        importedSourceDeck = await importUploadedDeckIntoDeck(
+          filesForSourceImprovement,
+          deckId,
+          {
+            onImportStarted: () => {
+              sourceImportMayHaveWrittenSlides = true;
+            },
+            onImportCleanupSafe: () => {
+              sourceImportMayHaveWrittenSlides = false;
+            },
+          },
+        );
+      } catch (error) {
+        recoverFromGenerationSetupFailure(
+          error instanceof Error
+            ? error.message
+            : t("home.generationStartFailedDescription"),
+        );
+        return;
+      }
+    }
+
+    clearPendingPromptForRetry();
+    setNewDeckInitialPrompt(null);
+    setNewDeckRetryFiles([]);
+    setNewDeckRetryReferenceSelection(undefined);
+    setNewDeckRetryContext(undefined);
+    setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryRequiresExactPrompt(false);
+    setNewDeckRetryAttachments([]);
+    setNewDeckRetryModelSelection(undefined);
     const referenceDeckContext = loadedReferenceDeckContext.agentContext;
     const designSystemContext = referenceSelection.composerContext
       ? formatSlidesComposerContext(
@@ -1509,7 +1581,7 @@ export default function Index({ active = true }: { active?: boolean }) {
             `- Use "${selectedDesignSystem?.title ?? designSystemId}" (id: ${designSystemId}).`,
             "- The deck has already been linked to this design system.",
             "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
-            hydratedDesignSystemContext,
+            hydratedDesignSystemContext.context,
             "- Do not choose or apply a different design system.",
           ].join("\n")
         : "";

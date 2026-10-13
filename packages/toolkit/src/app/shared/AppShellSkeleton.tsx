@@ -2,6 +2,8 @@ import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "@agent-native/core/shared/mcp-ap
 import type { CSSProperties, ReactNode } from "react";
 
 const MUTED = "hsl(var(--muted, 240 5% 96.1%))";
+const SIDEBAR_MUTED =
+  "hsl(var(--sidebar-foreground, var(--foreground, 240 10% 3.9%)) / 12%)";
 const BORDER = "1px solid hsl(var(--border, 240 5.9% 90%))";
 
 export type AppShellSkeletonLayout =
@@ -15,14 +17,20 @@ export type AppShellSkeletonLayout =
   | "prompt-library"
   | "welcome";
 
-function Block({ style }: { style?: CSSProperties }) {
+function Block({
+  style,
+  sidebar = false,
+}: {
+  style?: CSSProperties;
+  sidebar?: boolean;
+}) {
   return (
     <span
       aria-hidden="true"
       data-agent-native-skeleton-block="true"
       style={{
         display: "block",
-        backgroundColor: MUTED,
+        backgroundColor: sidebar ? SIDEBAR_MUTED : MUTED,
         borderRadius: 6,
         opacity: 0.7,
         ...style,
@@ -43,13 +51,16 @@ function Sidebar({ width = 248 }: { width?: number }) {
         flexDirection: "column",
         gap: 16,
         borderRight: BORDER,
+        backgroundColor:
+          "hsl(var(--sidebar-background, var(--background, 0 0% 100%)))",
         padding: 16,
       }}
     >
-      <Block style={{ width: 132, height: 32 }} />
+      <Block sidebar style={{ width: 132, height: 32 }} />
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {Array.from({ length: 6 }, (_, index) => (
           <Block
+            sidebar
             key={index}
             style={{ width: `${68 + (index % 3) * 14}%`, height: 14 }}
           />

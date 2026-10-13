@@ -74,6 +74,23 @@ describe("design navigation state", () => {
     });
   });
 
+  it("round-trips the Motion inspector context through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      inspectorTab: "motion" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?inspector=motion");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      inspectorTab: "motion",
+      path,
+    });
+  });
+
   it("round-trips an enabled left rail panel through editor navigation", () => {
     const command = {
       view: "editor",

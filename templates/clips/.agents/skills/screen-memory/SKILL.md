@@ -65,8 +65,10 @@ It is private with its clip. Requesting it makes the clip private, and it is
 refused while the clip still has direct shares. While an item is active, sharing
 the clip is refused: making it public or visible to the organization, or
 granting access, fails until the item is removed. Never describe it as
-shareable. The request's `endedAt` must be within 120 seconds of the clip's
-start, or it fails with `recording_context_invalid_window`.
+shareable. The request's `endedAt` may be up to 10 minutes after the Clip row
+is created because native setup and the countdown happen after row creation. It
+may be up to 120 seconds before row creation for client clock skew. Timestamps
+outside those bounds fail with `recording_context_invalid_window`.
 
 The footage is a separate private recording, uploaded from this device through
 the Rewind handoff. Its source app name is `Clips Rewind`; the footage check

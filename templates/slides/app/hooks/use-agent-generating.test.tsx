@@ -220,12 +220,17 @@ describe("useAgentGenerating", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
-          detail: { tabId: "actual-tab", message: "Generation failed" },
+          detail: {
+            tabId: "actual-tab",
+            message: "Generation failed",
+            errorCode: "write_tool_outcome_unknown",
+          },
         }),
       );
     });
 
     expect(result.current.generating).toBe(false);
+    expect(result.current.runErrorCode).toBe("write_tool_outcome_unknown");
     expect(toastState.error).toHaveBeenCalledWith("Generation failed", {
       id: "agent-run-error-actual-tab",
     });

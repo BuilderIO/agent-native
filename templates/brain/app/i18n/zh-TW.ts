@@ -407,6 +407,8 @@ const messages = {
       "無效的 Zoom 會議 ID：{{entries}}。請使用會議邀請中的號碼，例如 123 4567 8901。",
     zoomDescription:
       "Brain 每小時僅從已核准的系列匯入逐字稿（開啟後也匯入摘要）。Zoom 帳戶中的其他會議絕不會被下載。變更清單會重新掃描回溯期間。",
+    zoomAdminOnly:
+      "只有組織擁有者和管理員可以變更 Zoom 設定。你仍然可以重新命名此來源。",
     approvedRepositories: "核准的儲存庫",
     githubRepositoriesDescription:
       "Brain 使用工作區 GitHub 憑證從這些儲存庫匯入有界問題和 pull request 脈絡。",

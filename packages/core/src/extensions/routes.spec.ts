@@ -182,3 +182,40 @@ describe("createExtensionsHandler iframe display sources", () => {
     expect(event.status).toBe(401);
   });
 });
+
+describe("createExtensionsHandler proxy response size", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getSession.mockResolvedValue({
+      email: "viewer@example.test",
+      orgId: "org-1",
+    });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+    mocks.readBody.mockResolvedValue({
+      url: "https://93.184.216.34/api",
+      method: "GET",
+    });
+  });
+
+  it("returns an explicit gateway error for a truncated upstream body", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("partial body", {
+        status: 200,
+        headers: { "content-length": "2000000" },
+      }),
+    );
+    const event = {
+      method: "POST",
+      url: new URL("http://app.test/proxy"),
+      status: 200,
+    };
+
+    await expect(
+      createExtensionsHandler()(event as never),
+    ).resolves.toMatchObject({
+      error: expect.stringContaining("response too large"),
+    });
+    expect(event.status).toBe(502);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+});

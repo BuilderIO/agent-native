@@ -7,6 +7,7 @@ import type { PlanCommentInput } from "@/hooks/use-plans";
 import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
 
 import { parsePlanMdxFolder } from "../../server/plan-mdx";
+import { visitPlanBlocks } from "../components/plan/plan-block-structure";
 
 export { planReturnPathFromLocation } from "./plan-return-path";
 
@@ -285,28 +286,37 @@ function inlineLocalPlanAssets(
         };
       }
       if (block.type === "tabs") {
+        const data = block.data as unknown;
+        if (!isRecord(data) || !Array.isArray(data.tabs)) return block;
         return {
           ...block,
           data: {
-            ...block.data,
-            tabs: block.data.tabs.map((tab) => ({
-              ...tab,
-              blocks: rewriteBlocks(tab.blocks),
-            })),
+            ...data,
+            tabs: data.tabs.map((tab) =>
+              isRecord(tab) && Array.isArray(tab.blocks)
+                ? { ...tab, blocks: rewriteBlocks(tab.blocks as PlanBlock[]) }
+                : tab,
+            ),
           },
-        };
+        } as PlanBlock;
       }
       if (block.type === "columns") {
+        const data = block.data as unknown;
+        if (!isRecord(data) || !Array.isArray(data.columns)) return block;
         return {
           ...block,
           data: {
-            ...block.data,
-            columns: block.data.columns.map((column) => ({
-              ...column,
-              blocks: rewriteBlocks(column.blocks),
-            })),
+            ...data,
+            columns: data.columns.map((column) =>
+              isRecord(column) && Array.isArray(column.blocks)
+                ? {
+                    ...column,
+                    blocks: rewriteBlocks(column.blocks as PlanBlock[]),
+                  }
+                : column,
+            ),
           },
-        };
+        } as PlanBlock;
       }
       return block;
     });
@@ -315,18 +325,14 @@ function inlineLocalPlanAssets(
 
 function countLocalPlanBlocks(blocks: PlanBlock[]): Record<string, number> {
   const counts: Record<string, number> = {};
-  const visitBlocks = (items: PlanBlock[]) => {
-    for (const block of items) {
-      counts[block.type] = (counts[block.type] ?? 0) + 1;
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
-      } else if (block.type === "columns") {
-        for (const column of block.data.columns) visitBlocks(column.blocks);
-      }
-    }
-  };
-  visitBlocks(blocks);
+  visitPlanBlocks(blocks, (block) => {
+    counts[block.type] = (counts[block.type] ?? 0) + 1;
+  });
   return counts;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
 export function localPlanBridgeQueryKey(slug: string, bridgeUrl: string) {

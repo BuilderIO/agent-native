@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "开启 Rewind",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
-      "Rewind 会在本地保存屏幕的历史记录，方便你在录制前加入最近几分钟的画面。只有在你选择包含或批准后，画面才会上传。",
+      "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
     requestFailed: "无法包含更早的屏幕时间。录制将继续，但不包含这部分。",
     localOnlyUnavailable: "仅本地录制不会保存更早的屏幕时间。",
     saving: "正在保存录制前的 {{window}}…",
