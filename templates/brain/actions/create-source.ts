@@ -38,7 +38,7 @@ function objectRecord(value: unknown): Record<string, unknown> {
 
 export default defineAction({
   description:
-    "Create a Brain source for manual imports, generic captures, Slack, Granola, GitHub, or Zoom.",
+    "Create a Brain source for manual imports, generic captures, Clips, Slack, Granola, GitHub, or Zoom. Only organization owners and admins can create Zoom sources.",
   schema: z.object({
     id: z.string().optional().describe("Optional optimistic source ID"),
     title: z.string().min(1).describe("Human-readable source name"),

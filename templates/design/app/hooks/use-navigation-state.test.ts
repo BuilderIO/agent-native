@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { DESIGN_EDITOR_TOOLS } from "@/pages/design-editor/tool-state";
+
 import {
   designEditorCommandKeysForTab,
   designSelectionCleanupKeysForTab,
@@ -32,6 +34,39 @@ describe("design navigation state", () => {
     });
   });
 
+  it("round-trips every tool the editor knows into the URL", () => {
+    for (const tool of DESIGN_EDITOR_TOOLS) {
+      const path = editorPathFromCommand({
+        view: "editor",
+        designId: "design_123",
+        tool,
+      });
+      expect(path, tool).toBe(`/design/design_123?tool=${tool}`);
+    }
+  });
+
+  it("writes a stale tool=agent as Move into the URL and the editor command", () => {
+    const command = { view: "editor", designId: "design_123", tool: "agent" };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?tool=move");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      tool: "move",
+    });
+  });
+
+  it("drops a tool the editor does not know instead of writing it into the URL", () => {
+    expect(
+      editorPathFromCommand({
+        view: "editor",
+        designId: "design_123",
+        tool: "lasso",
+      }),
+    ).toBe("/design/design_123");
+  });
+
   it("round-trips the active design tool through editor navigation", () => {
     const command = {
       view: "editor",
@@ -48,6 +83,28 @@ describe("design navigation state", () => {
       editorView: "overview",
       tool: "pen",
       path,
+    });
+  });
+
+  it("carries the Interact device and theme into the editor command without putting them in the URL", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "single" as const,
+      screen: "pricing.html",
+      interactDevice: "iPhone 17",
+      interactTheme: "dark" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe(
+      "/design/design_123?editorView=single&mode=interact&screen=pricing.html&zoom=100",
+    );
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      interactDevice: "iPhone 17",
+      interactTheme: "dark",
     });
   });
 
@@ -74,20 +131,19 @@ describe("design navigation state", () => {
     });
   });
 
-  it("round-trips the Motion inspector context through editor navigation", () => {
+  it("ignores the Motion inspector tab: the Motion dock owns that surface", () => {
     const command = {
       view: "editor",
       designId: "design_123",
-      inspectorTab: "motion" as const,
+      inspectorTab: "motion",
     };
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123?inspector=motion");
-    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
-      designId: "design_123",
-      inspectorTab: "motion",
-      path,
+    expect(path).toBe("/design/design_123");
+    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
+      inspectorTab: expect.anything(),
+      leftPanel: expect.anything(),
     });
   });
 
@@ -104,6 +160,23 @@ describe("design navigation state", () => {
     expect(editorCommandFromNavigate(command, path!)).toMatchObject({
       designId: "design_123",
       leftPanel: "import",
+      path,
+    });
+  });
+
+  it("round-trips the Threads left rail panel through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      leftPanel: "threads" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?panel=threads");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      leftPanel: "threads",
       path,
     });
   });

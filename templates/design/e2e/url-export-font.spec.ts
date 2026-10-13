@@ -21,6 +21,7 @@ import {
 import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
+import { openAppMenuSubmenu } from "./helpers";
 
 const HTML = `<!doctype html>
 <html lang="en">
@@ -162,17 +163,17 @@ async function downloadBytes(page: Page, click: () => Promise<unknown>) {
 }
 
 async function downloadPng(page: Page) {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
-  await exportMenu.press("ArrowRight");
+  await exportMenu.click();
   const pngMenuItem = page.getByRole("menuitem", { name: "Download PNG" });
   await expect(pngMenuItem).toBeVisible();
   return downloadBytes(page, () => pngMenuItem.click());
 }
 
 async function downloadAllScreensPdf(page: Page) {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
   await exportMenu.hover();

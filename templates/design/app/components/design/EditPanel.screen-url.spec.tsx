@@ -38,6 +38,7 @@ afterEach(() => {
 
 function renderUrlInspector(props: {
   onScreenUrlChange?: (screenId: string, url: string) => void;
+  selectedScreenRoute?: string;
   onScreenSourceChange?: (
     screenId: string,
     next: {
@@ -501,4 +502,25 @@ it("activates the Static source tab only once for a pointer press", () => {
     },
     expect.any(Function),
   );
+});
+
+it("opens on the screen header with its route and has no tab row; the URL field stays in the inspector", () => {
+  renderUrlInspector({ selectedScreenRoute: "/students" });
+
+  const header = container.querySelector("[data-design-inspector-header]");
+  expect(header?.textContent).toContain("Students");
+  expect(header?.textContent).toContain("/students");
+  expect(container.querySelector("[data-design-inspector-tabs]")).toBeNull();
+  // The only tabs left are the Static / URL source switch: no Design, Comments,
+  // Tweaks or Code tab.
+  expect(
+    Array.from(container.querySelectorAll('[role="tab"]')).map(
+      (tab) => tab.textContent,
+    ),
+  ).toEqual(["editPanel.positionOptions.static", "editPanel.screenSource.url"]);
+  expect(
+    container.querySelector(
+      'input[aria-label="editPanel.screenSource.urlLabel"]',
+    ),
+  ).not.toBeNull();
 });

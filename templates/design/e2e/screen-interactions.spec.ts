@@ -12,6 +12,7 @@ import {
   frameToolButton,
   gotoEditor,
   pickFrameMode,
+  openAppMenuSubmenu,
 } from "./helpers";
 
 const PRESET_HTML = `<!doctype html>
@@ -489,15 +490,19 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       }
     });
     const codeWorkbench = page.getByTestId("design-code-workbench");
+    // The dev server can reload the page once to recover optimized deps, which
+    // strands the first navigation on "Loading application"; navigate again.
     const openCodeWorkbench = async () => {
-      await page.goto(appPath(`/design/${designId}?panel=code`), {
-        waitUntil: "domcontentloaded",
-      });
-      const loadError = page.getByTestId("design-code-workbench-load-error");
-      if (await loadError.isVisible().catch(() => false)) {
-        await page.getByRole("button", { name: "Retry code editor" }).click();
-      }
-      await expect(codeWorkbench).toBeVisible({ timeout: 30_000 });
+      await expect(async () => {
+        await page.goto(appPath(`/design/${designId}?panel=code`), {
+          waitUntil: "domcontentloaded",
+        });
+        const loadError = page.getByTestId("design-code-workbench-load-error");
+        if (await loadError.isVisible().catch(() => false)) {
+          await page.getByRole("button", { name: "Retry code editor" }).click();
+        }
+        await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
+      }).toPass({ timeout: 60_000 });
     };
     await openCodeWorkbench();
     await expect(screenShell).toBeVisible();
@@ -516,11 +521,20 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
     await expect(page.getByTestId("design-code-workbench")).toBeHidden();
     const frameLabel = screenShell.locator("[data-frame-label]");
     await expect(frameLabel).toBeVisible();
-    await frameLabel.click();
     const readFrameX = async () =>
       designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
     const initialX = await readFrameX();
     expect(initialX).toBe(0);
+    // Retry only readiness: the key press is a non-idempotent mutation and must
+    // be sent once per nudge.
+    await expect(async () => {
+      await frameLabel.click();
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .getByRole("treeitem", { selected: true }),
+      ).toHaveCount(1, { timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     for (let index = 0; index < 20; index += 1) {
       const writeResponse = page.waitForResponse((response) => {
         const pathname = new URL(response.url()).pathname;
@@ -1146,7 +1160,7 @@ test("Screen Appearance styles reveal the board and keep pinned versus Hug heigh
     const [svgDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         await page
           .getByRole("menuitem", { name: "Download for Figma (SVG)" })
@@ -1217,7 +1231,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
     const [pdfDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         await page
           .getByRole("menuitem", { name: "Download PDF (all screens)" })
@@ -1285,7 +1299,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
       `[data-screen-shell][data-frame-id="${imageScreenId}"]`,
     );
     const exportPdf = async () => {
-      await page.getByRole("button", { name: "More" }).click();
+      await openAppMenuSubmenu(page, "File");
       await page.getByRole("menuitem", { name: "Export" }).hover();
       await page
         .getByRole("menuitem", { name: "Download PDF (all screens)" })

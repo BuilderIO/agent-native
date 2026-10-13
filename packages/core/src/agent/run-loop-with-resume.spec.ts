@@ -18,6 +18,7 @@ import {
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import {
+  AgentLoopAbortedError,
   AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   appendDurableContinuationContext,
   clientAbortReason,
@@ -579,6 +580,42 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     });
   });
 
+  it("reports accumulated usage when a later continuation attempt fails", async () => {
+    let attempts = 0;
+    const reports: Awaited<ReturnType<typeof runAgentLoop>>[] = [];
+    const usage = {
+      inputTokens: 19,
+      outputTokens: 7,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+      engineName: "test",
+      model: "test-model",
+    };
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({ type: "auto_continue", reason: "no_progress" });
+        return usage;
+      }
+      throw new Error("later continuation failed");
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
+        undefined,
+        undefined,
+        (nextUsage) => reports.push(nextUsage),
+      ),
+    ).rejects.toThrow("later continuation failed");
+
+    expect(reports).toEqual([expect.objectContaining(usage)]);
+  });
+
   it("keeps a reported attempt's usage flag and first-event timing across a continuation", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async (opts) => {
@@ -901,7 +938,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  it("caps background provider-rate-limit continuation instead of storming requests", async () => {
+  it("retries background provider rate limits with bounded exponential backoff", async () => {
     vi.useFakeTimers();
     try {
       let attempts = 0;
@@ -925,7 +962,19 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
       );
       await vi.advanceTimersByTimeAsync(
-        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS - 1,
+      );
+      expect(attempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toBe(2);
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS * 2 - 1,
+      );
+      expect(attempts).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toBe(3);
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS * 4,
       );
       await rejected;
 
@@ -935,7 +984,42 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  it("also grants the foreground lane one cooled-down retry when the budget covers it", async () => {
+  it("keeps the provider rate-limit terminal when a 429 hits the loop-attempt cap", async () => {
+    let attempts = 0;
+    const outcomes: AgentLoopOutcome[] = [];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts < MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS) {
+        throw new Error("socket hang up");
+      }
+      throw new EngineError("429 status code (no body)", {
+        errorCode: "http_429",
+        statusCode: 429,
+      });
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+      ),
+    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+
+    expect(attempts).toBe(MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS);
+    expect(outcomes.at(-1)).toMatchObject({
+      state: "failed",
+      code: PROVIDER_RATE_LIMITED_ERROR_CODE,
+    });
+  });
+
+  it("also grants the foreground lane a cooled-down retry when the budget covers it", async () => {
     vi.useFakeTimers();
     try {
       let attempts = 0;
@@ -1055,7 +1139,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
           [{ role: "user", content: [{ type: "text", text: "go" }] }],
           new AbortController().signal,
         ),
-        25_000,
+        9_000,
       ),
     ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
 
@@ -1847,6 +1931,170 @@ describe("chunk-boundary recovery", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationNote).toBeDefined();
+  });
+
+  it("interrupts a rate-limit cooldown when a recoverable chunk deadline expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const turn = new AbortController();
+      const { control, checkpoint } = makeControl(turn.signal);
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+      ];
+      let attempts = 0;
+      let resolveNextAttempt!: () => void;
+      const nextAttempt = new Promise<void>((resolve) => {
+        resolveNextAttempt = resolve;
+      });
+      mockRunAgentLoop.mockImplementation(async (opts: any) => {
+        attempts++;
+        if (attempts === 1) {
+          opts.send({
+            type: "tool_start",
+            tool: "read-data",
+            id: "tool-1",
+            input: { query: "recent rows" },
+          });
+          opts.send({ type: "text", text: "partial answer" });
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        resolveNextAttempt();
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(messages, control.chunkSignal),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBeGreaterThan(1);
+      checkpoint("no_progress");
+      const resumedBeforeCooldown = await Promise.race([
+        nextAttempt.then(() => true),
+        vi.advanceTimersByTimeAsync(100).then(() => false),
+      ]);
+      if (!resumedBeforeCooldown) {
+        await vi.advanceTimersByTimeAsync(
+          BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+        );
+      }
+      await run;
+
+      expect(resumedBeforeCooldown).toBe(true);
+      expect(attempts).toBe(2);
+      const continuationTexts = messages
+        .map((message) =>
+          message.content[0]?.type === "text" ? message.content[0].text : "",
+        )
+        .filter((text) => text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+      expect(continuationTexts).toHaveLength(2);
+      expect(continuationTexts[0]).toContain("temporarily rate limited");
+      expect(continuationTexts[1]).toContain("stopped producing progress");
+      expect(
+        messages.filter((message) =>
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(
+                "Tool-call journal from the interrupted attempt",
+              ),
+          ),
+        ),
+      ).toHaveLength(1);
+      expect(
+        messages.filter((message) =>
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(
+                AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+              ),
+          ),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects when the turn is stopped during a rate-limit cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      const turn = new AbortController();
+      const { control } = makeControl(turn.signal);
+      const outcomes: AgentLoopOutcome[] = [];
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+      ];
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        attempts++;
+        if (attempts === 1) {
+          opts.send({ type: "auto_continue", reason: "no_progress" });
+          return {
+            inputTokens: 17,
+            outputTokens: 4,
+            cacheReadTokens: 3,
+            cacheWriteTokens: 1,
+            model: "test-model",
+          };
+        }
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(messages, control.chunkSignal, undefined, undefined, outcomes),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        messages.some((message) =>
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
+              part.text.includes("temporarily rate limited"),
+          ),
+        ),
+      ).toBe(true);
+      turn.abort("stopped_by_reviewer");
+
+      const abortError = await run.catch((error: unknown) => error);
+      expect(abortError).toBeInstanceOf(AgentLoopAbortedError);
+      expect(abortError).toMatchObject({
+        name: "AbortError",
+        message: "Agent run was aborted.",
+        usage: {
+          inputTokens: 17,
+          outputTokens: 4,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        },
+      });
+      expect(attempts).toBe(2);
+      expect(outcomes.at(-1)).toEqual({
+        state: "canceled",
+        message: "Agent run was aborted.",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names the server bound that ended the turn instead of calling it a cancel", async () => {

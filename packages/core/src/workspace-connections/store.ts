@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  getWorkspaceConnectionProvider,
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
   type WorkspaceConnectionProvider,
@@ -259,6 +260,9 @@ export interface WorkspaceConnectionProviderReadiness {
 export interface WorkspaceConnectionProviderLike {
   id: string;
   label?: string;
+  oauth?: {
+    scopes: readonly string[];
+  };
   credentialKeys?: readonly {
     key: string;
     required?: boolean;
@@ -267,6 +271,7 @@ export interface WorkspaceConnectionProviderLike {
 
 export interface SummarizeWorkspaceConnectionProviderForAppOptions {
   providerId: string;
+  provider?: WorkspaceConnectionProviderLike;
   appId: string;
   connections: SerializedWorkspaceConnection[];
   grants?: SerializedWorkspaceConnectionGrant[];
@@ -982,11 +987,42 @@ function connectionForApp(
   );
   return {
     ...connection,
+    status: connectionStatusForProvider(
+      getWorkspaceConnectionProvider(connection.provider),
+      connection,
+    ),
     appAccess,
     explicitGrant:
       explicitGrantForConnection(connection.id, grants, normalizedAppId) ??
       null,
   };
+}
+
+function connectionStatusForProvider(
+  provider: WorkspaceConnectionProviderLike | null | undefined,
+  connection: SerializedWorkspaceConnection,
+): WorkspaceConnectionStatus {
+  const grantedScopes = new Set(connection.scopes.map(normalizeOAuthScope));
+  if (
+    connection.status === "connected" &&
+    connection.config.credentialMode === "oauth" &&
+    provider?.oauth?.scopes.some(
+      (scope) => !grantedScopes.has(normalizeOAuthScope(scope)),
+    )
+  ) {
+    return "needs_reauth";
+  }
+  return connection.status;
+}
+
+function normalizeOAuthScope(scope: string): string {
+  if (scope === "https://www.googleapis.com/auth/userinfo.email") {
+    return "email";
+  }
+  if (scope === "https://www.googleapis.com/auth/userinfo.profile") {
+    return "profile";
+  }
+  return scope;
 }
 
 function serializeConnectionForApp(
@@ -1057,6 +1093,7 @@ function grantAvailabilityMessage(
 
 export function summarizeWorkspaceConnectionProviderForApp({
   providerId,
+  provider,
   appId,
   connections,
   grants = [],
@@ -1064,6 +1101,8 @@ export function summarizeWorkspaceConnectionProviderForApp({
 }: SummarizeWorkspaceConnectionProviderForAppOptions): WorkspaceConnectionProviderAppSummary {
   const normalizedProviderId = providerId.trim();
   const normalizedAppId = appId.trim();
+  const providerDefinition =
+    provider ?? getWorkspaceConnectionProvider(normalizedProviderId);
   const allConnections = connections.filter(
     (connection) => connection.provider === normalizedProviderId,
   );
@@ -1073,7 +1112,9 @@ export function summarizeWorkspaceConnectionProviderForApp({
         .available,
   );
   const connectedConnections = grantedConnections.filter(
-    (connection) => connection.status === "connected",
+    (connection) =>
+      connectionStatusForProvider(providerDefinition, connection) ===
+      "connected",
   );
   const ungrantedConnectionCount =
     allConnections.length - grantedConnections.length;
@@ -1140,10 +1181,19 @@ export function summarizeWorkspaceConnectionProviderForApp({
     hasActiveWorkspaceConnection: connectedConnections.length > 0,
     lastUsedAt,
     statuses: uniqueStrings(
-      allConnections.map((connection) => connection.status),
+      allConnections.map((connection) =>
+        connectionStatusForProvider(providerDefinition, connection),
+      ),
     ) as WorkspaceConnectionStatus[],
     connections: visibleConnections.map((connection) =>
-      serializeConnectionForApp(connection, normalizedAppId, grants),
+      serializeConnectionForApp(
+        {
+          ...connection,
+          status: connectionStatusForProvider(providerDefinition, connection),
+        },
+        normalizedAppId,
+        grants,
+      ),
     ),
   };
 }
@@ -1192,8 +1242,8 @@ export function summarizeWorkspaceConnectionProviderReadiness({
   );
   const attentionConnections = activeConnections.filter(
     (connection) =>
-      connection.status === "error" ||
-      connection.status === "needs_reauth" ||
+      connectionStatusForProvider(provider, connection) === "error" ||
+      connectionStatusForProvider(provider, connection) === "needs_reauth" ||
       Boolean(connection.lastError),
   );
   const missingKeys = uniqueStrings(
@@ -1207,7 +1257,7 @@ export function summarizeWorkspaceConnectionProviderReadiness({
   );
   const readyConnections = activeConnections.filter(
     (connection) =>
-      connection.status === "connected" &&
+      connectionStatusForProvider(provider, connection) === "connected" &&
       missingRequiredCredentialKeys(
         provider,
         connection,
@@ -1241,6 +1291,7 @@ export function summarizeWorkspaceConnectionProviderReadiness({
     appGrant: appId
       ? summarizeWorkspaceConnectionProviderForApp({
           providerId: provider.id,
+          provider,
           appId,
           connections,
           grants,
@@ -1274,6 +1325,7 @@ export async function listWorkspaceConnectionProviderCatalogForApp({
     .map((item) => {
       const workspaceConnection = summarizeWorkspaceConnectionProviderForApp({
         providerId: item.id,
+        provider: item,
         appId,
         connections,
         grants,
@@ -1406,13 +1458,13 @@ export async function resolveWorkspaceConnectionForApp({
       continue;
     }
 
-    if (requireConnected && connection.status !== "connected") {
+    if (requireConnected && connectionWithAccess.status !== "connected") {
       if (normalizedConnectionId) {
         return {
           available: false,
           connection: connectionWithAccess,
           appAccess: connectionWithAccess.appAccess,
-          reason: `Workspace connection "${connection.id}" is ${connection.status}; a connected workspace connection is required.`,
+          reason: `Workspace connection "${connection.id}" is ${connectionWithAccess.status}; a connected workspace connection is required.`,
         };
       }
       continue;
@@ -1550,7 +1602,19 @@ export async function upsertWorkspaceConnection(
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
-  const scopes = normalizeStringArray(input.scopes);
+  const accountId =
+    input.accountId === undefined
+      ? (existingConnection?.accountId ?? null)
+      : input.accountId;
+  const sameAccount =
+    existingConnection?.provider === provider &&
+    existingConnection.accountId === accountId;
+  const scopes =
+    input.scopes === undefined
+      ? sameAccount
+        ? (existingConnection?.scopes ?? [])
+        : []
+      : normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
   const allowedUsers =
@@ -1579,7 +1643,7 @@ export async function upsertWorkspaceConnection(
     args: [
       provider,
       label,
-      input.accountId ?? null,
+      accountId,
       input.accountLabel ?? null,
       status,
       JSON.stringify(scopes),
@@ -1610,7 +1674,7 @@ export async function upsertWorkspaceConnection(
           id,
           provider,
           label,
-          input.accountId ?? null,
+          accountId,
           input.accountLabel ?? null,
           status,
           JSON.stringify(scopes),

@@ -629,4 +629,20 @@ describe("figmaHydrationErrorMessage", () => {
       forbidden,
     );
   });
+
+  it("localizes a Figma file URL submitted as a hydration token", () => {
+    const error = Object.assign(
+      new Error("Paste a Figma access token, not a Figma file URL."),
+      { name: "FigmaFileUrlUsedAsTokenError" },
+    );
+
+    expect(
+      figmaHydrationErrorMessage(
+        error,
+        fallback,
+        forbidden,
+        "designEditor.import.errors.figmaTokenMustBeToken",
+      ),
+    ).toBe("designEditor.import.errors.figmaTokenMustBeToken");
+  });
 });

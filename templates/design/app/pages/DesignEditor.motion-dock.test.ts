@@ -87,10 +87,11 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain("editorLiveEditsAndPresence.motionLabEnabled ? (");
   });
 
-  it("opens the motion dock when the inspector switches to Motion", () => {
+  it("switches the inspector to Motion while the dock is open, with no tab to pick", () => {
     expect(source).toContain(
-      'onActiveTabChange: (tab: InspectorTab) => {\n      setActiveInspectorTab(tab);\n      if (tab === "motion") {\n        setMotionDockOpenAnimated(true);\n      }\n    },',
+      "motionInspector:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      motionDockOpen &&\n      Boolean(activeFile?.id),",
     );
+    expect(source).not.toContain("setActiveInspectorTab");
   });
 
   it("requires design edit access for both Motion write gates", () => {
@@ -104,9 +105,6 @@ describe("DesignEditor motion dock transition", () => {
   });
 
   it("keeps inspector motion controls gated and preserves explicit collapse", () => {
-    expect(source).toContain(
-      "motionInspectorEnabled:\n      editorLiveEditsAndPresence.motionLabEnabled && Boolean(activeFile?.id),",
-    );
     expect(source).toContain(
       "motionKeyframeState:\n      editorLiveEditsAndPresence.motionLabEnabled && canWriteMotion\n        ? motionKeyframeState\n        : undefined,",
     );

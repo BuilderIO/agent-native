@@ -5,7 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { expandAllLayers, gotoEditor } from "./helpers";
+import { expandAllLayers, gotoEditor, openAppMenuSubmenu } from "./helpers";
 
 const EXPORT_HTML = `<!doctype html>
 <html lang="en">
@@ -126,7 +126,7 @@ async function exportPngPixels(page: Page) {
 }
 
 async function exportPngPixelsFromFileMenu(page: Page) {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
   // Open the submenu with a click: while a Screen is selected the canvas claims
@@ -173,6 +173,7 @@ async function readPngDownloadPixels(
   }, base64);
 }
 
+// oracle: none — verifies exported pixels against the design's own colors, not a Figma node.
 test("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
   page,
   request,
@@ -244,7 +245,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     .click();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(
-    page.getByRole("button", { name: "Exit responsive preview" }),
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
   const responsiveMenuExport = await exportPngPixelsFromFileMenu(page);
   expect(responsiveMenuExport.width).toBeGreaterThan(100);

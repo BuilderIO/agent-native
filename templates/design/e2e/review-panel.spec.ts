@@ -18,7 +18,6 @@ test("clicking a review finding opens its details", async ({ page }) => {
 
   try {
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     const reviewHeading = page.getByRole("heading", {
       name: "Review",
       exact: true,

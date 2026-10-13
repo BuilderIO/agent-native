@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { parseCssColorExtended } from "@shared/color-utils";
 import {
   IconBorderRadius,
   IconBrush,
@@ -42,6 +43,7 @@ import {
   DESIGN_TOKEN_IMPORT_MAX_FILES,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../../../shared/design-token-import-limits";
+import { TokenColorPicker } from "./TokenColorPicker";
 
 interface DesignToken {
   name: string;
@@ -194,6 +196,7 @@ interface TokenRowProps {
   onCommit: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
+  onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenRow({
@@ -204,6 +207,7 @@ function TokenRow({
   onCommit,
   onStartEdit,
   onCancelEdit,
+  onColorCommit,
 }: TokenRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const showSwatch = token.type === "color" && isColorValue(token.value);
@@ -224,13 +228,23 @@ function TokenRow({
     >
       <span className="size-4 shrink-0" aria-hidden />
       {showSwatch ? (
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          <span
-            className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
-            style={{ backgroundColor: token.value }}
-            aria-hidden
-          />
-        </span>
+        parseCssColorExtended(token.value) ? (
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            <TokenColorPicker
+              name={token.name}
+              value={token.value}
+              onCommit={(value) => onColorCommit(token.cssVar, value)}
+            />
+          </span>
+        ) : (
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            <span
+              className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
+              style={{ backgroundColor: token.value }}
+              aria-hidden
+            />
+          </span>
+        )
       ) : (
         <TokenTypeIcon type={token.type} />
       )}
@@ -279,6 +293,7 @@ interface TokenGroupSectionProps {
   onDraftChange: (v: string) => void;
   onCommit: () => void;
   onCancelEdit: () => void;
+  onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenGroupSection({
@@ -289,6 +304,7 @@ function TokenGroupSection({
   onDraftChange,
   onCommit,
   onCancelEdit,
+  onColorCommit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { label } = typeLabel(group.type);
@@ -325,6 +341,7 @@ function TokenGroupSection({
               onCommit={onCommit}
               onStartEdit={() => onStartEdit(token.cssVar, token.value)}
               onCancelEdit={onCancelEdit}
+              onColorCommit={onColorCommit}
             />
           ))}
         </div>
@@ -748,6 +765,19 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     );
   };
 
+  const commitTokenColor = async (cssVar: string, value: string) => {
+    const requestDesignId = designId;
+    const result = (await applyMutation.mutateAsync({
+      designId,
+      edits: [{ cssVar, value }],
+    })) as { resolvedCssVars?: Record<string, string> };
+    if (designIdRef.current !== requestDesignId) return;
+    await refetch();
+    if (result?.resolvedCssVars && onTokensApplied) {
+      onTokensApplied(result.resolvedCssVars);
+    }
+  };
+
   const commitEdit = () => {
     if (!editingKey || !editDraft.trim()) {
       cancelEdit();
@@ -928,6 +958,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
                 onDraftChange={setEditDraft}
                 onCommit={commitEdit}
                 onCancelEdit={cancelEdit}
+                onColorCommit={commitTokenColor}
               />
             ))}
           </div>

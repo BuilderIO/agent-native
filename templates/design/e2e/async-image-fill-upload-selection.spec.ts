@@ -569,7 +569,7 @@ async function openImageFill(page: Page, layerName: string) {
     .first();
   await fill.getByRole("button", { name: "Open color picker" }).click();
   await page.getByRole("button", { name: "Image", exact: true }).click();
-  await page.getByRole("button", { name: "Upload image" }).click();
+  await page.getByRole("button", { name: "Choose image…" }).click();
   return page.locator('input[type="file"][accept="image/*"]');
 }
 

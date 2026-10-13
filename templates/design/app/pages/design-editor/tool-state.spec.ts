@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DESIGN_EDITOR_TOOLS,
+  commandRequestsAnnotate,
   getDesignBottomToolbarMode,
+  normalizeDesignLeftPanel,
+  normalizeDesignTool,
+  resolveDrawStateWithoutLab,
   resolveModeChangeView,
+  resolveModeForAnnotateLab,
   resolveSpaceForwardTransition,
   resolveToolAfterSelection,
+  resolveAvailableTool,
   shouldAskOnNewDesignArrival,
   shouldRevealLayersOnFirstCreate,
 } from "./tool-state";
+import type { DesignTool } from "./types";
 
 describe("resolveModeChangeView", () => {
   it("routes Interact from the canvas into the focused screen", () => {
@@ -281,5 +289,114 @@ describe("resolveSpaceForwardTransition", () => {
       armed: false,
       broadcast: null,
     });
+  });
+});
+
+describe("normalizeDesignLeftPanel", () => {
+  it("accepts the Threads panel and rejects an unknown one", () => {
+    expect(normalizeDesignLeftPanel("threads")).toBe("threads");
+    expect(normalizeDesignLeftPanel("comments")).toBeUndefined();
+  });
+});
+
+describe("normalizeDesignTool", () => {
+  it("accepts the tools the editor knows and rejects the rest", () => {
+    expect(normalizeDesignTool("comment")).toBe("comment");
+    expect(normalizeDesignTool("pen")).toBe("pen");
+    expect(normalizeDesignTool("nope")).toBeNull();
+    expect(normalizeDesignTool(undefined)).toBeNull();
+  });
+
+  it("lands the retired Agent tool on Move", () => {
+    expect(DESIGN_EDITOR_TOOLS.has("agent" as DesignTool)).toBe(false);
+    expect(normalizeDesignTool("agent")).toBe("move");
+  });
+});
+
+describe("Comment tool", () => {
+  it.each(["on", "off", "loading"] as const)(
+    "offers the Comment tool while the Annotate lab is %s",
+    (lab) => {
+      expect(resolveAvailableTool("comment", lab)).toBe("comment");
+    },
+  );
+});
+
+describe("Annotate lab gate", () => {
+  it("keeps Annotate and Draw while the lab is on", () => {
+    expect(resolveModeForAnnotateLab("annotate", "on")).toBe("annotate");
+    expect(resolveAvailableTool("draw", "on")).toBe("draw");
+  });
+
+  it.each(["off", "loading"] as const)(
+    "lands Annotate on Design and Draw on Move while the lab is %s",
+    (lab) => {
+      expect(resolveModeForAnnotateLab("annotate", lab)).toBe("edit");
+      expect(resolveAvailableTool("draw", lab)).toBe("move");
+    },
+  );
+
+  it.each(["on", "off", "loading"] as const)(
+    "leaves every other mode and tool alone while the lab is %s",
+    (lab) => {
+      expect(resolveModeForAnnotateLab("edit", lab)).toBe("edit");
+      expect(resolveModeForAnnotateLab("interact", lab)).toBe("interact");
+      for (const tool of ["move", "pen", "text", "hand", "scale"] as const) {
+        expect(resolveAvailableTool(tool, lab)).toBe(tool);
+      }
+    },
+  );
+
+  it("clears a leftover Draw state only once the lab is known to be off", () => {
+    const drawing = {
+      activeTool: "draw",
+      drawMode: true,
+      pinMode: false,
+    } as const;
+    expect(
+      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "off" }),
+    ).toEqual({ dropAnnotateMode: true });
+    expect(
+      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "on" }),
+    ).toBeNull();
+    expect(
+      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "loading" }),
+    ).toBeNull();
+  });
+
+  it("leaves Annotate mode to a comment pin and ignores an editor that is not drawing", () => {
+    expect(
+      resolveDrawStateWithoutLab({
+        annotateLab: "off",
+        activeTool: "draw",
+        drawMode: true,
+        pinMode: true,
+      }),
+    ).toEqual({ dropAnnotateMode: false });
+    expect(
+      resolveDrawStateWithoutLab({
+        annotateLab: "off",
+        activeTool: "comment",
+        drawMode: false,
+        pinMode: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveDrawStateWithoutLab({
+        annotateLab: "off",
+        activeTool: "move",
+        drawMode: false,
+        pinMode: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("recognises a command that asks for Annotate or Draw", () => {
+    expect(commandRequestsAnnotate({ mode: "annotate" })).toBe(true);
+    expect(commandRequestsAnnotate({ tool: "draw" })).toBe(true);
+    expect(commandRequestsAnnotate({ mode: "edit", tool: "rect" })).toBe(false);
+    expect(commandRequestsAnnotate({ tool: "comment" })).toBe(false);
+    expect(commandRequestsAnnotate({})).toBe(false);
+    expect(commandRequestsAnnotate({ mode: 3, tool: ["draw"] })).toBe(false);
   });
 });

@@ -94,6 +94,7 @@ export function figmaHydrationErrorMessage(
   error: unknown,
   fallbackMessage: string,
   forbiddenMessage: string,
+  fileUrlTokenMessage = fallbackMessage,
 ): string {
   const { result } = readFigmaImportFailure(error, fallbackMessage);
   const source = error as
@@ -107,6 +108,9 @@ export function figmaHydrationErrorMessage(
     source?.errorCode === "figma_request_failed" &&
     (source.statusCode === 403 || source.details?.figmaStatus === 403);
 
+  if (error instanceof Error && error.name === "FigmaFileUrlUsedAsTokenError") {
+    return fileUrlTokenMessage;
+  }
   if (isFigmaForbidden) return forbiddenMessage;
   return /internal server error/i.test(result.error)
     ? fallbackMessage

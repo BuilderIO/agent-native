@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, openAppMenuSubmenu } from "./helpers";
 
 async function setFeatureFlagRules(
   page: Page,
@@ -198,7 +198,7 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       copiedScreen.content.match(/data-agent-native-locked="true"/g),
     ).toHaveLength(2);
 
-    await page.getByRole("button", { name: "More", exact: true }).click();
+    await openAppMenuSubmenu(page, "File");
     await page
       .getByRole("menuitem", { name: "Save as template…", exact: true })
       .click();
