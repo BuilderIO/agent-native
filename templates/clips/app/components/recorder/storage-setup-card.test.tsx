@@ -69,6 +69,7 @@ import { StorageSetupCard } from "./storage-setup-card";
 
 const CREATE = "agentChat.onboarding.builderCreateAndActivate";
 const EXISTING_ACCOUNT = "agentChat.onboarding.builderExistingAccount";
+const CONNECT = "agentChat.onboarding.builderConnect";
 const CONSENT = "agentChat.onboarding.builderConsentPrefix";
 
 function flowState(overrides: Record<string, unknown> = {}) {
@@ -257,7 +258,7 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("keeps the chooser and disables activation when provisioning is unavailable", async () => {
+  it("offers one active connect action when provisioning is unavailable", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ agentNativeProvisioningEnabled: false }),
     );
@@ -265,17 +266,21 @@ describe("StorageSetupCard", () => {
 
     await clickConnect();
     expect(document.body.textContent).toContain(CONSENT);
-    expect(bodyButton(CREATE)?.disabled).toBe(true);
-    expect(bodyButton(EXISTING_ACCOUNT)?.disabled).toBe(false);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderActivationUnavailable",
+    );
+    expect(bodyButton(CREATE)).toBeUndefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
+    expect(bodyButton(CONNECT)?.disabled).toBe(false);
 
-    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
+    await act(async () => bodyButton(CONNECT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
       scope: "org",
     });
   });
 
-  it("does not start anything before account creation capability is known", async () => {
+  it("keeps sign-in available while account creation capability is unknown", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({
         agentNativeProvisioningEnabled: false,
@@ -286,8 +291,12 @@ describe("StorageSetupCard", () => {
 
     await clickConnect();
     expect(document.body.textContent).toContain(CONSENT);
-    expect(bodyButton(CREATE)?.disabled).toBe(true);
-    expect(bodyButton(EXISTING_ACCOUNT)?.disabled).toBe(false);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderActivationChecking",
+    );
+    expect(bodyButton(CREATE)).toBeUndefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
+    expect(bodyButton(CONNECT)?.disabled).toBe(false);
     expect(mocks.retry).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
   });

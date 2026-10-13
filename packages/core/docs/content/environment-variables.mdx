@@ -190,30 +190,32 @@ personal or organization key through **Custom keys** in the app.
 Choose the model in Settings. `OPENAI_BASE_URL` configures an OpenAI-compatible
 endpoint and is used with `OPENAI_API_KEY`.
 
-| Variable                       | What it controls                                  | Format |
-| ------------------------------ | ------------------------------------------------- | ------ |
-| `ANTHROPIC_API_KEY`            | Anthropic Claude model fallback.                 | Anthropic API key |
-| `OPENAI_API_KEY`               | OpenAI model fallback.                           | OpenAI API key |
-| `OPENROUTER_API_KEY`           | OpenRouter model fallback.                       | OpenRouter API key |
+| Variable                       | What it controls                                 | Format                                              |
+| ------------------------------ | ------------------------------------------------ | --------------------------------------------------- |
+| `ANTHROPIC_API_KEY`            | Anthropic Claude model fallback.                 | Anthropic API key                                   |
+| `OPENAI_API_KEY`               | OpenAI model fallback.                           | OpenAI API key                                      |
+| `OPENROUTER_API_KEY`           | OpenRouter model fallback.                       | OpenRouter API key                                  |
 | `OPENAI_BASE_URL`              | OpenAI-compatible endpoint for `OPENAI_API_KEY`. | Absolute `http(s)` URL without embedded credentials |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini model fallback.                    | Google AI API key |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini model fallback.                    | Google AI API key                                   |
+
+Additional provider variables are listed in the [full environment-variable inventory on GitHub](https://github.com/BuilderIO/agent-native/blob/main/docs/environment-variables.md#authentication-provider-and-integration-variables).
 
 ## Search and email fallbacks
 
 These optional keys provide web search or transactional email for apps that
 use those features.
 
-| Variable                       | What it controls                          | Format |
-| ------------------------------ | ----------------------------------------- | ------ |
-| `BRAVE_SEARCH_API_KEY`         | Brave web search.                         | Brave Search API key |
-| `TAVILY_API_KEY`               | Tavily web search.                        | Tavily API key |
-| `EXA_API_KEY`                  | Exa web search.                           | Exa API key |
-| `FIRECRAWL_API_KEY`            | Firecrawl web search.                     | Firecrawl API key |
-| `RESEND_API_KEY`               | Resend transactional email delivery.      | Resend API key |
-| `SENDGRID_API_KEY`             | SendGrid transactional email delivery.    | SendGrid API key |
-| `EMAIL_FROM`                   | Sender address for transactional email.   | Valid email or display-name address |
-| `EMAIL_AGENT_ADDRESS`          | Inbound address for email-enabled apps.   | Valid email address |
-| `EMAIL_INBOUND_WEBHOOK_SECRET` | Verifies inbound email webhook signatures. | Stable random secret |
+| Variable                       | What it controls                           | Format                              |
+| ------------------------------ | ------------------------------------------ | ----------------------------------- |
+| `BRAVE_SEARCH_API_KEY`         | Brave web search.                          | Brave Search API key                |
+| `TAVILY_API_KEY`               | Tavily web search.                         | Tavily API key                      |
+| `EXA_API_KEY`                  | Exa web search.                            | Exa API key                         |
+| `FIRECRAWL_API_KEY`            | Firecrawl web search.                      | Firecrawl API key                   |
+| `RESEND_API_KEY`               | Resend transactional email delivery.       | Resend API key                      |
+| `SENDGRID_API_KEY`             | SendGrid transactional email delivery.     | SendGrid API key                    |
+| `EMAIL_FROM`                   | Sender address for transactional email.    | Valid email or display-name address |
+| `EMAIL_AGENT_ADDRESS`          | Inbound address for email-enabled apps.    | Valid email address                 |
+| `EMAIL_INBOUND_WEBHOOK_SECRET` | Verifies inbound email webhook signatures. | Stable random secret                |
 
 ## Per-app values in a workspace
 
