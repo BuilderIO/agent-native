@@ -13,14 +13,14 @@ describe("identityBootstrapCallbackHref", () => {
     ).toBe("/design/_agent-native/identity/bootstrap?return=%2Fthread");
   });
 
-  it("leaves regular and desktop callbacks on their existing path", () => {
+  it("returns same-app paths when SSO is disabled or unavailable", () => {
     expect(
       identityBootstrapCallbackHref("https://app.example.test/thread", {
         enabled: false,
         bootstrapPath: "/_agent-native/identity/bootstrap",
         origin: "https://app.example.test",
       }),
-    ).toBe("https://app.example.test/thread");
+    ).toBe("/thread");
     expect(
       identityBootstrapCallbackHref("/thread", {
         enabled: true,
@@ -29,5 +29,20 @@ describe("identityBootstrapCallbackHref", () => {
         userAgent: "AgentNativeDesktop/1.0",
       }),
     ).toBe("/thread");
+  });
+
+  it("preserves Dispatch chat routes through the identity bootstrap", () => {
+    expect(
+      identityBootstrapCallbackHref(
+        "https://dispatch.agent-native.com/dispatch/chat/thread-1",
+        {
+          enabled: true,
+          bootstrapPath: "/_agent-native/identity/bootstrap",
+          origin: "https://dispatch.agent-native.com",
+        },
+      ),
+    ).toBe(
+      "/_agent-native/identity/bootstrap?return=%2Fdispatch%2Fchat%2Fthread-1",
+    );
   });
 });

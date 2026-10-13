@@ -7843,6 +7843,45 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("keeps the Dispatch chat thread as the verification callback", async () => {
+    window.history.replaceState(null, "", "/dispatch/chat/thread-1");
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationCallbackURL).toBe(
+      "/dispatch/chat/thread-1",
+    );
+  });
+
+  it("preserves the Dispatch chat route through identity bootstrap", async () => {
+    window.history.replaceState(null, "", "/dispatch/chat/thread-1");
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+      identitySsoEnabled: true,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationCallbackURL).toBe(
+      "/_agent-native/identity/bootstrap?return=%2Fdispatch%2Fchat%2Fthread-1",
+    );
+  });
+
   it("deduplicates credit-limit cards when failed runs share a timestamp", async () => {
     chatMocks.failureError = {
       code: "credits-limit-daily",

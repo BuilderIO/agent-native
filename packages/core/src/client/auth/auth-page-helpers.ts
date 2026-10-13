@@ -20,15 +20,15 @@ export function identityBootstrapCallbackHref(
     userAgent?: string;
   },
 ): string {
-  if (!options.enabled || isAgentNativeDesktop(options.userAgent))
-    return target;
-
   const origin =
     options.origin ??
     (typeof window === "undefined"
       ? "http://agent-native.local"
       : window.location.origin);
   const safeTarget = normalizeOAuthReturnPath(target, origin);
+  if (!options.enabled || isAgentNativeDesktop(options.userAgent))
+    return safeTarget;
+
   const url = new URL(options.bootstrapPath, origin);
   url.searchParams.set("return", safeTarget);
   return `${url.pathname}${url.search}`;
@@ -63,6 +63,7 @@ export function normalizeOAuthReturnPath(
       const dispatchRoutes = new Set([
         "overview",
         "apps",
+        "chat",
         "settings",
         "admin",
         "metrics",
