@@ -901,7 +901,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  it("caps background provider-rate-limit continuation instead of storming requests", async () => {
+  it("retries background provider rate limits with bounded exponential backoff", async () => {
     vi.useFakeTimers();
     try {
       let attempts = 0;
@@ -925,7 +925,19 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
       );
       await vi.advanceTimersByTimeAsync(
-        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS - 1,
+      );
+      expect(attempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toBe(2);
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS * 2 - 1,
+      );
+      expect(attempts).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toBe(3);
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS * 4,
       );
       await rejected;
 
@@ -935,7 +947,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  it("also grants the foreground lane one cooled-down retry when the budget covers it", async () => {
+  it("also grants the foreground lane a cooled-down retry when the budget covers it", async () => {
     vi.useFakeTimers();
     try {
       let attempts = 0;
@@ -1055,7 +1067,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
           [{ role: "user", content: [{ type: "text", text: "go" }] }],
           new AbortController().signal,
         ),
-        25_000,
+        9_000,
       ),
     ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
 

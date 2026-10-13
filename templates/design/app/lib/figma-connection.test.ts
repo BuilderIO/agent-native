@@ -10,6 +10,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 import {
   FIGMA_ACCESS_TOKEN_SECRET_KEY,
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "./figma-connection";
@@ -180,6 +181,20 @@ describe("Figma connection client", () => {
     );
     expect(result.connected).toBe(true);
     expect(JSON.stringify(result)).not.toContain(EXAMPLE_TOKEN);
+  });
+
+  it.each([
+    "https://www.figma.com/design/file-key/file-name",
+    "figma.com/file/file-key/file-name",
+    "https://figma.com/proto/file-key/file-name",
+  ])("rejects a Figma file URL as a token before saving: %s", async (value) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(saveFigmaAccessToken(value)).rejects.toBeInstanceOf(
+      FigmaFileUrlUsedAsTokenError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("redacts a reflected token from a failed save", async () => {

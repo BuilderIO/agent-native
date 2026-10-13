@@ -1249,6 +1249,8 @@ export default {
       uploadSuccess: "ファイルをインポートしました",
       lastImport: "前回のインポート",
       errors: {
+        figmaTokenMustBeToken:
+          "Figma ファイルのリンクではなく、Figma アクセストークンを貼り付けてください。",
         figmaUrlRequired:
           "Figma フレームまたはファイル URL を貼り付けてください。",
         invalidFigmaUrl: "有効な figma.com URL を入力してください。",

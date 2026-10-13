@@ -48,6 +48,12 @@ export function parseFigmaFileKey(input: string | undefined): string | null {
   return null;
 }
 
+export function isFigmaFileUrl(input: string | undefined): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?figma\.com\/(?:design|file|proto)\/[A-Za-z0-9_-]{8,}(?:[/?#]|$)/i.test(
+    input?.trim() ?? "",
+  );
+}
+
 export function isFigmaBranchUrl(input: string | undefined): boolean {
   const value = input?.trim();
   if (!value) return false;

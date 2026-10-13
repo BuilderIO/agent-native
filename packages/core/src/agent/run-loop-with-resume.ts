@@ -204,15 +204,17 @@ function internalContinuationReasonForAttempt(
   return undefined;
 }
 
-export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
-export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
+export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 3;
+export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 2_000;
 
-function rateLimitCooldownMs(err: unknown): number {
+function rateLimitCooldownMs(err: unknown, retryCount: number): number {
   const retryAfterMs =
     err instanceof EngineError && typeof err.retryAfterMs === "number"
       ? err.retryAfterMs
       : 0;
-  return Math.max(BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS, retryAfterMs);
+  const backoffMs =
+    BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS * 2 ** retryCount;
+  return Math.max(backoffMs, retryAfterMs);
 }
 
 function waitForBackgroundRateLimitCooldown(
@@ -509,7 +511,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       const transientRateLimit = isTransientProviderRateLimitError(err);
-      const rateLimitCooldown = rateLimitCooldownMs(err);
+      const rateLimitCooldown = rateLimitCooldownMs(
+        err,
+        backgroundRateLimitContinuations,
+      );
       const rateLimitRetryFitsBudget =
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&

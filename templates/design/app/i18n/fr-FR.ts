@@ -1258,6 +1258,8 @@ export default {
       uploadSuccess: "Fichier importé",
       lastImport: "Dernier import",
       errors: {
+        figmaTokenMustBeToken:
+          "Collez un jeton d’accès Figma, pas un lien de fichier Figma.",
         figmaUrlRequired: "Collez une URL de frame ou de fichier Figma.",
         invalidFigmaUrl: "Saisissez une URL figma.com valide.",
         figmaImportFailed: "Impossible d’importer depuis Figma",

@@ -1,5 +1,7 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
+import { isFigmaFileUrl } from "../shared/figma-url.js";
+
 registerRequiredSecret({
   key: "GITHUB_TOKEN",
   label: "GitHub token",
@@ -69,6 +71,12 @@ registerRequiredSecret({
   required: false,
   validator: async (value) => {
     if (!value) return true;
+    if (isFigmaFileUrl(value)) {
+      return {
+        ok: false,
+        error: "Paste a Figma access token, not a Figma file URL.",
+      };
+    }
     try {
       const res = await fetch("https://api.figma.com/v1/me", {
         headers: {

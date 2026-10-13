@@ -57,8 +57,8 @@ this run.
 Investigate first; ask what they saw or did in plain language. Gather request
 details and logs yourself; don't send reporters to developer tools.
 
-The proposed remedy may be wrong while the bug is real. Trace the failure to
-its owning boundary; do not reject it because the suggestion is unsuitable.
+A reporter's proposed remedy may be wrong while the bug is real. Trace the
+failure to its owner.
 
 Record each symptom's disposition; subjective or out-of-scope feedback
 doesn't close a separate defect. Tie each reaction to the scope it marks.
@@ -82,17 +82,17 @@ error message, URL, or visible flow is enough to start tracing its owner; don't
 wait for details that would not change the reproduction attempt. Phase 2's
 local reproduction procedure applies to all defect reports, not only bashes.
 
-If no safe repo-owned fix is evident after reproduction, record the evidence
-limit. For each defect where reporter input changes reproduction or unblocks a
-fix, ask one direct question naming the missing detail or action and why it
-gates the next step. Inspect supplied run IDs, logs, links, and artifacts
-yourself. Keep internal access, config, observability, and deployment gaps
-internal; never ask reporters for developer traces. Do not label the thread
-**Open** instead of asking. After four days unanswered, record **Abandoned - no
-answer in 4 days**.
+If reproduction and source tracing do not yield a safe fix, state what remains
+unknown. Inspect supplied run IDs, logs, and artifacts first; internal access,
+config, observability, and deployment gaps stay ours. For each unresolved
+defect, ask one precise question when a reporter fact changes the next action,
+and say why it gates progress. Otherwise state the internal action and its
+owner or ownership gap. Never use **Open**/**Open pending** instead of either
+response. After four days unanswered, record **Abandoned - no answer in 4 days**.
 
-Use **Skipped** only for non-defects, never breakage. **Open - no question**
-means you found neither a fix nor a useful question; state why in the thread.
+Use **Skipped** only for non-defects, never breakage. In the ledger,
+**Open - no question** means reporter input cannot change the internal next
+action; name that action and its owner. Do not use it as a Slack reply.
 
 ### Authoritative disposition vocabulary
 
@@ -590,11 +590,11 @@ Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complet
 Unavailable or unverified: ...
 ```
 
-`Open - no question` follows reproduction when there is no safe fix and no
-reporter answer or action that changes the next step. Ask when reporter input
-unblocks the fix; keep internal access/tooling blockers internal. Mostly open
-ledgers mean under-asking. Keep `👀`, no `✅`. "Nothing matched" is valid only
-after every source was queried successfully and the cursor is stated.
+`Open - no question` is only for ledger rows where reproduction and source
+tracing show no reporter answer changes the internal next step. Name that step
+and its owner or ownership gap. If an answer changes it, ask. Mostly open
+ledgers mean under-asking. Keep `👀`, no `✅`. "Nothing matched" requires
+successful source queries and a stated cursor.
 
 ## Related skills
 

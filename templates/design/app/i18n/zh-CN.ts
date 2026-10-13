@@ -1208,6 +1208,7 @@ export default {
       uploadSuccess: "已导入文件",
       lastImport: "上次导入",
       errors: {
+        figmaTokenMustBeToken: "请粘贴 Figma 访问令牌，而不是 Figma 文件链接。",
         figmaUrlRequired: "请粘贴 Figma 画框或文件 URL。",
         invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
         figmaImportFailed: "无法从 Figma 导入",

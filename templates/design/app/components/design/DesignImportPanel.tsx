@@ -56,6 +56,7 @@ import type {
   PreparedFigImport,
 } from "@/lib/fig-client-import";
 import {
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
@@ -405,6 +406,10 @@ export const DesignImportPanel = forwardRef<
     } catch (error) {
       // A rejected credential should not linger in component state or the DOM.
       setFigmaAccessToken("");
+      if (error instanceof FigmaFileUrlUsedAsTokenError) {
+        toast.error(t("designEditor.import.errors.figmaTokenMustBeToken"));
+        return;
+      }
       const { result, isRateLimited } = readFigmaImportFailure(
         error,
         t("common.genericError"),

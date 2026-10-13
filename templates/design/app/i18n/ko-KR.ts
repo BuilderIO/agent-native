@@ -1234,6 +1234,8 @@ export default {
       uploadSuccess: "파일을 가져왔습니다",
       lastImport: "최근 가져오기",
       errors: {
+        figmaTokenMustBeToken:
+          "Figma 파일 링크가 아닌 Figma 액세스 토큰을 붙여넣으세요.",
         figmaUrlRequired: "Figma 프레임 또는 파일 URL을 붙여넣으세요.",
         invalidFigmaUrl: "유효한 figma.com URL을 입력하세요.",
         figmaImportFailed: "Figma에서 가져올 수 없습니다",

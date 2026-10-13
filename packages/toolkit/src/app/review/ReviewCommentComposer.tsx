@@ -192,6 +192,11 @@ export function ReviewCommentComposer({
         modal={false}
         open={mentionMenuOpen}
         onOpenChange={(open) => {
+          if (open) {
+            setMentionSearch("");
+            setMentionTriggerIndex(null);
+            mentionTokenEndRef.current = null;
+          }
           setMentionMenuOpen(open);
           if (!open) {
             setMentionSearch("");
@@ -213,9 +218,6 @@ export function ReviewCommentComposer({
             aria-hidden={!showCommentTools}
             aria-label={mentionLabel}
             tabIndex={showCommentTools ? undefined : -1}
-            onClick={() => {
-              resetMention();
-            }}
           >
             <IconAt className="size-4" />
           </Button>
