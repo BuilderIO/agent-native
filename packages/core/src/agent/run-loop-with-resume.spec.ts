@@ -18,6 +18,7 @@ import {
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import {
+  AgentLoopAbortedError,
   AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   appendDurableContinuationContext,
   clientAbortReason,
@@ -2001,8 +2002,18 @@ describe("chunk-boundary recovery", () => {
         { role: "user", content: [{ type: "text", text: "go" }] },
       ];
       let attempts = 0;
-      mockRunAgentLoop.mockImplementation(async () => {
+      mockRunAgentLoop.mockImplementation(async (opts) => {
         attempts++;
+        if (attempts === 1) {
+          opts.send({ type: "auto_continue", reason: "no_progress" });
+          return {
+            inputTokens: 17,
+            outputTokens: 4,
+            cacheReadTokens: 3,
+            cacheWriteTokens: 1,
+            model: "test-model",
+          };
+        }
         throw new EngineError("429 status code (no body)", {
           errorCode: "http_429",
           statusCode: 429,
@@ -2028,8 +2039,19 @@ describe("chunk-boundary recovery", () => {
       ).toBe(true);
       turn.abort("stopped_by_reviewer");
 
-      await expect(run).rejects.toThrow("Agent run was aborted.");
-      expect(attempts).toBe(1);
+      const abortError = await run.catch((error: unknown) => error);
+      expect(abortError).toBeInstanceOf(AgentLoopAbortedError);
+      expect(abortError).toMatchObject({
+        name: "AbortError",
+        message: "Agent run was aborted.",
+        usage: {
+          inputTokens: 17,
+          outputTokens: 4,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        },
+      });
+      expect(attempts).toBe(2);
       expect(outcomes.at(-1)).toEqual({
         state: "canceled",
         message: "Agent run was aborted.",

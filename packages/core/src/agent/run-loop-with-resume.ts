@@ -251,6 +251,16 @@ export const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
+export class AgentLoopAbortedError extends Error {
+  readonly usage: Awaited<ReturnType<typeof runAgentLoop>>;
+
+  constructor(usage: Awaited<ReturnType<typeof runAgentLoop>>) {
+    super("Agent run was aborted.");
+    this.name = "AbortError";
+    this.usage = usage;
+  }
+}
+
 export async function runAgentLoopDirectWithSoftTimeout(
   opts: Parameters<typeof runAgentLoop>[0],
   softTimeoutMs?: number,
@@ -561,9 +571,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         if (cooldownResult === "turn_aborted" || turnSignal.aborted) {
           reportFinalOutcome(turnAbortOutcome());
-          const abortError = new Error("Agent run was aborted.");
-          abortError.name = "AbortError";
-          throw abortError;
+          throw new AgentLoopAbortedError(usage);
         }
         if (cooldownResult === "chunk_aborted") {
           const chunkBoundaryReason = recoverableChunkBoundary();
