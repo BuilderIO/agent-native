@@ -1098,8 +1098,8 @@ export type PendingQuestionRefetchResult =
   | { status: "error"; error: unknown };
 
 /**
- * Window event dispatched once per human submit of a guided question card
- * that is delivered to the agent, so apps can observe answers (for example,
+ * Window event dispatched once per human submit of a guided question card,
+ * after the agent chat confirms delivery, so apps can observe answers (for example,
  * to record which option was picked) without owning the flow.
  */
 export const GUIDED_QUESTIONS_SUBMITTED_EVENT =
@@ -1269,10 +1269,14 @@ export function useGuidedQuestionFlow({
   }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
   const sendAndClearOnDelivery = useCallback(
-    (send: () => void | Promise<{ delivered: boolean }>) => {
+    (
+      send: () => void | Promise<{ delivered: boolean }>,
+      onDelivered?: () => void,
+    ) => {
       if (submissionInFlightRef.current) return;
       const result = send();
       if (!result) {
+        onDelivered?.();
         clear();
         return;
       }
@@ -1280,7 +1284,9 @@ export function useGuidedQuestionFlow({
       setIsSubmitting(true);
       void result
         .then(({ delivered }) => {
-          if (delivered) clear();
+          if (!delivered) return;
+          onDelivered?.();
+          clear();
         })
         .catch((error) => {
           console.error("Guided question submission failed", error);
@@ -1304,11 +1310,12 @@ export function useGuidedQuestionFlow({
         return;
       }
       if (isSubmissionBlocked) return;
-      announceGuidedQuestionsSubmitted({
-        stateKey,
-        questions: visiblePayload?.questions ?? [],
-        answers,
-      });
+      const announce = () =>
+        announceGuidedQuestionsSubmitted({
+          stateKey,
+          questions: visiblePayload?.questions ?? [],
+          answers,
+        });
       const formattedAnswers = formatGuidedAnswersForAgent(
         answers,
         visiblePayload?.questions,
@@ -1325,13 +1332,15 @@ export function useGuidedQuestionFlow({
         .filter(Boolean)
         .join("\n\n");
       if (onSubmitMessage) {
-        sendAndClearOnDelivery(() =>
-          onSubmitMessage({
-            answers,
-            formattedAnswers,
-            message: resolvedSubmitMessage,
-            context,
-          }),
+        sendAndClearOnDelivery(
+          () =>
+            onSubmitMessage({
+              answers,
+              formattedAnswers,
+              message: resolvedSubmitMessage,
+              context,
+            }),
+          announce,
         );
       } else {
         sendToAgentChat({
@@ -1339,6 +1348,7 @@ export function useGuidedQuestionFlow({
           context,
           submit: true,
         });
+        announce();
         clear();
       }
     },

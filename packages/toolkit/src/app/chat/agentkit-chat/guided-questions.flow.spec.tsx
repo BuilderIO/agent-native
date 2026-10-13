@@ -718,6 +718,53 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     }
   });
 
+  it("announces a submit only once the agent chat confirms delivery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const announced: unknown[] = [];
+    const listener = (event: Event) =>
+      announced.push((event as CustomEvent).detail);
+    window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    const onSubmitMessage = vi
+      .fn()
+      .mockResolvedValueOnce({ delivered: false })
+      .mockRejectedValueOnce(new Error("send failed"))
+      .mockResolvedValueOnce({ delivered: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+        onSubmitMessage,
+      });
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await act(async () => {
+          result.current().handleSubmit({ q1: "7d" });
+          await flush();
+        });
+        if (attempt < 2) expect(announced).toEqual([]);
+      }
+      expect(onSubmitMessage).toHaveBeenCalledTimes(3);
+      expect(announced).toEqual([
+        {
+          stateKey: "guided-questions",
+          questions: payload.questions,
+          answers: { q1: "7d" },
+        },
+      ]);
+    } finally {
+      window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    }
+  });
+
   it("still delivers the answers when an announcement listener throws", async () => {
     vi.stubGlobal(
       "fetch",
