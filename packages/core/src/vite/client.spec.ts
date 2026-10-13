@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
@@ -3634,6 +3635,113 @@ describe("Vite SSR stubs", () => {
     );
     expect(plugin.resolveId("@better-auth/core")).toBeNull();
     vi.unstubAllEnvs();
+  });
+});
+
+describe("Vite SSR optional dependencies", () => {
+  it("externalizes missing optional Core peers but keeps app runtime peers", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-ssr-peers-"));
+    const coreRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    const otelRoot = path.join(appRoot, "node_modules/@agent-native/otel");
+    const apiRoot = path.join(otelRoot, "node_modules/@opentelemetry/api");
+    fs.mkdirSync(apiRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "ssr-peers-app",
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@agent-native/otel": "workspace:*",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(otelRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/otel",
+        dependencies: { "@opentelemetry/api": "^1.9.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(apiRoot, "package.json"),
+      JSON.stringify({ name: "@opentelemetry/api", version: "1.9.1" }),
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin.name === "agent-native-config",
+      ) as any;
+      const config = await configPlugin.config(
+        { root: appRoot, plugins: [] },
+        { command: "build", mode: "production" },
+      );
+
+      expect(config.ssr.external).toContain("prettier");
+      expect(config.ssr.external).toContain("xlsx");
+      expect(config.ssr.external).toContain("@sentry/node");
+      expect(config.ssr.external).not.toContain("@opentelemetry/api");
+      const missingPeers = getMissingCoreOptionalPeers(appRoot);
+      expect(missingPeers).toContain("prettier");
+      expect(missingPeers).toContain("xlsx");
+      expect(missingPeers).toContain("@sentry/node");
+      expect(missingPeers).not.toContain("@opentelemetry/api");
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the browser-only Tabler icon loader out of SSR chunks", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-tabler-ssr-"));
+    const coreRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "tabler-ssr-app",
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+        },
+      }),
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (entry) =>
+          entry.name === "agent-native-toolkit-tabler-chunk-loaders-ssr",
+      ) as any;
+      const toolkitRoot = path.resolve(coreRoot, "../toolkit");
+      const importer = path.join(toolkitRoot, "src/icons/catalog.ts");
+      const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
+
+      expect(plugin).toBeDefined();
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", importer, {
+          ssr: true,
+        }),
+      ).toBe(stubId);
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", importer, {
+          ssr: false,
+        }),
+      ).toBeNull();
+      const stub = await import(
+        `data:text/javascript,${encodeURIComponent(await plugin.load(stubId))}`
+      );
+      expect(() => stub.default()).toThrow(
+        "Tabler icons are available only in the browser",
+      );
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 });
 

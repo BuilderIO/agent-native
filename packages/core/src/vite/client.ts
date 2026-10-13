@@ -71,6 +71,7 @@ import {
   normalizeMcpIntegrationsConfig,
   type McpIntegrationsConfigInput,
 } from "../shared/mcp-integration-config.js";
+import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { isMissingPeer } from "../shared/optional-peer.js";
 import {
   normalizeAgentNativeRouteWarmupConfig,
@@ -1797,6 +1798,8 @@ export interface NitroOptions {
   [key: string]: unknown;
 }
 
+type AgentNativeUserConfig = UserConfig & { nitro: NitroOptions };
+
 export interface ClientConfigOptions {
   port?: number;
   allowedHosts?: NonNullable<NonNullable<UserConfig["server"]>["allowedHosts"]>;
@@ -2788,6 +2791,36 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
         "export default stub;" +
         namedExports.map((name) => `export const ${name} = stub;`).join("")
       );
+    },
+  };
+}
+
+function toolkitTablerIconSsrStubPlugin(cwd: string): Plugin | null {
+  const toolkitRoot = findLocalToolkitSourceRoot(cwd);
+  if (!toolkitRoot) return null;
+
+  const catalogPath = path.join(toolkitRoot, "src/icons/catalog.ts");
+  const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
+  return {
+    name: "agent-native-toolkit-tabler-chunk-loaders-ssr",
+    enforce: "pre",
+    resolveId(id, importer, options) {
+      if (
+        !options?.ssr ||
+        id !== "./tabler-chunk-loaders.js" ||
+        !importer ||
+        path.resolve(importer.split("?")[0]) !== catalogPath
+      ) {
+        return null;
+      }
+      return stubId;
+    },
+    load(id) {
+      if (id !== stubId) return null;
+      return [
+        'const unavailable = () => { throw new Error("Tabler icons are available only in the browser"); };',
+        "export default unavailable;",
+      ].join("\n");
     },
   };
 }
@@ -4599,6 +4632,7 @@ function createAgentNativePlugins(
       ...(options.ssrStubs ?? []),
     ]),
     enterpriseAuthAdapterStubPlugin(enterpriseAuthAdaptersEnabled),
+    toolkitTablerIconSsrStubPlugin(cwd),
     clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
@@ -4703,8 +4737,11 @@ function createAgentNativeConfig(
   mode = process.env.NODE_ENV === "production" ? "production" : "development",
   projectConfig?: AgentNativeConfigInput,
   workspaceConfig?: AgentNativeConfigInput,
-): UserConfig {
+): AgentNativeUserConfig {
   const cwd = process.cwd();
+  const optionalSsrExternals = isBuildCommand(command)
+    ? getMissingCoreOptionalPeers(cwd)
+    : [];
   const usesAgentKit = hasDep("@agent-native/agentkit", cwd);
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
@@ -5003,6 +5040,7 @@ function createAgentNativeConfig(
           noExternal:
             /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
+            ...optionalSsrExternals,
             "yjs",
             "@agent-native/core",
             "react",

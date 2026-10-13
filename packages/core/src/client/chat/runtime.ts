@@ -3352,6 +3352,7 @@ interface AgentNativeMessageProjectionState {
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
+    pendingApprovalToolCallId?: string;
     connectionPending: boolean;
   };
 }
@@ -3391,7 +3392,16 @@ function pendingApprovalRuntimeMessages(
       });
       continue;
     }
-    if (part.type !== "tool-call" || part.result === undefined) continue;
+    const awaitingApproval =
+      part.type === "tool-call" &&
+      part.result === undefined &&
+      part.toolCallId === state.message.pendingApprovalToolCallId;
+    if (
+      part.type !== "tool-call" ||
+      (part.result === undefined && !awaitingApproval)
+    ) {
+      continue;
+    }
     if (selectedToolPartCount + 2 > MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
       omitted = true;
       toolHistoryOmitted = true;
@@ -3404,7 +3414,9 @@ function pendingApprovalRuntimeMessages(
         {
           type: "tool-result",
           toolCallId: part.toolCallId,
-          result: part.result,
+          result: awaitingApproval
+            ? "Awaiting human approval. This action did NOT execute."
+            : part.result,
           ...(part.isError ? { isError: true } : {}),
         },
       ],
@@ -3585,6 +3597,7 @@ function mapAgentNativeEvent(
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
+      pendingApprovalToolCallId?: string;
       connectionPending: boolean;
     };
   },
@@ -3780,6 +3793,9 @@ function mapAgentNativeEvent(
       if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
       if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
     }
+    if (input.message.pendingApprovalToolCallId === toolCallId) {
+      input.message.pendingApprovalToolCallId = undefined;
+    }
     const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     const events: AgentChatRuntimeKnownEvent[] = [
       {
@@ -3851,6 +3867,8 @@ function mapAgentNativeEvent(
   }
   if (ev.type === "approval_required") {
     input.message.approvalPending = true;
+    input.message.pendingApprovalToolCallId =
+      ev.toolCallId ?? ev.id ?? undefined;
     return [
       {
         type: "approval-request",
@@ -4641,6 +4659,7 @@ export function createAgentNativeChatRuntime(
             content: [],
             started: false,
             approvalPending: false,
+            pendingApprovalToolCallId: undefined,
             connectionPending: false,
           },
         };

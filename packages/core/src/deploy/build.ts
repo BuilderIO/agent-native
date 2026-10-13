@@ -64,6 +64,7 @@ import {
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
@@ -120,6 +121,12 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+
+function packageExternalPattern(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?:/|$)`);
+}
+
 export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare_module",
   "cloudflare-module",
@@ -6080,6 +6087,15 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const nodeExternalPreset =
+    preset === "netlify" ||
+    preset === "vercel" ||
+    isAwsLambdaPreset(preset) ||
+    preset === "node" ||
+    preset === "node-server";
+  const optionalPeerExternals = nodeExternalPreset
+    ? getMissingCoreOptionalPeers(cwd).map(packageExternalPattern)
+    : [];
   const sentryServerSourceMapPlugins =
     await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
@@ -6142,12 +6158,8 @@ export default bundle;
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
-      ...(preset === "netlify" ||
-      preset === "vercel" ||
-      isAwsLambdaPreset(preset) ||
-      preset === "node" ||
-      preset === "node-server"
-        ? { external: ["yjs"] }
+      ...(nodeExternalPreset
+        ? { external: ["yjs", ...optionalPeerExternals] }
         : {}),
       plugins: [
         ...(preset.startsWith("cloudflare")
