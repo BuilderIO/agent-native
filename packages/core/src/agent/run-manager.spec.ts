@@ -904,7 +904,11 @@ describe("run manager soft timeout", () => {
       "run-delayed-start-row",
       0,
       expect.any(String),
-      { toolInputSource: "execution", requireInserted: true },
+      {
+        eventAt: expect.any(Number),
+        toolInputSource: "execution",
+        requireInserted: true,
+      },
     );
   });
 
@@ -946,6 +950,7 @@ describe("run manager soft timeout", () => {
     for (const [, , data, options] of starts) {
       expect(JSON.parse(data).input).toEqual({ destination: "original" });
       expect(options).toEqual({
+        eventAt: expect.any(Number),
         toolInputSource: "execution",
         requireInserted: true,
       });
@@ -981,6 +986,7 @@ describe("run manager soft timeout", () => {
         "run-terminal-event-order",
         0,
         expect.stringContaining('"type":"error"'),
+        { eventAt: expect.any(Number) },
       );
     });
     expect(updateRunStatusIfRunning).not.toHaveBeenCalled();
@@ -1073,6 +1079,7 @@ describe("run manager soft timeout", () => {
       "run-finalization-boundary",
       1,
       JSON.stringify({ type: "done" }),
+      { eventAt: expect.any(Number) },
     );
     expect(finalized).toBe(false);
 
@@ -1142,6 +1149,7 @@ describe("run manager soft timeout", () => {
       "run-missing-credential-terminal",
       0,
       JSON.stringify({ type: "missing_api_key" }),
+      { eventAt: expect.any(Number) },
     );
     expect(setRunTerminalReason).toHaveBeenCalledWith(
       "run-missing-credential-terminal",
@@ -2883,6 +2891,7 @@ describe("run manager soft timeout", () => {
       "run-terminal-after-save",
       1,
       JSON.stringify({ type: "done" }),
+      { eventAt: expect.any(Number) },
     );
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-terminal-after-save",
@@ -2928,6 +2937,7 @@ describe("run manager soft timeout", () => {
       "run-server-continuation-terminal",
       1,
       JSON.stringify({ type: "auto_continue", reason: "stream_ended" }),
+      { eventAt: expect.any(Number) },
     );
   });
 
