@@ -1790,10 +1790,34 @@ Bad radius: 12px} body { color: red
     const result = await action.run({
       designId: "design_1",
       source: "paste",
-      text: `Accent color: #2563eb
-:root {
+      text: `:root {
+  --color-accent: #2563eb;
   --color-accent: #GGGGGG;
 }`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent",
+          value: "#2563eb",
+        }),
+      ]),
+    );
+    expect(result.rejectedCount).toBeGreaterThan(0);
+  });
+
+  it("keeps an earlier valid custom property when loose text has an invalid duplicate", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.md",
+          content:
+            "--color-accent: #2563eb\n--color-accent: url(javascript:alert(1))",
+        },
+      ],
     });
 
     expect(result.tokens).toEqual(
@@ -1909,11 +1933,13 @@ Bad radius: 12px} body { color: red
   --custom-root-relative-image-set: image-set("/api/action" 1x);
   --custom-relative-image-set: image-set("../image.png" 1x);
   --custom-filename-image-set: image-set("theme.png" 2x);
+  --custom-image-var: image(var(--image-source));
+  --custom-image-set-var: image-set(var(--image-source) 1x);
 }`,
     });
 
     expect(result.importedCount).toBe(0);
-    expect(result.rejectedCount).toBe(11);
+    expect(result.rejectedCount).toBe(13);
     expect(result.tokens).toEqual([]);
   });
 

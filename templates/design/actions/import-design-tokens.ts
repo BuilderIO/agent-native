@@ -6,7 +6,6 @@ import {
   createCodeAnalysisState,
   extractCodeColors,
   extractCodeFonts,
-  extractCssVars,
   extractDocumentColors,
   extractDocumentFonts,
 } from "@agent-native/core/server/design-token-utils";
@@ -299,8 +298,11 @@ function addLooseTextSignals(
   state: ReturnType<typeof createCodeAnalysisState>,
   filename: string,
   content: string,
-): void {
-  extractCssVars(state, content);
+  includeCssVariables = true,
+): number {
+  const rejectedCssCustomProperties = includeCssVariables
+    ? addLooseCssCustomProperties(state, content)
+    : 0;
   extractCodeColors(state, content);
   extractCodeFonts(state, content, filename);
 
@@ -314,35 +316,78 @@ function addLooseTextSignals(
       state.seenFonts.add(key);
     }
   }
+
+  return rejectedCssCustomProperties;
+}
+
+function addCssCustomProperty(
+  state: ReturnType<typeof createCodeAnalysisState>,
+  cssVar: string,
+  rawValue: string,
+): boolean {
+  const name = cssVar.slice(2);
+  const value = normalizeCssCustomPropertyWhitespace(rawValue);
+  const normalized = normalizeValue(value);
+  const token: ImportedDesignToken = {
+    name: friendlyName(cssVar),
+    cssVar,
+    value: normalized,
+    type: classifyVar(cssVar, normalized),
+    source: "CSS variables",
+  };
+  if (!isValidImportedToken(token)) return false;
+
+  state.cssCustomProperties[cssVar] = value;
+  if (
+    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground/i.test(
+      name,
+    )
+  ) {
+    state.colors[cssVar] = value;
+  } else if (/spacing|gap|padding|margin|space/i.test(name)) {
+    state.spacing[cssVar] = value;
+  } else if (/radius|rounded/i.test(name)) {
+    state.borderRadius[cssVar] = value;
+  }
+  return true;
+}
+
+function addLooseCssCustomProperties(
+  state: ReturnType<typeof createCodeAnalysisState>,
+  content: string,
+): number {
+  const pattern = /--([\w-]+)\s*:\s*([^;}\n]+)/g;
+  let rejectedCount = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(content)) !== null) {
+    if (!addCssCustomProperty(state, `--${match[1]}`, match[2]!)) {
+      rejectedCount += 1;
+    }
+  }
+  return rejectedCount;
 }
 
 function addCssCustomPropertiesFromRoot(
   state: ReturnType<typeof createCodeAnalysisState>,
   root: postcss.Root | postcss.Document,
-): void {
+): number {
   if (root.type === "document") {
-    root.nodes.forEach((child) => addCssCustomPropertiesFromRoot(state, child));
-    return;
+    return root.nodes.reduce(
+      (rejectedCount, child) =>
+        rejectedCount + addCssCustomPropertiesFromRoot(state, child),
+      0,
+    );
   }
 
+  let rejectedCount = 0;
   root.walkDecls((declaration) => {
     if (!declaration.prop.startsWith("--")) return;
-
-    const name = declaration.prop.slice(2);
-    const value = normalizeCssCustomPropertyWhitespace(declaration.value);
-    state.cssCustomProperties[declaration.prop] = value;
-    if (
-      /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground/i.test(
-        name,
-      )
-    ) {
-      state.colors[declaration.prop] = value;
-    } else if (/spacing|gap|padding|margin|space/i.test(name)) {
-      state.spacing[declaration.prop] = value;
-    } else if (/radius|rounded/i.test(name)) {
-      state.borderRadius[declaration.prop] = value;
+    if (!addCssCustomProperty(state, declaration.prop, declaration.value)) {
+      rejectedCount += 1;
     }
   });
+
+  return rejectedCount;
 }
 
 function normalizeCssCustomPropertyWhitespace(value: string): string {
@@ -381,14 +426,14 @@ function addStylesheetCustomProperties(
   state: ReturnType<typeof createCodeAnalysisState>,
   filename: string,
   content: string,
-): void {
+): number {
   const lowerFilename = filename.toLowerCase();
   const root = lowerFilename.endsWith(".less")
     ? postcssLess.parse(content)
     : lowerFilename.endsWith(".scss")
       ? postcssScss.parse(content)
       : postcss.parse(content);
-  addCssCustomPropertiesFromRoot(state, root);
+  return addCssCustomPropertiesFromRoot(state, root);
 }
 
 const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
@@ -2425,6 +2470,10 @@ function hasUnsafeCssValueFunction(value: string): boolean {
         return;
 
       csstree.walk(node, (child) => {
+        if (child.type === "Function") {
+          const childName = csstree.ident.decode(child.name).toLowerCase();
+          if (["var", "env", "attr"].includes(childName)) unsafe = true;
+        }
         if (child.type !== "String") return;
         unsafe = true;
       });
@@ -2514,14 +2563,36 @@ function tokensFromFiles(
       looksLikePastedJson(file.content)
         ? "pasted-tokens.json"
         : file.filename;
-    analyzeCodeFile(state, analysisFilename, file.content);
-    addLooseTextSignals(state, file.filename, file.content);
-    if (/\.(css|scss|less)$/.test(file.filename.toLowerCase())) {
-      addStylesheetCustomProperties(state, file.filename, file.content);
-    } else if (
+    const isStylesheet = /\.(css|scss|less)$/i.test(file.filename);
+    const isPastedStylesheet =
       file.filename.toLowerCase() === "pasted-tokens.txt" &&
-      looksLikePastedCss(file.content)
-    ) {
+      looksLikePastedCss(file.content);
+    const basename = analysisFilename.toLowerCase().split("/").pop() ?? "";
+    const hasSpecializedScriptAnalyzer =
+      basename.startsWith("tailwind.config") ||
+      /^(?:theme|tokens)\.(?:ts|js)$/.test(basename);
+    const usesGenericScriptAnalyzer =
+      /\.(?:tsx?|jsx?)$/i.test(analysisFilename) &&
+      !hasSpecializedScriptAnalyzer;
+    if (isStylesheet || isPastedStylesheet) {
+      if (isStylesheet) {
+        malformedNamedLineCount += addStylesheetCustomProperties(
+          state,
+          file.filename,
+          file.content,
+        );
+      }
+    }
+    if (!isStylesheet && !isPastedStylesheet && !usesGenericScriptAnalyzer) {
+      analyzeCodeFile(state, analysisFilename, file.content);
+    }
+    malformedNamedLineCount += addLooseTextSignals(
+      state,
+      file.filename,
+      file.content,
+      !isStylesheet && !isPastedStylesheet,
+    );
+    if (isPastedStylesheet) {
       const tokenListCandidate = pastedTokenListCssCandidate(file.content);
       const stylesheetCandidate = pastedStylesheetCssCandidate(file.content);
       const candidates = [
@@ -2532,7 +2603,11 @@ function tokensFromFiles(
       let extracted = false;
       for (const candidate of candidates) {
         try {
-          addStylesheetCustomProperties(state, "pasted.css", candidate);
+          malformedNamedLineCount += addStylesheetCustomProperties(
+            state,
+            "pasted.css",
+            candidate,
+          );
           extracted = true;
           break;
         } catch (error) {
@@ -2547,9 +2622,12 @@ function tokensFromFiles(
       }
     }
     for (const stylesheet of file.embeddedStylesheets) {
-      analyzeCodeFile(state, "embedded-style.css", stylesheet);
-      addLooseTextSignals(state, "embedded-style.css", stylesheet);
-      addStylesheetCustomProperties(state, "embedded-style.css", stylesheet);
+      addLooseTextSignals(state, "embedded-style.css", stylesheet, false);
+      malformedNamedLineCount += addStylesheetCustomProperties(
+        state,
+        "embedded-style.css",
+        stylesheet,
+      );
     }
   }
 
