@@ -1223,6 +1223,8 @@ const messages = {
   "secrets.emptyHint": "Add a key to use your own accounts.",
   "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
   "secrets.emptyTitle": "No keys yet.",
+  "secrets.figmaTokenMustBeToken":
+    "Paste a Figma access token, not a Figma file URL.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",

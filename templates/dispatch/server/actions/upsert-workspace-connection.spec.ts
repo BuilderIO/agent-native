@@ -159,6 +159,30 @@ describe("upsert-workspace-connection action cards", () => {
     });
   });
 
+  it("preserves scopes when an update omits scope metadata", async () => {
+    mocks.getConnection.mockResolvedValue({
+      ...connection,
+      scopes: ["drive.file"],
+    });
+
+    await action.run(
+      {
+        id: connection.id,
+        provider: "example",
+        status: "connected",
+        config: {},
+        allowedApps: [],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [],
+      },
+      context,
+    );
+
+    const [upsertInput] = mocks.upsertConnection.mock.calls[0] ?? [];
+    expect(upsertInput).not.toHaveProperty("scopes");
+  });
+
   it("returns typed validation errors for provider configuration", async () => {
     mocks.getProvider.mockReturnValue({
       id: "example",

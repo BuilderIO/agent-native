@@ -1122,6 +1122,680 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("marks missing Google Sheets connections as workspace connections", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "ada@example.com",
+        displayName: "Ada",
+        tokens: {
+          access_token: "ungranted-sheets-access",
+          expiry_date: Date.now() + 300_000,
+        },
+      },
+    ]);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({ provider: "google_sheets", path: "/spreadsheets" })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "connect",
+      appId: "analytics",
+      source: {
+        id: "google_sheets",
+        kind: "workspace_connection",
+        label: "Google Sheets",
+      },
+    });
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses an app-granted Sheets connection when the caller omits its id", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "granted-sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "ada@example.com",
+        displayName: "Ada",
+        tokens: {
+          access_token: "granted-sheets-access",
+          expiry_date: Date.now() + 300_000,
+        },
+      },
+    ]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets",
+    });
+
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "google_sheets",
+        requireConnected: true,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer granted-sheets-access",
+        }),
+      }),
+    );
+  });
+
+  it("uses a legacy Google token for an implicitly selected Sheets connection", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "granted-sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "legacy-google-access",
+                expiry_date: Date.now() + 300_000,
+                scope: "https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets/sheet-1/values/A1",
+    });
+
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "google_sheets",
+        requireConnected: true,
+      }),
+    );
+    expect(listOAuthAccountsByOwner).toHaveBeenNthCalledWith(
+      1,
+      "google_sheets",
+      "ada@example.com",
+    );
+    expect(listOAuthAccountsByOwner).toHaveBeenNthCalledWith(
+      2,
+      "google",
+      "ada@example.com",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/A1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer legacy-google-access",
+        }),
+      }),
+    );
+  });
+
+  it("rejects absolute URLs outside the Google Sheets API host", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      })
+      .catch((error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(/configured provider host/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+  });
+
+  it("uses an unexpired legacy Google token for an existing Sheets connection", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "legacy-google-access",
+                expiry_date: Date.now() + 300_000,
+                scope:
+                  "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets/sheet-1/values/A1",
+      connectionId: "sheets-connection",
+    });
+
+    expect(listOAuthAccountsByOwner).toHaveBeenNthCalledWith(
+      1,
+      "google_sheets",
+      "ada@example.com",
+    );
+    expect(listOAuthAccountsByOwner).toHaveBeenNthCalledWith(
+      2,
+      "google",
+      "ada@example.com",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/A1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer legacy-google-access",
+        }),
+      }),
+    );
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("requires Google Sheets reauthorization when an expired legacy token has no refresh token", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        status: "connected",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "expired-legacy-google-access",
+                expiry_date: Date.now() - 1,
+                scope: "https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a near-expiry legacy Google token through the shared OAuth path", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "google-client-secret"
+          : null,
+    );
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "near-expiry-legacy-google-access",
+                refresh_token: "legacy-google-refresh",
+                expiry_date: Date.now() + 30_000,
+                scope: "https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "refreshed-legacy-google-access",
+            expires_in: 3600,
+            token_type: "Bearer",
+            scope: "https://www.googleapis.com/auth/drive.file",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ values: [["ok"]] }), { status: 200 }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets/sheet-1/values/A1",
+      connectionId: "sheets-connection",
+    });
+
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "google",
+      "ada@example.com",
+      expect.objectContaining({
+        access_token: "refreshed-legacy-google-access",
+      }),
+      "ada@example.com",
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/A1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer refreshed-legacy-google-access",
+        }),
+      }),
+    );
+  });
+
+  it("preserves the shared Google token when a legacy Sheets refresh is permanently rejected", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "google-client-secret"
+          : null,
+    );
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "expired-legacy-google-access",
+                refresh_token: "legacy-google-refresh",
+                expiry_date: Date.now() - 1,
+                scope: "https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+        }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("requires Google Sheets reauthorization when a legacy token lacks drive.file", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "legacy-google-access",
+                expiry_date: Date.now() + 300_000,
+                scope: "https://www.googleapis.com/auth/gmail.readonly",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("requires reauthorization instead of using a legacy token with broader Google scopes", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "broader-legacy-google-access",
+                expiry_date: Date.now() + 300_000,
+                scope:
+                  "openid email profile https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a dedicated Google Sheets token without touching the shared Google token", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "google-client-secret"
+          : null,
+    );
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google_sheets"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "expired-sheets-access",
+                refresh_token: "sheets-refresh",
+                expiry_date: Date.now() - 1,
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "fresh-sheets-access",
+            expires_in: 3600,
+            token_type: "Bearer",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ values: [["ok"]] }), { status: 200 }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets/sheet-1/values/A1",
+      connectionId: "sheets-connection",
+    });
+
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "google_sheets",
+      "ada@example.com",
+      expect.objectContaining({ access_token: "fresh-sheets-access" }),
+      "ada@example.com",
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/A1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer fresh-sheets-access",
+        }),
+      }),
+    );
+  });
+
+  it("requires Google Sheets reauthorization when the saved grant lacks drive.file", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        status: "connected",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+  });
+
   it("turns a missing Slack bearer connection into a contextual request", async () => {
     const runtime = createProviderApiRuntime({
       appId: "dispatch",

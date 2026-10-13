@@ -1142,6 +1142,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "添加密钥以使用您自己的账户。",
   "secrets.emptyMore": "另有 {{count}} 个在“新建”下方，或添加任意自定义密钥",
   "secrets.emptyTitle": "暂无密钥。",
+  "secrets.figmaTokenMustBeToken":
+    "请粘贴 Figma 访问令牌，而不是 Figma 文件 URL。",
   "secrets.fromEnvironment": "由部署环境提供。",
   "secrets.managedInVault":
     "在工作区 Vault 中管理。此工作区中的每个应用都使用此值。",

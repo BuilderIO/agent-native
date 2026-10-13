@@ -1203,6 +1203,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
   "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
+  "secrets.figmaTokenMustBeToken":
+    "Figma एक्सेस टोकन पेस्ट करें, Figma फ़ाइल URL नहीं।",
   "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
   "secrets.managedInVault":
     "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",

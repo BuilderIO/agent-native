@@ -1228,6 +1228,7 @@ export default {
       uploadSuccess: "تم استيراد الملف",
       lastImport: "آخر استيراد",
       errors: {
+        figmaTokenMustBeToken: "الصق رمز وصول Figma، وليس رابط ملف Figma.",
         figmaUrlRequired: "الصق رابط إطار أو ملف Figma.",
         invalidFigmaUrl: "أدخل رابط figma.com صالحا.",
         figmaImportFailed: "تعذر الاستيراد من Figma",

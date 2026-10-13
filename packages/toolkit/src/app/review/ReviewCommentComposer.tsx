@@ -97,6 +97,7 @@ export function ReviewCommentComposer({
     null,
   );
   const mentionTokenEndRef = useRef<number | null>(null);
+  const preserveMentionAnchorOnOpenRef = useRef(false);
   const resetMentionSearch = () => {
     setMentionSearch("");
     setMentionTriggerIndex(null);
@@ -195,8 +196,22 @@ export function ReviewCommentComposer({
         modal={false}
         open={mentionMenuOpen}
         onOpenChange={(open) => {
+          if (open) {
+            const preserveMentionAnchor =
+              preserveMentionAnchorOnOpenRef.current &&
+              mentionTriggerIndex !== null &&
+              value[mentionTriggerIndex] === "@" &&
+              mentionTokenEndRef.current !== null;
+            preserveMentionAnchorOnOpenRef.current = false;
+            if (!preserveMentionAnchor) {
+              setMentionSearch("");
+              setMentionTriggerIndex(null);
+              mentionTokenEndRef.current = null;
+            }
+          }
           setMentionMenuOpen(open);
           if (!open) {
+            preserveMentionAnchorOnOpenRef.current = false;
             setMentionSearch("");
             setMentionTriggerIndex(null);
             mentionTokenEndRef.current = null;
@@ -385,6 +400,7 @@ export function ReviewCommentComposer({
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
+            preserveMentionAnchorOnOpenRef.current = true;
             setMentionMenuOpen(true);
             requestAnimationFrame(() => {
               const textarea = textareaRef.current;
@@ -404,7 +420,7 @@ export function ReviewCommentComposer({
       mentionMenuOpen ||
       showCommentAction ||
       showAgentAction ? (
-        <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
+        <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @xs/review:flex-row @xs/review:items-center">
           {showCommentTools ||
           commentToolsEnd ||
           mentionMenuOpen ||
@@ -414,7 +430,7 @@ export function ReviewCommentComposer({
                 showCommentTools || commentToolsEnd ? "" : undefined
               }
               className={cn(
-                "flex min-w-0 items-center gap-0.5 @2xs/review:me-auto",
+                "flex min-w-0 items-center gap-0.5 @xs/review:me-auto",
                 !showCommentTools && !commentToolsEnd && "contents",
               )}
             >
@@ -458,13 +474,13 @@ export function ReviewCommentComposer({
             </div>
           ) : null}
           {showCommentAction || showAgentAction ? (
-            <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 @2xs/review:flex-row @2xs/review:justify-end">
+            <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 @xs/review:flex-row @xs/review:justify-end">
               {showCommentAction ? (
                 <Button
                   type="submit"
                   size="sm"
                   disabled={!canSubmit}
-                  className="h-8 w-full gap-1.5 @2xs/review:w-auto @2xs/review:min-w-28 @2xs/review:shrink-0"
+                  className="h-8 w-full gap-1.5 @xs/review:w-auto @xs/review:min-w-28 @xs/review:shrink-0"
                 >
                   {submittingTarget === "human" ? (
                     <Spinner className="size-3.5" />
@@ -482,7 +498,7 @@ export function ReviewCommentComposer({
                   size="sm"
                   variant="outline"
                   disabled={!canSubmit}
-                  className="h-8 w-full min-w-0 gap-1.5 @2xs/review:w-auto"
+                  className="h-8 w-full min-w-0 gap-1.5 @xs/review:w-auto"
                   onClick={() => submit("agent")}
                 >
                   {submittingTarget === "agent" ? (

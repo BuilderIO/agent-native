@@ -1227,6 +1227,7 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "أضف مفتاحًا لاستخدام حساباتك الخاصة.",
   "secrets.emptyMore": "و{{count}} أخرى ضمن جديد، أو أضف أي مفتاح مخصص",
   "secrets.emptyTitle": "لا توجد مفاتيح بعد.",
+  "secrets.figmaTokenMustBeToken": "الصق رمز وصول Figma، وليس رابط ملف Figma.",
   "secrets.fromEnvironment": "توفّره بيئة النشر.",
   "secrets.managedInVault":
     "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",

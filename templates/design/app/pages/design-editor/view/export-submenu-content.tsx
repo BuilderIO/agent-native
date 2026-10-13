@@ -51,6 +51,7 @@ export function ExportMenuItems({
 
   const canExportAllScreens =
     viewMode === "overview" && overviewScreens.length >= 2;
+  const hasExportableScreen = overviewScreens.length > 0;
   const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
     canvasFrameCount: Object.keys(canvasFrameGeometryById).length,
     generating,
@@ -62,33 +63,54 @@ export function ExportMenuItems({
       <DropdownMenuItem
         onClick={handleDownloadHtml}
         disabled={
-          !activeFile || exportsUnavailable || exportHtmlMutation.isPending
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          exportHtmlMutation.isPending
         }
       >
         {t("designEditor.downloadHtml")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadPng()}
-        disabled={!activeFile || exportsUnavailable || pngExporting}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          pngExporting
+        }
       >
         {t("designEditor.downloadPng")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadSvg()}
-        disabled={!activeFile || exportsUnavailable || svgExporting}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          svgExporting
+        }
       >
         {t("designEditor.downloadSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadFigmaSvg()}
-        disabled={!activeFile || exportsUnavailable || figmaSvgExporting}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          figmaSvgExporting
+        }
       >
         {t("designEditor.downloadFigmaSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={handleDownloadZip}
         disabled={
-          !activeFile || exportsUnavailable || exportZipMutation.isPending
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          exportZipMutation.isPending
         }
       >
         {t("designEditor.downloadZip")}
@@ -96,7 +118,12 @@ export function ExportMenuItems({
       {alwaysShowPdf || canExportAllScreens ? (
         <DropdownMenuItem
           onClick={() => void handleDownloadAllScreensPdf()}
-          disabled={!canExportAllScreens || exportsUnavailable || pngExporting}
+          disabled={
+            !hasExportableScreen ||
+            !canExportAllScreens ||
+            exportsUnavailable ||
+            pngExporting
+          }
         >
           {t("designEditor.downloadPdfAllScreens")}
         </DropdownMenuItem>
@@ -104,7 +131,12 @@ export function ExportMenuItems({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={handleCopyCodingHandoff}
-        disabled={!activeFile || exportsUnavailable || codingHandoffLoading}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          codingHandoffLoading
+        }
       >
         {t("designEditor.copyCodingHandoff")}
       </DropdownMenuItem>

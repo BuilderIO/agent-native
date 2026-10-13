@@ -1215,6 +1215,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "그 외 {{count}}개는 '새로 만들기' 아래에 있거나 사용자 지정 키를 추가하세요",
   "secrets.emptyTitle": "아직 키가 없습니다.",
+  "secrets.figmaTokenMustBeToken":
+    "Figma 파일 URL이 아닌 Figma 액세스 토큰을 붙여넣으세요.",
   "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",

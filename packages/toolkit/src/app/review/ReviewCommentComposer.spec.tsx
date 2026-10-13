@@ -82,6 +82,44 @@ describe("ReviewCommentComposer actions", () => {
     ).not.toBe(tools);
   });
 
+  it("keeps the mention picker open when its toolbar button is clicked", () => {
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value=""
+          onChange={() => {}}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[{ label: "Alice", email: "alice@example.com" }]}
+        />,
+      );
+    });
+
+    const mentionButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Mention someone"]',
+    );
+    expect(mentionButton).toBeTruthy();
+    act(() => {
+      mentionButton!.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          button: 0,
+          bubbles: true,
+        }),
+      );
+      mentionButton!.dispatchEvent(
+        new MouseEvent("pointerup", {
+          button: 0,
+          bubbles: true,
+        }),
+      );
+      mentionButton!.click();
+    });
+
+    expect(
+      document.querySelector('input[aria-label="Mention someone"]'),
+    ).not.toBeNull();
+  });
+
   it("routes implicit submission to the visible agent action", () => {
     const onSubmit = vi.fn();
     act(() => {
@@ -172,6 +210,7 @@ describe("ReviewCommentComposer actions", () => {
     ).find((item) => item.textContent?.includes("Alice"));
     expect(aliceOption).toBeTruthy();
     act(() => aliceOption?.click());
+    expect(textarea!.value).toBe("@Alice");
   });
 
   it("opens the mention picker from the toolbar button", () => {

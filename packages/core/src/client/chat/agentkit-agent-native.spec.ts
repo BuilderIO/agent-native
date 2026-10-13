@@ -3974,6 +3974,153 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("uses the completed durable answer after mid-run and finished-thread reloads", async () => {
+    const threadId = "thread-two-reload-answer";
+    const runId = "run-two-reload-answer";
+    const nonce = "two-reload-7A4C";
+    const finalAnswer = `${nonce}-L1: one\n${nonce}-L40: forty`;
+    const staleAnswer = `${nonce}-L1: an earlier version\n${nonce}-L40: an earlier ending`;
+    let threadReads = 0;
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json(
+            threadReads === 1
+              ? { active: true, status: "running", runId }
+              : { active: false, status: "completed", runId },
+          );
+        }
+        if (url.includes("/runs/latest?")) {
+          return json({
+            runId,
+            turnId: "turn-1",
+            status: threadReads === 1 ? "running" : "completed",
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          threadReads += 1;
+          const completed = threadReads > 1;
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "server-user",
+                    role: "user",
+                    content: [
+                      { type: "text", text: `Write forty lines ${nonce}` },
+                    ],
+                    metadata: {
+                      custom: {
+                        agentKitMessageId: "snapshot-user",
+                        submittedRunId: runId,
+                        submittedTurnId: "turn-1",
+                      },
+                    },
+                  },
+                },
+                ...(completed
+                  ? [
+                      {
+                        message: {
+                          id: "server-assistant",
+                          role: "assistant",
+                          status: { type: "complete" },
+                          content: [{ type: "text", text: finalAnswer }],
+                          metadata: { runId, custom: { turnId: "turn-1" } },
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "snapshot-user",
+                    role: "user",
+                    parts: [
+                      { type: "text", text: `Write forty lines ${nonce}` },
+                    ],
+                  },
+                  ...(completed
+                    ? [
+                        {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "complete",
+                          parts: [{ type: "text", text: staleAnswer }],
+                          metadata: { runId },
+                        },
+                      ]
+                    : [
+                        {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "streaming",
+                          parts: [{ type: "text", text: `${nonce}-L1: one` }],
+                          metadata: { runId },
+                        },
+                      ]),
+                ],
+                events: completed
+                  ? ["message.created", "message.completed"].map(
+                      (type, index) => ({
+                        id: `${runId}:${index + 1}`,
+                        type,
+                        sequence: index + 1,
+                        threadId,
+                        runId,
+                        occurredAt: "2026-10-12T00:00:00.000Z",
+                        message: {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "complete",
+                          parts: [{ type: "text", text: staleAnswer }],
+                        },
+                      }),
+                    )
+                  : [],
+                runs: [
+                  {
+                    id: runId,
+                    threadId,
+                    status: completed ? "completed" : "running",
+                    ...(completed
+                      ? {}
+                      : { activeMessageId: "snapshot-assistant" }),
+                    lastSequence: completed ? 2 : 0,
+                  },
+                ],
+              },
+            }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const duringRun = await transport.getThreadSnapshot?.({ threadId });
+    expect(duringRun?.activeRunIds).toContain(runId);
+    expect(
+      duringRun?.messages.filter((message) => message.role === "assistant"),
+    ).toHaveLength(0);
+
+    const afterCompletion = await transport.getThreadSnapshot?.({ threadId });
+    expect(
+      afterCompletion?.messages.filter(
+        (message) => message.role === "assistant",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "server-assistant",
+        parts: [{ type: "text", text: finalAnswer }],
+      }),
+    ]);
+    await transport.dispose();
+  });
+
   it("drops repeated snapshot text and preserves distinct same-run content", async () => {
     const threadId = "thread-duplicate-assistant-snapshot";
     const runId = "run-duplicate-assistant-snapshot";

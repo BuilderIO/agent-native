@@ -74,7 +74,9 @@ function createTransport(events: AgentEvent[]): AgentTransport {
   };
 }
 
-function createTerminalCatchUpTransport(): AgentTransport {
+function createTerminalCatchUpTransport(
+  messageStatus: "streaming" | "complete" = "streaming",
+): AgentTransport {
   const transport = createTransport([]);
   transport.getThreadSnapshot = async () => ({
     id: "thread-1",
@@ -84,7 +86,7 @@ function createTerminalCatchUpTransport(): AgentTransport {
       {
         id: "assistant-1",
         role: "assistant",
-        status: "streaming",
+        status: messageStatus,
         parts: [{ type: "text", text: "Partial response" }],
       },
     ],
@@ -5281,9 +5283,8 @@ describe("AgentKitClient", () => {
 
     try {
       await client.loadThread("thread-1");
-      await vi.waitFor(() =>
-        expect(client.getSnapshot().connection).toBe("error"),
-      );
+      await vi.waitFor(() => expect(subscriptions).toBe(2));
+      expect(client.getSnapshot().connection).toBe("connected");
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
         status: "completed",
@@ -5299,18 +5300,72 @@ describe("AgentKitClient", () => {
       );
 
       await client.loadThread("thread-1");
-      await Promise.resolve();
-      expect(subscriptions).toBe(2);
+      await vi.waitFor(() => {
+        expect(subscriptions).toBe(2);
+        expect(client.getThread("thread-1").messages).toContainEqual(
+          expect.objectContaining({ id: "assistant-1", status: "error" }),
+        );
+      });
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("keeps a completed response visible when terminal replay ends early", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const transport = createTerminalCatchUpTransport("complete");
+    transport.subscribeToRun = async function* ({ afterSequence }) {
+      subscriptions += 1;
+      if (subscriptions === 1) {
+        expect(afterSequence).toBe(2);
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve", optionIds: ["approve"] },
+          }),
+          runId: "run-approval",
+        };
+      } else {
+        expect(afterSequence).toBe(3);
+      }
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() => expect(subscriptions).toBe(2));
+      expect(client.getSnapshot().connection).toBe("connected");
+
       expect(client.getThread("thread-1").messages).toContainEqual(
-        expect.objectContaining({ id: "assistant-1", status: "error" }),
+        expect.objectContaining({
+          id: "assistant-1",
+          status: "complete",
+          parts: [{ type: "text", text: "Partial response" }],
+        }),
+      );
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "completed",
+        lastSequence: 3,
+      });
+      expect(subscriptions).toBe(2);
+      expect(reports).toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
       );
     } finally {
       await client.dispose();
     }
   });
 
-  it("settles terminal catch-up when replay fails before its terminal event", async () => {
+  it("surfaces transport errors after partial terminal catch-up replay", async () => {
     let subscriptions = 0;
+    const reports: AgentStreamIntegrityReport[] = [];
+    const onError = vi.fn();
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({
       id: "thread-1",
@@ -5371,12 +5426,20 @@ describe("AgentKitClient", () => {
     const client = new AgentKitClient({
       transport,
       reconnect: { attempts: 3 },
+      onError,
+      onIntegrityReport: (report) => reports.push(report),
     });
 
     try {
       await client.loadThread("thread-1");
       await vi.waitFor(() =>
-        expect(client.getSnapshot().connection).toBe("error"),
+        expect(client.getSnapshot()).toMatchObject({
+          connection: "error",
+          error: expect.objectContaining({ message: "Replay is unavailable" }),
+        }),
+      );
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Replay is unavailable" }),
       );
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
@@ -5388,12 +5451,52 @@ describe("AgentKitClient", () => {
       expect(client.getThread("thread-1").messages).toContainEqual(
         expect.objectContaining({ id: "assistant-1", status: "error" }),
       );
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+    } finally {
+      await client.dispose();
+    }
+  });
 
+  it("reports exhausted terminal catch-up transport failures as stream errors", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const onError = vi.fn();
+    const transport = createTerminalCatchUpTransport();
+    transport.subscribeToRun = async function* () {
+      subscriptions += 1;
+      throw Object.assign(new Error("Temporary upstream failure"), {
+        status: 503,
+      });
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onError,
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    try {
       await client.loadThread("thread-1");
-      await Promise.resolve();
-      expect(subscriptions).toBe(1);
-      expect(client.getThread("thread-1").messages).toContainEqual(
-        expect.objectContaining({ id: "assistant-1", status: "error" }),
+      await vi.waitFor(() =>
+        expect(client.getSnapshot()).toMatchObject({
+          connection: "error",
+          error: expect.objectContaining({
+            message: "Temporary upstream failure",
+          }),
+        }),
+      );
+
+      expect(subscriptions).toBe(2);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Temporary upstream failure" }),
+      );
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "completed",
+      });
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
       );
     } finally {
       await client.dispose();
@@ -5459,8 +5562,11 @@ describe("AgentKitClient", () => {
     try {
       await client.loadThread("thread-1");
       await vi.waitFor(() =>
-        expect(client.getSnapshot().connection).toBe("error"),
+        expect(reports).toContainEqual(
+          expect.objectContaining({ code: "sequence_gap" }),
+        ),
       );
+      expect(client.getSnapshot().connection).toBe("connected");
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
         status: "completed",
@@ -6040,7 +6146,7 @@ describe("AgentKitClient", () => {
       expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
     });
 
-    it("keeps it for a completed run whose terminal events cannot be replayed", async () => {
+    it("keeps it open after terminal catch-up transport failure", async () => {
       const transport = createTransport([]);
       transport.getThreadSnapshot = async () => ({
         id: "thread-1",
@@ -6084,12 +6190,13 @@ describe("AgentKitClient", () => {
       try {
         await client.loadThread("thread-1");
         await vi.waitFor(() =>
-          expect(client.getSnapshot().connection).toBe("error"),
+          expect(client.getThread("thread-1").messages).toContainEqual(
+            expect.objectContaining({ id: "assistant-1", status: "error" }),
+          ),
         );
+        expect(client.getSnapshot().connection).toBe("error");
 
         const thread = client.getThread("thread-1");
-        // The unconfirmed replay settles the run's items as failed; the run
-        // itself still completed, so the user's answer is still wanted.
         expect(thread.messages).toContainEqual(
           expect.objectContaining({ id: "assistant-1", status: "error" }),
         );

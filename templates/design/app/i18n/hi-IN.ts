@@ -1232,6 +1232,8 @@ export default {
       uploadSuccess: "File import हो गई",
       lastImport: "पिछला import",
       errors: {
+        figmaTokenMustBeToken:
+          "Figma फ़ाइल लिंक नहीं, Figma access token paste करें।",
         figmaUrlRequired: "Figma frame या file URL paste करें।",
         invalidFigmaUrl: "Valid figma.com URL दर्ज करें।",
         figmaImportFailed: "Figma से import नहीं हो सका",

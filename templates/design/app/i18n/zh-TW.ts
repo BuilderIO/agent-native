@@ -1358,6 +1358,7 @@ export default {
       uploadSuccess: "已匯入檔案",
       lastImport: "上次匯入",
       errors: {
+        figmaTokenMustBeToken: "請貼上 Figma 存取權杖，而不是 Figma 檔案連結。",
         figmaUrlRequired: "請貼上 Figma 畫框或檔案網址。",
         invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案網址。",
         figmaImportFailed: "無法從 Figma 匯入",
