@@ -268,7 +268,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
     } satisfies AnalyticsQueryCatalogCandidate;
     const expectedNames = [
       "Data dictionary: Approved truth",
-      "Data dictionary: dbt truth",
+      "Source index: dbt truth",
       "Certified truth: Reference panel",
     ];
     const permutations = [

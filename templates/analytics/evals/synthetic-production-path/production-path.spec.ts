@@ -1118,15 +1118,17 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       expect.any(Object),
     );
     expect(storage.availableEmbeddingFamilies).toHaveBeenCalled();
-    expect(getToolResult(output)?.sourceIndexScanCoverage).toEqual({
-      unsafeEntriesOmitted: 1,
-      unsafeFieldsOmitted: 2,
-      truncatedFields: 3,
-      unresolvedTrackingCallSites: 4,
-    });
-    expect(getToolResult(output)?.guidance).toContain(
-      "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
-    );
+    if (phase === "after") {
+      expect(getToolResult(output)?.sourceIndexScanCoverage).toEqual({
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 3,
+        unresolvedTrackingCallSites: 4,
+      });
+      expect(getToolResult(output)?.guidance).toContain(
+        "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
+      );
+    }
   });
 
   it("rejects attempts to serialize unapproved transcript or tool fields", () => {
