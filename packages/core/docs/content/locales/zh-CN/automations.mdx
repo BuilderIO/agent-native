@@ -229,19 +229,19 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ### 参数 {#web-request-params}
 
-| 参数         | 类型   | 默认  | 描述                                               |
-| ------------ | ------ | ----- | -------------------------------------------------- |
-| `url`        | 字符串 | —     | 完整的URL。可能包含 `${keys.NAME}` 引用。          |
-| `method`     | 字符串 | `GET` | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。 |
-| `headers`    | 字符串 | `{}`  | JSON 标头对象。可能包含 `${keys.NAME}`。           |
-| `body`       | 字符串 | —     | 请求正文。可能包含 `${keys.NAME}`。                |
-| `timeout_ms` | 数字   | 15000 | 超时（以毫秒为单位）（最大 30000）。               |
-| `maxChars` | 数字 | 32000 | 返回到代理上下文中的响应正文字符上限，最大 200000。此限制针对正文字符，而非完整格式化的工具响应，因此可选元数据和链接可能增加字符数。此限制不影响保存的文件。 |
-| `responseMode` | 字符串 | `auto` | 响应返回方式：`auto`（HTML 转为 Markdown，JSON/文本保持 raw）、`raw`、`text`、`markdown`、`links`、`metadata`，或与 `search` 搭配的 `matches`。 |
-| `extract` | 字符串 | `readability` | HTML 提取策略：`readability`、`all-visible`（正文中所有可见文本）或 `none`（完整文档）。 |
-| `includeLinks` | 布尔值 | `true` | 是否在提取的 HTML 响应中包含精简的链接列表。 |
-| `search` | 对象 | — | 获取后对提取内容执行的可选搜索：`{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`。 |
-| `saveToFile` | 字符串 | — | 用于保存完整响应的工作区文件路径，最大 20 MiB。搭配 `search` 时返回 `maxChars` 范围内的全部匹配项，否则返回 2000 字符预览。 |
+| 参数           | 类型   | 默认          | 描述                                                                                                                                                          |
+| -------------- | ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | 字符串 | —             | 完整的URL。可能包含 `${keys.NAME}` 引用。                                                                                                                     |
+| `method`       | 字符串 | `GET`         | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。                                                                                                            |
+| `headers`      | 字符串 | `{}`          | JSON 标头对象。可能包含 `${keys.NAME}`。                                                                                                                      |
+| `body`         | 字符串 | —             | 请求正文。可能包含 `${keys.NAME}`。                                                                                                                           |
+| `timeout_ms`   | 数字   | 15000         | 超时（以毫秒为单位）（最大 30000）。                                                                                                                          |
+| `maxChars`     | 数字   | 32000         | 返回到代理上下文中的响应正文字符上限，最大 200000。此限制针对正文字符，而非完整格式化的工具响应，因此可选元数据和链接可能增加字符数。此限制不影响保存的文件。 |
+| `responseMode` | 字符串 | `auto`        | 响应返回方式：`auto`（HTML 转为 Markdown，JSON/文本保持 raw）、`raw`、`text`、`markdown`、`links`、`metadata`，或与 `search` 搭配的 `matches`。               |
+| `extract`      | 字符串 | `readability` | HTML 提取策略：`readability`、`all-visible`（正文中所有可见文本）或 `none`（完整文档）。                                                                      |
+| `includeLinks` | 布尔值 | `true`        | 是否在提取的 HTML 响应中包含精简的链接列表。                                                                                                                  |
+| `search`       | 对象   | —             | 获取后对提取内容执行的可选搜索：`{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`。                             |
+| `saveToFile`   | 字符串 | —             | 用于保存完整响应的工作区文件路径，最大 20 MiB。搭配 `search` 时返回 `maxChars` 范围内的全部匹配项，否则返回 2000 字符预览。                                   |
 
 默认情况下，`maxChars` 只限制返回到代理上下文中的响应正文字符。它不限制完整格式化的工具响应，因此可选元数据和链接可能增加字符数。内联响应上限为 1 MiB，但提取模式下的 HTML 或 XHTML 响应可达 20 MiB。Raw HTML 和其他内联响应仍受 1 MiB 上限限制。
 

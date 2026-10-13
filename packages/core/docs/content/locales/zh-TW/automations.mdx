@@ -229,19 +229,19 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ### 參數 {#web-request-params}
 
-| 參數         | 型別 | 預設  | 描述                                               |
-| ------------ | ---- | ----- | -------------------------------------------------- |
-| `url`        | 字串 | —     | 完整的 URL。可能包含 `${keys.NAME}` 引用。         |
-| `method`     | 字串 | `GET` | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。 |
-| `headers`    | 字串 | `{}`  | JSON 標頭物件。可能包含 `${keys.NAME}`。           |
-| `body`       | 字串 | —     | 請求內文。可能包含 `${keys.NAME}`。                |
-| `timeout_ms` | 數字 | 15000 | 超時（以毫秒為單位）（最大 30000）。               |
-| `maxChars` | 數字 | 32000 | 傳回代理脈絡中的回應內文字元上限，最多 200000。此限制只適用於內文，不包含完整格式化的工具回應，因此選用的中繼資料和連結可能增加字元數。此限制不會影響已儲存的檔案。 |
-| `responseMode` | 字串 | `auto` | 回應傳回方式：`auto`（HTML 轉為 Markdown，JSON/文字保持 raw）、`raw`、`text`、`markdown`、`links`、`metadata`，或搭配 `search` 的 `matches`。 |
-| `extract` | 字串 | `readability` | HTML 擷取策略：`readability`、`all-visible`（內文中所有可見文字）或 `none`（完整文件）。 |
-| `includeLinks` | 布林值 | `true` | 是否在擷取的 HTML 回應中包含精簡的連結清單。 |
-| `search` | 物件 | — | 擷取後對內容進行的選用搜尋：`{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`。 |
-| `saveToFile` | 字串 | — | 用來儲存完整回應的工作區檔案路徑，最多 20 MiB。搭配 `search` 時傳回 `maxChars` 範圍內的所有符合項目，否則傳回 2000 字元預覽。 |
+| 參數           | 型別   | 預設          | 描述                                                                                                                                                                |
+| -------------- | ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | 字串   | —             | 完整的 URL。可能包含 `${keys.NAME}` 引用。                                                                                                                          |
+| `method`       | 字串   | `GET`         | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。                                                                                                                  |
+| `headers`      | 字串   | `{}`          | JSON 標頭物件。可能包含 `${keys.NAME}`。                                                                                                                            |
+| `body`         | 字串   | —             | 請求內文。可能包含 `${keys.NAME}`。                                                                                                                                 |
+| `timeout_ms`   | 數字   | 15000         | 超時（以毫秒為單位）（最大 30000）。                                                                                                                                |
+| `maxChars`     | 數字   | 32000         | 傳回代理脈絡中的回應內文字元上限，最多 200000。此限制只適用於內文，不包含完整格式化的工具回應，因此選用的中繼資料和連結可能增加字元數。此限制不會影響已儲存的檔案。 |
+| `responseMode` | 字串   | `auto`        | 回應傳回方式：`auto`（HTML 轉為 Markdown，JSON/文字保持 raw）、`raw`、`text`、`markdown`、`links`、`metadata`，或搭配 `search` 的 `matches`。                       |
+| `extract`      | 字串   | `readability` | HTML 擷取策略：`readability`、`all-visible`（內文中所有可見文字）或 `none`（完整文件）。                                                                            |
+| `includeLinks` | 布林值 | `true`        | 是否在擷取的 HTML 回應中包含精簡的連結清單。                                                                                                                        |
+| `search`       | 物件   | —             | 擷取後對內容進行的選用搜尋：`{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`。                                       |
+| `saveToFile`   | 字串   | —             | 用來儲存完整回應的工作區檔案路徑，最多 20 MiB。搭配 `search` 時傳回 `maxChars` 範圍內的所有符合項目，否則傳回 2000 字元預覽。                                       |
 
 預設情況下，`maxChars` 只會限制傳回代理脈絡中的回應內文字元。它不會限制完整格式化的工具回應，因此選用的中繼資料和連結可能增加字元數。內嵌回應上限為 1 MiB，但擷取模式下的 HTML 或 XHTML 回應可達 20 MiB。Raw HTML 和其他內嵌回應仍受 1 MiB 上限限制。
 
