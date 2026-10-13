@@ -54,8 +54,14 @@ the Slack ownership gate. Post **In progress** only when work continues beyond
 this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
-Investigate first; ask what they saw or did in plain language. Gather request
-details and logs yourself; don't send reporters to developer tools.
+For every defect, finish triage with a concrete next action: do the next
+internal investigation/fix, or ask the direct reporter-only question when its
+answer changes that action. A Slack reply cannot be status narration alone:
+never send **Open - no question**, **Open pending**, or a symptom/source-access
+description without the exact blocking question or the concrete internal
+action and owner. Investigate first; ask what they saw or did in plain language.
+Gather request details and logs yourself; don't send reporters to developer
+tools.
 
 A reporter's proposed remedy may be wrong while the bug is real. Trace the
 failure to its owner.
@@ -87,6 +93,14 @@ details" question, or bundle unrelated defects into one ask. If nothing from the
 reporter changes the next action, state the internal action and owner. Never
 reply only with **Open**/**Open pending** and a symptom restatement. After four
 days without an answer, record **Abandoned - no answer in 4 days**.
+
+For a supplied run/request ID, query the configured Thread Debug source by that
+exact ID and inspect its run events and tool results before describing the
+failure as unavailable or asking for another run. If the source lookup fails,
+record the exact source and error, then continue with code-level investigation;
+an inaccessible source is an observability gap, not evidence that the run does
+not exist. Ask for a new run only when the original run cannot answer a
+reporter-dependent question and the reporter's answer changes the next action.
 
 Use **Skipped** only for non-defects, never breakage. In the ledger,
 **Open - no question** means reporter input cannot change the internal next

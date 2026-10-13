@@ -4699,7 +4699,7 @@ export class AgentKitClient implements AgentKitController {
             return;
           }
           if (terminalCatchUpFailed) {
-            this.fail(error, "run_stream_failed");
+            this.restoreConnectionAfterTerminalCatchUp(key);
             return;
           }
           if (terminalEvent && !this.hasTerminalRunCatchUp(threadId, runId)) {
@@ -4731,7 +4731,12 @@ export class AgentKitClient implements AgentKitController {
       const runError = toError(error, "run_stream_failed");
       if (this.hasTerminalRunCatchUp(threadId, runId)) {
         this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
-        this.fail(runError, "run_stream_failed");
+        this.reportIntegrity({
+          code: "run_missing_terminal",
+          threadId,
+          runId,
+        });
+        this.restoreConnectionAfterTerminalCatchUp(key);
       } else {
         this.markRunFailed(threadId, runId, runError);
         this.fail(error, "run_stream_failed");
@@ -6478,6 +6483,13 @@ export class AgentKitClient implements AgentKitController {
 
   private setConnection(connection: AgentKitSnapshot["connection"]): void {
     if (this.snapshot.connection !== connection) this.patch({ connection });
+  }
+
+  private restoreConnectionAfterTerminalCatchUp(key: string): void {
+    const hasOtherConsumers = [...this.consumers.keys()].some(
+      (candidate) => candidate !== key,
+    );
+    if (!hasOtherConsumers) this.setConnection("connected");
   }
 
   private fail(error: unknown, code: string): void {
