@@ -653,7 +653,9 @@ async function assertBaselineHarnessIntegrity(
 const SOURCE_FILES = [
   new URL("../production-context.ts", import.meta.url),
   new URL("../../actions/find-data.ts", import.meta.url),
+  new URL("../../server/lib/provider-api.ts", import.meta.url),
   new URL("../../server/lib/analytics-query-catalog.ts", import.meta.url),
+  new URL("../../server/lib/data-dictionary-overlays.ts", import.meta.url),
   new URL("../../server/lib/analytics-term-matcher.ts", import.meta.url),
   new URL("../../server/lib/analytics-agent-context.ts", import.meta.url),
   new URL("../../server/lib/data-dictionary-context.ts", import.meta.url),
