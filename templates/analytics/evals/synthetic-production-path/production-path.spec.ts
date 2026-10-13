@@ -599,14 +599,18 @@ function assertEvalProvenance(
   }
 }
 
-/** Accept only the copied harness as an untracked file in the baseline tree. */
+/** Accept only the candidate harness as a changed file in the baseline tree. */
 function assertBaselineWorkingTreeStatus(statusOutput: string): void {
   const entries = statusOutput.split("\0").filter(Boolean);
-  if (entries.length === 1 && entries[0] === `?? ${BASELINE_HARNESS_PATH}`) {
+  const onlyHarnessChanged =
+    entries.length === 1 &&
+    entries[0]!.slice(3) === BASELINE_HARNESS_PATH &&
+    ["??", " M"].includes(entries[0]!.slice(0, 2));
+  if (onlyHarnessChanged) {
     return;
   }
   throw new Error(
-    "Before-phase output requires a clean baseline source tree; only the copied production-path harness may be untracked.",
+    "Before-phase output requires a clean baseline source tree; only the candidate production-path harness may be modified or untracked.",
   );
 }
 
@@ -1437,6 +1441,9 @@ describe("Analytics synthetic production-path retrieval harness", () => {
   it("requires the copied baseline harness to be pinned and byte-identical", () => {
     expect(() =>
       assertBaselineWorkingTreeStatus(`?? ${BASELINE_HARNESS_PATH}\0`),
+    ).not.toThrow();
+    expect(() =>
+      assertBaselineWorkingTreeStatus(` M ${BASELINE_HARNESS_PATH}\0`),
     ).not.toThrow();
     expect(() => assertBaselineWorkingTreeStatus("")).toThrow(
       "clean baseline source tree",
