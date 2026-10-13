@@ -25,7 +25,7 @@ import {
   isCaretScrollOnlyChange,
   isExpectedCleanupBrowserSessionHeartbeatConsoleError,
   isExpectedSaveReloadBrowserSessionConsoleError,
-  isExpectedSaveReloadWatchedRequestAbort,
+  isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupNavigationError,
@@ -53,6 +53,28 @@ import {
   shouldUseFreshBrowserPageForCleanup,
   withTimeout,
 } from "./run-outcomes.ts";
+
+const isExpectedSameOriginSaveReloadAbort = (
+  pathname: string,
+  errorText: string,
+  activePhase: string,
+  method?: string,
+  requestWasPendingAtReloadNavigation = false,
+  requestAgeMs = Number.POSITIVE_INFINITY,
+  requestStartedDuringNavigation = false,
+  competingClaimStartedAfterNavigation = false,
+) =>
+  isExpectedSaveReloadAbort(
+    pathname,
+    errorText,
+    activePhase,
+    method,
+    requestWasPendingAtReloadNavigation,
+    requestAgeMs,
+    requestStartedDuringNavigation,
+    competingClaimStartedAfterNavigation,
+    true,
+  );
 
 it("keeps authoring page setup errors out of seed regression results", async () => {
   const browserError = new Error("Target crashed");
@@ -1064,7 +1086,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
     "net::ERR_ABORTED",
   ]) {
     expect(
-      isExpectedSaveReloadWatchedRequestAbort(
+      isExpectedSameOriginSaveReloadAbort(
         "/_agent-native/browser-sessions",
         errorText,
         "save/reload",
@@ -1076,7 +1098,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
   }
 
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1084,7 +1106,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1094,7 +1116,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1102,7 +1124,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions",
       "Failed to fetch",
       "save/reload",
@@ -1110,7 +1132,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions",
       "NS_BINDING_ABORTED",
       "step 12",
@@ -1118,7 +1140,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/heartbeat",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1129,7 +1151,7 @@ it("ignores registration aborts only when reload navigation cancels an in-flight
 
 it("ignores only known aborts for requests pending at reload navigation", () => {
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-lab-states",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1139,7 +1161,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1149,14 +1171,14 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/claim",
       "NS_BINDING_ABORTED",
       "save/reload",
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "Load request cancelled",
       "save/reload",
@@ -1166,7 +1188,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1176,7 +1198,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "cancelled",
       "save/reload",
@@ -1186,7 +1208,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "net::ERR_ABORTED",
       "save/reload",
@@ -1196,7 +1218,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "Load request cancelled",
       "step 12",
@@ -1204,7 +1226,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim-extra",
       "Load request cancelled",
       "save/reload",
@@ -1212,7 +1234,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "Load request cancelled",
       "save/reload",
@@ -1220,21 +1242,21 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-lab-states",
       "NS_BINDING_ABORTED",
       "step 12",
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-lab-states-extra",
       "NS_BINDING_ABORTED",
       "save/reload",
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-lab-states",
       "NS_BINDING_ABORTED",
       "save/reload",
@@ -1244,7 +1266,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "save/reload",
@@ -1254,7 +1276,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadWatchedRequestAbort(
+    isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "step 12",
@@ -1262,7 +1284,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
   ).toBe(false);
   for (const requestAgeMs of [9_000, 10_000]) {
     expect(
-      isExpectedSaveReloadWatchedRequestAbort(
+      isExpectedSameOriginSaveReloadAbort(
         "/_agent-native/browser-sessions/session-id/requests/claim",
         "Load request cancelled",
         "save/reload",
@@ -1272,6 +1294,45 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       ),
     ).toBe(false);
   }
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      true,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      true,
+    ),
+  ).toBe(false);
+});
+
+it("does not suppress cross-origin request aborts", () => {
+  expect(
+    isExpectedSaveReloadAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      false,
+    ),
+  ).toBe(false);
 });
 
 it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
@@ -1283,6 +1344,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtReloadNavigation: true,
   };
 
@@ -1296,6 +1358,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
       {
         ...candidate,
         requestFinishedSuccessfully: true,
+        responseStatus: 204,
         settledAgeMs: 13,
       },
     ]),
@@ -1305,6 +1368,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
       {
         ...candidate,
         requestFinishedSuccessfully: true,
+        responseStatus: 204,
         settledAgeMs: 1_000,
       },
     ]),
@@ -1328,6 +1392,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
           pathname: "/_agent-native/actions/get-lab-states",
           method: "POST",
           ageMs: 100,
+          sameOrigin: true,
           requestWasPendingAtReloadNavigation: true,
         },
       ],
@@ -1366,6 +1431,21 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
   ).toBe(false);
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, requestStartedDuringNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, competingClaimStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
       {
         url,
         pathname: candidate.pathname,
@@ -1385,6 +1465,7 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtNavigation: true,
   };
 
@@ -1393,6 +1474,11 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
       candidate,
     ]),
   ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
   expect(
     isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
       { ...candidate, competingClaimStartedAfterNavigation: true },
@@ -1451,6 +1537,7 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtNavigation: true,
   };
   const warning =
@@ -1459,6 +1546,11 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [candidate]),
   ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
       { ...candidate, competingClaimStartedAfterNavigation: true },
@@ -1501,6 +1593,7 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 8_999,
+    sameOrigin: true,
     requestWasPendingAtNavigation: true,
   };
   const registrationCandidate = {
@@ -1508,6 +1601,7 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
     pathname: "/_agent-native/browser-sessions",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtNavigation: true,
   };
   const pollWarning =
@@ -1522,9 +1616,35 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
   ).toBe(true);
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, sameOrigin: false, settledAgeMs: 13 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
       {
         ...claimCandidate,
         requestFinishedSuccessfully: true,
+        settledAgeMs: 13,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...claimCandidate,
+        requestFinishedSuccessfully: true,
+        sameOrigin: true,
+        responseStatus: 200,
+        settledAgeMs: 13,
+      },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...claimCandidate,
+        requestFinishedSuccessfully: true,
+        responseStatus: 503,
         settledAgeMs: 13,
       },
     ]),
@@ -1551,6 +1671,16 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
       { ...claimCandidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, requestStartedDuringNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, competingClaimStartedAfterNavigation: true },
     ]),
   ).toBe(false);
   expect(
@@ -1614,6 +1744,118 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
       "save/reload",
       [{ ...registrationCandidate, ageMs: 9_000 }],
     ),
+  ).toBe(false);
+});
+
+it("correlates a poll error to one successful claim that finished just before reload", () => {
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const completedClaim = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 120,
+    settledAgeMs: 12,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestWasPendingAtNavigation: false,
+    requestFinishedSuccessfully: true,
+    completedSuccessfullyBeforeNavigation: true,
+    completedBeforeNavigationAgeMs: 4,
+    requestStartedDuringNavigation: false,
+    requestStartedAfterNavigation: false,
+  };
+
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, responseStatus: 500 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, completedBeforeNavigationAgeMs: 250 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, settledAgeMs: 1_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, competingClaimStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+      { ...completedClaim, url: `${completedClaim.url}?second` },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+      {
+        ...completedClaim,
+        ageMs: 9_000,
+        requestWasPendingAtNavigation: true,
+        requestFinishedSuccessfully: false,
+        completedSuccessfullyBeforeNavigation: false,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, method: "GET" },
+    ]),
+  ).toBe(false);
+});
+
+it("keeps poll errors visible when a new claim starts after reload navigation", () => {
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const completedClaim = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 120,
+    settledAgeMs: 12,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestWasPendingAtNavigation: false,
+    requestFinishedSuccessfully: true,
+    completedSuccessfullyBeforeNavigation: true,
+    completedBeforeNavigationAgeMs: 4,
+    requestStartedDuringNavigation: false,
+    requestStartedAfterNavigation: false,
+    competingClaimStartedAfterNavigation: true,
+  };
+  const postNavigationClaim = {
+    ...completedClaim,
+    ageMs: 150,
+    settledAgeMs: 4,
+    requestWasPendingAtNavigation: false,
+    requestFinishedSuccessfully: false,
+    completedSuccessfullyBeforeNavigation: false,
+    requestStartedAfterNavigation: true,
+    competingClaimStartedAfterNavigation: false,
+  };
+
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+      postNavigationClaim,
+    ]),
   ).toBe(false);
 });
 
@@ -1699,6 +1941,7 @@ it("accepts cleanup request cancellations while navigation errors are delivered"
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtNavigation: true,
   };
   const message = `Fetch API cannot load ${candidate.url} due to access control checks.`;
@@ -1760,6 +2003,7 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
     pathname: "/_agent-native/browser-sessions",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtNavigation: true,
   };
   const warning =
@@ -1768,6 +2012,11 @@ it("ignores cleanup heartbeat failures only for a matching canceled registration
   expect(
     isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [candidate]),
   ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
       { ...candidate, competingRegistrationStartedAfterNavigation: true },
@@ -1863,6 +2112,7 @@ it("requires the scaled profile to render below 0.99 after viewport setup", asyn
 
 it("checks the rendered slide scale when the scaled profile is requested", async () => {
   const page = {
+    url: () => "http://localhost:5173/",
     on: () => {},
     off: () => {},
     evaluate: async () => {},

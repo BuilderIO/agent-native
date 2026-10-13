@@ -150,8 +150,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () => {
-  it("motion_timeline DB transaction appears BEFORE persistFileContent in source", () => {
+describe("apply-motion-edit write ordering", () => {
+  it("writes canonical source before updating the indexed timeline row", () => {
     const actionPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
       "apply-motion-edit.ts",
@@ -164,19 +164,17 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
     expect(txIdx).toBeGreaterThan(-1);
     expect(persistIdx).toBeGreaterThan(-1);
 
-    expect(txIdx).toBeLessThan(persistIdx);
+    expect(persistIdx).toBeLessThan(txIdx);
   });
 
-  it("comment describes timeline-first ordering (not HTML-first)", () => {
+  it("documents source as canonical and the row as a recoverable index", () => {
     const actionPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
       "apply-motion-edit.ts",
     );
     const src = readFileSync(actionPath, "utf8");
 
-    expect(src).toMatch(/motion_timeline row FIRST/i);
-
-    expect(src).not.toMatch(/Content is written before the row/);
+    expect(src).toMatch(/inline source is canonical/i);
   });
 
   it("does not re-apply list access filtering after assertAccess authorizes the design", () => {
@@ -268,8 +266,15 @@ describe("assertValidMotionEase", () => {
     }
   });
 
-  it("rejects malformed spring tokens that would emit invalid CSS", () => {
-    for (const ease of ["spring(oops)", "spring(0.5, x)", "spring(1 2)"]) {
+  it("rejects malformed and unsupported timing functions", () => {
+    for (const ease of [
+      "spring(oops)",
+      "spring(0.5, x)",
+      "spring(1 2)",
+      "cubic-bezier(2, 0, 0, 1)",
+      "steps(0)",
+      "easee",
+    ]) {
       expect(() => assertValidMotionEase(ease, "keyframe ease")).toThrow();
     }
   });
@@ -327,6 +332,82 @@ function makeTrack(index: number, keyframeCount = 2) {
   };
 }
 
+describe("spatial cubic Position action input", () => {
+  const pathTrack = {
+    targetNodeId: "positioned-layer",
+    property: "translate",
+    keyframes: [
+      {
+        t: 0,
+        value: "0px 0px",
+        ease: "ease-in",
+        motionPath: {
+          version: 1,
+          type: "cubic",
+          control1: { x: 0, y: 64 },
+          control2: { x: -20, y: 12 },
+        },
+      },
+      { t: 1, value: "120px 0px" },
+    ],
+  };
+
+  it("accepts and preserves versioned controls independently of easing", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [pathTrack],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tracks?.[0]?.keyframes[0]).toMatchObject({
+        ease: "ease-in",
+        motionPath: pathTrack.keyframes[0]?.motionPath,
+      });
+    }
+  });
+
+  it("rejects unsupported property, endpoint units, and an orphan final path", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [{ ...pathTrack, property: "opacity" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [
+          {
+            ...pathTrack,
+            keyframes: [
+              { ...pathTrack.keyframes[0], value: "10% 0px" },
+              pathTrack.keyframes[1],
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [
+          {
+            ...pathTrack,
+            keyframes: [
+              { t: 0, value: "0px 0px" },
+              {
+                ...pathTrack.keyframes[1],
+                motionPath: pathTrack.keyframes[0].motionPath,
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("MAX_MOTION_* caps are exported with the documented values", () => {
   it("caps tracks at 64, keyframes-per-track at 128, duration at 120000ms", () => {
     expect(MAX_MOTION_TRACKS).toBe(64);
@@ -369,6 +450,166 @@ describe("durationMs cap (zod schema)", () => {
   });
 });
 
+describe("Motion Text source action input", () => {
+  const textDocument = {
+    version: 1,
+    animations: [
+      {
+        targetNodeId: "headline",
+        unit: "word",
+        direction: "forward",
+        staggerMs: 40,
+        property: "opacity",
+        durationMs: 320,
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  };
+
+  it("accepts a text-only timeline with an explicit empty CSS tracks array", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [],
+      textDocument,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts the source-backed filter property used by Motion Text", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [],
+      textDocument: {
+        ...textDocument,
+        animations: [{ ...textDocument.animations[0], property: "filter" }],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("allows clearing only Text while preserving supplied ordinary tracks", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [makeTrack(0)],
+      textDocument: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty or unsupported Text source documents", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [],
+        textDocument: { version: 1, animations: [] },
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [],
+        textDocument: { ...textDocument, version: 2 },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Motion animation style action input", () => {
+  it("accepts hidden style tracks and preserves their enabled state", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [],
+      animationStyles: [
+        {
+          id: "hidden-opacity",
+          name: "Hidden opacity",
+          category: "enter",
+          tracks: [
+            {
+              property: "opacity",
+              keyframes: [{ t: 0, value: "0" }],
+              enabled: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.animationStyles?.[0]?.tracks[0]?.enabled).toBe(false);
+    }
+  });
+});
+
+describe("Motion audio source action input", () => {
+  const audioClip = {
+    id: "ambient-track",
+    name: "ambient.mp3",
+    sourceUrl: "/_agent-native/file-upload/audio/ambient.mp3",
+    timelineStartMs: 250,
+    sourceTrimStartMs: 100,
+    durationMs: 800,
+    volume: 0.8,
+    muted: false,
+  };
+
+  it("accepts source-backed audio as a standalone timeline", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [],
+      audioClips: [audioClip],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a legacy clip without a display name", () => {
+    const { name: _name, ...legacyClip } = audioClip;
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [],
+        audioClips: [legacyClip],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unsafe URLs, duplicate IDs, clips past the duration cap, and long names", () => {
+    const invalid = [
+      { ...audioClip, sourceUrl: "data:audio/mpeg;base64,AAAA" },
+      { ...audioClip, sourceUrl: "javascript:alert(1)" },
+      { ...audioClip, name: "a".repeat(241) },
+      {
+        ...audioClip,
+        timelineStartMs: MAX_MOTION_DURATION_MS - 100,
+      },
+    ];
+
+    for (const clip of invalid) {
+      expect(
+        action.schema.safeParse({
+          designId: "d1",
+          tracks: [],
+          audioClips: [clip],
+        }).success,
+      ).toBe(false);
+    }
+
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [],
+        audioClips: [audioClip, audioClip],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("tracks-per-timeline cap (run() DoS guard, source contract)", () => {
   const src = readFileSync(
     path.resolve(
@@ -383,9 +624,9 @@ describe("tracks-per-timeline cap (run() DoS guard, source contract)", () => {
     expect(src).toMatch(/Too many motion tracks/);
   });
 
-  it("the track-count guard runs before compile() is invoked", () => {
+  it("the track-count guard runs before source compilation is invoked", () => {
     const guardIdx = src.indexOf("inputTracks.length > MAX_MOTION_TRACKS");
-    const compileIdx = src.indexOf("const { css, hash } = compile(");
+    const compileIdx = src.indexOf("const { css, hash } = compiled;");
     expect(guardIdx).toBeGreaterThan(-1);
     expect(compileIdx).toBeGreaterThan(-1);
     expect(guardIdx).toBeLessThan(compileIdx);
@@ -420,11 +661,11 @@ describe("keyframes-per-track cap (run() DoS guard, source contract)", () => {
     expect(src).toMatch(/Too many keyframes/);
   });
 
-  it("the keyframe-count guard runs before compile() is invoked", () => {
+  it("the keyframe-count guard runs before source compilation is invoked", () => {
     const guardIdx = src.indexOf(
       "track.keyframes.length > MAX_MOTION_KEYFRAMES_PER_TRACK",
     );
-    const compileIdx = src.indexOf("const { css, hash } = compile(");
+    const compileIdx = src.indexOf("const { css, hash } = compiled;");
     expect(guardIdx).toBeGreaterThan(-1);
     expect(compileIdx).toBeGreaterThan(-1);
     expect(guardIdx).toBeLessThan(compileIdx);

@@ -475,7 +475,27 @@ export function OrgSwitcher({
   const { session } = useSession();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
-  const switchOrg = useSwitchOrg();
+  const [open, setOpen] = useState(false);
+  const pendingOrgSwitchRef = useRef<
+    | { kind: "explicit"; orgId: string; closedEarly: boolean }
+    | { kind: "personal-recovery"; orgId: string }
+    | null
+  >(null);
+  const switchOrg = useSwitchOrg({
+    onPersisted: (orgId) => {
+      const pendingSwitch = pendingOrgSwitchRef.current;
+      if (
+        orgId === null ||
+        pendingSwitch?.kind !== "explicit" ||
+        pendingSwitch.orgId !== orgId ||
+        pendingSwitch.closedEarly
+      ) {
+        return;
+      }
+      pendingSwitch.closedEarly = true;
+      setOpen(false);
+    },
+  });
   const createOrg = useCreateOrg();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
@@ -487,7 +507,6 @@ export function OrgSwitcher({
     { enabled: !!email },
   );
   const avatarUrl = useAvatarUrl(email);
-  const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -513,22 +532,49 @@ export function OrgSwitcher({
   // Accounts that picked the retired "Personal" choice have `orgId: null`
   // stored while still holding memberships, which strands them outside the
   // org-scoped Builder.io connection and vault credentials. Move them back.
-  // A failed switch retries on the next org fetch, not on the next render:
-  // the mutation's state changes would otherwise re-run this in a tight loop.
+  // Automatic recovery failures wait for the next org fetch to avoid a loop
+  // on mutation state changes. A failed explicit switch from Personal gets one
+  // recovery pass because this effect may have skipped the pending selection.
   const personalRecoveryRef = useRef(false);
+  const [personalRecoveryRetryEpoch, setPersonalRecoveryRetryEpoch] =
+    useState(0);
   const firstMembershipId = org?.orgs?.[0]?.orgId ?? null;
   const switchOrgMutate = switchOrg.mutate;
   useEffect(() => {
-    if (org?.orgId || !firstMembershipId || personalRecoveryRef.current) {
+    if (
+      org?.orgId ||
+      !firstMembershipId ||
+      personalRecoveryRef.current ||
+      pendingOrgSwitchRef.current
+    ) {
       return;
     }
     personalRecoveryRef.current = true;
+    const recovery = {
+      kind: "personal-recovery" as const,
+      orgId: firstMembershipId,
+    };
+    pendingOrgSwitchRef.current = recovery;
     switchOrgMutate(firstMembershipId, {
       onError: () => {
         personalRecoveryRef.current = false;
+        if (pendingOrgSwitchRef.current === recovery) {
+          pendingOrgSwitchRef.current = null;
+        }
+      },
+      onSettled: () => {
+        if (pendingOrgSwitchRef.current === recovery) {
+          pendingOrgSwitchRef.current = null;
+        }
       },
     });
-  }, [org?.orgId, firstMembershipId, switchOrgMutate, dataUpdatedAt]);
+  }, [
+    org?.orgId,
+    firstMembershipId,
+    switchOrgMutate,
+    dataUpdatedAt,
+    personalRecoveryRetryEpoch,
+  ]);
 
   const showView = (next: MenuView) => {
     viewChangedRef.current = true;
@@ -670,8 +716,27 @@ export function OrgSwitcher({
   );
 
   const selectOrg = (orgId: string) => {
-    if (switchOrg.isPending) return;
-    switchOrg.mutate(orgId, { onSuccess: () => setOpen(false) });
+    if (switchOrg.isPending || pendingOrgSwitchRef.current) return;
+    const selectedFromPersonal = org?.orgId == null;
+    const selection = { kind: "explicit" as const, orgId, closedEarly: false };
+    pendingOrgSwitchRef.current = selection;
+    switchOrg.mutate(orgId, {
+      onError: () => {
+        if (pendingOrgSwitchRef.current === selection) {
+          pendingOrgSwitchRef.current = null;
+          if (selectedFromPersonal && !selection.closedEarly) {
+            personalRecoveryRef.current = false;
+            setPersonalRecoveryRetryEpoch((epoch) => epoch + 1);
+          }
+        }
+      },
+      onSuccess: () => {
+        if (pendingOrgSwitchRef.current === selection) {
+          pendingOrgSwitchRef.current = null;
+        }
+        if (!selection.closedEarly) setOpen(false);
+      },
+    });
   };
   const isSwitchingTo = (orgId: string) =>
     switchOrg.isPending && switchOrg.variables === orgId;

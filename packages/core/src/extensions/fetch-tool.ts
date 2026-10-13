@@ -449,17 +449,30 @@ export function createFetchToolEntry(
           }
 
           let body: string;
+          let bodyResult: {
+            text: string;
+            truncated: boolean;
+            size: number;
+          };
           try {
             const readLimit = saveToFilePath
               ? 20 * 1024 * 1024
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
-            const result = await readResponseTextWithLimit(response, readLimit);
-            body = result.text;
+            bodyResult = await readResponseTextWithLimit(response, readLimit);
           } catch {
             fail("(could not read response body)", {
               errorCode: httpErrorCode ?? "web_request_body_unreadable",
             });
           }
+          if (bodyResult.truncated) {
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\n${bodyResult.text}`,
+              {
+                errorCode: httpErrorCode ?? "web_request_response_too_large",
+              },
+            );
+          }
+          body = bodyResult.text;
           body = redactString(body, secretValues);
           if (response.ok) {
             const { providerApiResponseOutcomeForUrl } =

@@ -7,10 +7,10 @@ import {
 } from "./left-sidebar-width";
 
 describe("left sidebar width", () => {
-  it("defaults to 240", () => {
-    expect(DEFAULT_LEFT_SIDEBAR_WIDTH).toBe(240);
+  it("defaults to 280", () => {
+    expect(DEFAULT_LEFT_SIDEBAR_WIDTH).toBe(280);
     expect(resolveLeftSidebarWidth(DEFAULT_LEFT_SIDEBAR_WIDTH, "file")).toBe(
-      240,
+      280,
     );
   });
 

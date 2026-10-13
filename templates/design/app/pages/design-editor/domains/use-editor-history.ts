@@ -421,7 +421,10 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const builderHostProtocolActive = isBuilderDesignEmbed || hostEmbeddedEditor;
 
   const focusDesignInspectorForSelection = useCallback(() => {
-    if (activeInspectorTabRef.current !== "design") {
+    if (
+      activeInspectorTabRef.current !== "design" &&
+      activeInspectorTabRef.current !== "motion"
+    ) {
       setActiveInspectorTab("design");
     }
   }, []);

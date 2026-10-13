@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Turn on Rewind",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "Rewind keeps a local history of your screen so you can include the last few minutes before a recording. Footage uploads only when you include it or approve it.",
+      "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:

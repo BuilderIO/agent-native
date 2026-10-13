@@ -163,6 +163,8 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
     motionTracksWire,
+    motionSelectedTarget,
+    motionOriginEditing,
     motionDefaultEase,
     motionDurationMs,
     selectedCanvasSelector,
@@ -173,8 +175,10 @@ export function renderSingleScreenCanvas({
     recentEditsForOverlays,
     othersWithAgentCursor,
   } = editorLiveEditsAndPresence;
+  const { motionDockOpen } = editorHistory;
   const { hoveredCanvasSelector, hoveredCanvasSelectorCandidates } =
     editorContentAndComponents;
+  const { handleMotionCanvasPathTracksChange } = editorContentAndComponents;
   const {
     spacePanActive,
     handleSingleScreenCreatePrimitive,
@@ -428,6 +432,17 @@ export function renderSingleScreenCanvas({
         motionTracks={motionTracksWire}
         motionDefaultEase={motionDefaultEase}
         motionDurationMs={motionDurationMs}
+        motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
+        motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+        motionOriginEditingEnabled={
+          motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
+        }
+        motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+        onMotionPathTracksChange={
+          canEditActiveVisualScreen
+            ? handleMotionCanvasPathTracksChange
+            : undefined
+        }
         gradientEditTarget={inScreenGradientEditTarget}
         onGradientEditChange={handleInScreenGradientEditChange}
         statePreviewTarget={statePreviewTarget}

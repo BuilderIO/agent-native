@@ -1,7 +1,9 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -27,7 +29,7 @@ it("does not authorize local success when a fetch-state update races equal-time 
   expect(sourceQuery).toBeDefined();
   const record: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(persistedSource),
   };
 
@@ -52,7 +54,9 @@ it("does not authorize local success when a fetch-state update races equal-time 
   expect(localQuery?.state.dataUpdatedAt).toBe(updatedAt);
 
   try {
-    const binding = cache.bindActionQueryCache(client, scope);
+    const binding = cache.bindActionQueryCache(client, scope, {
+      trustPrebindResults: true,
+    });
     await readStarted.promise;
     const stateBeforeLocalTransition = localQuery!.state;
     client.setQueryData(

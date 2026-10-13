@@ -2535,6 +2535,18 @@ function paintsOwnTextFor(
   elements: readonly ParsedElement[],
 ): boolean {
   if (element.selfClosing) return false;
+  if (
+    element.childIndexes.length > 0 &&
+    element.childIndexes.every((childIndex) => {
+      const child = elements[childIndex];
+      return (
+        child?.tag === "span" &&
+        attributeValue(child, "data-agent-native-motion-text-unit") !== null
+      );
+    })
+  ) {
+    return true;
+  }
   const paintsText = (from: number, to: number) =>
     Boolean(html.slice(from, to).replace(UNPAINTED_SOURCE_RE, "").trim());
   let at = element.contentStart;

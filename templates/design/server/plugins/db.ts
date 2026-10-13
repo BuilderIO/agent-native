@@ -511,6 +511,42 @@ ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS capture_sou
   CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_source_idx
     ON design_screen_restore_claims (design_id, source_file_id)`,
   },
+  {
+    version: 42,
+    name: "design-motion-timeline-text-document",
+    sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS text_document TEXT`,
+  },
+  {
+    version: 43,
+    name: "design-motion-bridge-receipt-challenges",
+    sql: `CREATE TABLE IF NOT EXISTS design_motion_bridge_receipt_challenges (
+    nonce TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_expires_idx
+    ON design_motion_bridge_receipt_challenges (expires_at)`,
+  },
+  {
+    version: 44,
+    name: "design-motion-bridge-relay-chains",
+    sql: `ALTER TABLE design_motion_bridge_receipt_challenges
+  ADD COLUMN IF NOT EXISTS chain_id TEXT;
+ALTER TABLE design_motion_bridge_receipt_challenges
+  ADD COLUMN IF NOT EXISTS receipt_hash TEXT;
+CREATE TABLE IF NOT EXISTS design_motion_bridge_relay_chains (
+  chain_id TEXT PRIMARY KEY,
+  action_name TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  completed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+);
+CREATE INDEX IF NOT EXISTS design_motion_bridge_relay_chains_expires_idx
+  ON design_motion_bridge_relay_chains (expires_at);
+CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
+  ON design_motion_bridge_receipt_challenges (chain_id)`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

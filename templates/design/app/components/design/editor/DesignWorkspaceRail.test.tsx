@@ -12,7 +12,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function renderRail(activePanel: "file" | "agent" | "threads" | null) {
+function renderRail(
+  activePanel: "file" | "agent" | "threads" | null,
+  onMotionToggle?: () => void,
+) {
   const onPanelChange = vi.fn();
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -24,6 +27,8 @@ function renderRail(activePanel: "file" | "agent" | "threads" | null) {
         <TooltipProvider>
           <DesignWorkspaceRail
             activePanel={activePanel}
+            motionOpen={false}
+            onMotionToggle={onMotionToggle}
             projectMenu={null}
             onPanelChange={onPanelChange}
           />
@@ -68,6 +73,16 @@ describe("DesignWorkspaceRail", () => {
     await rail.click("designEditor.leftRail.threads");
 
     expect(rail.onPanelChange).toHaveBeenCalledWith("threads");
+    rail.root.unmount();
+  });
+
+  it("opens the Motion dock from its workspace rail control", async () => {
+    const onMotionToggle = vi.fn();
+    const rail = renderRail("file", onMotionToggle);
+    await rail.mount();
+    await rail.click("designEditor.motion.dockLabel");
+
+    expect(onMotionToggle).toHaveBeenCalledOnce();
     rail.root.unmount();
   });
 });

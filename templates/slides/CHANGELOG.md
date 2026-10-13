@@ -5,8 +5,14 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-11
 
+### Improved
+
+- Slide transitions match the Google Slides catalog (None, Dissolve, Fade, Slide from right and left, Flip, Cube, Gallery), with a speed control, Apply to all slides, and a Play preview, and they play the same way going backward.
+
 ### Fixed
 
+- Generated deck prompts wait for the first-run status check to resolve.
+- Per-element reveals and "By paragraph" builds stay on the right element after edits, undo and deletes, and public decks with reveals load again.
 - Going back from a new Slides generation returns Home without refilling the submitted prompt.
 
 ## 2026-10-10

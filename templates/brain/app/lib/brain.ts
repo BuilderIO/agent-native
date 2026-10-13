@@ -616,6 +616,7 @@ export interface BrainConnectionProvider {
 export interface ConnectionProvidersResponse {
   count?: number;
   appId?: "brain";
+  canManageZoom?: boolean;
   workspaceConnections?: {
     appId: "brain";
     available: boolean;

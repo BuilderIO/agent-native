@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "このブロックは一時的に利用できません。",
+  "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl":
     "有効な HTTP または HTTPS の URL を入力してください。",
@@ -160,9 +162,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "新しいアカウントを作成できるか確認しています。",
   "onboarding.builderActivationUnavailable":
-    "このアプリでは新しいアカウントの作成が有効になっていません。既存のアカウントは接続できます。",
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
   "onboarding.builderActivationUnavailableInMode":
-    "このモードでは新しいアカウントを有効化できません。既存のアカウントは引き続き接続できます。",
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
   "onboarding.builderActivationCheckFailed":
     "このアプリで新しいアカウントを作成できるか確認できませんでした。",
 
@@ -177,6 +179,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":

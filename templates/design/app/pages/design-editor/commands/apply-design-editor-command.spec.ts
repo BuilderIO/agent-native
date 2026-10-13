@@ -350,3 +350,19 @@ describe("runApplyDesignEditorCommand: screen focus stays on All screens", () =>
     expect(args.setScreenZoom).not.toHaveBeenCalled();
   });
 });
+
+describe("runApplyDesignEditorCommand: Motion inspector context", () => {
+  it("accepts the Motion inspector tab without changing the left rail", () => {
+    const args = makeArgs();
+
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      inspectorTab: "motion",
+    });
+
+    expect(applied).toBe(true);
+    expect(args.setActiveInspectorTab).toHaveBeenCalledWith("motion");
+    expect(args.setActiveLeftPanel).not.toHaveBeenCalled();
+  });
+});

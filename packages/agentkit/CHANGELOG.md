@@ -1,5 +1,12 @@
 # @agent-native/agentkit
 
+## 0.207.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77c15ee: Recover AgentKit run cursors from trusted protocol metadata, compact omitted event ranges, and retry transient first-run status failures.
+
 ## 0.207.0
 
 ### Minor Changes

@@ -771,7 +771,8 @@ const messages = {
       "代理程式在建立任何投影片前執行失敗。請查看聊天中的詳細資訊，然後再試一次。",
     generationFailed: "未建立投影片。請查看聊天中的詳細資訊，然後再試一次。",
     generationOutcomeUnresolved:
-      "無法確認投影片是否已建立。請檢查簡報或聊天，然後再試一次。",
+      "無法確認投影片是否已建立。請先檢查簡報，再重試。",
+    checkedDeckTryAgain: "我已檢查簡報，再試一次",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",
@@ -804,8 +805,7 @@ const messages = {
     sourceGitHub: "GitHub 儲存庫",
     sourceMixed: "多個來源",
     sourceBuilder: "Builder 設計系統智慧",
-    sourceIndexingDescription:
-      "Builder 仍在處理此來源。結果準備好後會顯示於此。",
+    sourceIndexingDescription: "正在準備你的品牌風格。請等準備完成後再試一次。",
     sourceIndexedDescription: "已索引 {{docs}} 份文件 · {{tokens}} 個權杖",
     sourceIndexedDocsOnly: "{{docs}} 份文件已索引",
     sourceIndexedTokensOnly: "{{tokens}} 個權杖已索引",
@@ -998,6 +998,8 @@ const messages = {
     generationStartFailed: "無法開始生成幻燈片",
     generationStartFailedDescription:
       "新幻燈片尚未儲存完成，因此未讓代理針對缺失的幻燈片開始工作。你的提示已儲存，可以重試。",
+    generationContextUnavailableDescription:
+      "無法載入你選擇的品牌風格或參考簡報。請確認可以開啟它且網路連線正常，然後再試一次。",
     showAllDecks: "顯示所有幻燈片",
     all: "全部",
     showMineDecks: "顯示我建立的幻燈片",

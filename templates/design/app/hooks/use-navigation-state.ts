@@ -19,8 +19,8 @@ export interface NavigationState {
   templateId?: string;
   editorView?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
-  inspectorTab?: "design" | "tweaks" | "code" | "extensions";
-  inspector?: "design" | "tweaks" | "code" | "extensions";
+  inspectorTab?: "design" | "motion" | "tweaks" | "code" | "extensions";
+  inspector?: "design" | "motion" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
@@ -71,8 +71,8 @@ export interface DesignEditorCommand {
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
-  inspectorTab?: "design" | "tweaks" | "code" | "extensions";
-  inspector?: "design" | "tweaks" | "code" | "extensions";
+  inspectorTab?: "design" | "motion" | "tweaks" | "code" | "extensions";
+  inspector?: "design" | "motion" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
@@ -138,8 +138,11 @@ function normalizeEditorView(
 
 function normalizeInspectorTab(
   value: unknown,
-): "design" | "tweaks" | "code" | undefined {
-  return value === "design" || value === "tweaks" || value === "code"
+): "design" | "motion" | "tweaks" | "code" | undefined {
+  return value === "design" ||
+    value === "motion" ||
+    value === "tweaks" ||
+    value === "code"
     ? value
     : undefined;
 }

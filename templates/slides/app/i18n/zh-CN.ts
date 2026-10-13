@@ -772,7 +772,8 @@ const messages = {
       "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
     generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
     generationOutcomeUnresolved:
-      "无法确认幻灯片是否已创建。请检查演示文稿或聊天，然后重试。",
+      "无法确认幻灯片是否已创建。请先检查演示文稿，再重试。",
+    checkedDeckTryAgain: "我已检查演示文稿，重试",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
@@ -805,8 +806,7 @@ const messages = {
     sourceGitHub: "GitHub 存储库",
     sourceMixed: "多个来源",
     sourceBuilder: "Builder 设计系统智能",
-    sourceIndexingDescription:
-      "Builder 仍在处理此来源。结果准备好后会显示在这里。",
+    sourceIndexingDescription: "正在准备你的品牌风格。请等待准备完成后重试。",
     sourceIndexedDescription: "已索引 {{docs}} 个文档 · {{tokens}} 个令牌",
     sourceIndexedDocsOnly: "已索引 {{docs}} 个文档",
     sourceIndexedTokensOnly: "已索引 {{tokens}} 个令牌",
@@ -998,6 +998,8 @@ const messages = {
     generationStartFailed: "无法开始生成幻灯片",
     generationStartFailedDescription:
       "新幻灯片尚未保存完成，因此未让代理针对缺失的幻灯片开始工作。你的提示已保存，可以重试。",
+    generationContextUnavailableDescription:
+      "无法加载你选择的品牌风格或参考演示文稿。请确认可以打开它且网络连接正常，然后重试。",
     showAllDecks: "显示所有幻灯片",
     all: "全部",
     showMineDecks: "显示我创建的幻灯片",
