@@ -5561,14 +5561,28 @@ export async function runAuthoringFuzz(
             root.contains(selection.focusNode),
         };
       }, editorSelector);
+    const historyDepthFromStats = (
+      stats: Record<string, unknown> | null,
+      direction: "undo" | "redo",
+    ) => {
+      const depth = stats?.[direction === "undo" ? "undoDepth" : "redoDepth"];
+      if (
+        typeof depth !== "number" ||
+        !Number.isSafeInteger(depth) ||
+        depth < 0
+      ) {
+        throw new Error(
+          `${direction} history depth is unavailable during replay`,
+        );
+      }
+      return depth;
+    };
     // Keep one real shortcut per direction; replay the rest in-page to avoid thousands of protocol round trips.
     const historyReplayYieldBudgetMs = 50;
     const runHistoryBatch = (options: {
       direction: "undo" | "redo";
       maxCalls: number;
-      html: string;
       stableCalls: number;
-      changedCount: number;
     }) =>
       page.evaluate(
         async ({
@@ -5584,15 +5598,32 @@ export async function runAuthoringFuzz(
           yieldBudgetMs: number;
           direction: "undo" | "redo";
           maxCalls: number;
-          html: string;
           stableCalls: number;
-          changedCount: number;
         }) => {
-          let { html, stableCalls, changedCount } = state;
+          let { stableCalls } = state;
           let calls = 0;
           let maxSliceDurationMs = 0;
           let maxEventDurationMs = 0;
           let sliceStartedAt = performance.now();
+          const historyDepth = (root: HTMLElement) => {
+            const stats = (
+              root as HTMLElement & {
+                __slidesInPlaceTextHistoryStats?: Record<string, unknown>;
+              }
+            ).__slidesInPlaceTextHistoryStats;
+            const depth =
+              stats?.[state.direction === "undo" ? "undoDepth" : "redoDepth"];
+            if (
+              typeof depth !== "number" ||
+              !Number.isSafeInteger(depth) ||
+              depth < 0
+            ) {
+              throw new Error(
+                `${state.direction} history depth is unavailable during replay`,
+              );
+            }
+            return depth;
+          };
           while (calls < state.maxCalls && stableCalls < stableLimit) {
             const eventStartedAt = performance.now();
             const root = document.querySelector(selector);
@@ -5601,6 +5632,7 @@ export async function runAuthoringFuzz(
                 "edited element disappeared during history replay",
               );
             }
+            const previousDepth = historyDepth(root);
             const event = new KeyboardEvent("keydown", {
               key: "z",
               code: "KeyZ",
@@ -5631,13 +5663,16 @@ export async function runAuthoringFuzz(
                 `selection/caret left the edited element during ${state.direction}`,
               );
             }
-            const nextHtml = restored.innerHTML;
-            if (nextHtml === html) stableCalls += 1;
+            const nextDepth = historyDepth(restored);
+            if (nextDepth > previousDepth) {
+              throw new Error(
+                `${state.direction} history depth increased during replay`,
+              );
+            }
+            if (nextDepth === previousDepth) stableCalls += 1;
             else {
               stableCalls = 0;
-              changedCount += 1;
             }
-            html = nextHtml;
             calls += 1;
             const eventDurationMs = performance.now() - eventStartedAt;
             maxEventDurationMs = Math.max(maxEventDurationMs, eventDurationMs);
@@ -5650,10 +5685,14 @@ export async function runAuthoringFuzz(
               sliceStartedAt = performance.now();
             }
           }
+          const root = document.querySelector(selector);
+          if (!(root instanceof HTMLElement)) {
+            throw new Error("edited element disappeared during history replay");
+          }
           return {
-            html,
+            html: root.innerHTML,
+            historyDepth: historyDepth(root),
             stableCalls,
-            changedCount,
             calls,
             maxSliceDurationMs,
             maxEventDurationMs,
@@ -5672,9 +5711,13 @@ export async function runAuthoringFuzz(
     // Drain selection-only snapshots too, past the editor's configured cap.
     const stableHistoryProbeLimit = 3;
     const maxHistoryCalls = historyLimit + stableHistoryProbeLimit;
+    const beforeKeyboardUndo = await readHistoryState();
+    const undoDepthBefore = historyDepthFromStats(
+      beforeKeyboardUndo.historyStats,
+      "undo",
+    );
     let stableUndo = 0;
     let undoCalls = 0;
-    let undoCount = 0;
     await page.keyboard.press(`${modifier}+Z`);
     undoCalls += 1;
     const afterKeyboardUndo = await readHistoryState();
@@ -5683,19 +5726,28 @@ export async function runAuthoringFuzz(
     }
     if (afterKeyboardUndo.html === null)
       throw new Error("edited element disappeared during undo");
-    if (afterKeyboardUndo.html === currentHtml) stableUndo += 1;
-    else undoCount += 1;
+    const undoDepthAfterKeyboard = historyDepthFromStats(
+      afterKeyboardUndo.historyStats,
+      "undo",
+    );
+    if (undoDepthAfterKeyboard > undoDepthBefore) {
+      throw new Error("undo history depth increased during replay");
+    }
+    const undoCount = undoDepthBefore;
+    if (undoDepthAfterKeyboard === undoDepthBefore) stableUndo += 1;
     currentHtml = afterKeyboardUndo.html;
     const remainingUndo = await runHistoryBatch({
       direction: "undo",
       maxCalls: maxHistoryCalls - undoCalls,
-      html: currentHtml,
       stableCalls: stableUndo,
-      changedCount: undoCount,
     });
     undoCalls += remainingUndo.calls;
-    undoCount = remainingUndo.changedCount;
     currentHtml = remainingUndo.html;
+    if (remainingUndo.historyDepth !== 0) {
+      throw new Error(
+        `undo history still has ${remainingUndo.historyDepth} state(s) after replay`,
+      );
+    }
     console.log(
       `[edit-fidelity] undo history replay: ${remainingUndo.calls} calls; max event ${remainingUndo.maxEventDurationMs.toFixed(1)}ms; max synchronous slice ${remainingUndo.maxSliceDurationMs.toFixed(1)}ms`,
     );
@@ -5704,17 +5756,21 @@ export async function runAuthoringFuzz(
     assertByteIdenticalHtml(
       currentHtml,
       originalHtml,
-      `undo-all editor HTML after ${undoCalls} undo keypress(es) and ${undoCount} HTML change(s)`,
+      `undo-all editor HTML after ${undoCalls} undo keypress(es)`,
     );
     assertByteIdenticalHtml(
       await withoutSessionAttributes(await slideContent.innerHTML()),
       originalSlideHtml,
-      `undo-all slide HTML after ${undoCalls} undo keypress(es) and ${undoCount} HTML change(s)`,
+      `undo-all slide HTML after ${undoCalls} undo keypress(es)`,
     );
 
+    const beforeKeyboardRedo = await readHistoryState();
+    const redoDepthBefore = historyDepthFromStats(
+      beforeKeyboardRedo.historyStats,
+      "redo",
+    );
     let stableRedo = 0;
     let redoCalls = 0;
-    let redoCount = 0;
     activePhase = "redo-all";
     const maxRedoCalls = historyLimit + stableHistoryProbeLimit;
     await page.keyboard.press(`${modifier}+Shift+Z`);
@@ -5725,19 +5781,28 @@ export async function runAuthoringFuzz(
     }
     if (afterKeyboardRedo.html === null)
       throw new Error("edited element disappeared during redo");
-    if (afterKeyboardRedo.html === currentHtml) stableRedo += 1;
-    else redoCount += 1;
+    const redoDepthAfterKeyboard = historyDepthFromStats(
+      afterKeyboardRedo.historyStats,
+      "redo",
+    );
+    if (redoDepthAfterKeyboard > redoDepthBefore) {
+      throw new Error("redo history depth increased during replay");
+    }
+    const redoCount = redoDepthBefore;
+    if (redoDepthAfterKeyboard === redoDepthBefore) stableRedo += 1;
     currentHtml = afterKeyboardRedo.html;
     const remainingRedo = await runHistoryBatch({
       direction: "redo",
       maxCalls: maxRedoCalls - redoCalls,
-      html: currentHtml,
       stableCalls: stableRedo,
-      changedCount: redoCount,
     });
     redoCalls += remainingRedo.calls;
-    redoCount = remainingRedo.changedCount;
     currentHtml = remainingRedo.html;
+    if (remainingRedo.historyDepth !== 0) {
+      throw new Error(
+        `redo history still has ${remainingRedo.historyDepth} state(s) after replay`,
+      );
+    }
     console.log(
       `[edit-fidelity] redo history replay: ${remainingRedo.calls} calls; max event ${remainingRedo.maxEventDurationMs.toFixed(1)}ms; max synchronous slice ${remainingRedo.maxSliceDurationMs.toFixed(1)}ms`,
     );
@@ -5747,7 +5812,7 @@ export async function runAuthoringFuzz(
     assertByteIdenticalHtml(
       await slideContent.innerHTML(),
       finalSlideHtml,
-      `redo-all slide HTML after ${redoCalls} redo keypress(es) and ${redoCount} HTML change(s)`,
+      `redo-all slide HTML after ${redoCalls} redo keypress(es)`,
     );
 
     activePhase = "save/reload";
