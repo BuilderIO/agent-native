@@ -491,6 +491,58 @@ describe("resolveAppAdditionalActions", () => {
       }
     });
 
+    it("accepts 2020-12 array keywords only where they are enforced", async () => {
+      const tuple = {
+        type: "object" as const,
+        properties: {
+          xs: {
+            type: "array",
+            prefixItems: [{ type: "number" }],
+            contains: { type: "number" },
+            maxContains: 1,
+          },
+        },
+      };
+      const run = vi.fn(async () => "ran");
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "draft-07-tuple": entry("x", {
+              tool: { description: "x", parameters: tuple as never },
+            }),
+            "draft-2020-tuple": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  $schema: "https://json-schema.org/draft/2020-12/schema",
+                  ...tuple,
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(Object.keys(added)).toEqual(["draft-2020-tuple"]);
+      expect(String(vi.mocked(console.warn).mock.calls[0]?.[0])).toMatch(
+        /"draft-07-tuple".*"prefixItems".*would not be enforced/,
+      );
+      const tool = added["draft-2020-tuple"]!;
+      await expect(asAlice(() => tool.run({ xs: ["x"] }))).rejects.toThrow(
+        /Invalid arguments/,
+      );
+      await expect(asAlice(() => tool.run({ xs: [1, 2] }))).rejects.toThrow(
+        /Invalid arguments/,
+      );
+      expect(run).not.toHaveBeenCalled();
+      await expect(asAlice(() => tool.run({ xs: [1, "a"] }))).resolves.toBe(
+        "ran",
+      );
+    });
+
     it("reads each tool field once, so a getter cannot swap in an unchecked schema", async () => {
       let reads = 0;
       const tool = {

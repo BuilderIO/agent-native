@@ -163,6 +163,15 @@ const VALUE_KEYWORDS = new Set([
   "writeOnly",
 ]);
 
+// Schemas without a 2020-12 `$schema` compile as draft-07, which ignores these
+// keywords instead of enforcing them.
+const DRAFT_2020_ONLY_KEYWORDS = new Set([
+  "maxContains",
+  "minContains",
+  "prefixItems",
+]);
+const DRAFT_2020_DIALECT = "https://json-schema.org/draft/2020-12/schema";
+
 // Insertion-ordered, so the oldest key is evicted first once the cap is hit.
 const reportedSkips = new Set<string>();
 
@@ -448,6 +457,7 @@ function checkParameterSchema(
     expanded: 0,
     limit: Math.min(MAX_SCHEMA_EXPANDED_NODES, schemaBudget.expandedRemaining),
     refStack: new Set([schema]),
+    draft2020: isDraft2020(schema),
   };
   const rejection = rejectSchemaKeywords(schema, schema, walk);
   schemaBudget.expandedRemaining -= walk.expanded;
@@ -470,6 +480,7 @@ interface SchemaWalk {
   limit: number;
   /** The `$ref` targets being expanded, outermost first. */
   refStack: Set<object>;
+  draft2020: boolean;
 }
 
 type CopyFailure =
@@ -578,7 +589,9 @@ function rejectSchemaKeywords(
   }
   for (const [keyword, value] of Object.entries(schema)) {
     let rejection: string | null = null;
-    if (keyword === "items" && Array.isArray(value)) {
+    if (!walk.draft2020 && DRAFT_2020_ONLY_KEYWORDS.has(keyword)) {
+      rejection = `has a tool schema that uses "${keyword}" without "$schema": "${DRAFT_2020_DIALECT}", so it would not be enforced`;
+    } else if (keyword === "items" && Array.isArray(value)) {
       rejection = rejectEach(value, root, walk);
     } else if (SCHEMA_KEYWORDS.has(keyword)) {
       rejection = rejectSchemaKeywords(value, root, walk);
@@ -717,10 +730,7 @@ function compileStrict(
   schema: Record<string, unknown>,
   expanded: number,
 ): ValidateFunction {
-  const declared = schema.$schema;
-  const dialect =
-    typeof declared === "string" ? declared.replace(/#$/, "") : undefined;
-  const is2020 = dialect === "https://json-schema.org/draft/2020-12/schema";
+  const is2020 = isDraft2020(schema);
   const key = `${is2020 ? "2020" : "7"} ${JSON.stringify(schema)}`;
   const cached = validatorCache.get(key);
   if (cached) {
@@ -748,6 +758,14 @@ function compileStrict(
     cachedValidatorNodes -= entry.expanded;
   }
   return validate;
+}
+
+function isDraft2020(schema: Record<string, unknown>): boolean {
+  const declared = schema.$schema;
+  return (
+    typeof declared === "string" &&
+    declared.replace(/#$/, "") === DRAFT_2020_DIALECT
+  );
 }
 
 function cleanText(value: string, maxChars: number): string {
