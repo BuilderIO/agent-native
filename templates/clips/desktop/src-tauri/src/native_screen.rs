@@ -8792,17 +8792,21 @@ fn prepare_audio_sidecar_slices(
 #[cfg(all(test, target_os = "macos"))]
 mod audio_sidecar_materialization_tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
 
     struct TempDirectory(PathBuf);
 
     impl TempDirectory {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "clips-audio-sidecar-test-{}-{}",
+                "clips-audio-sidecar-test-{}-{}-{}",
                 std::process::id(),
                 Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+                NEXT_TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed),
             ));
-            std::fs::create_dir_all(&path).unwrap();
+            std::fs::create_dir(&path).unwrap();
             Self(path)
         }
     }
@@ -8971,6 +8975,49 @@ mod audio_sidecar_materialization_tests {
             "audio-bearing slice has signal in the microphone slot: {microphone:?}"
         );
     }
+
+    #[test]
+    fn composes_silent_and_audio_bearing_slices_with_avfoundation() {
+        let ffmpeg = resolve_ffmpeg_path().expect("ffmpeg is required for this test");
+        let directory = TempDirectory::new();
+        let video = directory.0.join("video.mp4");
+        let audio = directory.0.join("audio.wav");
+        let output = directory.0.join("composed.mp4");
+        create_test_video(&ffmpeg, &video);
+        create_test_audio(&ffmpeg, &audio);
+
+        let slices = [
+            NativeMediaSlice {
+                path: video.clone(),
+                system_audio_path: None,
+                microphone_path: None,
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+            NativeMediaSlice {
+                path: video,
+                system_audio_path: Some(audio),
+                microphone_path: None,
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+        ];
+
+        compose_mp4_slices(&slices, &output)
+            .expect("AVFoundation should compose silent and audio-bearing slices");
+        validate_recording_segment_file(&output).unwrap();
+
+        let system = probe_audio_track(&ffmpeg, &output, 0);
+        assert!(
+            system.mean_volume_db.is_some_and(|mean| mean > -60.0),
+            "composition lost available system audio: {system:?}"
+        );
+        let microphone = probe_audio_track(&ffmpeg, &output, 1);
+        assert!(
+            microphone.mean_volume_db.is_some_and(|mean| mean <= -60.0),
+            "composition added signal to the microphone slot: {microphone:?}"
+        );
+    }
 }
 
 const MAX_PREPARED_SLICE_DURATION_DRIFT_MS: u64 = 1_000;
@@ -9086,7 +9133,7 @@ fn compose_mp4_slices_impl(
         if url.is_null() {
             return None;
         }
-        Retained::from_raw(url)
+        Retained::retain(url)
     }
 
     unsafe fn first_track(
@@ -9147,7 +9194,7 @@ fn compose_mp4_slices_impl(
         if composition.is_null() {
             return Err("AVMutableComposition allocation failed".into());
         }
-        let composition = Retained::<AnyObject>::from_raw(composition)
+        let composition = Retained::<AnyObject>::retain(composition)
             .ok_or_else(|| "AVMutableComposition retain failed".to_string())?;
 
         let video_track: *mut AnyObject = msg_send![
@@ -9180,14 +9227,16 @@ fn compose_mp4_slices_impl(
             validate_recording_segment_file(path)?;
             let url = file_url(path)
                 .ok_or_else(|| format!("could not build NSURL for {}", path.display()))?;
-            let asset: *mut AnyObject = msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
-            if asset.is_null() {
+            let asset_raw: *mut AnyObject = msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
+            if asset_raw.is_null() {
                 return Err(format!(
                     "AVURLAsset URLAssetWithURL returned nil for {}",
                     path.display()
                 ));
             }
-            let duration: CMTime = msg_send![asset, duration];
+            let asset = Retained::<AnyObject>::retain(asset_raw)
+                .ok_or_else(|| format!("could not retain AVURLAsset for {}", path.display()))?;
+            let duration: CMTime = msg_send![&*asset, duration];
             if duration.flags & 1 == 0 || duration.timescale == 0 || duration.value <= 0 {
                 return Err(format!(
                     "recording segment has invalid duration: {}",
