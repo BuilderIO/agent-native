@@ -146,7 +146,12 @@ describe("desktop build dependency boundary", () => {
       "node_modules/@agent-native/core/package.json",
     );
     expect(builderConfig).toContain("node_modules/@agent-native/core/dist/**");
-    expect(builderConfig).toContain("node_modules/electron-log/**");
+    const packagedFiles = builderConfig.match(
+      /^files:\r?\n((?: {2}- .*(?:\r?\n|$))*)/m,
+    )?.[1];
+    expect(packagedFiles?.split(/\r?\n/)).toContain(
+      "  - node_modules/electron-log/**",
+    );
     expect(builderConfig).toContain("node_modules/ws/**");
   });
 });
