@@ -6,6 +6,8 @@ const mockFrom = vi.fn();
 const mockUpdate = vi.fn();
 const mockSet = vi.fn();
 const mockWhere = vi.fn();
+const mockOrderBy = vi.fn();
+const mockLimit = vi.fn();
 const designStore = vi.hoisted(() => ({
   row: {
     id: "design_1",
@@ -24,7 +26,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ kind: "and", conditions })),
+  asc: vi.fn((column) => ({ kind: "asc", column })),
   eq: vi.fn(() => ({ kind: "eq" })),
+  inArray: vi.fn((column, values) => ({ kind: "inArray", column, values })),
   isNull: vi.fn(() => ({ kind: "isNull" })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -32,6 +36,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => {
   const schema = {
     designFiles: {
+      id: "id",
       designId: "designId",
       filename: "filename",
       content: "content",
@@ -45,15 +50,40 @@ vi.mock("../server/db/index.js", () => {
   const db = {
     select: (...args: unknown[]) => {
       mockSelect(...args);
+      const selection = args[0] as Record<string, unknown> | undefined;
+      const needsCandidatePaging = Boolean(
+        selection && Object.hasOwn(selection, "contentBytes"),
+      );
       return {
         from: (table: unknown) => {
           mockFrom(table);
           return {
-            where: async (...whereArgs: unknown[]) => {
+            where: (...whereArgs: unknown[]) => {
               if (table === schema.designFiles) {
-                return mockWhere(...whereArgs);
+                const rows = mockWhere(...whereArgs);
+                if (
+                  whereArgs.some(
+                    (condition) =>
+                      (condition as { kind?: string } | undefined)?.kind ===
+                      "inArray",
+                  )
+                ) {
+                  return rows;
+                }
+                if (!needsCandidatePaging) return rows;
+                return {
+                  orderBy: (...orderByArgs: unknown[]) => {
+                    mockOrderBy(...orderByArgs);
+                    return {
+                      limit: async (limit: number) => {
+                        mockLimit(limit);
+                        return rows;
+                      },
+                    };
+                  },
+                };
               }
-              return [{ ...designStore.row }];
+              return Promise.resolve([{ ...designStore.row }]);
             },
           };
         },
@@ -163,6 +193,92 @@ describe("import-design-tokens", () => {
 
   it("sets an HTTP body cap before action request parsing", () => {
     expect(action.maxBodyBytes).toBe(DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES);
+  });
+
+  it("bounds current-design file contents in the database query", async () => {
+    const contents = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES },
+      (_, index) => `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+    );
+    const candidates = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
+      (_, index) => ({
+        id: `file-${index}`,
+        filename: `tokens-${index}.css`,
+        contentBytes: new TextEncoder().encode(contents[index] ?? "").length,
+      }),
+    );
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 5 }])
+      .mockResolvedValueOnce(candidates)
+      .mockResolvedValueOnce(
+        candidates
+          .slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES)
+          .map((file, index) => ({
+            id: file.id,
+            content: contents[index],
+          })),
+      );
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(mockLimit).toHaveBeenCalledWith(DESIGN_TOKEN_IMPORT_MAX_FILES + 1);
+    expect(mockOrderBy).toHaveBeenCalledOnce();
+    expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
+      kind: "inArray",
+      values: candidates
+        .slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES)
+        .map(({ id }) => id),
+    });
+    expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
+    expect(result.omittedFileCount).toBe(5);
+
+    const metadataSelection = mockSelect.mock.calls[1]?.[0] as
+      | Record<string, { strings?: string[] }>
+      | undefined;
+    expect(metadataSelection).not.toHaveProperty("content");
+    expect(metadataSelection).toHaveProperty("contentBytes");
+    expect(metadataSelection?.contentBytes?.strings?.join("")).toContain(
+      "octet_length(",
+    );
+    expect(metadataSelection?.contentBytes?.strings?.join("")).toContain(
+      "left(",
+    );
+  });
+
+  it("keeps current-design contents under the aggregate byte limit", async () => {
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([
+        {
+          id: "first",
+          filename: "first.css",
+          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - 10,
+        },
+        {
+          id: "second",
+          filename: "second.css",
+          contentBytes: 20,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: "first", content: ":root { --spacing-gap: 8px; }" },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
+      kind: "inArray",
+      values: ["first"],
+    });
+    expect(result.filesAnalyzed).toEqual(["first.css"]);
+    expect(result.omittedFileCount).toBe(1);
   });
 
   it("bounds pasted text by UTF-8 bytes before action execution", () => {
@@ -324,12 +440,23 @@ button:focus-visible {
   });
 
   it("can extract tokens from the current design files", async () => {
-    mockWhere.mockResolvedValueOnce([
-      {
-        filename: "screen.html",
-        content: "<style>:root { --color-panel: #020617; }</style>",
-      },
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 1 }])
+      .mockResolvedValueOnce([
+        {
+          id: "file-1",
+          filename: "screen.html",
+          contentBytes: new TextEncoder().encode(
+            "<style>:root { --color-panel: #020617; }</style>",
+          ).length,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "file-1",
+          content: "<style>:root { --color-panel: #020617; }</style>",
+        },
+      ]);
 
     const result = await action.run({
       designId: "design_1",
@@ -962,10 +1089,21 @@ Primary color: #2563eb
 
   it("reports files omitted by the import limit", async () => {
     const files = Array.from({ length: 21 }, (_, index) => ({
+      id: `file-${index}`,
       filename: `tokens-${index}.css`,
-      content: `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+      contentBytes: new TextEncoder().encode(
+        `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+      ).length,
     }));
-    mockWhere.mockResolvedValueOnce(files);
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: files.length }])
+      .mockResolvedValueOnce(files)
+      .mockResolvedValueOnce(
+        files.slice(0, 20).map((file, index) => ({
+          id: file.id,
+          content: `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+        })),
+      );
     const result = await action.run({
       designId: "design_1",
       source: "current-design",

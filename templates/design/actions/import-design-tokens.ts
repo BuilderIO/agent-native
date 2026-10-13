@@ -12,7 +12,7 @@ import {
 } from "@agent-native/core/server/design-token-utils";
 import { assertAccess } from "@agent-native/core/sharing";
 import * as csstree from "css-tree";
-import { eq } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import postcss from "postcss";
 import postcssLess from "postcss-less";
@@ -962,10 +962,13 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
   return token.type !== "color" || isValidCssColor(token.value);
 }
 
-function tokensFromFiles(files: { filename: string; content: string }[]) {
+function tokensFromFiles(
+  files: { filename: string; content: string }[],
+  initialOmittedFileCount = 0,
+) {
   const accepted: { filename: string; content: string }[] = [];
   let totalBytes = 0;
-  let omittedFileCount = 0;
+  let omittedFileCount = initialOmittedFileCount;
 
   for (const [index, file] of files.entries()) {
     if (accepted.length >= DESIGN_TOKEN_IMPORT_MAX_FILES) {
@@ -1112,17 +1115,74 @@ export default defineAction({
 
     const db = getDb();
     let importFiles: { filename: string; content: string }[] = [];
+    let initialOmittedFileCount = 0;
     let sourceLabel = "Imported tokens";
 
     if (source === "current-design") {
-      const designFiles = await db
-        .select({
-          filename: schema.designFiles.filename,
-          content: schema.designFiles.content,
-        })
-        .from(schema.designFiles)
-        .where(eq(schema.designFiles.designId, designId));
-      importFiles = designFiles;
+      const result = await db.transaction(
+        async (tx) => {
+          const countRows = await tx
+            .select({ fileCount: sql<number>`count(*)::int` })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId));
+          const candidates = await tx
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+              contentBytes: sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`,
+            })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId))
+            .orderBy(
+              asc(schema.designFiles.filename),
+              asc(schema.designFiles.id),
+            )
+            .limit(DESIGN_TOKEN_IMPORT_MAX_FILES + 1);
+          const selected = [];
+          let totalBytes = 0;
+
+          for (const candidate of candidates) {
+            if (selected.length >= DESIGN_TOKEN_IMPORT_MAX_FILES) break;
+            if (
+              candidate.contentBytes >
+              DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes
+            ) {
+              break;
+            }
+            selected.push(candidate);
+            totalBytes += candidate.contentBytes;
+          }
+
+          const contents = selected.length
+            ? await tx
+                .select({
+                  id: schema.designFiles.id,
+                  content: schema.designFiles.content,
+                })
+                .from(schema.designFiles)
+                .where(
+                  inArray(
+                    schema.designFiles.id,
+                    selected.map(({ id }) => id),
+                  ),
+                )
+            : [];
+          const contentById = new Map(
+            contents.map(({ id, content }) => [id, content]),
+          );
+
+          return {
+            files: selected.flatMap(({ id, filename }) => {
+              const content = contentById.get(id);
+              return content === undefined ? [] : [{ filename, content }];
+            }),
+            totalFileCount: countRows[0]?.fileCount ?? 0,
+          };
+        },
+        { isolationLevel: "repeatable read" },
+      );
+      importFiles = result.files;
+      initialOmittedFileCount = result.totalFileCount - importFiles.length;
       sourceLabel = "Current design";
     } else if (source === "paste") {
       importFiles = [{ filename: "pasted-tokens.txt", content: text ?? "" }];
@@ -1140,7 +1200,7 @@ export default defineAction({
       skippedCount,
       omittedFileCount,
       omittedTokenCount,
-    } = tokensFromFiles(importFiles);
+    } = tokensFromFiles(importFiles, initialOmittedFileCount);
     const safeTokens = tokens.filter(
       (token) =>
         isSafeCssVarName(token.cssVar) && isSafeCssTokenValue(token.value),
