@@ -51,6 +51,11 @@ import {
   zoomSummaryMatchesUsers,
   type ZoomMeetingSummary,
 } from "./zoom.js";
+import {
+  isBrainAdmin,
+  recordZoomAuditEvent,
+  type ZoomAuditEvent,
+} from "./zoom-governance.js";
 
 export interface ConnectorSyncResult {
   runId: string;
@@ -3189,11 +3194,47 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     filesOmitted?: number;
   }> = [];
   stats.matchedMeetings = matchedMeetings;
+  // Unapproved meetings are only counted (meetingsSkippedByFilter); their IDs
+  // are never written to the audit trail.
+  const audit = (event: Omit<ZoomAuditEvent, "orgId" | "sourceId">) =>
+    recordZoomAuditEvent({
+      ...event,
+      orgId: source.orgId,
+      sourceId: source.id,
+    });
+  const auditSummary = (
+    summary: { meeting_id: number | string; meeting_uuid: string },
+    detail: { outcome: string },
+  ) =>
+    audit({
+      event: "occurrence-allowed",
+      decision: "allow",
+      meetingId: String(summary.meeting_id),
+      meetingUuid: summary.meeting_uuid,
+      detail: { content: "summary", ...detail },
+    });
+  let refused = false;
+  const refuse = async (reason: string, message: string): Promise<never> => {
+    refused = true;
+    await audit({
+      event: "sync-refused",
+      decision: "deny",
+      detail: { reason },
+    });
+    throw new Error(message);
+  };
 
   try {
     if (approvedMeetingIds.size === 0) {
-      throw new Error(
+      await refuse(
+        "no-approved-series",
         "Zoom source has no approved meeting series. Add the recurring meeting IDs whose owners opted in; Brain reads nothing from Zoom until then.",
+      );
+    }
+    if (!(await isBrainAdmin(source.ownerEmail, source.orgId))) {
+      await refuse(
+        "owner-not-brain-admin",
+        "Zoom source owner is not a Brain admin (an organization owner or admin), so Brain reads nothing from Zoom. Make the owner an org admin or have an admin recreate the source.",
       );
     }
     const accountId = await requireConnectorCredential(
@@ -3275,6 +3316,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           continue;
         }
         let recordingFiles = meeting.recording_files ?? [];
+        let fetchedDetail = false;
         const readyTranscripts = recordingFiles.filter(isReadyZoomTranscript);
         if (
           readyTranscripts.length > 0 &&
@@ -3285,9 +3327,21 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             "/meetings/{meetingUuid}/recordings",
             () => getZoomMeetingRecordings(token, meeting.uuid),
           );
-          recordingFiles = isApprovedZoomMeeting(detail.id, approvedMeetingIds)
-            ? (detail.recording_files ?? [])
-            : [];
+          if (!isApprovedZoomMeeting(detail.id, approvedMeetingIds)) {
+            await audit({
+              event: "occurrence-denied",
+              decision: "deny",
+              meetingId: String(meeting.id),
+              meetingUuid: meeting.uuid,
+              detail: {
+                content: "transcript",
+                reason: "detail-names-unapproved-meeting",
+              },
+            });
+            continue;
+          }
+          fetchedDetail = true;
+          recordingFiles = detail.recording_files ?? [];
         }
         const transcripts = recordingFiles.filter(
           (file): file is typeof file & { download_url: string } =>
@@ -3298,15 +3352,23 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           recordingFiles.filter(
             (file) => isReadyZoomTranscript(file) && !file.download_url,
           ).length;
+        const outcome = {
+          downloaded: 0,
+          captured: 0,
+          quarantined: 0,
+          empty: 0,
+        };
         for (const file of transcripts) {
           await renewRunLease(run);
           const vtt = await zoomCall("recording transcript download", () =>
             downloadZoomTranscript(token, file.download_url),
           );
           stats.transcriptsDownloaded = Number(stats.transcriptsDownloaded) + 1;
+          outcome.downloaded += 1;
           const normalized = normalizeZoomRecording(meeting, vtt);
           if (!normalized) {
             stats.emptyTranscripts = Number(stats.emptyTranscripts) + 1;
+            outcome.empty += 1;
             continue;
           }
           const captureResult = await createConnectorCapture({
@@ -3321,10 +3383,21 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           });
           if (captureResult.capture) {
             captures.push(serializeCapture(captureResult.capture));
+            outcome.captured += 1;
           }
           if (captureResult.blocked) {
             stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+            outcome.quarantined += 1;
           }
+        }
+        if (fetchedDetail || outcome.downloaded > 0) {
+          await audit({
+            event: "occurrence-allowed",
+            decision: "allow",
+            meetingId: String(meeting.id),
+            meetingUuid: meeting.uuid,
+            detail: { content: "transcript", ...outcome },
+          });
         }
         await renewRunLease(run);
       }
@@ -3377,6 +3450,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             meetingId: String(listedSummary.meeting_id),
             error: error.message,
           });
+          await auditSummary(listedSummary, { outcome: "fetch-failed" });
           continue;
         }
         stats.summariesFetched = Number(stats.summariesFetched) + 1;
@@ -3384,6 +3458,16 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           summary.meeting_id !== undefined &&
           !isApprovedZoomMeeting(summary.meeting_id, approvedMeetingIds)
         ) {
+          await audit({
+            event: "occurrence-denied",
+            decision: "deny",
+            meetingId: String(listedSummary.meeting_id),
+            meetingUuid: listedSummary.meeting_uuid,
+            detail: {
+              content: "summary",
+              reason: "detail-names-unapproved-meeting",
+            },
+          });
           continue;
         }
         const normalized = normalizeZoomMeetingSummary({
@@ -3392,6 +3476,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         });
         if (!normalized) {
           stats.emptySummaries = Number(stats.emptySummaries) + 1;
+          await auditSummary(listedSummary, { outcome: "empty" });
           continue;
         }
         const captureResult = await createConnectorCapture({
@@ -3415,6 +3500,13 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         if (captureResult.blocked) {
           stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
         }
+        await auditSummary(listedSummary, {
+          outcome: captureResult.blocked
+            ? "quarantined"
+            : captureResult.capture
+              ? "captured"
+              : "not-stored",
+        });
       }
     }
 
@@ -3465,6 +3557,15 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       stats,
       summaryError,
     );
+    await audit({
+      event: "sync-finished",
+      detail: {
+        runId,
+        status: summaryError ? "error" : "success",
+        capturesCreated: captures.length,
+        meetingsSkippedByFilter: stats.meetingsSkippedByFilter ?? 0,
+      },
+    });
     return {
       runId,
       sourceId: source.id,
@@ -3508,6 +3609,17 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         ),
       );
     await finishRun(run, "error", stats, message);
+    if (!refused) {
+      await audit({
+        event: "sync-finished",
+        detail: {
+          runId,
+          status: "error",
+          capturesCreated: captures.length,
+          rateLimited: isRateLimit,
+        },
+      });
+    }
     return {
       runId,
       sourceId: source.id,

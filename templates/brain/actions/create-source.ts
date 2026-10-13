@@ -14,6 +14,11 @@ import {
 } from "../server/lib/source-credentials.js";
 import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
 import {
+  assertBrainAdmin,
+  recordZoomAuditEvent,
+  zoomAllowlistChange,
+} from "../server/lib/zoom-governance.js";
+import {
   jsonRecordSchema,
   sourceAnswerPolicySchema,
   sourceProviderSchema,
@@ -23,6 +28,12 @@ import {
   mergeSourceConfigJson,
   sourceConfigJsonSchema,
 } from "./_source-config.js";
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 export default defineAction({
   description:
@@ -53,6 +64,8 @@ export default defineAction({
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
+    const zoomAdmin =
+      args.provider === "zoom" ? await assertBrainAdmin() : undefined;
     if (args.policy !== undefined || config.answerPolicy !== undefined) {
       config = withSourceAnswerPolicy(
         config,
@@ -90,6 +103,18 @@ export default defineAction({
       config,
       visibility: args.visibility,
     });
+    if (zoomAdmin) {
+      await recordZoomAuditEvent({
+        orgId: source.orgId ?? zoomAdmin.orgId,
+        sourceId: source.id,
+        actorEmail: zoomAdmin.email,
+        event: "allowlist-changed",
+        detail: {
+          created: true,
+          ...zoomAllowlistChange({}, objectRecord(config.zoom)),
+        },
+      });
+    }
     return { source: serializeSource(source), ingestToken };
   },
 });
