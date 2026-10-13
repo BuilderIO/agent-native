@@ -322,10 +322,17 @@ export function semanticScopeForSearch(value: string): string {
 
 export function stripNonPositiveInstructions(value: string): string {
   const keepPositiveContinuation = (match: string) => {
-    const continuation =
+    const actionContinuation =
       /\b(?:but|and)\s+(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b/i.exec(
         match,
       );
+    const nounPhraseContinuation =
+      /\band\s+(?!(?:no|not|never|without|don't|do\s+not|avoid)\b)(?:(?:a|an|the|my|your|his|her|its|our|their|this|that|these|those|all|both|each|some|any)\s+)?[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+){0,2}(?=\s+(?:but|and)\b|$)/iu.exec(
+        match,
+      );
+    const continuation = [actionContinuation, nounPhraseContinuation]
+      .filter((candidate): candidate is RegExpExecArray => candidate !== null)
+      .sort((left, right) => left.index - right.index)[0];
     return continuation ? ` ${match.slice(continuation.index).trim()}` : " ";
   };
 

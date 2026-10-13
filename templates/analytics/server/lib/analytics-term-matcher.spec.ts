@@ -174,6 +174,16 @@ describe("Analytics term matching", () => {
     ).toBe("workspace users");
     expect(
       stripNonPositiveInstructions(
+        "workspace users, no live counts and their roles",
+      ),
+    ).toBe("workspace users and their roles");
+    expect(
+      stripNonPositiveInstructions(
+        "workspace users without a count and their roles",
+      ),
+    ).toBe("workspace users and their roles");
+    expect(
+      stripNonPositiveInstructions(
         "workspace users without a count and show the monthly trend",
       ),
     ).toBe("workspace users and show the monthly trend");

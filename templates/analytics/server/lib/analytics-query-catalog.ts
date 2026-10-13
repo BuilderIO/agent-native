@@ -410,6 +410,14 @@ function requestsMembershipRoleDetail(search: string): boolean {
   );
 }
 
+function hasMembershipIdentityKey(columns: string): boolean {
+  return /\b(?:user|member|person)\s+id\b/.test(columns);
+}
+
+function hasOrganizationIdentityKey(columns: string): boolean {
+  return /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
+}
+
 function hasMembershipRosterEvidence(
   candidate: AnalyticsQueryCatalogCandidate,
 ): boolean {
@@ -443,13 +451,11 @@ function hasMembershipRosterEvidence(
       ? (candidate.columnsUsed ?? "").toLowerCase().replace(/[_-]+/g, " ")
       : "";
   const hasMembershipKeys =
-    /\buser\s+id\b/.test(columns) &&
-    /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
+    hasMembershipIdentityKey(columns) && hasOrganizationIdentityKey(columns);
   if (candidate.kind === "dashboard-panel") {
     const queryText = dashboardQueryText(candidate);
-    const hasUserKey = /\b(?:user|member|person)\s+id\b/.test(queryText);
-    const hasOrganizationKey =
-      /\b(?:organization|org|workspace|team)\s+id\b/.test(queryText);
+    const hasUserKey = hasMembershipIdentityKey(queryText);
+    const hasOrganizationKey = hasOrganizationIdentityKey(queryText);
     return (
       !hasAggregateShape(candidate) &&
       hasUserKey &&
@@ -649,8 +655,7 @@ function isRosterDimensionCandidate(
     .toLowerCase()
     .replace(/[_-]+/g, " ");
   const hasMembershipKeys =
-    /\buser\s+id\b/.test(columns) &&
-    /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
+    hasMembershipIdentityKey(columns) && hasOrganizationIdentityKey(columns);
   return isUserGrain && isOrganizationGrain && hasMembershipKeys;
 }
 

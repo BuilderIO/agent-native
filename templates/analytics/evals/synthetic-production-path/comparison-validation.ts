@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+
 const CSV_COLUMNS = [
   "case_id",
   "phase",
@@ -47,6 +50,57 @@ export const PRODUCTION_PATH_CANDIDATE_REVISION =
   "595a07f9a507bba5ba43d6478969c6e19bea9ac2";
 export const PRODUCTION_PATH_FIXTURE_REVISION =
   "synthetic-analytics-retrieval-v10";
+const PRODUCTION_PATH_HARNESS_PATH =
+  "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
+
+// Keep aligned with SOURCE_FILES and codeRevision() in production-path.spec.ts.
+const PRODUCTION_PATH_SOURCE_PATHS = [
+  "templates/analytics/evals/production-context.ts",
+  "templates/analytics/actions/find-data.ts",
+  "templates/analytics/server/lib/analytics-query-catalog.ts",
+  "templates/analytics/server/lib/analytics-term-matcher.ts",
+  "templates/analytics/server/lib/analytics-agent-context.ts",
+  "templates/analytics/server/lib/data-dictionary-context.ts",
+  "templates/analytics/server/lib/source-index-store.ts",
+  "templates/analytics/server/plugins/agent-chat.ts",
+  "packages/core/src/agent/production-agent.ts",
+  "packages/core/src/eval/agent-runner.ts",
+] as const;
+
+const REPOSITORY_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+  cwd: process.cwd(),
+  encoding: "utf8",
+}).trim();
+
+function codeRevisionForSourceCommit(sourceRevision: string): string {
+  const hash = createHash("sha256");
+  for (const repositoryRelativePath of PRODUCTION_PATH_SOURCE_PATHS) {
+    const content = execFileSync(
+      "git",
+      ["show", `${sourceRevision}:${repositoryRelativePath}`],
+      { cwd: REPOSITORY_ROOT },
+    );
+    hash.update(repositoryRelativePath.split("/").at(-1) ?? "source");
+    hash.update(content);
+  }
+  const harness = execFileSync(
+    "git",
+    [
+      "show",
+      `${PRODUCTION_PATH_CANDIDATE_REVISION}:${PRODUCTION_PATH_HARNESS_PATH}`,
+    ],
+    { cwd: REPOSITORY_ROOT },
+  );
+  hash.update(PRODUCTION_PATH_HARNESS_PATH);
+  hash.update(harness);
+  return `sha256:${hash.digest("hex")}`;
+}
+
+export const PRODUCTION_PATH_BASELINE_CODE_REVISION =
+  codeRevisionForSourceCommit(PRODUCTION_PATH_BASELINE_REVISION);
+export const PRODUCTION_PATH_CANDIDATE_CODE_REVISION =
+  codeRevisionForSourceCommit(PRODUCTION_PATH_CANDIDATE_REVISION);
+
 const REASON_CODES = new Set([
   "rank_1",
   "ranked_below_1",
@@ -302,6 +356,14 @@ export function validateProductionPathComparisonCsv(
   ) {
     throw new Error(
       "Comparison CSV revisions do not match the pinned baseline and candidate phases.",
+    );
+  }
+  if (
+    before.codeRevision !== PRODUCTION_PATH_BASELINE_CODE_REVISION ||
+    after.codeRevision !== PRODUCTION_PATH_CANDIDATE_CODE_REVISION
+  ) {
+    throw new Error(
+      "Comparison CSV code hashes do not match the pinned source revisions.",
     );
   }
   if (before.harnessRevision !== after.harnessRevision) {

@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  PRODUCTION_PATH_BASELINE_CODE_REVISION,
   PRODUCTION_PATH_BASELINE_REVISION,
+  PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
   PRODUCTION_PATH_CANDIDATE_REVISION,
   PRODUCTION_PATH_FIXTURE_REVISION,
   SYNTHETIC_PRODUCTION_PATH_CASE_IDS,
@@ -50,12 +52,16 @@ function makeComparisonCsv(): string {
     ] of SYNTHETIC_PRODUCTION_PATH_CASE_IDS.entries()) {
       for (const run of [1, 2]) {
         const expectedRank =
-          phase === "after" || caseIndex < 2
+          phase === "after"
             ? 1
-            : caseIndex < 6
-              ? caseIndex
-              : caseIndex + 1;
-        const hitAt5 = phase === "after" || caseIndex < 6;
+            : caseIndex < 3
+              ? 1
+              : caseIndex < 7
+                ? caseIndex - 1
+                : caseIndex === 7
+                  ? 5
+                  : caseIndex + 1;
+        const hitAt5 = phase === "after" || caseIndex < 8;
         const row = {
           case_id: caseId,
           phase,
@@ -65,8 +71,8 @@ function makeComparisonCsv(): string {
               : PRODUCTION_PATH_CANDIDATE_REVISION,
           code_revision:
             phase === "before"
-              ? "sha256:" + "a".repeat(64)
-              : "sha256:" + "b".repeat(64),
+              ? PRODUCTION_PATH_BASELINE_CODE_REVISION
+              : PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
           harness_revision: "sha256:" + "c".repeat(64),
           fixture_revision: PRODUCTION_PATH_FIXTURE_REVISION,
           run,
@@ -99,8 +105,8 @@ describe("Analytics synthetic production-path comparison artifact", () => {
       cases: 15,
       before: {
         rows: 30,
-        top1: 4,
-        hitAt5: 12,
+        top1: 6,
+        hitAt5: 16,
         harnessRevision: "sha256:" + "c".repeat(64),
       },
       after: {
@@ -145,6 +151,20 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     expect(() => validateProductionPathComparisonCsv(stale)).toThrow(
       "pinned baseline and candidate phases",
+    );
+  });
+
+  it("rejects well-formed code hashes unrelated to the pinned source revisions", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    for (let index = 1; index < rows.length; index++) {
+      if (!rows[index]!.includes(",after,")) continue;
+      const columns = rows[index]!.split(",");
+      columns[3] = "sha256:" + "f".repeat(64);
+      rows[index] = columns.join(",");
+    }
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "code hashes do not match the pinned source revisions",
     );
   });
 

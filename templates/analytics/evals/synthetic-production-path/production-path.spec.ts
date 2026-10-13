@@ -204,7 +204,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v10";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v11";
 const BASELINE_GIT_REVISION = "d0caebd20464a2a00ad417c78943d81438d9333a";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
@@ -283,6 +283,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     prompt:
       "Find workspace users with no live counts but show the monthly trend. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.monthly_org_user_counts",
+  },
+  {
+    id: "negated-counts-preserve-role-detail",
+    prompt:
+      "Find the catalog reference for workspace users with no live counts and their roles. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.organization_member_roles",
   },
   {
     id: "monthly-organization-user-count",
@@ -929,6 +935,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "full-workspace-roster-excludes-active-only-source",
       "nonpositive-count-instruction-keeps-member-rows",
       "negated-counts-keep-positive-monthly-trend",
+      "negated-counts-preserve-role-detail",
       "monthly-organization-user-count",
       "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",

@@ -219,6 +219,37 @@ describe("analytics query catalog", () => {
     expect(ids).not.toContain("approved-monthly-workspace-user-count");
   });
 
+  it("accepts member identity keys for workspace roster questions", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace member roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-workspace-member-role-bridge",
+          metric: "Workspace member roles",
+          definition:
+            "One row per member-workspace relationship with the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "member_id, workspace_id, role",
+          grain: "One row per member-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "dbt-workspace-member-role-bridge",
+      sourceKind: "dbt",
+    });
+  });
+
   it("rejects active-only sources and historical snapshots for an unfiltered current roster", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "list workspace user roster with roles",

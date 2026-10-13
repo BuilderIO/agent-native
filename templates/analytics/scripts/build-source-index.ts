@@ -337,9 +337,15 @@ function capString(value: string, max = MAX_STRING_LENGTH): string {
   return value.length <= max ? value : value.slice(0, max);
 }
 
-function boundedList(values: string[], max: number, separator: string): string {
+function boundedList(
+  values: string[],
+  max: number,
+  separator: string,
+  scanSummary: SourceIndexScanSummary,
+): string {
   const full = values.join(separator);
   if (full.length <= max) return full;
+  scanSummary.truncatedFields += 1;
   let included: string[] = [];
   let used = 0;
   for (const value of values) {
@@ -2948,7 +2954,11 @@ function inheritPassThroughGrains(models: ModelDoc[]): void {
   }
 }
 
-function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
+function modelEntries(
+  root: RootContext,
+  model: ModelDoc,
+  scanSummary: SourceIndexScanSummary,
+): SourceIndexEntry[] {
   const columns = [...model.columns.values()].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
@@ -2961,6 +2971,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         grain.map((hint) => `Unique grain: ${hint.join(", ")}`),
         4_000,
         "; ",
+        scanSummary,
       )
     : undefined;
   const declaredGrain = modelDeclaredGrain(model);
@@ -2977,14 +2988,14 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
   ];
   const definition = boundedExcerpt(definitionParts.join(" "), 5_000);
   const columnNames = columns.map((column) => column.name);
-  const columnsUsed = boundedList(columnNames, 10_000, ", ");
+  const columnsUsed = boundedList(columnNames, 10_000, ", ", scanSummary);
   const modelGotchas = [
     ...[...model.tests].sort().map((test) => `model: ${test}`),
     ...columns.flatMap((column) =>
       [...column.tests].sort().map((test) => `${column.name}: ${test}`),
     ),
   ];
-  const knownGotchas = boundedList(modelGotchas, 4_000, "; ");
+  const knownGotchas = boundedList(modelGotchas, 4_000, "; ", scanSummary);
   return [
     {
       id: entryId(root.id, "model", model.name),
@@ -3000,7 +3011,9 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
       ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
       ...(dependencies.length
-        ? { dependencies: boundedList(dependencies, 4_000, "; ") }
+        ? {
+            dependencies: boundedList(dependencies, 4_000, "; ", scanSummary),
+          }
         : {}),
       ...(joinPattern ? { joinPattern } : {}),
       ...(knownGotchas ? { knownGotchas } : {}),
@@ -3104,7 +3117,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
           metric: `test:${name}`,
           definition: boundedExcerpt(
             dependencies.length
-              ? `dbt singular test referencing ${boundedList(dependencies, 4_000, ", ")}`
+              ? `dbt singular test referencing ${boundedList(dependencies, 4_000, ", ", scanSummary)}`
               : "dbt singular test.",
             5_000,
           ),
@@ -3112,7 +3125,12 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
           semanticScope: inferSemanticScope(name),
           ...(dependencies.length
             ? {
-                dependencies: boundedList(dependencies, 4_000, "; "),
+                dependencies: boundedList(
+                  dependencies,
+                  4_000,
+                  "; ",
+                  scanSummary,
+                ),
               }
             : {}),
           ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -3157,7 +3175,9 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   inheritPassThroughGrains(mergedModels);
   return {
     entries: [
-      ...mergedModels.flatMap((model) => modelEntries(root, model)),
+      ...mergedModels.flatMap((model) =>
+        modelEntries(root, model, scanSummary),
+      ),
       ...semanticModelEntries(
         root,
         semanticYamlItems,
@@ -3213,7 +3233,7 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
           metric: `event:${event.name}`,
           definition: boundedExcerpt(
             properties.length
-              ? `Tracked event with properties: ${boundedList(properties, 4_000, ", ")}`
+              ? `Tracked event with properties: ${boundedList(properties, 4_000, ", ", scanSummary)}`
               : "Tracked application event.",
             5_000,
           ),
@@ -3223,7 +3243,7 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
           semanticScope: inferSemanticScope(event.name),
           ...(properties.length
             ? {
-                columnsUsed: boundedList(properties, 10_000, ", "),
+                columnsUsed: boundedList(properties, 10_000, ", ", scanSummary),
               }
             : {}),
           ...(sourcePaths[0] ? { sourcePath: sourcePaths[0] } : {}),
