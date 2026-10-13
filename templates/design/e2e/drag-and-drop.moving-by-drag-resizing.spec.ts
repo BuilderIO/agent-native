@@ -92,8 +92,7 @@ async function expectWithinAPagePixel(
 }
 
 test.describe("moving by drag", () => {
-  // fixme: product bug: Box A lands at 124,105: short by (6,5), exactly one of the 14 pointer moves (drag-lag family, where the drag origin is the first move
-  test.fixme("dragging a box by (90,70) moves only that box by exactly (90,70)", async ({
+  test("dragging a box by (90,70) moves only that box by exactly (90,70)", async ({
     app,
   }) => {
     const { id, before } = await openBoxes(app);

@@ -339,8 +339,7 @@ test.fixme("a board frame dragged onto a screen moves into it with its centre at
   );
 });
 
-// fixme: product bug: It nests correctly, but lands at relative 40,19: 21px short vertically, exactly one 16-step pointer move (drag-lag family, where the
-test.fixme("a board frame dropped onto a larger board frame nests in it with its centre at the release point", async ({
+test("a board frame dropped onto a larger board frame nests in it with its centre at the release point", async ({
   app,
 }) => {
   const { id } = await openScreenOnBoard(app);

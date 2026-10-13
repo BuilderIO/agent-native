@@ -85,8 +85,7 @@ test.describe("selection chrome", () => {
     await expect.poll(() => selectionOutline(app)).toEqual(BOX_A);
   });
 
-  // fixme: product bug: Unchanged: drag lag. Box A saves at 192,155 instead of 200,160.
-  test.fixme("a layer row selection leaves the screen frame unselected", async ({
+  test("a layer row selection leaves the screen frame unselected", async ({
     app,
   }) => {
     const id = await openSeeded(app);

@@ -1003,8 +1003,7 @@ test.describe("alt-drag duplicate (overview)", () => {
 test.describe("alt-drag board auto-layout frames to empty board", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
-  // fixme: fails on current main after the merge: Error: expect(locator).toHaveCount(expected) failed
-  test.fixme("copies a root auto-layout Frame as a selected board-root layer and preserves its original", async ({
+  test("copies a root auto-layout Frame as a selected board-root layer and preserves its original", async ({
     app,
     page,
     request,
@@ -1455,8 +1454,7 @@ test.describe("absolute child exit from a plain frame", () => {
     expect(await fileContent(request, designId, "index.html")).toBe(savedHtml);
   });
 
-  // fixme: product bug: Drag-start lag (same family as autolayout-drag-drop-matrix 3228): absolute-child saves left 325px/top 225px, absolute-peer 455px/225px
-  test.fixme("preserves selected sibling order when dragging absolute layers out together", async ({
+  test("preserves selected sibling order when dragging absolute layers out together", async ({
     app,
   }) => {
     const designId = await openSingleScreen(

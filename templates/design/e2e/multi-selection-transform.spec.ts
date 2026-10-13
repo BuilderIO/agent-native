@@ -66,8 +66,7 @@ async function selectTextAndRectOnCanvas(app: App) {
   await expect(app.page.getByText("2 selected")).toBeVisible();
 }
 
-// fixme: product bug: Saved text left:152px; top:290px, which is (4,3) short of the pointer: the same drag-start lag as autolayout-drag-drop-matrix 3228.
-test.fixme("dragging one member of a multi-selection moves both by the same delta, saves both, and keeps them selected", async ({
+test("dragging one member of a multi-selection moves both by the same delta, saves both, and keeps them selected", async ({
   app,
   page,
 }) => {

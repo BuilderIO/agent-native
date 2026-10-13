@@ -41,8 +41,7 @@ async function clickCenter(app: App, nodeId: string) {
 }
 
 test.describe("interaction: guided walkthrough - navigation bar", () => {
-  // fixme: product bug: Drag-lag family: the wordmark saves at left 33px, not 0 (released at 4). The lag equals one 24-step pointermove at 73% zoom (~29 design
-  test.fixme("a wordmark dragged to within 4px of the screen's left edge snaps to x=0", async ({
+  test("a wordmark dragged to within 4px of the screen's left edge snaps to x=0", async ({
     app,
   }) => {
     const page = app.page;

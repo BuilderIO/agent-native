@@ -214,7 +214,7 @@ async function terminalPenPoint(page: Page) {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-// fixme: product bug: Dragging the committed vector moves it (55,35) for a (60.7,38.4) pointer drag: the movement before the drag threshold is dropped (~3.5
+// fixme: product bug: The drag now moves every anchor by the full delta, but after it the saved vector's style keeps its compact text ("position: absolute;left: 130px;...") while the live node's is re-serialized ("position: absolute; left: 130px; ..."), so the saved-equals-rendered check fails on spacing alone.
 test.fixme("a Pen path drawn in a frame is saved inside it where it was clicked, and dragging it moves every anchor by the drag", async ({
   app,
 }) => {

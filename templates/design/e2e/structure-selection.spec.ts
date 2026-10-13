@@ -2181,8 +2181,7 @@ test.describe("groups", () => {
 });
 
 test.describe("multi-selection", () => {
-  // fixme: product bug: Both land 113px down for a 120px drag (top 613 vs 620): the drag drops its start-threshold distance (~5 screen px), so objects stop short
-  test.fixme("dragging a two-element selection moves both by the drag distance and keeps one combined box", async ({
+  test("dragging a two-element selection moves both by the drag distance and keeps one combined box", async ({
     app,
   }) => {
     const id = await openSeeded(app, SOLO_FIXTURE);
@@ -2225,10 +2224,7 @@ test.describe("multi-selection", () => {
     ).toBe(270);
   });
 
-  // fixme: product bug: Dragging Solo A up 120px lands it at top 388 instead of 380: ~8 design px (≈6 screen px, the old test's tolerance) short of the cursor.
-  test.fixme("a drag lands the object where the cursor landed", async ({
-    app,
-  }) => {
+  test("a drag lands the object where the cursor landed", async ({ app }) => {
     const id = await openSeeded(app, SOLO_FIXTURE);
     await clickDesign(app, 660, 540);
     await expect.poll(() => app.selectedLayers()).toEqual(["Solo A"]);

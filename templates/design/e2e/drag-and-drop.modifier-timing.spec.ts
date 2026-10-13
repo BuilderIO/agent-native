@@ -280,8 +280,7 @@ test("the platform modifier after pointerdown removes a flow child from flow and
   });
 });
 
-// fixme: product bug: Drag lag: the copy saves and renders at 496,265 instead of under the pointer at 500,268 (inspector X 496 Y 265). Its attrs, text child
-test.fixme("late Alt on a free drag drops a selected copy where it is released and leaves the source in place", async ({
+test("late Alt on a free drag drops a selected copy where it is released and leaves the source in place", async ({
   app,
 }) => {
   const id = await openSeeded(app, COPY_FIXTURE);
@@ -378,8 +377,7 @@ test("Escape during a late-Alt free drag discards the copy and leaves the source
   await expect(y).toHaveValue("80px");
 });
 
-// fixme: product bug: Drag lag: copy-source saves at 496,265, short of the cursor. The no-duplicate assertions pass.
-test.fixme("late Alt free drag waits for post-key movement before duplicating", async ({
+test("late Alt free drag waits for post-key movement before duplicating", async ({
   app,
 }) => {
   const id = await openSeeded(app, COPY_FIXTURE);

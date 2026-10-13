@@ -490,8 +490,7 @@ test.describe("drawing fidelity", () => {
     expectOnlyChanged(before, after, [drawn[0]!.id]);
   });
 
-  // fixme: product bug: Known family, drag lag: it saves at 56,576. The move starts from the first pointer move past the threshold, so the effective drop is
-  test.fixme("dragging inside a screen with an 8px layout grid lands on the nearest grid point", async ({
+  test("dragging inside a screen with an 8px layout grid lands on the nearest grid point", async ({
     app,
   }) => {
     const id = await app.seed(INTRO_PAGE);
@@ -588,8 +587,7 @@ test.describe("drawing fidelity", () => {
 });
 
 test.describe("moving", () => {
-  // fixme: product bug: Known family, drag lag: it saves left 114px (6 px short).
-  test.fixme("a canvas drag moves Plain Box by exactly the drag delta and nothing else", async ({
+  test("a canvas drag moves Plain Box by exactly the drag delta and nothing else", async ({
     app,
   }) => {
     const id = await openPage(app);

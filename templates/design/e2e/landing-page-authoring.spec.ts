@@ -349,7 +349,7 @@ test.fixme("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layo
   ).toBe(true);
 });
 
-// fixme: product bug: Known family, drag lag: the rectangle saves at 78,290 instead of 80,300; the move starts from the first pointer move past the threshold
+// fixme: product bug: The drag delta is exact, but the rectangle's bottom (460) lands within snap range of the screen's horizontal centre line (450) at zoom-to-fit, so it snaps and saves top 290 instead of 300. Whether that snap should win over the exact delta is undecided.
 test.fixme("3:17 / 5:30 — a freshly drawn rectangle drags by exactly the pointer delta and the background never changes", async ({
   app,
 }) => {
@@ -399,8 +399,7 @@ test.fixme("3:17 / 5:30 — a freshly drawn rectangle drags by exactly the point
   expect(await background()).toBe("rgb(11, 15, 25)");
 });
 
-// fixme: product bug: Known family, drag lag: the card saves at top 313 instead of 320 (short by about one 7.5 px pointer step). No 'Could not move that layer'
-test.fixme("2:59 / 5:41 — a generated layer without a node id drags by exactly the pointer delta", async ({
+test("2:59 / 5:41 — a generated layer without a node id drags by exactly the pointer delta", async ({
   app,
 }) => {
   const id = await openDesign(

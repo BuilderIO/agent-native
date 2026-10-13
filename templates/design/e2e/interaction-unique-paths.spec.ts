@@ -205,8 +205,7 @@ test("Cmd+A with a child selected selects exactly that child's siblings", async 
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
-// fixme: product bug: The repeat-offset behaviour works (second copy offset equals the first move exactly). The free drag lags: a (200,40) design-px drag in 12
-test.fixme("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
+test("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
   app,
   page,
 }) => {

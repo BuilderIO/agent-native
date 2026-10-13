@@ -1893,8 +1893,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     ).toHaveCount(0);
   });
 
-  // fixme: product bug: Saved left:128px; top:34px (rendered 728,674) instead of 125/33 (725,673): lands 3/1 px short of the pointer along the first drag
-  test.fixme("Ignore Auto Layout pressed after pointerdown drops an absolute child at the drop point inside the auto-layout target", async ({
+  test("Ignore Auto Layout pressed after pointerdown drops an absolute child at the drop point inside the auto-layout target", async ({
     app,
     page,
   }) => {
@@ -3333,8 +3332,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     });
   });
 
-  // fixme: product bug: Saved left:250px; top:186px: lands (7,5) short of the pointer, exactly one of the 20 move steps. No snap candidates are near (isolated
-  test.fixme("dragging a lone free shape by 137×91 design px moves it exactly that far and saves only its new left and top", async ({
+  test("dragging a lone free shape by 137×91 design px moves it exactly that far and saves only its new left and top", async ({
     app,
     page,
   }) => {

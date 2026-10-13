@@ -141,7 +141,7 @@ test("Align vertical centers on two top-level layers centres both on their share
   await expect.poll(() => app.selectedLayers()).toEqual(["Handle", "Lens"]);
 });
 
-// fixme: product bug: Drop into a container with content lands at (0,0): the saved style loses position/left/top (width:110px;height:110px;background:<expanded
+// fixme: product bug: The board square reparents into the screen, but its saved style loses position/left/top ("width: 110px; height: 110px; background: ..."), so it renders at the screen's top-left. Drawing on the board also intermittently fails with "This screen changed elsewhere. Your last edit was not saved."
 test.fixme("a Shift-drawn board square dragged into the screen lands centred on the release point and leaves the board", async ({
   app,
 }) => {

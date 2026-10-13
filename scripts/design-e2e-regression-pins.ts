@@ -132,9 +132,20 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "snap guides appear when an edge aligns with a sibling",
   },
   {
+    shard: "drag-1b",
+    file: "drag-and-drop.moving-by-drag.spec.ts",
+    title: "dropping over a sibling keeps the moved position after reload",
+  },
+  {
     shard: "drag-2a",
     file: "drag-and-drop.moving-by-drag.spec.ts",
     title: "Alt+drag leaves the original and creates a copy",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-alt-drag-duplicate.spec.ts",
+    title:
+      "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
   },
   {
     shard: "drag-2a",

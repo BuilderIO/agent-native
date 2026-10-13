@@ -228,8 +228,7 @@ test("a source too big for nested plain frames lands in Outer, the nearest auto-
   expect(await renderedSize(app, "source")).toEqual({ width: 220, height: 96 });
 });
 
-// fixme: product bug: Saved left:-31px; top:34px: Source lands (7,4) short of the pointer. Same drag-start lag as autolayout-drag-drop-matrix 3228: the moved
-test.fixme("a source dropped on a frame inside a static section with no fitting ancestor stays on the page at the drop point", async ({
+test("a source dropped on a frame inside a static section with no fitting ancestor stays on the page at the drop point", async ({
   app,
 }) => {
   const id = await app.seed(STATIC_SECTION_FIXTURE);
