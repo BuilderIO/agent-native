@@ -100,10 +100,14 @@ import {
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
 import {
   getReviewPinPosition,
+  getReviewPopoverBox,
   getReviewPopoverPlacement,
+  isReviewPointVisible,
   placeReviewDraftPin,
+  reviewRegionClipPath,
   type ReviewDraftPin,
   type ReviewPinPosition,
+  type ReviewVisibleRegion,
 } from "./review-canvas-state";
 
 export interface RepromptDraftRequest {
@@ -178,7 +182,9 @@ const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
   "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
 
-type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement>;
+type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement> & {
+  box: ReturnType<typeof getReviewPopoverBox>;
+};
 
 interface CanvasCameraSnapshot {
   camera: { x: number; y: number; zoom: number };
@@ -782,19 +788,25 @@ function displayReviewCommentBody(body: string): string {
   return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
-// The plane is portaled to <body> above the editor's stacking context, so it
-// would otherwise cover sidebars and the top bar that overlap the canvas rect.
+// Everything here is portaled to <body> above the editor's stacking context,
+// so sidebars, the top bar and the bottom toolbar that overlap the canvas
+// would otherwise be painted over.
 const WORKING_AREA_CHROME_SELECTOR =
   '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
+const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+const MAIN_SURFACE_SELECTOR =
+  ".agent-sidebar-main-surface, .agent-layout-main-surface";
 
 function workingAreaRect(
-  canvasRect: DOMRect,
+  bounds: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
 ): Pick<DOMRect, "left" | "top" | "width" | "height"> {
-  let left = canvasRect.left;
-  let top = canvasRect.top;
-  let right = canvasRect.right;
-  const bottom = canvasRect.bottom;
+  let left = bounds.left;
+  let top = bounds.top;
+  let right = bounds.right;
+  const bottom = bounds.bottom;
   document.querySelectorAll(WORKING_AREA_CHROME_SELECTOR).forEach((el) => {
+    // Popovers tagged as inspector content float beside the panel, not in it.
+    if (el.closest("[data-radix-popper-content-wrapper]")) return;
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return;
     const region = el.getAttribute("data-design-chrome-region");
@@ -807,6 +819,32 @@ function workingAreaRect(
     top,
     width: Math.max(0, right - left),
     height: Math.max(0, bottom - top),
+  };
+}
+
+// The canvas element can be a single screen frame, so the region is bounded by
+// the app's main surface (which excludes the agent sidebar), not the canvas.
+function reviewVisibleRegion(canvas: HTMLElement): ReviewVisibleRegion {
+  const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
+  const area = workingAreaRect(
+    surface
+      ? surface.getBoundingClientRect()
+      : {
+          left: 0,
+          top: 0,
+          right: window.innerWidth,
+          bottom: window.innerHeight,
+        },
+  );
+  const toolbar = document
+    .querySelector(BOTTOM_TOOLBAR_SELECTOR)
+    ?.getBoundingClientRect();
+  return {
+    ...area,
+    bottomNotch:
+      toolbar && toolbar.width > 0 && toolbar.height > 0
+        ? { left: toolbar.left, right: toolbar.right, top: toolbar.top }
+        : null,
   };
 }
 
@@ -1178,14 +1216,25 @@ export function ReviewCanvasPins({
   useEffect(() => {
     if (!canvas) return;
     let animationFrame = 0;
+    const resizeObserver = new ResizeObserver(() => bump());
+    // Chrome that mounted after the last pass is picked up on the next bump.
+    const observeChrome = () => {
+      document
+        .querySelectorAll(
+          `${WORKING_AREA_CHROME_SELECTOR}, ${BOTTOM_TOOLBAR_SELECTOR}`,
+        )
+        .forEach((region) => resizeObserver.observe(region));
+      const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
+      if (surface) resizeObserver.observe(surface);
+    };
     const bump = () => {
       if (animationFrame) return;
       animationFrame = window.requestAnimationFrame(() => {
         animationFrame = 0;
+        observeChrome();
         setLayoutTick((current) => current + 1);
       });
     };
-    const resizeObserver = new ResizeObserver(bump);
     resizeObserver.observe(canvas);
     const iframe = canvas.querySelector<HTMLIFrameElement>(
       "iframe[data-design-preview-iframe]",
@@ -1193,9 +1242,7 @@ export function ReviewCanvasPins({
     if (iframe) resizeObserver.observe(iframe);
     const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
     if (frameShell) resizeObserver.observe(frameShell);
-    document
-      .querySelectorAll(WORKING_AREA_CHROME_SELECTOR)
-      .forEach((region) => resizeObserver.observe(region));
+    observeChrome();
     const layoutOwners = new Set<HTMLElement>();
     for (const owner of [
       canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
@@ -2177,19 +2224,47 @@ export function ReviewCanvasPins({
     return null;
   }
   const rect = canvas.getBoundingClientRect();
-  const viewport = {
-    width: window.innerWidth,
-    height: window.innerHeight,
-  };
+  const region = reviewVisibleRegion(canvas);
   void layoutTick;
 
+  const positionClientPoint = (
+    position: ReviewPinPosition,
+  ): ReviewCanvasPoint =>
+    (position.canvasPoint
+      ? canvasPointToClientPoint(canvas, position.canvasPoint)
+      : null) ?? {
+      x: rect.left + (position.point.xPct / 100) * rect.width,
+      y: rect.top + (position.point.yPct / 100) * rect.height,
+    };
+  const popoverPlacementFor = (
+    point: ReviewAnchorPoint,
+    anchor: ReviewCanvasPoint,
+  ): ReviewPopoverPlacement => {
+    const placement = getReviewPopoverPlacement(
+      point,
+      { x: anchor.x - region.left, y: anchor.y - region.top },
+      { width: region.width, height: region.height },
+    );
+    return {
+      ...placement,
+      box: getReviewPopoverBox(anchor.x, region, placement.horizontal),
+    };
+  };
+
   const visibleThreads = threads.filter((thread) => thread.root.anchor);
+  // Pin numbers stay stable while panning: index before dropping pins whose
+  // anchor is off the canvas or under editor chrome.
   const positionedThreads = visibleThreads
     .flatMap((thread) => {
       const position = pinPositionFor(thread.root.threadId, thread.root.anchor);
       return position ? [{ thread, position }] : [];
     })
-    .map((entry, index) => ({ ...entry, index }));
+    .map((entry, index) => ({
+      ...entry,
+      index,
+      clientPoint: positionClientPoint(entry.position),
+    }))
+    .filter((entry) => isReviewPointVisible(region, entry.clientPoint));
   // ponytail: bounded review lists make this simple O(n²) cluster scan preferable to a spatial index.
   const pinGroups: Array<{
     key: string;
@@ -2226,6 +2301,9 @@ export function ReviewCanvasPins({
   }
   const draftPinPosition = draftPin
     ? pinPositionFor(null, draftPin.anchor)
+    : null;
+  const draftClientPoint = draftPinPosition
+    ? positionClientPoint(draftPinPosition)
     : null;
   const pinPlacementEnabled = active && canPost && !pendingRepromptId;
   const placementPlaneVisible = pinPlacementEnabled && showPlacementPlane;
@@ -2268,320 +2346,305 @@ export function ReviewCanvasPins({
           }}
         />
       ) : null}
-      {pinPlacementEnabled && regionPreview ? (
-        <div
-          data-review-region-preview
-          className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
-          style={{
-            left: rect.left + (regionPreview.xPct / 100) * rect.width,
-            top: rect.top + (regionPreview.yPct / 100) * rect.height,
-            width: (regionPreview.widthPct / 100) * rect.width,
-            height: (regionPreview.heightPct / 100) * rect.height,
-          }}
-        />
-      ) : null}
-      {placementHintVisible ? (
-        <div className="pointer-events-none fixed left-1/2 top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg">
-          <IconMessageCircle className="size-3.5 text-primary" />
-          {t("review.clickToPin")}
-          <span className="text-[10px] text-muted-foreground">
-            {t("review.escToExit")}
-          </span>
-        </div>
-      ) : null}
-      {pinGroups.map((group) => {
-        if (group.entries.length > 1 && expandedClusterKey !== group.key) {
-          return (
-            <ReviewPinCluster
-              key={group.key}
-              count={group.entries.length}
-              canvasRect={rect}
-              point={group.point}
-              onClick={() => {
-                setExpandedClusterKey(group.key);
-                const thread = group.entries[0]!.thread;
-                if (threadIsUnread(thread.root.threadId)) {
-                  setThreadUnread(thread, false);
-                }
-                setActiveThreadId(thread.root.threadId);
-              }}
-            />
-          );
-        }
-        return group.entries.map(({ thread, index, position }) => {
-          const clientPoint = position.canvasPoint
-            ? canvasPointToClientPoint(canvas, position.canvasPoint)
-            : null;
-          const popoverPoint = clientPoint ?? {
-            x: rect.left + (position.point.xPct / 100) * rect.width,
-            y: rect.top + (position.point.yPct / 100) * rect.height,
-          };
-          return (
-            <ReviewPin
-              key={thread.root.threadId}
-              index={index}
-              canvasRect={rect}
-              point={position.point}
-              clientPoint={clientPoint}
-              onClick={() => {
-                if (!draftPin?.draft.trim()) setDraftPin(null);
-                setDraftComposerOpen(false);
-                setReplyDraft("");
-                setReplyAttachments([]);
-                setReplyMentions([]);
-                setEditCandidate(null);
-                setEditDraft("");
-                setEditMentions([]);
-                if (threadIsUnread(thread.root.threadId)) {
-                  setThreadUnread(thread, false);
-                }
-                setActiveThreadId(thread.root.threadId);
-              }}
-              active={activeThreadId === thread.root.threadId}
-              resolved={thread.root.status === "resolved"}
-              unread={threadIsUnread(thread.root.threadId)}
-              region={(() => {
-                const parsed = parseReviewAnchor(
-                  optimisticAnchors[thread.root.threadId] ?? thread.root.anchor,
-                );
-                return parsed?.worldRegion && boardGeometry
-                  ? (canvasRegionFromBoardWorldRegion(
-                      parsed.worldRegion,
-                      boardGeometry,
-                    ) ?? parsed.region)
-                  : parsed?.region;
-              })()}
-              canMove={
-                canPost &&
-                thread.root.canDelete === true &&
-                !updateComment.isPending
-              }
-              onMove={(point) => moveThread(thread, point)}
-            >
-              {activeThreadId === thread.root.threadId ? (
-                <ReviewThreadPopover
-                  thread={thread}
-                  canResolve={canResolve}
-                  discussion={discussion}
-                  onReact={react}
-                  pendingReaction={
-                    reactToComment.isPending && reactToComment.variables
-                      ? reactToComment.variables
-                      : null
+      <div
+        data-review-layer
+        className="pointer-events-none fixed inset-0 z-[45]"
+        style={{ clipPath: reviewRegionClipPath(region) }}
+      >
+        {pinPlacementEnabled && regionPreview ? (
+          <div
+            data-review-region-preview
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={{
+              left: rect.left + (regionPreview.xPct / 100) * rect.width,
+              top: rect.top + (regionPreview.yPct / 100) * rect.height,
+              width: (regionPreview.widthPct / 100) * rect.width,
+              height: (regionPreview.heightPct / 100) * rect.height,
+            }}
+          />
+        ) : null}
+        {placementHintVisible ? (
+          <div
+            className="pointer-events-none fixed top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg"
+            style={{ left: region.left + region.width / 2 }}
+          >
+            <IconMessageCircle className="size-3.5 text-primary" />
+            {t("review.clickToPin")}
+            <span className="text-[10px] text-muted-foreground">
+              {t("review.escToExit")}
+            </span>
+          </div>
+        ) : null}
+        {pinGroups.map((group) => {
+          if (group.entries.length > 1 && expandedClusterKey !== group.key) {
+            return (
+              <ReviewPinCluster
+                key={group.key}
+                count={group.entries.length}
+                canvasRect={rect}
+                point={group.point}
+                onClick={() => {
+                  setExpandedClusterKey(group.key);
+                  const thread = group.entries[0]!.thread;
+                  if (threadIsUnread(thread.root.threadId)) {
+                    setThreadUnread(thread, false);
                   }
-                  sending={sendingThreadId === thread.root.threadId}
-                  canReply={canPost && thread.root.status === "open"}
-                  canEdit={Boolean(
-                    canPost &&
-                    normalizedCurrentUserEmail &&
-                    thread.root.authorEmail?.trim().toLowerCase() ===
-                      normalizedCurrentUserEmail,
-                  )}
-                  editing={editCandidate?.id === thread.root.id}
-                  editDraft={editDraft}
-                  editMentions={editMentions}
-                  updating={updateComment.isPending}
-                  onEdit={() => {
-                    setEditCandidate(thread.root);
-                    setEditDraft(thread.root.body);
-                    setEditMentions([...thread.root.mentions]);
-                  }}
-                  onEditDraftChange={setEditDraft}
-                  onEditMentionsChange={setEditMentions}
-                  onEditCancel={() => {
-                    setEditCandidate(null);
-                    setEditDraft("");
-                    setEditMentions([]);
-                  }}
-                  onEditSubmit={submitEdit}
-                  unread={threadIsUnread(thread.root.threadId)}
-                  onCopyLink={() => void copyThreadLink(thread)}
-                  onSetUnread={(unread) => setThreadUnread(thread, unread)}
-                  onDelete={() => setDeleteCandidate(thread.root)}
-                  canDelete={canPost && (thread.root.canDelete ?? false)}
-                  placement={getReviewPopoverPlacement(
-                    position.point,
-                    popoverPoint,
-                    viewport,
-                  )}
-                  replyDraft={replyDraft}
-                  replyMentions={replyMentions}
-                  mentionOptions={mentionOptions}
-                  replyAttachments={replyAttachments}
-                  onReplyAttachmentsChange={setReplyAttachments}
-                  onReplyDraftChange={setReplyDraft}
-                  onReplyMentionsChange={setReplyMentions}
-                  onClose={closeActiveThread}
-                  onReply={() => {
-                    const body = replyDraft.trim();
-                    if (!body) return;
-                    replyComment.mutate(
-                      {
-                        resourceType,
-                        resourceId,
-                        commentId: thread.root.id,
-                        body,
-                        ...(replyMentions.length
-                          ? { mentions: [...replyMentions] }
-                          : {}),
-                        ...(replyAttachments.length
-                          ? {
-                              metadata: {
-                                attachments:
-                                  reviewAttachmentMetadata(replyAttachments),
-                              },
-                            }
-                          : {}),
-                      },
-                      {
-                        onSuccess: () => {
-                          setReplyDraft("");
-                          setReplyAttachments([]);
-                          setReplyMentions([]);
-                        },
-                        onError: () => toast.error(t("review.replyFailed")),
-                      },
-                    );
-                  }}
-                  onStatusChange={() =>
-                    resolveThread.mutate(
-                      {
-                        resourceType,
-                        resourceId,
-                        threadId: thread.root.threadId,
-                        status:
-                          thread.root.status === "open" ? "resolved" : "open",
-                      },
-                      {
-                        onSuccess: () => {
-                          setActiveThreadId(null);
-                          if (thread.root.status === "open") {
-                            toast.success(t("review.resolved"), {
-                              action: {
-                                label: t("review.undo"),
-                                onClick: () =>
-                                  resolveThread.mutate({
-                                    resourceType,
-                                    resourceId,
-                                    threadId: thread.root.threadId,
-                                    status: "open",
-                                  }),
-                              },
-                            });
-                          } else {
-                            toast.success(t("review.reopen"));
-                          }
-                        },
-                        onError: () => toast.error(t("review.resolveFailed")),
-                      },
-                    )
-                  }
-                  onSendToAgent={
-                    onSendThreadToAgent &&
-                    (thread.root.resolutionTarget === "human" ||
-                      Boolean(thread.root.consumedAt))
-                      ? () => onSendThreadToAgent(thread)
-                      : undefined
-                  }
-                  replying={replyComment.isPending}
-                  resolving={resolveThread.isPending}
-                />
-              ) : null}
-            </ReviewPin>
-          );
-        });
-      })}
-      {draftPin && draftPinPosition ? (
-        <ReviewPin
-          key={draftPin.id}
-          index={visibleThreads.length}
-          canvasRect={rect}
-          point={draftPinPosition.point}
-          clientPoint={
-            draftPinPosition.canvasPoint
-              ? canvasPointToClientPoint(canvas, draftPinPosition.canvasPoint)
-              : null
+                  setActiveThreadId(thread.root.threadId);
+                }}
+              />
+            );
           }
-          draft
-          pending={Boolean(pendingRepromptId)}
-          onClick={() => {
-            if (pendingRepromptId) return;
-            setActiveThreadId(null);
-            setReplyDraft("");
-            setReplyAttachments([]);
-            setDraftComposerOpen(true);
-          }}
-          active={draftComposerOpen}
-        >
-          {draftComposerOpen ? (
-            <DraftComposer
-              value={draftPin.draft}
-              mentions={draftMentions}
-              mentionOptions={mentionOptions}
-              onMentionsChange={setDraftMentions}
-              attachments={draftAttachments}
-              onAttachmentsChange={setDraftAttachments}
-              onChange={(value) => {
-                setDraftPin((current) =>
-                  current ? { ...current, draft: value } : current,
-                );
-                setDraftMentions((current) =>
-                  current.filter((mention) =>
-                    value.includes(`@${mention.label}`),
-                  ),
-                );
-              }}
-              onCancel={cancelDraft}
-              onSubmit={(resolutionTarget) => {
-                setDraftPin((current) =>
-                  current ? { ...current, resolutionTarget } : current,
-                );
-                postDraft(
-                  { ...draftPin, resolutionTarget },
-                  draftAttachments,
-                  draftMentions,
-                );
-              }}
-              onSmartSubmit={(mode) => {
-                if (mode === "preview")
-                  void submitReprompt(draftPin, draftAttachments);
-                else void submitSelectionQuestion(draftPin, draftAttachments);
-              }}
-              resolutionTarget={draftPin.resolutionTarget}
-              showAgentAction={
-                Boolean(onDispatchCommentToAgent) || draftMode === "reprompt"
-              }
-              smartAgentAvailable={
-                sourceType === "inline" &&
-                Boolean(
-                  resolveReviewAnchor(draftPin.anchor, () => null)?.anchor
-                    .nodeId || draftPin.metadata.targetSelector,
-                )
-              }
-              initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
-              placement={getReviewPopoverPlacement(
-                draftPinPosition.point,
-                draftPinPosition.canvasPoint
-                  ? canvasPointToClientPoint(
-                      canvas,
-                      draftPinPosition.canvasPoint,
-                    )
-                  : {
-                      x:
-                        rect.left +
-                        (draftPinPosition.point.xPct / 100) * rect.width,
-                      y:
-                        rect.top +
-                        (draftPinPosition.point.yPct / 100) * rect.height,
-                    },
-                viewport,
-              )}
-              commentSubmitting={createComment.isPending}
-              agentSubmitting={agentSubmitting}
-            />
-          ) : null}
-        </ReviewPin>
-      ) : null}
+          return group.entries.map(
+            ({ thread, index, position, clientPoint }) => (
+              <ReviewPin
+                key={thread.root.threadId}
+                index={index}
+                canvasRect={rect}
+                point={position.point}
+                clientPoint={clientPoint}
+                onClick={() => {
+                  if (!draftPin?.draft.trim()) setDraftPin(null);
+                  setDraftComposerOpen(false);
+                  setReplyDraft("");
+                  setReplyAttachments([]);
+                  setReplyMentions([]);
+                  setEditCandidate(null);
+                  setEditDraft("");
+                  setEditMentions([]);
+                  if (threadIsUnread(thread.root.threadId)) {
+                    setThreadUnread(thread, false);
+                  }
+                  setActiveThreadId(thread.root.threadId);
+                }}
+                active={activeThreadId === thread.root.threadId}
+                resolved={thread.root.status === "resolved"}
+                unread={threadIsUnread(thread.root.threadId)}
+                region={(() => {
+                  const parsed = parseReviewAnchor(
+                    optimisticAnchors[thread.root.threadId] ??
+                      thread.root.anchor,
+                  );
+                  return parsed?.worldRegion && boardGeometry
+                    ? (canvasRegionFromBoardWorldRegion(
+                        parsed.worldRegion,
+                        boardGeometry,
+                      ) ?? parsed.region)
+                    : parsed?.region;
+                })()}
+                canMove={
+                  canPost &&
+                  thread.root.canDelete === true &&
+                  !updateComment.isPending
+                }
+                onMove={(point) => moveThread(thread, point)}
+              >
+                {activeThreadId === thread.root.threadId ? (
+                  <ReviewThreadPopover
+                    thread={thread}
+                    canResolve={canResolve}
+                    discussion={discussion}
+                    onReact={react}
+                    pendingReaction={
+                      reactToComment.isPending && reactToComment.variables
+                        ? reactToComment.variables
+                        : null
+                    }
+                    sending={sendingThreadId === thread.root.threadId}
+                    canReply={canPost && thread.root.status === "open"}
+                    canEdit={Boolean(
+                      canPost &&
+                      normalizedCurrentUserEmail &&
+                      thread.root.authorEmail?.trim().toLowerCase() ===
+                        normalizedCurrentUserEmail,
+                    )}
+                    editing={editCandidate?.id === thread.root.id}
+                    editDraft={editDraft}
+                    editMentions={editMentions}
+                    updating={updateComment.isPending}
+                    onEdit={() => {
+                      setEditCandidate(thread.root);
+                      setEditDraft(thread.root.body);
+                      setEditMentions([...thread.root.mentions]);
+                    }}
+                    onEditDraftChange={setEditDraft}
+                    onEditMentionsChange={setEditMentions}
+                    onEditCancel={() => {
+                      setEditCandidate(null);
+                      setEditDraft("");
+                      setEditMentions([]);
+                    }}
+                    onEditSubmit={submitEdit}
+                    unread={threadIsUnread(thread.root.threadId)}
+                    onCopyLink={() => void copyThreadLink(thread)}
+                    onSetUnread={(unread) => setThreadUnread(thread, unread)}
+                    onDelete={() => setDeleteCandidate(thread.root)}
+                    canDelete={canPost && (thread.root.canDelete ?? false)}
+                    placement={popoverPlacementFor(position.point, clientPoint)}
+                    replyDraft={replyDraft}
+                    replyMentions={replyMentions}
+                    mentionOptions={mentionOptions}
+                    replyAttachments={replyAttachments}
+                    onReplyAttachmentsChange={setReplyAttachments}
+                    onReplyDraftChange={setReplyDraft}
+                    onReplyMentionsChange={setReplyMentions}
+                    onClose={closeActiveThread}
+                    onReply={() => {
+                      const body = replyDraft.trim();
+                      if (!body) return;
+                      replyComment.mutate(
+                        {
+                          resourceType,
+                          resourceId,
+                          commentId: thread.root.id,
+                          body,
+                          ...(replyMentions.length
+                            ? { mentions: [...replyMentions] }
+                            : {}),
+                          ...(replyAttachments.length
+                            ? {
+                                metadata: {
+                                  attachments:
+                                    reviewAttachmentMetadata(replyAttachments),
+                                },
+                              }
+                            : {}),
+                        },
+                        {
+                          onSuccess: () => {
+                            setReplyDraft("");
+                            setReplyAttachments([]);
+                            setReplyMentions([]);
+                          },
+                          onError: () => toast.error(t("review.replyFailed")),
+                        },
+                      );
+                    }}
+                    onStatusChange={() =>
+                      resolveThread.mutate(
+                        {
+                          resourceType,
+                          resourceId,
+                          threadId: thread.root.threadId,
+                          status:
+                            thread.root.status === "open" ? "resolved" : "open",
+                        },
+                        {
+                          onSuccess: () => {
+                            setActiveThreadId(null);
+                            if (thread.root.status === "open") {
+                              toast.success(t("review.resolved"), {
+                                action: {
+                                  label: t("review.undo"),
+                                  onClick: () =>
+                                    resolveThread.mutate({
+                                      resourceType,
+                                      resourceId,
+                                      threadId: thread.root.threadId,
+                                      status: "open",
+                                    }),
+                                },
+                              });
+                            } else {
+                              toast.success(t("review.reopen"));
+                            }
+                          },
+                          onError: () => toast.error(t("review.resolveFailed")),
+                        },
+                      )
+                    }
+                    onSendToAgent={
+                      onSendThreadToAgent &&
+                      (thread.root.resolutionTarget === "human" ||
+                        Boolean(thread.root.consumedAt))
+                        ? () => onSendThreadToAgent(thread)
+                        : undefined
+                    }
+                    replying={replyComment.isPending}
+                    resolving={resolveThread.isPending}
+                  />
+                ) : null}
+              </ReviewPin>
+            ),
+          );
+        })}
+        {draftPin &&
+        draftPinPosition &&
+        draftClientPoint &&
+        isReviewPointVisible(region, draftClientPoint) ? (
+          <ReviewPin
+            key={draftPin.id}
+            index={visibleThreads.length}
+            canvasRect={rect}
+            point={draftPinPosition.point}
+            clientPoint={draftClientPoint}
+            draft
+            pending={Boolean(pendingRepromptId)}
+            onClick={() => {
+              if (pendingRepromptId) return;
+              setActiveThreadId(null);
+              setReplyDraft("");
+              setReplyAttachments([]);
+              setDraftComposerOpen(true);
+            }}
+            active={draftComposerOpen}
+          >
+            {draftComposerOpen ? (
+              <DraftComposer
+                value={draftPin.draft}
+                mentions={draftMentions}
+                mentionOptions={mentionOptions}
+                onMentionsChange={setDraftMentions}
+                attachments={draftAttachments}
+                onAttachmentsChange={setDraftAttachments}
+                onChange={(value) => {
+                  setDraftPin((current) =>
+                    current ? { ...current, draft: value } : current,
+                  );
+                  setDraftMentions((current) =>
+                    current.filter((mention) =>
+                      value.includes(`@${mention.label}`),
+                    ),
+                  );
+                }}
+                onCancel={cancelDraft}
+                onSubmit={(resolutionTarget) => {
+                  setDraftPin((current) =>
+                    current ? { ...current, resolutionTarget } : current,
+                  );
+                  postDraft(
+                    { ...draftPin, resolutionTarget },
+                    draftAttachments,
+                    draftMentions,
+                  );
+                }}
+                onSmartSubmit={(mode) => {
+                  if (mode === "preview")
+                    void submitReprompt(draftPin, draftAttachments);
+                  else void submitSelectionQuestion(draftPin, draftAttachments);
+                }}
+                resolutionTarget={draftPin.resolutionTarget}
+                showAgentAction={
+                  Boolean(onDispatchCommentToAgent) || draftMode === "reprompt"
+                }
+                smartAgentAvailable={
+                  sourceType === "inline" &&
+                  Boolean(
+                    resolveReviewAnchor(draftPin.anchor, () => null)?.anchor
+                      .nodeId || draftPin.metadata.targetSelector,
+                  )
+                }
+                initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
+                placement={popoverPlacementFor(
+                  draftPinPosition.point,
+                  draftClientPoint,
+                )}
+                commentSubmitting={createComment.isPending}
+                agentSubmitting={agentSubmitting}
+              />
+            ) : null}
+          </ReviewPin>
+        ) : null}
+      </div>
       <AlertDialog
         open={Boolean(deleteCandidate)}
         onOpenChange={(open) => {
@@ -2729,7 +2792,7 @@ function ReviewPin({
   return (
     <div
       data-review-popover
-      className="fixed z-[45]"
+      className="pointer-events-auto fixed z-[45]"
       style={{
         left:
           clientPoint?.x ??
@@ -2822,7 +2885,7 @@ function ReviewPinCluster({
     <button
       type="button"
       data-review-pin-cluster
-      className="fixed z-[45] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-primary bg-primary text-xs font-semibold text-primary-foreground shadow-lg hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="pointer-events-auto fixed z-[45] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-primary bg-primary text-xs font-semibold text-primary-foreground shadow-lg hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       style={{
         left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
         top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
@@ -3095,10 +3158,10 @@ function DraftComposer({
     <div
       data-review-popover
       className={cn(
-        "absolute z-[260] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.horizontal === "end" ? "right-3" : "left-3",
+        "absolute z-[260] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
         placement.vertical === "above" ? "bottom-3" : "top-1",
       )}
+      style={{ left: placement.box.left, width: placement.box.width }}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="flex items-center justify-between px-3 pb-2 pt-3">
@@ -3371,10 +3434,10 @@ function ReviewThreadPopover({
     <div
       data-review-popover
       className={cn(
-        "absolute z-[260] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.horizontal === "end" ? "right-3" : "left-3",
+        "absolute z-[260] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
         placement.vertical === "above" ? "bottom-3" : "top-1",
       )}
+      style={{ left: placement.box.left, width: placement.box.width }}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="flex items-start gap-2.5 p-3">

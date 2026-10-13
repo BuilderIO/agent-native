@@ -862,7 +862,6 @@ export default {
       tokens: "Tokens de design",
       threads: "Conversas",
       label: "Área de trabalho de design",
-      account: "Conta",
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
     },
@@ -1322,6 +1321,7 @@ export default {
       htmlPlaceholder: "<main>Cole HTML independente aqui...</main>",
       importHtml: "Importar HTML",
       chooseHtmlFile: "Escolher arquivo HTML",
+      allSupportedFiles: "Todos os arquivos compatíveis",
       githubTitle: "GitHub",
       githubDescription:
         "Em breve: importe telas e componentes diretamente de um repositório.",

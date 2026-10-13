@@ -1,3 +1,4 @@
+import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -6,6 +7,7 @@ import * as Y from "yjs";
 import { trace } from "@/components/design/design-trace";
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
+import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
@@ -27,10 +29,12 @@ import { codeLayerSelectorAliases } from "@/pages/design-editor/code-layer-state
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import { resolveViewPastePosition } from "@/pages/design-editor/commands/paste-view-position";
 import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
+import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   isStandaloneHttpUrl,
   type UndoRedoOrderKind,
@@ -40,6 +44,7 @@ import {
   MAX_DESIGN_UNDO_STACK,
   type GeometryHistorySelection,
 } from "@/pages/design-editor/history";
+import { getAllScreenFrameEntries } from "@/pages/design-editor/overview-camera";
 import {
   resolvePastePlacementForSelection,
   resolvePasteSourceAnchor,
@@ -49,6 +54,13 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
 const ORPHANED_PASTE_INSET = 24;
+
+interface PastePosition {
+  x: number;
+  y: number;
+  // The file the point is local to; a point without one is on the board.
+  fileId?: string;
+}
 
 function isSelectedClipboardLayer(
   entries: ReadonlyArray<CanvasLayerClipboardEntry>,
@@ -129,6 +141,7 @@ export interface PasteSelectionArgs {
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
+  canvasFrameGeometryById: CanvasFrameGeometryById;
   clearRedoStacks: () => void;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
@@ -137,10 +150,13 @@ export interface PasteSelectionArgs {
   getCanvasScreenClipboardEntries: () => DesignClipboardScreenEntry[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
+  getVisibleCanvasRect: () => VisibleCanvasRect | null;
   historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
   latestClipboardMutationContentRef: RefObject<
     Map<string, ClipboardContentLineage>
   >;
+  overviewScreens: OverviewScreen[];
+  overviewSelectedScreenIds: readonly string[];
   pasteCascadeRef: RefObject<number>;
   pasteCopiedScreens: (
     screens: DesignClipboardScreenEntry[],
@@ -200,6 +216,7 @@ export async function runPasteSelection(
     boardFileId,
     canEditDesign,
     canvasContainerRef,
+    canvasFrameGeometryById,
     clearRedoStacks,
     clipboardPasteRedoStackRef,
     clipboardPasteUndoStackRef,
@@ -208,8 +225,11 @@ export async function runPasteSelection(
     getCanvasScreenClipboardEntries,
     getFreshActiveContent,
     getScreenContent,
+    getVisibleCanvasRect,
     historyOrderRef,
     latestClipboardMutationContentRef,
+    overviewScreens,
+    overviewSelectedScreenIds,
     pasteCascadeRef,
     pasteCopiedScreens,
     pendingLocalFileContentsRef,
@@ -228,7 +248,7 @@ export async function runPasteSelection(
     viewModeRef,
     zoom,
   }: PasteSelectionArgs,
-  position?: { x: number; y: number },
+  explicitPosition?: { x: number; y: number },
 ) {
   let structureUnsupported = false;
   const onUnsupportedStructure = () => {
@@ -243,17 +263,43 @@ export async function runPasteSelection(
   if (entries.length === 0) {
     const screens = getCanvasScreenClipboardEntries();
     if (screens.length > 0 && canEditDesign) {
-      pasteCopiedScreens(screens, position);
+      pasteCopiedScreens(screens, explicitPosition);
     }
     return;
   }
+  const viewPosition = explicitPosition
+    ? null
+    : resolveViewPastePosition({
+        visibleRect:
+          viewModeRef.current === "overview" ? getVisibleCanvasRect() : null,
+        frames: getAllScreenFrameEntries({
+          overviewScreens,
+          canvasFrameGeometryById,
+        }),
+        boardFileId,
+        sourceFileIds: entries.map((entry) => entry.sourceFileId),
+        selectedFrameIds: [
+          ...(selectedElement && activeFile ? [activeFile.id] : []),
+          ...overviewSelectedScreenIds,
+        ],
+        cascadeOffset: pasteCascadeRef.current * 16,
+      });
+  if (viewPosition) {
+    trace("structure", "paste-in-view", {
+      targetFileId: viewPosition.fileId,
+      sourceFileIds: entries.map((entry) => entry.sourceFileId),
+    });
+  }
+  const position: PastePosition | undefined =
+    explicitPosition ?? viewPosition ?? undefined;
   const sourceAnchor = position
     ? null
     : resolvePasteSourceAnchor({ entries, getContent: getScreenContent });
   const activeSurfaceFileId =
-    viewModeRef.current === "overview" && position && boardFileId
+    position?.fileId ??
+    (viewModeRef.current === "overview" && position && boardFileId
       ? boardFileId
-      : activeFile?.id;
+      : activeFile?.id);
   const returnToSourceFileId =
     sourceAnchor &&
     activeSurfaceFileId === boardFileId &&
@@ -784,7 +830,7 @@ export async function runPasteSelection(
         : {}),
   };
   if (dispatchLinkedClone(cloneOptions)) {
-    if (!position) pasteCascadeRef.current += 1;
+    if (!explicitPosition) pasteCascadeRef.current += 1;
     return;
   }
   const result = insertClonedHtmlLayers(baseContent, layerHtmls, cloneOptions);
@@ -800,7 +846,7 @@ export async function runPasteSelection(
     });
     return;
   }
-  if (!position) pasteCascadeRef.current += 1;
+  if (!explicitPosition) pasteCascadeRef.current += 1;
   const publication = applyPasteContentUpdate(result.content);
   if (!publication) return;
   remapMotionTracksForClone(result.nodeIdMap, targetFileId);

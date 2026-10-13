@@ -852,7 +852,6 @@ export default {
       tokens: "토큰",
       threads: "스레드",
       label: "디자인 작업공간",
-      account: "계정",
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
     },
@@ -1309,6 +1308,7 @@ export default {
       htmlPlaceholder: "<main>독립 HTML을 여기에 붙여넣기...</main>",
       importHtml: "HTML 가져오기",
       chooseHtmlFile: "HTML 파일 선택",
+      allSupportedFiles: "지원되는 모든 파일",
       githubTitle: "GitHub",
       githubDescription:
         "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",

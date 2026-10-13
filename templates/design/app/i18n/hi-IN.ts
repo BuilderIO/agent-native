@@ -850,7 +850,6 @@ export default {
       tokens: "टोकन",
       threads: "थ्रेड",
       label: "डिज़ाइन कार्यक्षेत्र",
-      account: "खाता",
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
@@ -1306,6 +1305,7 @@ export default {
       htmlPlaceholder: "<main>Standalone HTML यहाँ paste करें...</main>",
       importHtml: "HTML आयात करें",
       chooseHtmlFile: "HTML file चुनें",
+      allSupportedFiles: "सभी समर्थित फ़ाइलें",
       githubTitle: "GitHub",
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",

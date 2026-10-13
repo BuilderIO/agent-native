@@ -787,7 +787,6 @@ export default {
       tokens: "Tokens",
       threads: "Threads",
       label: "Design workspace",
-      account: "Account",
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
     },
@@ -1246,6 +1245,7 @@ export default {
       htmlPlaceholder: "<main>Paste standalone HTML here...</main>",
       importHtml: "Import HTML",
       chooseHtmlFile: "Choose HTML file",
+      allSupportedFiles: "All supported files",
       githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",

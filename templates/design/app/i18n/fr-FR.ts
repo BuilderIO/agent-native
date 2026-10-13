@@ -870,7 +870,6 @@ export default {
       tokens: "Jetons",
       threads: "Discussions",
       label: "Espace de travail Design",
-      account: "Compte",
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
     },
@@ -1332,6 +1331,7 @@ export default {
       htmlPlaceholder: "<main>Collez le HTML autonome ici...</main>",
       importHtml: "Importer HTML",
       chooseHtmlFile: "Choisir un fichier HTML",
+      allSupportedFiles: "Tous les fichiers pris en charge",
       githubTitle: "GitHub",
       githubDescription:
         "Bientôt : importer des écrans et composants directement depuis un dépôt.",

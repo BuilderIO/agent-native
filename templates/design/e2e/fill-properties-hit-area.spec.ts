@@ -193,17 +193,31 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
     );
     const eye = actionCells.nth(0).getByRole("button");
     const remove = actionCells.nth(1).getByRole("button");
-    const [triggerBox, cellBox, eyeBox, removeBox] = await Promise.all([
-      trigger.boundingBox(),
-      cell.boundingBox(),
-      eye.boundingBox(),
-      remove.boundingBox(),
-    ]);
+    const handle = row.getByRole("button", {
+      name: "Reorder layer",
+      exact: true,
+    });
+    const [triggerBox, cellBox, eyeBox, removeBox, handleBox, rowBox] =
+      await Promise.all([
+        trigger.boundingBox(),
+        cell.boundingBox(),
+        eye.boundingBox(),
+        remove.boundingBox(),
+        handle.boundingBox(),
+        row.boundingBox(),
+      ]);
 
     expect(triggerBox).not.toBeNull();
     expect(cellBox).not.toBeNull();
     expect(eyeBox).not.toBeNull();
     expect(removeBox).not.toBeNull();
+    expect(handleBox).not.toBeNull();
+    expect(rowBox).not.toBeNull();
+    // The handle hangs in the 8px section gutter beside the pill, not over it.
+    expect(handleBox!.x + handleBox!.width).toBeLessThanOrEqual(
+      triggerBox!.x + 0.5,
+    );
+    expect(triggerBox!.x - rowBox!.x).toBeCloseTo(8, 0);
     expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(
       cellBox!.x + cellBox!.width + 0.5,
     );

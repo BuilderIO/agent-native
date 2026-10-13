@@ -871,7 +871,6 @@ export default {
       tokens: "Design-Tokens",
       threads: "Threads",
       label: "Design-Arbeitsbereich",
-      account: "Konto",
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
@@ -1332,6 +1331,7 @@ export default {
       htmlPlaceholder: "<main>Eigenständiges HTML hier einfügen...</main>",
       importHtml: "HTML importieren",
       chooseHtmlFile: "HTML-Datei wählen",
+      allSupportedFiles: "Alle unterstützten Dateien",
       githubTitle: "GitHub",
       githubDescription:
         "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",

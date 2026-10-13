@@ -171,6 +171,17 @@ describe("a Display P3 or OKLCH fill", () => {
     expect(opacityInput()!.value).toBe("50");
   });
 
+  it("gives the numbers the chevron's room and the stored color in a title", () => {
+    const stored = "oklch(70.8312% 0.157349 153.2147)";
+    mount({ value: stored });
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Color"]',
+    )!;
+    expect(button.textContent).toBe("OKLCH 70.8 0.157 153.2");
+    expect(button.title).toBe(stored);
+    expect(container.querySelector('button[aria-hidden="true"]')).toBeNull();
+  });
+
   it("opens as one line of text to edit, and commits what is typed as that notation", () => {
     const { onChangeComplete } = mount({
       value: "oklch(72.4% 0.181 153)",

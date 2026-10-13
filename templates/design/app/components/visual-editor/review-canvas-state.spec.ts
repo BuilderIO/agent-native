@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   getReviewPinPosition,
+  getReviewPopoverBox,
   getReviewPopoverPlacement,
+  isReviewPointVisible,
   placeReviewDraftPin,
+  reviewRegionClipPath,
   type ReviewDraftPin,
+  type ReviewVisibleRegion,
 } from "./review-canvas-state";
 
 const firstLocation = {
@@ -111,5 +115,69 @@ describe("review canvas draft state", () => {
       anchor.point,
     );
     expect(getReviewPinPosition(anchor)?.point).toEqual(anchor.point);
+  });
+});
+
+describe("review visible region", () => {
+  const region: ReviewVisibleRegion = {
+    left: 300,
+    top: 48,
+    width: 700,
+    height: 600,
+    bottomNotch: { left: 500, right: 800, top: 580 },
+  };
+
+  it("accepts points inside the region and rejects the chrome around it", () => {
+    expect(isReviewPointVisible(region, { x: 600, y: 300 })).toBe(true);
+    expect(isReviewPointVisible(region, { x: 120, y: 300 })).toBe(false);
+    expect(isReviewPointVisible(region, { x: 600, y: 20 })).toBe(false);
+    expect(isReviewPointVisible(region, { x: 1100, y: 300 })).toBe(false);
+    expect(isReviewPointVisible(region, { x: 600, y: 700 })).toBe(false);
+  });
+
+  it("rejects points under the floating bottom toolbar only", () => {
+    expect(isReviewPointVisible(region, { x: 650, y: 600 })).toBe(false);
+    expect(isReviewPointVisible(region, { x: 400, y: 600 })).toBe(true);
+    expect(isReviewPointVisible(region, { x: 650, y: 560 })).toBe(true);
+  });
+
+  it("clips to the region with the toolbar cut out of the bottom edge", () => {
+    expect(reviewRegionClipPath({ ...region, bottomNotch: null })).toBe(
+      "polygon(300px 48px, 1000px 48px, 1000px 648px, 300px 648px)",
+    );
+    expect(reviewRegionClipPath(region)).toBe(
+      "polygon(300px 48px, 1000px 48px, 1000px 648px, 800px 648px, 800px 580px, 500px 580px, 500px 648px, 300px 648px)",
+    );
+  });
+
+  it("keeps a popover inside the region whichever side it opens toward", () => {
+    // Opening right of a pin near the right edge shifts it back inside.
+    expect(getReviewPopoverBox(900, region, "start")).toEqual({
+      left: 1000 - 8 - 320 - 900,
+      width: 320,
+    });
+    // Opening left of a pin near the left edge shifts it back inside.
+    expect(getReviewPopoverBox(320, region, "end")).toEqual({
+      left: 300 + 8 - 320,
+      width: 320,
+    });
+    expect(getReviewPopoverBox(500, region, "start")).toEqual({
+      left: 12,
+      width: 320,
+    });
+    expect(getReviewPopoverBox(800, region, "end")).toEqual({
+      left: -12 - 320,
+      width: 320,
+    });
+  });
+
+  it("narrows a popover that cannot fit the region", () => {
+    const narrow = { ...region, width: 200 };
+    const box = getReviewPopoverBox(400, narrow, "start");
+    expect(box.width).toBe(184);
+    expect(400 + box.left).toBeGreaterThanOrEqual(narrow.left + 8);
+    expect(400 + box.left + box.width).toBeLessThanOrEqual(
+      narrow.left + narrow.width - 8,
+    );
   });
 });

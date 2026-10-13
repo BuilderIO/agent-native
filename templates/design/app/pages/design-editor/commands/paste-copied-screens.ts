@@ -4,6 +4,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignClipboardScreenEntry } from "@/lib/design-import";
 import {
@@ -11,6 +12,7 @@ import {
   normalizedDesignFileType,
   reassignDuplicatedNodeIds,
 } from "@/pages/design-editor/canvas-primitive-insert";
+import { resolveScreenViewPastePositions } from "@/pages/design-editor/commands/paste-view-position";
 import type { DesignFile, DesignTool } from "@/pages/design-editor/types";
 
 export interface PasteCopiedScreensArgs {
@@ -20,6 +22,7 @@ export interface PasteCopiedScreensArgs {
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
   files: DesignFile[];
+  getVisibleCanvasRect: () => VisibleCanvasRect | null;
   id: string | undefined;
   pasteCascadeRef: RefObject<number>;
   queryClient: QueryClient;
@@ -40,6 +43,7 @@ export function runPasteCopiedScreens(
     canvasFrameGeometryById,
     createFileMutation,
     files,
+    getVisibleCanvasRect,
     id,
     pasteCascadeRef,
     queryClient,
@@ -58,6 +62,14 @@ export function runPasteCopiedScreens(
 ) {
   if (!id || !canEditDesign || screens.length === 0) return;
   const pasteOffset = 32 + pasteCascadeRef.current * 16;
+  const viewPositions = position
+    ? null
+    : resolveScreenViewPastePositions({
+        visibleRect:
+          viewModeRef.current === "overview" ? getVisibleCanvasRect() : null,
+        sourceFrames: screens.map((screen) => screen.canvasFrame),
+        cascadeOffset: pasteCascadeRef.current * 16,
+      });
   pasteCascadeRef.current += 1;
   screens.forEach((screen, index) => {
     const filename = nextDuplicatedFilename(files, screen.filename);
@@ -79,10 +91,14 @@ export function runPasteCopiedScreens(
           if (!nextId) return;
           const nextX = position
             ? position.x + index * 16
-            : (sourceGeometry?.x ?? 0) + pasteOffset;
+            : viewPositions
+              ? viewPositions[index]!.x
+              : (sourceGeometry?.x ?? 0) + pasteOffset;
           const nextY = position
             ? position.y + index * 16
-            : (sourceGeometry?.y ?? 0) + pasteOffset;
+            : viewPositions
+              ? viewPositions[index]!.y
+              : (sourceGeometry?.y ?? 0) + pasteOffset;
           queueFrameGeometrySave({
             ...canvasFrameGeometryById,
             [nextId]: {

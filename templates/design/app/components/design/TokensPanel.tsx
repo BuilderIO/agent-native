@@ -24,6 +24,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
+import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,6 +40,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  LAYER_ROW_GEOMETRY_CLASS,
+  LayerRowIndentSlots,
+  layerRowIndentCount,
+} from "./LayersPanel";
 import { TokenColorPicker } from "./TokenColorPicker";
 
 interface DesignToken {
@@ -154,65 +160,70 @@ function TokenRow({
   return (
     <div
       className={cn(
-        "group flex h-8 items-center gap-2 px-4 transition-colors hover:bg-accent/40",
-        editing && "bg-accent/60",
+        "group rounded-[4px]",
+        LAYER_ROW_GEOMETRY_CLASS,
+        editing
+          ? "bg-[var(--design-editor-selection-color)] text-foreground"
+          : "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
       )}
     >
-      <span className="size-4 shrink-0" aria-hidden />
-      {showSwatch ? (
-        parseCssColorExtended(token.value) ? (
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            <TokenColorPicker
-              name={token.name}
-              value={token.value}
-              onCommit={(value) => onColorCommit(token.cssVar, value)}
-            />
-          </span>
+      <LayerRowIndentSlots count={layerRowIndentCount(1)} />
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {showSwatch ? (
+          parseCssColorExtended(token.value) ? (
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <TokenColorPicker
+                name={token.name}
+                value={token.value}
+                onCommit={(value) => onColorCommit(token.cssVar, value)}
+              />
+            </span>
+          ) : (
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <span
+                className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
+                style={{ backgroundColor: token.value }}
+                aria-hidden
+              />
+            </span>
+          )
         ) : (
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            <span
-              className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
-              style={{ backgroundColor: token.value }}
-              aria-hidden
-            />
-          </span>
-        )
-      ) : (
-        <TokenTypeIcon type={token.type} />
-      )}
-      <button
-        type="button"
-        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left !text-[11px] leading-4 tracking-[0.055px] text-foreground"
-        onClick={onStartEdit}
-        aria-label={`Edit ${token.name}`}
-        title={`${token.name} (${token.cssVar})`}
-      >
-        {token.name}
-      </button>
-      {editing ? (
-        <Input
-          ref={inputRef}
-          aria-label={`Token value for ${token.name}`}
-          value={editDraft}
-          onChange={(e) => onDraftChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onCommit();
-            if (e.key === "Escape") onCancelEdit();
-          }}
-          onBlur={onCommit}
-          className="h-6 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
-        />
-      ) : (
+          <TokenTypeIcon type={token.type} />
+        )}
         <button
           type="button"
-          className="max-w-[6rem] shrink-0 cursor-pointer truncate bg-transparent p-0 text-right font-mono !text-[11px] leading-4 text-muted-foreground hover:text-foreground"
-          title={token.value}
-          aria-label={`Edit value for ${token.name}`}
+          className="min-w-0 flex-1 cursor-default truncate bg-transparent p-0 text-left font-normal leading-4 text-foreground"
           onClick={onStartEdit}
+          aria-label={`Edit ${token.name}`}
+          title={`${token.name} (${token.cssVar})`}
         >
-          {token.value}
+          {token.name}
         </button>
-      )}
+        {editing ? (
+          <Input
+            ref={inputRef}
+            aria-label={`Token value for ${token.name}`}
+            value={editDraft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onCommit();
+              if (e.key === "Escape") onCancelEdit();
+            }}
+            onBlur={onCommit}
+            className="h-6 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
+          />
+        ) : (
+          <button
+            type="button"
+            className="max-w-[6rem] shrink-0 cursor-default truncate bg-transparent p-0 text-right font-mono leading-4 text-muted-foreground hover:text-foreground"
+            title={token.value}
+            aria-label={`Edit value for ${token.name}`}
+            onClick={onStartEdit}
+          >
+            {token.value}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -239,45 +250,56 @@ function TokenGroupSection({
   onColorCommit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { label } = typeLabel(group.type);
+  const { label, Icon } = typeLabel(group.type);
 
   return (
-    <div className="border-t border-border first:border-t-0">
+    <div>
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
-        className="flex h-10 w-full cursor-pointer items-center pr-3 text-left hover:bg-accent/30"
+        className={cn(
+          "w-full cursor-default rounded-[4px] text-left text-foreground/90 outline-none hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+          LAYER_ROW_GEOMETRY_CLASS,
+        )}
       >
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {collapsed ? (
-            <IconChevronRight className="size-3" />
-          ) : (
-            <IconChevronDown className="size-3" />
-          )}
-        </span>
-        <span className="min-w-0 flex-1 truncate !text-[11px] font-[550] leading-4 tracking-[0.055px] text-foreground">
-          {label}
+        <LayerRowIndentSlots
+          count={layerRowIndentCount(0)}
+          control={
+            <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+              {collapsed ? (
+                <IconChevronRight
+                  className="!size-3 rtl:-scale-x-100"
+                  strokeWidth={1.8}
+                />
+              ) : (
+                <IconChevronDown className="!size-3" strokeWidth={1.8} />
+              )}
+            </span>
+          }
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 flex-1 truncate font-normal leading-4 text-foreground">
+            {label}
+          </span>
         </span>
       </button>
 
-      {!collapsed && (
-        <div>
-          {group.tokens.map((token) => (
-            <TokenRow
-              key={token.cssVar}
-              token={token}
-              editing={editingKey === token.cssVar}
-              editDraft={editDraft}
-              onDraftChange={onDraftChange}
-              onCommit={onCommit}
-              onStartEdit={() => onStartEdit(token.cssVar, token.value)}
-              onCancelEdit={onCancelEdit}
-              onColorCommit={onColorCommit}
-            />
-          ))}
-        </div>
-      )}
+      {!collapsed &&
+        group.tokens.map((token) => (
+          <TokenRow
+            key={token.cssVar}
+            token={token}
+            editing={editingKey === token.cssVar}
+            editDraft={editDraft}
+            onDraftChange={onDraftChange}
+            onCommit={onCommit}
+            onStartEdit={() => onStartEdit(token.cssVar, token.value)}
+            onCancelEdit={onCancelEdit}
+            onColorCommit={onColorCommit}
+          />
+        ))}
     </div>
   );
 }
@@ -626,7 +648,9 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const designIdRef = useRef(designId);
   designIdRef.current = designId;
 
-  const [search, setSearch] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
@@ -727,8 +751,8 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   };
 
   const tokenCount = data?.tokenCount ?? 0;
-  const searchOpen = search !== null;
-  const query = (search ?? "").trim().toLowerCase();
+  const showSearch = searchOpen || Boolean(search.trim());
+  const query = search.trim().toLowerCase();
   const allGroups = data?.groups;
   const groups = useMemo(() => {
     if (!allGroups || !query) return allGroups ?? [];
@@ -744,6 +768,10 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
       .filter((group) => group.tokens.length > 0);
   }, [allGroups, query]);
   const hasTokens = (allGroups?.length ?? 0) > 0;
+  const focusSearch = () => {
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -759,8 +787,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
               size="icon"
               className="size-8 cursor-pointer rounded-md text-foreground"
               aria-label={t("designEditor.tokens.search")}
-              aria-pressed={searchOpen}
-              onClick={() => setSearch(searchOpen ? null : "")}
+              onClick={focusSearch}
             >
               <IconSearch className="size-4" />
             </Button>
@@ -776,32 +803,32 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         <AddTokenPopover onAdd={handleNewToken} />
       </LeftPanelHeader>
 
-      {searchOpen && (
-        <div className="shrink-0 border-b border-border px-2 py-1.5">
-          <Input
-            autoFocus
-            value={search ?? ""}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSearch(null);
-            }}
-            aria-label={t("designEditor.tokens.search")}
-            placeholder={t("designEditor.tokens.search")}
-            className="h-7 !text-xs md:!text-xs"
-          />
-        </div>
+      {showSearch && (
+        <LeftPanelSearchField
+          ref={searchInputRef}
+          value={search}
+          placeholder={t("designEditor.tokens.search")}
+          onValueChange={setSearch}
+          onEscapeWhenEmpty={() => setSearchOpen(false)}
+        />
       )}
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
         {isLoading && (
-          <div className="flex flex-col gap-1.5 px-3 py-4">
+          <div className="px-1.5">
             {[1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
-                className="h-6 animate-pulse rounded bg-muted/40"
-                style={{ width: `${60 + (i % 3) * 15}%` }}
-              />
+                className={cn(LAYER_ROW_GEOMETRY_CLASS, "gap-2")}
+                style={{ paddingInlineStart: i === 1 ? undefined : "58px" }}
+              >
+                <div className="size-4 shrink-0 animate-pulse rounded bg-muted/40" />
+                <div
+                  className="h-3 animate-pulse rounded bg-muted/40"
+                  style={{ width: `${40 + (i % 3) * 15}%` }}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -819,13 +846,13 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         )}
 
         {!isLoading && hasTokens && groups.length === 0 && (
-          <p className="px-4 py-6 text-center !text-[11px] text-muted-foreground">
+          <p className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
             {t("designEditor.tokens.noMatches")}
           </p>
         )}
 
         {!isLoading && groups.length > 0 && (
-          <div>
+          <div className="px-1.5">
             {groups.map((group) => (
               <TokenGroupSection
                 key={group.type}

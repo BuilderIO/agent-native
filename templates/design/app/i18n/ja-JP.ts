@@ -865,7 +865,6 @@ export default {
       tokens: "トークン",
       threads: "スレッド",
       label: "デザインワークスペース",
-      account: "アカウント",
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
     },
@@ -1324,6 +1323,7 @@ export default {
       htmlPlaceholder: "<main>単体 HTML をここに貼り付け...</main>",
       importHtml: "HTML をインポート",
       chooseHtmlFile: "HTML ファイルを選択",
+      allSupportedFiles: "対応しているすべてのファイル",
       githubTitle: "GitHub",
       githubDescription:
         "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",

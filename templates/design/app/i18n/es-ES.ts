@@ -866,7 +866,6 @@ export default {
       tokens: "Tokens de diseño",
       threads: "Conversaciones",
       label: "Espacio de trabajo de diseño",
-      account: "Cuenta",
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
     },
@@ -1326,6 +1325,7 @@ export default {
       htmlPlaceholder: "<main>Pega HTML independiente aquí...</main>",
       importHtml: "Importar HTML",
       chooseHtmlFile: "Elegir archivo HTML",
+      allSupportedFiles: "Todos los archivos compatibles",
       githubTitle: "GitHub",
       githubDescription:
         "Próximamente: importar pantallas y componentes directamente desde un repositorio.",

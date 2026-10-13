@@ -218,6 +218,70 @@ describe("home Figma import", () => {
     expect(picker).toHaveBeenCalledOnce();
     expect(document.querySelector('input[type="url"]')).toBeNull();
   });
+  describe("with a native file picker", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(window, "showOpenFilePicker");
+    });
+    function installPicker(picker: unknown) {
+      Object.defineProperty(window, "showOpenFilePicker", {
+        configurable: true,
+        value: picker,
+      });
+    }
+    async function pickFigmaFile() {
+      const fallback = vi.spyOn(
+        document.querySelector<HTMLInputElement>('input[type="file"]')!,
+        "click",
+      );
+      await openMenu();
+      await click("home.figmaFile");
+      return fallback;
+    }
+
+    it("names the Figma format and imports the picked file without the <input>", async () => {
+      const file = new File(["fixture"], "Brand.fig");
+      const picker = vi.fn().mockResolvedValue([{ getFile: async () => file }]);
+      installPicker(picker);
+      const fallback = await pickFigmaFile();
+      await vi.waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+      expect(picker).toHaveBeenCalledExactlyOnceWith({
+        types: [
+          {
+            description: "Figma (.fig)",
+            accept: { "application/x-figma": [".fig"] },
+          },
+        ],
+        excludeAcceptAllOption: true,
+        multiple: false,
+      });
+      expect(fallback).not.toHaveBeenCalled();
+      expect(readPendingDesignImport("file-design")?.file).toBe(file);
+    });
+    it("treats a dismissed dialog as a no-op", async () => {
+      const picker = vi
+        .fn()
+        .mockRejectedValue(new DOMException("aborted", "AbortError"));
+      installPicker(picker);
+      await pickFigmaFile();
+      await vi.waitFor(() => expect(picker).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mocks.error).not.toHaveBeenCalled();
+      expect(mocks.create).not.toHaveBeenCalled();
+    });
+    it("surfaces a picker failure instead of swallowing it", async () => {
+      installPicker(
+        vi.fn().mockRejectedValue(new DOMException("blocked", "SecurityError")),
+      );
+      await pickFigmaFile();
+      await vi.waitFor(() =>
+        expect(mocks.error).toHaveBeenCalledExactlyOnceWith(
+          "designEditor.import.errors.uploadFailed",
+          { description: "blocked" },
+        ),
+      );
+      expect(mocks.create).not.toHaveBeenCalled();
+    });
+  });
   it("does not provision, create, or import on mount, open, or cancel", async () => {
     await openLink();
     await typeUrl();
