@@ -1305,6 +1305,21 @@ export default {
     saveTemplate: "Guardar plantilla",
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
+    appMenu: {
+      file: "Archivo",
+      preferences: "Preferencias",
+      newDesign: "Nuevo diseño",
+      saveLocalCopy: "Guardar copia local…",
+      makeAnApp: "Crear una app",
+      theme: "Tema",
+      themeLight: "Claro",
+      themeDark: "Oscuro",
+      themeSystem: "Tema del sistema",
+      nudgeAmount: "Cantidad de desplazamiento…",
+      help: "Ayuda",
+      docs: "Documentación",
+      joinDiscord: "Unirse a Discord",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",

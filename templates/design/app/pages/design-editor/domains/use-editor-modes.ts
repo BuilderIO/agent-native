@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
+import type { KeyboardShortcutsInitialFocus } from "@/components/design/KeyboardShortcutsDialog";
 import { isShowKeyboardShortcutsHotkey } from "@/hooks/useDesignHotkeys";
 
 import {
@@ -179,6 +180,8 @@ export function useEditorModes({
 
   const [interactZoom, setInteractZoom] = useState(100);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
+  const [keyboardShortcutsInitialFocus, setKeyboardShortcutsInitialFocus] =
+    useState<KeyboardShortcutsInitialFocus>("search");
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
@@ -718,13 +721,17 @@ export function useEditorModes({
     viewMode,
   ]);
 
-  const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
-    keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
-    suppressProjectMenuReturnFocusRef.current = true;
-    setMinimalUi(false);
-    setUiHidden(false);
-    setKeyboardShortcutsOpen(true);
-  }, []);
+  const handleShowKeyboardShortcutsFromMenu = useCallback(
+    (initialFocus: KeyboardShortcutsInitialFocus) => {
+      keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
+      suppressProjectMenuReturnFocusRef.current = true;
+      setMinimalUi(false);
+      setUiHidden(false);
+      setKeyboardShortcutsInitialFocus(initialFocus);
+      setKeyboardShortcutsOpen(true);
+    },
+    [],
+  );
 
   const handleCloseKeyboardShortcuts = useCallback(() => {
     setKeyboardShortcutsOpen(false);
@@ -747,6 +754,7 @@ export function useEditorModes({
       activeElement instanceof HTMLElement ? activeElement : null;
     setMinimalUi(false);
     setUiHidden(false);
+    setKeyboardShortcutsInitialFocus("search");
     setKeyboardShortcutsOpen(true);
   }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
 
@@ -1107,6 +1115,7 @@ export function useEditorModes({
   return {
     interactZoom,
     keyboardShortcutsOpen,
+    keyboardShortcutsInitialFocus,
     projectMenuTriggerRef,
     suppressProjectMenuReturnFocusRef,
     overviewCommentPinRequest,

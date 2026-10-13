@@ -15,6 +15,7 @@ import {
   installBridge,
   pickFrameMode,
   selectByText,
+  openAppMenuSubmenu,
 } from "./helpers";
 import { childrenOf, expect, expectOnlyChanged, styleOf, test } from "./rails";
 
@@ -1403,7 +1404,7 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     )
     .toEqual({ identity: "stable-shortcut-frame", loads: 0 });
 
-  await page.getByRole("button", { name: "More" }).click();
+  await openAppMenuSubmenu(page, "Preferences");
   await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).click();
   await expect(dialog).toBeVisible();
   await expect(search).toBeFocused();

@@ -1278,6 +1278,21 @@ export default {
     saveTemplate: "حفظ القالب",
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
+    appMenu: {
+      file: "ملف",
+      preferences: "التفضيلات",
+      newDesign: "تصميم جديد",
+      saveLocalCopy: "حفظ نسخة محلية…",
+      makeAnApp: "إنشاء تطبيق",
+      theme: "السمة",
+      themeLight: "فاتح",
+      themeDark: "داكن",
+      themeSystem: "سمة النظام",
+      nudgeAmount: "مقدار التحريك…",
+      help: "مساعدة",
+      docs: "المستندات",
+      joinDiscord: "انضم إلى Discord",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",

@@ -342,6 +342,14 @@ export async function resetPersistedCanvasState(page: Page): Promise<void> {
   }
 }
 
+export async function openAppMenuSubmenu(
+  page: Page,
+  submenu: "File" | "Edit" | "View" | "Preferences" | "Help",
+): Promise<void> {
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: submenu, exact: true }).hover();
+}
+
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await resetPersistedCanvasState(page);
   await page.goto(appPath(`/design/${designId}`), {

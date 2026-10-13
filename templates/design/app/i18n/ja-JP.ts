@@ -1304,6 +1304,21 @@ export default {
     saveTemplate: "テンプレートを保存",
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
+    appMenu: {
+      file: "ファイル",
+      preferences: "環境設定",
+      newDesign: "新規デザイン",
+      saveLocalCopy: "ローカルコピーを保存…",
+      makeAnApp: "アプリを作成",
+      theme: "テーマ",
+      themeLight: "ライト",
+      themeDark: "ダーク",
+      themeSystem: "システムテーマ",
+      nudgeAmount: "ナッジ量…",
+      help: "ヘルプ",
+      docs: "ドキュメント",
+      joinDiscord: "Discord に参加",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",

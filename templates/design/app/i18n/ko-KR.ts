@@ -1288,6 +1288,21 @@ export default {
     saveTemplate: "템플릿 저장",
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
+    appMenu: {
+      file: "파일",
+      preferences: "환경설정",
+      newDesign: "새 디자인",
+      saveLocalCopy: "로컬 사본 저장…",
+      makeAnApp: "앱 만들기",
+      theme: "테마",
+      themeLight: "라이트",
+      themeDark: "다크",
+      themeSystem: "시스템 테마",
+      nudgeAmount: "미세 이동 거리…",
+      help: "도움말",
+      docs: "문서",
+      joinDiscord: "Discord 참여",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",

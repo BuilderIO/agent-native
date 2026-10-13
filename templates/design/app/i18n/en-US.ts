@@ -1226,6 +1226,21 @@ export default {
     saveTemplate: "Save template",
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
+    appMenu: {
+      file: "File",
+      preferences: "Preferences",
+      newDesign: "New design",
+      saveLocalCopy: "Save local copy…",
+      makeAnApp: "Make an app",
+      theme: "Theme",
+      themeLight: "Light",
+      themeDark: "Dark",
+      themeSystem: "System theme",
+      nudgeAmount: "Nudge amount…",
+      help: "Help",
+      docs: "Docs",
+      joinDiscord: "Join Discord",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "Apply or discard your pending visual edits before duplicating.",

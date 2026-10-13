@@ -1313,6 +1313,21 @@ export default {
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
+    appMenu: {
+      file: "Fichier",
+      preferences: "Préférences",
+      newDesign: "Nouveau design",
+      saveLocalCopy: "Enregistrer une copie locale…",
+      makeAnApp: "Créer une app",
+      theme: "Thème",
+      themeLight: "Clair",
+      themeDark: "Sombre",
+      themeSystem: "Thème du système",
+      nudgeAmount: "Pas de déplacement…",
+      help: "Aide",
+      docs: "Documentation",
+      joinDiscord: "Rejoindre Discord",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",

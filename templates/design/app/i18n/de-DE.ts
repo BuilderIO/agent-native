@@ -1310,6 +1310,21 @@ export default {
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
+    appMenu: {
+      file: "Datei",
+      preferences: "Einstellungen",
+      newDesign: "Neues Design",
+      saveLocalCopy: "Lokale Kopie speichern…",
+      makeAnApp: "App erstellen",
+      theme: "Design",
+      themeLight: "Hell",
+      themeDark: "Dunkel",
+      themeSystem: "Systemdesign",
+      nudgeAmount: "Verschiebungsschritt…",
+      help: "Hilfe",
+      docs: "Dokumentation",
+      joinDiscord: "Discord beitreten",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",

@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
-import { appPath } from "./helpers";
+import { appPath, openAppMenuSubmenu } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const SURFACES_HTML = `<!doctype html>
@@ -122,7 +122,7 @@ function motionDock(page: Page) {
 }
 
 async function openMotionDockFromMenu(page: Page) {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
   await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
   await expect(motionDock(page)).toBeVisible();
 }
@@ -298,9 +298,9 @@ test("with the Motion lab off the editor shows no Motion dock or Motion menu ent
     await openAndFit(app, id);
     await selectOnCanvas(app, "alpha", "Alpha Button");
 
-    await page.getByRole("button", { name: "More", exact: true }).click();
+    await openAppMenuSubmenu(page, "View");
     await expect(
-      page.getByRole("menuitem", { name: "Back to designs", exact: true }),
+      page.getByRole("menuitem", { name: "Zoom in", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("menuitem", { name: "Motion", exact: true }),
@@ -418,10 +418,10 @@ test("turning the Motion lab off hides the dock for a design with a saved track 
     await app.open(id);
     await app.zoomToFit();
     await selectOnCanvas(app, "alpha", "Alpha Button");
-    await page.getByRole("button", { name: "More", exact: true }).click();
+    await openAppMenuSubmenu(page, "View");
 
     await expect(
-      page.getByRole("menuitem", { name: "Back to designs", exact: true }),
+      page.getByRole("menuitem", { name: "Zoom in", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("menuitem", { name: "Motion", exact: true }),

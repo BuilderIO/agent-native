@@ -1302,6 +1302,21 @@ export default {
     saveTemplate: "Salvar modelo",
     templateSaved: "Modelo salvo na biblioteca",
     templateSaveFailed: "Não foi possível salvar este modelo",
+    appMenu: {
+      file: "Arquivo",
+      preferences: "Preferências",
+      newDesign: "Novo design",
+      saveLocalCopy: "Salvar cópia local…",
+      makeAnApp: "Criar um app",
+      theme: "Tema",
+      themeLight: "Claro",
+      themeDark: "Escuro",
+      themeSystem: "Tema do sistema",
+      nudgeAmount: "Distância de deslocamento…",
+      help: "Ajuda",
+      docs: "Documentação",
+      joinDiscord: "Entrar no Discord",
+    },
     fileMenu: {
       pendingEditsBlocked:
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",

@@ -1,6 +1,6 @@
 import { type Page } from "@playwright/test";
 
-import { appPath, expandAllLayers } from "./helpers";
+import { appPath, expandAllLayers, openAppMenuSubmenu } from "./helpers";
 import { expect, test, type App } from "./rails";
 
 const EXPORT_HTML = `<!doctype html>
@@ -100,7 +100,7 @@ async function exportPngPixels(page: Page) {
 }
 
 async function exportPngPixelsFromFileMenu(page: Page) {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
   // Open the submenu with a click: while a Screen is selected the canvas claims

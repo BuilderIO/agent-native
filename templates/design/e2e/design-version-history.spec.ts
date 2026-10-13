@@ -7,7 +7,11 @@ import {
   postAction,
   setBaseURL,
 } from "./drag-and-drop.shared";
-import { appPath } from "./helpers";
+import {
+  appPath,
+  openAppMenuSubmenu,
+  resetPersistedCanvasState,
+} from "./helpers";
 import { expect, test } from "./rails";
 
 const HOME_HTML = `<!doctype html><html lang="en"><head><title>Home</title></head><body><main>Home</main></body></html>`;
@@ -90,7 +94,7 @@ async function selectedOverviewScreenIds(page: Page): Promise<string[]> {
 }
 
 async function openHistory(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   await page.getByRole("menuitem", { name: "Version history" }).click();
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
 }
@@ -168,6 +172,7 @@ test("an editor checkpoint survives reopening the editor, and restoring it bring
   await app.settled();
 
   await page.goto("about:blank");
+  await resetPersistedCanvasState(page);
   await openEditor(page, designId);
   await expect(layerRow(page, "Second")).toHaveCount(1);
   await expect(layerRow(page, "Home")).toHaveCount(0);
