@@ -5284,11 +5284,12 @@ describe("AgentKitClient", () => {
       );
 
       await client.loadThread("thread-1");
-      await Promise.resolve();
-      expect(subscriptions).toBe(2);
-      expect(client.getThread("thread-1").messages).toContainEqual(
-        expect.objectContaining({ id: "assistant-1", status: "error" }),
-      );
+      await vi.waitFor(() => {
+        expect(subscriptions).toBe(2);
+        expect(client.getThread("thread-1").messages).toContainEqual(
+          expect.objectContaining({ id: "assistant-1", status: "error" }),
+        );
+      });
     } finally {
       await client.dispose();
     }
@@ -5345,9 +5346,10 @@ describe("AgentKitClient", () => {
     }
   });
 
-  it("settles terminal catch-up when replay fails before its terminal event", async () => {
+  it("surfaces transport errors after partial terminal catch-up replay", async () => {
     let subscriptions = 0;
     const reports: AgentStreamIntegrityReport[] = [];
+    const onError = vi.fn();
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({
       id: "thread-1",
@@ -5408,20 +5410,24 @@ describe("AgentKitClient", () => {
     const client = new AgentKitClient({
       transport,
       reconnect: { attempts: 3 },
+      onError,
       onIntegrityReport: (report) => reports.push(report),
     });
 
     try {
       await client.loadThread("thread-1");
       await vi.waitFor(() =>
-        expect(client.getThread("thread-1").messages).toContainEqual(
-          expect.objectContaining({ id: "assistant-1", status: "error" }),
-        ),
+        expect(client.getSnapshot()).toMatchObject({
+          connection: "error",
+          error: expect.objectContaining({ message: "Replay is unavailable" }),
+        }),
       );
-      expect(client.getSnapshot().connection).toBe("connected");
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Replay is unavailable" }),
+      );
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
-        status: "completed",
+        status: "failed",
         lastSequence: 3,
       });
       expect(client.getThread("thread-1").activeRunIds).toEqual([]);
@@ -5429,15 +5435,8 @@ describe("AgentKitClient", () => {
       expect(client.getThread("thread-1").messages).toContainEqual(
         expect.objectContaining({ id: "assistant-1", status: "error" }),
       );
-      expect(reports).toContainEqual(
+      expect(reports).not.toContainEqual(
         expect.objectContaining({ code: "run_missing_terminal" }),
-      );
-
-      await client.loadThread("thread-1");
-      await Promise.resolve();
-      expect(subscriptions).toBe(1);
-      expect(client.getThread("thread-1").messages).toContainEqual(
-        expect.objectContaining({ id: "assistant-1", status: "error" }),
       );
     } finally {
       await client.dispose();
@@ -6131,7 +6130,7 @@ describe("AgentKitClient", () => {
       expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
     });
 
-    it("keeps it for a completed run whose terminal events cannot be replayed", async () => {
+    it("drops it after terminal catch-up transport failure", async () => {
       const transport = createTransport([]);
       transport.getThreadSnapshot = async () => ({
         id: "thread-1",
@@ -6179,17 +6178,15 @@ describe("AgentKitClient", () => {
             expect.objectContaining({ id: "assistant-1", status: "error" }),
           ),
         );
-        expect(client.getSnapshot().connection).toBe("connected");
+        expect(client.getSnapshot().connection).toBe("error");
 
         const thread = client.getThread("thread-1");
-        // The unconfirmed replay settles the run's items as failed; the run
-        // itself still completed, so the user's answer is still wanted.
         expect(thread.messages).toContainEqual(
           expect.objectContaining({ id: "assistant-1", status: "error" }),
         );
-        expect(thread.runs["run-1"]?.status).toBe("completed");
-        expect(thread.connectionRequests["connection-1"]).toEqual(openRequest);
-        expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
+        expect(thread.runs["run-1"]?.status).toBe("failed");
+        expect(thread.connectionRequests).toEqual({});
+        expect(thread.connectionRequestRunIds).toEqual({});
       } finally {
         await client.dispose();
       }
