@@ -10332,6 +10332,9 @@ export async function chainServerDrivenContinuation(opts: {
         }
       : {}),
   };
+  // Approval selectors apply only to the request that consumes their one-shot grants.
+  delete continuationBody.approvedToolCalls;
+  delete continuationBody.approvedToolCallAskIds;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
