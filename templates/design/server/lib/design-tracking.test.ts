@@ -10,7 +10,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
-import { isHumanCaller, trackDesign, trackingErrorType } from "./design-tracking.js";
+import {
+  isHumanCaller,
+  trackDesign,
+  trackingErrorType,
+} from "./design-tracking.js";
 
 describe("trackDesign", () => {
   beforeEach(() => {
