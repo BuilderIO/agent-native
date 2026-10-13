@@ -5,7 +5,7 @@ import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-cata
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
 export const BASELINE_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
-export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v2";
+export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v5";
 export const CSV_PATH = fileURLToPath(
   new URL("./SYNTHETIC-analytics-retrieval.csv", import.meta.url),
 );
@@ -286,9 +286,118 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     ],
     dashboards: [],
   },
+  {
+    id: "active-member-roster-vs-product-events",
+    query: "list active workspace members with assigned roles",
+    expectedCandidateId: "dictionary:synthetic-active-workspace-member-roles",
+    note: "An explicitly active member roster can use an active-only membership source; an event source must not substitute for membership rows.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-active-workspace-member-roles",
+        metric: "Active Workspace Member Roles",
+        definition:
+          "Current active members associated with each workspace, including their assigned role.",
+        source: "synthetic",
+        table: "synthetic_active_workspace_member_roles",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
+        semanticScope: "membership",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+      {
+        id: "synthetic-active-member-events",
+        metric: "Active Workspace Member Activity Events",
+        definition:
+          "Usage events for active workspace members with role context.",
+        source: "synthetic",
+        table: "synthetic_workspace_member_events",
+        columnsUsed: "user_id, workspace_id, role_code, event_name, event_time",
+        grain: "One row per event_key",
+        semanticScope: "product_activity",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "negated-count-instruction-keeps-membership-rows",
+    query: "workspace users, no live counts",
+    expectedCandidateId: "dictionary:synthetic-user-organization-role-bridge",
+    note: "A non-positive count phrase should not turn a row-level membership lookup into a count request.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-monthly-user-count",
+        metric: "Workspace Monthly Member Count",
+        definition: "Monthly rollup of membership counts by workspace.",
+        source: "synthetic",
+        table: "synthetic_workspace_member_period_counts",
+        columnsUsed: "period_month, workspace_id, member_count",
+        grain: "One row per period_month per workspace_id",
+        semanticScope: "membership",
+        approved: true,
+      },
+      {
+        id: "synthetic-user-organization-role-bridge",
+        metric: "Workspace Member Roles",
+        definition:
+          "One row per user-workspace membership, including the assigned role.",
+        source: "synthetic",
+        table: "synthetic_workspace_member_roles",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "metadata-only-roster-keeps-membership-grain",
+    query:
+      "workspace users. Metadata only; do not report live counts or values.",
+    expectedCandidateId: "dictionary:synthetic-user-organization-role-bridge",
+    note: "The Analytics search action appends this metadata-only instruction; it must not turn a row lookup into an aggregate request.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-monthly-user-count",
+        metric: "Workspace Monthly Member Count",
+        definition: "Monthly rollup of membership counts by workspace.",
+        source: "synthetic",
+        table: "synthetic_workspace_member_period_counts",
+        columnsUsed: "period_month, workspace_id, member_count",
+        grain: "One row per period_month per workspace_id",
+        semanticScope: "membership",
+        approved: true,
+      },
+      {
+        id: "synthetic-user-organization-role-bridge",
+        metric: "Workspace Member Roles",
+        definition:
+          "One row per user-workspace membership, including the assigned role.",
+        source: "synthetic",
+        table: "synthetic_workspace_member_roles",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
 ];
 
 // Measured against the exact origin/main implementation at BASELINE_REVISION.
+// Baseline order was measured by measure-baseline.ts against BASELINE_REVISION.
 const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
   "dictionary-alias-mrr": ["dictionary:synthetic-monthly-recurring-revenue"],
   "panel-sql-only-term": ["dashboard:synthetic-runtime-overview:slow-path"],
@@ -310,6 +419,17 @@ const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
     "dictionary:synthetic-organization-user-events",
   ],
   "aggregate-wording-keeps-monthly-count": [
+    "dictionary:synthetic-monthly-user-count",
+    "dictionary:synthetic-user-organization-role-bridge",
+  ],
+  "active-member-roster-vs-product-events": [
+    "dictionary:synthetic-active-member-events",
+  ],
+  "negated-count-instruction-keeps-membership-rows": [
+    "dictionary:synthetic-monthly-user-count",
+    "dictionary:synthetic-user-organization-role-bridge",
+  ],
+  "metadata-only-roster-keeps-membership-grain": [
     "dictionary:synthetic-monthly-user-count",
     "dictionary:synthetic-user-organization-role-bridge",
   ],

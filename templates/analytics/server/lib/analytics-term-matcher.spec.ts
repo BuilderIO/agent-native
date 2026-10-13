@@ -7,6 +7,7 @@ import {
   paginateSearchResults,
   semanticScopeCompatibility,
   semanticScopeForSearch,
+  stripNonPositiveInstructions,
   unrelatedNameTerms,
 } from "./analytics-term-matcher";
 
@@ -92,6 +93,12 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("workspace member roles")).toBe(
       "membership_roster",
     );
+    expect(
+      semanticScopeForSearch("list active workspace members with roles"),
+    ).toBe("membership_roster");
+    expect(
+      semanticScopeForSearch("show active workspace users and their roles"),
+    ).toBe("membership_roster");
     expect(semanticScopeForSearch("monthly user count by organization")).toBe(
       "membership",
     );
@@ -102,6 +109,9 @@ describe("Analytics term matching", () => {
     ).toBe("membership");
     expect(
       semanticScopeForSearch("which users in organizations triggered events"),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForSearch("which active workspace members triggered events"),
     ).toBe("product_activity");
     expect(
       semanticScopeForSearch("Builder.io product monthly active user count"),
@@ -117,6 +127,17 @@ describe("Analytics term matching", () => {
         "Find the current user roster by organization with roles. Metadata only; do not report live counts or values.",
       ),
     ).toBe("membership_roster");
+    expect(
+      stripNonPositiveInstructions(
+        "workspace users, but don't report live counts",
+      ),
+    ).toBe("workspace users");
+    expect(
+      stripNonPositiveInstructions("workspace users, no live counts"),
+    ).toBe("workspace users");
+    expect(
+      stripNonPositiveInstructions("workspace users without a count"),
+    ).toBe("workspace users");
     expect(
       semanticScopeForSearch("how many members have access per workspace"),
     ).toBe("membership");

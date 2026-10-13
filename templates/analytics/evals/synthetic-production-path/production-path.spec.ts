@@ -84,6 +84,22 @@ const syntheticData = vi.hoisted(() => {
           sourcePath: "fixtures/models/organization_member_roles.sql",
         },
         {
+          id: "fixture-active-organization-member-roles",
+          metric: "Active Organization Member Roles",
+          definition:
+            "Current active synthetic workspace members with their assigned roles.",
+          source: "fixture_warehouse",
+          sourceKind: "code",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per user_id per organization_id",
+          primaryEntity: "organization membership",
+          table: "fixture_warehouse.active_organization_member_roles",
+          columnsUsed: "user_id, organization_id, role_code",
+          sourcePath: "fixtures/models/active_organization_member_roles.sql",
+        },
+        {
           id: "fixture-product-activity-events",
           metric: "Product Activity Event Records",
           definition:
@@ -172,7 +188,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v3";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v4";
 const BASELINE_GIT_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
 const ACTION_ALLOWLIST = ["find-data"] as const;
 const ANALYTICS_PROJECT_ROOT = path.resolve(
@@ -195,6 +211,18 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: "current-organization-role-roster",
     prompt:
       "Find the catalog reference for the current user roster by organization. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.organization_member_roles",
+  },
+  {
+    id: "active-workspace-member-roster-with-roles",
+    prompt:
+      "Find the catalog reference for active workspace members with roles. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
+    id: "nonpositive-count-instruction-keeps-member-rows",
+    prompt:
+      "Find workspace users, no live counts. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.organization_member_roles",
   },
   {
@@ -680,6 +708,8 @@ describe("Analytics synthetic production-path retrieval harness", () => {
   it("keeps harness cases synthetic and writes only the approved CSV schema", async () => {
     expect(SYNTHETIC_CASES.map(({ id }) => id)).toEqual([
       "current-organization-role-roster",
+      "active-workspace-member-roster-with-roles",
+      "nonpositive-count-instruction-keeps-member-rows",
       "monthly-organization-user-count",
       "active-product-users-map-to-activity",
       "builder-product-users-map-to-identities",

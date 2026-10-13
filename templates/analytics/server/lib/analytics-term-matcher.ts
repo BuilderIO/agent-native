@@ -270,8 +270,7 @@ export function semanticScopeForSearch(value: string): string {
       "activation",
       "adoption",
       "action",
-    ) ||
-    has("active")
+    )
   ) {
     return "product_activity";
   }
@@ -291,6 +290,7 @@ export function semanticScopeForSearch(value: string): string {
   ) {
     return "membership_roster";
   }
+  if (has("active")) return "product_activity";
   if (
     has("organization", "org", "company", "workspace", "team") &&
     has("membership", "member")
@@ -313,13 +313,23 @@ export function semanticScopeForSearch(value: string): string {
   return "unknown";
 }
 
-function stripNonPositiveInstructions(value: string): string {
+export function stripNonPositiveInstructions(value: string): string {
   return value
-    .replace(/(?:^|[;.!?])\s*metadata only\b/gi, " ")
+    .replace(/(?:^|[;,.!?])\s*metadata only\b/gi, " ")
     .replace(
-      /(?:^|[;.!?])\s*(?:please\s+)?(?:do\s+not|don't|never|avoid)\s+(?:report|return|show|include|provide|display)\s+(?:any\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;.!?]*/gi,
+      /(?:^|[;,.!?]|\bbut\b|\band\b)\s*(?:please\s+)?(?:do\s+not|don't|never|avoid)\s+(?:report|return|show|include|provide|display)\s+(?:any\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
       " ",
     )
+    .replace(
+      /(?:^|[;,.!?]|\bbut\b|\band\b)\s*no\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      " ",
+    )
+    .replace(
+      /\bwithout\s+(?:(?:a|an|any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      " ",
+    )
+    .trim()
+    .replace(/^[,;.!?]+|[,;.!?]+$/g, "")
     .trim();
 }
 

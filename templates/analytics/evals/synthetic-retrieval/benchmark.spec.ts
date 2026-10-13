@@ -18,7 +18,7 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
     expect(checkedIn).toBe(`${renderSyntheticBenchmarkCsv()}\n`);
   });
 
-  it("covers aliases, panel SQL, trust, roster grain, activity, and aggregates", () => {
+  it("covers aliases, panel SQL, trust, roster grain, activity, aggregate instructions, and active-member scope", () => {
     const rows = computeSyntheticBenchmark();
 
     expect(rows.every((row) => row.fixtureRevision === FIXTURE_REVISION)).toBe(
@@ -34,9 +34,12 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
       "organization-roster-roles-vs-monthly-count",
       "organization-user-activity-vs-membership",
       "aggregate-wording-keeps-monthly-count",
+      "active-member-roster-vs-product-events",
+      "negated-count-instruction-keeps-membership-rows",
+      "metadata-only-roster-keeps-membership-grain",
     ]);
     expect(rows.map((row) => row.afterExpectedRank)).toEqual(
-      Array.from({ length: 8 }, () => "1"),
+      Array.from({ length: 11 }, () => "1"),
     );
     expect(rows.map((row) => row.baselineExpectedRank)).toEqual([
       "1",
@@ -47,14 +50,17 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
       "2",
       "2",
       "1",
+      "",
+      "2",
+      "2",
     ]);
     expect(summarizeSyntheticBenchmark(rows)).toMatchObject({
-      cases: 8,
-      baselineTop1: "6/8",
-      baselineHitAt5: "8/8",
-      baselineMrr: 0.875,
-      afterTop1: "8/8",
-      afterHitAt5: "8/8",
+      cases: 11,
+      baselineTop1: "6/11",
+      baselineHitAt5: "10/11",
+      baselineMrr: 8 / 11,
+      afterTop1: "11/11",
+      afterHitAt5: "11/11",
       afterMrr: 1,
     });
   });

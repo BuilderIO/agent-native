@@ -12,6 +12,7 @@ import {
   semanticScopeCompatibility,
   semanticScopeForSearch,
   searchTerms,
+  stripNonPositiveInstructions,
   decodeSearchCursor,
   unrelatedNameTerms,
 } from "./analytics-term-matcher";
@@ -541,6 +542,37 @@ function hasExplicitActivityEvidence(
   );
 }
 
+function hasActiveOnlyMembershipEvidence(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  const scope = candidateSemanticScope(candidate);
+  if (scope !== "membership" && scope !== "membership_roster") return false;
+  const values =
+    candidate.kind === "data-dictionary"
+      ? [
+          candidate.metric,
+          candidate.definition,
+          candidate.table,
+          candidate.semanticModel,
+        ]
+      : [candidate.panelTitle, candidate.panelDescription, candidate.query];
+  const searchable = values
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  return /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/.test(
+    searchable,
+  );
+}
+
+function requestsActiveMembers(search: string): boolean {
+  const intent = stripNonPositiveInstructions(search);
+  return /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/i.test(
+    intent,
+  );
+}
+
 function isRosterDimensionCandidate(
   candidate: AnalyticsQueryCatalogCandidate,
 ): boolean {
@@ -577,6 +609,12 @@ function rosterCandidateSupportsRequestedDetail(
     hasExplicitNonMembershipScope(candidate) ||
     hasExplicitActivityEvidence(candidate) ||
     candidateSemanticScope(candidate) === "product_activity"
+  ) {
+    return false;
+  }
+  if (
+    hasActiveOnlyMembershipEvidence(candidate) &&
+    !requestsActiveMembers(search)
   ) {
     return false;
   }
@@ -976,6 +1014,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
   truncated: boolean;
   nextPage: string | null;
 } {
+  const rankingIntent = stripNonPositiveInstructions(args.search);
   const candidates = [
     ...args.dashboards.flatMap((dashboard) =>
       dashboardPanelCandidates({
@@ -984,23 +1023,24 @@ export function rankAnalyticsQueryCatalogPage(args: {
         dashboardDescription: dashboard.description,
         config: dashboard.config,
         origin: dashboard.origin,
-        search: args.search,
+        search: rankingIntent,
         certification: dashboard.certification ?? null,
         dashboardUpdatedAt: dashboard.updatedAt,
         favorite: dashboard.favorite === true,
       }),
     ),
-    ...dictionaryCandidates(args.dictionaryEntries, args.search),
+    ...dictionaryCandidates(args.dictionaryEntries, rankingIntent),
   ];
 
-  const requestedScope = requestedSemanticScope(args.search);
+  const requestedScope = requestedSemanticScope(rankingIntent);
+  const requestedActiveMembers = requestsActiveMembers(rankingIntent);
   const aggregateRequest =
     /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
-      args.search,
+      rankingIntent,
     );
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
-  const requestedTerms = new Set(searchTerms(args.search));
+  const requestedTerms = new Set(searchTerms(rankingIntent));
   const hasExactQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 0 &&
     [...requestedTerms].every((term) =>
@@ -1008,8 +1048,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
     );
   const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
-  const rosterRequest = isMembershipRosterRequest(args.search);
-  const requestsRoleDetail = requestsMembershipRoleDetail(args.search);
+  const rosterRequest = isMembershipRosterRequest(rankingIntent);
+  const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const roleBreakdownRequest =
     !rosterRequest && requestedScope === "membership" && requestsRoleDetail;
   // Strong definitions and proven panels outrank generic hits before coverage.
@@ -1023,6 +1063,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
           ? 1
           : 0
       : 0,
+    activeSubsetSpecificity:
+      requestedActiveMembers && hasActiveOnlyMembershipEvidence(candidate)
+        ? 1
+        : 0,
     membershipRowSpecificity:
       plainMembershipRequest && hasMembershipRosterEvidence(candidate) ? 1 : 0,
     scope:
@@ -1053,32 +1097,36 @@ export function rankAnalyticsQueryCatalogPage(args: {
     runnable: candidateIsRunnable(candidate),
     tieBreak: JSON.stringify(candidate),
   }));
+  const eligibleCandidates = rankedCandidates.filter(
+    ({ candidate }) =>
+      !hasActiveOnlyMembershipEvidence(candidate) || requestedActiveMembers,
+  );
   const strongestScopeMatch = Math.max(
-    ...rankedCandidates.map(({ scope }) => scope),
+    ...eligibleCandidates.map(({ scope }) => scope),
     0,
   );
-  const bestScopeTrust = rankedCandidates.reduce(
+  const bestScopeTrust = eligibleCandidates.reduce(
     (strongest, candidate) =>
       candidate.scope === 2 ? Math.max(strongest, candidate.trust) : strongest,
     0,
   );
-  const scopeFiltered = isMembershipRosterRequest(args.search)
-    ? rankedCandidates.filter(({ candidate }) =>
-        rosterCandidateSupportsRequestedDetail(candidate, args.search),
+  const scopeFiltered = rosterRequest
+    ? eligibleCandidates.filter(({ candidate }) =>
+        rosterCandidateSupportsRequestedDetail(candidate, rankingIntent),
       )
     : roleBreakdownRequest
-      ? rankedCandidates.filter(({ candidate }) =>
+      ? eligibleCandidates.filter(({ candidate }) =>
           hasMembershipRoleContext(candidate),
         )
       : strongestScopeMatch === 2
-        ? rankedCandidates.filter(({ scope, trust }) => {
+        ? eligibleCandidates.filter(({ scope, trust }) => {
             if (scope === 2) return true;
             if (requestedScope === "product_activity") {
               return scope === 1 && trust > bestScopeTrust;
             }
             return trust > bestScopeTrust;
           })
-        : rankedCandidates;
+        : eligibleCandidates;
   const ranked = scopeFiltered
     .sort((a, b) => {
       if (b.rosterSpecificity !== a.rosterSpecificity) {
@@ -1091,6 +1139,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
         return b.rankingTier - a.rankingTier;
       }
       if (b.trust !== a.trust) return b.trust - a.trust;
+      if (b.activeSubsetSpecificity !== a.activeSubsetSpecificity) {
+        return b.activeSubsetSpecificity - a.activeSubsetSpecificity;
+      }
       if (b.scope !== a.scope) return b.scope - a.scope;
       if (b.coverage !== a.coverage) return b.coverage - a.coverage;
       if (b.candidate.score !== a.candidate.score) {

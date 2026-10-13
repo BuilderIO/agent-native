@@ -11,26 +11,42 @@ invented. The cases preserve only the retrieval contrasts under test, such as
 a period aggregate versus a row-level membership bridge. They do not copy
 Builder.io model names, columns, or membership policies.
 
-The baseline candidate order was measured by importing the exact
-`rankAnalyticsQueryCatalog` implementation from that `origin/main` revision
-and running it against these same fixtures. `benchmark.ts` stores the measured
-candidate order and the CSV records the source and fixture revisions, so the
-comparison does not substitute a simplified lexical search for the previous
-ranker.
-Re-measure the baseline when changing the comparison base; do not update the
-revision without running the fixtures against that commit.
+The baseline candidate order was measured by loading the exact
+`rankAnalyticsQueryCatalog` implementation from that pinned revision and
+running the same fixtures with `measure-baseline.ts`. The measured order is
+stored in `benchmark.ts`; the checked-in CSV records the source and fixture
+revisions. The normal `--check` command compares the CSV with this recorded
+baseline and the current ranker; it does not load or re-run the baseline code.
+To reproduce or re-measure it, install the pinned baseline in a separate
+checkout and pass its path:
+
+```sh
+git worktree add --detach /tmp/analytics-eval-before 8ff15a5577e6530316d59c4e4b2aa751a8f56a63
+pnpm --dir /tmp/analytics-eval-before install --frozen-lockfile
+ANALYTICS_BASELINE_ROOT=/tmp/analytics-eval-before \
+  pnpm --filter analytics exec tsx evals/synthetic-retrieval/measure-baseline.ts
+```
+
+The measurement script rejects a checkout whose `HEAD` does not equal the
+pinned revision. Re-measure the baseline when changing the comparison base; do
+not update the revision without running this command.
 
 The after results call `rankAnalyticsQueryCatalog` directly with fixed
-fixtures. The eight cases cover a built-in dictionary alias (`MRR`), a term
+fixtures. The eleven cases cover a built-in dictionary alias (`MRR`), a term
 found only in panel SQL, semantic-scope selection, approved versus generated
 dictionary trust, off-topic `Connect` text, a role-aware organization roster
-versus a period aggregate, product activity versus membership metadata, and
-preserving aggregate retrieval for a highest-count question. The synthetic
+versus a period aggregate, product activity versus membership metadata,
+preserving aggregate retrieval for a highest-count question, active-only
+membership versus product events, and two non-positive count forms on a
+row-level membership request, including the metadata-only instruction appended
+by the search action. The synthetic
 period aggregate has a daily refresh, final-day completed periods, a partial
 current period, and an invented sandbox exclusion rule. The CSV marks every
 row `SYNTHETIC` and includes the expected candidate's rank under both methods.
 This measures retrieval ranking only; it does not measure answer quality,
 latency, or the mounted production chat path.
+Across these eleven cases, top-1 improves from 6/11 to 11/11, hit@5 from 10/11
+to 11/11, and mean reciprocal rank from 0.7273 to 1.00.
 
 From the repository root, regenerate the checked-in CSV with:
 
