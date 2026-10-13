@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 const CSV_COLUMNS = [
@@ -53,7 +52,10 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V11_CASE_IDS;
 type PinnedEvaluation = {
   fixtureRevision: string;
   baselineRevision: string;
+  baselineCodeRevision: string;
   candidateRevision: string;
+  candidateCodeRevision: string;
+  harnessRevision: string;
   caseIds: readonly string[];
 };
 
@@ -61,13 +63,25 @@ const PINNED_EVALUATIONS = [
   {
     fixtureRevision: "synthetic-analytics-retrieval-v10",
     baselineRevision: "d0caebd20464a2a00ad417c78943d81438d9333a",
+    baselineCodeRevision:
+      "sha256:fb3f0bad8151998d81fcf994a55143ee58f64ed8c3483404237669514656a268",
     candidateRevision: "595a07f9a507bba5ba43d6478969c6e19bea9ac2",
+    candidateCodeRevision:
+      "sha256:9a1fc94f54d57e6656dc2793628bcccf917a416980fa1c861b7f44bd28f3d139",
+    harnessRevision:
+      "sha256:5e746b9ffc64ce67cb7ee0b16a05b276ca6341bd26e90ba7bf12e26028df9ac9",
     caseIds: V10_CASE_IDS,
   },
   {
     fixtureRevision: "synthetic-analytics-retrieval-v11",
     baselineRevision: "d0caebd20464a2a00ad417c78943d81438d9333a",
+    baselineCodeRevision:
+      "sha256:a31ae9051b291723b73c09752df3711dcea125df319de7b96483a52769def191",
     candidateRevision: "fb583843666f597c9eced3d7f4f297fd5cdcec26",
+    candidateCodeRevision:
+      "sha256:2b0445b08a32d9afabc18ba1e429ee07898ad7033c4575d70e46ac6f184f9358",
+    harnessRevision:
+      "sha256:b9acd1d7c3c9758d57a4485fd56a72c7954ad2b3fefe74f128fc16fb1ca18472",
     caseIds: V11_CASE_IDS,
   },
 ] as const satisfies readonly PinnedEvaluation[];
@@ -84,76 +98,17 @@ export const PRODUCTION_PATH_CANDIDATE_REVISION =
   CURRENT_EVALUATION.candidateRevision;
 export const PRODUCTION_PATH_FIXTURE_REVISION =
   CURRENT_EVALUATION.fixtureRevision;
-const PRODUCTION_PATH_HARNESS_PATH =
-  "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 
-// Keep aligned with SOURCE_FILES and codeRevision() in production-path.spec.ts.
-const PRODUCTION_PATH_SOURCE_PATHS = [
-  "templates/analytics/evals/production-context.ts",
-  "templates/analytics/actions/find-data.ts",
-  "templates/analytics/server/lib/analytics-query-catalog.ts",
-  "templates/analytics/server/lib/analytics-term-matcher.ts",
-  "templates/analytics/server/lib/analytics-agent-context.ts",
-  "templates/analytics/server/lib/data-dictionary-context.ts",
-  "templates/analytics/server/lib/source-index-store.ts",
-  "templates/analytics/server/plugins/agent-chat.ts",
-  "packages/core/src/agent/production-agent.ts",
-  "packages/core/src/eval/agent-runner.ts",
-] as const;
-
-const REPOSITORY_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-  cwd: process.cwd(),
-  encoding: "utf8",
-}).trim();
-
-function codeRevisionForSourceCommit(
-  sourceRevision: string,
-  harnessRevision: string,
-): string {
-  const hash = createHash("sha256");
-  for (const repositoryRelativePath of PRODUCTION_PATH_SOURCE_PATHS) {
-    const content = execFileSync(
-      "git",
-      ["show", `${sourceRevision}:${repositoryRelativePath}`],
-      { cwd: REPOSITORY_ROOT },
-    );
-    hash.update(repositoryRelativePath.split("/").at(-1) ?? "source");
-    hash.update(content);
-  }
-  const harness = execFileSync(
-    "git",
-    ["show", `${harnessRevision}:${PRODUCTION_PATH_HARNESS_PATH}`],
-    { cwd: REPOSITORY_ROOT },
-  );
-  hash.update(PRODUCTION_PATH_HARNESS_PATH);
-  hash.update(harness);
-  return `sha256:${hash.digest("hex")}`;
-}
-
-function harnessRevisionForCommit(revision: string): string {
-  const harness = execFileSync(
-    "git",
-    ["show", `${revision}:${PRODUCTION_PATH_HARNESS_PATH}`],
-    { cwd: REPOSITORY_ROOT },
-  );
-  return `sha256:${createHash("sha256").update(harness).digest("hex")}`;
-}
-
+// CI uses shallow checkouts, so provenance hashes cannot be recomputed from old git objects.
 const CODE_REVISIONS_BY_FIXTURE = new Map(
   PINNED_EVALUATIONS.map(
     (evaluation) =>
       [
         evaluation.fixtureRevision,
         {
-          baseline: codeRevisionForSourceCommit(
-            evaluation.baselineRevision,
-            evaluation.candidateRevision,
-          ),
-          candidate: codeRevisionForSourceCommit(
-            evaluation.candidateRevision,
-            evaluation.candidateRevision,
-          ),
-          harness: harnessRevisionForCommit(evaluation.candidateRevision),
+          baseline: evaluation.baselineCodeRevision,
+          candidate: evaluation.candidateCodeRevision,
+          harness: evaluation.harnessRevision,
         },
       ] as const,
   ),
