@@ -482,6 +482,38 @@ button:focus-visible {
     );
   });
 
+  it.each([
+    ["a CSS file", "files"],
+    ["pasted CSS", "paste"],
+  ] as const)(
+    "preserves multiline declarations in %s",
+    async (_label, source) => {
+      const css = `.card {
+  background: linear-gradient(
+    #ffffff,
+    #000000
+  );
+}`;
+      const result = await action.run(
+        source === "files"
+          ? {
+              designId: "design_1",
+              source,
+              files: [{ filename: "theme.css", content: css }],
+            }
+          : { designId: "design_1", source, text: css },
+      );
+
+      expect(result.rejectedCount).toBe(0);
+      expect(result.tokens).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ value: "#ffffff", type: "color" }),
+          expect.objectContaining({ value: "#000000", type: "color" }),
+        ]),
+      );
+    },
+  );
+
   it("keeps motion and elevation tokens instead of dropping them", async () => {
     const result = await action.run({
       designId: "design_1",

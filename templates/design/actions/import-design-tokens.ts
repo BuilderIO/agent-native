@@ -1033,7 +1033,14 @@ function tokensFromFiles(
     const content = /\.(scss|less)$/i.test(file.filename)
       ? stripScssLessLineComments(file.content)
       : file.content;
-    const sanitized = removeMalformedNamedLines(content);
+    const isStylesheet = /\.(css|scss|less)$/i.test(file.filename);
+    const isPastedStylesheet =
+      file.filename.toLowerCase() === "pasted-tokens.txt" &&
+      looksLikePastedCss(content);
+    const sanitized =
+      isStylesheet || isPastedStylesheet
+        ? { content, rejectedCount: 0 }
+        : removeMalformedNamedLines(content);
     malformedNamedLineCount += sanitized.rejectedCount;
     return { ...file, content: sanitized.content };
   });
