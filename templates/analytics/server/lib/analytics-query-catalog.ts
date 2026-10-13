@@ -576,6 +576,7 @@ function hasExplicitActivityEvidence(
   }
   if (
     candidate.kind === "data-dictionary" &&
+    !isStaleGeneratedSourceIndexEntry(candidate) &&
     (candidate.semanticScope === "membership" ||
       candidate.semanticScope === "membership_roster")
   ) {

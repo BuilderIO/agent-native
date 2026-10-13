@@ -670,7 +670,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     });
     state.readSourceIndex.mockResolvedValueOnce({
       status: "available",
-      bundle: {} as never,
+      bundle: { generatedAt: "2026-10-13T00:00:00.000Z" } as never,
     });
     state.sourceIndexDictionaryEntries.mockReturnValueOnce([
       {
@@ -722,7 +722,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     ];
     state.readSourceIndex.mockResolvedValueOnce({
       status: "available",
-      bundle: {} as never,
+      bundle: { generatedAt: "2026-10-13T00:00:00.000Z" } as never,
     });
     state.sourceIndexDictionaryEntries.mockReturnValueOnce([
       {
