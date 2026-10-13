@@ -133,6 +133,7 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
 vi.mock("@/context/DeckContext", () => ({
   useDecks: () => ({
     getDeck: () => (mocks.deckMissing ? null : mocks.deck),
+    getDeckLatest: () => (mocks.deckMissing ? null : mocks.deck),
     reloadDecks: vi.fn(),
     reloadDecksWithStatus: vi.fn(),
     refreshOpenDeck: mocks.refreshOpenDeck,
@@ -2149,6 +2150,10 @@ describe("DeckEditor generation signal wiring", () => {
     await waitFor(() =>
       expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
     );
+    expect(
+      typeof (mocks.deck.generationContext as Record<string, unknown>)
+        .generationFailureSlidesFingerprint,
+    ).toBe("string");
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.getByText("deckEditor.partialGenerationFailed")).toBeTruthy();
     expect(screen.getByText(originalPrompt)).toBeTruthy();
@@ -2162,6 +2167,22 @@ describe("DeckEditor generation signal wiring", () => {
       }),
     ).toBeNull();
     expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+
+    mocks.deck.slides = [
+      { id: "slide-1", content: "<p>Repaired first slide</p>" },
+    ];
+    act(publishAgentGeneratingChange);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("deckEditor.partialGenerationFailed"),
+      ).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(
+        (mocks.deck.generationContext as Record<string, unknown>)
+          .generationFailureCode,
+      ).toBeNull(),
+    );
   });
 
   it("retries an empty failed deck with the saved original request", async () => {

@@ -47,6 +47,7 @@ import {
   useState,
   useCallback,
   useRef,
+  useMemo,
   useEffect,
   useLayoutEffect,
   type FormEvent,
@@ -176,10 +177,13 @@ import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   getNewDeckGenerationRecoveryState,
+  shouldClearPartialGenerationFailure,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  partialGenerationFailureSlidesFingerprint,
+  shouldShowPartialGenerationFailure,
   slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
@@ -566,6 +570,7 @@ export default function DeckEditor() {
   const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
+    getDeckLatest,
     reloadDecks,
     reloadDecksWithStatus,
     refreshOpenDeck,
@@ -1180,6 +1185,7 @@ export default function DeckEditor() {
             ...generationContext,
             generationFailureCode: null,
             generationFailureAttemptId: null,
+            generationFailureSlidesFingerprint: null,
           },
         });
       }
@@ -1646,6 +1652,7 @@ export default function DeckEditor() {
           ...retryContext,
           generationFailureCode: null,
           generationFailureAttemptId: null,
+          generationFailureSlidesFingerprint: null,
         },
       });
       try {
@@ -2083,6 +2090,8 @@ export default function DeckEditor() {
                 ...generationContext,
                 generationFailureCode: failureCode,
                 generationFailureAttemptId: generationAttemptId,
+                generationFailureSlidesFingerprint:
+                  partialGenerationFailureSlidesFingerprint([]),
               },
             });
             const recovery: EmptyGenerationRecovery = {
@@ -2147,6 +2156,10 @@ export default function DeckEditor() {
               ...generationContext,
               generationFailureCode: failureCode,
               generationFailureAttemptId: generationAttemptId,
+              generationFailureSlidesFingerprint:
+                partialGenerationFailureSlidesFingerprint(
+                  outcomeRefreshResult.deck.slides,
+                ),
             },
           });
           let serializedRecovery: string | null = null;
@@ -2292,13 +2305,110 @@ export default function DeckEditor() {
   const generationRecoveryState =
     getNewDeckGenerationRecoveryState(generationState);
   const showGenerationRecovery = generationRecoveryState !== null;
-  const showPartialGenerationFailure =
-    slideCount > 0 &&
-    typeof generationContext?.generationFailureCode === "string" &&
-    generationContext.generationFailureCode !== "incomplete_output" &&
-    generationContext.generationFailureAttemptId === generationAttemptId &&
-    !newDeckGenerationSignal &&
-    !waitingOnNewDeckQuestions;
+  const currentSlidesFingerprint = useMemo(
+    () =>
+      deck &&
+      typeof generationContext?.generationFailureCode === "string" &&
+      generationContext.generationFailureCode !== "incomplete_output" &&
+      typeof generationContext?.generationFailureSlidesFingerprint ===
+        "string" &&
+      generationContext.generationFailureAttemptId === generationAttemptId
+        ? partialGenerationFailureSlidesFingerprint(deck.slides)
+        : null,
+    [
+      deck?.slides,
+      generationAttemptId,
+      generationContext?.generationFailureCode,
+      generationContext?.generationFailureAttemptId,
+      generationContext?.generationFailureSlidesFingerprint,
+    ],
+  );
+  const partialGenerationFailureState = {
+    slideCount,
+    failureCode: generationContext?.generationFailureCode,
+    failureAttemptId: generationContext?.generationFailureAttemptId,
+    attemptId: generationAttemptId,
+    failureSlidesFingerprint:
+      generationContext?.generationFailureSlidesFingerprint,
+    currentSlidesFingerprint,
+    generating: newDeckGenerationSignal,
+    waitingOnQuestions: waitingOnNewDeckQuestions,
+    retryPending:
+      retryEmptyGenerationPending || retryEmptyGenerationInFlightRef.current,
+  };
+  const showPartialGenerationFailure = shouldShowPartialGenerationFailure(
+    partialGenerationFailureState,
+  );
+  const clearPartialGenerationFailure = shouldClearPartialGenerationFailure(
+    partialGenerationFailureState,
+  );
+  useEffect(() => {
+    if (!id || !clearPartialGenerationFailure) return;
+    const latestDeck = getDeckLatest(id);
+    const latestContext = latestDeck?.generationContext;
+    if (
+      !latestDeck ||
+      !latestContext ||
+      typeof latestContext !== "object" ||
+      Array.isArray(latestContext)
+    ) {
+      return;
+    }
+    const latestAttemptId =
+      typeof latestContext.generationAttemptId === "string"
+        ? latestContext.generationAttemptId
+        : generationAttemptId;
+    const latestFailureSlidesFingerprint =
+      typeof latestContext.generationFailureSlidesFingerprint === "string"
+        ? latestContext.generationFailureSlidesFingerprint
+        : null;
+    const latestCurrentSlidesFingerprint =
+      typeof latestContext.generationFailureCode === "string" &&
+      latestContext.generationFailureCode !== "incomplete_output" &&
+      latestFailureSlidesFingerprint !== null &&
+      latestContext.generationFailureAttemptId === latestAttemptId
+        ? partialGenerationFailureSlidesFingerprint(latestDeck.slides)
+        : null;
+    const lifecyclePause = generationLifecyclePauseRef.current;
+    const clearLatestFailure = shouldClearPartialGenerationFailure({
+      slideCount: latestDeck.slides.length,
+      failureCode: latestContext.generationFailureCode,
+      failureAttemptId: latestContext.generationFailureAttemptId,
+      attemptId: latestAttemptId,
+      failureSlidesFingerprint: latestFailureSlidesFingerprint,
+      currentSlidesFingerprint: latestCurrentSlidesFingerprint,
+      generating: lifecyclePause.generating || newDeckGenerationSignal,
+      waitingOnQuestions:
+        lifecyclePause.waitingOnQuestions || waitingOnNewDeckQuestions,
+      retryPending:
+        retryEmptyGenerationPending || retryEmptyGenerationInFlightRef.current,
+    });
+    if (!clearLatestFailure) return;
+    updateDeck(id, {
+      generationContext: {
+        ...latestContext,
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      },
+    });
+    void flushDeckSave(id).catch((error) => {
+      console.error(
+        "Failed to clear a stale Slides generation failure.",
+        error,
+      );
+    });
+  }, [
+    clearPartialGenerationFailure,
+    flushDeckSave,
+    generationAttemptId,
+    getDeckLatest,
+    id,
+    newDeckGenerationSignal,
+    retryEmptyGenerationPending,
+    updateDeck,
+    waitingOnNewDeckQuestions,
+  ]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
