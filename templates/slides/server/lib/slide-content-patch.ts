@@ -128,10 +128,12 @@ export class SlideContentEditError extends Error {
   readonly actionContractError = true;
   readonly errorCode = "slide_content_edit_failed";
   readonly statusCode = 400;
+  readonly details?: Record<string, unknown>;
 
-  constructor(message: string) {
+  constructor(message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "SlideContentEditError";
+    this.details = details;
   }
 }
 

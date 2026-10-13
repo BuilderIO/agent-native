@@ -40,6 +40,7 @@ import {
 } from "../server/lib/deck-versions.js";
 import {
   applySlideContentEdits,
+  SlideContentEditError,
   SlideContentEditSchema,
   type SlideContentEdit,
 } from "../server/lib/slide-content-patch.js";
@@ -748,7 +749,7 @@ async function resolvePatchSlideEdits(
   // several edits ops in one batch do not discard each other.
   const runningContents = new Map<string, string>();
   const resolved: Operation[] = [];
-  for (const operation of operations) {
+  for (const [operationIndex, operation] of operations.entries()) {
     if (operation.op !== "patch-slide") {
       resolved.push(operation);
       continue;
@@ -769,10 +770,18 @@ async function resolvePatchSlideEdits(
     const currentContent =
       runningContents.get(operation.slideId) ?? sourceContent;
     const { edits, ...rest } = operation;
+    // Name the failing slide so the caller can fix that one operation
+    // instead of guessing which part of the batch was rejected.
     const patched = await applySlideContentEdits(
       currentContent,
       edits as SlideContentEdit[],
-    );
+    ).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SlideContentEditError(
+        `patch-slide edits failed for slide "${operation.slideId}" (operations[${operationIndex}]): ${message}. No slides were changed.`,
+        { slideId: operation.slideId, operationIndex },
+      );
+    });
     runningContents.set(operation.slideId, patched.content);
     const next: Operation = {
       ...rest,
