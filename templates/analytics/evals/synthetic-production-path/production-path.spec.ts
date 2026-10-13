@@ -482,6 +482,7 @@ export type PrivacySafeEvalRow = {
   output_tokens: number;
   llm_calls: number;
   latency_ms: number;
+  stale_index_marked: boolean;
 };
 
 const CSV_COLUMNS: readonly (keyof PrivacySafeEvalRow)[] = [
@@ -505,6 +506,7 @@ const CSV_COLUMNS: readonly (keyof PrivacySafeEvalRow)[] = [
   "output_tokens",
   "llm_calls",
   "latency_ms",
+  "stale_index_marked",
 ];
 
 const SAFE_REASON_CODES = new Set<SafeReasonCode>([
@@ -1005,6 +1007,11 @@ async function makeRows(
         const rank = expectedCandidateRank(output, testCase.expectedTable);
         const counts = actionCounts(output);
         const reasonCode = reasonForRun(testCase, output, receipt);
+        const staleIndexMarked = (getToolResult(output)?.results ?? []).some(
+          (candidate) =>
+            candidate.origin === "source-index" &&
+            candidate.sourceIndexStale === true,
+        );
         const measuredRank = [
           "rank_1",
           "ranked_below_1",
@@ -1035,6 +1042,7 @@ async function makeRows(
           output_tokens: output.usage?.outputTokens ?? 0,
           llm_calls: output.usage?.llmCalls ?? 0,
           latency_ms: Math.max(0, Math.round(output.durationMs)),
+          stale_index_marked: staleIndexMarked,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1059,6 +1067,7 @@ async function makeRows(
           output_tokens: 0,
           llm_calls: 0,
           latency_ms: 0,
+          stale_index_marked: false,
         });
       }
     }
@@ -1300,6 +1309,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       output_tokens: 1,
       llm_calls: 2,
       latency_ms: 1,
+      stale_index_marked: false,
       prompt: "not allowed",
     } as PrivacySafeEvalRow & { prompt: string };
     expect(() => renderPrivacySafeEvalCsv([unsafe])).toThrow(
@@ -1336,6 +1346,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       output_tokens: 1,
       llm_calls: 2,
       latency_ms: 1,
+      stale_index_marked: false,
     };
 
     expect(() => renderPrivacySafeEvalCsv([impossible])).toThrow(
