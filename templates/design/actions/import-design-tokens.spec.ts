@@ -300,6 +300,7 @@ describe("import-design-tokens", () => {
       .mockResolvedValueOnce([
         { id: "small", filename: "tokens.md", contentBytes: 24 },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: "small", content: "Primary color: #2563eb" },
       ]);
@@ -312,10 +313,12 @@ describe("import-design-tokens", () => {
     const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
       conditions?: { strings?: string[] }[];
     };
-    const candidateByteFilter =
-      candidateFilter.conditions?.[2]?.strings?.join("") ?? "";
-    expect(candidateByteFilter).toContain("octet_length(left(");
-    expect(candidateByteFilter).toContain(" <= ");
+    expect(
+      candidateFilter.conditions?.[2]?.values?.[0]?.strings?.join(""),
+    ).toContain("octet_length(left(");
+    expect(candidateFilter.conditions?.[2]?.strings?.join("")).toContain(
+      " <= ",
+    );
     expect(result.filesAnalyzed).toEqual(["tokens.md"]);
     expect(result.omittedFileCount).toBe(21);
   });
