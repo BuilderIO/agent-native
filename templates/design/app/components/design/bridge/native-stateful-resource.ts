@@ -175,6 +175,8 @@ export interface NativeStatefulAllocator {
 export interface NativeStatefulEncodeOptions {
   encoder: GPUCommandEncoder;
   source: GPUTexture;
+  externalTextures?: ReadonlyMap<string, GPUTexture>;
+  inputEpochs?: ReadonlyMap<string, number | null>;
   target: GPUTexture;
   pipelines: ReadonlyMap<string, GPURenderPipeline | GPUComputePipeline>;
   passes: readonly EffectPass[];
@@ -198,7 +200,7 @@ export interface NativeStatefulEncodedFrame {
   output: GPUTexture;
   completedStep: number;
   markSubmitted(): void;
-  commit(): Promise<void>;
+  commit(validateBeforeCommit?: () => void): Promise<void>;
   abandon(): void;
   rejectSubmitted(reason: unknown): Promise<void>;
 }
@@ -240,6 +242,7 @@ export class NativeStatefulResourceSession {
   private committedSourceIdentity = "";
   private committedSourceRevision = "";
   private committedSourceEpoch: number | null = null;
+  private committedInputEpochs: Record<string, number | null> | null = null;
   private busy = false;
   private disposed = false;
   private faulted = false;
@@ -252,6 +255,7 @@ export class NativeStatefulResourceSession {
     readonly outputName: string,
     readonly width: number,
     readonly height: number,
+    readonly abi: "stateful-resource-v1" | "stateful-resource-v2",
   ) {
     this.sampler = device.createSampler({
       minFilter: "linear",
@@ -269,7 +273,12 @@ export class NativeStatefulResourceSession {
     height: number,
   ): NativeStatefulResourceSession {
     const graph = definition.resourceGraph;
-    if (!graph || graph.abi !== "stateful-resource-v1" || !definition.output)
+    if (
+      !graph ||
+      (graph.abi !== "stateful-resource-v1" &&
+        graph.abi !== "stateful-resource-v2") ||
+      !definition.output
+    )
       throw new NativeStatefulResourceError("stateful-definition-invalid");
     const resources = new Map(
       (definition.resources ?? []).map((spec) => [spec.name, spec]),
@@ -281,6 +290,7 @@ export class NativeStatefulResourceSession {
       definition.output,
       width,
       height,
+      graph.abi,
     );
     const stateNames = new Set(graph.stateResources);
     let total = 0;
@@ -386,6 +396,7 @@ export class NativeStatefulResourceSession {
     sourceIdentity: string;
     sourceRevision: string;
     sourceEpoch: number | null;
+    inputEpochs?: Record<string, number | null>;
     resources: {
       name: string;
       kind: EffectResourceSpec["kind"];
@@ -514,6 +525,9 @@ export class NativeStatefulResourceSession {
         sourceIdentity: this.committedSourceIdentity,
         sourceRevision: this.committedSourceRevision,
         sourceEpoch: this.committedSourceEpoch,
+        ...(this.committedInputEpochs
+          ? { inputEpochs: { ...this.committedInputEpochs } }
+          : {}),
         resources,
       };
     } catch (error) {
@@ -537,6 +551,40 @@ export class NativeStatefulResourceSession {
 
   encode(options: NativeStatefulEncodeOptions): NativeStatefulEncodedFrame {
     this.assertUsable();
+    const committedSeed = options.seed;
+    const committedSourceIdentity = options.sourceIdentity;
+    const committedSourceRevision = options.sourceRevision;
+    const committedSourceEpoch = options.sourceEpoch;
+    const externalNames = [...this.resources.values()]
+      .filter((resource) => resource.external)
+      .map((resource) => resource.name)
+      .sort();
+    const externalTextures =
+      this.abi === "stateful-resource-v1"
+        ? new Map<string, GPUTexture>([["source", options.source]])
+        : options.externalTextures
+          ? new Map(options.externalTextures)
+          : undefined;
+    const inputEpochs = options.inputEpochs
+      ? new Map(options.inputEpochs)
+      : undefined;
+    if (
+      !externalTextures ||
+      externalTextures.size !== externalNames.length ||
+      externalNames.some((name) => !externalTextures.has(name)) ||
+      externalTextures.get("source") !== options.source ||
+      (this.abi === "stateful-resource-v2" &&
+        (!inputEpochs ||
+          inputEpochs.size !== externalNames.length ||
+          externalNames.some((name) => {
+            const epoch = inputEpochs.get(name);
+            return (
+              epoch === undefined ||
+              (epoch !== null && (!Number.isSafeInteger(epoch) || epoch < 0))
+            );
+          })))
+    )
+      throw new NativeStatefulResourceError("stateful-input-missing");
     if (
       !options.steps.length ||
       options.passes.length * options.steps.length > MAX_ENCODED_PASSES
@@ -548,7 +596,15 @@ export class NativeStatefulResourceSession {
       options.target.width !== this.width ||
       options.target.height !== this.height ||
       options.target.format !== targetSpec.format ||
-      options.target === options.source ||
+      [...externalTextures.values()].some(
+        (texture) =>
+          !texture ||
+          !Number.isSafeInteger(texture.width) ||
+          texture.width < 1 ||
+          !Number.isSafeInteger(texture.height) ||
+          texture.height < 1 ||
+          options.target === texture,
+      ) ||
       this.ownedTextures.has(options.target)
     )
       throw new NativeStatefulResourceError("stateful-target-invalid");
@@ -559,7 +615,11 @@ export class NativeStatefulResourceSession {
     let result: GPUTexture | null = null;
     const uniforms: GPUBuffer[] = [];
     const releaseLease = this.allocator.lease(
-      new Set([...this.ownedTextures, options.source, options.target]),
+      new Set([
+        ...this.ownedTextures,
+        ...externalTextures.values(),
+        options.target,
+      ]),
       this.ownedBuffers,
     );
     let closed = false;
@@ -590,7 +650,7 @@ export class NativeStatefulResourceSession {
       for (const [ordinal, step] of options.steps.entries()) {
         const repeat = this.completed >= 0 && step === this.completed;
         const writeBank = work[workIndex % 2]!;
-        const values = new Map<string, Resource>([["source", options.source]]);
+        const values = new Map<string, Resource>(externalTextures);
         if (repeat)
           for (const [name, state] of this.states)
             values.set(name, state.banks[readBank]);
@@ -755,25 +815,34 @@ export class NativeStatefulResourceSession {
             release();
           }
         },
-        commit: async () => {
+        commit: async (validateBeforeCommit) => {
           if (closed) throw new NativeStatefulResourceError("stateful-busy");
           closed = true;
           try {
-            await this.device.queue.onSubmittedWorkDone();
+            try {
+              await this.device.queue.onSubmittedWorkDone();
+            } catch (error) {
+              this.faulted = true;
+              throw new NativeStatefulResourceError(
+                "stateful-device-lost",
+                error,
+              );
+            }
             if (this.disposed || this.faulted)
               throw new NativeStatefulResourceError("stateful-device-lost");
+            validateBeforeCommit?.();
             this.committedBank = finalBank;
             this.completed = finalStep;
-            this.committedSeed = options.seed;
-            this.committedSourceIdentity = options.sourceIdentity;
-            this.committedSourceRevision = options.sourceRevision;
-            this.committedSourceEpoch = options.sourceEpoch;
-          } catch (error) {
-            this.faulted = true;
-            throw new NativeStatefulResourceError(
-              "stateful-device-lost",
-              error,
-            );
+            this.committedSeed = committedSeed;
+            this.committedSourceIdentity = committedSourceIdentity;
+            this.committedSourceRevision = committedSourceRevision;
+            this.committedSourceEpoch = committedSourceEpoch;
+            this.committedInputEpochs =
+              this.abi === "stateful-resource-v2"
+                ? Object.fromEntries(
+                    [...inputEpochs!].sort(([a], [b]) => a.localeCompare(b)),
+                  )
+                : null;
           } finally {
             release();
           }

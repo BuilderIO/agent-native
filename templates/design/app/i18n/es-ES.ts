@@ -408,6 +408,7 @@ export default {
           "owned-ar-content-bounds-tracker":
             "Rastreador de límites de contenido",
           "owned-as-feature-trails": "Trayectorias de rasgos",
+          "owned-au-guided-fluid-particles": "Partículas de fluido guiadas",
           "owned-v-luma-dct-eight": "DCT de luminancia 8×8",
           "owned-v-thermal-mask-contour": "Contornos térmicos con máscara",
           "owned-v-scalar-map-drift": "Deriva de mapa escalar",
@@ -1641,6 +1642,10 @@ export default {
           viscosity: "Viscosidad",
           stirring: "Agitación",
           flowFollowing: "Seguimiento del flujo",
+          useGuide: "Usar guía",
+          guideStrength: "Intensidad de la guía",
+          guideMode: "Modo de guía",
+          guideImage: "Imagen de guía",
           shapeHeight: "Altura de forma",
           edgeBevel: "Bisel del borde",
           lightElevation: "Elevación de luz",
@@ -1734,11 +1739,18 @@ export default {
           corners: "esquinas",
           camera: "cámara",
           streamlines: "Líneas de corriente",
+          contours: "contornos",
+          colorDirection: "dirección del color",
           "curl-magnitude": "Magnitud del rizo",
         },
         presets: {
           "an-preset-ar-content-bounds-tracker-lime": "Marcadores lima",
           "an-preset-ar-content-bounds-tracker-amber": "Recuadros ámbar",
+          "an-preset-at-content-bounds-global-lime": "Marcadores lima globales",
+          "an-preset-at-content-bounds-global-amber":
+            "Recuadros ámbar globales",
+          "an-preset-au-guided-fluid-contours": "Corriente de contornos",
+          "an-preset-au-guided-fluid-eddy": "Remolino guiado",
           "an-preset-owned-as-bright-pursuit": "Seguimiento de brillos",
           "an-preset-owned-as-color-drift": "Deriva de color",
           "an-preset-owned-v-luma-dct-eight-fine":

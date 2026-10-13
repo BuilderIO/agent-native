@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   NativePipelineCache,
+  NativePipelineCacheCapacityError,
   NativePipelineCacheInvalidatedError,
 } from "./native-pipeline-cache";
 
@@ -16,6 +17,73 @@ function deferred<T>() {
 }
 
 describe("NativePipelineCache", () => {
+  it("keeps a 40-pass active graph compiled once across repeated frames", async () => {
+    const cache = new NativePipelineCache<string>();
+    const factory = vi.fn(async (key: string) => key);
+    const keys = Array.from({ length: 40 }, (_, index) => `pass-${index}`);
+    const releases = keys.map((key) => cache.pin(key));
+    for (const key of keys) await cache.getOrCreate(key, () => factory(key));
+    for (const key of keys) await cache.getOrCreate(key, () => factory(key));
+    expect(factory).toHaveBeenCalledTimes(40);
+    expect(cache.size).toBe(40);
+    for (const release of releases) release();
+    expect(cache.size).toBe(32);
+  });
+
+  it("retains pinned active pipelines beyond the ordinary LRU limit and trims after release", async () => {
+    const cache = new NativePipelineCache<string>(2);
+    const compile = vi.fn(async (key: string) => key);
+    const releaseA = cache.pin("a");
+    const releaseB = cache.pin("b");
+    const releaseC = cache.pin("c");
+    await cache.getOrCreate("a", () => compile("a"));
+    await cache.getOrCreate("b", () => compile("b"));
+    await cache.getOrCreate("c", () => compile("c"));
+    expect(cache.size).toBe(3);
+    await cache.getOrCreate("a", () => compile("a"));
+    expect(compile).toHaveBeenCalledTimes(3);
+    releaseA();
+    releaseA();
+    expect(cache.size).toBe(2);
+    const releaseD = cache.pin("d");
+    await cache.getOrCreate("d", () => compile("d"));
+    await cache.getOrCreate("e", () => compile("e"));
+    expect(cache.has("a")).toBe(false);
+    expect(cache.has("b")).toBe(true);
+    expect(cache.has("c")).toBe(true);
+    expect(cache.has("d")).toBe(true);
+    expect(cache.size).toBe(4);
+    releaseB();
+    releaseC();
+    releaseD();
+    expect(cache.size).toBe(2);
+  });
+
+  it("fences stale pin releases across reset and bounds distinct active keys", async () => {
+    const cache = new NativePipelineCache<string>(1);
+    const oldRelease = cache.pin("active");
+    cache.reset();
+    const newRelease = cache.pin("active");
+    oldRelease();
+    await cache.getOrCreate("active", async () => "active");
+    await cache.getOrCreate("ordinary", async () => "ordinary");
+    expect(cache.has("active")).toBe(true);
+    newRelease();
+    for (let index = 0; index < 256; index++) cache.pin(`key-${index}`);
+    expect(() => cache.pin("overflow")).toThrow(
+      NativePipelineCacheCapacityError,
+    );
+    await Promise.all(
+      Array.from({ length: 256 }, (_, index) =>
+        cache.getOrCreate(`key-${index}`, async () => `key-${index}`),
+      ),
+    );
+    expect(cache.size).toBe(256);
+    expect(() => cache.getOrCreate("ordinary", async () => "ordinary")).toThrow(
+      NativePipelineCacheCapacityError,
+    );
+  });
+
   it("shares one pending factory and retains its successful result", async () => {
     const cache = new NativePipelineCache<object>();
     const pending = deferred<object>();

@@ -8,6 +8,7 @@ export function nativeEffectRequiresStateSession(
     (definition.kind === "simulation" ||
       definition.simulation ||
       definition.feedback ||
-      definition.resourceGraph?.abi === "stateful-resource-v1"),
+      definition.resourceGraph?.abi === "stateful-resource-v1" ||
+      definition.resourceGraph?.abi === "stateful-resource-v2"),
   );
 }

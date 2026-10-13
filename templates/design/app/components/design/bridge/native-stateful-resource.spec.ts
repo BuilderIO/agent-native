@@ -358,6 +358,130 @@ function fakeGpu() {
 }
 
 describe("NativeStatefulResourceSession", () => {
+  it("keeps the committed state when capture validation fails after GPU completion", async () => {
+    const gpu = fakeGpu();
+    const session = Session.create(gpu.device, gpu.allocator, definition, 8, 8);
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const common = {
+      encoder: gpu.encoder,
+      source: gpu.source,
+      target: gpu.target,
+      pipelines: new Map(
+        passes.map((pass) => [
+          pass.id,
+          pipeline as unknown as GPUComputePipeline,
+        ]),
+      ),
+      passes,
+      fixedDt: 1 / 60,
+      seed: 1,
+      sourceIdentity: "authored:source",
+      sourceRevision: "capture:1",
+      sourceEpoch: 1,
+      drawCount: () => 4,
+      uniforms: () => new Float32Array(136),
+    };
+    const initial = session.encode({ ...common, steps: [0] });
+    const initialCommit = initial.commit();
+    gpu.waits.shift()!();
+    await initialCommit;
+    const candidate = session.encode({ ...common, steps: [1] });
+    const sourceChanged = new Error("capture-origin-changed");
+    const rejected = candidate.commit(() => {
+      throw sourceChanged;
+    });
+    gpu.waits.shift()!();
+    await expect(rejected).rejects.toBe(sourceChanged);
+    expect(session.lastCompletedStep).toBe(0);
+    expect(gpu.leases()).toBe(0);
+    const retry = session.encode({ ...common, steps: [1] });
+    const retryCommit = retry.commit();
+    gpu.waits.shift()!();
+    await retryCommit;
+    expect(session.lastCompletedStep).toBe(1);
+    session.dispose();
+  });
+
+  it("binds and leases every named v2 input and rejects a missing guide before GPU work", async () => {
+    const gpu = fakeGpu();
+    const guide = gpu.allocator.texture(8, 8) as GPUTexture;
+    const v2Passes = passes.map((pass) =>
+      pass.id === "velocity" ? { ...pass, reads: ["source", "guide"] } : pass,
+    );
+    const v2 = {
+      ...definition,
+      resourceGraph: {
+        ...definition.resourceGraph!,
+        abi: "stateful-resource-v2",
+      },
+      passes: v2Passes,
+      resources: [
+        ...definition.resources!,
+        {
+          name: "guide",
+          kind: "texture-2d",
+          external: true,
+          usage: ["sampled"],
+        },
+      ],
+    } as unknown as EffectDefinition;
+    const session = Session.create(gpu.device, gpu.allocator, v2, 8, 8);
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const common = {
+      encoder: gpu.encoder,
+      source: gpu.source,
+      target: gpu.target,
+      pipelines: new Map(
+        v2Passes.map((pass) => [
+          pass.id,
+          pipeline as unknown as GPUComputePipeline,
+        ]),
+      ),
+      passes: v2Passes,
+      steps: [0],
+      fixedDt: 1 / 60,
+      seed: 1,
+      sourceIdentity: "source+guide",
+      sourceRevision: "both:1",
+      sourceEpoch: null,
+      drawCount: () => 4,
+      uniforms: () => new Float32Array(136),
+    };
+    expect(() => session.encode(common)).toThrowError("stateful-input-missing");
+    expect(gpu.groups).toHaveLength(0);
+    expect(gpu.leases()).toBe(0);
+    const externalTextures = new Map([
+      ["source", gpu.source],
+      ["guide", guide],
+    ]);
+    const inputEpochs = new Map<string, number | null>([
+      ["source", 7],
+      ["guide", null],
+    ]);
+    const frame = session.encode({
+      ...common,
+      externalTextures,
+      inputEpochs,
+    });
+    externalTextures.set("guide", gpu.target);
+    inputEpochs.set("source", 99);
+    common.sourceRevision = "both:changed-after-encode";
+    const guideBinding = gpu.groups[0]!.entries.find(
+      (entry) => entry.binding === 3,
+    )!.resource as { texture: GPUTexture };
+    expect(guideBinding.texture).toBe(guide);
+    expect(gpu.leasedTextures[0]?.has(guide)).toBe(true);
+    const commit = frame.commit();
+    gpu.waits.shift()!();
+    await commit;
+    const snapshot = session.snapshotState();
+    gpu.waits.shift()!();
+    const committed = await snapshot;
+    expect(committed.inputEpochs).toEqual({ guide: null, source: 7 });
+    expect(committed.sourceRevision).toBe("both:1");
+    session.dispose();
+  });
+
   it("keeps the committed bank untouched through multi-step catch-up and promotes both fields together", async () => {
     const gpu = fakeGpu();
     const session = Session.create(gpu.device, gpu.allocator, definition, 8, 8);

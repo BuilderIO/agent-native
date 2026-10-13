@@ -9,40 +9,40 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 337,
-    "exactVersions": 388,
-    "registeredPresets": 778,
-    "presetsTargetingLatestVersions": 705,
-    "presetsTargetingHistoricalVersions": 73,
+    "distinctDefinitions": 338,
+    "exactVersions": 390,
+    "registeredPresets": 782,
+    "presetsTargetingLatestVersions": 707,
+    "presetsTargetingHistoricalVersions": 75,
     "latestByKind": {
       "generator": 157,
-      "processor": 173,
+      "processor": 174,
       "simulation": 7
     },
     "fullByKind": {
       "generator": 199,
-      "processor": 181,
+      "processor": 183,
       "simulation": 8
     },
     "latestByAnimation": {
-      "animated": 104,
+      "animated": 105,
       "static": 233,
       "unknown": 0
     },
     "fullByAnimation": {
-      "animated": 124,
+      "animated": 126,
       "static": 264,
       "unknown": 0
     },
     "latestByPlacement": {
       "fill": 160,
-      "layer": 181,
-      "backdrop": 142
+      "layer": 182,
+      "backdrop": 143
     },
     "fullByPlacement": {
       "fill": 202,
-      "layer": 190,
-      "backdrop": 146
+      "layer": 192,
+      "backdrop": 148
     },
     "fullyValidatedDefinitions": 0
   },
@@ -45909,6 +45909,442 @@
       "animationCapability": "animated"
     },
     {
+      "id": "an-native-owned-ar-content-bounds-tracker",
+      "name": "Content Bounds Tracker",
+      "version": 2,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "detect": {
+          "type": "enum",
+          "label": "Detect",
+          "default": "alpha",
+          "options": [
+            "alpha",
+            "bright",
+            "dark",
+            "red",
+            "green",
+            "blue"
+          ]
+        },
+        "threshold": {
+          "type": "float",
+          "label": "Threshold",
+          "default": 0.25,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "layout": {
+          "type": "enum",
+          "label": "Cell layout",
+          "default": "adaptive",
+          "options": [
+            "grid",
+            "adaptive",
+            "mosaic"
+          ]
+        },
+        "cellSpan": {
+          "type": "int",
+          "label": "Cell span",
+          "default": 16,
+          "min": 16,
+          "max": 64,
+          "step": 16
+        },
+        "cells": {
+          "type": "int",
+          "label": "Detection cells",
+          "default": 48,
+          "min": 4,
+          "max": 64,
+          "step": 1
+        },
+        "pursuit": {
+          "type": "float",
+          "label": "Pursuit",
+          "default": 0.72,
+          "min": 0.05,
+          "max": 1,
+          "step": 0.01
+        },
+        "holdFrames": {
+          "type": "int",
+          "label": "Hold frames",
+          "default": 12,
+          "min": 0,
+          "max": 60,
+          "step": 1
+        },
+        "sourceVisibility": {
+          "type": "float",
+          "label": "Source visibility",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "patternSeed": {
+          "type": "int",
+          "label": "Pattern seed",
+          "default": 19,
+          "min": 0,
+          "max": 100000,
+          "step": 1
+        },
+        "boxStyle": {
+          "type": "enum",
+          "label": "Box style",
+          "default": "corners",
+          "options": [
+            "full",
+            "corners"
+          ]
+        },
+        "lineWidth": {
+          "type": "float",
+          "label": "Line width",
+          "default": 2,
+          "min": 0.5,
+          "max": 8,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "cornerRadius": {
+          "type": "float",
+          "label": "Corner radius",
+          "default": 5,
+          "min": 0,
+          "max": 24,
+          "step": 1,
+          "unit": "px"
+        },
+        "strokeColor": {
+          "type": "color",
+          "label": "Stroke color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.24,
+              0.94,
+              0.55
+            ],
+            "alpha": 1
+          }
+        },
+        "fillColor": {
+          "type": "color",
+          "label": "Fill color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.1,
+              0.42,
+              0.22
+            ],
+            "alpha": 0.12
+          }
+        },
+        "labelMode": {
+          "type": "enum",
+          "label": "Label mode",
+          "default": "coverage",
+          "options": [
+            "none",
+            "dimensions",
+            "coverage"
+          ]
+        },
+        "labelPosition": {
+          "type": "enum",
+          "label": "Label position",
+          "default": "top-left",
+          "options": [
+            "bottom-right",
+            "top-left",
+            "top-right",
+            "bottom-left"
+          ]
+        },
+        "labelInset": {
+          "type": "bool",
+          "label": "Label inset",
+          "default": false
+        },
+        "labelSize": {
+          "type": "float",
+          "label": "Label size",
+          "default": 1.8,
+          "min": 1,
+          "max": 4,
+          "step": 0.1
+        },
+        "labelColor": {
+          "type": "color",
+          "label": "Label color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.02,
+              0.08,
+              0.04
+            ],
+            "alpha": 1
+          }
+        },
+        "labelBackgroundColor": {
+          "type": "color",
+          "label": "Label background",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.72,
+              1,
+              0.78
+            ],
+            "alpha": 0.9
+          }
+        },
+        "labelRadius": {
+          "type": "float",
+          "label": "Label radius",
+          "default": 3,
+          "min": 0,
+          "max": 12,
+          "step": 1,
+          "unit": "px"
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Overlay opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "occupancy",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "tracks",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 2048,
+          "persistent": true
+        },
+        {
+          "name": "hud",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "summary",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 8,
+          "height": 8
+        },
+        {
+          "name": "regions",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 2048
+        }
+      ],
+      "resourceGraph": {
+        "abi": "stateful-resource-v1",
+        "timing": {
+          "fixedDt": 0.016666666666666666,
+          "maxStepsPerCall": 8,
+          "maxStepIndex": 36000
+        },
+        "stateResources": [
+          "tracks"
+        ],
+        "sourceHistory": "sequential-captures",
+        "resetProperties": [
+          "detect",
+          "threshold",
+          "layout",
+          "cellSpan",
+          "cells",
+          "patternSeed"
+        ]
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "classify",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "occupancy",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "summarize",
+          "kind": "compute",
+          "reads": [
+            "occupancy"
+          ],
+          "output": "summary",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "partition",
+          "kind": "compute",
+          "reads": [
+            "summary"
+          ],
+          "output": "regions",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              64,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "track",
+          "kind": "compute",
+          "reads": [
+            "occupancy",
+            "regions"
+          ],
+          "previousFrameReads": [
+            "tracks"
+          ],
+          "output": "tracks",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              64,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "hud",
+          "kind": "render",
+          "reads": [
+            "tracks"
+          ],
+          "output": "hud",
+          "draw": {
+            "vertices": 6,
+            "instances": {
+              "property": "cells",
+              "max": 64
+            }
+          }
+        },
+        {
+          "id": "composite",
+          "kind": "render",
+          "reads": [
+            "source",
+            "hud"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "d84347feb508fd49f79f736ec2f80ae59ba7c3b5b4aa02d5458159d954942449",
+      "presetIds": [
+        "an-preset-at-content-bounds-global-lime",
+        "an-preset-at-content-bounds-global-amber"
+      ],
+      "animationCapability": "animated"
+    },
+    {
       "id": "an-native-owned-as-feature-trails",
       "name": "Feature Trails",
       "version": 1,
@@ -46249,6 +46685,663 @@
       "presetIds": [
         "an-preset-owned-as-bright-pursuit",
         "an-preset-owned-as-color-drift"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-au-guided-fluid-particles",
+      "name": "Guided Fluid Particles",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "viscosity": {
+          "type": "float",
+          "label": "Viscosity",
+          "default": 0.38,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "turbulence": {
+          "type": "float",
+          "label": "Turbulence",
+          "default": 0.55,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "stirring": {
+          "type": "float",
+          "label": "Stirring",
+          "default": 0.75,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "brushRadius": {
+          "type": "float",
+          "label": "Brush radius",
+          "default": 90,
+          "min": 20,
+          "max": 220,
+          "step": 1,
+          "unit": "px"
+        },
+        "flowFollowing": {
+          "type": "float",
+          "label": "Flow following",
+          "default": 0.85,
+          "min": 0.05,
+          "max": 2,
+          "step": 0.01
+        },
+        "particleSize": {
+          "type": "float",
+          "label": "Particle size",
+          "default": 3,
+          "min": 1,
+          "max": 12,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "particleLife": {
+          "type": "float",
+          "label": "Particle life",
+          "default": 8,
+          "min": 1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "s"
+        },
+        "trailDecay": {
+          "type": "float",
+          "label": "Trail decay",
+          "default": 1.6,
+          "min": 0.1,
+          "max": 8,
+          "step": 0.1
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Particle opacity",
+          "default": 0.65,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "pointerPosition": {
+          "type": "vec2",
+          "label": "Pointer position",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "pointerActive": {
+          "type": "bool",
+          "label": "Pointer active",
+          "default": false
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "particleCount": {
+          "type": "int",
+          "label": "Particle count",
+          "default": 2048,
+          "min": 256,
+          "max": 4096,
+          "step": 256
+        },
+        "patternSeed": {
+          "type": "int",
+          "label": "Pattern seed",
+          "default": 19,
+          "min": 0,
+          "max": 100000,
+          "step": 1
+        },
+        "guideEnabled": {
+          "type": "bool",
+          "label": "Use guide",
+          "default": false
+        },
+        "guideStrength": {
+          "type": "float",
+          "label": "Guide strength",
+          "default": 1.2,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "guideMode": {
+          "type": "enum",
+          "label": "Guide mode",
+          "default": "contours",
+          "options": [
+            "contours",
+            "color direction"
+          ]
+        },
+        "guideImage": {
+          "type": "texture",
+          "label": "Guide image",
+          "default": null,
+          "input": "guide"
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        },
+        "guide": {
+          "kind": "texture-2d",
+          "resource": "guide",
+          "enabledWhen": {
+            "property": "guideEnabled",
+            "equals": true
+          },
+          "fallback": "transparent-data"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "advectedVelocity",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "divergence",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128,
+          "persistent": true
+        },
+        {
+          "name": "velocity",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128,
+          "persistent": true
+        },
+        {
+          "name": "particles",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 131072,
+          "persistent": true
+        },
+        {
+          "name": "particlePaint",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "trail",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256,
+          "persistent": true
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "guide",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "stateful-resource-v2",
+        "timing": {
+          "fixedDt": 0.016666666666666666,
+          "maxStepsPerCall": 8,
+          "maxStepIndex": 36000
+        },
+        "stateResources": [
+          "velocity",
+          "pressure",
+          "particles",
+          "trail"
+        ],
+        "sourceHistory": "sequential-captures",
+        "resetProperties": [
+          "particleCount",
+          "patternSeed"
+        ]
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "advect-velocity",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "guide"
+          ],
+          "previousFrameReads": [
+            "velocity"
+          ],
+          "output": "advectedVelocity",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "divergence",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "advectedVelocity"
+          ],
+          "output": "divergence",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-0",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence"
+          ],
+          "previousFrameReads": [
+            "pressure"
+          ],
+          "output": "pressure0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-1",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure0"
+          ],
+          "output": "pressure1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-2",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure1"
+          ],
+          "output": "pressure2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-3",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure2"
+          ],
+          "output": "pressure3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-4",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure3"
+          ],
+          "output": "pressure4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-5",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure4"
+          ],
+          "output": "pressure5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-6",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure5"
+          ],
+          "output": "pressure6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-7",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure6"
+          ],
+          "output": "pressure",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "project-velocity",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "advectedVelocity",
+            "pressure"
+          ],
+          "output": "velocity",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "advance-particles",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "velocity"
+          ],
+          "previousFrameReads": [
+            "particles"
+          ],
+          "output": "particles",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              256,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "draw-particles",
+          "kind": "render",
+          "reads": [
+            "source",
+            "particles"
+          ],
+          "output": "particlePaint",
+          "draw": {
+            "vertices": 6,
+            "instances": {
+              "property": "particleCount",
+              "max": 4096
+            }
+          }
+        },
+        {
+          "id": "accumulate-trail",
+          "kind": "render",
+          "reads": [
+            "particlePaint"
+          ],
+          "previousFrameReads": [
+            "trail"
+          ],
+          "output": "trail"
+        },
+        {
+          "id": "compose",
+          "kind": "render",
+          "reads": [
+            "source",
+            "trail"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "8fea57dc0db9c22aa0ec254744f532a8bf5795905d64742b235dc58566c804bc",
+      "presetIds": [
+        "an-preset-au-guided-fluid-contours",
+        "an-preset-au-guided-fluid-eddy"
       ],
       "animationCapability": "animated"
     }

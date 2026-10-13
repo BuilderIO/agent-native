@@ -8,6 +8,10 @@ import {
   type EffectPass,
 } from "./effect-graph";
 import {
+  GUIDED_FLUID_PARTICLES_EFFECT,
+  GUIDED_FLUID_PARTICLES_PRESETS,
+} from "./native-effect-owned-au-guided-fluid-particles";
+import {
   hashEffectDefinition,
   nativeEffectExecutionPayload,
 } from "./native-effect-trust";
@@ -15,6 +19,7 @@ import {
   validateEffectDocument,
   type EffectDefinition,
 } from "./native-effects";
+import { planNativeInputResources } from "./native-input-resources";
 
 const pass = (
   id: string,
@@ -31,6 +36,67 @@ const pass = (
 });
 
 describe("native effect pass planner", () => {
+  it("accepts bounded named v2 inputs and keeps both guide and source in the trusted definition", async () => {
+    const definition = GUIDED_FLUID_PARTICLES_EFFECT;
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [definition],
+        instances: [],
+        presets: [...GUIDED_FLUID_PARTICLES_PRESETS],
+      }).errors,
+    ).toEqual([]);
+    expect(planEffectGraph(definition).errors).toEqual([]);
+    const preset = GUIDED_FLUID_PARTICLES_PRESETS[0]!;
+    const inputPlan = planNativeInputResources(definition, {
+      placement: preset.placement,
+      params: preset.params,
+      bindings: preset.bindings,
+    });
+    expect(inputPlan.ok).toBe(true);
+    if (!inputPlan.ok) throw new Error(inputPlan.detail);
+    expect(inputPlan.inputs.get("source")).toEqual({
+      kind: "builtin",
+      source: "source",
+    });
+    expect(inputPlan.inputs.get("guide")).toMatchObject({
+      kind: "asset",
+      url: "/shaders/gate-image-contrast.svg",
+    });
+    const missingGuide = planNativeInputResources(definition, {
+      placement: preset.placement,
+      params: preset.params,
+      bindings: undefined,
+    });
+    expect(missingGuide).toMatchObject({
+      ok: false,
+      code: "input-conditional-binding-required",
+    });
+    const withoutGuidePort = structuredClone(definition);
+    delete withoutGuidePort.inputs!.guide;
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [withoutGuidePort],
+        instances: [],
+      }).errors,
+    ).toContain(
+      "definition[0].resourceGraph needs an exact named input for each external texture",
+    );
+    const withoutGuideTexture = structuredClone(definition);
+    withoutGuideTexture.resources = withoutGuideTexture.resources!.filter(
+      (resource) => resource.name !== "guide",
+    );
+    expect(planEffectGraph(withoutGuideTexture).errors).toContain(
+      "stateful v2 graph needs source and one to three named external textures",
+    );
+    const differentGuide = structuredClone(definition);
+    differentGuide.passes[0]!.wgsl += "\n// guide revision";
+    expect(await hashEffectDefinition(differentGuide)).not.toBe(
+      await hashEffectDefinition(definition),
+    );
+  });
+
   it("keeps stateful history ordered, bounded, and covered by the execution hash", async () => {
     const definition: EffectDefinition = {
       id: "stateful-contract-test",

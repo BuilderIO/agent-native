@@ -1322,6 +1322,7 @@ function validateDefinition(
     value.resourceGraph !== undefined &&
     (!record(value.resourceGraph) ||
       (value.resourceGraph.abi !== "stateful-resource-v1" &&
+        value.resourceGraph.abi !== "stateful-resource-v2" &&
         (value.resourceGraph.abi !== "linear-resource-v1" ||
           Object.keys(value.resourceGraph).length !== 1)) ||
       value.kind === "simulation" ||
@@ -1665,6 +1666,27 @@ function validateDefinition(
     errors,
     false,
   );
+  if (
+    record(value.resourceGraph) &&
+    value.resourceGraph.abi === "stateful-resource-v2"
+  ) {
+    const external = (Array.isArray(value.resources) ? value.resources : [])
+      .filter((resource: EffectResourceSpec) => resource.external)
+      .map((resource: EffectResourceSpec) => resource.name);
+    const bound = Object.values(value.inputs ?? {})
+      .filter((port: EffectPortSpec) => port.kind === "texture-2d")
+      .map((port: EffectPortSpec) => port.resource);
+    if (
+      external.length < 2 ||
+      external.length > 4 ||
+      bound.length !== external.length ||
+      new Set(bound).size !== external.length ||
+      external.some((name: string) => !bound.includes(name))
+    )
+      errors.push(
+        `${prefix}.resourceGraph needs an exact named input for each external texture`,
+      );
+  }
   if (record(value.properties))
     for (const [name, candidate] of Object.entries(value.properties)) {
       if (!record(candidate) || candidate.type !== "texture") continue;
@@ -1789,7 +1811,8 @@ function validateDefinition(
             (pass.draw.instances !== "simulation-count" &&
               !(
                 record(value.resourceGraph) &&
-                value.resourceGraph.abi === "stateful-resource-v1" &&
+                (value.resourceGraph.abi === "stateful-resource-v1" ||
+                  value.resourceGraph.abi === "stateful-resource-v2") &&
                 isStatefulResourceDraw(pass.draw)
               ))))
       ) {

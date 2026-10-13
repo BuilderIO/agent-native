@@ -3140,6 +3140,54 @@ describe("atomic backdrop scene presentation", () => {
 });
 
 describe("native full-scene GPU pixel producer lifecycle", () => {
+  it("serializes simultaneous explicit renders after the active frame settles", async () => {
+    fakeGpu();
+    const active = await startRuntime(true);
+    active.pause();
+    const engine = active as unknown as {
+      device: {
+        limits: {
+          maxSampledTexturesPerShaderStage: number;
+          maxStorageBuffersPerShaderStage: number;
+          maxStorageTexturesPerShaderStage: number;
+        };
+      };
+      renderInternal(
+        time: number,
+        deterministic: boolean,
+      ): Promise<{ failures: unknown[] }>;
+      renderMount: (...args: unknown[]) => Promise<unknown>;
+    };
+    engine.device.limits = {
+      maxSampledTexturesPerShaderStage: 16,
+      maxStorageBuffersPerShaderStage: 8,
+      maxStorageTexturesPerShaderStage: 4,
+    };
+    await active.renderAt(0);
+    const originalRenderMount = engine.renderMount.bind(engine);
+    let inFlight = 0;
+    let maximumInFlight = 0;
+    vi.spyOn(engine, "renderMount").mockImplementation(async (...args) => {
+      inFlight += 1;
+      maximumInFlight = Math.max(maximumInFlight, inFlight);
+      try {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        return await originalRenderMount(...args);
+      } finally {
+        inFlight -= 1;
+      }
+    });
+
+    const results = await Promise.all([
+      engine.renderInternal(0, false),
+      engine.renderInternal(0, false),
+      engine.renderInternal(0, false),
+    ]);
+
+    expect(results.every((result) => result.failures.length === 0)).toBe(true);
+    expect(maximumInFlight).toBe(1);
+  });
+
   it("detaches a replaced graph texture before a refused allocation and retries without a destroyed cache entry", async () => {
     fakeGpu();
     const active = await startRuntime(true);

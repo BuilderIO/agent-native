@@ -1,5 +1,13 @@
 import { AF_IMAGE_MATERIAL_DEFINITIONS } from "@shared/native-effect-owned-af-image-materials";
 import {
+  CONTENT_BOUNDS_TRACKER_V2_EFFECT,
+  CONTENT_BOUNDS_TRACKER_V2_PRESETS,
+} from "@shared/native-effect-owned-at-content-bounds-tracker-v2";
+import {
+  GUIDED_FLUID_PARTICLES_EFFECT,
+  GUIDED_FLUID_PARTICLES_PRESETS,
+} from "@shared/native-effect-owned-au-guided-fluid-particles";
+import {
   OWNED_NEXT_SIX_R_DEFINITIONS,
   OWNED_NEXT_SIX_R_PRESETS,
 } from "@shared/native-effect-owned-next-six-r";
@@ -98,6 +106,79 @@ describe("NativeShaderLibraryBrowser", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     host.remove();
+  });
+
+  it("applies the primary AU guide binding and latest AT v2 preset from normal Effects cards", async () => {
+    const definitions = [
+      GUIDED_FLUID_PARTICLES_EFFECT,
+      CONTENT_BOUNDS_TRACKER_V2_EFFECT,
+    ];
+    const apply = vi.fn().mockResolvedValue(true);
+    callAction.mockImplementation((name: string) =>
+      name === "get-shader"
+        ? Promise.resolve({
+            approvedDefinitionHashes: [],
+            library: {
+              builtins: definitions.map((definition) => ({
+                id: definition.id,
+                name: definition.name,
+                version: definition.version,
+                placements: definition.placements,
+                itemKey: `builtin:${definition.id}@${definition.version}`,
+                favorite: false,
+                lastUsedAt: null,
+              })),
+              items: [],
+              hasMore: false,
+              nextCursor: null,
+              selectedEntry: null,
+            },
+          })
+        : Promise.resolve({}),
+    );
+    await act(async () =>
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="effect"
+          search=""
+          disabled={false}
+          nodeId="target"
+          onApplyBuiltin={apply}
+          onApplySaved={vi.fn()}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 230)));
+    for (const definition of definitions) {
+      const card = [
+        ...host.querySelectorAll<HTMLElement>("[data-native-library-item-key]"),
+      ].find(
+        (element) =>
+          element.dataset.nativeLibraryItemKey ===
+          `builtin:${definition.id}@${definition.version}`,
+      );
+      expect(card).toBeDefined();
+      await act(async () =>
+        card!.querySelector<HTMLButtonElement>("button")!.click(),
+      );
+    }
+    expect(apply).toHaveBeenNthCalledWith(
+      1,
+      GUIDED_FLUID_PARTICLES_EFFECT.id,
+      1,
+      "layer",
+      GUIDED_FLUID_PARTICLES_PRESETS[0],
+    );
+    expect(GUIDED_FLUID_PARTICLES_PRESETS[0]?.bindings?.guide).toMatchObject({
+      kind: "asset",
+    });
+    expect(apply).toHaveBeenNthCalledWith(
+      2,
+      CONTENT_BOUNDS_TRACKER_V2_EFFECT.id,
+      2,
+      "layer",
+      CONTENT_BOUNDS_TRACKER_V2_PRESETS[0],
+    );
   });
 
   it("keeps the initial built-in order aligned with the server order while loading", async () => {

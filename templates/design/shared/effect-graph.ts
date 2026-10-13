@@ -336,7 +336,8 @@ export function planEffectPasses(
           pass.draw.vertices !== 6 ||
           (pass.draw.instances !== "simulation-count" &&
             !(
-              resourceGraph?.abi === "stateful-resource-v1" &&
+              (resourceGraph?.abi === "stateful-resource-v1" ||
+                resourceGraph?.abi === "stateful-resource-v2") &&
               isStatefulResourceDraw(pass.draw)
             )) ||
           Object.keys(pass.draw).length !== 2))
@@ -554,7 +555,8 @@ export function planEffectPasses(
     errors.push("stateless-compute-definition-invalid");
   if (resourceGraph)
     errors.push(
-      ...(resourceGraph.abi === "stateful-resource-v1"
+      ...(resourceGraph.abi === "stateful-resource-v1" ||
+      resourceGraph.abi === "stateful-resource-v2"
         ? validateStatefulResourceGraph(
             resourceGraph,
             passes,

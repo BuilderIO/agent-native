@@ -919,6 +919,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "8fea57dc0db9c22aa0ec254744f532a8bf5795905d64742b235dc58566c804bc",
+      "animated"
+    ],
+    [
       "901f0a0408b7fd7870d3d2d058d470ae678a50281149f3ec91700aac4af6b861",
       "static"
     ],
@@ -1331,6 +1335,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "animated"
     ],
     [
+      "d84347feb508fd49f79f736ec2f80ae59ba7c3b5b4aa02d5458159d954942449",
+      "animated"
+    ],
+    [
       "d8f28afa4a41c45e7d7383b40b751a0d257ef7c274ba565ab377258ae0e440cf",
       "static"
     ],
@@ -1710,6 +1718,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
 
   // shared/native-stateful-resource-graph.ts
+  function isStatefulResourceGraph(value) {
+    return value?.abi === "stateful-resource-v1" || value?.abi === "stateful-resource-v2";
+  }
   var RESOURCE_NAME2 = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
   var MAX_STATE_BYTES = 16 * 1024 * 1024;
   var MAX_GRAPH_BYTES = 64 * 1024 * 1024;
@@ -1726,7 +1737,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const timing = value.timing;
     const stateResources = value.stateResources;
     const resetProperties = value.resetProperties;
-    if (value.abi !== "stateful-resource-v1" || Object.keys(value).some(
+    if (value.abi !== "stateful-resource-v1" && value.abi !== "stateful-resource-v2" || Object.keys(value).some(
       (key) => ![
         "abi",
         "timing",
@@ -1744,8 +1755,18 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const external = [...resources.values()].filter(
       (resource) => resource.external
     );
-    if (external.length !== 1 || external[0]?.name !== "source")
-      errors.push("stateful graph needs exactly one external source texture");
+    if (value.abi === "stateful-resource-v1") {
+      if (external.length !== 1 || external[0]?.name !== "source")
+        errors.push("stateful graph needs exactly one external source texture");
+    } else if (external.length < 2 || external.length > 4 || !external.some((resource) => resource.name === "source")) {
+      errors.push(
+        "stateful v2 graph needs source and one to three named external textures"
+      );
+    }
+    if (value.abi === "stateful-resource-v2" && external.some(
+      (resource) => !passes.some((pass) => pass.reads.includes(resource.name))
+    ))
+      errors.push("stateful v2 graph has an unread external texture");
     const state = new Set(stateResources);
     const producerIndex = /* @__PURE__ */ new Map();
     for (const [index, pass] of passes.entries()) {
@@ -2059,7 +2080,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         (output) => typeof output === "string"
       )) || pass.reads.length > 16 || !pass.reads.every((read) => typeof read === "string") || new Set(pass.reads).size !== pass.reads.length || pass.previousFrameReads !== void 0 && (!Array.isArray(pass.previousFrameReads) || pass.previousFrameReads.length > 16 || !pass.previousFrameReads.every(
         (read) => typeof read === "string"
-      ) || new Set(pass.previousFrameReads).size !== pass.previousFrameReads.length) || pass.dispatch !== void 0 && (pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || isStatelessComputeDispatch(pass.dispatch) || isLinearResourceDispatch(pass.dispatch)) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2) || pass.draw !== void 0 && (pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !(resourceGraph?.abi === "stateful-resource-v1" && isStatefulResourceDraw(pass.draw)) || Object.keys(pass.draw).length !== 2)) {
+      ) || new Set(pass.previousFrameReads).size !== pass.previousFrameReads.length) || pass.dispatch !== void 0 && (pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || isStatelessComputeDispatch(pass.dispatch) || isLinearResourceDispatch(pass.dispatch)) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2) || pass.draw !== void 0 && (pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !((resourceGraph?.abi === "stateful-resource-v1" || resourceGraph?.abi === "stateful-resource-v2") && isStatefulResourceDraw(pass.draw)) || Object.keys(pass.draw).length !== 2)) {
         errors.push(\`pass[\${index}] is malformed\`);
       }
     }
@@ -2176,7 +2197,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       errors.push("stateless-compute-definition-invalid");
     if (resourceGraph)
       errors.push(
-        ...resourceGraph.abi === "stateful-resource-v1" ? validateStatefulResourceGraph(
+        ...resourceGraph.abi === "stateful-resource-v1" || resourceGraph.abi === "stateful-resource-v2" ? validateStatefulResourceGraph(
           resourceGraph,
           passes,
           declarations,
@@ -4586,7 +4607,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         }
       }
     }
-    if (value.resourceGraph !== void 0 && (!record3(value.resourceGraph) || value.resourceGraph.abi !== "stateful-resource-v1" && (value.resourceGraph.abi !== "linear-resource-v1" || Object.keys(value.resourceGraph).length !== 1) || value.kind === "simulation" || value.feedback !== void 0 || value.statelessCompute !== void 0 || value.simulation !== void 0 || value.optionalImage !== void 0 || value.sourceSizing !== void 0))
+    if (value.resourceGraph !== void 0 && (!record3(value.resourceGraph) || value.resourceGraph.abi !== "stateful-resource-v1" && value.resourceGraph.abi !== "stateful-resource-v2" && (value.resourceGraph.abi !== "linear-resource-v1" || Object.keys(value.resourceGraph).length !== 1) || value.kind === "simulation" || value.feedback !== void 0 || value.statelessCompute !== void 0 || value.simulation !== void 0 || value.optionalImage !== void 0 || value.sourceSizing !== void 0))
       errors.push(\`\${prefix}.resourceGraph: linear-resource-definition-invalid\`);
     if (value.simulation !== void 0) {
       const simulation = value.simulation;
@@ -4716,6 +4737,14 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       errors,
       false
     );
+    if (record3(value.resourceGraph) && value.resourceGraph.abi === "stateful-resource-v2") {
+      const external = (Array.isArray(value.resources) ? value.resources : []).filter((resource) => resource.external).map((resource) => resource.name);
+      const bound = Object.values(value.inputs ?? {}).filter((port) => port.kind === "texture-2d").map((port) => port.resource);
+      if (external.length < 2 || external.length > 4 || bound.length !== external.length || new Set(bound).size !== external.length || external.some((name) => !bound.includes(name)))
+        errors.push(
+          \`\${prefix}.resourceGraph needs an exact named input for each external texture\`
+        );
+    }
     if (record3(value.properties))
       for (const [name, candidate] of Object.entries(value.properties)) {
         if (!record3(candidate) || candidate.type !== "texture") continue;
@@ -4759,7 +4788,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           (read) => typeof read === "string"
         ) || new Set(pass.previousFrameReads).size !== pass.previousFrameReads.length) || pass.persistent !== void 0 && typeof pass.persistent !== "boolean" || pass.additionalOutputs !== void 0 && (!Array.isArray(pass.additionalOutputs) || pass.additionalOutputs.length !== 1 || !pass.additionalOutputs.every(
           (output) => typeof output === "string"
-        )) || pass.dispatch !== void 0 && (!record3(pass.dispatch) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2 || pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || value.feedback && Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || value.statelessCompute && isStatelessComputeDispatch(pass.dispatch) || value.resourceGraph && isLinearResourceDispatch(pass.dispatch))) || pass.draw !== void 0 && (!record3(pass.draw) || Object.keys(pass.draw).length !== 2 || pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !(record3(value.resourceGraph) && value.resourceGraph.abi === "stateful-resource-v1" && isStatefulResourceDraw(pass.draw)))) {
+        )) || pass.dispatch !== void 0 && (!record3(pass.dispatch) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2 || pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || value.feedback && Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || value.statelessCompute && isStatelessComputeDispatch(pass.dispatch) || value.resourceGraph && isLinearResourceDispatch(pass.dispatch))) || pass.draw !== void 0 && (!record3(pass.draw) || Object.keys(pass.draw).length !== 2 || pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !(record3(value.resourceGraph) && (value.resourceGraph.abi === "stateful-resource-v1" || value.resourceGraph.abi === "stateful-resource-v2") && isStatefulResourceDraw(pass.draw)))) {
           errors.push(\`\${prefix}.passes[\${passIndex}] is malformed\`);
         } else {
           if (pass.original !== void 0) {
@@ -5484,10 +5513,18 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.name = "NativePipelineCacheInvalidatedError";
     }
   };
+  var NativePipelineCacheCapacityError = class extends Error {
+    constructor() {
+      super("Active native pipelines exceed the bounded cache capacity.");
+      __publicField(this, "code", "native_pipeline_cache_capacity");
+      this.name = "NativePipelineCacheCapacityError";
+    }
+  };
   var NativePipelineCache = class {
     constructor(maxEntries = 32) {
       __publicField(this, "maxEntries", maxEntries);
       __publicField(this, "entries", /* @__PURE__ */ new Map());
+      __publicField(this, "pins", /* @__PURE__ */ new Map());
       __publicField(this, "generation", 0);
       if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || maxEntries > 256)
         throw new RangeError("maxEntries must be an integer from 1 to 256");
@@ -5498,12 +5535,54 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     has(key) {
       return this.entries.has(key);
     }
+    pin(key) {
+      const count = this.pins.get(key) ?? 0;
+      if (count === 0 && this.pins.size >= 256)
+        throw new NativePipelineCacheCapacityError();
+      if (!Number.isSafeInteger(count + 1))
+        throw new NativePipelineCacheCapacityError();
+      this.pins.set(key, count + 1);
+      const generation = this.generation;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        if (generation !== this.generation) return;
+        const remaining = this.pins.get(key);
+        if (remaining === 1) this.pins.delete(key);
+        else if (remaining !== void 0) this.pins.set(key, remaining - 1);
+        this.trim();
+      };
+    }
+    evict(key) {
+      const entry = this.entries.get(key);
+      if (!entry) return;
+      this.entries.delete(key);
+      entry.invalidate("evicted");
+    }
+    oldestUnpinned(protectedKey) {
+      for (const key of this.entries.keys())
+        if (!this.pins.has(key) && key !== protectedKey) return key;
+      return void 0;
+    }
+    trim(protectedKey) {
+      while (this.entries.size > this.maxEntries) {
+        const oldest = this.oldestUnpinned(protectedKey);
+        if (oldest === void 0) break;
+        this.evict(oldest);
+      }
+    }
     getOrCreate(key, factory) {
       const cached = this.entries.get(key);
       if (cached) {
         this.entries.delete(key);
         this.entries.set(key, cached);
         return cached.promise;
+      }
+      if (this.entries.size >= 256) {
+        const oldest = this.oldestUnpinned();
+        if (oldest === void 0) throw new NativePipelineCacheCapacityError();
+        this.evict(oldest);
       }
       const generation = this.generation;
       let resolve;
@@ -5522,13 +5601,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         }
       };
       this.entries.set(key, entry);
-      while (this.entries.size > this.maxEntries) {
-        const oldestKey = this.entries.keys().next().value;
-        if (oldestKey === void 0) break;
-        const oldest = this.entries.get(oldestKey);
-        this.entries.delete(oldestKey);
-        oldest.invalidate("evicted");
-      }
+      this.trim(key);
       void Promise.resolve().then(async () => {
         if (settled) return;
         try {
@@ -5556,6 +5629,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.generation++;
       for (const entry of this.entries.values()) entry.invalidate("reset");
       this.entries.clear();
+      this.pins.clear();
     }
   };
 
@@ -14771,13 +14845,14 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
     return spec.size === "fixed" ? [spec.width ?? 0, spec.height ?? 0] : [viewportWidth, viewportHeight];
   }
   var NativeStatefulResourceSession = class _NativeStatefulResourceSession {
-    constructor(device, allocator, resources, outputName, width, height) {
+    constructor(device, allocator, resources, outputName, width, height, abi) {
       this.device = device;
       this.allocator = allocator;
       this.resources = resources;
       this.outputName = outputName;
       this.width = width;
       this.height = height;
+      this.abi = abi;
       this.states = /* @__PURE__ */ new Map();
       this.scratch = /* @__PURE__ */ new Map();
       this.ownedTextures = /* @__PURE__ */ new Set();
@@ -14788,6 +14863,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.committedSourceIdentity = "";
       this.committedSourceRevision = "";
       this.committedSourceEpoch = null;
+      this.committedInputEpochs = null;
       this.busy = false;
       this.disposed = false;
       this.faulted = false;
@@ -14800,7 +14876,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
     }
     static create(device, allocator, definition, width, height) {
       const graph = definition.resourceGraph;
-      if (!graph || graph.abi !== "stateful-resource-v1" || !definition.output)
+      if (!graph || graph.abi !== "stateful-resource-v1" && graph.abi !== "stateful-resource-v2" || !definition.output)
         throw new NativeStatefulResourceError("stateful-definition-invalid");
       const resources = new Map(
         (definition.resources ?? []).map((spec) => [spec.name, spec])
@@ -14811,7 +14887,8 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         resources,
         definition.output,
         width,
-        height
+        height,
+        graph.abi
       );
       const stateNames = new Set(graph.stateResources);
       let total = 0;
@@ -14981,6 +15058,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
           sourceIdentity: this.committedSourceIdentity,
           sourceRevision: this.committedSourceRevision,
           sourceEpoch: this.committedSourceEpoch,
+          ...this.committedInputEpochs ? { inputEpochs: { ...this.committedInputEpochs } } : {},
           resources
         };
       } catch (error) {
@@ -15002,10 +15080,24 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
     }
     encode(options) {
       this.assertUsable();
+      const committedSeed = options.seed;
+      const committedSourceIdentity = options.sourceIdentity;
+      const committedSourceRevision = options.sourceRevision;
+      const committedSourceEpoch = options.sourceEpoch;
+      const externalNames = [...this.resources.values()].filter((resource) => resource.external).map((resource) => resource.name).sort();
+      const externalTextures = this.abi === "stateful-resource-v1" ? /* @__PURE__ */ new Map([["source", options.source]]) : options.externalTextures ? new Map(options.externalTextures) : void 0;
+      const inputEpochs = options.inputEpochs ? new Map(options.inputEpochs) : void 0;
+      if (!externalTextures || externalTextures.size !== externalNames.length || externalNames.some((name) => !externalTextures.has(name)) || externalTextures.get("source") !== options.source || this.abi === "stateful-resource-v2" && (!inputEpochs || inputEpochs.size !== externalNames.length || externalNames.some((name) => {
+        const epoch = inputEpochs.get(name);
+        return epoch === void 0 || epoch !== null && (!Number.isSafeInteger(epoch) || epoch < 0);
+      })))
+        throw new NativeStatefulResourceError("stateful-input-missing");
       if (!options.steps.length || options.passes.length * options.steps.length > MAX_ENCODED_PASSES)
         throw new NativeStatefulResourceError("stateful-step-limit");
       const targetSpec = this.resources.get(this.outputName);
-      if (targetSpec?.kind !== "texture-2d" || options.target.width !== this.width || options.target.height !== this.height || options.target.format !== targetSpec.format || options.target === options.source || this.ownedTextures.has(options.target))
+      if (targetSpec?.kind !== "texture-2d" || options.target.width !== this.width || options.target.height !== this.height || options.target.format !== targetSpec.format || [...externalTextures.values()].some(
+        (texture) => !texture || !Number.isSafeInteger(texture.width) || texture.width < 1 || !Number.isSafeInteger(texture.height) || texture.height < 1 || options.target === texture
+      ) || this.ownedTextures.has(options.target))
         throw new NativeStatefulResourceError("stateful-target-invalid");
       const bank0 = this.committedBank;
       const work = [0, 1, 2].filter((index) => index !== bank0);
@@ -15014,7 +15106,11 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       let result = null;
       const uniforms = [];
       const releaseLease = this.allocator.lease(
-        /* @__PURE__ */ new Set([...this.ownedTextures, options.source, options.target]),
+        /* @__PURE__ */ new Set([
+          ...this.ownedTextures,
+          ...externalTextures.values(),
+          options.target
+        ]),
         this.ownedBuffers
       );
       let closed = false;
@@ -15045,7 +15141,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         for (const [ordinal, step] of options.steps.entries()) {
           const repeat = this.completed >= 0 && step === this.completed;
           const writeBank = work[workIndex % 2];
-          const values = /* @__PURE__ */ new Map([["source", options.source]]);
+          const values = new Map(externalTextures);
           if (repeat)
             for (const [name, state] of this.states)
               values.set(name, state.banks[readBank]);
@@ -15183,25 +15279,31 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               release();
             }
           },
-          commit: async () => {
+          commit: async (validateBeforeCommit) => {
             if (closed) throw new NativeStatefulResourceError("stateful-busy");
             closed = true;
             try {
-              await this.device.queue.onSubmittedWorkDone();
+              try {
+                await this.device.queue.onSubmittedWorkDone();
+              } catch (error) {
+                this.faulted = true;
+                throw new NativeStatefulResourceError(
+                  "stateful-device-lost",
+                  error
+                );
+              }
               if (this.disposed || this.faulted)
                 throw new NativeStatefulResourceError("stateful-device-lost");
+              validateBeforeCommit?.();
               this.committedBank = finalBank;
               this.completed = finalStep;
-              this.committedSeed = options.seed;
-              this.committedSourceIdentity = options.sourceIdentity;
-              this.committedSourceRevision = options.sourceRevision;
-              this.committedSourceEpoch = options.sourceEpoch;
-            } catch (error) {
-              this.faulted = true;
-              throw new NativeStatefulResourceError(
-                "stateful-device-lost",
-                error
-              );
+              this.committedSeed = committedSeed;
+              this.committedSourceIdentity = committedSourceIdentity;
+              this.committedSourceRevision = committedSourceRevision;
+              this.committedSourceEpoch = committedSourceEpoch;
+              this.committedInputEpochs = this.abi === "stateful-resource-v2" ? Object.fromEntries(
+                [...inputEpochs].sort(([a], [b]) => a.localeCompare(b))
+              ) : null;
             } finally {
               release();
             }
@@ -17208,6 +17310,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           };
           this.scanFailures.push(diagnostic);
           for (const mount of this.mounts.values()) {
+            this.releaseGraphPipelinePins(mount);
             mount.frozenReason = {
               code: diagnostic.code,
               message: diagnostic.message,
@@ -17302,6 +17405,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           rejected.set(target, diagnostic);
           const existing = this.mounts.get(instance.id);
           if (existing?.target === target && existing.instance.placement === instance.placement) {
+            this.releaseGraphPipelinePins(existing);
             existing.frozenReason = diagnostic;
             wanted.set(instance.id, {
               instance: existing.instance,
@@ -17485,13 +17589,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           const existing = this.mounts.get(id);
           if (existing) {
             if (!rejectedIds.has(id)) existing.frozenReason = null;
+            if (existing.definitionHash !== entry.hash)
+              this.releaseGraphPipelinePins(existing);
             if (JSON.stringify(existing.instance.bindings) !== JSON.stringify(entry.instance.bindings))
               this.releaseAuthoredInputs(existing);
             if (existing.definitionHash !== entry.hash || JSON.stringify(existing.instance) !== JSON.stringify(entry.instance) || existing.previousLayerId !== entry.previousLayerId || existing.previousFillId !== entry.previousFillId)
               this.markMountRenderPending(existing);
             if (existing.feedback && (!entry.definition.feedback || existing.feedback.definitionHash !== entry.hash))
               this.releaseFeedback(existing);
-            if (existing.stateful && (entry.definition.resourceGraph?.abi !== "stateful-resource-v1" || existing.stateful.definitionHash !== entry.hash))
+            if (existing.stateful && (!isStatefulResourceGraph(entry.definition.resourceGraph) || existing.stateful.definitionHash !== entry.hash))
               this.releaseStateful(existing);
             existing.assetFailures.clear();
             existing.authoredStyleDirty = true;
@@ -17637,7 +17743,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             failures: [...this.scanFailures],
             renderWallMs: 0
           };
-        if (this.running) await this.running;
+        while (this.running) await this.running;
         if (this.disposed)
           throw new NativeSourceError("runtime-disposed", "runtime-disposed");
         const benchmarkMetrics = this.mountedBenchmark ? {
@@ -18354,7 +18460,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         for (const mount of this.mounts.values()) {
           const spec = mount.definition.simulation;
           const feedback = mount.definition.feedback;
-          const stateful = mount.definition.resourceGraph?.abi === "stateful-resource-v1" ? mount.definition.resourceGraph : null;
+          const stateful = isStatefulResourceGraph(mount.definition.resourceGraph) ? mount.definition.resourceGraph : null;
           if (!spec && !feedback && !stateful) continue;
           const timing = mount.instance.timing;
           const firstLocal = timing.time + (timing.paused ? 0 : options.startTimeSeconds * timing.speed);
@@ -18394,7 +18500,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
             if (!inputPlan.ok)
               throw new NativeSourceError(inputPlan.code, inputPlan.detail);
-            if (inputPlan.inputs.get("source")?.kind === "camera")
+            if ([...inputPlan.inputs.values()].some(
+              (input) => input.kind === "camera"
+            ))
               throw new NativeSourceError(
                 "stateful-source-history-unavailable",
                 \`Stateful effect \${mount.instance.id} uses a camera source without timestamped replay.\`
@@ -18468,7 +18576,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           snapshot = this.suspendForComposition();
           const saved = [...this.mounts.values()].filter(
-            (mount) => !!mount.definition.simulation || !!mount.definition.feedback || mount.definition.resourceGraph?.abi === "stateful-resource-v1" || targetInstances.has(mount.instance.id)
+            (mount) => !!mount.definition.simulation || !!mount.definition.feedback || isStatefulResourceGraph(mount.definition.resourceGraph) || targetInstances.has(mount.instance.id)
           ).map((mount) => {
             const entry = {
               mount,
@@ -18666,7 +18774,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "A repeated frame requires the current held simulation session."
           );
         } else if ([...this.mounts.values()].some(
-          (mount) => mount.definition.simulation || mount.definition.feedback || mount.definition.resourceGraph?.abi === "stateful-resource-v1"
+          (mount) => mount.definition.simulation || mount.definition.feedback || isStatefulResourceGraph(mount.definition.resourceGraph)
         )) {
           throw new NativeSourceError(
             "simulation-session-required",
@@ -18696,7 +18804,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             const finalTime = (options.startTimeSeconds ?? 0) + options.frameIndex / options.fps;
             const clocks = [...this.mounts.values()].flatMap((mount) => {
               const graph = mount.definition.resourceGraph;
-              if (graph?.abi !== "stateful-resource-v1" || graph.sourceHistory !== "sequential-captures")
+              if (!isStatefulResourceGraph(graph) || graph.sourceHistory !== "sequential-captures")
                 return [];
               return [
                 {
@@ -20383,7 +20491,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       for (const resource of [...mount.authoredInputs.keys()])
         this.releaseAuthoredInput(mount, resource);
     }
+    releaseGraphPipelinePins(mount) {
+      for (const release of mount.graphPipelinePins.values()) release();
+      mount.graphPipelinePins.clear();
+    }
     releaseMountTextures(mount) {
+      this.releaseGraphPipelinePins(mount);
       this.releaseAuthoredInputs(mount);
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
@@ -20793,6 +20906,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           instance.placement === "backdrop" ? canvas : void 0
         ),
         resourceTextures: /* @__PURE__ */ new Map(),
+        graphPipelinePins: /* @__PURE__ */ new Map(),
         statelessBuffers: /* @__PURE__ */ new Set(),
         statelessInputs: /* @__PURE__ */ new Map(),
         isolationTextures: /* @__PURE__ */ new Map(),
@@ -20833,7 +20947,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         isTopLayer: true,
         clock: {
           global: clockTime,
-          local: definition.simulation || definition.feedback || definition.resourceGraph?.abi === "stateful-resource-v1" ? instance.timing.time : instance.timing.time + (instance.timing.paused ? 0 : clockTime * instance.timing.speed),
+          local: definition.simulation || definition.feedback || isStatefulResourceGraph(definition.resourceGraph) ? instance.timing.time : instance.timing.time + (instance.timing.paused ? 0 : clockTime * instance.timing.speed),
           speed: instance.timing.speed,
           paused: instance.timing.paused
         },
@@ -21187,6 +21301,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
       this.releaseStateful(mount);
+      this.releaseGraphPipelinePins(mount);
       mount.presentationPair?.dispose();
       mount.presentationPair = null;
       if (mount.instance.id === REVIEWED_LOCAL_RUNTIME_TARGET?.instanceId)
@@ -23334,9 +23449,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       mount.resourceTextures.set("__native_trail_back", previousTrail);
       return nextTrail;
     }
-    async statefulResourcePasses(mount, source, time, encoder, definition, instance, sourceRevision, deterministic, sourceIdentity, sourceReplaySafety) {
+    async statefulResourcePasses(mount, source, time, encoder, definition, instance, sourceRevision, deterministic, sourceIdentity, sourceReplaySafety, externalTextures, inputEpochs) {
       const graph = definition.resourceGraph;
-      if (definition !== mount.definition || graph?.abi !== "stateful-resource-v1")
+      if (definition !== mount.definition || !isStatefulResourceGraph(graph))
         throw new NativeSourceError(
           "stateful-definition-invalid",
           "A stateful draft needs an isolated graph session."
@@ -23386,7 +23501,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           await this.linearResourcePipeline(
             pass,
             reads,
-            output2
+            output2,
+            mount
           )
         );
       }
@@ -23489,7 +23605,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceRevision,
           deterministic,
           sourceIdentity,
-          sourceReplaySafety
+          sourceReplaySafety,
+          externalTextures,
+          inputEpochs
         );
       }
       const maxSteps = Math.min(
@@ -23546,6 +23664,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         seed: instance.seed,
         sourceIdentity,
         sourceRevision,
+        ...externalTextures ? { externalTextures } : {},
+        ...inputEpochs ? { inputEpochs } : {},
         sourceEpoch: sourceIdentity.startsWith("authored:") ? mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null : sourceIdentity === "camera" ? this.renderEpoch : mount.provider?.sourceEpoch?.() ?? null,
         drawCount: (property, maximum, stepTime) => {
           const count2 = resolveNativeParameterAnimation(
@@ -24171,7 +24291,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       capture.capturedSourceEpoch = read.sourceEpoch;
       return texture;
     }
-    async linearResourcePipeline(pass, reads, output) {
+    async linearResourcePipeline(pass, reads, output, mount) {
       const device = this.device;
       const epoch = this.deviceEpoch;
       const compute = pass.kind === "compute";
@@ -24188,100 +24308,127 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       const key = \`\${epoch}:\${pass.kind}:\${output.format ?? "buffer"}:\${reads.map((resource) => resource.kind).join(",")}:\${pass.draw ? "instanced" : "single"}:\${pass.wgsl}\`;
       if (!this.graphPipelines.has(key)) this.ensureTextureBudget(524288);
-      return this.graphPipelines.getOrCreate(key, async () => {
-        const module = device.createShaderModule({ code: pass.wgsl });
-        const compilation = await module.getCompilationInfo();
-        if (this.device !== device || this.deviceEpoch !== epoch)
-          throw new NativeSourceError(
-            "device-generation-changed",
-            "The WebGPU device changed during shader compilation."
-          );
-        const issues = compilation.messages.filter(
-          (message) => message.type === "error"
-        );
-        if (issues.length)
-          throw new NativeShaderCompilationError(
-            issues.map((issue) => ({
-              line: issue.lineNum,
-              column: issue.linePos,
-              message: issue.message
-            }))
-          );
-        const entries = [
-          {
-            binding: 0,
-            visibility: compute ? GPUShaderStage.COMPUTE : GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-            buffer: { type: "uniform" }
-          },
-          { binding: 1, visibility, sampler: { type: "filtering" } },
-          ...reads.map(
-            (resource, index) => ({
-              binding: index + 2,
-              visibility: !compute && resource.kind === "buffer" ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : visibility,
-              ...resource.kind === "buffer" ? { buffer: { type: "read-only-storage" } } : { texture: { sampleType: "float" } }
-            })
-          )
-        ];
-        if (compute)
-          entries.push({
-            binding: 18,
-            visibility: GPUShaderStage.COMPUTE,
-            ...output.kind === "buffer" ? { buffer: { type: "storage" } } : {
-              storageTexture: {
-                access: "write-only",
-                format: output.format
-              }
-            }
-          });
+      let newlyPinned = false;
+      if (!mount.graphPipelinePins.has(key)) {
         try {
-          const layout = device.createPipelineLayout({
-            bindGroupLayouts: [device.createBindGroupLayout({ entries })]
-          });
-          const pipeline = compute ? await device.createComputePipelineAsync({
-            layout,
-            compute: { module, entryPoint: "cs" }
-          }) : await device.createRenderPipelineAsync({
-            layout,
-            vertex: { module, entryPoint: "vs" },
-            fragment: {
-              module,
-              entryPoint: "fs",
-              targets: [
-                {
-                  format: output.format,
-                  ...pass.draw ? {
-                    blend: {
-                      color: {
-                        operation: "add",
-                        srcFactor: "one",
-                        dstFactor: "one-minus-src-alpha"
-                      },
-                      alpha: {
-                        operation: "add",
-                        srcFactor: "one",
-                        dstFactor: "one-minus-src-alpha"
-                      }
-                    }
-                  } : {}
-                }
-              ]
-            },
-            primitive: { topology: "triangle-list" }
-          });
+          mount.graphPipelinePins.set(key, this.graphPipelines.pin(key));
+        } catch (error) {
+          if (error instanceof NativePipelineCacheCapacityError)
+            throw new NativeSourceError(
+              "pipeline-cache-budget-exceeded",
+              "The mounted shader working set exceeds the bounded pipeline cache."
+            );
+          throw error;
+        }
+        newlyPinned = true;
+      }
+      try {
+        return await this.graphPipelines.getOrCreate(key, async () => {
+          const module = device.createShaderModule({ code: pass.wgsl });
+          const compilation = await module.getCompilationInfo();
           if (this.device !== device || this.deviceEpoch !== epoch)
             throw new NativeSourceError(
               "device-generation-changed",
-              "The WebGPU device changed during pipeline creation."
+              "The WebGPU device changed during shader compilation."
             );
-          return pipeline;
-        } catch (error) {
-          if (error instanceof NativeSourceError) throw error;
-          throw new NativeSourceError(
-            "shader-pipeline-failed",
-            error instanceof Error ? error.message : String(error)
+          const issues = compilation.messages.filter(
+            (message) => message.type === "error"
           );
+          if (issues.length)
+            throw new NativeShaderCompilationError(
+              issues.map((issue) => ({
+                line: issue.lineNum,
+                column: issue.linePos,
+                message: issue.message
+              }))
+            );
+          const entries = [
+            {
+              binding: 0,
+              visibility: compute ? GPUShaderStage.COMPUTE : GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              buffer: { type: "uniform" }
+            },
+            { binding: 1, visibility, sampler: { type: "filtering" } },
+            ...reads.map(
+              (resource, index) => ({
+                binding: index + 2,
+                visibility: !compute && resource.kind === "buffer" ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT : visibility,
+                ...resource.kind === "buffer" ? { buffer: { type: "read-only-storage" } } : { texture: { sampleType: "float" } }
+              })
+            )
+          ];
+          if (compute)
+            entries.push({
+              binding: 18,
+              visibility: GPUShaderStage.COMPUTE,
+              ...output.kind === "buffer" ? { buffer: { type: "storage" } } : {
+                storageTexture: {
+                  access: "write-only",
+                  format: output.format
+                }
+              }
+            });
+          try {
+            const layout = device.createPipelineLayout({
+              bindGroupLayouts: [device.createBindGroupLayout({ entries })]
+            });
+            const pipeline = compute ? await device.createComputePipelineAsync({
+              layout,
+              compute: { module, entryPoint: "cs" }
+            }) : await device.createRenderPipelineAsync({
+              layout,
+              vertex: { module, entryPoint: "vs" },
+              fragment: {
+                module,
+                entryPoint: "fs",
+                targets: [
+                  {
+                    format: output.format,
+                    ...pass.draw ? {
+                      blend: {
+                        color: {
+                          operation: "add",
+                          srcFactor: "one",
+                          dstFactor: "one-minus-src-alpha"
+                        },
+                        alpha: {
+                          operation: "add",
+                          srcFactor: "one",
+                          dstFactor: "one-minus-src-alpha"
+                        }
+                      }
+                    } : {}
+                  }
+                ]
+              },
+              primitive: { topology: "triangle-list" }
+            });
+            if (this.device !== device || this.deviceEpoch !== epoch)
+              throw new NativeSourceError(
+                "device-generation-changed",
+                "The WebGPU device changed during pipeline creation."
+              );
+            return pipeline;
+          } catch (error) {
+            if (error instanceof NativeSourceError) throw error;
+            throw new NativeSourceError(
+              "shader-pipeline-failed",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        });
+      } catch (error) {
+        if (newlyPinned) {
+          mount.graphPipelinePins.get(key)?.();
+          mount.graphPipelinePins.delete(key);
         }
-      });
+        if (error instanceof NativePipelineCacheCapacityError)
+          throw new NativeSourceError(
+            "pipeline-cache-budget-exceeded",
+            "The mounted shader working set exceeds the bounded pipeline cache."
+          );
+        throw error;
+      }
     }
     async linearResourcePasses(mount, source, time, encoder, definition, instance, deterministic, dependencies) {
       const plan = planEffectGraph(definition);
@@ -24346,7 +24493,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             await this.linearResourcePipeline(
               pass,
               reads,
-              output
+              output,
+              mount
             )
           );
         } catch (error) {
@@ -24858,6 +25006,94 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let backendSourceRevision = sourceRevision;
       let backendSourceIdentity = "builtin:source";
       let backendSourceReplaySafety = "unknown";
+      let statefulExternalTextures;
+      let statefulInputEpochs;
+      if (definition.resourceGraph?.abi === "stateful-resource-v2") {
+        const resolved = await this.effectInputTextures(
+          mount,
+          source,
+          time,
+          encoder,
+          definition,
+          instance,
+          deterministic,
+          dependencies
+        );
+        const names = (definition.resources ?? []).filter((resource) => resource.external).map((resource) => resource.name).sort();
+        const textures = /* @__PURE__ */ new Map();
+        const epochs = /* @__PURE__ */ new Map();
+        const pendingEpochs = /* @__PURE__ */ new Map();
+        const identities = [];
+        const revisions = [];
+        let replaySafety = "immutable";
+        for (const name of names) {
+          const binding = resolved.inputPlan.inputs.get(name);
+          const texture = resolved.resources.get(name);
+          if (!binding || !texture)
+            throw new NativeSourceError(
+              "pass-input-missing",
+              \`Stateful input \${name} has no resolved texture.\`
+            );
+          textures.set(name, texture);
+          let identity;
+          let revision;
+          let epoch = null;
+          let safety = "unknown";
+          if (binding.kind === "asset") {
+            identity = \`asset:\${binding.url}\`;
+            revision = JSON.stringify(binding);
+            safety = "immutable";
+          } else if (binding.kind === "authored-node") {
+            const capture = mount.authoredInputs.get(name);
+            if (!capture || capture.capturedSourceEpoch === null)
+              throw new NativeSourceError(
+                "input-authored-source-stale",
+                \`Authored input \${binding.nodeId} has no captured revision.\`
+              );
+            identity = \`authored:\${binding.nodeId}:\${binding.capture}\`;
+            epoch = capture.capturedSourceEpoch;
+            revision = \`\${identity}:\${epoch}\`;
+            safety = capture.replaySafety;
+            pendingEpochs.set(name, { capture, sourceEpoch: epoch });
+          } else if (binding.kind === "camera") {
+            if (deterministic)
+              throw new NativeSourceError(
+                "stateful-source-history-unavailable",
+                "A live camera cannot replay deterministic source history."
+              );
+            if (this.cameraFrameTexture?.epoch !== this.renderEpoch)
+              throw new NativeSourceError(
+                "input-camera-frame-unavailable",
+                "The selected camera frame is unavailable."
+              );
+            identity = "camera";
+            revision = \`camera:\${this.renderEpoch}\`;
+            safety = "dynamic";
+          } else if (binding.kind === "fallback") {
+            identity = "fallback:transparent-data";
+            revision = identity;
+            safety = "immutable";
+          } else {
+            identity = \`builtin:\${binding.source}\`;
+            revision = \`\${identity}:\${sourceRevision}\`;
+            if (binding.source !== "mask" && mount.provider && sourceRecords)
+              safety = await mount.provider.replaySafety(sourceRecords);
+          }
+          epochs.set(name, epoch);
+          identities.push([name, identity, texture.width, texture.height]);
+          revisions.push([name, revision]);
+          if (safety === "dynamic") replaySafety = "dynamic";
+          else if (safety === "unknown" && replaySafety === "immutable")
+            replaySafety = "unknown";
+        }
+        mount.pendingGraphInputEpochs = pendingEpochs;
+        statefulExternalTextures = textures;
+        statefulInputEpochs = epochs;
+        backendSource = textures.get("source");
+        backendSourceIdentity = JSON.stringify(identities);
+        backendSourceRevision = JSON.stringify(revisions);
+        backendSourceReplaySafety = replaySafety;
+      }
       if (definition.statelessCompute || definition.simulation || definition.feedback || definition.resourceGraph?.abi === "stateful-resource-v1") {
         const planned = planNativeInputResources(definition, instance);
         if (!planned.ok)
@@ -24932,7 +25168,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           instance,
           deterministic
         );
-      if (definition.resourceGraph?.abi === "stateful-resource-v1")
+      if (isStatefulResourceGraph(definition.resourceGraph))
         return this.statefulResourcePasses(
           mount,
           backendSource,
@@ -24943,7 +25179,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           backendSourceRevision,
           deterministic,
           backendSourceIdentity,
-          backendSourceReplaySafety
+          backendSourceReplaySafety,
+          statefulExternalTextures,
+          statefulInputEpochs
         );
       if (definition.resourceGraph)
         return this.linearResourcePasses(
@@ -26231,7 +26469,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const localTime = draft ? draft.playing ? (performance.now() - draft.clockOrigin) / 1e3 : draft.time : deterministic ? mount.instance.timing.time + (mount.instance.timing.paused ? 0 : time * mount.instance.timing.speed) : mount.clock.paused ? mount.clock.local : mount.clock.local + (time - mount.clock.global) * mount.clock.speed;
         const sourceEpoch = mount.provider?.sourceEpoch?.();
         const assertStatelessCurrent = () => {
-          const statefulFrame = !!(draft?.definition ?? mount.definition).simulation || !!(draft?.definition ?? mount.definition).feedback || (draft?.definition ?? mount.definition).resourceGraph?.abi === "stateful-resource-v1";
+          const statefulFrame = !!(draft?.definition ?? mount.definition).simulation || !!(draft?.definition ?? mount.definition).feedback || isStatefulResourceGraph(
+            (draft?.definition ?? mount.definition).resourceGraph
+          );
           if (!statelessFrame && !statefulFrame) return;
           assertCurrentPresentation();
           if (statefulFrame && sourceEpoch !== void 0 && mount.provider?.sourceEpoch?.() !== sourceEpoch)
@@ -26581,7 +26821,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (mount.statefulFrame) {
           const frame = mount.statefulFrame;
           const stateful = mount.stateful;
-          await frame.commit();
+          await frame.commit(() => {
+            assertCaptureOriginCurrent();
+            assertStatelessCurrent();
+          });
           mount.statefulFrame = null;
           stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
           stateful.pendingSourceRevision = null;
@@ -26591,7 +26834,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "data-an-native-stateful-dropped-steps",
             String(stateful.droppedSteps)
           );
-          const fixedDt = mount.definition.resourceGraph?.abi === "stateful-resource-v1" ? mount.definition.resourceGraph.timing.fixedDt : 0;
+          const fixedDt = isStatefulResourceGraph(mount.definition.resourceGraph) ? mount.definition.resourceGraph.timing.fixedDt : 0;
           mount.target.setAttribute(
             "data-an-native-stateful-dropped-seconds",
             (stateful.droppedSteps * fixedDt).toFixed(3)

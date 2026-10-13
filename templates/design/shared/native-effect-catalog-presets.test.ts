@@ -25,6 +25,14 @@ import {
   FEATURE_TRAILS_PRESETS,
 } from "./native-effect-owned-as-feature-trails";
 import {
+  CONTENT_BOUNDS_TRACKER_V2_EFFECT,
+  CONTENT_BOUNDS_TRACKER_V2_PRESETS,
+} from "./native-effect-owned-at-content-bounds-tracker-v2";
+import {
+  GUIDED_FLUID_PARTICLES_EFFECT,
+  GUIDED_FLUID_PARTICLES_PRESETS,
+} from "./native-effect-owned-au-guided-fluid-particles";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -35,18 +43,19 @@ import {
   NATIVE_EFFECT_PRESETS,
   NATIVE_V3_PRESET_LABEL_SOURCE_IDS,
 } from "./native-effect-presets";
+import { hashEffectDefinition } from "./native-effect-trust";
 import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(337);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(338);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(337);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(388);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(778);
+    ).toBe(338);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(390);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(782);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      778,
+      782,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -101,14 +110,20 @@ describe("Design-owned catalog", () => {
       expect(nativeCatalogPresetKey(preset)).not.toBeNull();
   });
 
-  it("registers content bounds tracking with localized controls and presets", () => {
+  it("registers content bounds tracking with localized controls and presets", async () => {
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.find(
         (definition) => definition.id === CONTENT_BOUNDS_TRACKER_EFFECT.id,
       ),
-    ).toBe(CONTENT_BOUNDS_TRACKER_EFFECT);
+    ).toBe(CONTENT_BOUNDS_TRACKER_V2_EFFECT);
     expect(nativeEffectAnimationCapability(CONTENT_BOUNDS_TRACKER_EFFECT)).toBe(
       "animated",
+    );
+    expect(await hashEffectDefinition(CONTENT_BOUNDS_TRACKER_EFFECT)).toBe(
+      "9b240ad776a275ef5c5990d4a1b95d0adb555287183585a192fdd999492ae29c",
+    );
+    expect(planEffectGraph(CONTENT_BOUNDS_TRACKER_V2_EFFECT).errors).toEqual(
+      [],
     );
     expect(CONTENT_BOUNDS_TRACKER_EFFECT.placements).toEqual([
       "layer",
@@ -121,11 +136,62 @@ describe("Design-owned catalog", () => {
       nativeCatalogPropertyKey(CONTENT_BOUNDS_TRACKER_EFFECT, "Cell layout"),
     ).toBe("editPanel.shaders.nativeCatalog.properties.cellLayout");
     expect(
+      NATIVE_EFFECT_DEFINITION_CATALOG.filter(
+        (definition) => definition.id === CONTENT_BOUNDS_TRACKER_EFFECT.id,
+      ),
+    ).toEqual([
+      CONTENT_BOUNDS_TRACKER_EFFECT,
+      CONTENT_BOUNDS_TRACKER_V2_EFFECT,
+    ]);
+    expect(
       NATIVE_EFFECT_PRESETS.filter(
         (preset) => preset.definitionId === CONTENT_BOUNDS_TRACKER_EFFECT.id,
       ),
-    ).toEqual(CONTENT_BOUNDS_TRACKER_PRESETS);
-    for (const preset of CONTENT_BOUNDS_TRACKER_PRESETS)
+    ).toEqual([
+      ...CONTENT_BOUNDS_TRACKER_PRESETS,
+      ...CONTENT_BOUNDS_TRACKER_V2_PRESETS,
+    ]);
+    for (const preset of [
+      ...CONTENT_BOUNDS_TRACKER_PRESETS,
+      ...CONTENT_BOUNDS_TRACKER_V2_PRESETS,
+    ])
+      expect(nativeCatalogPresetKey(preset)).not.toBeNull();
+  });
+
+  it("registers guided fluid particles with a separate guide and localized presets", () => {
+    expect(
+      NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+        (definition) => definition.id === GUIDED_FLUID_PARTICLES_EFFECT.id,
+      ),
+    ).toBe(GUIDED_FLUID_PARTICLES_EFFECT);
+    expect(nativeEffectAnimationCapability(GUIDED_FLUID_PARTICLES_EFFECT)).toBe(
+      "animated",
+    );
+    expect(GUIDED_FLUID_PARTICLES_EFFECT.inputs?.guide).toMatchObject({
+      resource: "guide",
+      fallback: "transparent-data",
+    });
+    expect(nativeCatalogDefinitionKey(GUIDED_FLUID_PARTICLES_EFFECT)).toBe(
+      "editPanel.shaders.nativeCatalog.definitions.owned-au-guided-fluid-particles",
+    );
+    expect(
+      nativeCatalogPropertyKey(GUIDED_FLUID_PARTICLES_EFFECT, "Use guide"),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.useGuide");
+    expect(
+      nativeCatalogPropertyKey(GUIDED_FLUID_PARTICLES_EFFECT, "Guide strength"),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.guideStrength");
+    expect(
+      nativeCatalogPropertyKey(GUIDED_FLUID_PARTICLES_EFFECT, "Guide mode"),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.guideMode");
+    expect(
+      nativeCatalogPropertyKey(GUIDED_FLUID_PARTICLES_EFFECT, "Guide image"),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.guideImage");
+    expect(
+      NATIVE_EFFECT_PRESETS.filter(
+        (preset) => preset.definitionId === GUIDED_FLUID_PARTICLES_EFFECT.id,
+      ),
+    ).toEqual(GUIDED_FLUID_PARTICLES_PRESETS);
+    for (const preset of GUIDED_FLUID_PARTICLES_PRESETS)
       expect(nativeCatalogPresetKey(preset)).not.toBeNull();
   });
 

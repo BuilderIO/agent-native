@@ -397,7 +397,9 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-magnetic-filings@1",
   "an-native-source-shape-fluid@1",
   "an-native-owned-aq-fluid-advected-particles@1",
+  "an-native-owned-au-guided-fluid-particles@1",
   "an-native-owned-ar-content-bounds-tracker@1",
+  "an-native-owned-ar-content-bounds-tracker@2",
   "an-native-owned-as-feature-trails@1",
 ]);
 

@@ -407,6 +407,7 @@ export default {
         definitions: {
           "owned-ar-content-bounds-tracker": "Inhaltsgrenzen-Tracker",
           "owned-as-feature-trails": "Merkmalspfade",
+          "owned-au-guided-fluid-particles": "Geführte Fluidpartikel",
           "owned-v-luma-dct-eight": "8×8-Luminanz-DCT",
           "owned-v-thermal-mask-contour": "Thermische Maskenkonturen",
           "owned-v-scalar-map-drift": "Skalarfeld-Drift",
@@ -1635,6 +1636,10 @@ export default {
           viscosity: "Viskosität",
           stirring: "Rühren",
           flowFollowing: "Strömungsfolge",
+          useGuide: "Führung verwenden",
+          guideStrength: "Führungsstärke",
+          guideMode: "Führungsmodus",
+          guideImage: "Führungsbild",
           shapeHeight: "Formhöhe",
           edgeBevel: "Kantenfase",
           lightElevation: "Lichthöhe",
@@ -1728,6 +1733,8 @@ export default {
           corners: "Ecken",
           camera: "Kamera",
           streamlines: "Stromlinien",
+          contours: "Konturen",
+          colorDirection: "Farbrichtung",
           "curl-magnitude": "Wirbelstärke",
         },
         presets: {
@@ -1735,6 +1742,12 @@ export default {
             "Limettengrüne Markierungen",
           "an-preset-ar-content-bounds-tracker-amber":
             "Bernsteinfarbene Rahmen",
+          "an-preset-at-content-bounds-global-lime":
+            "Globale limettengrüne Markierungen",
+          "an-preset-at-content-bounds-global-amber":
+            "Globale bernsteinfarbene Rahmen",
+          "an-preset-au-guided-fluid-contours": "Konturenströmung",
+          "an-preset-au-guided-fluid-eddy": "Geführter Wirbel",
           "an-preset-owned-as-bright-pursuit": "Helle Verfolgung",
           "an-preset-owned-as-color-drift": "Farbdrift",
           "an-preset-owned-v-luma-dct-eight-fine": "Feine Luminanzblöcke",
