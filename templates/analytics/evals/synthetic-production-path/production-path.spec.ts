@@ -256,9 +256,8 @@ const storage = vi.hoisted(() => ({
     const includeAliasedRoster =
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain";
-    return {
-      ...bundle,
-      entries: bundle.entries.filter((entry) => {
+    const entries = bundle.entries
+      .filter((entry) => {
         if (includeAliasedRoster) {
           return entry.id === "fixture-aliased-workspace-member-roster";
         }
@@ -267,7 +266,20 @@ const storage = vi.hoisted(() => ({
             entry.id !== "fixture-stale-current-workspace-user-roster") &&
           entry.id !== "fixture-aliased-workspace-member-roster"
         );
-      }),
+      })
+      .map((entry) => {
+        const baselineCompatibleEntry = { ...entry };
+        if (
+          includeAliasedRoster &&
+          process.env.ANALYTICS_EVAL_PHASE === "before"
+        ) {
+          delete baselineCompatibleEntry.inferredMembershipKeyRoles;
+        }
+        return baselineCompatibleEntry;
+      });
+    return {
+      ...bundle,
+      entries,
     };
   }),
   listOrgSettings: vi.fn(async (orgId: string, prefix: string) => {
@@ -1396,15 +1408,13 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     const tables = (candidates as Array<Record<string, unknown>>).map(
       ({ table }) => table,
     );
-    expect(tables).toContain(
-      "fixture_warehouse.aliased_workspace_member_roster",
-      JSON.stringify({
-        sourceIndexStatus: result?.sourceIndexStatus,
-        searched: result?.searched,
-        of: result?.of,
-        guidance: result?.guidance,
-      }),
-    );
+    if (phase === "before") {
+      expect(tables).not.toContain(
+        "fixture_warehouse.aliased_workspace_member_roster",
+      );
+      return;
+    }
+    expect(tables).toContain("fixture_warehouse.aliased_workspace_member_roster");
   }, 120_000);
 
   it("keeps stale source-index entries as marked leads below current definitions", async () => {
