@@ -2775,11 +2775,14 @@ describe("app changelog raw imports", () => {
     expect(ignored(path.join(app, ".generated", "other.generated.ts"))).toBe(
       true,
     );
-    expect(ignored(path.join(app, ".generated", "bridge"))).toBe(true);
+    expect(ignored(path.join(app, ".generated", "bridge"))).toBe(false);
     expect(ignored(path.join(app, "app", "page.tsx"))).toBe(false);
 
     const windowsRoot = "C:\\repo\\templates\\design";
     const windowsIgnored = defaultViteWatchIgnored(windowsRoot);
+    expect(
+      windowsIgnored("C:\\repo\\templates\\design\\.generated\\bridge"),
+    ).toBe(false);
     expect(
       windowsIgnored(
         "C:\\repo\\templates\\design\\.generated\\bridge\\native.generated.ts",

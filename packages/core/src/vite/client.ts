@@ -3817,6 +3817,13 @@ export function defaultViteWatchIgnored(
       .relative(normalizedRoot, file.replace(/\\/g, "/"))
       .split("/");
     if (
+      segments.length === 2 &&
+      segments[0] === ".generated" &&
+      segments[1] === "bridge"
+    ) {
+      return false;
+    }
+    if (
       segments.length === 3 &&
       segments[0] === ".generated" &&
       segments[1] === "bridge" &&
