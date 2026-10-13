@@ -53,6 +53,8 @@ export interface Finding {
   paths: string[];
   sightings: Sighting[];
   sightingCount: number;
+  /** First sighting date; the sightings list keeps only the latest 60. */
+  firstSeen: string | null;
   attachments: string[];
   /** Last date the skill commented, or null when it never has. */
   lastCommented: string | null;
@@ -244,6 +246,7 @@ export class Jira {
       sightings: property?.sightings ?? [],
       sightingCount:
         property?.sightingCount ?? property?.sightings?.length ?? 0,
+      firstSeen: property?.firstSeen ?? null,
       attachments: (issue.fields.attachment ?? []).map((a) => a.filename),
       lastCommented: property?.lastCommented ?? null,
       recurrenceOf:
@@ -388,7 +391,8 @@ export function overlap(
  */
 export function commentDue(finding: Finding, cooldownDays: number): boolean {
   const days = (isDeclined(finding) ? 4 : 1) * cooldownDays;
-  const last = finding.lastCommented ?? finding.sightings[0]?.date;
+  const last =
+    finding.lastCommented ?? finding.firstSeen ?? finding.sightings[0]?.date;
   return !last || Date.now() - Date.parse(last) >= days * 86_400_000;
 }
 
@@ -418,7 +422,7 @@ export function mergeSighting(
   existing: FindingProperty | null,
   base: Pick<FindingProperty, "fingerprint" | "systems" | "paths">,
   sighting: Sighting,
-  extra: { commented?: boolean; recurrenceOf?: string } = {},
+  extra: { commentedOn?: string; recurrenceOf?: string } = {},
 ): FindingProperty {
   const previous = existing?.sightings ?? [];
   const repeat = previous.some((s) => s.runId === sighting.runId);
@@ -438,7 +442,7 @@ export function mergeSighting(
     sightingCount:
       (existing?.sightingCount ?? previous.length) + (repeat ? 0 : 1),
     sightings,
-    lastCommented: extra.commented ? sighting.date : existing?.lastCommented,
+    lastCommented: extra.commentedOn ?? existing?.lastCommented,
     recurrenceOf: extra.recurrenceOf ?? existing?.recurrenceOf,
   };
 }

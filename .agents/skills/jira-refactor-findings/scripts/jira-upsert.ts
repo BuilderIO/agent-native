@@ -214,7 +214,7 @@ async function upsertPlan(
       await jira.setProperty(
         key,
         mergeSighting(null, subject.base, subject.sighting, {
-          commented: true,
+          commentedOn: subject.sighting.date,
           recurrenceOf,
         }),
       );
@@ -331,15 +331,21 @@ async function recordSighting(
   const comment = due && !alreadyCommented;
   if (comment)
     await jira.comment(finding.key, sightingComment(finding, subject, link));
-  // A replayed run already stamped lastCommented when it commented; only a run
-  // whose property write failed after its comment still needs the stamp.
-  const recorded = (existing?.sightings ?? []).some(
-    (s) => s.runId === subject.runId,
-  );
+  // A run's comment counts from the day the run first sighted the ticket, so a
+  // replay never pushes lastCommented later, and a retry after a failed
+  // property write still records the comment it posted.
+  const runDate =
+    existing?.sightings.find((s) => s.runId === subject.runId)?.date ??
+    subject.sighting.date;
+  const stamped = (existing?.lastCommented ?? "") >= runDate;
   await jira.setProperty(
     finding.key,
     mergeSighting(existing, subject.base, subject.sighting, {
-      commented: comment || (alreadyCommented && !recorded),
+      commentedOn: comment
+        ? subject.sighting.date
+        : alreadyCommented && !stamped
+          ? runDate
+          : undefined,
     }),
   );
   if (finding.recurrenceOf)
@@ -429,7 +435,7 @@ function sightingComment(
   subject: Subject,
   link: string | null,
 ): AdfNode {
-  const first = finding.sightings[0];
+  const since = finding.firstSeen ?? finding.sightings[0]?.date;
   const declined = isDeclined(finding)
     ? [
         adf.text(
@@ -441,7 +447,7 @@ function sightingComment(
     adf.p(...subject.lead, ...declined),
     adf.p(
       adf.text(
-        `${finding.sightingCount + 1} sightings${first ? ` since ${first.date}` : ""}. `,
+        `${finding.sightingCount + 1} sightings${since ? ` since ${since}` : ""}. `,
       ),
       ...(link ? [adf.text("Run", link)] : []),
     ),
