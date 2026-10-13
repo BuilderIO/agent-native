@@ -53,9 +53,12 @@ repeats across all of them before any rejection comes back.
    its `.fmd-slide` wrapper — not a child. `deckStyle` summarizes the whole
    deck, including interior gradients, so it is not a substitute for the
    wrapper's own value. Keep each returned `contentHash` with its exact HTML.
-2. Send one `patch-deck` call carrying every affected slide and its matching
-   `baseContentHash`, then verify once with `get-deck` using the same `slideIds`
-   and `compact=false`.
+2. Send one `patch-deck` call carrying every affected slide, each as a
+   `patch-slide` with `edits: [{"find":"...","replace":"...","occurrence":1}]`
+   for the declarations that change, then verify once with `get-deck` using the
+   same `slideIds` and `compact=false`. Edits apply to the current HTML and need
+   no `baseContentHash`; regenerating full `fields.content` for a color swap
+   costs tens of seconds per slide and risks a structure rejection.
 
 Set `styleOnly: true` on each CSS-only content operation. `patch-deck` enforces
 that text, markup, element order, and protected layout CSS stay unchanged, and

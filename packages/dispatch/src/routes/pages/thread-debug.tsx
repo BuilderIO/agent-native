@@ -105,7 +105,12 @@ interface ThreadRun {
   peakRssMb?: number | null;
   inFlightSince?: number | null;
   hasDispatchPayload?: boolean;
-  events: Array<{ seq: number; event: any; rawEventData: string }>;
+  events: Array<{
+    seq: number;
+    eventAt?: number | null;
+    event: any;
+    rawEventData: string;
+  }>;
 }
 
 type ThreadDebugMode = "failures" | "threads";
@@ -379,6 +384,26 @@ function eventLabel(event: any): string {
   if (event.type === "text") return "text";
   if (event.type === "error") return `error · ${event.errorCode ?? "agent"}`;
   return String(event.type ?? "event");
+}
+
+// Legacy rows have no event_at, so their tools get no duration rather than 0ms.
+function toolDurations(events: ThreadRun["events"]) {
+  const bySeq = new Map<number, number>();
+  const byId = new Map<string, number>();
+  const pending = new Map<string, number[]>();
+  for (const { seq, eventAt, event } of events) {
+    if (eventAt == null) continue;
+    const key = event?.id ? String(event.id) : `tool:${event?.tool}`;
+    if (event?.type === "tool_start") {
+      pending.set(key, [...(pending.get(key) ?? []), eventAt]);
+    } else if (event?.type === "tool_done") {
+      const startedAt = pending.get(key)?.shift();
+      if (startedAt == null) continue;
+      bySeq.set(seq, eventAt - startedAt);
+      if (event.id) byId.set(String(event.id), eventAt - startedAt);
+    }
+  }
+  return { bySeq, byId };
 }
 
 function toolParts(message: ThreadMessage): any[] {
@@ -797,6 +822,7 @@ function RunEvents({ run }: { run: ThreadRun }) {
   const events = showStream
     ? run.events
     : run.events.filter((entry) => !eventIsNoise(entry.event));
+  const durations = useMemo(() => toolDurations(run.events).bySeq, [run]);
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -821,6 +847,12 @@ function RunEvents({ run }: { run: ThreadRun }) {
                   #{entry.seq}
                 </span>{" "}
                 {eventLabel(entry.event)}
+                {durations.has(entry.seq) ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {formatDuration(durations.get(entry.seq))}
+                  </span>
+                ) : null}
               </summary>
               <RawBlock value={entry.event} className="mt-2 max-h-72" />
             </details>
@@ -889,6 +921,10 @@ function RowInspector({
     ...(run ? (["run", "events", "traces"] as const) : []),
   ];
   const activeTab = available.includes(tab) ? tab : available[0];
+  const toolDurationsById = useMemo(
+    () => toolDurations(row.run?.events ?? []).byId,
+    [row.run],
+  );
   const traces = useMemo(() => {
     if (!run) return { summaries: [], spans: [] };
     const forRun = (record: any) => record?.run_id === run.id;
@@ -926,6 +962,12 @@ function RowInspector({
             >
               <summary className="cursor-pointer text-xs font-medium text-foreground">
                 {tool.toolName ?? tool.name ?? "tool-call"}
+                {toolDurationsById.has(tool.toolCallId) ? (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    · {formatDuration(toolDurationsById.get(tool.toolCallId))}
+                  </span>
+                ) : null}
               </summary>
               <RawBlock value={tool} className="mt-2 max-h-72" />
             </details>

@@ -591,6 +591,7 @@ function parseRunEvent(row: Record<string, unknown>) {
         ? String(row.run_id)
         : "",
     seq: numberField(row.seq),
+    eventAt: nullableNumberField(row.event_at),
     event: safeJsonParse(raw, { type: "unparseable", raw }),
     rawEventData: raw,
   };
@@ -1052,14 +1053,37 @@ export async function getAgentThreadDebug(input: {
   for (const run of runRows) {
     const eventRows = await optionalRows<Record<string, unknown>>(
       exec,
-      `SELECT run_id, seq, event_data
+      `SELECT run_id, seq, event_at, event_data
          FROM agent_run_events
         WHERE run_id = ?
         ORDER BY seq ASC
         LIMIT ?`,
       [run.id, maxEvents],
     );
-    runs.push(serializeRun(run, eventRows.map(parseRunEvent)));
+    // Streamed tool input deltas can fill the window long before the run ends,
+    // hiding every later tool call; keep fetching the non-stream events past it.
+    const lastSeq = eventRows.at(-1)?.seq;
+    const laterRows =
+      eventRows.length === maxEvents && lastSeq != null
+        ? await optionalRows<Record<string, unknown>>(
+            exec,
+            `SELECT run_id, seq, event_at, event_data
+               FROM agent_run_events
+              WHERE run_id = ?
+                AND seq > ?
+                AND event_data NOT LIKE '{"type":"tool_input_delta"%'
+                AND event_data NOT LIKE '{"type":"thinking"%'
+                AND event_data NOT LIKE '{"type":"text"%'
+                AND event_data NOT LIKE '{"type":"stream_keepalive"%'
+                AND event_data NOT LIKE '{"type":"activity"%'
+              ORDER BY seq ASC
+              LIMIT ?`,
+            [run.id, lastSeq, maxEvents],
+          )
+        : [];
+    runs.push(
+      serializeRun(run, [...eventRows, ...laterRows].map(parseRunEvent)),
+    );
   }
 
   const runIds = runRows.map((run) => run.id);
