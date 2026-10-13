@@ -16262,7 +16262,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       );
       if (sequentialHistory && initializeState && mode === "deterministic" && firstStep > 0)
         throw new NativeFeedbackFailure("feedback-source-history-unavailable");
-      const advance = liveBaseline ? Number.isSafeInteger(firstStep) && firstStep <= this.definition.timing.maxStepIndex ? {
+      const advance = liveBaseline ? Number.isSafeInteger(firstStep) && firstStep >= 0 ? {
         ok: true,
         steps: [],
         targetStep: firstStep
@@ -17342,6 +17342,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.rescanPending = false;
       this.draft = null;
       this.draftGeneration = 0;
+      this.draftReservedGeneration = 0;
+      this.draftWorkSettled = Promise.resolve({ status: "fulfilled", value: void 0 });
+      this.draftPendingCount = 0;
       this.draftRequestPending = false;
       this.diagnostics = () => [...this.issues];
       this.profile = (options) => ({
@@ -19637,7 +19640,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             ]);
             return;
           }
-          const generation = ++this.draftGeneration;
+          const generation = ++this.draftReservedGeneration;
           if (data.type === "native-shader-draft-preview") {
             if (typeof data.nodeId !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(data.nodeId) || !validHash(data.expectedExecutionHash) || !data.draftDefinition || typeof data.draftDefinition !== "object" || !data.params || typeof data.params !== "object" || Array.isArray(data.params) || typeof data.seed !== "number" || !Number.isFinite(data.seed) || typeof data.time !== "number" || !Number.isFinite(data.time) || data.time < 0) {
               this.postDraftResult(requestId, instanceId, "error", [
@@ -19668,7 +19671,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               "set-time",
               "play",
               "pause"
-            ].includes(String(data.command))) {
+            ].includes(String(data.command)) || data.expectedExecutionHash !== void 0 && !validHash(data.expectedExecutionHash)) {
               this.postDraftResult(requestId, instanceId, "error", [
                 this.draftFailure(
                   "draft-control-invalid",
@@ -20402,11 +20405,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         ),
         graphBytes: bytes([
           ...mount.resourceTextures.values(),
+          ...this.draft?.instanceId === mount.instance.id ? [
+            ...this.draft.resources.values(),
+            ...this.draft.publishedResources.values()
+          ] : [],
           ...this.draft?.instanceId === mount.instance.id ? this.draft.statefulResources.values() : [],
           ...[...mount.authoredInputs.values()].flatMap((input) => [
             ...input.surface.resourceTextures.values()
           ]),
           ...mount.feedback?.textures ?? [],
+          ...this.draft?.instanceId === mount.instance.id ? this.draft.feedback?.textures ?? [] : [],
           ...mount.stateful?.textures ?? [],
           ...this.draft?.instanceId === mount.instance.id ? this.draft.stateful?.textures ?? [] : []
         ]),
@@ -20418,7 +20426,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             ])
           ].map((entry) => entry.texture)
         ),
-        finalBytes: bytes([mount.outputTexture]),
+        finalBytes: bytes([
+          mount.outputTexture,
+          ...this.draft?.instanceId === mount.instance.id ? [this.draft.publishedTexture, this.draft.lastGoodTexture] : []
+        ]),
         maskBytes: bytes([mount.maskTexture])
       }));
       const mountedBytes = mounts.reduce(
@@ -21066,10 +21077,19 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             ...surfaces.flatMap((surface) => [
               ...surface.resourceTextures.values()
             ]),
-            ...owner && this.draft?.instanceId === owner.instance.id ? this.draft.statefulResources.values() : []
+            ...owner && this.draft?.instanceId === owner.instance.id ? [
+              ...this.draft.statefulResources.values(),
+              ...this.draft.resources.values(),
+              ...this.draft.publishedResources.values()
+            ] : [],
+            ...owner?.outputTexture && this.textureBytes.has(owner.outputTexture) ? [owner.outputTexture] : [],
+            ...owner && this.draft?.instanceId === owner.instance.id ? [this.draft.publishedTexture, this.draft.lastGoodTexture].filter(
+              (texture) => !!texture && this.textureBytes.has(texture)
+            ) : []
           ],
           feedback: [
             ...budgetRecord.feedback?.textures ?? [],
+            ...owner && this.draft?.instanceId === owner.instance.id ? this.draft.feedback?.textures ?? [] : [],
             ...("stateful" in budgetRecord ? budgetRecord.stateful?.textures : void 0) ?? [],
             ...owner && this.draft?.instanceId === owner.instance.id ? this.draft.stateful?.textures ?? [] : []
           ],
@@ -21406,6 +21426,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       void this.disposeFeedback(feedback).catch(
         (error) => this.issue("feedback-cleanup-failed", String(error), mount.instance.id)
       );
+    }
+    releaseDraftFeedback(draft) {
+      draft.feedbackFrame?.abandon();
+      draft.feedbackFrame = null;
+      const feedback = draft.feedback;
+      draft.feedback = null;
+      if (feedback)
+        void this.disposeFeedback(feedback).catch(
+          (error) => this.issue("feedback-cleanup-failed", String(error), draft.instanceId)
+        );
     }
     releaseSimulationExportSaved(session) {
       for (const saved of session.saved.splice(0)) {
@@ -24215,7 +24245,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         prior2.resetPropertyValues,
         resetPropertyValues
       ))) {
-        if (draft) this.releaseDraftStateful(draft);
+        if (draft) this.releaseDraftResources(draft);
         else this.releaseStateful(mount);
       }
       const pipelines = /* @__PURE__ */ new Map();
@@ -24331,7 +24361,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "Sequential source history must begin at the first fixed step."
         );
       if (target < completed) {
-        if (draft) this.releaseDraftStateful(draft);
+        if (draft) this.releaseDraftResources(draft);
         else this.releaseStateful(mount);
         return this.statefulResourcePasses(
           mount,
@@ -24461,12 +24491,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       return frame.output;
     }
     async feedbackPasses(mount, source, time, encoder, definition, instance, sourceRevision, deterministic, sourceIdentity) {
-      if (definition !== mount.definition || this.draft?.showDraft && this.draft.instanceId === mount.instance.id)
-        throw new NativeSourceError(
-          "feedback-draft-unsupported",
-          "A feedback draft needs an isolated state session."
-        );
-      const adapted = mount.feedback?.definitionHash === mount.definitionHash ? { ok: true, definition: mount.feedback.definition } : adaptNativeFeedbackDefinition(definition);
+      const draft = this.draft?.showDraft && this.draft.instanceId === mount.instance.id ? this.draft : null;
+      const adapted = (draft ? draft.feedback : mount.feedback)?.definitionHash === (draft ? draft.executionHash : mount.definitionHash) ? {
+        ok: true,
+        definition: (draft ? draft.feedback : mount.feedback).definition
+      } : adaptNativeFeedbackDefinition(definition);
       if (!adapted.ok)
         throw new NativeSourceError(
           adapted.code,
@@ -24494,13 +24523,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (name) => [name, read(name)]
       );
       const revision = instance.timing.seekRevision ?? 0;
-      const prior2 = mount.feedback;
-      if (prior2 && (prior2.definitionHash !== mount.definitionHash || prior2.sourceIdentity !== sourceIdentity || prior2.seed !== params.seed || nativeFeedbackResetValuesChanged(
+      const prior2 = draft ? draft.feedback : mount.feedback;
+      if (prior2 && (prior2.definitionHash !== (draft ? draft.executionHash : mount.definitionHash) || prior2.sourceIdentity !== sourceIdentity || prior2.seed !== params.seed || nativeFeedbackResetValuesChanged(
         prior2.resetPropertyValues,
         resetPropertyValues
-      ) || prior2.seekRevision !== revision || prior2.sourceWidth !== source.width || prior2.sourceHeight !== source.height))
-        this.releaseFeedback(mount);
-      if (!mount.feedback) {
+      ) || prior2.seekRevision !== revision || prior2.sourceWidth !== source.width || prior2.sourceHeight !== source.height)) {
+        if (draft) this.releaseDraftFeedback(draft);
+        else this.releaseFeedback(mount);
+      }
+      if (!(draft ? draft.feedback : mount.feedback)) {
         const grid = adapted.definition.grid;
         this.ensureCompositionBudget(
           mount,
@@ -24522,11 +24553,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           },
           adapted.definition
         );
-        mount.feedback = {
+        const feedback2 = {
           executor,
           definition: adapted.definition,
           textures,
-          definitionHash: mount.definitionHash,
+          definitionHash: draft ? draft.executionHash : mount.definitionHash,
           seed: params.seed,
           resetPropertyValues,
           seekRevision: revision,
@@ -24539,8 +24570,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceHeight: source.height,
           retirements: /* @__PURE__ */ new Set()
         };
+        if (draft) draft.feedback = feedback2;
+        else mount.feedback = feedback2;
       }
-      const feedback = mount.feedback;
+      const feedback = draft ? draft.feedback : mount.feedback;
       const outputName = definition.output;
       const outputSpec = definition.resources?.find(
         (resource) => resource.name === outputName
@@ -24550,16 +24583,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "feedback-definition-invalid",
           "Feedback resolve needs a viewport-sized float output."
         );
-      let output = mount.resourceTextures.get(outputName);
+      const resources = draft ? draft.resources : mount.resourceTextures;
+      let output = resources.get(outputName);
       if (output && (output.width !== source.width || output.height !== source.height || output.format !== "rgba16float")) {
-        mount.resourceTextures.delete(outputName);
+        resources.delete(outputName);
         this.destroyTexture(output);
         output = void 0;
       }
       if (!output) {
         this.ensureCompositionBudget(mount, source.width * source.height * 8);
         output = this.texture(source.width, source.height, "rgba16float");
-        mount.resourceTextures.set(outputName, output);
+        resources.set(outputName, output);
       }
       const pointerPosition = definition.interaction ? instance.params[definition.interaction.positionProperty] ?? definition.properties[definition.interaction.positionProperty].default : null;
       const replay = deterministic && pointerPosition ? this.replayPointer(mount, time, {
@@ -24590,7 +24624,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       });
       feedback.pendingSourceRevision = sourceRevision;
       feedback.pendingPointerPosition = pointer ? { x: pointer.x, y: pointer.y, active: pointer.active } : null;
-      mount.feedbackFrame = frame;
+      if (draft) draft.feedbackFrame = frame;
+      else mount.feedbackFrame = frame;
       return output;
     }
     async statelessComputePasses(mount, source, time, encoder, definition, instance, deterministic) {
@@ -27124,6 +27159,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let profileSubmitted = false;
       let submitted = false;
       let frameResources = null;
+      let publishedDraftResources = null;
       let mirrorCandidate = null;
       let unpublishedLayerState = null;
       const nestedTransaction = nestedChildren.length ? {
@@ -27396,6 +27432,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             source === mount.resourceTextures.get("source") ? ["source"] : []
           );
           mount.resourceTextures = frameResources.scratch;
+        }
+        if (draft) {
+          publishedDraftResources = mount.resourceTextures;
+          draft.publishedResources = publishedDraftResources;
+          mount.resourceTextures = draft.resources;
         }
         const staticPassKey = nativeStaticGeneratorPassKey({
           definition: activeDefinition,
@@ -27689,13 +27730,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
         assertStatelessCurrent();
         const postSubmitStarted = hostWallPhases ? performance.now() : 0;
-        if (mount.feedbackFrame) {
-          const frame = mount.feedbackFrame;
-          const feedback = mount.feedback;
-          mount.feedbackFrame = null;
+        const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
+        if (feedbackFrame) {
+          const frame = feedbackFrame;
+          const feedback = draft ? draft.feedback : mount.feedback;
+          if (draft) draft.feedbackFrame = null;
+          else mount.feedbackFrame = null;
           const retirement = frame.commit();
           mount.simulationCaughtUp = true;
-          this.reflectCommittedFeedbackTelemetry(mount);
+          if (!draft) this.reflectCommittedFeedbackTelemetry(mount);
           feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
           feedback.pendingSourceRevision = null;
           feedback.pointerPosition = feedback.pendingPointerPosition;
@@ -28002,25 +28045,29 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (statefulFrame) {
           if (submitted) await statefulFrame.rejectSubmitted(error);
           else statefulFrame.abandon();
-          if (draft) this.releaseDraftStateful(draft);
+          if (draft) this.releaseDraftResources(draft);
           else this.releaseStateful(mount);
         }
-        const feedbackFrame = mount.feedbackFrame;
-        mount.feedbackFrame = null;
-        if (mount.feedback) {
-          mount.feedback.pendingSourceRevision = null;
-          mount.feedback.pendingPointerPosition = null;
+        const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
+        if (draft) draft.feedbackFrame = null;
+        else mount.feedbackFrame = null;
+        const feedback = draft ? draft.feedback : mount.feedback;
+        if (feedback) {
+          feedback.pendingSourceRevision = null;
+          feedback.pendingPointerPosition = null;
         }
         let feedbackFailure;
         if (feedbackFrame)
           try {
             if (submitted) {
               await feedbackFrame.rejectSubmitted(error);
-              this.releaseFeedback(mount);
+              if (draft) this.releaseDraftFeedback(draft);
+              else this.releaseFeedback(mount);
             } else feedbackFrame.abandon();
           } catch (cleanupError) {
             feedbackFailure = cleanupError;
-            this.releaseFeedback(mount);
+            if (draft) this.releaseDraftFeedback(draft);
+            else this.releaseFeedback(mount);
           }
         if (scopeOpen) {
           const scopeError = await device.popErrorScope();
@@ -28037,6 +28084,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         throw error;
       } finally {
+        if (publishedDraftResources)
+          mount.resourceTextures = publishedDraftResources;
+        else if (this.draft?.instanceId === mount.instance.id)
+          this.draft.publishedResources = mount.resourceTextures;
         if (profiledEncoder) {
           this.settleStatelessFrames(profiledEncoder, submitted);
           this.gpuSamples.delete(profiledEncoder);
@@ -28159,27 +28210,35 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         buffer.destroy();
       }
     }
-    releaseDraftStateful(draft) {
+    releaseDraftResources(draft) {
       draft.statefulFrame?.abandon();
       draft.statefulFrame = null;
       draft.stateful?.executor.dispose();
       draft.stateful = null;
       for (const texture of draft.statefulResources.values())
-        this.textureRetirement.push(texture);
+        if (!this.textureRetirement.includes(texture))
+          this.textureRetirement.push(texture);
       draft.statefulResources.clear();
+      this.releaseDraftFeedback(draft);
+      for (const texture of draft.resources.values())
+        if (!this.textureRetirement.includes(texture))
+          this.textureRetirement.push(texture);
+      draft.resources.clear();
     }
     clearDraftState() {
       const draft = this.draft;
       if (!draft) return;
-      this.releaseDraftStateful(draft);
+      this.releaseDraftResources(draft);
       const mount = this.mounts.get(draft.instanceId);
       if (mount && draft.showDraft && draft.publishedTexture) {
-        if (mount.outputTexture) this.textureRetirement.push(mount.outputTexture);
+        if (mount.outputTexture && !this.textureRetirement.includes(mount.outputTexture))
+          this.textureRetirement.push(mount.outputTexture);
         mount.outputTexture = draft.publishedTexture;
       } else if (draft.publishedTexture) {
-        this.textureRetirement.push(draft.publishedTexture);
+        if (!this.textureRetirement.includes(draft.publishedTexture))
+          this.textureRetirement.push(draft.publishedTexture);
       }
-      if (draft.lastGoodTexture)
+      if (draft.lastGoodTexture && !this.textureRetirement.includes(draft.lastGoodTexture))
         this.textureRetirement.push(draft.lastGoodTexture);
       this.draft = null;
     }
@@ -28388,14 +28447,19 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       ];
     }
     async previewDraft(request, generation) {
+      this.draftPendingCount += 1;
       this.draftRequestPending = true;
       this.rafIntervalTelemetry.reset();
       cancelAnimationFrame(this.raf);
       this.raf = 0;
       try {
-        await this.previewDraftImpl(request, generation);
+        await this.enqueueDraftWork(
+          generation,
+          () => this.previewDraftImpl(request, generation)
+        );
       } finally {
-        if (generation === this.draftGeneration) {
+        this.draftPendingCount -= 1;
+        if (this.draftPendingCount === 0) {
           this.draftRequestPending = false;
           if (!this.disposed && this.mounts.size) this.frame();
         }
@@ -28485,7 +28549,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       const previous = this.draft;
       if (previous && previous.instanceId !== instanceId) this.clearDraftState();
-      else if (previous) this.releaseDraftStateful(previous);
+      else if (previous) this.releaseDraftResources(previous);
       if (previous && previous.instanceId === instanceId && !previous.showDraft && previous.lastGoodTexture && mount.outputTexture) {
         previous.publishedTexture = mount.outputTexture;
         mount.outputTexture = previous.lastGoodTexture;
@@ -28508,7 +28572,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         failedReason: null,
         stateful: null,
         statefulFrame: null,
-        statefulResources: /* @__PURE__ */ new Map()
+        statefulResources: /* @__PURE__ */ new Map(),
+        feedback: null,
+        feedbackFrame: null,
+        resources: /* @__PURE__ */ new Map(),
+        publishedResources: mount.resourceTextures
       };
       const started = performance.now();
       const strictTime = !!definition.simulation || !!definition.feedback || isStatefulResourceGraph(definition.resourceGraph);
@@ -28535,18 +28603,38 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       );
     }
     async controlDraft(request, generation) {
+      this.draftPendingCount += 1;
       this.draftRequestPending = true;
       this.rafIntervalTelemetry.reset();
       cancelAnimationFrame(this.raf);
       this.raf = 0;
       try {
-        await this.controlDraftImpl(request, generation);
+        await this.enqueueDraftWork(
+          generation,
+          () => this.controlDraftImpl(request, generation)
+        );
       } finally {
-        if (generation === this.draftGeneration) {
+        this.draftPendingCount -= 1;
+        if (this.draftPendingCount === 0) {
           this.draftRequestPending = false;
           if (!this.disposed && this.mounts.size) this.frame();
         }
       }
+    }
+    enqueueDraftWork(generation, run) {
+      const work = this.draftWorkSettled.then(() => {
+        if (this.disposed)
+          throw new NativeSourceError(
+            "draft-runtime-disposed",
+            "The native shader runtime was disposed before draft control."
+          );
+        this.draftGeneration = generation;
+        return run();
+      });
+      this.draftWorkSettled = Promise.allSettled([work]).then(
+        ([result]) => result
+      );
+      return work;
     }
     async controlDraftImpl(request, generation) {
       const { requestId, instanceId } = request;
@@ -28557,7 +28645,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.postDraftResult(requestId, instanceId, "ready");
         return;
       }
-      if (request.runtimeEpoch !== this.epoch || !draft || !mount || draft.instanceId !== instanceId || draft.baseExecutionHash !== request.baseExecutionHash) {
+      if (request.runtimeEpoch !== this.epoch || !draft || !mount || draft.instanceId !== instanceId || draft.baseExecutionHash !== request.baseExecutionHash || request.expectedExecutionHash !== void 0 && request.expectedExecutionHash !== draft.executionHash) {
         this.postDraftResult(requestId, instanceId, "error", [
           this.draftFailure(
             "draft-session-stale",
@@ -28576,6 +28664,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         ]);
         return;
       }
+      const previousClock = {
+        time: draft.time,
+        playing: draft.playing,
+        clockOrigin: draft.clockOrigin
+      };
       if (request.command === "clear") {
         this.clearDraftState();
       } else if (request.command === "show-published" && draft.showDraft) {
@@ -28624,15 +28717,30 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const activeDraft = request.command !== "clear" && draft.showDraft;
       const definition = activeDraft ? draft.definition : mount.definition;
       const strictTime = activeDraft && (!!definition.simulation || !!definition.feedback || isStatefulResourceGraph(definition.resourceGraph));
-      const result = await this.renderInternal(this.currentTime(), false, {
-        instanceId,
-        strictTime
-      });
+      let result;
+      try {
+        result = await this.renderInternal(this.currentTime(), false, {
+          instanceId,
+          strictTime
+        });
+      } catch (error) {
+        if (["set-time", "play", "pause"].includes(request.command)) {
+          draft.time = previousClock.time;
+          draft.playing = previousClock.playing;
+          draft.clockOrigin = previousClock.clockOrigin;
+        }
+        throw error;
+      }
       const failure2 = result.failures.find(
         (item) => !item.instanceId || item.instanceId === instanceId
       );
-      const diagnostics = failure2 ? this.draftDiagnostics(failure2) : this.draft?.failedReason ? [this.draft.failedReason] : [];
+      const diagnostics = failure2 ? this.draftDiagnostics(failure2) : this.draft?.showDraft && this.draft.failedReason ? [this.draft.failedReason] : [];
       const diagnostic = diagnostics[0];
+      if (diagnostic && ["set-time", "play", "pause"].includes(request.command)) {
+        draft.time = previousClock.time;
+        draft.playing = previousClock.playing;
+        draft.clockOrigin = previousClock.clockOrigin;
+      }
       this.postDraftResult(
         requestId,
         instanceId,
@@ -29578,6 +29686,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (this.scanning) pending.push(this.scanning);
         if (this.previewRestoreWork) pending.push(this.previewRestoreWork);
         if (this.running) pending.push(this.running);
+        if (this.draftPendingCount) pending.push(this.draftWorkSettled);
         if (pending.length) void Promise.allSettled(pending).then(release);
         else release();
       } catch (error) {
@@ -29637,9 +29746,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.device = null;
     }
     reportReplacementFailure(error) {
+      const code = "runtime-replacement-failed";
       const diagnostic = {
-        code: "runtime-replacement-failed",
-        message: "The previous shader runtime did not finish disposing."
+        code,
+        message: code
       };
       this.issue(diagnostic.code, String(error));
       document.documentElement.setAttribute(

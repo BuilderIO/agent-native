@@ -56,7 +56,16 @@ const request = z
       .string()
       .regex(/^[A-Za-z0-9_-]{1,96}$/)
       .optional(),
-    command: z.enum(["preview", "clear"]),
+    command: z.enum([
+      "preview",
+      "clear",
+      "show-published",
+      "show-draft",
+      "set-time",
+      "play",
+      "pause",
+    ]),
+    expectedDraftExecutionHash: hash.optional(),
     draftDefinition: z.unknown().optional(),
     params: z.record(z.string().min(1).max(80), z.json()).optional(),
     seed: z.number().int().min(0).max(1_000_000).optional(),
@@ -166,7 +175,7 @@ async function transition(
 }
 export default defineAction({
   description:
-    "Request a short-lived GPU preview of an existing native shader instance in an open Design editor, then read bounded located diagnostics. WGSL is held in a private attachment, never application state. Apply source changes with edit-native-shader and its expected version hash; clear reverts ephemeral preview pixels.",
+    "Preview or control a short-lived native shader draft in an open Design editor, then read bounded GPU diagnostics. Preview stores WGSL in a private attachment; show-published, show-draft, set-time, play, pause, and clear change only ephemeral preview state. Apply source changes with edit-native-shader.",
   requiresAuth: true,
   maxBodyBytes: 300_000,
   schema,
@@ -236,7 +245,8 @@ export default defineAction({
         if (
           !input.draftDefinition ||
           input.seed === undefined ||
-          input.time === undefined
+          input.time === undefined ||
+          input.expectedDraftExecutionHash !== undefined
         )
           fail("Draft definition, seed, and time are required.", {
             errorCode: "native_draft_invalid",
@@ -293,12 +303,37 @@ export default defineAction({
         draftRef = minted.ref;
       } else if (
         input.draftDefinition !== undefined ||
-        input.params !== undefined
+        input.params !== undefined ||
+        input.seed !== undefined ||
+        (input.command !== "set-time" && input.time !== undefined) ||
+        (input.command === "set-time" && input.time === undefined) ||
+        (input.command === "clear" &&
+          input.expectedDraftExecutionHash !== undefined)
       )
-        fail("Clear does not accept draft source.", {
+        fail("Draft control has invalid or unnecessary parameters.", {
           errorCode: "native_draft_invalid",
           statusCode: 422,
         });
+      if (input.command !== "preview" && input.command !== "clear") {
+        if (
+          !input.expectedDraftExecutionHash ||
+          !current ||
+          !["completed", "failed"].includes(current.status) ||
+          current.designId !== input.designId ||
+          current.fileId !== input.fileId ||
+          current.nodeId !== input.nodeId ||
+          current.instanceId !== input.instanceId ||
+          current.expectedVersionHash !== input.expectedVersionHash ||
+          current.baseExecutionHash !== input.baseExecutionHash ||
+          current.draftExecutionHash !== input.expectedDraftExecutionHash ||
+          current.result?.executionHash !== input.expectedDraftExecutionHash
+        )
+          fail("The active shader draft changed before control.", {
+            errorCode: "native_draft_session_stale",
+            statusCode: 409,
+          });
+        draftExecutionHash = input.expectedDraftExecutionHash;
+      }
       const now = Date.now();
       const next: NativeDraftForegroundState = {
         schemaVersion: 1,
@@ -468,8 +503,10 @@ export default defineAction({
         statusCode: 422,
       });
     if (
-      input.result.status === "ready" &&
-      current.command === "preview" &&
+      (input.result.status === "ready" ||
+        (current.command !== "preview" &&
+          input.result.status === "last-good")) &&
+      current.command !== "clear" &&
       input.result.executionHash !== current.draftExecutionHash
     )
       fail("GPU preview result has a different executable hash.", {

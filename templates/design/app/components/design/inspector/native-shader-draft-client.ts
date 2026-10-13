@@ -8,6 +8,7 @@ export class NativeDraftClientError extends Error {
     readonly code:
       | "frame-unavailable"
       | "reply-unreadable"
+      | "request-stale"
       | "request-timeout"
       | "request-aborted",
   ) {

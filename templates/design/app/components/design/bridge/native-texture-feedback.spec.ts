@@ -360,19 +360,34 @@ describe("bounded texture feedback executor", () => {
     executor.dispose();
   });
 
-  it("starts live effects at a fresh current-capture baseline", async () => {
+  it("starts live effects past the deterministic horizon from one current capture", async () => {
     const gpu = mockGpu();
     const executor = await NativeTextureFeedbackExecutor.create(
       gpu.device,
       gpu.allocator,
       sequentialKernel,
     );
+    const lateStart =
+      (sequentialKernel.timing.maxStepIndex + 60) *
+      sequentialKernel.timing.fixedDt;
+    expect(() =>
+      executor.encode({
+        encoder: gpu.encoder,
+        source: gpu.source(),
+        target: gpu.target(),
+        timeSeconds: lateStart,
+        params,
+      }),
+    ).toThrowError(
+      new NativeFeedbackFailure("feedback-source-history-unavailable"),
+    );
+    expect(gpu.uniforms).toHaveLength(0);
     const baseline = executor.encode({
       encoder: gpu.encoder,
       source: gpu.source(),
       target: gpu.target(),
-      timeSeconds: 20,
-      initialLocalSeconds: 20,
+      timeSeconds: lateStart,
+      initialLocalSeconds: lateStart,
       mode: "interactive",
       speed: 1,
       params,
@@ -382,13 +397,15 @@ describe("bounded texture feedback executor", () => {
     const baselineRetirement = baseline.commit();
     gpu.settle();
     await baselineRetirement;
-    expect(executor.lastCompletedStep).toBe(1200);
+    expect(executor.lastCompletedStep).toBe(
+      sequentialKernel.timing.maxStepIndex + 60,
+    );
     const next = executor.encode({
       encoder: gpu.encoder,
       source: gpu.source(),
       target: gpu.target(),
-      timeSeconds: 20 + 1 / 60,
-      initialLocalSeconds: 20,
+      timeSeconds: lateStart + sequentialKernel.timing.fixedDt,
+      initialLocalSeconds: lateStart,
       mode: "interactive",
       speed: 1,
       params,

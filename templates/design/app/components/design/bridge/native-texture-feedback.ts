@@ -588,8 +588,7 @@ export class NativeTextureFeedbackExecutor {
     )
       throw new NativeFeedbackFailure("feedback-source-history-unavailable");
     const advance = liveBaseline
-      ? Number.isSafeInteger(firstStep) &&
-        firstStep <= this.definition.timing.maxStepIndex
+      ? Number.isSafeInteger(firstStep) && firstStep >= 0
         ? {
             ok: true as const,
             steps: [] as readonly number[],

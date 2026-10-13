@@ -29319,8 +29319,8 @@ function DesignEditor() {
                           activeFile
                             ? (selectedLayerSelectorGroupsByScreen[
                                 activeFile.id
-                              ] ?? [])
-                            : []
+                              ] ?? NO_SELECTOR_GROUPS)
+                            : NO_SELECTOR_GROUPS
                         }
                         hoveredSelector={hoveredCanvasSelector}
                         hoveredSelectorCandidates={

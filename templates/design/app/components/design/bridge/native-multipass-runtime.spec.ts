@@ -2300,10 +2300,8 @@ describe("native multipass texture bindings", () => {
         6,
       );
       const maskTexture = (
-        internal.mounts.get("two-texture-instance") as unknown as {
-          resourceTextures: Map<string, FakeTexture>;
-        }
-      ).resourceTextures.get("__native_input_mask");
+        internal.draft as unknown as { resources: Map<string, FakeTexture> }
+      ).resources.get("__native_input_mask");
       expect(
         maskTexture,
         JSON.stringify(draftResults[draftResults.length - 1]),
@@ -3522,6 +3520,91 @@ describe("native multipass texture bindings", () => {
         expect(
           feedbackMount.target.getAttribute("data-an-native-feedback-playback"),
         ).toBe("exact");
+        await directRunner.renderMount(
+          feedbackMount,
+          1 / 60,
+          false,
+          new Set(),
+          new Set(),
+        );
+        const publishedFeedback = feedbackMount.feedback;
+        const publishedFeedbackOutput = feedbackMount.outputTexture;
+        const publishedFeedbackExtent = [
+          feedbackMount.width,
+          feedbackMount.height,
+        ];
+        const feedbackDraftDefinition: EffectDefinition = {
+          ...OWNED_FEEDBACK_TEST_DEFINITION,
+          passes: OWNED_FEEDBACK_TEST_DEFINITION.passes.map((pass) => ({
+            ...pass,
+            wgsl: `${pass.wgsl}\n// candidate feedback`,
+          })),
+        };
+        const feedbackDraftHash = await hashEffectDefinition(
+          feedbackDraftDefinition,
+        );
+        const feedbackDraftProbe = internal as typeof internal & {
+          draft: {
+            feedback: typeof publishedFeedback;
+            publishedTexture: FakeTexture | null;
+          } | null;
+          clearDraftState(): void;
+        };
+        internal.draftGeneration = 60;
+        feedbackDraftProbe.draft = {
+          instanceId: feedbackMount.instance.id,
+          nodeId: feedbackMount.instance.nodeId,
+          baseExecutionHash: feedbackMount.definitionHash,
+          executionHash: feedbackDraftHash,
+          definition: feedbackDraftDefinition,
+          instance: { ...feedbackMount.instance, params: { phase: 41 } },
+          generation: 60,
+          showDraft: true,
+          playing: false,
+          time: 0,
+          clockOrigin: 0,
+          publishedTexture: null,
+          lastGoodTexture: null,
+          failedReason: null,
+          stateful: null,
+          statefulFrame: null,
+          statefulResources: new Map(),
+          feedback: null,
+          feedbackFrame: null,
+          resources: new Map(),
+          publishedResources: feedbackMount.resourceTextures,
+        } as unknown as NonNullable<typeof feedbackDraftProbe.draft>;
+        await directRunner.renderMount(
+          feedbackMount,
+          0,
+          true,
+          new Set(),
+          new Set(),
+        );
+        const candidateFeedback = (
+          internal.draft as unknown as {
+            feedback: typeof publishedFeedback;
+            publishedTexture: FakeTexture | null;
+          }
+        ).feedback;
+        expect(candidateFeedback).toBeDefined();
+        expect(candidateFeedback).not.toBe(publishedFeedback);
+        expect([feedbackMount.width, feedbackMount.height]).toEqual(
+          publishedFeedbackExtent,
+        );
+        expect(feedbackMount.feedback).toBe(publishedFeedback);
+        expect(feedbackMount.feedback?.executor.lastCompletedStep).toBe(1);
+        expect(feedbackMount.outputTexture).not.toBe(publishedFeedbackOutput);
+        expect(
+          (
+            internal.draft as unknown as {
+              publishedTexture: FakeTexture | null;
+            }
+          ).publishedTexture,
+        ).toBe(publishedFeedbackOutput);
+        feedbackDraftProbe.clearDraftState();
+        expect(feedbackMount.feedback).toBe(publishedFeedback);
+        expect(feedbackMount.outputTexture).toBe(publishedFeedbackOutput);
         feedbackMount.instance = {
           ...feedbackMount.instance,
           timing: { ...feedbackMount.instance.timing, seekRevision: 2 },
@@ -4125,6 +4208,8 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           } | null;
           statefulResources: Map<string, FakeTexture>;
           publishedTexture: FakeTexture | null;
+          showDraft: boolean;
+          time: number;
         } | null;
       };
       const publishedStateful = (
@@ -4185,6 +4270,27 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
         pairMount.outputTexture,
       );
       expect(statefulProbe.draft?.statefulResources.size).toBe(1);
+      const outputBeforeStaleControl = pairMount.outputTexture;
+      internal.draftGeneration = 102;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-candidate-stale-control",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          expectedExecutionHash: publishedStatefulHash,
+          command: "show-published",
+        },
+        102,
+      );
+      expect(draftResults[draftResults.length - 1]?.slice(0, 4)).toEqual([
+        "stateful-candidate-stale-control",
+        "two-texture-instance",
+        "error",
+        [expect.objectContaining({ code: "draft-session-stale" })],
+      ]);
+      expect(pairMount.outputTexture).toBe(outputBeforeStaleControl);
+      expect(statefulProbe.draft?.showDraft).toBe(true);
       expect(
         accountingProbe
           .textureAccounting()
@@ -4201,6 +4307,7 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           runtimeEpoch: runtime!.epoch,
           instanceId: "two-texture-instance",
           baseExecutionHash: publishedStatefulHash,
+          expectedExecutionHash: statefulDraftHash,
           command: "show-published",
         },
         102,
@@ -4241,7 +4348,7 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       expect(publishedStateful.executor.lastCompletedStep).toBe(
         publishedStepAfterPreview,
       );
-      const candidateOutput = pairMount.outputTexture;
+      let candidateOutput = pairMount.outputTexture;
       const candidateBanks = [...statefulProbe.draft!.stateful!.textures];
       const publishedBanks = [...publishedStateful.textures];
       internal.draftGeneration = 105;
@@ -4262,9 +4369,70 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           ?.code,
       ).toBe("stateful-step-limit");
       expect(pairMount.outputTexture).toBe(candidateOutput);
+      expect(statefulProbe.draft?.time).toBe(1 / 60);
+      expect((await internal.renderInternal(0, false)).failures).toEqual([]);
+      if (internal.running) await internal.running;
+      expect(statefulProbe.draft?.time).toBe(1 / 60);
+      expect(statefulProbe.draft?.stateful?.executor.lastCompletedStep).toBe(1);
+      candidateOutput = pairMount.outputTexture;
       expect(
         (pairMount as typeof pairMount & { stateful: unknown }).stateful,
       ).toBe(publishedStateful);
+      const failedConcurrentSeek = internal.controlDraft(
+        {
+          requestId: "stateful-overlapping-rejected-seek",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "set-time",
+          time: 601 / 60,
+        },
+        106,
+      );
+      const acceptedConcurrentSeek = internal.controlDraft(
+        {
+          requestId: "stateful-overlapping-accepted-seek",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "set-time",
+          time: 2 / 60,
+        },
+        107,
+      );
+      await Promise.all([failedConcurrentSeek, acceptedConcurrentSeek]);
+      expect(
+        draftResults.find(
+          (result) => result[0] === "stateful-overlapping-rejected-seek",
+        )?.[2],
+      ).toBe("last-good");
+      expect(draftResults[draftResults.length - 1]?.slice(0, 3)).toEqual([
+        "stateful-overlapping-accepted-seek",
+        "two-texture-instance",
+        "ready",
+      ]);
+      expect(statefulProbe.draft?.time).toBe(2 / 60);
+      expect(statefulProbe.draft?.stateful?.executor.lastCompletedStep).toBe(2);
+      const rejectedRender = vi
+        .spyOn(internal, "renderInternal")
+        .mockRejectedValueOnce(new Error("candidate render interrupted"));
+      await expect(
+        internal.controlDraft(
+          {
+            requestId: "stateful-interrupted-seek",
+            runtimeEpoch: runtime!.epoch,
+            instanceId: "two-texture-instance",
+            baseExecutionHash: publishedStatefulHash,
+            command: "set-time",
+            time: 3 / 60,
+          },
+          108,
+        ),
+      ).rejects.toThrow("candidate render interrupted");
+      rejectedRender.mockRestore();
+      expect(statefulProbe.draft?.time).toBe(2 / 60);
+      expect(statefulProbe.draft?.stateful?.executor.lastCompletedStep).toBe(2);
+      candidateOutput = pairMount.outputTexture;
       const invalidCandidateDefinition: EffectDefinition = {
         ...statefulDraftDefinition,
         passes: statefulDraftDefinition.passes.map((pass) => ({
@@ -4275,7 +4443,7 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       const invalidCandidateHash = await hashEffectDefinition(
         invalidCandidateDefinition,
       );
-      internal.draftGeneration = 106;
+      internal.draftGeneration = 108;
       await internal.previewDraft(
         {
           requestId: "stateful-candidate-compile-failure",
@@ -4289,11 +4457,28 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           seed: publishedStatefulInstance.seed,
           time: 0,
         },
-        106,
+        108,
       );
       expect(draftResults[draftResults.length - 1]?.[2]).toBe("last-good");
       expect(pairMount.outputTexture).toBe(candidateOutput);
-      internal.draftGeneration = 107;
+      internal.draftGeneration = 109;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-failed-candidate-show-published",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          expectedExecutionHash: invalidCandidateHash,
+          command: "show-published",
+        },
+        109,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("ready");
+      expect(pairMount.outputTexture).not.toBe(candidateOutput);
+      expect(publishedStateful.executor.lastCompletedStep).toBe(
+        publishedStepAfterPreview,
+      );
+      internal.draftGeneration = 110;
       await internal.controlDraft(
         {
           requestId: "stateful-candidate-clear",
@@ -4302,7 +4487,7 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           baseExecutionHash: publishedStatefulHash,
           command: "clear",
         },
-        107,
+        110,
       );
       expect(draftResults[draftResults.length - 1]?.[2]).toBe("ready");
       expect(statefulProbe.draft).toBeNull();
@@ -4707,7 +4892,44 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
         (sum, texture) => sum + teardownProbe.textureBytes.get(texture)!,
         0,
       );
-      runtime!.dispose();
+      let releaseDraftControl!: () => void;
+      const draftControlGate = new Promise<void>((resolve) => {
+        releaseDraftControl = resolve;
+      });
+      const draftTeardownProbe = internal as typeof internal & {
+        controlDraftImpl(
+          request: Record<string, unknown>,
+          generation: number,
+        ): Promise<void>;
+        draftPendingCount: number;
+        draftRequestPending: boolean;
+      };
+      const draftControlImpl = vi
+        .spyOn(draftTeardownProbe, "controlDraftImpl")
+        .mockImplementationOnce(async () => draftControlGate);
+      const queuedControls = [
+        internal.controlDraft({ requestId: "draining-draft-control" }, 700),
+        internal.controlDraft({ requestId: "rejected-draft-control" }, 701),
+      ];
+      await Promise.resolve();
+      expect(draftTeardownProbe.draftPendingCount).toBe(2);
+      expect(draftTeardownProbe.draftRequestPending).toBe(true);
+      const disposal = (
+        runtime as unknown as { dispose(): Promise<void> }
+      ).dispose();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(draftTeardownProbe.draftPendingCount).toBe(2);
+      expect(draftTeardownProbe.draftRequestPending).toBe(true);
+      expect(draftControlImpl).toHaveBeenCalledTimes(1);
+      releaseDraftControl();
+      const controlResults = await Promise.allSettled(queuedControls);
+      expect(controlResults[0]).toMatchObject({ status: "fulfilled" });
+      expect(controlResults[1]).toMatchObject({
+        status: "rejected",
+        reason: { code: "draft-runtime-disposed" },
+      });
+      expect(draftTeardownProbe.draftPendingCount).toBe(0);
+      draftControlImpl.mockRestore();
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(teardownProbe.statefulBufferLeases.get(statefulBuffer)).toBe(1);
       expect(teardownProbe.statefulBufferDestruction.has(statefulBuffer)).toBe(
@@ -4747,6 +4969,7 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       teardownQueue.mockRestore();
       for (const complete of teardownWaiters) complete();
       releaseStateful();
+      await disposal;
       await Promise.all([...statelessProbe.statelessRetirements]);
       expect(teardownProbe.statefulBufferLeases.has(statefulBuffer)).toBe(
         false,

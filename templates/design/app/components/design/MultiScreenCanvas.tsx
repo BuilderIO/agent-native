@@ -246,6 +246,8 @@ const EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN: Record<
   string[][]
 > = {};
 const EMPTY_SCREEN_IDS: readonly string[] = [];
+const EMPTY_SELECTORS: string[] = [];
+const EMPTY_SELECTOR_GROUPS: string[][] = [];
 const EMPTY_TWEAK_VALUES: Record<string, string> = {};
 const STATIC_PREVIEW_TWEAK_BRIDGE = `<script data-agent-native-tweak-bridge>${tweakBridgeScript}</script>`;
 const MIN_ZOOM = DEFAULT_CANVAS_MIN_ZOOM;
@@ -11552,17 +11554,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}
                   selectedSelectorCandidates={
-                    boardSelectedSelectorCandidates ?? []
+                    boardSelectedSelectorCandidates ?? EMPTY_SELECTORS
                   }
                   selectedSelectorGroups={
-                    selectedLayerSelectorGroupsByScreen[boardFileId] ?? []
+                    selectedLayerSelectorGroupsByScreen[boardFileId] ??
+                    EMPTY_SELECTOR_GROUPS
                   }
                   hoveredSelector={boardHoveredSelector ?? null}
                   hoveredSelectorCandidates={
-                    boardHoveredSelectorCandidates ?? []
+                    boardHoveredSelectorCandidates ?? EMPTY_SELECTORS
                   }
-                  lockedSelectors={boardLockedSelectors ?? []}
-                  hiddenSelectors={boardHiddenSelectors ?? []}
+                  lockedSelectors={boardLockedSelectors ?? EMPTY_SELECTORS}
+                  hiddenSelectors={boardHiddenSelectors ?? EMPTY_SELECTORS}
                   registerRuntimeBridge={boardIsActive}
                   onElementSelect={onBoardElementSelect ?? (() => {})}
                   onElementMarqueeSelect={onBoardElementMarqueeSelect}

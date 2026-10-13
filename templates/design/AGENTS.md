@@ -44,7 +44,7 @@ Read the relevant skill before deeper work in that area.
 | `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
 | `view-screen` | Re-read the current design or selected file when context is stale |
 | `get-shader` / `validate-native-shader` / `edit-native-shader` | Read, CPU-validate, approve, and edit native v2 effects |
-| `native-shader-draft-foreground` | Preview or clear unsaved native WGSL drafts; read bounded GPU diagnostics |
+| `native-shader-draft-foreground` | Preview or control unsaved native WGSL drafts; read bounded GPU diagnostics |
 | `navigate` | Move the UI to a design, file, or panel |
 | `export-png` | Export screen as PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export a finished design |

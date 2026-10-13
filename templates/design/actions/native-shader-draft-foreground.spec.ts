@@ -215,4 +215,60 @@ describe("private native shader draft action", () => {
     expect(canceled.status).toBe("canceled");
     expect(mocks.deleted).toHaveBeenCalledOnce();
   });
+  it("pins ephemeral controls to the completed draft without accepting source payloads", async () => {
+    const preview = await requestDraft();
+    await action.run({
+      kind: "claim",
+      designId: "design-1",
+      requestId: preview.requestId,
+    });
+    await action.run({
+      kind: "finish",
+      designId: "design-1",
+      requestId: preview.requestId,
+      result: {
+        status: "ready",
+        displayed: "draft-current",
+        executionHash: preview.draftExecutionHash,
+        diagnostics: [],
+      },
+    });
+    const target = parseEffectsFromHtml(mocks.content).document!.instances[0];
+    const baseExecutionHash = await hashEffectDefinition(GRAIN_GRADIENT_EFFECT);
+    const control = {
+      kind: "request" as const,
+      designId: "design-1",
+      fileId: "screen-1",
+      nodeId: "hero",
+      instanceId: target.id,
+      expectedVersionHash: "v1",
+      baseExecutionHash,
+      expectedDraftExecutionHash: preview.draftExecutionHash,
+    };
+    await expect(
+      action.run({ ...control, command: "set-time", time: 1, seed: 77 }),
+    ).rejects.toThrow();
+    await expect(
+      action.run({ ...control, command: "play", time: 1 }),
+    ).rejects.toThrow();
+    await expect(
+      action.run({
+        ...control,
+        command: "show-published",
+        expectedDraftExecutionHash: "f".repeat(64),
+      }),
+    ).rejects.toThrow();
+    const queued = await action.run({
+      ...control,
+      command: "set-time",
+      time: 1,
+    });
+    expect(queued).toMatchObject({
+      status: "pending",
+      command: "set-time",
+      time: 1,
+      draftExecutionHash: preview.draftExecutionHash,
+    });
+    expect(mocks.minted).toHaveBeenCalledOnce();
+  });
 });

@@ -500,6 +500,9 @@ export function NativeShaderLab({
     ) => {
       if (!baseRef.current || !runtimeEpoch)
         throw new NativeDraftClientError("frame-unavailable");
+      const expectedExecutionHash = previewResult?.executionHash;
+      if (command !== "clear" && !expectedExecutionHash)
+        throw new NativeDraftClientError("request-stale");
       const requestSequence = ++requestCounterRef.current;
       try {
         const frame = findNativeDraftFrame(fileId, baseRef.current.boardFile);
@@ -514,6 +517,7 @@ export function NativeShaderLab({
             runtimeEpoch,
             instanceId,
             baseExecutionHash: baseRef.current.baseExecutionHash,
+            ...(command === "clear" ? {} : { expectedExecutionHash }),
             command,
             ...(nextTime === undefined ? {} : { time: nextTime }),
           },
@@ -532,7 +536,7 @@ export function NativeShaderLab({
         throw error;
       }
     },
-    [runtimeEpoch, fileId, instanceId],
+    [runtimeEpoch, fileId, instanceId, previewResult?.executionHash],
   );
 
   const close = useCallback(() => {

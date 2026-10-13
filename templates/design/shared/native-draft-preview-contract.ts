@@ -22,6 +22,7 @@ export type NativeDraftPreviewControl = {
   runtimeEpoch: string;
   instanceId: string;
   baseExecutionHash: string;
+  expectedExecutionHash?: string;
   command:
     | "clear"
     | "show-published"

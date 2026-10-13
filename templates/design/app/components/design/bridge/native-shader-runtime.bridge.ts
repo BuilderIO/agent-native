@@ -612,6 +612,10 @@ type DraftPreview = {
   stateful: Mount["stateful"];
   statefulFrame: NativeStatefulEncodedFrame | null;
   statefulResources: Map<string, GPUTexture>;
+  feedback: Mount["feedback"];
+  feedbackFrame: NativeFeedbackEncodedFrame | null;
+  resources: Map<string, GPUTexture>;
+  publishedResources: Map<string, GPUTexture>;
 };
 type CompositionSurface = Pick<
   Mount,
@@ -1624,6 +1628,10 @@ class NativeShaderRuntime {
   private rescanPending = false;
   private draft: DraftPreview | null = null;
   private draftGeneration = 0;
+  private draftReservedGeneration = 0;
+  private draftWorkSettled: Promise<PromiseSettledResult<void>> =
+    Promise.resolve({ status: "fulfilled", value: undefined });
+  private draftPendingCount = 0;
   private draftRequestPending = false;
 
   diagnostics = (): Diagnostic[] => [...this.issues];
@@ -2576,12 +2584,21 @@ class NativeShaderRuntime {
       graphBytes: bytes([
         ...mount.resourceTextures.values(),
         ...(this.draft?.instanceId === mount.instance.id
+          ? [
+              ...this.draft.resources.values(),
+              ...this.draft.publishedResources.values(),
+            ]
+          : []),
+        ...(this.draft?.instanceId === mount.instance.id
           ? this.draft.statefulResources.values()
           : []),
         ...[...mount.authoredInputs.values()].flatMap((input) => [
           ...input.surface.resourceTextures.values(),
         ]),
         ...(mount.feedback?.textures ?? []),
+        ...(this.draft?.instanceId === mount.instance.id
+          ? (this.draft.feedback?.textures ?? [])
+          : []),
         ...(mount.stateful?.textures ?? []),
         ...(this.draft?.instanceId === mount.instance.id
           ? (this.draft.stateful?.textures ?? [])
@@ -2595,7 +2612,12 @@ class NativeShaderRuntime {
           ]),
         ].map((entry) => entry.texture),
       ),
-      finalBytes: bytes([mount.outputTexture]),
+      finalBytes: bytes([
+        mount.outputTexture,
+        ...(this.draft?.instanceId === mount.instance.id
+          ? [this.draft.publishedTexture, this.draft.lastGoodTexture]
+          : []),
+      ]),
       maskBytes: bytes([mount.maskTexture]),
     }));
     const mountedBytes = mounts.reduce(
@@ -3554,11 +3576,27 @@ class NativeShaderRuntime {
             ...surface.resourceTextures.values(),
           ]),
           ...(owner && this.draft?.instanceId === owner.instance.id
-            ? this.draft.statefulResources.values()
+            ? [
+                ...this.draft.statefulResources.values(),
+                ...this.draft.resources.values(),
+                ...this.draft.publishedResources.values(),
+              ]
+            : []),
+          ...(owner?.outputTexture && this.textureBytes.has(owner.outputTexture)
+            ? [owner.outputTexture]
+            : []),
+          ...(owner && this.draft?.instanceId === owner.instance.id
+            ? [this.draft.publishedTexture, this.draft.lastGoodTexture].filter(
+                (texture): texture is GPUTexture =>
+                  !!texture && this.textureBytes.has(texture),
+              )
             : []),
         ],
         feedback: [
           ...(budgetRecord.feedback?.textures ?? []),
+          ...(owner && this.draft?.instanceId === owner.instance.id
+            ? (this.draft.feedback?.textures ?? [])
+            : []),
           ...(("stateful" in budgetRecord
             ? budgetRecord.stateful?.textures
             : undefined) ?? []),
@@ -3953,6 +3991,17 @@ class NativeShaderRuntime {
     void this.disposeFeedback(feedback).catch((error) =>
       this.issue("feedback-cleanup-failed", String(error), mount.instance.id),
     );
+  }
+
+  private releaseDraftFeedback(draft: DraftPreview): void {
+    draft.feedbackFrame?.abandon();
+    draft.feedbackFrame = null;
+    const feedback = draft.feedback;
+    draft.feedback = null;
+    if (feedback)
+      void this.disposeFeedback(feedback).catch((error) =>
+        this.issue("feedback-cleanup-failed", String(error), draft.instanceId),
+      );
   }
 
   private releaseSimulationExportSaved(
@@ -7835,7 +7884,7 @@ class NativeShaderRuntime {
           resetPropertyValues,
         ))
     ) {
-      if (draft) this.releaseDraftStateful(draft);
+      if (draft) this.releaseDraftResources(draft);
       else this.releaseStateful(mount);
     }
     const pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
@@ -7976,7 +8025,7 @@ class NativeShaderRuntime {
         "Sequential source history must begin at the first fixed step.",
       );
     if (target < completed) {
-      if (draft) this.releaseDraftStateful(draft);
+      if (draft) this.releaseDraftResources(draft);
       else this.releaseStateful(mount);
       return this.statefulResourcePasses(
         mount,
@@ -8144,17 +8193,17 @@ class NativeShaderRuntime {
     deterministic: boolean,
     sourceIdentity: string,
   ): Promise<GPUTexture> {
-    if (
-      definition !== mount.definition ||
-      (this.draft?.showDraft && this.draft.instanceId === mount.instance.id)
-    )
-      throw new NativeSourceError(
-        "feedback-draft-unsupported",
-        "A feedback draft needs an isolated state session.",
-      );
+    const draft =
+      this.draft?.showDraft && this.draft.instanceId === mount.instance.id
+        ? this.draft
+        : null;
     const adapted =
-      mount.feedback?.definitionHash === mount.definitionHash
-        ? { ok: true as const, definition: mount.feedback.definition }
+      (draft ? draft.feedback : mount.feedback)?.definitionHash ===
+      (draft ? draft.executionHash : mount.definitionHash)
+        ? {
+            ok: true as const,
+            definition: (draft ? draft.feedback : mount.feedback)!.definition,
+          }
         : adaptNativeFeedbackDefinition(definition);
     if (!adapted.ok)
       throw new NativeSourceError(
@@ -8187,10 +8236,11 @@ class NativeShaderRuntime {
       (name) => [name, read(name)] as const,
     );
     const revision = instance.timing.seekRevision ?? 0;
-    const prior = mount.feedback;
+    const prior = draft ? draft.feedback : mount.feedback;
     if (
       prior &&
-      (prior.definitionHash !== mount.definitionHash ||
+      (prior.definitionHash !==
+        (draft ? draft.executionHash : mount.definitionHash) ||
         prior.sourceIdentity !== sourceIdentity ||
         prior.seed !== params.seed ||
         nativeFeedbackResetValuesChanged(
@@ -8200,9 +8250,11 @@ class NativeShaderRuntime {
         prior.seekRevision !== revision ||
         prior.sourceWidth !== source.width ||
         prior.sourceHeight !== source.height)
-    )
-      this.releaseFeedback(mount);
-    if (!mount.feedback) {
+    ) {
+      if (draft) this.releaseDraftFeedback(draft);
+      else this.releaseFeedback(mount);
+    }
+    if (!(draft ? draft.feedback : mount.feedback)) {
       const grid = adapted.definition.grid;
       this.ensureCompositionBudget(
         mount,
@@ -8224,11 +8276,11 @@ class NativeShaderRuntime {
         },
         adapted.definition,
       );
-      mount.feedback = {
+      const feedback: NonNullable<Mount["feedback"]> = {
         executor,
         definition: adapted.definition,
         textures,
-        definitionHash: mount.definitionHash,
+        definitionHash: draft ? draft.executionHash : mount.definitionHash,
         seed: params.seed,
         resetPropertyValues,
         seekRevision: revision,
@@ -8241,8 +8293,10 @@ class NativeShaderRuntime {
         sourceHeight: source.height,
         retirements: new Set(),
       };
+      if (draft) draft.feedback = feedback;
+      else mount.feedback = feedback;
     }
-    const feedback = mount.feedback;
+    const feedback = (draft ? draft.feedback : mount.feedback)!;
     const outputName = definition.output;
     const outputSpec = definition.resources?.find(
       (resource) => resource.name === outputName,
@@ -8256,21 +8310,22 @@ class NativeShaderRuntime {
         "feedback-definition-invalid",
         "Feedback resolve needs a viewport-sized float output.",
       );
-    let output = mount.resourceTextures.get(outputName);
+    const resources = draft ? draft.resources : mount.resourceTextures;
+    let output = resources.get(outputName);
     if (
       output &&
       (output.width !== source.width ||
         output.height !== source.height ||
         output.format !== "rgba16float")
     ) {
-      mount.resourceTextures.delete(outputName);
+      resources.delete(outputName);
       this.destroyTexture(output);
       output = undefined;
     }
     if (!output) {
       this.ensureCompositionBudget(mount, source.width * source.height * 8);
       output = this.texture(source.width, source.height, "rgba16float");
-      mount.resourceTextures.set(outputName, output);
+      resources.set(outputName, output);
     }
     const pointerPosition = definition.interaction
       ? ((instance.params[definition.interaction.positionProperty] ??
@@ -8313,7 +8368,8 @@ class NativeShaderRuntime {
     feedback.pendingPointerPosition = pointer
       ? { x: pointer.x, y: pointer.y, active: pointer.active }
       : null;
-    mount.feedbackFrame = frame;
+    if (draft) draft.feedbackFrame = frame;
+    else mount.feedbackFrame = frame;
     return output;
   }
 
@@ -11536,6 +11592,7 @@ class NativeShaderRuntime {
     let profileSubmitted = false;
     let submitted = false;
     let frameResources: NativeFrameResourceScratch<GPUTexture> | null = null;
+    let publishedDraftResources: Map<string, GPUTexture> | null = null;
     let mirrorCandidate: GPUTexture | null = null;
     let unpublishedLayerState: {
       outputTexture: GPUTexture | null;
@@ -11918,6 +11975,11 @@ class NativeShaderRuntime {
         );
         mount.resourceTextures = frameResources.scratch;
       }
+      if (draft) {
+        publishedDraftResources = mount.resourceTextures;
+        draft.publishedResources = publishedDraftResources;
+        mount.resourceTextures = draft.resources;
+      }
       const staticPassKey = nativeStaticGeneratorPassKey({
         definition: activeDefinition,
         instance: activeInstance,
@@ -12245,13 +12307,15 @@ class NativeShaderRuntime {
       }
       assertStatelessCurrent();
       const postSubmitStarted = hostWallPhases ? performance.now() : 0;
-      if (mount.feedbackFrame) {
-        const frame = mount.feedbackFrame;
-        const feedback = mount.feedback!;
-        mount.feedbackFrame = null;
+      const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
+      if (feedbackFrame) {
+        const frame = feedbackFrame;
+        const feedback = (draft ? draft.feedback : mount.feedback)!;
+        if (draft) draft.feedbackFrame = null;
+        else mount.feedbackFrame = null;
         const retirement = frame.commit();
         mount.simulationCaughtUp = true;
-        this.reflectCommittedFeedbackTelemetry(mount);
+        if (!draft) this.reflectCommittedFeedbackTelemetry(mount);
         feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
         feedback.pendingSourceRevision = null;
         feedback.pointerPosition = feedback.pendingPointerPosition;
@@ -12599,25 +12663,29 @@ class NativeShaderRuntime {
       if (statefulFrame) {
         if (submitted) await statefulFrame.rejectSubmitted(error);
         else statefulFrame.abandon();
-        if (draft) this.releaseDraftStateful(draft);
+        if (draft) this.releaseDraftResources(draft);
         else this.releaseStateful(mount);
       }
-      const feedbackFrame = mount.feedbackFrame;
-      mount.feedbackFrame = null;
-      if (mount.feedback) {
-        mount.feedback.pendingSourceRevision = null;
-        mount.feedback.pendingPointerPosition = null;
+      const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
+      if (draft) draft.feedbackFrame = null;
+      else mount.feedbackFrame = null;
+      const feedback = draft ? draft.feedback : mount.feedback;
+      if (feedback) {
+        feedback.pendingSourceRevision = null;
+        feedback.pendingPointerPosition = null;
       }
       let feedbackFailure: unknown;
       if (feedbackFrame)
         try {
           if (submitted) {
             await feedbackFrame.rejectSubmitted(error);
-            this.releaseFeedback(mount);
+            if (draft) this.releaseDraftFeedback(draft);
+            else this.releaseFeedback(mount);
           } else feedbackFrame.abandon();
         } catch (cleanupError) {
           feedbackFailure = cleanupError;
-          this.releaseFeedback(mount);
+          if (draft) this.releaseDraftFeedback(draft);
+          else this.releaseFeedback(mount);
         }
       if (scopeOpen) {
         const scopeError = await device.popErrorScope();
@@ -12634,6 +12702,10 @@ class NativeShaderRuntime {
         );
       throw error;
     } finally {
+      if (publishedDraftResources)
+        mount.resourceTextures = publishedDraftResources;
+      else if (this.draft?.instanceId === mount.instance.id)
+        this.draft.publishedResources = mount.resourceTextures;
       if (profiledEncoder) {
         this.settleStatelessFrames(profiledEncoder, submitted);
         this.gpuSamples.delete(profiledEncoder);
@@ -13533,28 +13605,42 @@ class NativeShaderRuntime {
     }
   };
 
-  private releaseDraftStateful(draft: DraftPreview): void {
+  private releaseDraftResources(draft: DraftPreview): void {
     draft.statefulFrame?.abandon();
     draft.statefulFrame = null;
     draft.stateful?.executor.dispose();
     draft.stateful = null;
     for (const texture of draft.statefulResources.values())
-      this.textureRetirement.push(texture);
+      if (!this.textureRetirement.includes(texture))
+        this.textureRetirement.push(texture);
     draft.statefulResources.clear();
+    this.releaseDraftFeedback(draft);
+    for (const texture of draft.resources.values())
+      if (!this.textureRetirement.includes(texture))
+        this.textureRetirement.push(texture);
+    draft.resources.clear();
   }
 
   private clearDraftState(): void {
     const draft = this.draft;
     if (!draft) return;
-    this.releaseDraftStateful(draft);
+    this.releaseDraftResources(draft);
     const mount = this.mounts.get(draft.instanceId);
     if (mount && draft.showDraft && draft.publishedTexture) {
-      if (mount.outputTexture) this.textureRetirement.push(mount.outputTexture);
+      if (
+        mount.outputTexture &&
+        !this.textureRetirement.includes(mount.outputTexture)
+      )
+        this.textureRetirement.push(mount.outputTexture);
       mount.outputTexture = draft.publishedTexture;
     } else if (draft.publishedTexture) {
-      this.textureRetirement.push(draft.publishedTexture);
+      if (!this.textureRetirement.includes(draft.publishedTexture))
+        this.textureRetirement.push(draft.publishedTexture);
     }
-    if (draft.lastGoodTexture)
+    if (
+      draft.lastGoodTexture &&
+      !this.textureRetirement.includes(draft.lastGoodTexture)
+    )
       this.textureRetirement.push(draft.lastGoodTexture);
     this.draft = null;
   }
@@ -13817,14 +13903,18 @@ class NativeShaderRuntime {
     request: NativeDraftPreviewRequest,
     generation: number,
   ): Promise<void> {
+    this.draftPendingCount += 1;
     this.draftRequestPending = true;
     this.rafIntervalTelemetry.reset();
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     try {
-      await this.previewDraftImpl(request, generation);
+      await this.enqueueDraftWork(generation, () =>
+        this.previewDraftImpl(request, generation),
+      );
     } finally {
-      if (generation === this.draftGeneration) {
+      this.draftPendingCount -= 1;
+      if (this.draftPendingCount === 0) {
         this.draftRequestPending = false;
         if (!this.disposed && this.mounts.size) this.frame();
       }
@@ -13940,7 +14030,7 @@ class NativeShaderRuntime {
     }
     const previous = this.draft;
     if (previous && previous.instanceId !== instanceId) this.clearDraftState();
-    else if (previous) this.releaseDraftStateful(previous);
+    else if (previous) this.releaseDraftResources(previous);
     if (
       previous &&
       previous.instanceId === instanceId &&
@@ -13971,6 +14061,10 @@ class NativeShaderRuntime {
       stateful: null,
       statefulFrame: null,
       statefulResources: new Map(),
+      feedback: null,
+      feedbackFrame: null,
+      resources: new Map(),
+      publishedResources: mount.resourceTextures,
     };
     const started = performance.now();
     const strictTime =
@@ -14008,18 +14102,41 @@ class NativeShaderRuntime {
     request: NativeDraftPreviewControl,
     generation: number,
   ): Promise<void> {
+    this.draftPendingCount += 1;
     this.draftRequestPending = true;
     this.rafIntervalTelemetry.reset();
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     try {
-      await this.controlDraftImpl(request, generation);
+      await this.enqueueDraftWork(generation, () =>
+        this.controlDraftImpl(request, generation),
+      );
     } finally {
-      if (generation === this.draftGeneration) {
+      this.draftPendingCount -= 1;
+      if (this.draftPendingCount === 0) {
         this.draftRequestPending = false;
         if (!this.disposed && this.mounts.size) this.frame();
       }
     }
+  }
+
+  private enqueueDraftWork(
+    generation: number,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const work = this.draftWorkSettled.then(() => {
+      if (this.disposed)
+        throw new NativeSourceError(
+          "draft-runtime-disposed",
+          "The native shader runtime was disposed before draft control.",
+        );
+      this.draftGeneration = generation;
+      return run();
+    });
+    this.draftWorkSettled = Promise.allSettled([work]).then(
+      ([result]) => result,
+    );
+    return work;
   }
 
   private async controlDraftImpl(
@@ -14046,7 +14163,9 @@ class NativeShaderRuntime {
       !draft ||
       !mount ||
       draft.instanceId !== instanceId ||
-      draft.baseExecutionHash !== request.baseExecutionHash
+      draft.baseExecutionHash !== request.baseExecutionHash ||
+      (request.expectedExecutionHash !== undefined &&
+        request.expectedExecutionHash !== draft.executionHash)
     ) {
       this.postDraftResult(requestId, instanceId, "error", [
         this.draftFailure(
@@ -14066,6 +14185,11 @@ class NativeShaderRuntime {
       ]);
       return;
     }
+    const previousClock = {
+      time: draft.time,
+      playing: draft.playing,
+      clockOrigin: draft.clockOrigin,
+    };
     if (request.command === "clear") {
       this.clearDraftState();
     } else if (request.command === "show-published" && draft.showDraft) {
@@ -14118,19 +14242,34 @@ class NativeShaderRuntime {
       (!!definition.simulation ||
         !!definition.feedback ||
         isStatefulResourceGraph(definition.resourceGraph));
-    const result = await this.renderInternal(this.currentTime(), false, {
-      instanceId,
-      strictTime,
-    });
+    let result: Awaited<ReturnType<typeof this.renderInternal>>;
+    try {
+      result = await this.renderInternal(this.currentTime(), false, {
+        instanceId,
+        strictTime,
+      });
+    } catch (error) {
+      if (["set-time", "play", "pause"].includes(request.command)) {
+        draft.time = previousClock.time;
+        draft.playing = previousClock.playing;
+        draft.clockOrigin = previousClock.clockOrigin;
+      }
+      throw error;
+    }
     const failure = result.failures.find(
       (item) => !item.instanceId || item.instanceId === instanceId,
     );
     const diagnostics = failure
       ? this.draftDiagnostics(failure)
-      : this.draft?.failedReason
+      : this.draft?.showDraft && this.draft.failedReason
         ? [this.draft.failedReason]
         : [];
     const diagnostic = diagnostics[0];
+    if (diagnostic && ["set-time", "play", "pause"].includes(request.command)) {
+      draft.time = previousClock.time;
+      draft.playing = previousClock.playing;
+      draft.clockOrigin = previousClock.clockOrigin;
+    }
     this.postDraftResult(
       requestId,
       instanceId,
@@ -16514,7 +16653,7 @@ class NativeShaderRuntime {
         ]);
         return;
       }
-      const generation = ++this.draftGeneration;
+      const generation = ++this.draftReservedGeneration;
       if (data.type === "native-shader-draft-preview") {
         if (
           typeof data.nodeId !== "string" ||
@@ -16562,7 +16701,9 @@ class NativeShaderRuntime {
             "set-time",
             "play",
             "pause",
-          ].includes(String(data.command))
+          ].includes(String(data.command)) ||
+          (data.expectedExecutionHash !== undefined &&
+            !validHash(data.expectedExecutionHash))
         ) {
           this.postDraftResult(requestId, instanceId, "error", [
             this.draftFailure(
@@ -17057,6 +17198,7 @@ class NativeShaderRuntime {
       if (this.scanning) pending.push(this.scanning);
       if (this.previewRestoreWork) pending.push(this.previewRestoreWork);
       if (this.running) pending.push(this.running);
+      if (this.draftPendingCount) pending.push(this.draftWorkSettled);
       if (pending.length) void Promise.allSettled(pending).then(release);
       else release();
     } catch (error) {
@@ -17118,9 +17260,10 @@ class NativeShaderRuntime {
   }
 
   reportReplacementFailure(error: unknown): void {
+    const code = "runtime-replacement-failed";
     const diagnostic = {
-      code: "runtime-replacement-failed",
-      message: "The previous shader runtime did not finish disposing.",
+      code,
+      message: code,
     };
     this.issue(diagnostic.code, String(error));
     document.documentElement.setAttribute(

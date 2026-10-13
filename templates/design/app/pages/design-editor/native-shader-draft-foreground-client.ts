@@ -156,7 +156,7 @@ export async function previewNativeShaderDraftInEditor(args: {
   const payload =
     state.command === "preview" ? readPayload(args.payload) : null;
   const message =
-    state.command === "clear"
+    state.command !== "preview"
       ? {
           type: "native-shader-draft-control" as const,
           schemaVersion: 1 as const,
@@ -164,7 +164,11 @@ export async function previewNativeShaderDraftInEditor(args: {
           runtimeEpoch: epoch,
           instanceId: state.instanceId,
           baseExecutionHash: state.baseExecutionHash,
-          command: "clear" as const,
+          ...(state.command !== "clear"
+            ? { expectedExecutionHash: state.draftExecutionHash }
+            : {}),
+          command: state.command,
+          ...(state.command === "set-time" ? { time: state.time } : {}),
         }
       : {
           type: "native-shader-draft-preview" as const,
@@ -187,8 +191,8 @@ export async function previewNativeShaderDraftInEditor(args: {
     timeoutMs: Math.min(30000, Math.max(1, state.expiresAt - Date.now())),
   });
   if (
-    result.status === "ready" &&
-    state.command === "preview" &&
+    result.status !== "error" &&
+    state.command !== "clear" &&
     result.executionHash !== state.draftExecutionHash
   )
     throw new NativeDraftForegroundClientError("request-stale");
