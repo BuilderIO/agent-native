@@ -226,6 +226,21 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it("rejects failed action counts above the recorded action total", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const columns = rows[1]!.split(",");
+    columns[7] = "0";
+    columns[8] = "action_failed";
+    columns[9] = "";
+    columns[10] = "false";
+    columns[13] = "2";
+    rows[1] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "failed action calls exceed recorded action calls",
+    );
+  });
+
   it("rejects an after phase that is not pinned to the candidate revision", () => {
     const stale = makeComparisonCsv().replaceAll(
       PRODUCTION_PATH_CANDIDATE_REVISION,

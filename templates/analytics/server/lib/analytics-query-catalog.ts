@@ -622,7 +622,9 @@ function activeMemberPhrasePolarity(search: string): {
       );
       if (exceptionBeforePhrase.test(afterRemoval)) return false;
       if (!negatedRemovalOperatorBefore.test(beforeRemoval)) return true;
-      return negativeInstructionBeforePhrase.test(afterRemoval);
+      if (negativeInstructionBeforePhrase.test(afterRemoval)) return true;
+      const end = (match.index ?? 0) + match[0].length;
+      return negativeInstructionAfterPhrase.test(intent.slice(end));
     }
     if (exceptionBeforePhrase.test(scopedPrefix)) return true;
     if (negativeInstructionBeforePhrase.test(scopedPrefix)) return true;
@@ -1052,6 +1054,88 @@ export function candidateTrustTier(
   return candidate.favorite ? 1 : 0;
 }
 
+function candidateQueryRankingTierForTerms(
+  candidate: AnalyticsQueryCatalogCandidate,
+  requestedTerms: ReadonlySet<string>,
+): number {
+  const hasExactQueryCoverage =
+    requestedTerms.size > 0 &&
+    [...requestedTerms].every((term) =>
+      candidateExactMatchedTerms(candidate).includes(term),
+    );
+  if (
+    candidate.kind === "data-dictionary" &&
+    candidate.approved === true &&
+    hasExactQueryCoverage
+  ) {
+    return 2;
+  }
+  if (
+    candidate.kind === "dashboard-panel" &&
+    ((candidate.dashboardCertified && hasExactQueryCoverage) ||
+      (candidateIsRunnable(candidate) &&
+        requestedTerms.size > 1 &&
+        hasExactQueryCoverage))
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+export function candidateQueryPriority(
+  candidate: AnalyticsQueryCatalogCandidate,
+  search: string,
+): {
+  rosterSpecificity: number;
+  membershipRowSpecificity: number;
+  rankingTier: number;
+  trust: number;
+  activeSubsetSpecificity: number;
+  scope: number;
+} {
+  const rankingIntent = stripNonPositiveInstructions(search);
+  const requestedScope = requestedSemanticScope(rankingIntent);
+  const aggregateRequest =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
+      rankingIntent,
+    );
+  const plainMembershipRequest =
+    requestedScope === "membership" && !aggregateRequest;
+  const rosterRequest = isMembershipRosterRequest(rankingIntent);
+  const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
+  const requestedActiveMembers =
+    (requestedScope === "membership" ||
+      requestedScope === "membership_roster") &&
+    requestsActiveMembers(rankingIntent);
+  const requestedTerms = new Set(searchTerms(rankingIntent));
+
+  return {
+    rosterSpecificity: rosterRequest
+      ? hasMembershipRosterEvidence(candidate) &&
+        (!requestsRoleDetail || hasMembershipRoleField(candidate))
+        ? 2
+        : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
+          ? 1
+          : 0
+      : 0,
+    membershipRowSpecificity:
+      plainMembershipRequest && hasMembershipRosterEvidence(candidate) ? 1 : 0,
+    rankingTier: candidateQueryRankingTierForTerms(candidate, requestedTerms),
+    trust: candidateTrustTier(candidate),
+    activeSubsetSpecificity:
+      requestedActiveMembers && hasActiveOnlyMembershipEvidence(candidate)
+        ? 1
+        : 0,
+    scope:
+      requestedScope === "unknown"
+        ? 1
+        : semanticScopeCompatibility(
+            candidateSemanticScope(candidate),
+            requestedScope,
+          ),
+  };
+}
+
 export function rankAnalyticsQueryCatalogPage(args: {
   search: string;
   dashboards: Array<{
@@ -1103,14 +1187,6 @@ export function rankAnalyticsQueryCatalogPage(args: {
     );
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
-  const requestedTerms = new Set(searchTerms(rankingIntent));
-  const hasExactQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
-    requestedTerms.size > 0 &&
-    [...requestedTerms].every((term) =>
-      candidateExactMatchedTerms(candidate).includes(term),
-    );
-  const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
-    requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
@@ -1123,40 +1199,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
   // Strong definitions and proven panels outrank generic hits before coverage.
   const rankedCandidates = candidates.map((candidate) => ({
     candidate,
-    rosterSpecificity: rosterRequest
-      ? hasMembershipRosterEvidence(candidate) &&
-        (!requestsRoleDetail || hasMembershipRoleField(candidate))
-        ? 2
-        : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
-          ? 1
-          : 0
-      : 0,
-    activeSubsetSpecificity:
-      requestedActiveMembers && hasActiveOnlyMembershipEvidence(candidate)
-        ? 1
-        : 0,
-    membershipRowSpecificity:
-      plainMembershipRequest && hasMembershipRosterEvidence(candidate) ? 1 : 0,
-    scope:
-      requestedScope === "unknown"
-        ? 1
-        : semanticScopeCompatibility(
-            candidateSemanticScope(candidate),
-            requestedScope,
-          ),
-    trust: candidateTrustTier(candidate),
-    rankingTier:
-      candidate.kind === "data-dictionary" &&
-      candidate.approved === true &&
-      hasExactQueryCoverage(candidate)
-        ? 2
-        : candidate.kind === "dashboard-panel" &&
-            ((candidate.dashboardCertified &&
-              hasExactQueryCoverage(candidate)) ||
-              (candidateIsRunnable(candidate) &&
-                hasFullQueryCoverage(candidate)))
-          ? 1
-          : 0,
+    ...candidateQueryPriority(candidate, rankingIntent),
     coverage:
       candidateExactMatchedTerms(candidate).length +
       (candidate.kind === "dashboard-panel" && candidate.dashboardCertified

@@ -547,6 +547,7 @@ describe("analytics query catalog", () => {
     "do not exclude internal test trial accounts and exclude active members",
     "do not exclude inactive internal trial accounts and no active members",
     "do not exclude internal test trial accounts, but exclude active members",
+    "do not exclude internal accounts; active members are excluded",
     "show all members; do not include active workspace users in a separate subset",
     "all workspace members; active members are excluded",
   ])(

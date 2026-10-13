@@ -42,6 +42,20 @@ const syntheticData = vi.hoisted(() => {
         semanticScope: "membership",
         approved: true,
       },
+      "data-dict-fixture-approved-monthly-workspace-membership": {
+        id: "fixture-approved-monthly-workspace-membership",
+        metric: "Monthly Workspace Membership",
+        definition:
+          "Monthly aggregate of workspace membership counts, with one row per month and workspace.",
+        source: "fixture_warehouse",
+        sourceKind: "code",
+        entryType: "model",
+        table: "fixture_warehouse.monthly_workspace_memberships",
+        columnsUsed: "month_start, workspace_id, member_count",
+        grain: "One row per month_start per workspace_id",
+        semanticScope: "membership",
+        approved: true,
+      },
       "data-dict-fixture-sample-product-users": {
         id: "fixture-sample-product-users",
         metric: "Synthetic Product User Records",
@@ -82,6 +96,22 @@ const syntheticData = vi.hoisted(() => {
           table: "fixture_warehouse.organization_member_roles",
           columnsUsed: "user_id, organization_id, role_code",
           sourcePath: "fixtures/models/organization_member_roles.sql",
+        },
+        {
+          id: "fixture-workspace-membership-bridge",
+          metric: "Workspace Membership Bridge",
+          definition:
+            "One row per synthetic user-to-workspace membership, with the assigned role.",
+          source: "fixture_warehouse",
+          sourceKind: "code",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per user_id per workspace_id",
+          primaryEntity: "workspace membership",
+          table: "fixture_warehouse.workspace_membership_bridge",
+          columnsUsed: "user_id, workspace_id, role_code",
+          sourcePath: "fixtures/models/workspace_membership_bridge.sql",
         },
         {
           id: "fixture-active-organization-member-roles",
@@ -204,8 +234,8 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v12";
-const BASELINE_GIT_REVISION = "1999aef1ad68dcf9d44423fa95df1a7acb67e8c5";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v13";
+const BASELINE_GIT_REVISION = "afe2ee7e45f6f3f380571a6d18918fc49d71c6e1";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -300,7 +330,7 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: "nonpositive-count-instruction-keeps-member-rows",
     prompt:
       "Find workspace users, no live counts. Metadata only; do not report live counts or values.",
-    expectedTable: "fixture_warehouse.organization_member_roles",
+    expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
     id: "negated-counts-keep-positive-monthly-trend",
@@ -312,13 +342,19 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: "negated-counts-preserve-role-detail",
     prompt:
       "Find the catalog reference for workspace users with no live counts and their roles. Metadata only; do not report live counts or values.",
-    expectedTable: "fixture_warehouse.organization_member_roles",
+    expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
     id: "monthly-organization-user-count",
     prompt:
       "Find the catalog reference for monthly user counts by organization. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.monthly_org_user_counts",
+  },
+  {
+    id: "workspace-membership-prefers-row-grain",
+    prompt:
+      "Find the catalog reference for workspace membership. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
     id: "monthly-workspace-users-by-role",
@@ -658,6 +694,14 @@ export function renderPrivacySafeEvalCsv(
       !isNonnegativeInteger(row.latency_ms)
     ) {
       throw new Error("Synthetic eval CSV rejected an invalid metric value.");
+    }
+    if (
+      row.failed_action_calls >
+      row.find_data_calls + row.other_action_calls
+    ) {
+      throw new Error(
+        "Synthetic eval CSV rejected failed action calls above the recorded action total.",
+      );
     }
     return CSV_COLUMNS.map((column) => csvCell(row[column])).join(",");
   });
@@ -1001,6 +1045,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "negated-counts-keep-positive-monthly-trend",
       "negated-counts-preserve-role-detail",
       "monthly-organization-user-count",
+      "workspace-membership-prefers-row-grain",
       "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",
       "active-product-users-map-to-activity",
@@ -1172,6 +1217,35 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(() =>
       renderPrivacySafeEvalCsv([mislabeled as unknown as PrivacySafeEvalRow]),
     ).toThrow("invalid metric value");
+  });
+
+  it("rejects more failed actions than recorded tool calls", () => {
+    const impossible: PrivacySafeEvalRow = {
+      case_id: "case",
+      phase: "after",
+      git_revision: "working-tree",
+      code_revision: `sha256:${"a".repeat(64)}`,
+      harness_revision: `sha256:${"c".repeat(64)}`,
+      fixture_revision: FIXTURE_REVISION,
+      run: 1,
+      score: 0,
+      reason_code: "action_failed",
+      expected_rank: null,
+      hit_at_5: false,
+      find_data_calls: 1,
+      other_action_calls: 0,
+      failed_action_calls: 2,
+      completed: true,
+      aborted: false,
+      input_tokens: 1,
+      output_tokens: 1,
+      llm_calls: 2,
+      latency_ms: 1,
+    };
+
+    expect(() => renderPrivacySafeEvalCsv([impossible])).toThrow(
+      "failed action calls above the recorded action total",
+    );
   });
 
   it("requires the copied baseline harness to be pinned and byte-identical", () => {

@@ -8,8 +8,7 @@ import {
 import { getActiveEmbeddingSet } from "@agent-native/creative-context/store";
 
 import {
-  candidateScopeCompatibility,
-  candidateTrustTier,
+  candidateQueryPriority,
   relevanceTerms,
   searchAnalyticsDictionaryCatalog,
   searchTerms,
@@ -427,14 +426,17 @@ async function rankWithEmbeddings(
       candidate,
       similarity: scores[index]!,
       lexicalScore: candidate.score,
-      scope: candidateScopeCompatibility(candidate, request),
-      trust: candidateTrustTier(candidate),
+      ...candidateQueryPriority(candidate, request),
       stableKey: candidateStableKey(candidate),
     }))
     .sort((left, right) => {
       return (
-        right.scope - left.scope ||
+        right.rosterSpecificity - left.rosterSpecificity ||
+        right.membershipRowSpecificity - left.membershipRowSpecificity ||
+        right.rankingTier - left.rankingTier ||
         right.trust - left.trust ||
+        right.activeSubsetSpecificity - left.activeSubsetSpecificity ||
+        right.scope - left.scope ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
         compareStableKeys(left.stableKey, right.stableKey)
@@ -481,6 +483,12 @@ type RankedCandidate = {
   candidate: AnalyticsQueryCatalogCandidate;
   similarity?: number;
   lexicalScore?: number;
+  rosterSpecificity?: number;
+  membershipRowSpecificity?: number;
+  rankingTier?: number;
+  trust?: number;
+  activeSubsetSpecificity?: number;
+  scope?: number;
 };
 
 function noPromptReferences(

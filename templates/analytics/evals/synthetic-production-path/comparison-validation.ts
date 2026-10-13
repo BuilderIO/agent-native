@@ -283,6 +283,14 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
       latency_ms: parseInteger(row.latency_ms, "latency_ms"),
     };
     if (
+      parsed.failed_action_calls >
+      parsed.find_data_calls + parsed.other_action_calls
+    ) {
+      throw new Error(
+        "Comparison CSV failed action calls exceed recorded action calls.",
+      );
+    }
+    if (
       !/^[a-f0-9]{40}$/.test(parsed.git_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(parsed.code_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(parsed.harness_revision) ||
