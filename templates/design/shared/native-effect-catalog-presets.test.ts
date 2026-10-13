@@ -210,6 +210,18 @@ import {
   FALLING_STREAKS_PRESETS,
 } from "./native-effect-owned-ck-falling-streaks";
 import {
+  TAPERED_LIGHT_BEAM_EFFECT,
+  TAPERED_LIGHT_BEAM_PRESETS,
+} from "./native-effect-owned-cl-tapered-light-beam";
+import {
+  WATERLINE_MIRROR_V2_EFFECT,
+  WATERLINE_MIRROR_V2_PRESETS,
+} from "./native-effect-owned-j-waterline-mirror-v2";
+import {
+  OWNED_O_STUDIO_LIGHT_RIG_V2,
+  OWNED_O_STUDIO_LIGHT_RIG_V2_PRESETS,
+} from "./native-effect-owned-o-studio-light-rig-v2";
+import {
   FLUID_COLOR_FIELD_EFFECT,
   FLUID_COLOR_FIELD_PRESETS,
 } from "./native-effect-owned-source-free-fluid-field";
@@ -233,14 +245,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(377);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(378);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(377);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(440);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(882);
+    ).toBe(378);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(443);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(888);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      882,
+      888,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -291,6 +303,9 @@ describe("Design-owned catalog", () => {
       [FLOWING_SHAPE_CHROME_V2_EFFECT, FLOWING_SHAPE_CHROME_V2_PRESETS],
       [COLOR_GRADE_V2_EFFECT, COLOR_GRADE_V2_PRESETS],
       [NOISE_DISPLACEMENT_V2_EFFECT, NOISE_DISPLACEMENT_V2_PRESETS],
+      [OWNED_O_STUDIO_LIGHT_RIG_V2, OWNED_O_STUDIO_LIGHT_RIG_V2_PRESETS],
+      [WATERLINE_MIRROR_V2_EFFECT, WATERLINE_MIRROR_V2_PRESETS],
+      [TAPERED_LIGHT_BEAM_EFFECT, TAPERED_LIGHT_BEAM_PRESETS],
       [OWNED_T_CONCENTRIC_ROTOR_V2, OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS],
       [FLUID_COLOR_FIELD_EFFECT, FLUID_COLOR_FIELD_PRESETS],
       [FRAME_MOSH_V2_EFFECT, FRAME_MOSH_V2_PRESETS],
@@ -350,7 +365,10 @@ describe("Design-owned catalog", () => {
           definition === DIAMOND_REVEAL_EFFECT ||
           definition === ENGRAVED_SOURCE_EFFECT ||
           definition === ANGLED_BAR_SHIFT_EFFECT ||
-          definition === COLOR_GRADE_V2_EFFECT
+          definition === COLOR_GRADE_V2_EFFECT ||
+          definition === OWNED_O_STUDIO_LIGHT_RIG_V2 ||
+          definition === WATERLINE_MIRROR_V2_EFFECT ||
+          definition === TAPERED_LIGHT_BEAM_EFFECT
           ? "static"
           : "animated",
       );
@@ -398,6 +416,22 @@ describe("Design-owned catalog", () => {
     expect(
       NOISE_DISPLACEMENT_V2_EFFECT.properties.verticalNoiseSpeed.default,
     ).toBe(1);
+    for (const [definition, priorHash] of [
+      [
+        OWNED_O_STUDIO_LIGHT_RIG_V2,
+        "37b99b85d0705ab9935ded3a62c591e1004958f70a3342fc10b9b05add233c2a",
+      ],
+      [
+        WATERLINE_MIRROR_V2_EFFECT,
+        "3b10336b563336801b02086105476df86f2a97df906bf4dcfab80dda0be90cc7",
+      ],
+    ] as const) {
+      const versions = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
+        (item) => item.id === definition.id,
+      );
+      expect(versions.map((item) => item.version)).toEqual([1, 2]);
+      expect(await hashEffectDefinition(versions[0]!)).toBe(priorHash);
+    }
   });
 
   it("registers AQ in the normal layer and backdrop library with localized controls", () => {

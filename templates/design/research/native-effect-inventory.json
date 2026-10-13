@@ -9,38 +9,38 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 377,
-    "exactVersions": 440,
-    "registeredPresets": 882,
-    "presetsTargetingLatestVersions": 783,
-    "presetsTargetingHistoricalVersions": 99,
+    "distinctDefinitions": 378,
+    "exactVersions": 443,
+    "registeredPresets": 888,
+    "presetsTargetingLatestVersions": 785,
+    "presetsTargetingHistoricalVersions": 103,
     "latestByKind": {
-      "generator": 167,
+      "generator": 168,
       "processor": 203,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 210,
-      "processor": 222,
+      "generator": 212,
+      "processor": 223,
       "simulation": 8
     },
     "latestByAnimation": {
       "animated": 129,
-      "static": 248
+      "static": 249
     },
     "fullByAnimation": {
       "animated": 155,
-      "static": 285
+      "static": 288
     },
     "latestByPlacement": {
-      "fill": 170,
+      "fill": 171,
       "layer": 211,
       "backdrop": 172
     },
     "fullByPlacement": {
-      "fill": 213,
-      "layer": 231,
-      "backdrop": 185
+      "fill": 215,
+      "layer": 232,
+      "backdrop": 186
     },
     "fullyValidatedDefinitions": 0
   },
@@ -16454,6 +16454,147 @@
       "animationCapability": "static"
     },
     {
+      "id": "an-native-owned-j-waterline-mirror",
+      "name": "Waterline Mirror",
+      "version": 2,
+      "executionHash": "41d3ba7477689a9b33dc0c5961ed787428326e8ff20e0d50383f7a7a2f342fa0",
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "edge": {
+          "type": "enum",
+          "label": "Edges",
+          "default": "clamp",
+          "options": [
+            "transparent",
+            "clamp",
+            "repeat",
+            "mirror"
+          ],
+          "advanced": true
+        },
+        "horizon": {
+          "type": "float",
+          "label": "Horizon",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "wavelength": {
+          "type": "float",
+          "label": "Wave length",
+          "default": 48,
+          "min": 0,
+          "max": 180,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "amplitude": {
+          "type": "float",
+          "label": "Wave amplitude",
+          "default": 7,
+          "min": 0,
+          "max": 28,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "attenuation": {
+          "type": "float",
+          "label": "Depth attenuation",
+          "default": 0.35,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "phase": {
+          "type": "float",
+          "label": "Wave phase",
+          "default": 0,
+          "min": -6.28,
+          "max": 6.28,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Reflection amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "depthBlur": {
+          "type": "float",
+          "label": "Reflection blur",
+          "default": 0,
+          "min": 0,
+          "max": 24,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "alphaFade": {
+          "type": "float",
+          "label": "Alpha fade",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "usage": [
+            "sampled"
+          ],
+          "external": true,
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "presetIds": [
+        "an-preset-owned-j-waterline-mirror-v2-hazy-lake",
+        "an-preset-owned-j-waterline-mirror-v2-dissolving-wake"
+      ],
+      "animationCapability": "static"
+    },
+    {
       "id": "an-native-owned-k-koch-boundary",
       "name": "Koch Boundary",
       "version": 1,
@@ -28606,6 +28747,240 @@
       "presetIds": [
         "an-preset-owned-o-studio-light-rig-1",
         "an-preset-owned-o-studio-light-rig-2"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-o-studio-light-rig",
+      "name": "Studio Light Rig",
+      "version": 2,
+      "executionHash": "536a043486403720f0dd19f1ea20d21c668ef5519746c54550dfa3d65b21b817",
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "curve": {
+          "type": "float",
+          "label": "Surface curvature",
+          "default": 0.68,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "keyX": {
+          "type": "float",
+          "label": "Key X",
+          "default": -0.55,
+          "min": -1,
+          "max": 1,
+          "step": 0.01
+        },
+        "keyY": {
+          "type": "float",
+          "label": "Key Y",
+          "default": -0.42,
+          "min": -1,
+          "max": 1,
+          "step": 0.01
+        },
+        "fillX": {
+          "type": "float",
+          "label": "Fill X",
+          "default": 0.72,
+          "min": -1,
+          "max": 1,
+          "step": 0.01
+        },
+        "fillY": {
+          "type": "float",
+          "label": "Fill Y",
+          "default": 0.2,
+          "min": -1,
+          "max": 1,
+          "step": 0.01
+        },
+        "key": {
+          "type": "float",
+          "label": "Key strength",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "fill": {
+          "type": "float",
+          "label": "Fill strength",
+          "default": 0.36,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "rim": {
+          "type": "float",
+          "label": "Rim strength",
+          "default": 0.45,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "ambient": {
+          "type": "float",
+          "label": "Ambient",
+          "default": 0.15,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "surface": {
+          "type": "color",
+          "label": "Surface",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.44,
+              0.55,
+              0.7
+            ],
+            "alpha": 1
+          }
+        },
+        "keyColor": {
+          "type": "color",
+          "label": "Key color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.86,
+              0.66
+            ],
+            "alpha": 1
+          }
+        },
+        "fillColor": {
+          "type": "color",
+          "label": "Fill color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.39,
+              0.62,
+              1
+            ],
+            "alpha": 1
+          }
+        },
+        "lightMode": {
+          "type": "enum",
+          "label": "Light geometry",
+          "default": "directional",
+          "options": [
+            "directional",
+            "area"
+          ]
+        },
+        "keyTarget": {
+          "type": "vec2",
+          "label": "Key target",
+          "default": [
+            0.24,
+            0.25
+          ],
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "fillTarget": {
+          "type": "vec2",
+          "label": "Fill target",
+          "default": [
+            0.78,
+            0.6
+          ],
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "keySoftness": {
+          "type": "float",
+          "label": "Key softness",
+          "default": 0.4,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "fillSoftness": {
+          "type": "float",
+          "label": "Fill softness",
+          "default": 0.64,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "backDirection": {
+          "type": "vec2",
+          "label": "Backlight direction",
+          "default": [
+            0.4,
+            -0.75
+          ],
+          "min": -1,
+          "max": 1,
+          "step": 0.01
+        },
+        "backStrength": {
+          "type": "float",
+          "label": "Backlight strength",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "backColor": {
+          "type": "color",
+          "label": "Backlight color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.88,
+              0.93,
+              1
+            ],
+            "alpha": 1
+          }
+        }
+      },
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "presetIds": [
+        "an-preset-owned-o-studio-light-rig-v2-portrait-softboxes",
+        "an-preset-owned-o-studio-light-rig-v2-night-stage"
       ],
       "animationCapability": "static"
     },
@@ -59854,6 +60229,158 @@
         "an-preset-source-free-fluid-amber-tide"
       ],
       "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-cl-tapered-light-beam",
+      "name": "Tapered Light Beam",
+      "version": 1,
+      "executionHash": "666042c1a33a06498622a6e0a03c7ae7f06774c9a8fb8bbe48c7bda193c1523c",
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "start": {
+          "type": "vec2",
+          "label": "Start",
+          "default": [
+            0.18,
+            0.34
+          ],
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "end": {
+          "type": "vec2",
+          "label": "End",
+          "default": [
+            0.84,
+            0.66
+          ],
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "startWidth": {
+          "type": "float",
+          "label": "Start width",
+          "default": 42,
+          "min": 0,
+          "max": 320,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "endWidth": {
+          "type": "float",
+          "label": "End width",
+          "default": 104,
+          "min": 0,
+          "max": 480,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "startSoftness": {
+          "type": "float",
+          "label": "Start softness",
+          "default": 16,
+          "min": 0,
+          "max": 160,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "endSoftness": {
+          "type": "float",
+          "label": "End softness",
+          "default": 42,
+          "min": 0,
+          "max": 240,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "startTaper": {
+          "type": "float",
+          "label": "Start taper",
+          "default": 0.12,
+          "min": 0,
+          "max": 0.45,
+          "step": 0.01
+        },
+        "endTaper": {
+          "type": "float",
+          "label": "End taper",
+          "default": 0.2,
+          "min": 0,
+          "max": 0.45,
+          "step": 0.01
+        },
+        "centerColor": {
+          "type": "color",
+          "label": "Center color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.87,
+              0.65
+            ],
+            "alpha": 0.86
+          }
+        },
+        "edgeColor": {
+          "type": "color",
+          "label": "Edge color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.54,
+              0.67,
+              1
+            ],
+            "alpha": 0.24
+          }
+        },
+        "intensity": {
+          "type": "float",
+          "label": "Intensity",
+          "default": 0.92,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "presetIds": [
+        "an-preset-owned-cl-tapered-light-beam-soft-spotlight",
+        "an-preset-owned-cl-tapered-light-beam-neon-sweep"
+      ],
+      "animationCapability": "static"
     }
   ],
   "defaultCanvasGpuEvidence": {
