@@ -8,6 +8,10 @@ import {
   GUIDED_FLUID_PARTICLES_PRESETS,
 } from "@shared/native-effect-owned-au-guided-fluid-particles";
 import {
+  DIAMOND_REVEAL_EFFECT,
+  DIAMOND_REVEAL_PRESETS,
+} from "@shared/native-effect-owned-cf-diamond-reveal";
+import {
   OWNED_NEXT_SIX_R_DEFINITIONS,
   OWNED_NEXT_SIX_R_PRESETS,
 } from "@shared/native-effect-owned-next-six-r";
@@ -1029,7 +1033,7 @@ describe("NativeShaderLibraryBrowser", () => {
     ).toBe(true);
   });
 
-  it("renders a visible built-in tile through one GPU thumbnail batch", async () => {
+  it("previews the same primary preset and placement applied by a built-in tile", async () => {
     let observe:
       | ((items: Array<{ target: Element; isIntersecting: boolean }>) => void)
       | undefined;
@@ -1052,11 +1056,11 @@ describe("NativeShaderLibraryBrowser", () => {
       library: {
         builtins: [
           {
-            id: GRAIN_GRADIENT_EFFECT.id,
-            name: GRAIN_GRADIENT_EFFECT.name,
-            version: GRAIN_GRADIENT_EFFECT.version,
-            placements: ["fill"],
-            itemKey: `builtin:${GRAIN_GRADIENT_EFFECT.id}@${GRAIN_GRADIENT_EFFECT.version}`,
+            id: DIAMOND_REVEAL_EFFECT.id,
+            name: DIAMOND_REVEAL_EFFECT.name,
+            version: DIAMOND_REVEAL_EFFECT.version,
+            placements: DIAMOND_REVEAL_EFFECT.placements,
+            itemKey: `builtin:${DIAMOND_REVEAL_EFFECT.id}@${DIAMOND_REVEAL_EFFECT.version}`,
             favorite: false,
             lastUsedAt: null,
           },
@@ -1067,6 +1071,7 @@ describe("NativeShaderLibraryBrowser", () => {
         selectedEntry: null,
       },
     });
+    const apply = vi.fn().mockResolvedValue(true);
     renderThumbnailBatch.mockResolvedValue([
       {
         id: "thumb-0",
@@ -1078,13 +1083,13 @@ describe("NativeShaderLibraryBrowser", () => {
     await act(async () => {
       root.render(
         <NativeShaderLibraryBrowser
-          mode="fill"
+          mode="effect"
           search=""
           disabled={false}
           nodeId="target"
           designId="design-1"
           fileId="file-1"
-          onApplyBuiltin={vi.fn()}
+          onApplyBuiltin={apply}
           onApplySaved={vi.fn()}
         />,
       );
@@ -1101,11 +1106,85 @@ describe("NativeShaderLibraryBrowser", () => {
     expect(renderThumbnailBatch).toHaveBeenCalledOnce();
     expect(renderThumbnailBatch.mock.calls[0]?.[0].items).toMatchObject([
       {
-        definition: { id: GRAIN_GRADIENT_EFFECT.id, version: 2 },
-        sourceRevision: `builtin:${GRAIN_GRADIENT_EFFECT.id}@2`,
+        definition: { id: DIAMOND_REVEAL_EFFECT.id, version: 1 },
+        placement: DIAMOND_REVEAL_PRESETS[0]?.placement,
+        params: DIAMOND_REVEAL_PRESETS[0]?.params,
+        seed: 1,
+        sourceRevision: `builtin:${DIAMOND_REVEAL_EFFECT.id}@1`,
       },
     ]);
     expect(host.querySelector('img[src="blob:gpu-thumbnail"]')).not.toBeNull();
+    await act(async () =>
+      card!.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    expect(apply).toHaveBeenCalledWith(
+      DIAMOND_REVEAL_EFFECT.id,
+      1,
+      "layer",
+      DIAMOND_REVEAL_PRESETS[0],
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("reports an unavailable custom preset input instead of previewing unrelated defaults", async () => {
+    let observe:
+      | ((items: Array<{ target: Element; isIntersecting: boolean }>) => void)
+      | undefined;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          callback: (
+            items: Array<{ target: Element; isIntersecting: boolean }>,
+          ) => void,
+        ) {
+          observe = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    callAction.mockResolvedValue({
+      approvedDefinitionHashes: [],
+      library: {
+        builtins: [
+          {
+            id: GUIDED_FLUID_PARTICLES_EFFECT.id,
+            name: GUIDED_FLUID_PARTICLES_EFFECT.name,
+            version: 1,
+            placements: GUIDED_FLUID_PARTICLES_EFFECT.placements,
+            itemKey: `builtin:${GUIDED_FLUID_PARTICLES_EFFECT.id}@1`,
+            favorite: false,
+            lastUsedAt: null,
+          },
+        ],
+        items: [],
+        hasMore: false,
+        nextCursor: null,
+        selectedEntry: null,
+      },
+    });
+    await act(async () =>
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="effect"
+          search=""
+          disabled={false}
+          nodeId="target"
+          onApplyBuiltin={vi.fn()}
+          onApplySaved={vi.fn()}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 230)));
+    const card = host.querySelector("[data-native-library-item-key]");
+    expect(card).not.toBeNull();
+    await act(async () => observe?.([{ target: card!, isIntersecting: true }]));
+    await act(async () => Promise.resolve());
+    expect(card?.getAttribute("data-native-thumbnail-error")).toBe(
+      "thumbnail-preset-input-unavailable",
+    );
+    expect(renderThumbnailBatch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });

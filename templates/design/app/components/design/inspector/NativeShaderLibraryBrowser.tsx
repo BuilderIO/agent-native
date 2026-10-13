@@ -268,6 +268,19 @@ export function NativeShaderLibraryBrowser({
           : preset.placement !== "fill"),
     );
   };
+  const primaryBuiltinRecipe = (
+    entry: BuiltinSummary,
+  ): EffectPreset | undefined => builtinRecipes(entry)[0];
+  const builtinPlacement = (
+    entry: BuiltinSummary,
+    preset?: EffectPreset,
+  ): "fill" | "layer" | "backdrop" =>
+    preset?.placement ??
+    (mode === "fill"
+      ? "fill"
+      : entry.placements.includes("backdrop")
+        ? "backdrop"
+        : "layer");
   const presetLabel = (preset: EffectPreset): string => {
     const key = nativeCatalogPresetKey(preset);
     return `${key ? t(key) : preset.name} · v${preset.definitionVersion}`;
@@ -276,13 +289,7 @@ export function NativeShaderLibraryBrowser({
     if (!nodeId) return;
     setBusyKey(entry.itemKey);
     try {
-      const placement =
-        preset?.placement ??
-        (mode === "fill"
-          ? "fill"
-          : entry.placements.includes("backdrop")
-            ? "backdrop"
-            : "layer");
+      const placement = builtinPlacement(entry, preset);
       const definitionId = preset?.definitionId ?? entry.id;
       const version = preset?.definitionVersion ?? entry.version;
       if (await onApplyBuiltin(definitionId, version, placement, preset))
@@ -454,14 +461,49 @@ export function NativeShaderLibraryBrowser({
                       candidate.version === entry.version,
                   );
                   if (!definition) throw new Error("Definition is unavailable");
+                  const preset = primaryBuiltinRecipe(entry);
+                  const placement = builtinPlacement(entry, preset);
+                  const params = preset?.params ?? {};
+                  const inputPlan = planNativeInputResources(definition, {
+                    params,
+                    bindings: preset?.bindings,
+                    placement,
+                  });
+                  if (!inputPlan.ok)
+                    return {
+                      key: entry.itemKey,
+                      error: {
+                        id: `thumb-${index}`,
+                        status: "error",
+                        code: inputPlan.code,
+                        message: inputPlan.detail,
+                      },
+                    };
+                  if (
+                    [...inputPlan.inputs.values()].some(
+                      (input) =>
+                        input.kind !== "builtin" && input.kind !== "fallback",
+                    )
+                  )
+                    return {
+                      key: entry.itemKey,
+                      error: {
+                        id: `thumb-${index}`,
+                        status: "error",
+                        code: "thumbnail-preset-input-unavailable",
+                        message: "thumbnail-preset-input-unavailable",
+                      },
+                    };
                   return {
                     key: entry.itemKey,
                     item: {
                       id: `thumb-${index}`,
                       definition,
-                      params: {},
+                      placement,
+                      params,
                       seed: 1,
                       sourceRevision: entry.itemKey,
+                      sourceSizing: preset?.sourceSizing,
                     },
                   };
                 }
@@ -569,7 +611,15 @@ export function NativeShaderLibraryBrowser({
       }));
     });
     return () => controller.abort();
-  }, [entryKeys, visibleKeys, approvedHashes, designId, fileId, serviceReady]);
+  }, [
+    entryKeys,
+    visibleKeys,
+    approvedHashes,
+    designId,
+    fileId,
+    serviceReady,
+    mode,
+  ]);
   const entryLabel = (entry: BuiltinSummary | LibraryItem) => {
     return "version" in entry ? builtinLabel(entry) : entry.name;
   };
@@ -608,9 +658,7 @@ export function NativeShaderLibraryBrowser({
           const thumbnail = thumbnails[entry.itemKey];
           const recipes = entry.builtin ? builtinRecipes(entry) : [];
           const primary = entry.builtin
-            ? recipes.find(
-                (preset) => preset.definitionVersion === entry.version,
-              )
+            ? primaryBuiltinRecipe(entry)
             : undefined;
           return (
             <div
