@@ -303,9 +303,11 @@ const TOKEN_MENU_SEPARATOR_CLASS = "mx-0 my-0 bg-border";
 function HeaderMenuTrigger({
   label,
   icon,
+  disabled,
 }: {
   label: string;
   icon: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <Tooltip>
@@ -317,6 +319,7 @@ function HeaderMenuTrigger({
             size="icon"
             className="size-8 cursor-pointer rounded-md text-foreground"
             aria-label={label}
+            disabled={disabled}
           >
             {icon}
           </Button>
@@ -367,13 +370,24 @@ function nextDraftCssVar(type: MenuTokenType, taken: Set<string>): string {
   return `--${type}-${n}`;
 }
 
-function AddTokenMenu({ onPick }: { onPick: (type: MenuTokenType) => void }) {
+function AddTokenMenu({
+  onPick,
+  disabled,
+}: {
+  onPick: (type: MenuTokenType) => void;
+  /** While the token list loads, a draft's default name could collide. */
+  disabled: boolean;
+}) {
   const t = useT();
   const label = t("designEditor.tokens.newToken");
   const pickedTypeRef = useRef<MenuTokenType | null>(null);
   return (
     <DropdownMenu>
-      <HeaderMenuTrigger label={label} icon={<IconPlus className="size-4" />} />
+      <HeaderMenuTrigger
+        label={label}
+        icon={<IconPlus className="size-4" />}
+        disabled={disabled}
+      />
       <DropdownMenuContent
         align="end"
         className={cn("w-[220px]", TOKEN_MENU_CONTENT_CLASS)}
@@ -729,25 +743,34 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
       type: draft.type,
       source: "Tweaks",
     };
-    const previous =
-      queryClient.getQueryData<IndexDesignTokensResult>(tokensQueryKey);
-    if (previous) {
-      void queryClient.cancelQueries({ queryKey: tokensQueryKey, exact: true });
-      const tokens = [
-        ...previous.tokens.filter((token) => token.cssVar !== cssVar),
-        pending,
-      ];
-      queryClient.setQueryData<IndexDesignTokensResult>(tokensQueryKey, {
-        ...previous,
-        tokenCount: tokens.length,
-        groups: groupDesignTokens(tokens),
-        tokens,
-      });
-    }
+    // Patch the current list rather than restoring a snapshot on failure: a
+    // snapshot would also undo any save that landed after this one started.
+    const updateTokens = (update: (tokens: DesignToken[]) => DesignToken[]) =>
+      queryClient.setQueryData<IndexDesignTokensResult>(
+        tokensQueryKey,
+        (current) => {
+          if (!current) return current;
+          const tokens = update(current.tokens);
+          return {
+            ...current,
+            tokenCount: tokens.length,
+            groups: groupDesignTokens(tokens),
+            tokens,
+          };
+        },
+      );
+    void queryClient.cancelQueries({ queryKey: tokensQueryKey, exact: true });
+    updateTokens((tokens) => [
+      ...tokens.filter((token) => token.cssVar !== cssVar),
+      pending,
+    ]);
     applyTokenEdit(cssVar, value, {
       type: draft.type,
       onError: (error) => {
-        if (previous) queryClient.setQueryData(tokensQueryKey, previous);
+        updateTokens((tokens) =>
+          tokens.filter((token) => token.cssVar !== cssVar),
+        );
+        void refetch();
         setTokenDraft(draft);
         toast.error(
           t("designEditor.tokens.addFailed", { message: error.message }),
@@ -830,7 +853,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
           onImport={importTokens}
           isPending={importMutation.isPending}
         />
-        <AddTokenMenu onPick={startTokenDraft} />
+        <AddTokenMenu onPick={startTokenDraft} disabled={isLoading} />
       </LeftPanelHeader>
 
       {searchOpen && (
