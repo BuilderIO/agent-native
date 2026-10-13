@@ -1793,8 +1793,13 @@ export default {
     presetWeekdays: "工作日 06:00",
     presetWeekly: "每周一 06:00",
     status: "状态",
+    unsafeEntriesOmitted: "安全检查省略的条目",
+    unsafeFieldsOmitted: "安全检查省略的字段",
+    truncatedFields: "已截断字段",
     unresolvedTrackingCallSites: "未解析的跟踪调用",
     unresolvedTrackingCallSitesUnavailable: "不可用",
+    sourceIndexCoverageCaveat:
+      "安全检查可能会省略条目或字段；截断字段和未解析的跟踪调用也可能限制覆盖范围。",
     dynamicTrackingCoverageCaveat:
       "事件名称在运行时计算的调用不会纳入索引；别名或其他跟踪 API 可能无法检测。",
     overviewFailed: "无法加载构建状态。",

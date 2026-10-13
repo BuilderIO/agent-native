@@ -14,6 +14,12 @@ export interface ContextMenuPasteArgs {
     files: File[],
     anchor?: PastedImageFilesClientAnchor,
   ) => boolean;
+  // Board-space point for a click, set only while the overview board is the
+  // paste surface; screen-local menu coordinates mean nothing there.
+  resolveBoardPoint?: (client: {
+    x: number;
+    y: number;
+  }) => { x: number; y: number } | null;
   insertDroppedImageFiles: (
     files: File[],
     targetFileId: string,
@@ -28,13 +34,18 @@ export async function runContextMenuPaste(
     handlePasteSelection,
     handlePastedImageFiles,
     insertDroppedImageFiles,
+    resolveBoardPoint,
   }: ContextMenuPasteArgs,
   point?: CanvasContextMenuPoint,
 ) {
   const hasPoint = point?.canvasX !== undefined && point.canvasY !== undefined;
   if (!canEditDesign || clipboardFiles.length === 0) {
+    const boardPoint = point
+      ? resolveBoardPoint?.({ x: point.clientX, y: point.clientY })
+      : null;
     await handlePasteSelection(
-      hasPoint ? { x: point!.canvasX!, y: point!.canvasY! } : undefined,
+      boardPoint ??
+        (hasPoint ? { x: point!.canvasX!, y: point!.canvasY! } : undefined),
     );
     return;
   }

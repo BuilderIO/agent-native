@@ -206,14 +206,33 @@ export default defineAction({
       };
     }
 
+    // The editor selects layers by projection id, not by the node id attribute
+    // the component library indexes.
+    const mainFile = filesForScan.find((row) => row.id === main.fileId);
+    const mainProjection =
+      main.fileId === file.id
+        ? currentProjection
+        : mainFile
+          ? buildCodeLayerProjection(mainFile.content ?? "", {
+              source: {
+                kind: "design-file",
+                designId: mainFile.designId,
+                fileId: mainFile.id,
+                filename: mainFile.filename,
+              },
+            })
+          : null;
+    const mainLayerId =
+      mainProjection?.nodes.find((n) => componentNodeIdMatches(n, main.nodeId))
+        ?.id ?? main.nodeId;
+
     await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
-      editorView: "single",
+      editorView: "overview",
       fileId: main.fileId,
-      filename: main.filename,
-      selectedNodeId: main.nodeId,
-      inspectorSection: "component",
+      selection: mainLayerId,
+      inspectorTab: "design",
     });
 
     return {
@@ -228,6 +247,7 @@ export default defineAction({
         fileId: main.fileId,
         filename: main.filename,
         nodeId: main.nodeId,
+        layerId: mainLayerId,
         selector: main.selector,
       },
       navigated: true,

@@ -302,7 +302,7 @@ export function useEditorScreenRendering({
     runtimeStructureDeleteRequest,
     runtimeStructureRollbackRequest,
     reflowOverviewScreensForBreakpoints,
-    commentsHidden,
+    commentPinsHidden,
     handleRuntimeStructureInsertRejected,
     handleRuntimeStructureInsertApplied,
     handleRuntimeStructureDeleteApplied,
@@ -1130,7 +1130,7 @@ export function useEditorScreenRendering({
           tweakValues={cssVarValues}
           drawMode={false}
           pinMode={screenIsActive && pinMode}
-          commentPinsHidden={commentsHidden || !screenIsActive}
+          commentPinsHidden={commentPinsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           reviewCanPost={canCommentDesign}
@@ -1226,7 +1226,7 @@ export function useEditorScreenRendering({
       canCommentDesign,
       activeTool,
       pinMode,
-      commentsHidden,
+      commentPinsHidden,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,

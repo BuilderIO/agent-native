@@ -184,6 +184,7 @@ describe("runIframeContextMenu", () => {
     expect(openAt).toHaveBeenCalledWith({
       clientX: 110,
       clientY: 220,
+      emptyCanvas: true,
       canvasX: 280,
       canvasY: 520,
       screenId: "screen-1",
@@ -226,6 +227,7 @@ describe("runIframeContextMenu", () => {
     expect(openAt).toHaveBeenCalledWith({
       clientX: 210,
       clientY: 320,
+      emptyCanvas: true,
       canvasX: 250,
       canvasY: 280,
       screenId: "screen-2",

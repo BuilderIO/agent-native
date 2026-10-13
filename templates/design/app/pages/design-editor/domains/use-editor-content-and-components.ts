@@ -1361,37 +1361,7 @@ export function useEditorContentAndComponents({
           ),
         applyFileContentUpdate: (fileId, content, options) =>
           applyFileContentUpdate(fileId, content, options),
-        applySelection: (selection) => {
-          const cached = queryClient.getQueryData<{ files: DesignFile[] }>([
-            "action",
-            "get-design",
-            { id },
-          ]);
-          const file = cached?.files.find(
-            (file) => file.id === selection.fileId,
-          );
-          if (typeof file?.content !== "string") {
-            throw new Error(
-              "The saved component file is unavailable for selection.",
-            );
-          }
-          const { snapshot, nodes } = resolveLinkedComponentSelection({
-            ...selection,
-            content: file.content,
-            previous: captureCurrentSelection(),
-          });
-          flushSync(() => {
-            restoreSelectionSnapshot(snapshot);
-            setSelectedElement(
-              nodes.length === 1
-                ? elementInfoFromCodeLayerNode(nodes[0]!)
-                : null,
-            );
-            pendingOverviewLayerSelectionRef.current =
-              nodes.length === 1 ? nodes[0]!.id : null;
-          });
-          return snapshot;
-        },
+        applySelection: (selection) => applyLinkedComponentSelection(selection),
         getCurrentSelection: captureCurrentSelection,
         reserveContentHistory: (selectionBefore) => {
           undoManagerRef.current?.stopCapturing();
@@ -1594,6 +1564,44 @@ export function useEditorContentAndComponents({
     [t],
   );
 
+  const applyLinkedComponentSelection = useCallback(
+    (selection: { fileId: string; nodeIds: string[] }) => {
+      const cached = queryClient.getQueryData<{ files: DesignFile[] }>([
+        "action",
+        "get-design",
+        { id },
+      ]);
+      const file = cached?.files.find((file) => file.id === selection.fileId);
+      if (typeof file?.content !== "string") {
+        throw new Error(
+          "The saved component file is unavailable for selection.",
+        );
+      }
+      const { snapshot, nodes } = resolveLinkedComponentSelection({
+        ...selection,
+        content: file.content,
+        previous: captureCurrentSelection(),
+      });
+      flushSync(() => {
+        restoreSelectionSnapshot(snapshot);
+        setSelectedElement(
+          nodes.length === 1 ? elementInfoFromCodeLayerNode(nodes[0]!) : null,
+        );
+        pendingOverviewLayerSelectionRef.current =
+          nodes.length === 1 ? nodes[0]!.id : null;
+      });
+      return snapshot;
+    },
+    [
+      captureCurrentSelection,
+      id,
+      pendingOverviewLayerSelectionRef,
+      queryClient,
+      restoreSelectionSnapshot,
+      setSelectedElement,
+    ],
+  );
+
   const handleGoToMainComponentMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;
     goToMainComponentMutation.mutate(
@@ -1608,6 +1616,7 @@ export function useEditorContentAndComponents({
           ctaRequired?: boolean;
           ctaMessage?: string;
           note?: string;
+          main?: { fileId: string; nodeId: string };
         }) => {
           if (result.ctaRequired) {
             toast.error(
@@ -1621,6 +1630,22 @@ export function useEditorContentAndComponents({
               result.note ??
                 t("designEditor.componentInstances.onlyKnownInstance"),
             );
+            return;
+          }
+          // The action's navigation request only moves the camera; the
+          // selection has to be applied here.
+          const main = result.main;
+          if (!main) {
+            toast.error(t("designEditor.componentInstances.resolveMainFailed"));
+            return;
+          }
+          try {
+            applyLinkedComponentSelection({
+              fileId: main.fileId,
+              nodeIds: [main.nodeId],
+            });
+          } catch {
+            toast.error(t("designEditor.componentInstances.resolveMainFailed"));
           }
         },
         onError: () =>
@@ -1629,6 +1654,7 @@ export function useEditorContentAndComponents({
     );
   }, [
     activeFileId,
+    applyLinkedComponentSelection,
     goToMainComponentMutation,
     id,
     selectedInstanceActionNodeId,

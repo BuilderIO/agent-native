@@ -358,6 +358,31 @@ describe("open-visual-edit", () => {
     },
   );
 
+  it("passes the caller's context to create-design so design_created keeps its join keys", async () => {
+    const ctx = {
+      caller: "tool",
+      userEmail: "owner@example.test",
+      runId: "run-1",
+    };
+
+    await action.run(
+      {
+        newDesign: true,
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/"],
+        navigate: false,
+      },
+      ctx as never,
+    );
+
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.createDesignRun.mock.calls[0]?.[0]).toMatchObject({
+      creationMethod: "import_url",
+    });
+    expect(mocks.createDesignRun.mock.calls[0]?.[1]).toBe(ctx);
+  });
+
   it("creates a separate project when newDesign is explicit", async () => {
     mocks.readAppState.mockResolvedValue({
       designId: "design_existing",

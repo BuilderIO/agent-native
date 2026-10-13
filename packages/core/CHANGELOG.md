@@ -51,6 +51,41 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.208.0
+
+### Minor Changes
+
+- 0fb4de3: Add an isolated, file-scoped Google Sheets connection for Analytics exports and localize Figma token-validation errors across settings and hydration flows.
+
+### Patch Changes
+
+- 789eb04: Prevent action queries and denied persisted results from crossing an initial cache binding, and release restore payloads after hydration completes. Block further writes after access denial and order deletion after any storage writes already in flight. Retain trusted first-session preloads without refetching, remove unverified preloads before exposing authenticated UI, and clear denied action results even if cache binding fails. Keep disk revocation active after binding failures, and prevent failed deletions from permitting stale restoration until deletion succeeds. Serialize sign-out clearing with storage operations, retain same-user cache bindings through session refresh, and keep known prior-scope denials from invalidating the next scope. Reset prior-scope denial UI state using fetch-start binding provenance while preserving unknown and same-scope denials. Wait for pending storage writes before enumerating obsolete scope records. Retain failed obsolete-record deletions for retry and bound cache cleanup so stalled storage cannot indefinitely hide authenticated content; timeout keeps restore and persistence disabled. Bound sign-out caller waits while retaining the underlying clear barrier, and remove prebind results before exposing fresh content when clearing stalls or fails. Route late access denials to their fetch-start cache binding so they revoke the originating scope rather than the current scope. Persist invalidation intent and a cache epoch before denial deletion or sign-out clearing, so later documents reject older records and old-tab writes; reject a timed-out clear caller without removing its durable barrier. Disable persistent caching when safety metadata is unavailable. Use a separate storage-access probe to avoid overwriting a newer invalidation epoch, and ignore revocation callbacks from older epochs. Share one binding wait budget across clear, cleanup, and restore to prevent sequential storage delays from extending the initial content gate.
+- 4434457: Authorize localhost source operations with short-lived, one-use, operation-scoped capabilities.
+- d7d852c: Use the durable assistant answer when a completed chat thread snapshot is stale after reload.
+- 590252b: Declare `readOnlyHint`, `destructiveHint`, and `openWorldHint` on the directory catalog's app-only `create_embed_session` tool so ChatGPT plugin review no longer rejects the submission for missing tool annotations.
+- 9cb95d8: The workspace switch menu closes after persistence while session and query refresh continues.
+- 0fb4de3: Keep token usage from each automation retry attempt instead of overwriting earlier attempts.
+- cde733c: Retry transient Builder gateway rate limits with the full bounded backoff budget before using a fallback model.
+- 4434457: Add versioned Motion source editing for linked HTML entrypoints.
+- Release all public npm packages with a patch version bump.
+- db2f859: Add a resend verification email action to email-verification run recovery.
+- 4434457: Stamp dev-rendered JSX with source provenance, add a CSP-safe React Motion Text runtime, and allow accessible slider thumb labels.
+- 0fb4de3: Retry transient provider rate limits with bounded exponential backoff before showing a terminal error.
+- 75e39e8: Keep Chat setup stable through transient provider-readiness refresh failures.
+- 0fb4de3: Preserve existing OAuth scopes on partial connection updates and clear scopes that providers revoke on reconnect.
+- 4434457: Authenticate localhost Motion source relays and verify edited modules against the selected screen's saved import graph.
+- cde733c: Preserve programmatic Settings navigation targets when a route module fails to load.
+- 4434457: Bound Motion source provenance checks to the remaining import-graph byte budget before parsing source files or TypeScript configs.
+- afe2ee7: Preserve completed tool-call history links and keep legacy block data renderable when optional fields are absent.
+- 4434457: Support composable text animation tracks and blur effects in Motion Text.
+- cde733c: Return readable fallbacks for HTML-labeled plain-text and empty responses, and reject truncated bodies before processing or saving them.
+- Updated dependencies [0fb4de3]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [0fb4de3]
+  - @agent-native/agentkit@0.208.0
+  - @agent-native/recap-cli@0.5.71
+
 ## 0.207.1
 
 ### Patch Changes
@@ -4031,11 +4066,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
 - Updated dependencies [95d9d70]
   - @agent-native/recap-cli@0.5.7
-
-## 0.167.1
-
-### Patch Changes
-
-- ca9ee7e: Merge same-day changelog categories without duplicating headings.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

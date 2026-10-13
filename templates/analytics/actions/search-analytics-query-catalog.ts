@@ -9,7 +9,7 @@ import { searchAnalyticsQueryCatalog } from "../server/lib/analytics-query-catal
 
 export default defineAction({
   description:
-    "Search Analytics' existing query knowledge before writing a new query. This bounded search ranks saved dashboard panels, data-dictionary definitions, and imported source-index metadata. Results are references, not live data. Scope compatibility is ranked before certification. The result reports searched/available counts, truncation, and a `nextPage` cursor. Use it for ordinary metric discovery, then inspect live schema if exact columns or current source availability are needed; run one authoritative source query before reporting values.",
+    "Search Analytics' existing query knowledge before writing a new query. This bounded search ranks saved dashboard panels, data-dictionary definitions, and imported source-index metadata. Results are references, not live data; generated entries include freshness metadata, and stale entries are discovery hints only. Scope compatibility is ranked before certification. The result reports searched/available counts, truncation, and a `nextPage` cursor. Use it for ordinary metric discovery, then inspect live schema if exact columns or current source availability are needed; run one authoritative source query before reporting values.",
   schema: z.object({
     search: z
       .string()

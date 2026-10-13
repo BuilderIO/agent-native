@@ -38,7 +38,12 @@ import {
   deckVersionChatContextFromAction,
   deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
-import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
+import {
+  applySlideContentEdits,
+  formatSlideHtml,
+  SlideContentEditSchema,
+  type SlideContentEdit,
+} from "../server/lib/slide-content-patch.js";
 import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
@@ -199,7 +204,14 @@ const PatchSlideOp = z
   .object({
     op: z.literal("patch-slide"),
     slideId: z.string(),
-    fields: SlideFieldsSchema,
+    fields: SlideFieldsSchema.default({}),
+    edits: z
+      .array(SlideContentEditSchema)
+      .min(1)
+      .optional()
+      .describe(
+        "Ordered find/replace edits against this slide's current HTML, same shape as update-slide edits. Prefer this over fields.content for small changes such as a color swap, so unchanged markup is not regenerated. Do not combine with fields.content.",
+      ),
     baseContentHash: z
       .string()
       .min(1)
@@ -217,7 +229,7 @@ const PatchSlideOp = z
       .boolean()
       .optional()
       .describe(
-        "Enforce a CSS-only edit that preserves text, markup, element order, and protected layout CSS. Requires fields.content and baseContentHash.",
+        "Enforce a CSS-only edit that preserves text, markup, element order, and protected layout CSS. Requires edits, or fields.content with baseContentHash.",
       ),
     preserveSource: z
       .boolean()
@@ -228,6 +240,16 @@ const PatchSlideOp = z
       ),
   })
   .superRefine((operation, context) => {
+    if (
+      operation.edits !== undefined &&
+      operation.fields.content !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["edits"],
+        message: "Use either edits or fields.content, not both",
+      });
+    }
     if (
       operation.fields.content !== undefined &&
       operation.baseContentHash === undefined
@@ -265,11 +287,14 @@ const PatchSlideOp = z
       }
     }
     if (!operation.styleOnly) return;
-    if (operation.fields.content === undefined) {
+    if (
+      operation.fields.content === undefined &&
+      operation.edits === undefined
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["fields", "content"],
-        message: "styleOnly requires a complete slide content value",
+        message: "styleOnly requires edits or a complete slide content value",
       });
     }
     const unsupportedFields = Object.keys(operation.fields).filter(
@@ -740,6 +765,51 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
+async function resolvePatchSlideEdits(
+  operations: Operation[],
+  slides: Array<{ id?: unknown; content?: unknown }>,
+): Promise<Operation[]> {
+  // Resolved in order so a later op on the same slide builds on the content
+  // an earlier op produced instead of clobbering it. baseContentHash still
+  // names the pre-batch content, which is what the stale check compares.
+  const pendingContent = new Map<string, string>();
+  const resolved: Operation[] = [];
+  for (const operation of operations) {
+    if (operation.op !== "patch-slide") {
+      resolved.push(operation);
+      continue;
+    }
+    if (!operation.edits) {
+      if (operation.fields.content !== undefined) {
+        pendingContent.set(operation.slideId, operation.fields.content);
+      }
+      resolved.push(operation);
+      continue;
+    }
+    const slide = slides.find((entry) => entry?.id === operation.slideId);
+    if (!slide) {
+      resolved.push(operation);
+      continue;
+    }
+    const originalContent = String(slide.content ?? "");
+    const currentContent =
+      pendingContent.get(operation.slideId) ?? originalContent;
+    const { edits, ...rest } = operation;
+    const patched = await applySlideContentEdits(
+      currentContent,
+      edits as SlideContentEdit[],
+    );
+    pendingContent.set(operation.slideId, patched.content);
+    resolved.push({
+      ...rest,
+      fields: { ...rest.fields, content: patched.content },
+      baseContentHash:
+        rest.baseContentHash ?? hashSlideContent(originalContent),
+    });
+  }
+  return resolved;
+}
+
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   rewriteSource: z
@@ -780,7 +850,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For every patch-slide that changes content, read that target with get-deck compact=false and include its contentHash as baseContentHash. Set styleOnly=true only for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. For a deck-wide source restyle, include one patch-slide operation with content and its matching hash for every existing source slide.",
+      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For a small change to existing slide HTML (a color, a word, one declaration), send patch-slide edits instead of fields.content; edits apply to the current HTML and need no baseContentHash. For every patch-slide that replaces fields.content, read that target with get-deck compact=false and include its contentHash as baseContentHash. Set styleOnly=true only for CSS-only changes that preserve text, markup, element order, and protected layout CSS. For a deck-wide source restyle, include one patch-slide operation with content and its matching hash for every existing source slide.",
     ),
 });
 
@@ -1328,7 +1398,7 @@ export default defineAction({
     {
       deckId,
       clientWrite,
-      operations,
+      operations: requestedOperations,
       requireAllSourceSlides,
       rewriteSource,
       creativeContext,
@@ -1356,7 +1426,7 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
       if (
-        !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
+        !isMcpWidgetPatchAllowed(ctx?.caller, requestedOperations, {
           rewriteSource,
           hasCreativeContext: creativeContext !== undefined,
           requireAllSourceSlides,
@@ -1387,6 +1457,13 @@ export default defineAction({
           },
         );
       }
+
+      // Resolved against this attempt's row so a stale-revision retry
+      // re-applies the edits to the fresh slide content.
+      const operations = await resolvePatchSlideEdits(
+        requestedOperations,
+        Array.isArray(deck.slides) ? deck.slides : [],
+      );
 
       const writeDisposition = assertDeckClientWriteCurrent(
         row,
@@ -2058,7 +2135,10 @@ export default defineAction({
       return base;
     };
     return withDeckLock(deckId, () =>
-      retryDeckWrite(applyPatch, isMergeSafeDeckPatchOperations(operations)),
+      retryDeckWrite(
+        applyPatch,
+        isMergeSafeDeckPatchOperations(requestedOperations),
+      ),
     );
   },
 });

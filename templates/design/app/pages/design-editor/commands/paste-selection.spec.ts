@@ -18,6 +18,7 @@ import { analyzeComponentLinks } from "@shared/component-links";
 import { COMPONENT_REF_ATTR } from "@shared/component-model";
 import { sourceContentHash } from "@shared/source-workspace";
 
+import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
@@ -90,6 +91,12 @@ function harness(
     files?: DesignFile[];
     activeFileId?: string;
     selectedElement?: ElementInfo | null;
+    visibleRect?: VisibleCanvasRect | null;
+    frames?: Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    selectedScreenIds?: string[];
   } = {},
 ): Harness {
   const files = overrides.files ?? [
@@ -140,6 +147,7 @@ function harness(
     boardFileId: "board",
     canEditDesign: true,
     canvasContainerRef: ref(container),
+    canvasFrameGeometryById: overrides.frames ?? {},
     clearRedoStacks: () => {},
     clipboardPasteRedoStackRef: ref([]),
     clipboardPasteUndoStackRef: ref([]),
@@ -148,10 +156,23 @@ function harness(
     getCanvasScreenClipboardEntries: () => [],
     getFreshActiveContent: () => contentByFileId.get(activeFile.id) ?? "",
     getScreenContent: (screenId) => contentByFileId.get(screenId) ?? "",
+    getVisibleCanvasRect: () => overrides.visibleRect ?? null,
     historyOrderRef: ref(
       [] as PasteSelectionArgs["historyOrderRef"]["current"],
     ),
     latestClipboardMutationContentRef: lineageRef as never,
+    overviewScreens: files
+      .filter((file) => file.id !== "board")
+      .map((file) => ({
+        id: file.id,
+        filename: file.filename,
+        content: file.content ?? "",
+        updatedAt: file.updatedAt,
+        heightPinned: false,
+        width: 390,
+        height: 844,
+      })),
+    overviewSelectedScreenIds: overrides.selectedScreenIds ?? [],
     pasteCascadeRef: ref(0),
     pasteCopiedScreens: () => {},
     pendingLocalFileContentsRef: ref(new Map()),
@@ -783,5 +804,277 @@ describe("pasting copied layers with no explicit drop point", () => {
 
     expect(writes).toEqual([]);
     expect(toastError).toHaveBeenCalledTimes(1);
+  });
+});
+
+const OTHER_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="box" data-an-primitive="frame" data-agent-native-layer-name="Box" style="position:absolute;left:20px;top:20px;width:300px;height:300px"></div>
+</body></html>`;
+
+const SCREEN_FRAMES = {
+  home: { x: 0, y: 0, width: 390, height: 844 },
+  other: { x: 5000, y: 0, width: 390, height: 844 },
+};
+const OFF_SCREEN_VIEW: VisibleCanvasRect = {
+  x: 3000,
+  y: 3000,
+  width: 1000,
+  height: 600,
+};
+const OVER_OTHER_VIEW: VisibleCanvasRect = {
+  x: 4900,
+  y: 200,
+  width: 600,
+  height: 400,
+};
+const OVER_HOME_VIEW: VisibleCanvasRect = {
+  x: 0,
+  y: 0,
+  width: 1000,
+  height: 800,
+};
+
+function viewFiles() {
+  return [
+    designFile("home", "index.html", HOME_HTML),
+    designFile("other", "other.html", OTHER_HTML),
+    designFile("board", "__board__.html", BOARD_HTML),
+  ];
+}
+
+function selectedRect(): ElementInfo {
+  return {
+    tagName: "div",
+    sourceId: "rect-1",
+    selector: '[data-agent-native-node-id="rect-1"]',
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 40, y: 120, width: 200, height: 100 },
+    isFlexChild: false,
+    isFlexContainer: false,
+  };
+}
+
+describe("pasting copied layers while the original is off-screen", () => {
+  beforeEach(() => {
+    toastError.mockClear();
+  });
+
+  it("pastes onto empty canvas at the view center even though the copied layer is still selected", async () => {
+    const { args, writes, selections } = harness({
+      files: viewFiles(),
+      activeFileId: "home",
+      selectedElement: selectedRect(),
+      frames: SCREEN_FRAMES,
+      visibleRect: OFF_SCREEN_VIEW,
+    });
+    args.selectedCanvasSelector = selectedRect().selector!;
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.tagName).toBe("BODY");
+    expect(pixels(copy.style.left)).toBe(3500);
+    expect(pixels(copy.style.top)).toBe(3300);
+    expect(copy.style.width).toBe("200px");
+    expect(copy.style.height).toBe("100px");
+    expect(selections.map((selection) => selection.screenId)).toEqual([
+      "board",
+    ]);
+  });
+
+  it("pastes into the screen under the view center at that point", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_OTHER_VIEW,
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["other"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.tagName).toBe("BODY");
+    expect(pixels(copy.style.left)).toBe(200);
+    expect(pixels(copy.style.top)).toBe(400);
+  });
+
+  it("steps each repeated paste so copies do not stack exactly", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OFF_SCREEN_VIEW,
+    });
+
+    await runPasteSelection(args);
+    await runPasteSelection(args);
+
+    const copies = pastedCopies(writes[1]!.content);
+    expect(copies.map((copy) => pixels(copy.style.left)).sort()).toEqual([
+      3500, 3516,
+    ]);
+    expect(copies.map((copy) => pixels(copy.style.top)).sort()).toEqual([
+      3300, 3316,
+    ]);
+  });
+
+  it("keeps pasting next to the original while its screen is in view", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_HOME_VIEW,
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "frame-1",
+    );
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+  });
+
+  it("centers in the view once the original's screen has moved off-screen", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_HOME_VIEW,
+    });
+    args.canvasFrameGeometryById = {
+      ...SCREEN_FRAMES,
+      home: { x: 8000, y: 0, width: 390, height: 844 },
+    };
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(500);
+    expect(pixels(copy.style.top)).toBe(400);
+  });
+
+  it("pastes next to the original once its screen has moved into view", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "board",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_OTHER_VIEW,
+    });
+    args.canvasFrameGeometryById = {
+      ...SCREEN_FRAMES,
+      home: { x: 4950, y: 250, width: 390, height: 844 },
+    };
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+  });
+
+  it("keeps pasting into a selected screen that is in view", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "other",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_OTHER_VIEW,
+      selectedScreenIds: ["other"],
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["other"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(120);
+    expect(pixels(copy.style.top)).toBe(120);
+  });
+
+  it("keeps pasting into a selected container that is in view", async () => {
+    const selectedBox: ElementInfo = {
+      ...selectedRect(),
+      sourceId: "box",
+      selector: '[data-agent-native-node-id="box"]',
+      boundingRect: { x: 20, y: 20, width: 300, height: 300 },
+    };
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "other",
+      selectedElement: selectedBox,
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_OTHER_VIEW,
+    });
+    args.selectedCanvasSelector = selectedBox.selector!;
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["other"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "box",
+    );
+  });
+
+  it("does not guess for a board object, whose position the clipboard cannot place", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      entries: [
+        {
+          html: BOARD_NOTE_HTML,
+          rootNodeId: "board-note",
+          sourceFileId: "board",
+        },
+      ],
+      frames: SCREEN_FRAMES,
+      visibleRect: OFF_SCREEN_VIEW,
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "board-group",
+    );
+  });
+
+  it("pastes at an explicit point even when the original is off-screen", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      frames: SCREEN_FRAMES,
+      visibleRect: OFF_SCREEN_VIEW,
+    });
+
+    await runPasteSelection(args, { x: 50, y: 40 });
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(40);
+  });
+
+  it("leaves the single-screen editor pasting next to the original", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "home",
+      frames: SCREEN_FRAMES,
+      visibleRect: OFF_SCREEN_VIEW,
+    });
+    args.viewModeRef.current = "single";
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
   });
 });

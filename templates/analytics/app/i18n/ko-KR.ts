@@ -1870,8 +1870,13 @@ export default {
     presetWeekdays: "평일 06:00",
     presetWeekly: "매주 월요일 06:00",
     status: "상태",
+    unsafeEntriesOmitted: "안전 검사에서 제외된 항목",
+    unsafeFieldsOmitted: "안전 검사에서 제외된 필드",
+    truncatedFields: "잘린 필드",
     unresolvedTrackingCallSites: "해결되지 않은 추적 호출",
     unresolvedTrackingCallSitesUnavailable: "사용할 수 없음",
+    sourceIndexCoverageCaveat:
+      "안전 검사에서 항목이나 필드를 제외할 수 있으며, 잘린 필드와 해결되지 않은 추적 호출도 범위를 제한할 수 있습니다.",
     dynamicTrackingCoverageCaveat:
       "이벤트 이름이 런타임에 계산되는 호출은 제외됩니다. 별칭이나 다른 추적 API는 감지되지 않을 수 있습니다.",
     overviewFailed: "빌드 상태를 불러오지 못했습니다.",

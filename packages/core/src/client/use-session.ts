@@ -13,6 +13,10 @@ import {
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
+
+interface ClientAuthSession extends AuthSession {
+  identitySsoEnabled?: boolean;
+}
 export {
   hasSessionHint,
   isSessionNavigationPending,
@@ -91,7 +95,7 @@ export type SessionStatus =
   | "signing-out";
 
 interface UseSessionResult {
-  session: AuthSession | null;
+  session: ClientAuthSession | null;
   isLoading: boolean;
   status: SessionStatus;
   error: Error | null;
@@ -104,7 +108,7 @@ const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
 const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
-let cachedSession: AuthSession | null | undefined;
+let cachedSession: ClientAuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<SessionRead> | undefined;
 let trackedSessionIdentity: string | null | undefined;
@@ -129,7 +133,7 @@ let signingOut = false;
  * server gives a new one; a failed re-check never turns into "signed out".
  */
 interface SessionSnapshot {
-  session: AuthSession | null;
+  session: ClientAuthSession | null;
   status: SessionStatus;
   error: Error | null;
 }
@@ -162,7 +166,7 @@ function publish(next: SessionSnapshot): void {
 }
 
 type SessionRead =
-  | { state: "resolved"; session: AuthSession | null }
+  | { state: "resolved"; session: ClientAuthSession | null }
   | { state: "superseded" }
   | { state: "unreadable" };
 
@@ -443,7 +447,7 @@ function fetchSharedSession(): Promise<SessionRead> {
       const session =
         data.error === "Not authenticated"
           ? null
-          : (data as AuthSessionResponse);
+          : (data as AuthSessionResponse & ClientAuthSession);
       cachedSession = session;
       cachedSessionAt = Date.now();
       cachedSessionFromFirstRead = firstRead;

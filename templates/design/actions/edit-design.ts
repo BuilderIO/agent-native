@@ -5,7 +5,6 @@ import {
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -17,6 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -486,11 +486,9 @@ export default defineAction({
       break;
     }
 
-    track(
+    trackDesign(
       "design_edited",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: designId,
         output_type: "design",
         edit_type: resolvedMode,

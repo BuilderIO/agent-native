@@ -141,6 +141,7 @@ export async function enableFeatureFlag(
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
+const BOARD_SURFACE_IFRAME_SELECTOR = `[data-board-surface-layer] ${DESIGN_PREVIEW_IFRAME_SELECTOR}`;
 const E2E_BASE_URL =
   process.env.E2E_BASE_URL ??
   `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
@@ -460,8 +461,20 @@ export async function enterDirectMode(
     await expect(allScreens).toHaveAttribute("aria-current", "page");
   }
   await waitForDesignBridgeReady(page);
+  // The board surface iframe carries no data-screen-iframe-id, so a `screen=`
+  // URL that targets the board never matches a Screen iframe.
+  const targetsBoard =
+    !_options?.screenId &&
+    (await page.locator(screenFrameSelector(screenId)).count()) === 0 &&
+    (await page.locator(BOARD_SURFACE_IFRAME_SELECTOR).count()) > 0;
+  const frameSelector = targetsBoard
+    ? BOARD_SURFACE_IFRAME_SELECTOR
+    : screenFrameSelector(screenId);
   await expect(
-    designFrame(page, screenId)
+    (targetsBoard
+      ? page.locator(BOARD_SURFACE_IFRAME_SELECTOR).contentFrame()
+      : designFrame(page, screenId)
+    )
       .locator('[data-agent-native-edit-overlay="shield"]')
       .first(),
   ).toBeAttached({ timeout: 15_000 });
@@ -506,7 +519,7 @@ export async function enterDirectMode(
             "*",
           );
         }),
-      screenFrameSelector(screenId),
+      frameSelector,
     );
   }
 }
