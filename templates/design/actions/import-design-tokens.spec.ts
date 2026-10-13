@@ -476,6 +476,33 @@ Bad radius: 12px} body { color: red
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
   });
 
+  it("imports pasted token lists that include prose headings", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `Brand colors from the design review
+--color-accent: #2563eb;
+--spacing-card-gap: 24px;`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent",
+          value: "#2563eb",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-card-gap",
+          value: "24px",
+        }),
+      ]),
+    );
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({
+      accent: "#2563eb",
+      "--spacing-card-gap": "24px",
+    });
+  });
+
   it("reports unsupported indented Sass files as skipped", async () => {
     const result = await action.run({
       designId: "design_1",

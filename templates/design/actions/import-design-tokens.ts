@@ -333,6 +333,28 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
 const TOKEN_LABEL_LINE =
   /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
 
+function pastedTokenListCssCandidate(content: string): string | null {
+  if (/[{}]/.test(content)) return null;
+
+  const declarations: string[] = [];
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || TOKEN_LABEL_LINE.test(line)) continue;
+    if (/^--[\w-]+\s*:\s*.+;?$/.test(line)) {
+      declarations.push(line);
+      continue;
+    }
+    if (/^[\p{L}\p{N}][\p{L}\p{N}\s'’–—-]{1,119}:?$/u.test(line)) {
+      continue;
+    }
+    return null;
+  }
+
+  return declarations.length > 0
+    ? `:root {\n${declarations.join("\n")}\n}`
+    : null;
+}
+
 function looksLikePastedJson(content: string): boolean {
   const trimmed = content.trimStart();
   return trimmed.startsWith("{") || /^\[\s*(?:\]|\{|"|-?\d)/.test(trimmed);
@@ -445,9 +467,13 @@ function isValidImportFile(file: {
     return true;
   }
 
+  const tokenListCandidate = isPastedStylesheet
+    ? pastedTokenListCssCandidate(file.content)
+    : null;
   const cssCandidates = isPastedStylesheet
     ? [
         file.content,
+        ...(tokenListCandidate ? [tokenListCandidate] : []),
         file.content
           .split(/\r?\n/)
           .filter((line) => {
