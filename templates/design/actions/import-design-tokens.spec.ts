@@ -373,11 +373,11 @@ Bad radius: 12px} body { color: red
       files: [
         {
           filename: "tokens.scss",
-          content: ":root { --color-scss: #2563eb; // primary color\n}",
+          content: ":root { --color-scss: #2563eb // primary color\n}",
         },
         {
           filename: "tokens.less",
-          content: ":root { --color-less: rgb(255, 0, 0); // primary color\n}",
+          content: ":root { --color-less: rgb(255, 0, 0) // primary color\n}",
         },
       ],
     });
@@ -392,6 +392,64 @@ Bad radius: 12px} body { color: red
         }),
       ]),
     );
+    expect(
+      result.tokens.some((token) =>
+        token.cssVar.startsWith("--color-imported-"),
+      ),
+    ).toBe(false);
+  });
+
+  it("imports tokens from Less files with mixin definitions and calls", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "theme.less",
+          content: [
+            ".rounded() { border-radius: 8px; }",
+            ".theme-colors(@accent) { color: @accent; }",
+            ":root { --color-less-accent: #2563eb; .rounded(); .theme-colors(#2563eb); }",
+            "",
+          ].join("\n"),
+        },
+        {
+          filename: "invalid.less",
+          content: ":root { --color-invalid: #ef4444;",
+        },
+      ],
+    });
+
+    expect(result.filesAnalyzed).toEqual(["theme.less"]);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-less-accent",
+        value: "#2563eb",
+      }),
+    );
+    expect(result.skippedCount).toBe(1);
+  });
+
+  it("imports single-word labels alongside pasted token declarations", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "Accent: #2563eb\n--color-x: #000;",
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent",
+          value: "#2563eb",
+        }),
+        expect.objectContaining({
+          cssVar: "--color-x",
+          value: "#000",
+        }),
+      ]),
+    );
+    expect(result.filesAnalyzed).toEqual(["pasted-tokens.txt"]);
   });
 
   it("keeps an earlier valid token when a later duplicate is invalid", async () => {

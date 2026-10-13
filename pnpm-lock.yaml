@@ -6159,6 +6159,9 @@ importers:
       postcss:
         specifier: ^8.5.28
         version: 8.5.28
+      postcss-less:
+        specifier: 6.0.0
+        version: 6.0.0(postcss@8.5.28)
       prettier:
         specifier: ^3.9.4
         version: 3.9.4
@@ -6286,6 +6289,9 @@ importers:
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
+      '@types/postcss-less':
+        specifier: 4.0.7
+        version: 4.0.7
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17
@@ -16411,6 +16417,9 @@ packages:
   '@types/parse-json@4.0.2':
     resolution: {integrity: sha512-dISoDXWWQwUquiKsyZ4Ng+HX2KsPL7LyHKHQwgGFEA3IaKac4Obd+h2a/a6waisAoepJlBcx9paWqjA8/HVjCw==}
 
+  '@types/postcss-less@4.0.7':
+    resolution: {integrity: sha512-trNnU5PNmvMGysyge5Tc7W4CpaU+HHVu9XcGFX9eBlIGcg+NJP6lLJcUna6jjh8/TMjAe0k5mY0+jNRkZLYoaQ==}
+
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
 
@@ -21738,6 +21747,12 @@ packages:
 
   points-on-path@0.2.1:
     resolution: {integrity: sha512-25ClnWWuw7JbWZcgqY/gJ4FQWadKxGWk+3kR/7kD0tCaDtPPMj7oHu2ToLaVhfpnHrZzYby2w6tUA0eOIuUg8g==}
+
+  postcss-less@6.0.0:
+    resolution: {integrity: sha512-FPX16mQLyEjLzEuuJtxA8X3ejDLNGGEG503d2YGZR5Ask1SpDN8KmZUMpzCvyalWRywAn1n1VOA5dcqfCLo5rg==}
+    engines: {node: '>=12'}
+    peerDependencies:
+      postcss: ^8.3.5
 
   postcss-load-config@6.0.1:
     resolution: {integrity: sha512-oPtTM4oerL+UXmx+93ytZVN82RrlY/wPUV8IeDxFrzIjXOLF1pN+EmKPLbubvKHT2HC20xXsCAH2Z+CKV6Oz/g==}
@@ -33176,6 +33191,10 @@ snapshots:
   '@types/parse-json@4.0.2':
     optional: true
 
+  '@types/postcss-less@4.0.7':
+    dependencies:
+      postcss: 8.5.28
+
   '@types/qs@6.15.1': {}
 
   '@types/raf@3.4.3':
@@ -39561,6 +39580,10 @@ snapshots:
     dependencies:
       path-data-parser: 0.1.0
       points-on-curve: 0.2.0
+
+  postcss-less@6.0.0(postcss@8.5.28):
+    dependencies:
+      postcss: 8.5.28
 
   postcss-load-config@6.0.1(jiti@2.7.0)(postcss@8.5.28)(tsx@4.23.1)(yaml@2.9.0):
     dependencies:

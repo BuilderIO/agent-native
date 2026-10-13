@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DESIGN_TOKEN_IMPORT_MAX_FILES,
+  DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+} from "../../../shared/design-token-import-limits";
+import {
   getTokenImportStatus,
   isColorValue,
   normalizeCssVarName,
@@ -98,17 +102,72 @@ describe("getTokenImportStatus", () => {
 describe("readImportFiles", () => {
   it("reports selected files beyond the client-side import cap", async () => {
     const files = Array.from(
-      { length: 21 },
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
       (_, index) =>
         ({
           name: `tokens-${index}.css`,
+          size: 1,
           text: async () => `:root { --spacing-gap-${index}: ${index + 1}px; }`,
         }) as File,
     );
 
     const result = await readImportFiles(files);
 
-    expect(result.files).toHaveLength(20);
+    expect(result.files).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
     expect(result.omittedFileCount).toBe(1);
+  });
+
+  it("does not read files beyond the cumulative byte budget", async () => {
+    let readCount = 0;
+    const files = [
+      {
+        name: "too-large.css",
+        size: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1,
+        text: async () => {
+          readCount += 1;
+          return "large";
+        },
+      },
+      {
+        name: "also-omitted.css",
+        size: 1,
+        text: async () => {
+          readCount += 1;
+          return "small";
+        },
+      },
+    ] as File[];
+
+    const result = await readImportFiles(files);
+
+    expect(readCount).toBe(0);
+    expect(result.files).toEqual([]);
+    expect(result.omittedFileCount).toBe(2);
+  });
+
+  it("accepts a file at the byte budget and preserves the encoded-content cap", async () => {
+    const content = "x".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES);
+    const exactLimitFile = {
+      name: "at-limit.css",
+      size: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+      text: async () => content,
+    } as File;
+    const oversizedDecodedFile = {
+      name: "decoded-over-limit.css",
+      size: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+      text: async () => "�".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES),
+    } as File;
+
+    const exactLimitResult = await readImportFiles([exactLimitFile]);
+    const decodedOverLimitResult = await readImportFiles([
+      oversizedDecodedFile,
+    ]);
+
+    expect(exactLimitResult.files).toEqual([
+      { filename: "at-limit.css", content },
+    ]);
+    expect(exactLimitResult.omittedFileCount).toBe(0);
+    expect(decodedOverLimitResult.files).toEqual([]);
+    expect(decodedOverLimitResult.omittedFileCount).toBe(1);
   });
 });

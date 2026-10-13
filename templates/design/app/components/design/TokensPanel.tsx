@@ -38,6 +38,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  DESIGN_TOKEN_IMPORT_MAX_FILES,
+  DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+} from "../../../shared/design-token-import-limits";
+
 interface DesignToken {
   name: string;
   cssVar: string;
@@ -646,19 +651,43 @@ export function snapshotImportFiles(
 export async function readImportFiles(
   selectedFiles: File[],
 ): Promise<{ files: TokenImportFile[]; omittedFileCount: number }> {
-  const selected = selectedFiles.slice(0, 20);
-  const files = await Promise.all(
-    selected.map(async (file) => ({
+  const selected = selectedFiles.slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES);
+  const files: TokenImportFile[] = [];
+  const encoder = new TextEncoder();
+  let readBytes = 0;
+  let contentBytes = 0;
+  let omittedFileCount = selectedFiles.length - selected.length;
+
+  for (const [index, file] of selected.entries()) {
+    if (
+      !Number.isSafeInteger(file.size) ||
+      file.size < 0 ||
+      readBytes + file.size > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
+    ) {
+      omittedFileCount += selected.length - index;
+      break;
+    }
+
+    const content = await file.text();
+    const encodedSize = encoder.encode(content).byteLength;
+    if (contentBytes + encodedSize > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
+      omittedFileCount += selected.length - index;
+      break;
+    }
+
+    readBytes += file.size;
+    contentBytes += encodedSize;
+    files.push({
       filename:
         (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
         file.name,
-      content: await file.text(),
-    })),
-  );
+      content,
+    });
+  }
 
   return {
     files,
-    omittedFileCount: selectedFiles.length - selected.length,
+    omittedFileCount,
   };
 }
 

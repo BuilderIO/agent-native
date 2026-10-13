@@ -2,8 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import type { BrandKitTokenType } from "@agent-native/core/brand-kit";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
-  CODE_MAX_FILES,
-  CODE_MAX_TOTAL_BYTES,
   analyzeCodeFile,
   createCodeAnalysisState,
   extractCodeColors,
@@ -17,6 +15,7 @@ import * as csstree from "css-tree";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import postcss from "postcss";
+import postcssLess from "postcss-less";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,6 +25,10 @@ import {
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  DESIGN_TOKEN_IMPORT_MAX_FILES,
+  DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+} from "../shared/design-token-import-limits.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
@@ -374,11 +377,15 @@ function hasBalancedCssValueSyntax(value: string): boolean {
   return !quote && !inBlockComment && !escaped && delimiters.length === 0;
 }
 
-function isProseTokenLabelLine(line: string): boolean {
+function isProseTokenLabelLine(
+  line: string,
+  allowSingleWordLabel = false,
+): boolean {
   const match = line.match(TOKEN_LABEL_LINE);
   return Boolean(
     match &&
-    /\s/.test(match[1]?.replace(/\*\*/g, "").trim() ?? "") &&
+    (allowSingleWordLabel ||
+      /\s/.test(match[1]?.replace(/\*\*/g, "").trim() ?? "")) &&
     hasBalancedCssValueSyntax(match[2] ?? ""),
   );
 }
@@ -391,7 +398,7 @@ function pastedTokenListCssCandidate(content: string): string | null {
     const line = rawLine.trim();
     if (
       !line ||
-      isProseTokenLabelLine(line) ||
+      isProseTokenLabelLine(line, true) ||
       /^\[[^\]\r\n]{1,80}\]$/.test(line)
     ) {
       continue;
@@ -614,10 +621,13 @@ function isValidImportFile(file: {
       ]
     : [file.content];
   const isScssOrLess = /\.(scss|less)$/.test(filename);
+  const isLess = filename.endsWith(".less");
 
   for (const css of cssCandidates) {
     try {
-      postcss.parse(isScssOrLess ? stripScssLessLineComments(css) : css);
+      const normalizedCss = isScssOrLess ? stripScssLessLineComments(css) : css;
+      if (isLess) postcssLess.parse(normalizedCss);
+      else postcss.parse(normalizedCss);
       return true;
     } catch (error) {
       if (!(error instanceof Error && error.name === "CssSyntaxError")) {
@@ -726,12 +736,12 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
   let omittedFileCount = 0;
 
   for (const [index, file] of files.entries()) {
-    if (accepted.length >= CODE_MAX_FILES) {
+    if (accepted.length >= DESIGN_TOKEN_IMPORT_MAX_FILES) {
       omittedFileCount += files.length - index;
       break;
     }
     const size = new TextEncoder().encode(file.content).byteLength;
-    if (totalBytes + size > CODE_MAX_TOTAL_BYTES) {
+    if (totalBytes + size > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
       omittedFileCount += files.length - index;
       break;
     }
@@ -739,7 +749,12 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     accepted.push(file);
   }
 
-  const validFiles = accepted.filter(isValidImportFile);
+  const validFiles = accepted.filter(isValidImportFile).map((file) => ({
+    ...file,
+    content: /\.(scss|less)$/i.test(file.filename)
+      ? stripScssLessLineComments(file.content)
+      : file.content,
+  }));
   const state = createCodeAnalysisState();
   for (const file of validFiles) {
     const analysisFilename =
