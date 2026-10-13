@@ -111,9 +111,11 @@ async function upsertPlan(
     lead: planLead(meta),
     bugSource: meta.trigger === "bug" ? meta.source : null,
   };
-  // A ticket this run already created (then failed partway) is finished, not sighted.
+  // A ticket this run already created (then failed partway) is finished, not
+  // sighted; once that ticket is resolved, the plan is a recurrence instead.
   const resuming =
     match !== null &&
+    isOpen(match) &&
     readJiraResults(meta.runId).some(
       (r) =>
         r.key === match.key &&

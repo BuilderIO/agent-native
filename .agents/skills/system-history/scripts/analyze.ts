@@ -649,9 +649,14 @@ function judge(s: Measured, sorted: Record<string, number[]>): SystemReport {
   if (p.newFileShare >= 0.75)
     say("newFileShare", "new-file share", m.newFileShare);
 
-  // The last bucket can be shorter than a week; compare its weekly rate.
-  const last = round((m.weekly.at(-1)?.fixes ?? 0) * (7 / m.lastWeekDays));
-  const earlier = m.weekly.slice(0, -1);
+  // The last bucket can be shorter than a week; compare its weekly rate. A day
+  // or two is too short a sample to call a trend, so then the last full week
+  // is the one compared.
+  const short = m.lastWeekDays < 3;
+  const weeks = short ? m.weekly.slice(0, -1) : m.weekly;
+  const lastDays = short ? 7 : m.lastWeekDays;
+  const last = round((weeks.at(-1)?.fixes ?? 0) * (7 / lastDays));
+  const earlier = weeks.slice(0, -1);
   const earlierAvg = earlier.length
     ? earlier.reduce((sum, w) => sum + w.fixes, 0) / earlier.length
     : 0;
@@ -663,7 +668,7 @@ function judge(s: Measured, sorted: Record<string, number[]>): SystemReport {
     );
   if (falling)
     reasons.push(
-      `fixes fell from ~${earlierAvg.toFixed(1)}/wk to ${last}/wk in the latest ${m.lastWeekDays < 7 ? `${m.lastWeekDays} days` : "week"}`,
+      `fixes fell from ~${earlierAvg.toFixed(1)}/wk to ${last}/wk in the latest ${lastDays < 7 ? `${lastDays} days` : "full week"}`,
     );
 
   let verdict: Verdict;
