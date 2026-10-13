@@ -6,11 +6,24 @@ import {
   nativeCatalogPropertyKey,
 } from "../app/components/design/inspector/native-catalog-display";
 import { planEffectGraph } from "./effect-graph";
+import { nativeEffectAnimationCapability } from "./native-effect-animation-capability";
 import {
   createCatalogEffectPresets,
   NativeCatalogPresetRecipeError,
 } from "./native-effect-catalog-presets";
 import { editNativeEffectHtml } from "./native-effect-edits";
+import {
+  FLUID_ADVECTED_PARTICLES_EFFECT,
+  FLUID_ADVECTED_PARTICLES_PRESETS,
+} from "./native-effect-owned-aq-fluid-particles";
+import {
+  CONTENT_BOUNDS_TRACKER_EFFECT,
+  CONTENT_BOUNDS_TRACKER_PRESETS,
+} from "./native-effect-owned-ar-content-bounds-tracker";
+import {
+  FEATURE_TRAILS_EFFECT,
+  FEATURE_TRAILS_PRESETS,
+} from "./native-effect-owned-as-feature-trails";
 import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
@@ -26,14 +39,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(334);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(337);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(334);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(385);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(772);
+    ).toBe(337);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(388);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(778);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      772,
+      778,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -55,6 +68,90 @@ describe("Design-owned catalog", () => {
         definition.id,
       ).toEqual([]);
     }
+  });
+
+  it("registers AQ in the normal layer and backdrop library with localized controls", () => {
+    expect(
+      NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+        (definition) => definition.id === FLUID_ADVECTED_PARTICLES_EFFECT.id,
+      ),
+    ).toBe(FLUID_ADVECTED_PARTICLES_EFFECT);
+    expect(
+      nativeEffectAnimationCapability(FLUID_ADVECTED_PARTICLES_EFFECT),
+    ).toBe("animated");
+    expect(FLUID_ADVECTED_PARTICLES_EFFECT.placements).toEqual([
+      "layer",
+      "backdrop",
+    ]);
+    expect(nativeCatalogDefinitionKey(FLUID_ADVECTED_PARTICLES_EFFECT)).toBe(
+      "editPanel.shaders.nativeCatalog.definitions.owned-aq-fluid-advected-particles",
+    );
+    expect(
+      nativeCatalogPropertyKey(
+        FLUID_ADVECTED_PARTICLES_EFFECT,
+        "Flow following",
+      ),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.flowFollowing");
+    expect(
+      NATIVE_EFFECT_PRESETS.filter(
+        (preset) => preset.definitionId === FLUID_ADVECTED_PARTICLES_EFFECT.id,
+      ),
+    ).toEqual(FLUID_ADVECTED_PARTICLES_PRESETS);
+    for (const preset of FLUID_ADVECTED_PARTICLES_PRESETS)
+      expect(nativeCatalogPresetKey(preset)).not.toBeNull();
+  });
+
+  it("registers content bounds tracking with localized controls and presets", () => {
+    expect(
+      NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+        (definition) => definition.id === CONTENT_BOUNDS_TRACKER_EFFECT.id,
+      ),
+    ).toBe(CONTENT_BOUNDS_TRACKER_EFFECT);
+    expect(nativeEffectAnimationCapability(CONTENT_BOUNDS_TRACKER_EFFECT)).toBe(
+      "animated",
+    );
+    expect(CONTENT_BOUNDS_TRACKER_EFFECT.placements).toEqual([
+      "layer",
+      "backdrop",
+    ]);
+    expect(nativeCatalogDefinitionKey(CONTENT_BOUNDS_TRACKER_EFFECT)).toBe(
+      "editPanel.shaders.nativeCatalog.definitions.owned-ar-content-bounds-tracker",
+    );
+    expect(
+      nativeCatalogPropertyKey(CONTENT_BOUNDS_TRACKER_EFFECT, "Cell layout"),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.cellLayout");
+    expect(
+      NATIVE_EFFECT_PRESETS.filter(
+        (preset) => preset.definitionId === CONTENT_BOUNDS_TRACKER_EFFECT.id,
+      ),
+    ).toEqual(CONTENT_BOUNDS_TRACKER_PRESETS);
+    for (const preset of CONTENT_BOUNDS_TRACKER_PRESETS)
+      expect(nativeCatalogPresetKey(preset)).not.toBeNull();
+  });
+
+  it("registers feature trails with localized controls and presets", () => {
+    expect(
+      NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+        (definition) => definition.id === FEATURE_TRAILS_EFFECT.id,
+      ),
+    ).toBe(FEATURE_TRAILS_EFFECT);
+    expect(nativeEffectAnimationCapability(FEATURE_TRAILS_EFFECT)).toBe(
+      "animated",
+    );
+    expect(FEATURE_TRAILS_EFFECT.placements).toEqual(["layer", "backdrop"]);
+    expect(nativeCatalogDefinitionKey(FEATURE_TRAILS_EFFECT)).toBe(
+      "editPanel.shaders.nativeCatalog.definitions.owned-as-feature-trails",
+    );
+    expect(
+      nativeCatalogPropertyKey(FEATURE_TRAILS_EFFECT, "Tracker lifespan"),
+    ).toBe("editPanel.shaders.nativeCatalog.properties.trackerLifespan");
+    expect(
+      NATIVE_EFFECT_PRESETS.filter(
+        (preset) => preset.definitionId === FEATURE_TRAILS_EFFECT.id,
+      ),
+    ).toEqual(FEATURE_TRAILS_PRESETS);
+    for (const preset of FEATURE_TRAILS_PRESETS)
+      expect(nativeCatalogPresetKey(preset)).not.toBeNull();
   });
 
   it("registers localized pointer effects with two authored recipes each", () => {

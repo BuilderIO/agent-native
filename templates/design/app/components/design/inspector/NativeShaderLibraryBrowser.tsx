@@ -78,6 +78,11 @@ const initialBuiltins: BuiltinSummary[] = NATIVE_EFFECT_LATEST_DEFINITIONS.map(
     favorite: false,
     lastUsedAt: null,
   }),
+).sort(
+  (left, right) =>
+    left.name.localeCompare(right.name) ||
+    left.id.localeCompare(right.id) ||
+    right.version - left.version,
 );
 
 interface NativeShaderLibraryBrowserProps {
@@ -282,6 +287,10 @@ export function NativeShaderLibraryBrowser({
       const version = preset?.definitionVersion ?? entry.version;
       if (await onApplyBuiltin(definitionId, version, placement, preset))
         await markUsed(`builtin:${definitionId}@${version}`);
+    } catch (error) {
+      toast.error(
+        actionErrorMessage(error) ?? t("editPanel.shaders.libraryUnavailable"),
+      );
     } finally {
       setBusyKey(null);
     }

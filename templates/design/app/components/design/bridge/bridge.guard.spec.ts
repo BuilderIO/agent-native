@@ -733,6 +733,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-authored-paint",
     "./native-camera-recorder",
     "./native-capture-roi",
+    "./native-stateful-resource",
     "./native-color-mode",
     "./native-composition-budget",
     "./native-composition-clock",

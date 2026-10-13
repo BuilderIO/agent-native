@@ -3813,6 +3813,14 @@ describe("native multipass texture bindings", () => {
           device: unknown,
           textures: Set<FakeTexture>,
         ): () => void;
+        statefulBufferLeases: Map<GPUBuffer, number>;
+        statefulBufferDestruction: Set<GPUBuffer>;
+        retainStatefulResources(
+          device: unknown,
+          textures: Set<FakeTexture>,
+          buffers: Set<GPUBuffer>,
+        ): () => void;
+        destroyStatefulBuffer(buffer: GPUBuffer): void;
       };
       const teardownWaiters: Array<() => void> = [];
       const teardownQueue = vi
@@ -3828,12 +3836,27 @@ describe("native multipass texture bindings", () => {
         (internal as typeof internal & { white: FakeTexture }).white,
       );
       expect(teardownProbe.statelessDeviceLeases.get(device)).toBe(1);
+      const statefulBuffer = device.createBuffer({ size: 256 });
+      const statefulBufferDestroy = vi.spyOn(statefulBuffer, "destroy");
+      const mutableBufferSet = new Set([statefulBuffer]);
+      const releaseStateful = teardownProbe.retainStatefulResources(
+        device,
+        new Set(),
+        mutableBufferSet,
+      );
+      teardownProbe.destroyStatefulBuffer(statefulBuffer);
+      mutableBufferSet.clear();
+      expect(statefulBufferDestroy).not.toHaveBeenCalled();
       const leasedBytes = leasedTextures.reduce(
         (sum, texture) => sum + teardownProbe.textureBytes.get(texture)!,
         0,
       );
       runtime!.dispose();
       await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(teardownProbe.statefulBufferLeases.get(statefulBuffer)).toBe(1);
+      expect(teardownProbe.statefulBufferDestruction.has(statefulBuffer)).toBe(
+        true,
+      );
       expect(() =>
         teardownProbe.retainStatelessTextures(device, new Set(leasedTextures)),
       ).toThrow("stateless-compute-frame-invalid");
@@ -3867,7 +3890,15 @@ describe("native multipass texture bindings", () => {
       expect(statelessProbe.allocatedStatelessBytes).toBe(628);
       teardownQueue.mockRestore();
       for (const complete of teardownWaiters) complete();
+      releaseStateful();
       await Promise.all([...statelessProbe.statelessRetirements]);
+      expect(teardownProbe.statefulBufferLeases.has(statefulBuffer)).toBe(
+        false,
+      );
+      expect(teardownProbe.statefulBufferDestruction.has(statefulBuffer)).toBe(
+        false,
+      );
+      expect(statefulBufferDestroy).toHaveBeenCalledTimes(1);
       for (const texture of leasedTextures) {
         expect(teardownProbe.textureBytes.has(texture)).toBe(false);
         expect(destroyed.filter((id) => id === texture.id)).toHaveLength(1);

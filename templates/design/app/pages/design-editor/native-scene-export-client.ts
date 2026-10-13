@@ -22,6 +22,7 @@ import {
   type NativeRasterFormat,
 } from "@/pages/design-editor/native-raster-encoding";
 
+import { nativeEffectRequiresStateSession } from "../../../shared/native-effect-state-capability";
 import { parseEffectsFromHtml } from "../../../shared/native-effects";
 import { planNativeInputResources } from "../../../shared/native-input-resources";
 import { nativeVideoCodedDimensions } from "../../../shared/native-local-export";
@@ -781,7 +782,7 @@ export function sceneRequiresNativeStateSession(sceneHtml: string): boolean {
     const definition = definitions.get(
       `${instance.definitionId}:${instance.definitionVersion}`,
     );
-    return definition?.kind === "simulation" || Boolean(definition?.feedback);
+    return nativeEffectRequiresStateSession(definition);
   });
 }
 

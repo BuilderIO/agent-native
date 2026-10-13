@@ -10,6 +10,7 @@ import {
   resolveSourceWorkspace,
 } from "../server/source-workspace.js";
 import { NATIVE_EFFECT_PRESETS } from "../shared/native-effect-presets.js";
+import { nativeEffectRequiresStateSession } from "../shared/native-effect-state-capability.js";
 import {
   hashEffectDefinition,
   nativeEffectApprovalKey,
@@ -116,7 +117,7 @@ export async function verifyNativeShaderValidationCases(
         },
       );
     if (
-      (definition.simulation || definition.feedback) &&
+      nativeEffectRequiresStateSession(definition) &&
       !item.fixture &&
       !item.mountedFrame
     )

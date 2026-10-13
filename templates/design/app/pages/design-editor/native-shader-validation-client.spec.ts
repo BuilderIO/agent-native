@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { runInNewContext } from "node:vm";
 
 import { editNativeEffectHtml } from "@shared/native-effect-edits";
+import { FLUID_ADVECTED_PARTICLES_EFFECT } from "@shared/native-effect-owned-aq-fluid-particles";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "@shared/native-effect-owned-test-fixtures";
 import { PARTICLE_FLOW_EFFECT } from "@shared/native-effect-particle-flow";
 import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
@@ -745,6 +746,56 @@ describe("foreground native shader GPU result", () => {
     } as unknown as HTMLIFrameElement;
   }
 
+  function addFluidSibling(): void {
+    const frame = frameMock.current!;
+    const source = frame.srcdoc.replace(
+      "</body>",
+      '<div data-agent-native-node-id="fluid">Fluid</div></body>',
+    );
+    const applied = editNativeEffectHtml(source, {
+      kind: "apply",
+      nodeId: "fluid",
+      placement: "layer",
+      definition: FLUID_ADVECTED_PARTICLES_EFFECT,
+    });
+    if (applied.errors.length) throw new Error(applied.errors.join("; "));
+    frameMock.current = {
+      ...frame,
+      srcdoc: applied.html,
+      getAttribute: (name: string) => (name === "srcdoc" ? applied.html : null),
+      contentDocument: { documentElement: { outerHTML: applied.html } },
+    } as unknown as HTMLIFrameElement;
+  }
+
+  it("requires a held frame when a fluid particle graph is mounted", async () => {
+    addFluidSibling();
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item,
+      signal: new AbortController().signal,
+    });
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "stateful-frame-required",
+    });
+    expect(renderAt).not.toHaveBeenCalled();
+  });
+
+  it("keeps an ordinary mounted target in the held session beside fluid particles", async () => {
+    addFluidSibling();
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: { ...item, mountedFrame },
+      signal: new AbortController().signal,
+    });
+    expect(result).toMatchObject({ status: "ready", backend: "webgpu" });
+    expect(beginSession).toHaveBeenCalledWith(
+      expect.objectContaining({ targetInstanceIds: [item.instanceId] }),
+    );
+    expect(renderValidated).toHaveBeenCalledOnce();
+    expect(endSession).toHaveBeenCalledWith("session-1", { timeoutMs: 30_000 });
+  });
+
   it("requires a held frame when another enabled mount is persistent", async () => {
     addParticleFlowSibling();
     const result = await validateNativeShaderCaseInEditor({
@@ -774,7 +825,11 @@ describe("foreground native shader GPU result", () => {
     expect(result).toMatchObject({ status: "ready", backend: "webgpu" });
     expect(primeHeldViewport).not.toHaveBeenCalled();
     expect(beginSession).toHaveBeenCalledWith(
-      expect.objectContaining({ fps: 60, totalFrames: 3 }),
+      expect.objectContaining({
+        fps: 60,
+        totalFrames: 3,
+        targetInstanceIds: [item.instanceId],
+      }),
     );
     expect(
       renderPixels.mock.calls.map(([options]) => options.frameIndex),
@@ -861,6 +916,7 @@ describe("foreground native shader GPU result", () => {
       fps: 60,
       totalFrames: 3,
       startTimeSeconds: 0,
+      targetInstanceIds: [item.instanceId],
       signal,
       timeoutMs: 30_000,
     });

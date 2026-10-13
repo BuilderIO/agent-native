@@ -100,6 +100,86 @@ describe("NativeShaderLibraryBrowser", () => {
     host.remove();
   });
 
+  it("keeps the initial built-in order aligned with the server order while loading", async () => {
+    callAction.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="effect"
+          search=""
+          disabled={false}
+          nodeId="target"
+          onApplyBuiltin={vi.fn()}
+          onApplySaved={vi.fn()}
+        />,
+      );
+    });
+    const visible = NATIVE_EFFECT_LATEST_DEFINITIONS.filter(
+      (definition) =>
+        definition.placements.includes("layer") ||
+        definition.placements.includes("backdrop"),
+    );
+    const actual = Array.from(
+      host.querySelectorAll<HTMLElement>("[data-native-library-item-key]"),
+      (entry) => entry.dataset.nativeLibraryItemKey,
+    );
+    const expected = [...visible]
+      .sort(
+        (left, right) =>
+          left.name.localeCompare(right.name) ||
+          left.id.localeCompare(right.id) ||
+          right.version - left.version,
+      )
+      .map((definition) => `builtin:${definition.id}@${definition.version}`);
+    expect(actual).toEqual(expected);
+  });
+
+  it("reports a built-in apply failure and restores the picker", async () => {
+    const onApplyBuiltin = vi.fn().mockRejectedValue(new Error("Apply failed"));
+    callAction.mockResolvedValue({
+      approvedDefinitionHashes: [],
+      library: {
+        builtins: [
+          {
+            id: GRAIN_GRADIENT_EFFECT.id,
+            name: GRAIN_GRADIENT_EFFECT.name,
+            version: GRAIN_GRADIENT_EFFECT.version,
+            placements: ["fill"],
+            itemKey: `builtin:${GRAIN_GRADIENT_EFFECT.id}@${GRAIN_GRADIENT_EFFECT.version}`,
+            favorite: false,
+            lastUsedAt: null,
+          },
+        ],
+        items: [],
+        hasMore: false,
+        nextCursor: null,
+        selectedEntry: null,
+      },
+    });
+    await act(async () => {
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="fill"
+          search=""
+          disabled={false}
+          nodeId="target"
+          onApplyBuiltin={onApplyBuiltin}
+          onApplySaved={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 230));
+    });
+    const builtin = host.querySelector<HTMLButtonElement>(
+      `[data-native-library-item-key="builtin:${GRAIN_GRADIENT_EFFECT.id}@${GRAIN_GRADIENT_EFFECT.version}"] > button`,
+    );
+    expect(builtin).not.toBeNull();
+    await act(async () => builtin!.click());
+    expect(showError).toHaveBeenCalledWith("Apply failed");
+    expect(builtin?.disabled).toBe(false);
+  });
+
   it("uses the canonical list and refuses a saved binding pinned to another authored node", async () => {
     const onApplyBuiltin = vi.fn().mockResolvedValue(true);
     const onApplySaved = vi.fn().mockResolvedValue(true);

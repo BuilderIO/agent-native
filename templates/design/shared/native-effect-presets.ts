@@ -92,6 +92,19 @@ import {
   SOURCE_SHAPE_FLUID_PRESETS,
 } from "./native-effect-owned-ap-pointer-fluid";
 import {
+  FLUID_ADVECTED_PARTICLES_EFFECT,
+  FLUID_ADVECTED_PARTICLES_PRESETS,
+} from "./native-effect-owned-aq-fluid-particles";
+import {
+  CONTENT_BOUNDS_TRACKER_EFFECT,
+  CONTENT_BOUNDS_TRACKER_PRESETS,
+} from "./native-effect-owned-ar-content-bounds-tracker";
+import {
+  FEATURE_TRAILS_EFFECT,
+  FEATURE_TRAILS_PRESETS,
+  FEATURE_TRAILS_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-as-feature-trails";
+import {
   BREADTH_A_DEFINITIONS,
   BREADTH_A_PRESETS,
 } from "./native-effect-owned-breadth-a";
@@ -643,6 +656,9 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...DEPTH_MAGNET_DEFINITIONS,
   ...POINTER_RUN_SORT_DEFINITIONS,
   SOURCE_SHAPE_FLUID_EFFECT,
+  FLUID_ADVECTED_PARTICLES_EFFECT,
+  CONTENT_BOUNDS_TRACKER_EFFECT,
+  FEATURE_TRAILS_EFFECT,
   SOURCE_IRRADIANCE_EFFECT,
 ];
 
@@ -684,6 +700,9 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   ...DEPTH_MAGNET_DEFINITIONS,
   ...POINTER_RUN_SORT_DEFINITIONS,
   SOURCE_SHAPE_FLUID_EFFECT,
+  FLUID_ADVECTED_PARTICLES_EFFECT,
+  CONTENT_BOUNDS_TRACKER_EFFECT,
+  FEATURE_TRAILS_EFFECT,
   SOURCE_IRRADIANCE_EFFECT,
 ];
 const latestDefinitionById = new Map<string, EffectDefinition>();
@@ -806,6 +825,7 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
     ...AI_FLUID_CLOTH_PRESET_LABEL_SOURCE_IDS,
     ...AK_SOURCE_3D_PRESET_LABEL_SOURCE_IDS,
     ...SOURCE_IRRADIANCE_PRESET_LABEL_SOURCE_IDS,
+    ...FEATURE_TRAILS_PRESET_LABEL_SOURCE_IDS,
   };
 export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PRE_COORDINATE_RANDOM_PRESETS,
@@ -846,5 +866,8 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...DEPTH_MAGNET_PRESETS,
   ...POINTER_RUN_SORT_PRESETS,
   ...SOURCE_SHAPE_FLUID_PRESETS,
+  ...FLUID_ADVECTED_PARTICLES_PRESETS,
+  ...CONTENT_BOUNDS_TRACKER_PRESETS,
+  ...FEATURE_TRAILS_PRESETS,
   ...SOURCE_IRRADIANCE_PRESETS,
 ];

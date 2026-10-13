@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { FLUID_ADVECTED_PARTICLES_EFFECT } from "../../../shared/native-effect-owned-aq-fluid-particles";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../shared/native-effect-owned-test-fixtures";
 import { PARTICLE_FLOW_EFFECT } from "../../../shared/native-effect-particle-flow";
 import { writeEffectsToHtml } from "../../../shared/native-effects";
@@ -410,6 +411,30 @@ describe("custom definition export approval ordering", () => {
 });
 
 describe("persistent native simulation export", () => {
+  it("holds a state session for a saved fluid particle graph", () => {
+    const scene = writeEffectsToHtml("<main></main>", {
+      schemaVersion: 2,
+      definitions: [FLUID_ADVECTED_PARTICLES_EFFECT],
+      instances: [
+        {
+          id: "fluid-effect",
+          nodeId: "fluid-card",
+          definitionId: FLUID_ADVECTED_PARTICLES_EFFECT.id,
+          definitionVersion: FLUID_ADVECTED_PARTICLES_EFFECT.version,
+          placement: "layer",
+          params: {},
+          enabled: true,
+          opacity: 1,
+          seed: 77,
+          clip: "bounds",
+          blend: "normal",
+          timing: { speed: 1, paused: true, time: 0 },
+        },
+      ],
+    });
+    expect(sceneRequiresNativeStateSession(scene)).toBe(true);
+  });
+
   it("holds a state session for enabled feedback effects but not disabled ones", () => {
     const instance = {
       id: "feedback-effect",

@@ -122,16 +122,16 @@ describe("additive stateful-nine catalog registration", () => {
     expect(sha(JSON.stringify(priorRecipes))).toBe(
       "d98b6a364cea2385b6166a68ec605aee8dbebad99fa840a0d4d1b9ed86257b27",
     );
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(334);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(385);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(772);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(335);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(386);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(774);
     expect(
       new Set(
         NATIVE_EFFECT_LATEST_DEFINITIONS.map((definition) => definition.id),
       ).size,
-    ).toBe(334);
+    ).toBe(335);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(
-      772,
+      774,
     );
     const animationCounts = (definitions: readonly EffectDefinition[]) =>
       definitions.reduce(
@@ -142,12 +142,12 @@ describe("additive stateful-nine catalog registration", () => {
         { animated: 0, static: 0, unknown: 0 },
       );
     expect(animationCounts(NATIVE_EFFECT_LATEST_DEFINITIONS)).toEqual({
-      animated: 101,
+      animated: 102,
       static: 233,
       unknown: 0,
     });
     expect(animationCounts(NATIVE_EFFECT_DEFINITION_CATALOG)).toEqual({
-      animated: 121,
+      animated: 122,
       static: 264,
       unknown: 0,
     });

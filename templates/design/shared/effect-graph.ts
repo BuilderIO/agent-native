@@ -5,12 +5,22 @@ import {
   type LinearResourceDispatch,
 } from "./native-linear-resource-graph";
 import {
+  isStatefulResourceDraw,
+  validateStatefulResourceGraph,
+  type EffectStatefulResourceDraw,
+  type EffectStatefulResourceGraphSpec,
+} from "./native-stateful-resource-graph";
+import {
   isStatelessComputeDispatch,
   validateStatelessComputeGraph,
   type StatelessComputeDispatch,
 } from "./native-stateless-compute";
 
 export type { EffectLinearResourceGraphSpec } from "./native-linear-resource-graph";
+export type {
+  EffectStatefulResourceGraphSpec,
+  EffectStatefulResourceDraw,
+} from "./native-stateful-resource-graph";
 
 export interface EffectStatelessComputeSpec {
   abi: "source-buffer-v1";
@@ -34,7 +44,9 @@ export interface EffectPass {
     | { workgroupSize: readonly [8, 8]; elements: "fixed-grid" }
     | StatelessComputeDispatch
     | LinearResourceDispatch;
-  draw?: { vertices: 6; instances: "simulation-count" };
+  draw?:
+    | { vertices: 6; instances: "simulation-count" }
+    | EffectStatefulResourceDraw;
 }
 
 export interface EffectFeedbackSpec {
@@ -260,7 +272,15 @@ export function planEffectPasses(
   finalOutput?: string,
   feedback?: EffectFeedbackSpec,
   statelessCompute?: EffectStatelessComputeSpec,
-  resourceGraph?: EffectLinearResourceGraphSpec,
+  resourceGraph?:
+    | EffectLinearResourceGraphSpec
+    | EffectStatefulResourceGraphSpec,
+  properties?: Readonly<
+    Record<
+      string,
+      { type: string; min?: number; max?: number; default?: unknown }
+    >
+  >,
 ): EffectPassPlan {
   const errors: string[] = [];
   if (!Array.isArray(passes) || passes.length < 1 || passes.length > 16) {
@@ -314,7 +334,11 @@ export function planEffectPasses(
       (pass.draw !== undefined &&
         (pass.kind !== "render" ||
           pass.draw.vertices !== 6 ||
-          pass.draw.instances !== "simulation-count" ||
+          (pass.draw.instances !== "simulation-count" &&
+            !(
+              resourceGraph?.abi === "stateful-resource-v1" &&
+              isStatefulResourceDraw(pass.draw)
+            )) ||
           Object.keys(pass.draw).length !== 2))
     ) {
       errors.push(`pass[${index}] is malformed`);
@@ -530,12 +554,20 @@ export function planEffectPasses(
     errors.push("stateless-compute-definition-invalid");
   if (resourceGraph)
     errors.push(
-      ...validateLinearResourceGraph(
-        resourceGraph,
-        passes,
-        declarations,
-        finalOutput,
-      ),
+      ...(resourceGraph.abi === "stateful-resource-v1"
+        ? validateStatefulResourceGraph(
+            resourceGraph,
+            passes,
+            declarations,
+            finalOutput,
+            properties,
+          )
+        : validateLinearResourceGraph(
+            resourceGraph,
+            passes,
+            declarations,
+            finalOutput,
+          )),
     );
   else if (passes.some((pass) => isLinearResourceDispatch(pass.dispatch)))
     errors.push("linear-resource-definition-invalid");
@@ -700,7 +732,15 @@ export function planEffectGraph(definition: {
   output?: string;
   feedback?: EffectFeedbackSpec;
   statelessCompute?: EffectStatelessComputeSpec;
-  resourceGraph?: EffectLinearResourceGraphSpec;
+  resourceGraph?:
+    | EffectLinearResourceGraphSpec
+    | EffectStatefulResourceGraphSpec;
+  properties?: Readonly<
+    Record<
+      string,
+      { type: string; min?: number; max?: number; default?: unknown }
+    >
+  >;
 }): EffectPassPlan {
   return planEffectPasses(
     definition.passes,
@@ -709,6 +749,7 @@ export function planEffectGraph(definition: {
     definition.feedback,
     definition.statelessCompute,
     definition.resourceGraph,
+    definition.properties,
   );
 }
 

@@ -366,6 +366,129 @@ function assertLocalResourceGraph(root: Element): {
   return { byId, edges };
 }
 
+function assertNativeSvgElements(root: Element): Element[] {
+  const descendants = [root, ...root.querySelectorAll("*")];
+  if (descendants.length > MAX_SVG_ELEMENTS)
+    throw new NativeSvgSourceError(
+      "source-svg-complex",
+      "An SVG source has too many elements to capture.",
+    );
+  const ids = new Set<string>();
+  for (const element of descendants) {
+    if (element.namespaceURI !== SVG_NS || !SVG_TAGS.has(element.localName))
+      throw new NativeSvgSourceError(
+        "source-svg-element-unsupported",
+        `SVG element ${element.localName} needs a separate source path.`,
+      );
+    if (element.localName === "pattern") assertBoundedPattern(element);
+    const id = element.getAttribute("id");
+    if (id) {
+      if (ids.has(id))
+        throw new NativeSvgSourceError(
+          "source-svg-id-duplicate",
+          "An SVG source has duplicate paint reference IDs.",
+        );
+      ids.add(id);
+    }
+  }
+  return descendants;
+}
+
+const STATIC_SVG_TAGS = new Set([
+  "svg",
+  "g",
+  "defs",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "linearGradient",
+  "radialGradient",
+  "stop",
+  "clipPath",
+]);
+const STATIC_SVG_PAINTED_TAGS = new Set([
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+]);
+
+export function validateNativeSvgPrimitiveMarkup(
+  markup: string,
+): "immutable" | "unknown" {
+  if (new TextEncoder().encode(markup).length > MAX_SVG_SOURCE_BYTES)
+    return "unknown";
+  try {
+    const parsed = new DOMParser().parseFromString(markup, "image/svg+xml");
+    const root = parsed.documentElement;
+    if (
+      parsed.doctype ||
+      root.localName !== "svg" ||
+      root.namespaceURI !== SVG_NS ||
+      parsed.querySelector("parsererror")
+    )
+      return "unknown";
+    const elements = assertNativeSvgElements(root);
+    for (const element of elements) {
+      if (!STATIC_SVG_TAGS.has(element.localName)) return "unknown";
+      for (const attribute of element.attributes) {
+        const name = attribute.name;
+        if (
+          name === "xmlns" ||
+          name === "xmlns:xlink" ||
+          name === "role" ||
+          name.startsWith("aria-") ||
+          name.startsWith("data-")
+        )
+          continue;
+        if (!SVG_ATTRIBUTES.has(name) && !SVG_PRESENTATION_ATTRIBUTES.has(name))
+          return "unknown";
+        if (/var\s*\(|calc\s*\(|attr\s*\(/i.test(attribute.value))
+          return "unknown";
+        if (/url\s*\(/i.test(attribute.value)) {
+          const checkedPaint =
+            (name === "fill" || name === "stroke") &&
+            STATIC_SVG_PAINTED_TAGS.has(element.localName) &&
+            !element.closest("clipPath");
+          if (
+            (!checkedPaint && name !== "clip-path") ||
+            !/^url\(#[A-Za-z_][\w.-]*\)$/.test(attribute.value)
+          )
+            return "unknown";
+        }
+      }
+    }
+    const viewBox = root.getAttribute("viewBox");
+    if (viewBox) {
+      const values = viewBox
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+      if (
+        values.length !== 4 ||
+        values.some((value) => !Number.isFinite(value)) ||
+        values[2] <= 0 ||
+        values[3] <= 0 ||
+        values[2] > MAX_SVG_SIDE ||
+        values[3] > MAX_SVG_SIDE ||
+        values[2] * values[3] > MAX_SVG_PIXELS
+      )
+        return "unknown";
+    }
+    assertLocalResourceGraph(root);
+    return "immutable";
+  } catch {
+    return "unknown";
+  }
+}
+
 function patternWorkLimit(): never {
   throw new NativeSvgSourceError(
     "source-svg-pattern-work-limit",
@@ -504,30 +627,12 @@ export function serializeNativeSvgSource(
       "source-svg-size",
       "An SVG source exceeds bounded raster dimensions.",
     );
-  const descendants = [root, ...root.querySelectorAll("*")];
-  if (descendants.length > MAX_SVG_ELEMENTS)
-    throw new NativeSvgSourceError(
-      "source-svg-complex",
-      "An SVG source has too many elements to capture.",
-    );
-  const ids = new Set<string>();
-  for (const element of descendants) {
-    if (element.namespaceURI !== SVG_NS || !SVG_TAGS.has(element.localName))
-      throw new NativeSvgSourceError(
-        "source-svg-element-unsupported",
-        `SVG element ${element.localName} needs a separate source path.`,
-      );
-    if (element.localName === "pattern") assertBoundedPattern(element);
-    const id = element.getAttribute("id");
-    if (id) {
-      if (ids.has(id))
-        throw new NativeSvgSourceError(
-          "source-svg-id-duplicate",
-          "An SVG source has duplicate paint reference IDs.",
-        );
-      ids.add(id);
-    }
-  }
+  const descendants = assertNativeSvgElements(root);
+  const ids = new Set(
+    descendants
+      .map((element) => element.getAttribute("id"))
+      .filter((id): id is string => Boolean(id)),
+  );
   const rootStyle = getComputedStyle(root);
   const background = rootStyle.backgroundColor
     ?.replace(/\s+/g, "")

@@ -27,6 +27,7 @@ export function resolveNativePreviewPolicy(
 export class NativePreviewPolicyController {
   private policy: EffectPreviewPolicy = DEFAULT_NATIVE_PREVIEW_POLICY;
   private autoTier = 0;
+  private budgetFloorTier = 0;
   private slowFrames = 0;
   private fastFrames = 0;
   private lastSubmittedAt = 0;
@@ -39,6 +40,7 @@ export class NativePreviewPolicyController {
       return false;
     this.policy = { ...policy };
     this.autoTier = 0;
+    this.budgetFloorTier = 0;
     this.slowFrames = 0;
     this.fastFrames = 0;
     this.lastSubmittedAt = 0;
@@ -81,6 +83,15 @@ export class NativePreviewPolicyController {
     return true;
   }
 
+  observeResourceBudgetExceeded(): boolean {
+    if (this.policy.quality !== "auto" || this.autoTier >= 2) return false;
+    this.autoTier += 1;
+    this.budgetFloorTier = this.autoTier;
+    this.slowFrames = 0;
+    this.fastFrames = 0;
+    return true;
+  }
+
   observeRenderWall(wallMs: number): boolean {
     if (
       this.policy.quality !== "auto" ||
@@ -100,7 +111,7 @@ export class NativePreviewPolicyController {
     } else if (wallMs < budget * 0.55) {
       this.fastFrames += 1;
       this.slowFrames = 0;
-      if (this.fastFrames >= 90 && this.autoTier > 0) {
+      if (this.fastFrames >= 90 && this.autoTier > this.budgetFloorTier) {
         this.autoTier -= 1;
         this.fastFrames = 0;
         return true;

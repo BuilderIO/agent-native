@@ -9,43 +9,43 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-  "distinctDefinitions": 334,
-  "exactVersions": 385,
-  "registeredPresets": 772,
-  "presetsTargetingLatestVersions": 699,
-  "presetsTargetingHistoricalVersions": 73,
-  "latestByKind": {
-    "generator": 157,
-    "processor": 170,
-    "simulation": 7
+    "distinctDefinitions": 337,
+    "exactVersions": 388,
+    "registeredPresets": 778,
+    "presetsTargetingLatestVersions": 705,
+    "presetsTargetingHistoricalVersions": 73,
+    "latestByKind": {
+      "generator": 157,
+      "processor": 173,
+      "simulation": 7
+    },
+    "fullByKind": {
+      "generator": 199,
+      "processor": 181,
+      "simulation": 8
+    },
+    "latestByAnimation": {
+      "animated": 104,
+      "static": 233,
+      "unknown": 0
+    },
+    "fullByAnimation": {
+      "animated": 124,
+      "static": 264,
+      "unknown": 0
+    },
+    "latestByPlacement": {
+      "fill": 160,
+      "layer": 181,
+      "backdrop": 142
+    },
+    "fullByPlacement": {
+      "fill": 202,
+      "layer": 190,
+      "backdrop": 146
+    },
+    "fullyValidatedDefinitions": 0
   },
-  "fullByKind": {
-    "generator": 199,
-    "processor": 178,
-    "simulation": 8
-  },
-  "latestByAnimation": {
-    "animated": 101,
-    "static": 233,
-    "unknown": 0
-  },
-  "fullByAnimation": {
-    "animated": 121,
-    "static": 264,
-    "unknown": 0
-  },
-  "latestByPlacement": {
-    "fill": 160,
-    "layer": 178,
-    "backdrop": 139
-  },
-  "fullByPlacement": {
-    "fill": 202,
-    "layer": 187,
-    "backdrop": 143
-  },
-  "fullyValidatedDefinitions": 0
-},
   "acceptance": "Definition metadata is source inventory only. Historical GPU and export evidence below retains its original receipt scope. Registration, a source hash, and an animation classification do not establish GPU, export, visual, or performance acceptance.",
   "definitions": [
     {
@@ -44915,6 +44915,1342 @@
         "an-preset-owned-ao-electric-rim"
       ],
       "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-aq-fluid-advected-particles",
+      "name": "Fluid Advected Particles",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "viscosity": {
+          "type": "float",
+          "label": "Viscosity",
+          "default": 0.38,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "turbulence": {
+          "type": "float",
+          "label": "Turbulence",
+          "default": 0.55,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "stirring": {
+          "type": "float",
+          "label": "Stirring",
+          "default": 0.75,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "brushRadius": {
+          "type": "float",
+          "label": "Brush radius",
+          "default": 90,
+          "min": 20,
+          "max": 220,
+          "step": 1,
+          "unit": "px"
+        },
+        "flowFollowing": {
+          "type": "float",
+          "label": "Flow following",
+          "default": 0.85,
+          "min": 0.05,
+          "max": 2,
+          "step": 0.01
+        },
+        "particleSize": {
+          "type": "float",
+          "label": "Particle size",
+          "default": 3,
+          "min": 1,
+          "max": 12,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "particleLife": {
+          "type": "float",
+          "label": "Particle life",
+          "default": 8,
+          "min": 1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "s"
+        },
+        "trailDecay": {
+          "type": "float",
+          "label": "Trail decay",
+          "default": 1.6,
+          "min": 0.1,
+          "max": 8,
+          "step": 0.1
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Particle opacity",
+          "default": 0.65,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "pointerPosition": {
+          "type": "vec2",
+          "label": "Pointer position",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "pointerActive": {
+          "type": "bool",
+          "label": "Pointer active",
+          "default": false
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "particleCount": {
+          "type": "int",
+          "label": "Particle count",
+          "default": 2048,
+          "min": 256,
+          "max": 4096,
+          "step": 256
+        },
+        "patternSeed": {
+          "type": "int",
+          "label": "Pattern seed",
+          "default": 19,
+          "min": 0,
+          "max": 100000,
+          "step": 1
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "advectedVelocity",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "divergence",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "pressure",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128,
+          "persistent": true
+        },
+        {
+          "name": "velocity",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128,
+          "persistent": true
+        },
+        {
+          "name": "particles",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 131072,
+          "persistent": true
+        },
+        {
+          "name": "particlePaint",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "trail",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256,
+          "persistent": true
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "stateful-resource-v1",
+        "timing": {
+          "fixedDt": 0.016666666666666666,
+          "maxStepsPerCall": 8,
+          "maxStepIndex": 36000
+        },
+        "stateResources": [
+          "velocity",
+          "pressure",
+          "particles",
+          "trail"
+        ],
+        "sourceHistory": "sequential-captures",
+        "resetProperties": [
+          "particleCount",
+          "patternSeed"
+        ]
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "advect-velocity",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "previousFrameReads": [
+            "velocity"
+          ],
+          "output": "advectedVelocity",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "divergence",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "advectedVelocity"
+          ],
+          "output": "divergence",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-0",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence"
+          ],
+          "previousFrameReads": [
+            "pressure"
+          ],
+          "output": "pressure0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-1",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure0"
+          ],
+          "output": "pressure1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-2",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure1"
+          ],
+          "output": "pressure2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-3",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure2"
+          ],
+          "output": "pressure3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-4",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure3"
+          ],
+          "output": "pressure4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-5",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure4"
+          ],
+          "output": "pressure5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-6",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure5"
+          ],
+          "output": "pressure6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pressure-7",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "divergence",
+            "pressure6"
+          ],
+          "output": "pressure",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "project-velocity",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "advectedVelocity",
+            "pressure"
+          ],
+          "output": "velocity",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "advance-particles",
+          "kind": "compute",
+          "reads": [
+            "source",
+            "velocity"
+          ],
+          "previousFrameReads": [
+            "particles"
+          ],
+          "output": "particles",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              256,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "draw-particles",
+          "kind": "render",
+          "reads": [
+            "source",
+            "particles"
+          ],
+          "output": "particlePaint",
+          "draw": {
+            "vertices": 6,
+            "instances": {
+              "property": "particleCount",
+              "max": 4096
+            }
+          }
+        },
+        {
+          "id": "accumulate-trail",
+          "kind": "render",
+          "reads": [
+            "particlePaint"
+          ],
+          "previousFrameReads": [
+            "trail"
+          ],
+          "output": "trail"
+        },
+        {
+          "id": "compose",
+          "kind": "render",
+          "reads": [
+            "source",
+            "trail"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "4ba6146f59885880f73f302fd19d6204ecffc96741920907e751be0246262d81",
+      "presetIds": [
+        "an-preset-aq-fluid-advected-particles-ink",
+        "an-preset-aq-fluid-advected-particles-sparks"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-ar-content-bounds-tracker",
+      "name": "Content Bounds Tracker",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "detect": {
+          "type": "enum",
+          "label": "Detect",
+          "default": "alpha",
+          "options": [
+            "alpha",
+            "bright",
+            "dark",
+            "red",
+            "green",
+            "blue"
+          ]
+        },
+        "threshold": {
+          "type": "float",
+          "label": "Threshold",
+          "default": 0.25,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "layout": {
+          "type": "enum",
+          "label": "Cell layout",
+          "default": "adaptive",
+          "options": [
+            "grid",
+            "adaptive",
+            "mosaic"
+          ]
+        },
+        "cellSpan": {
+          "type": "int",
+          "label": "Cell span",
+          "default": 10,
+          "min": 4,
+          "max": 16,
+          "step": 1
+        },
+        "cells": {
+          "type": "int",
+          "label": "Detection cells",
+          "default": 48,
+          "min": 4,
+          "max": 64,
+          "step": 1
+        },
+        "pursuit": {
+          "type": "float",
+          "label": "Pursuit",
+          "default": 0.72,
+          "min": 0.05,
+          "max": 1,
+          "step": 0.01
+        },
+        "holdFrames": {
+          "type": "int",
+          "label": "Hold frames",
+          "default": 12,
+          "min": 0,
+          "max": 60,
+          "step": 1
+        },
+        "sourceVisibility": {
+          "type": "float",
+          "label": "Source visibility",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "patternSeed": {
+          "type": "int",
+          "label": "Pattern seed",
+          "default": 19,
+          "min": 0,
+          "max": 100000,
+          "step": 1
+        },
+        "boxStyle": {
+          "type": "enum",
+          "label": "Box style",
+          "default": "corners",
+          "options": [
+            "full",
+            "corners"
+          ]
+        },
+        "lineWidth": {
+          "type": "float",
+          "label": "Line width",
+          "default": 2,
+          "min": 0.5,
+          "max": 8,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "cornerRadius": {
+          "type": "float",
+          "label": "Corner radius",
+          "default": 5,
+          "min": 0,
+          "max": 24,
+          "step": 1,
+          "unit": "px"
+        },
+        "strokeColor": {
+          "type": "color",
+          "label": "Stroke color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.24,
+              0.94,
+              0.55
+            ],
+            "alpha": 1
+          }
+        },
+        "fillColor": {
+          "type": "color",
+          "label": "Fill color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.1,
+              0.42,
+              0.22
+            ],
+            "alpha": 0.12
+          }
+        },
+        "labelMode": {
+          "type": "enum",
+          "label": "Label mode",
+          "default": "coverage",
+          "options": [
+            "none",
+            "dimensions",
+            "coverage"
+          ]
+        },
+        "labelPosition": {
+          "type": "enum",
+          "label": "Label position",
+          "default": "top-left",
+          "options": [
+            "bottom-right",
+            "top-left",
+            "top-right",
+            "bottom-left"
+          ]
+        },
+        "labelInset": {
+          "type": "bool",
+          "label": "Label inset",
+          "default": false
+        },
+        "labelSize": {
+          "type": "float",
+          "label": "Label size",
+          "default": 1.8,
+          "min": 1,
+          "max": 4,
+          "step": 0.1
+        },
+        "labelColor": {
+          "type": "color",
+          "label": "Label color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.02,
+              0.08,
+              0.04
+            ],
+            "alpha": 1
+          }
+        },
+        "labelBackgroundColor": {
+          "type": "color",
+          "label": "Label background",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.72,
+              1,
+              0.78
+            ],
+            "alpha": 0.9
+          }
+        },
+        "labelRadius": {
+          "type": "float",
+          "label": "Label radius",
+          "default": 3,
+          "min": 0,
+          "max": 12,
+          "step": 1,
+          "unit": "px"
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Overlay opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "occupancy",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 128,
+          "height": 128
+        },
+        {
+          "name": "tracks",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 2048,
+          "persistent": true
+        },
+        {
+          "name": "hud",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "stateful-resource-v1",
+        "timing": {
+          "fixedDt": 0.016666666666666666,
+          "maxStepsPerCall": 8,
+          "maxStepIndex": 36000
+        },
+        "stateResources": [
+          "tracks"
+        ],
+        "sourceHistory": "sequential-captures",
+        "resetProperties": [
+          "detect",
+          "threshold",
+          "layout",
+          "cellSpan",
+          "cells",
+          "patternSeed"
+        ]
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "classify",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "occupancy",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "track",
+          "kind": "compute",
+          "reads": [
+            "occupancy"
+          ],
+          "previousFrameReads": [
+            "tracks"
+          ],
+          "output": "tracks",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              64,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "hud",
+          "kind": "render",
+          "reads": [
+            "tracks"
+          ],
+          "output": "hud",
+          "draw": {
+            "vertices": 6,
+            "instances": {
+              "property": "cells",
+              "max": 64
+            }
+          }
+        },
+        {
+          "id": "composite",
+          "kind": "render",
+          "reads": [
+            "source",
+            "hud"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "9b240ad776a275ef5c5990d4a1b95d0adb555287183585a192fdd999492ae29c",
+      "presetIds": [
+        "an-preset-ar-content-bounds-tracker-lime",
+        "an-preset-ar-content-bounds-tracker-amber"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-as-feature-trails",
+      "name": "Feature Trails",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "trackerCount": {
+          "type": "int",
+          "label": "Trackers",
+          "default": 16,
+          "min": 1,
+          "max": 64,
+          "step": 1
+        },
+        "detect": {
+          "type": "enum",
+          "label": "Detect",
+          "default": "bright",
+          "options": [
+            "bright",
+            "dark",
+            "alpha",
+            "red",
+            "green",
+            "blue"
+          ]
+        },
+        "threshold": {
+          "type": "float",
+          "label": "Feature threshold",
+          "default": 0.15,
+          "min": 0,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "preferenceSpread": {
+          "type": "float",
+          "label": "Preference spread",
+          "default": 0.75,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "agility": {
+          "type": "float",
+          "label": "Agility",
+          "default": 0.55,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "lifespan": {
+          "type": "float",
+          "label": "Tracker lifespan",
+          "default": 6,
+          "min": 0,
+          "max": 20,
+          "step": 0.5,
+          "unit": "s"
+        },
+        "missedFrames": {
+          "type": "int",
+          "label": "Miss tolerance",
+          "default": 4,
+          "min": 0,
+          "max": 12,
+          "step": 1
+        },
+        "trailLength": {
+          "type": "int",
+          "label": "Trail length",
+          "default": 12,
+          "min": 1,
+          "max": 16,
+          "step": 1
+        },
+        "markerSize": {
+          "type": "float",
+          "label": "Marker size",
+          "default": 28,
+          "min": 8,
+          "max": 80,
+          "step": 1,
+          "unit": "px"
+        },
+        "lineWidth": {
+          "type": "float",
+          "label": "Line width",
+          "default": 1.5,
+          "min": 0.5,
+          "max": 6,
+          "step": 0.25,
+          "unit": "px"
+        },
+        "markerColor": {
+          "type": "color",
+          "label": "Marker color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.33,
+              0.84,
+              0.44
+            ],
+            "alpha": 1
+          }
+        },
+        "keyframeColor": {
+          "type": "color",
+          "label": "Keyframe color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.82,
+              0.2
+            ],
+            "alpha": 1
+          }
+        },
+        "pathColor": {
+          "type": "color",
+          "label": "Path color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.88,
+              0.94,
+              1
+            ],
+            "alpha": 0.8
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Overlay opacity",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "patternSeed": {
+          "type": "int",
+          "label": "Pattern seed",
+          "default": 31,
+          "min": 0,
+          "max": 100000,
+          "step": 1
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "scores",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "name": "tracks",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 2048,
+          "persistent": true
+        },
+        {
+          "name": "history",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "size": "fixed",
+          "byteLength": 17408,
+          "persistent": true
+        },
+        {
+          "name": "hud",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "stateful-resource-v1",
+        "timing": {
+          "fixedDt": 0.016666666666666666,
+          "maxStepsPerCall": 8,
+          "maxStepIndex": 36000
+        },
+        "stateResources": [
+          "tracks",
+          "history"
+        ],
+        "sourceHistory": "sequential-captures",
+        "resetProperties": [
+          "trackerCount",
+          "detect",
+          "patternSeed"
+        ]
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "score-features",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "scores",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "pursue-features",
+          "kind": "compute",
+          "reads": [
+            "scores"
+          ],
+          "previousFrameReads": [
+            "tracks"
+          ],
+          "output": "tracks",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              64,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "record-history",
+          "kind": "compute",
+          "reads": [
+            "tracks"
+          ],
+          "previousFrameReads": [
+            "history"
+          ],
+          "output": "history",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              64,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "draw-trackers",
+          "kind": "render",
+          "reads": [
+            "tracks",
+            "history"
+          ],
+          "output": "hud",
+          "draw": {
+            "vertices": 6,
+            "instances": {
+              "property": "trackerCount",
+              "max": 64
+            }
+          }
+        },
+        {
+          "id": "compose",
+          "kind": "render",
+          "reads": [
+            "source",
+            "hud"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "fc32358c4214d4cd79df53ded8fd218d3a2ec6b1b8841f8cd26f61062b81738e",
+      "presetIds": [
+        "an-preset-owned-as-bright-pursuit",
+        "an-preset-owned-as-color-drift"
+      ],
+      "animationCapability": "animated"
     }
   ],
   "defaultCanvasGpuEvidence": {

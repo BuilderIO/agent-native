@@ -6,6 +6,7 @@ import {
   planEffectGraph,
   type EffectFeedbackSpec,
   type EffectLinearResourceGraphSpec,
+  type EffectStatefulResourceGraphSpec,
   type EffectPass,
   type EffectResourceSpec,
   type EffectStatelessComputeSpec,
@@ -31,6 +32,7 @@ import {
   isNativeSourceSizing,
   type NativeSourceSizing,
 } from "./native-source-sizing";
+import { isStatefulResourceDraw } from "./native-stateful-resource-graph";
 import { isStatelessComputeDispatch } from "./native-stateless-compute";
 import { isFiniteNativeUniformTiming } from "./native-uniform-timing";
 
@@ -268,7 +270,9 @@ export interface EffectDefinition {
   optionalImage?: RetiredNativeOptionalImageContract;
   feedback?: EffectFeedbackSpec;
   statelessCompute?: EffectStatelessComputeSpec;
-  resourceGraph?: EffectLinearResourceGraphSpec;
+  resourceGraph?:
+    | EffectLinearResourceGraphSpec
+    | EffectStatefulResourceGraphSpec;
   simulation?: {
     fixedDt: number;
     stateResource: string;
@@ -1317,8 +1321,9 @@ function validateDefinition(
   if (
     value.resourceGraph !== undefined &&
     (!record(value.resourceGraph) ||
-      value.resourceGraph.abi !== "linear-resource-v1" ||
-      Object.keys(value.resourceGraph).length !== 1 ||
+      (value.resourceGraph.abi !== "stateful-resource-v1" &&
+        (value.resourceGraph.abi !== "linear-resource-v1" ||
+          Object.keys(value.resourceGraph).length !== 1)) ||
       value.kind === "simulation" ||
       value.feedback !== undefined ||
       value.statelessCompute !== undefined ||
@@ -1781,7 +1786,12 @@ function validateDefinition(
             Object.keys(pass.draw).length !== 2 ||
             pass.kind !== "render" ||
             pass.draw.vertices !== 6 ||
-            pass.draw.instances !== "simulation-count"))
+            (pass.draw.instances !== "simulation-count" &&
+              !(
+                record(value.resourceGraph) &&
+                value.resourceGraph.abi === "stateful-resource-v1" &&
+                isStatefulResourceDraw(pass.draw)
+              ))))
       ) {
         errors.push(`${prefix}.passes[${passIndex}] is malformed`);
       } else {
@@ -1829,7 +1839,10 @@ function validateDefinition(
             passes: EffectPass[];
             resources?: EffectResourceSpec[];
             output?: string;
-            resourceGraph?: EffectLinearResourceGraphSpec;
+            resourceGraph?:
+              | EffectLinearResourceGraphSpec
+              | EffectStatefulResourceGraphSpec;
+            properties?: Record<string, EffectProperty>;
           },
         ).errors.map((error) => `${prefix}: ${error}`),
       );

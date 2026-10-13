@@ -30,6 +30,10 @@ import {
 } from "./native-capture-roi";
 import { supportsNativeOutput2D } from "./native-effect-output-geometry";
 import {
+  classifyNativeImageReplaySafety,
+  type NativeReplaySafety,
+} from "./native-image-replay-safety";
+import {
   composeNativeSourceAffine,
   invertNativeSourceAffine,
   planNativeSourceAffine,
@@ -40,6 +44,7 @@ import type { NativeImageRendering } from "./native-source-sampling";
 import {
   NativeSvgSourceError,
   rasterNativeSvgSource,
+  validateNativeSvgPrimitiveMarkup,
 } from "./native-svg-source";
 
 // guard:allow-raw-color — alpha coverage masks use opaque white independently of the editor theme.
@@ -110,6 +115,7 @@ export interface NativeSourceRecord {
   kind: NativeSourceKind;
   sourceRole?: "viewport-background";
   source?: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement;
+  imageSourceUrl?: string;
   nativeInstanceId?: string;
   imageRendering?: NativeImageRendering;
   width: number;
@@ -178,6 +184,9 @@ export interface NativeSceneProvider {
     metrics?: NativeSourceReadSceneMetrics,
     callSite?: NativeSourceReadSceneCallSite,
   ): Promise<NativeSourceRecord[]>;
+  replaySafety(
+    records: readonly NativeSourceRecord[],
+  ): Promise<NativeReplaySafety>;
   setGroupLocalBackdropSource(enabled: boolean): void;
   groupLocalBackdropClipState(canvas: HTMLCanvasElement): "empty" | "nonempty";
   readFillBackground(
@@ -3133,6 +3142,87 @@ function normalizeCachedLeafError(error: unknown): unknown {
   return error;
 }
 
+const MAX_REPLAY_IMAGE_BYTES = 16 * 1024 * 1024;
+
+async function readReplayImageSafety(
+  raw: string,
+  signal: AbortSignal,
+): Promise<NativeReplaySafety> {
+  try {
+    if (raw.length > MAX_REPLAY_IMAGE_BYTES * 2) return "unknown";
+    const url = new URL(raw, document.baseURI);
+    if (
+      url.protocol !== "data:" &&
+      url.protocol !== "blob:" &&
+      url.origin !== nativeDocumentOrigin()
+    )
+      return "unknown";
+    if (!["data:", "blob:", "http:", "https:"].includes(url.protocol))
+      return "unknown";
+    const network = url.protocol === "http:" || url.protocol === "https:";
+    const response = await fetch(url.href, {
+      signal,
+      ...(network
+        ? {
+            credentials: "same-origin" as const,
+            mode: "same-origin" as const,
+            cache: "force-cache" as const,
+          }
+        : {}),
+    });
+    if (!response.ok || response.type === "opaque") return "unknown";
+    const mime = response.headers.get("content-type")?.split(";", 1)[0].trim();
+    if (!mime?.startsWith("image/")) return "unknown";
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > MAX_REPLAY_IMAGE_BYTES)
+      return "unknown";
+    if (!response.body) return "unknown";
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > MAX_REPLAY_IMAGE_BYTES) {
+        await reader.cancel();
+        return "unknown";
+      }
+      chunks.push(next.value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return classifyNativeImageReplaySafety(bytes, mime);
+  } catch {
+    return "unknown";
+  }
+}
+
+function staticDomRecord(record: NativeSourceRecord): NativeReplaySafety {
+  if (record.node instanceof SVGSVGElement) {
+    return validateNativeSvgPrimitiveMarkup(record.node.outerHTML);
+  }
+  if (!(record.node instanceof HTMLElement)) return "unknown";
+  try {
+    for (const pseudo of [undefined, "::before", "::after"]) {
+      const style = getComputedStyle(record.node, pseudo);
+      if (
+        [style.backgroundImage, style.maskImage, style.borderImageSource].some(
+          (value) => value && value !== "none",
+        )
+      )
+        return "unknown";
+    }
+    return "immutable";
+  } catch {
+    return "unknown";
+  }
+}
+
 class SceneProvider implements NativeSceneProvider {
   private readonly coordinateSpace: NativeSourceRecord["coordinateSpace"];
   private leaves = new Map<Element, CachedLeaf>();
@@ -3160,6 +3250,14 @@ class SceneProvider implements NativeSceneProvider {
   private assetRevision = 0;
   private sourceGeneration = 0;
   private authoredSourceGeneration = 0;
+  private readonly replayReads = new WeakMap<
+    readonly NativeSourceRecord[],
+    { sourceEpoch: number; authoredEpoch: number }
+  >();
+  private readonly replayImages = new WeakMap<
+    HTMLImageElement,
+    { url: string; epoch: number; result: Promise<NativeReplaySafety> }
+  >();
   private captures = 0;
   private readSceneCalls = 0;
   private createdLeaves = 0;
@@ -4378,7 +4476,8 @@ class SceneProvider implements NativeSceneProvider {
     }
     const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
     if (element instanceof HTMLImageElement) {
-      assertLocalAsset(element.currentSrc || element.src);
+      const imageSourceUrl = element.currentSrc || element.src;
+      assertLocalAsset(imageSourceUrl);
       const imageWidth = element.naturalWidth;
       const imageHeight = element.naturalHeight;
       const imageRendering = style.imageRendering;
@@ -4413,6 +4512,7 @@ class SceneProvider implements NativeSceneProvider {
           kind: "image",
           imageRendering: { value: imageRendering },
           source: element,
+          imageSourceUrl,
           width: imageWidth,
           height: imageHeight,
           revision: this.assetRevision,
@@ -5108,6 +5208,14 @@ class SceneProvider implements NativeSceneProvider {
     };
   }
 
+  private markReplayRead(records: NativeSourceRecord[]): NativeSourceRecord[] {
+    this.replayReads.set(records, {
+      sourceEpoch: this.sourceGeneration,
+      authoredEpoch: this.authoredSourceGeneration,
+    });
+    return records;
+  }
+
   async readFillBackground(
     paint: NativeFillBackgroundPaint,
   ): Promise<NativeSourceRecord[]> {
@@ -5182,7 +5290,7 @@ class SceneProvider implements NativeSceneProvider {
     if (!this.fillBoxIds.has(phase)) this.fillBoxIds.set(phase, this.nextId++);
     await this.record(this.target, out, phase);
     this.assertSourceComposition(out);
-    return out;
+    return this.markReplayRead(out);
   }
 
   async readFillGlyph(): Promise<NativeSourceRecord[]> {
@@ -5220,7 +5328,7 @@ class SceneProvider implements NativeSceneProvider {
       this.fillGlyphColors = null;
     }
     this.assertSourceComposition(out);
-    return out;
+    return this.markReplayRead(out);
   }
 
   hasFillGlyph(): boolean {
@@ -5240,7 +5348,7 @@ class SceneProvider implements NativeSceneProvider {
         "fill-foreground-unavailable",
         "Only a Fill target has a foreground phase.",
       );
-    if (isPureTextFlow(this.target)) return [];
+    if (isPureTextFlow(this.target)) return this.markReplayRead([]);
     if (hasDirectText(this.target))
       throw new NativeSourceError(
         "fill-mixed-text-layout-unsupported",
@@ -5273,7 +5381,7 @@ class SceneProvider implements NativeSceneProvider {
         "A visible Fill descendant escapes the bounded target output.",
       );
     this.assertSourceComposition(out);
-    return out;
+    return this.markReplayRead(out);
   }
 
   async readScene(
@@ -5366,11 +5474,68 @@ class SceneProvider implements NativeSceneProvider {
           "input-authored-source-stale",
           "The authored text style changed during capture.",
         );
-      return out;
+      return this.markReplayRead(out);
     } finally {
       memo.clear();
       if (metrics) metrics.wallMs += performance.now() - readStarted;
     }
+  }
+
+  async replaySafety(
+    records: readonly NativeSourceRecord[],
+  ): Promise<NativeReplaySafety> {
+    const read = this.replayReads.get(records);
+    const unchanged = () =>
+      !this.disposed &&
+      read?.sourceEpoch === this.sourceGeneration &&
+      read.authoredEpoch === this.authoredSourceGeneration;
+    if (!read || !unchanged()) return "unknown";
+    if (this.needsContinuousFrames()) return "dynamic";
+    let safety: NativeReplaySafety = "immutable";
+    for (const record of records) {
+      if (!unchanged()) return "unknown";
+      if (record.kind === "native" || record.kind === "video") return "dynamic";
+      if (record.kind === "canvas") {
+        if (record.sourceRole !== "viewport-background") return "dynamic";
+        continue;
+      }
+      if (record.kind === "dom") {
+        if (staticDomRecord(record) === "unknown") safety = "unknown";
+        continue;
+      }
+      if (
+        record.kind !== "image" ||
+        !(record.source instanceof HTMLImageElement)
+      ) {
+        safety = "unknown";
+        continue;
+      }
+      const url = record.imageSourceUrl;
+      if (!url || (record.source.currentSrc || record.source.src) !== url) {
+        safety = "unknown";
+        continue;
+      }
+      let cached = this.replayImages.get(record.source);
+      if (
+        !cached ||
+        cached.url !== url ||
+        cached.epoch !== this.sourceGeneration
+      ) {
+        cached = {
+          url,
+          epoch: this.sourceGeneration,
+          result: readReplayImageSafety(url, this.abort.signal),
+        };
+        this.replayImages.set(record.source, cached);
+      }
+      const imageSafety = await cached.result;
+      if (!unchanged()) return "unknown";
+      if ((record.source.currentSrc || record.source.src) !== url)
+        return "unknown";
+      if (imageSafety === "dynamic") return "dynamic";
+      if (imageSafety === "unknown") safety = "unknown";
+    }
+    return unchanged() ? safety : "unknown";
   }
 
   captureCount(): number {

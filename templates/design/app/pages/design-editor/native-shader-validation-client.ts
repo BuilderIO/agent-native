@@ -1,3 +1,4 @@
+import { nativeEffectRequiresStateSession } from "@shared/native-effect-state-capability";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import { parseEffectsFromHtml } from "@shared/native-effects";
 import type { NativePresentationFaultGrant } from "@shared/native-presentation-fault-gate";
@@ -520,7 +521,7 @@ async function verifyFrameSource(
       const mounted = definitions.get(
         `${candidate.definitionId}:${candidate.definitionVersion}`,
       );
-      return !!(mounted?.simulation || mounted?.feedback);
+      return nativeEffectRequiresStateSession(mounted);
     }),
   };
 }
@@ -740,6 +741,7 @@ async function renderMountedFrame(
       fps: 60,
       totalFrames: frameIndex + 1,
       startTimeSeconds: 0,
+      targetInstanceIds: [item.instanceId],
       signal,
       timeoutMs: 30_000,
     });

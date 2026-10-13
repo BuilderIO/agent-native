@@ -209,6 +209,13 @@ import {
   nativePixelatedImageSamplingWgsl,
 } from "./native-source-sampling";
 import {
+  NativeStatefulResourceSession,
+  acquireNativeStatefulOutput,
+  planNativeStatefulSourceCaptureTimes,
+  resolveNativeStatefulTargetStep,
+  type NativeStatefulEncodedFrame,
+} from "./native-stateful-resource";
+import {
   NativeStatelessComputePipelines,
   type NativeStatelessComputeFrame,
 } from "./native-stateless-compute";
@@ -422,6 +429,7 @@ type AuthoredInputCapture = {
   provider: NativeSceneProvider;
   surface: CompositionSurface;
   capturedSourceEpoch: number | null;
+  replaySafety: "immutable" | "dynamic" | "unknown";
 };
 type Mount = {
   instance: EffectInstance;
@@ -528,6 +536,23 @@ type Mount = {
     retirements: Set<Promise<void>>;
   } | null;
   feedbackFrame: NativeFeedbackEncodedFrame | null;
+  stateful: {
+    executor: NativeStatefulResourceSession;
+    definitionHash: string;
+    seed: number;
+    resetPropertyValues: readonly (readonly [string, number])[];
+    seekRevision: number;
+    sourceIdentity: string;
+    sourceRevision: string;
+    pendingSourceRevision: string | null;
+    sourceWidth: number;
+    sourceHeight: number;
+    droppedSteps: number;
+    pendingDroppedSteps: number;
+    textures: Set<GPUTexture>;
+    buffers: Set<GPUBuffer>;
+  } | null;
+  statefulFrame: NativeStatefulEncodedFrame | null;
 };
 type DraftPreview = {
   instanceId: string;
@@ -625,6 +650,7 @@ type NativeSimulationExportSession = {
     instance: Mount["instance"];
     simulation: Mount["simulation"];
     feedback: Mount["feedback"];
+    stateful: Mount["stateful"];
     resources: Map<string, GPUTexture>;
     output: GPUTexture | null;
   }[];
@@ -1420,6 +1446,10 @@ class NativeShaderRuntime {
   private positionedParents = new Map<HTMLElement, number>();
   private presentationSheet: CSSStyleSheet | null = null;
   private readonly sceneCanvasIdentities = new WeakSet<HTMLCanvasElement>();
+  private sceneBudgetFault: {
+    signature: string;
+    resourceBytes: number;
+  } | null = null;
   private scenePresentation: {
     canvas: HTMLCanvasElement;
     context: GPUCanvasContext;
@@ -1492,6 +1522,8 @@ class NativeShaderRuntime {
   private destroyedDevices = new WeakSet<GPUDevice>();
   private statelessTextureDestruction = new Set<GPUTexture>();
   private statelessDeviceDestruction = new Set<GPUDevice>();
+  private statefulBufferLeases = new Map<GPUBuffer, number>();
+  private statefulBufferDestruction = new Set<GPUBuffer>();
   private statelessPipelines =
     new NativePipelineCache<NativeStatelessComputePipelines>(16);
   private graphPipelines = new NativePipelineCache<
@@ -1623,6 +1655,44 @@ class NativeShaderRuntime {
       }
     }
     return represented;
+  }
+
+  private sceneBudgetSignature(): string {
+    return JSON.stringify({
+      width: innerWidth,
+      height: innerHeight,
+      pixelRatio: this.previewStatus().effectivePixelRatio,
+      deviceEpoch: this.deviceEpoch,
+      media: [...document.querySelectorAll("img,video,source")].map(
+        (element) => [
+          element.getAttribute("src"),
+          element.getAttribute("srcset"),
+          element.getAttribute("poster"),
+        ],
+      ),
+      nativeNodeCount: document.querySelectorAll("[data-agent-native-node-id]")
+        .length,
+      mounts: [...this.mounts.values()].map((mount) => [
+        mount.instance.id,
+        mount.definitionHash,
+        mount.width,
+        mount.height,
+        JSON.stringify(mount.instance),
+      ]),
+    });
+  }
+
+  private sceneBudgetStillFaulted(): boolean {
+    const fault = this.sceneBudgetFault;
+    if (!fault) return false;
+    if (
+      fault.signature !== this.sceneBudgetSignature() ||
+      this.estimatedResourceBytes() < fault.resourceBytes
+    ) {
+      this.sceneBudgetFault = null;
+      return false;
+    }
+    return true;
   }
 
   private async presentScene(): Promise<void> {
@@ -2411,6 +2481,7 @@ class NativeShaderRuntime {
           ...input.surface.resourceTextures.values(),
         ]),
         ...(mount.feedback?.textures ?? []),
+        ...(mount.stateful?.textures ?? []),
       ]),
       isolationBytes: bytes(
         [
@@ -3375,7 +3446,12 @@ class NativeShaderRuntime {
         resource: surfaces.flatMap((surface) => [
           ...surface.resourceTextures.values(),
         ]),
-        feedback: budgetRecord.feedback?.textures ?? [],
+        feedback: [
+          ...(budgetRecord.feedback?.textures ?? []),
+          ...(("stateful" in budgetRecord
+            ? budgetRecord.stateful?.textures
+            : undefined) ?? []),
+        ],
         source: surfaces.flatMap((surface) =>
           [...surface.sourceTextures.values()].map((entry) => entry.texture),
         ),
@@ -3388,11 +3464,15 @@ class NativeShaderRuntime {
         compute: [
           ...(budgetRecord.statelessBuffers ?? []),
           ...(budgetRecord.statelessInputs?.keys() ?? []),
+          ...(("stateful" in budgetRecord
+            ? budgetRecord.stateful?.buffers
+            : undefined) ?? []),
         ],
       },
       new Map<GPUTexture | GPUBuffer, number>([
         ...this.textureBytes,
         ...this.statelessBufferBytes,
+        ...this.simulationBuffers,
       ]),
       bytes,
       MAX_RESOURCE_BYTES,
@@ -3480,6 +3560,7 @@ class NativeShaderRuntime {
     this.releaseAuthoredInputs(mount);
     this.releaseSimulation(mount);
     this.releaseFeedback(mount);
+    this.releaseStateful(mount);
     for (const asset of mount.assetTextures.values())
       this.destroyTexture(asset.texture);
     mount.assetTextures.clear();
@@ -3613,6 +3694,67 @@ class NativeShaderRuntime {
     mount.target.removeAttribute("data-an-native-particle-count");
   }
 
+  private destroyStatefulBuffer(buffer: GPUBuffer): void {
+    if (this.statefulBufferLeases.has(buffer)) {
+      this.statefulBufferDestruction.add(buffer);
+      return;
+    }
+    this.destroySimulationBuffer(buffer);
+  }
+
+  private retainStatefulResources(
+    device: GPUDevice,
+    textures: ReadonlySet<GPUTexture>,
+    buffers: ReadonlySet<GPUBuffer>,
+  ): () => void {
+    const leasedBuffers = new Set(buffers);
+    const releaseTextures = this.retainStatelessTextures(
+      device,
+      new Set(textures),
+    );
+    for (const buffer of leasedBuffers)
+      this.statefulBufferLeases.set(
+        buffer,
+        (this.statefulBufferLeases.get(buffer) ?? 0) + 1,
+      );
+    let released = false;
+    return () => {
+      if (released)
+        throw new NativeSourceError(
+          "stateful-frame-invalid",
+          "A stateful GPU lease was released twice.",
+        );
+      released = true;
+      try {
+        for (const buffer of leasedBuffers) {
+          const count = this.statefulBufferLeases.get(buffer);
+          if (!count)
+            throw new NativeSourceError(
+              "stateful-frame-invalid",
+              "A stateful buffer lease was already released.",
+            );
+          if (count > 1) this.statefulBufferLeases.set(buffer, count - 1);
+          else {
+            this.statefulBufferLeases.delete(buffer);
+            if (this.statefulBufferDestruction.delete(buffer))
+              this.destroySimulationBuffer(buffer);
+          }
+        }
+      } finally {
+        releaseTextures();
+      }
+    };
+  }
+
+  private releaseStateful(mount: Mount): void {
+    mount.statefulFrame?.abandon();
+    mount.statefulFrame = null;
+    mount.stateful?.executor.dispose();
+    mount.stateful = null;
+    mount.target.removeAttribute("data-an-native-stateful-dropped-steps");
+    mount.target.removeAttribute("data-an-native-stateful-dropped-seconds");
+  }
+
   private async disposeFeedback(
     feedback: NonNullable<Mount["feedback"]>,
   ): Promise<void> {
@@ -3698,6 +3840,7 @@ class NativeShaderRuntime {
             saved.mount.instance.id,
           ),
         );
+      saved.stateful?.executor.dispose();
       for (const texture of new Set(saved.resources.values()))
         this.destroyTexture(texture);
       if (saved.output) this.destroyTexture(saved.output);
@@ -3899,8 +4042,10 @@ class NativeShaderRuntime {
       }
       this.publishColorCapability();
     }
-    if (this.previewPolicy.setPolicy(effectivePreviewPolicy))
+    if (this.previewPolicy.setPolicy(effectivePreviewPolicy)) {
+      this.sceneBudgetFault = null;
       this.previewDirty = true;
+    }
     this.updatePreviewAttributes();
     for (const target of this.rejectedTargets) {
       target.removeAttribute("data-an-native-error");
@@ -4205,6 +4350,12 @@ class NativeShaderRuntime {
             existing.feedback.definitionHash !== entry.hash)
         )
           this.releaseFeedback(existing);
+        if (
+          existing.stateful &&
+          (entry.definition.resourceGraph?.abi !== "stateful-resource-v1" ||
+            existing.stateful.definitionHash !== entry.hash)
+        )
+          this.releaseStateful(existing);
         existing.assetFailures.clear();
         existing.authoredStyleDirty = true;
         const clock = existing.clock;
@@ -4471,7 +4622,9 @@ class NativeShaderRuntime {
       clock: {
         global: clockTime,
         local:
-          definition.simulation || definition.feedback
+          definition.simulation ||
+          definition.feedback ||
+          definition.resourceGraph?.abi === "stateful-resource-v1"
             ? instance.timing.time
             : instance.timing.time +
               (instance.timing.paused ? 0 : clockTime * instance.timing.speed),
@@ -4490,6 +4643,8 @@ class NativeShaderRuntime {
       simulationCaughtUp: true,
       feedback: null,
       feedbackFrame: null,
+      stateful: null,
+      statefulFrame: null,
     };
     if (definition.simulation || definition.interaction)
       this.attachPointer(mounted);
@@ -4883,6 +5038,7 @@ class NativeShaderRuntime {
     mount.assetFailures.clear();
     this.releaseSimulation(mount);
     this.releaseFeedback(mount);
+    this.releaseStateful(mount);
     mount.presentationPair?.dispose();
     mount.presentationPair = null;
     if (mount.instance.id === REVIEWED_LOCAL_RUNTIME_TARGET?.instanceId)
@@ -5009,6 +5165,7 @@ class NativeShaderRuntime {
     if (mount.width !== width || mount.height !== height) {
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
+      this.releaseStateful(mount);
       mount.canvas.width = width;
       mount.canvas.height = height;
       mount.width = width;
@@ -7400,6 +7557,349 @@ class NativeShaderRuntime {
     return nextTrail;
   }
 
+  private async statefulResourcePasses(
+    mount: Mount,
+    source: GPUTexture,
+    time: number,
+    encoder: GPUCommandEncoder,
+    definition: EffectDefinition,
+    instance: EffectInstance,
+    sourceRevision: string,
+    deterministic: boolean,
+    sourceIdentity: string,
+    sourceReplaySafety: "immutable" | "dynamic" | "unknown",
+  ): Promise<GPUTexture> {
+    const graph = definition.resourceGraph;
+    if (
+      definition !== mount.definition ||
+      graph?.abi !== "stateful-resource-v1"
+    )
+      throw new NativeSourceError(
+        "stateful-definition-invalid",
+        "A stateful draft needs an isolated graph session.",
+      );
+    const plan = planEffectGraph(definition);
+    if (plan.errors.length)
+      throw new NativeSourceError(
+        "stateful-definition-invalid",
+        plan.errors.join("; "),
+      );
+    const declared = new Map(
+      (definition.resources ?? []).map((resource) => [resource.name, resource]),
+    );
+    const readNumber = (name: string): number => {
+      const value =
+        instance.params[name] ?? definition.properties[name]?.default;
+      if (typeof value !== "number" || !Number.isFinite(value))
+        throw new NativeSourceError(
+          "stateful-params-invalid",
+          `Property ${name} must be finite.`,
+        );
+      return value;
+    };
+    const resetPropertyValues = (graph.resetProperties ?? []).map(
+      (name) => [name, readNumber(name)] as const,
+    );
+    const prior = mount.stateful;
+    if (
+      prior &&
+      (prior.definitionHash !== mount.definitionHash ||
+        prior.seed !== instance.seed ||
+        prior.sourceIdentity !== sourceIdentity ||
+        prior.sourceWidth !== source.width ||
+        prior.sourceHeight !== source.height ||
+        prior.seekRevision !== (instance.timing.seekRevision ?? 0) ||
+        nativeFeedbackResetValuesChanged(
+          prior.resetPropertyValues,
+          resetPropertyValues,
+        ))
+    )
+      this.releaseStateful(mount);
+    const pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
+    const device = this.device!;
+    const epoch = this.deviceEpoch;
+    for (const pass of plan.passes) {
+      const output = declared.get(pass.output);
+      const reads = [...pass.reads, ...(pass.previousFrameReads ?? [])].map(
+        (name) => declared.get(name),
+      );
+      if (!output || reads.some((value) => !value))
+        throw new NativeSourceError(
+          "stateful-definition-invalid",
+          `Pass ${pass.id} has an undeclared resource.`,
+        );
+      pipelines.set(
+        pass.id,
+        await this.linearResourcePipeline(
+          pass,
+          reads as EffectResourceSpec[],
+          output,
+        ),
+      );
+    }
+    if (
+      this.device !== device ||
+      this.deviceEpoch !== epoch ||
+      this.mounts.get(instance.id) !== mount
+    )
+      throw new NativeSourceError(
+        "stateful-frame-invalid",
+        "The GPU device or mounted effect changed while compiling the state graph.",
+      );
+    if (!mount.pendingGraphInputEpochs)
+      mount.pendingGraphInputEpochs = new Map();
+    if (!mount.stateful) {
+      const stateNames = new Set(graph.stateResources);
+      const plannedBytes = plan.passes.reduce((sum, pass) => {
+        const spec = declared.get(pass.output)!;
+        const width = spec.size === "fixed" ? spec.width! : mount.width;
+        const height = spec.size === "fixed" ? spec.height! : mount.height;
+        const bytes =
+          spec.kind === "buffer"
+            ? spec.byteLength!
+            : width * height * (spec.format === "rgba16float" ? 8 : 4);
+        return (
+          sum +
+          bytes *
+            (spec.name === definition.output
+              ? 0
+              : stateNames.has(spec.name)
+                ? 3
+                : 1)
+        );
+      }, 0);
+      this.ensureCompositionBudget(mount, plannedBytes);
+      const textures = new Set<GPUTexture>();
+      const buffers = new Set<GPUBuffer>();
+      const executor = NativeStatefulResourceSession.create(
+        device,
+        {
+          texture: (width, height, format, usage) => {
+            const texture = this.texture(width, height, format, usage);
+            textures.add(texture);
+            return texture;
+          },
+          buffer: (byteLength) => {
+            this.ensureTextureBudget(byteLength);
+            const buffer = device.createBuffer({
+              size: byteLength,
+              usage:
+                GPUBufferUsage.STORAGE |
+                GPUBufferUsage.COPY_SRC |
+                GPUBufferUsage.COPY_DST,
+            });
+            this.simulationBuffers.set(buffer, byteLength);
+            this.allocatedSimulationBytes += byteLength;
+            buffers.add(buffer);
+            return buffer;
+          },
+          releaseTexture: (texture) => {
+            textures.delete(texture);
+            this.destroyTexture(texture);
+          },
+          releaseBuffer: (buffer) => {
+            buffers.delete(buffer);
+            this.destroyStatefulBuffer(buffer);
+          },
+          lease: (leasedTextures, leasedBuffers) =>
+            this.retainStatefulResources(device, leasedTextures, leasedBuffers),
+        },
+        definition,
+        mount.width,
+        mount.height,
+      );
+      mount.stateful = {
+        executor,
+        definitionHash: mount.definitionHash,
+        seed: instance.seed,
+        resetPropertyValues,
+        seekRevision: instance.timing.seekRevision ?? 0,
+        sourceIdentity,
+        sourceRevision: "",
+        pendingSourceRevision: null,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+        droppedSteps: 0,
+        pendingDroppedSteps: 0,
+        textures,
+        buffers,
+      };
+    }
+    const stateful = mount.stateful;
+    const completed = stateful.executor.lastCompletedStep;
+    const target = resolveNativeStatefulTargetStep(
+      time,
+      graph.timing.fixedDt,
+      graph.timing.maxStepIndex,
+      deterministic,
+    );
+    if (target === null)
+      throw new NativeSourceError(
+        "stateful-step-limit",
+        "The requested fixed step is outside the graph limit.",
+      );
+    if (
+      completed < 0 &&
+      deterministic &&
+      graph.sourceHistory === "sequential-captures" &&
+      target > 0 &&
+      sourceReplaySafety !== "immutable"
+    )
+      throw new NativeSourceError(
+        "stateful-source-history-unavailable",
+        "Sequential source history must begin at the first fixed step.",
+      );
+    if (target < completed) {
+      this.releaseStateful(mount);
+      return this.statefulResourcePasses(
+        mount,
+        source,
+        time,
+        encoder,
+        definition,
+        instance,
+        sourceRevision,
+        deterministic,
+        sourceIdentity,
+        sourceReplaySafety,
+      );
+    }
+    const maxSteps = Math.min(
+      graph.timing.maxStepsPerCall,
+      Math.floor(128 / plan.passes.length),
+    );
+    const first =
+      !deterministic &&
+      graph.sourceHistory === "sequential-captures" &&
+      target > completed
+        ? target
+        : completed + 1;
+    const pending = Math.max(0, target - first + 1);
+    if (graph.sourceHistory === "sequential-captures" && pending > 1) {
+      const sourceIsStatic =
+        sourceReplaySafety === "immutable" &&
+        (completed < 0 || stateful.sourceRevision === sourceRevision);
+      if (!sourceIsStatic)
+        throw new NativeSourceError(
+          "stateful-source-history-unavailable",
+          "Each dynamic source step needs a captured source frame.",
+        );
+    }
+    if (deterministic && pending > maxSteps)
+      throw new NativeSourceError(
+        "stateful-step-limit",
+        "Deterministic graph catch-up exceeds the bounded pass budget.",
+      );
+    const count = deterministic ? pending : Math.min(pending, maxSteps);
+    const steps = count
+      ? Array.from({ length: count }, (_, index) => first + index)
+      : [completed];
+    const outputSpec = declared.get(definition.output!);
+    if (
+      outputSpec?.kind !== "texture-2d" ||
+      outputSpec.size !== "viewport" ||
+      (outputSpec.format !== "rgba8unorm" &&
+        outputSpec.format !== "rgba16float")
+    )
+      throw new NativeSourceError(
+        "stateful-definition-invalid",
+        "The stateful graph needs a viewport-sized render output.",
+      );
+    const outputFormat = outputSpec.format;
+    const output = acquireNativeStatefulOutput(
+      mount.resourceTextures,
+      definition.output!,
+      mount.outputTexture,
+      source,
+      mount.width,
+      mount.height,
+      outputFormat,
+      () => {
+        const outputBytes =
+          mount.width * mount.height * (outputFormat === "rgba16float" ? 8 : 4);
+        this.ensureCompositionBudget(mount, outputBytes);
+        return this.texture(mount.width, mount.height, outputFormat);
+      },
+      (texture) => this.textureRetirement.push(texture),
+    );
+    const frame = stateful.executor.encode({
+      encoder,
+      source,
+      target: output,
+      pipelines,
+      passes: plan.passes,
+      steps,
+      fixedDt: graph.timing.fixedDt,
+      seed: instance.seed,
+      sourceIdentity,
+      sourceRevision,
+      sourceEpoch: sourceIdentity.startsWith("authored:")
+        ? (mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null)
+        : sourceIdentity === "camera"
+          ? this.renderEpoch
+          : (mount.provider?.sourceEpoch?.() ?? null),
+      drawCount: (property, maximum, stepTime) => {
+        const count = resolveNativeParameterAnimation(
+          definition,
+          instance.params,
+          instance.animation,
+          stepTime,
+        )[property];
+        if (
+          typeof count !== "number" ||
+          !Number.isSafeInteger(count) ||
+          count < 1 ||
+          count > maximum
+        )
+          throw new NativeSourceError(
+            "stateful-params-invalid",
+            `Draw count ${property} is out of range.`,
+          );
+        return count;
+      },
+      uniforms: (_pass, _width, _height, stepTime, dt) => {
+        const data = new Float32Array(136);
+        data.set(
+          [mount.width, mount.height, 1 / mount.width, 1 / mount.height],
+          0,
+        );
+        data.set(
+          packNativeUniformClock({
+            time: stepTime,
+            seed: instance.seed,
+            pixelRatio: mount.pixelRatio,
+            deltaTime: dt,
+          }),
+          4,
+        );
+        const values = resolveNativeParameterAnimation(
+          definition,
+          instance.params,
+          instance.animation,
+          stepTime,
+        );
+        data.set(
+          packNativePointerProperties(
+            definition,
+            values,
+            mount.pointerState,
+            deterministic,
+          ),
+          8,
+        );
+        return data;
+      },
+    });
+    stateful.pendingSourceRevision = sourceRevision;
+    stateful.pendingDroppedSteps =
+      !deterministic && graph.sourceHistory === "sequential-captures"
+        ? Math.max(0, target - Math.max(0, completed + 1))
+        : 0;
+    mount.statefulFrame = frame;
+    mount.simulationCaughtUp = frame.completedStep >= target;
+    return frame.output;
+  }
+
   private async feedbackPasses(
     mount: Mount,
     source: GPUTexture,
@@ -8008,6 +8508,7 @@ class NativeShaderRuntime {
           sourceDownsamples: 0,
         },
         capturedSourceEpoch: null,
+        replaySafety: "unknown",
       };
       mount.authoredInputs.set(resource, capture);
     }
@@ -8104,6 +8605,12 @@ class NativeShaderRuntime {
         "input-authored-source-stale",
         `Authored input ${binding.nodeId} changed during capture.`,
       );
+    capture.replaySafety = await capture.provider.replaySafety(scene);
+    if (capture.provider.sourceEpoch?.() !== read.sourceEpoch)
+      throw new NativeSourceError(
+        "input-authored-source-stale",
+        `Authored input ${binding.nodeId} changed during replay classification.`,
+      );
     capture.capturedSourceEpoch = read.sourceEpoch;
     return texture;
   }
@@ -8139,7 +8646,7 @@ class NativeShaderRuntime {
         "linear-resource-device-limit",
         `Pass ${pass.id} exceeds this WebGPU device's texture or storage binding limit.`,
       );
-    const key = `${epoch}:${pass.kind}:${output.format ?? "buffer"}:${reads.map((resource) => resource.kind).join(",")}:${pass.wgsl}`;
+    const key = `${epoch}:${pass.kind}:${output.format ?? "buffer"}:${reads.map((resource) => resource.kind).join(",")}:${pass.draw ? "instanced" : "single"}:${pass.wgsl}`;
     if (!this.graphPipelines.has(key)) this.ensureTextureBudget(524_288);
     return this.graphPipelines.getOrCreate(key, async () => {
       const module = device.createShaderModule({ code: pass.wgsl });
@@ -8172,7 +8679,10 @@ class NativeShaderRuntime {
         ...reads.map(
           (resource, index): GPUBindGroupLayoutEntry => ({
             binding: index + 2,
-            visibility,
+            visibility:
+              !compute && resource.kind === "buffer"
+                ? GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
+                : visibility,
             ...(resource.kind === "buffer"
               ? { buffer: { type: "read-only-storage" as const } }
               : { texture: { sampleType: "float" as const } }),
@@ -8207,7 +8717,27 @@ class NativeShaderRuntime {
               fragment: {
                 module,
                 entryPoint: "fs",
-                targets: [{ format: output.format as GPUTextureFormat }],
+                targets: [
+                  {
+                    format: output.format as GPUTextureFormat,
+                    ...(pass.draw
+                      ? {
+                          blend: {
+                            color: {
+                              operation: "add" as const,
+                              srcFactor: "one" as const,
+                              dstFactor: "one-minus-src-alpha" as const,
+                            },
+                            alpha: {
+                              operation: "add" as const,
+                              srcFactor: "one" as const,
+                              dstFactor: "one-minus-src-alpha" as const,
+                            },
+                          },
+                        }
+                      : {}),
+                  },
+                ],
               },
               primitive: { topology: "triangle-list" },
             });
@@ -8953,6 +9483,7 @@ class NativeShaderRuntime {
     deterministic = false,
     sourceRevision = "",
     dependencies?: { complete: Set<string>; active: Set<string> },
+    sourceRecords?: readonly NativeSourceRecord[],
   ): Promise<GPUTexture> {
     assertNativeUniformTiming(time, "time");
     assertNativeUniformTiming(instance.timing.time, "initial-time");
@@ -8984,10 +9515,13 @@ class NativeShaderRuntime {
     let backendSource = source;
     let backendSourceRevision = sourceRevision;
     let backendSourceIdentity = "builtin:source";
+    let backendSourceReplaySafety: "immutable" | "dynamic" | "unknown" =
+      "unknown";
     if (
       definition.statelessCompute ||
       definition.simulation ||
-      definition.feedback
+      definition.feedback ||
+      definition.resourceGraph?.abi === "stateful-resource-v1"
     ) {
       const planned = planNativeInputResources(definition, instance);
       if (!planned.ok)
@@ -9023,8 +9557,10 @@ class NativeShaderRuntime {
         if (binding.kind === "asset") {
           backendSourceIdentity = `asset:${binding.url}`;
           backendSourceRevision = `asset:${binding.url}`;
+          backendSourceReplaySafety = "immutable";
         } else if (binding.kind === "camera") {
           backendSourceIdentity = "camera";
+          backendSourceReplaySafety = "dynamic";
           const epoch = this.cameraFrameTexture?.epoch;
           if (epoch !== this.renderEpoch)
             throw new NativeSourceError(
@@ -9044,12 +9580,23 @@ class NativeShaderRuntime {
             ["source", { capture, sourceEpoch: capture.capturedSourceEpoch }],
           ]);
           backendSourceRevision = `authored:${binding.nodeId}:${binding.capture}:${capture.capturedSourceEpoch}`;
+          backendSourceReplaySafety = capture.replaySafety;
         } else if (binding.kind === "fallback") {
           backendSourceIdentity = "fallback:transparent-data";
           backendSourceRevision = "fallback:transparent-data";
+          backendSourceReplaySafety = "immutable";
         } else backendSourceIdentity = `builtin:${binding.source}`;
       }
     }
+    if (
+      backendSourceIdentity.startsWith("builtin:") &&
+      definition.resourceGraph?.abi === "stateful-resource-v1" &&
+      definition.resourceGraph.sourceHistory === "sequential-captures" &&
+      mount.provider &&
+      sourceRecords
+    )
+      backendSourceReplaySafety =
+        await mount.provider.replaySafety(sourceRecords);
     if (definition.statelessCompute)
       return this.statelessComputePasses(
         mount,
@@ -9059,6 +9606,19 @@ class NativeShaderRuntime {
         definition,
         instance,
         deterministic,
+      );
+    if (definition.resourceGraph?.abi === "stateful-resource-v1")
+      return this.statefulResourcePasses(
+        mount,
+        backendSource,
+        time,
+        encoder,
+        definition,
+        instance,
+        backendSourceRevision,
+        deterministic,
+        backendSourceIdentity,
+        backendSourceReplaySafety,
       );
     if (definition.resourceGraph)
       return this.linearResourcePasses(
@@ -10694,7 +11254,9 @@ class NativeShaderRuntime {
       const assertStatelessCurrent = () => {
         const statefulFrame =
           !!(draft?.definition ?? mount.definition).simulation ||
-          !!(draft?.definition ?? mount.definition).feedback;
+          !!(draft?.definition ?? mount.definition).feedback ||
+          (draft?.definition ?? mount.definition).resourceGraph?.abi ===
+            "stateful-resource-v1";
         if (!statelessFrame && !statefulFrame) return;
         assertCurrentPresentation();
         if (
@@ -10799,6 +11361,7 @@ class NativeShaderRuntime {
         deterministic,
         sourceRevision,
         { complete, active },
+        scene,
       );
       if (hostWallPhases)
         hostWallPhases.effectPassesWallMs +=
@@ -11005,6 +11568,7 @@ class NativeShaderRuntime {
       if (hostWallPhases)
         hostWallPhases.submitCallWallMs += performance.now() - submitStarted;
       submitted = true;
+      mount.statefulFrame?.markSubmitted();
       if (gpuSample) {
         this.gpuProfiler?.afterSubmit(gpuSample);
         profileSubmitted = true;
@@ -11107,6 +11671,28 @@ class NativeShaderRuntime {
               mount.instance.id,
             );
           },
+        );
+      }
+      if (mount.statefulFrame) {
+        const frame = mount.statefulFrame;
+        const stateful = mount.stateful!;
+        await frame.commit();
+        mount.statefulFrame = null;
+        stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
+        stateful.pendingSourceRevision = null;
+        stateful.droppedSteps += stateful.pendingDroppedSteps;
+        stateful.pendingDroppedSteps = 0;
+        mount.target.setAttribute(
+          "data-an-native-stateful-dropped-steps",
+          String(stateful.droppedSteps),
+        );
+        const fixedDt =
+          mount.definition.resourceGraph?.abi === "stateful-resource-v1"
+            ? mount.definition.resourceGraph.timing.fixedDt
+            : 0;
+        mount.target.setAttribute(
+          "data-an-native-stateful-dropped-seconds",
+          (stateful.droppedSteps * fixedDt).toFixed(3),
         );
       }
       const prior = mount.outputTexture;
@@ -11392,6 +11978,17 @@ class NativeShaderRuntime {
         }
       }
       if (mount.definition.simulation) this.releaseSimulation(mount);
+      const statefulFrame = mount.statefulFrame;
+      mount.statefulFrame = null;
+      if (mount.stateful) {
+        mount.stateful.pendingSourceRevision = null;
+        mount.stateful.pendingDroppedSteps = 0;
+      }
+      if (statefulFrame) {
+        if (submitted) await statefulFrame.rejectSubmitted(error);
+        else statefulFrame.abandon();
+        this.releaseStateful(mount);
+      }
       const feedbackFrame = mount.feedbackFrame;
       mount.feedbackFrame = null;
       if (mount.feedback) {
@@ -11503,6 +12100,7 @@ class NativeShaderRuntime {
         }
       : null;
     this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
+    let sceneBudgetExceeded = false;
     this.running = (async () => {
       const started = performance.now();
       const failures: Diagnostic[] = deterministic
@@ -11639,7 +12237,17 @@ class NativeShaderRuntime {
         } else {
           const sceneStarted = benchmarkMetrics ? performance.now() : 0;
           try {
+            if (!deterministic && this.sceneBudgetStillFaulted())
+              throw new NativeSourceError(
+                "source-composition-budget-exceeded",
+                "The full-scene native presentation exceeds the texture budget.",
+              );
             await this.presentScene();
+          } catch (error) {
+            sceneBudgetExceeded =
+              error instanceof NativeSourceError &&
+              error.code === "source-composition-budget-exceeded";
+            throw error;
           } finally {
             if (benchmarkMetrics)
               benchmarkMetrics.fullFrameWallPhases.frame.scenePresentationWallMs +=
@@ -11747,6 +12355,25 @@ class NativeShaderRuntime {
       this.running = null;
     }
     if (!deterministic) {
+      if (
+        sceneBudgetExceeded &&
+        !this.sceneBudgetFault &&
+        this.compositionPixelRatio === null &&
+        !this.compositionAbort &&
+        !this.compositionPixelBusy
+      ) {
+        if (this.previewPolicy.observeResourceBudgetExceeded()) {
+          this.previewDirty = true;
+          this.updatePreviewAttributes();
+          if (!this.raf && this.mounts.size)
+            this.raf = requestAnimationFrame(this.frame);
+        } else {
+          this.sceneBudgetFault = {
+            signature: this.sceneBudgetSignature(),
+            resourceBytes: this.estimatedResourceBytes(),
+          };
+        }
+      }
       this.recordProfile(this.renderWallSamples, result.renderWallMs);
       if (this.mountedBenchmark && benchmarkMetrics)
         this.mountedBenchmark.onRender({
@@ -11763,6 +12390,7 @@ class NativeShaderRuntime {
         !this.compositionAbort &&
         !this.compositionPixelBusy &&
         this.compositionPixelRatio === null &&
+        !sceneBudgetExceeded &&
         this.previewPolicy.observeRenderWall(result.renderWallMs)
       ) {
         this.previewDirty = true;
@@ -13205,7 +13833,11 @@ class NativeShaderRuntime {
     for (const mount of this.mounts.values()) {
       const spec = mount.definition.simulation;
       const feedback = mount.definition.feedback;
-      if (!spec && !feedback) continue;
+      const stateful =
+        mount.definition.resourceGraph?.abi === "stateful-resource-v1"
+          ? mount.definition.resourceGraph
+          : null;
+      if (!spec && !feedback && !stateful) continue;
       const timing = mount.instance.timing;
       const firstLocal =
         timing.time +
@@ -13254,6 +13886,42 @@ class NativeShaderRuntime {
           throw new NativeSourceError(
             "feedback-step-limit",
             `Feedback effect ${mount.instance.id} exceeds its deterministic export step budget.`,
+          );
+      }
+      if (stateful) {
+        const inputPlan = planNativeInputResources(
+          mount.definition,
+          mount.instance,
+        );
+        if (!inputPlan.ok)
+          throw new NativeSourceError(inputPlan.code, inputPlan.detail);
+        if (inputPlan.inputs.get("source")?.kind === "camera")
+          throw new NativeSourceError(
+            "stateful-source-history-unavailable",
+            `Stateful effect ${mount.instance.id} uses a camera source without timestamped replay.`,
+          );
+        const firstStep = Math.floor(
+          firstLocal / stateful.timing.fixedDt + 1e-7,
+        );
+        const lastStep = Math.floor(lastLocal / stateful.timing.fixedDt + 1e-7);
+        const frameSteps = Math.ceil(
+          timing.speed / options.fps / stateful.timing.fixedDt,
+        );
+        const passBudget = Math.floor(128 / mount.definition.passes.length);
+        const stepBudget =
+          stateful.sourceHistory === "sequential-captures"
+            ? 32
+            : Math.min(stateful.timing.maxStepsPerCall, passBudget);
+        if (
+          !Number.isSafeInteger(firstStep) ||
+          firstStep + 1 > stepBudget ||
+          !Number.isSafeInteger(lastStep) ||
+          lastStep > stateful.timing.maxStepIndex ||
+          frameSteps > stepBudget
+        )
+          throw new NativeSourceError(
+            "stateful-step-limit",
+            `Stateful effect ${mount.instance.id} exceeds its deterministic export step budget.`,
           );
       }
     }
@@ -13315,6 +13983,7 @@ class NativeShaderRuntime {
           (mount) =>
             !!mount.definition.simulation ||
             !!mount.definition.feedback ||
+            mount.definition.resourceGraph?.abi === "stateful-resource-v1" ||
             targetInstances.has(mount.instance.id),
         )
         .map((mount) => {
@@ -13323,11 +13992,14 @@ class NativeShaderRuntime {
             instance: mount.instance,
             simulation: mount.simulation,
             feedback: mount.feedback,
+            stateful: mount.stateful,
             resources: mount.resourceTextures,
             output: mount.outputTexture,
           };
           mount.simulation = null;
           mount.feedback = null;
+          mount.stateful = null;
+          mount.statefulFrame = null;
           this.clearFeedbackTelemetry(mount);
           mount.resourceTextures = new Map();
           mount.outputTexture = null;
@@ -13418,6 +14090,7 @@ class NativeShaderRuntime {
       for (const saved of session.saved) {
         const mount = saved.mount;
         this.releaseSimulation(mount);
+        this.releaseStateful(mount);
         const exportFeedback = mount.feedback;
         mount.feedback = null;
         if (exportFeedback) await this.disposeFeedback(exportFeedback);
@@ -13430,6 +14103,7 @@ class NativeShaderRuntime {
             for (const buffer of saved.simulation.buffers)
               this.destroySimulationBuffer(buffer);
           if (saved.feedback) await this.disposeFeedback(saved.feedback);
+          saved.stateful?.executor.dispose();
           for (const texture of new Set(saved.resources.values()))
             this.destroyTexture(texture);
           if (saved.output) this.destroyTexture(saved.output);
@@ -13440,6 +14114,7 @@ class NativeShaderRuntime {
         mount.outputTexture = saved.output;
         mount.simulation = saved.simulation;
         mount.feedback = saved.feedback;
+        mount.stateful = saved.stateful;
         this.reflectCommittedFeedbackTelemetry(mount);
         mount.simulationCaughtUp = true;
       }
@@ -13988,7 +14663,10 @@ class NativeShaderRuntime {
       );
     } else if (
       [...this.mounts.values()].some(
-        (mount) => mount.definition.simulation || mount.definition.feedback,
+        (mount) =>
+          mount.definition.simulation ||
+          mount.definition.feedback ||
+          mount.definition.resourceGraph?.abi === "stateful-resource-v1",
       )
     ) {
       throw new NativeSourceError(
@@ -14001,11 +14679,71 @@ class NativeShaderRuntime {
     this.compositionPixelBusy = true;
     const previousRatio = this.compositionPixelRatio;
     this.compositionPixelRatio = pixelRatio;
+    const started = performance.now();
+    const timeoutMs = options.timeoutMs ?? 15_000;
+    const remainingTimeout = () => {
+      const remaining = Math.floor(timeoutMs - (performance.now() - started));
+      if (remaining < 1)
+        throw new NativeSourceError(
+          "composition-timeout",
+          "Source synchronization timed out before the frame completed.",
+        );
+      return remaining;
+    };
     let frameFailed = false;
     let frameFailure: unknown;
     try {
+      if (simulationSession && !repeatCurrentSimulationFrame) {
+        const finalTime =
+          (options.startTimeSeconds ?? 0) + options.frameIndex / options.fps;
+        const clocks = [...this.mounts.values()].flatMap((mount) => {
+          const graph = mount.definition.resourceGraph;
+          if (
+            graph?.abi !== "stateful-resource-v1" ||
+            graph.sourceHistory !== "sequential-captures"
+          )
+            return [];
+          return [
+            {
+              completedStep: mount.stateful?.executor.lastCompletedStep ?? -1,
+              fixedDt: graph.timing.fixedDt,
+              timeOffset: mount.instance.timing.time,
+              speed: mount.instance.timing.speed,
+              paused: mount.instance.timing.paused,
+            },
+          ];
+        });
+        const captureTimes = planNativeStatefulSourceCaptureTimes(
+          clocks,
+          finalTime,
+        );
+        for (const time of captureTimes) {
+          await this.withSynchronizedCompositionFrame(
+            {
+              frameIndex: 0,
+              fps: options.fps,
+              startTimeSeconds: time,
+              sourceContract: options.sourceContract,
+              signal: options.signal,
+              timeoutMs: remainingTimeout(),
+            },
+            async (rendered) => rendered,
+            true,
+          );
+          if (
+            this.simulationExportSession !== simulationSession ||
+            simulationSession.sourceStale ||
+            simulationSession.failed ||
+            simulationSession.deviceEpoch !== this.deviceEpoch
+          )
+            throw new NativeSourceError(
+              "simulation-session-source-stale",
+              "The held source changed during fixed-step capture.",
+            );
+        }
+      }
       const held = await this.withSynchronizedCompositionFrame(
-        options,
+        { ...options, timeoutMs: remainingTimeout() },
         async (_rendered, frame) => {
           let failed = false;
           let failure: unknown;

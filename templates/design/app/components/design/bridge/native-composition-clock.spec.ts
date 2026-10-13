@@ -6,6 +6,7 @@ import {
   NativeCompositionClockError,
   withNativeCompositionFrame,
 } from "./native-composition-clock";
+import { planNativeStatefulSourceCaptureTimes } from "./native-stateful-resource";
 
 let root: HTMLElement;
 let originalFonts: PropertyDescriptor | undefined;
@@ -156,6 +157,46 @@ function authoredVideo() {
 }
 
 describe("native composition clock", () => {
+  it("seeks each fixed-step source frame before the output frame and restores authored clocks", async () => {
+    const moving = document.createElement("div");
+    root.append(moving);
+    const { animation } = authoredAnimation(moving);
+    const video = authoredVideo();
+    const captureTimes = planNativeStatefulSourceCaptureTimes(
+      [
+        {
+          completedStep: -1,
+          fixedDt: 1 / 60,
+          timeOffset: 0,
+          speed: 1,
+          paused: false,
+        },
+      ],
+      1 / 30,
+    );
+    expect(captureTimes).toEqual([0, 1 / 60]);
+    const observed: [number, number, number][] = [];
+    for (const time of [...captureTimes, 1 / 30]) {
+      await withNativeCompositionFrame(
+        { ...frame(0), startTimeSeconds: time },
+        ({ timeSeconds }) => {
+          observed.push([
+            timeSeconds,
+            animation.currentTime as number,
+            video.currentTime,
+          ]);
+        },
+      );
+      expect(animation.currentTime).toBe(137);
+      expect(video.currentTime).toBe(0.4);
+    }
+    expect(observed).toEqual([
+      [0, 0, 0],
+      [1 / 60, 1000 / 30, 1 / 48],
+      [1 / 30, 1000 / 15, 1 / 24],
+    ]);
+  });
+
   it("seeks rational frame time through authored animation rate and video, then restores playback", async () => {
     const moving = document.createElement("div");
     root.append(moving);

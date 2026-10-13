@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   dirtyEffectPasses,
+  planEffectGraph,
   planEffectPasses,
   resizeInvalidatedResources,
   type EffectPass,
 } from "./effect-graph";
-import { nativeEffectExecutionPayload } from "./native-effect-trust";
-import type { EffectDefinition } from "./native-effects";
+import {
+  hashEffectDefinition,
+  nativeEffectExecutionPayload,
+} from "./native-effect-trust";
+import {
+  validateEffectDocument,
+  type EffectDefinition,
+} from "./native-effects";
 
 const pass = (
   id: string,
@@ -24,6 +31,192 @@ const pass = (
 });
 
 describe("native effect pass planner", () => {
+  it("keeps stateful history ordered, bounded, and covered by the execution hash", async () => {
+    const definition: EffectDefinition = {
+      id: "stateful-contract-test",
+      name: "Stateful Contract Test",
+      version: 1,
+      kind: "processor",
+      placements: ["layer"],
+      properties: {
+        count: { type: "int", label: "Count", default: 128, min: 1, max: 128 },
+      },
+      resourceGraph: {
+        abi: "stateful-resource-v1",
+        timing: { fixedDt: 1 / 60, maxStepsPerCall: 8, maxStepIndex: 3600 },
+        stateResources: ["particles", "trail"],
+        sourceHistory: "sequential-captures",
+        resetProperties: ["count"],
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          external: true,
+          usage: ["sampled"],
+        },
+        {
+          name: "particles",
+          kind: "buffer",
+          size: "fixed",
+          byteLength: 2048,
+          usage: ["storage"],
+          persistent: true,
+        },
+        {
+          name: "dots",
+          kind: "texture-2d",
+          size: "fixed",
+          width: 32,
+          height: 32,
+          format: "rgba16float",
+          usage: ["sampled", "render"],
+        },
+        {
+          name: "trail",
+          kind: "texture-2d",
+          size: "fixed",
+          width: 32,
+          height: 32,
+          format: "rgba16float",
+          usage: ["sampled", "render"],
+          persistent: true,
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          size: "viewport",
+          format: "rgba16float",
+          usage: ["sampled", "render"],
+        },
+      ],
+      passes: [
+        {
+          id: "step",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["particles"],
+          output: "particles",
+          dispatch: { elements: "output-buffer", workgroupSize: [64, 1, 1] },
+          wgsl: "@compute @workgroup_size(64, 1, 1) fn cs() {}",
+        },
+        {
+          id: "dots",
+          kind: "render",
+          reads: ["particles"],
+          output: "dots",
+          draw: { vertices: 6, instances: { property: "count", max: 4096 } },
+          wgsl: "@vertex fn vs() {} @fragment fn fs() {}",
+        },
+        {
+          id: "trail",
+          kind: "render",
+          reads: ["dots"],
+          previousFrameReads: ["trail"],
+          output: "trail",
+          wgsl: "@vertex fn vs() {} @fragment fn fs() {}",
+        },
+        {
+          id: "finish",
+          kind: "render",
+          reads: ["source", "trail"],
+          output: "color",
+          wgsl: "@vertex fn vs() {} @fragment fn fs() {}",
+        },
+      ],
+      output: "color",
+      provenance: { origin: "design-original" },
+    };
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [definition],
+        instances: [],
+      }).errors,
+    ).toEqual([]);
+    expect(planEffectGraph(definition).passes.map((pass) => pass.id)).toEqual([
+      "step",
+      "dots",
+      "trail",
+      "finish",
+    ]);
+    const graph = definition.resourceGraph;
+    if (graph?.abi !== "stateful-resource-v1")
+      throw new Error("Stateful graph contract is missing");
+    const hash = await hashEffectDefinition(definition);
+    expect(
+      await hashEffectDefinition({
+        ...definition,
+        resourceGraph: {
+          ...graph,
+          timing: { ...graph.timing, maxStepsPerCall: 7 },
+        },
+      }),
+    ).not.toBe(hash);
+    expect(
+      await hashEffectDefinition({
+        ...definition,
+        passes: definition.passes.map((pass) =>
+          pass.id === "dots"
+            ? {
+                ...pass,
+                draw: {
+                  vertices: 6,
+                  instances: { property: "count", max: 2048 },
+                },
+              }
+            : pass,
+        ),
+      }),
+    ).not.toBe(hash);
+    const forward = structuredClone(definition);
+    forward.passes[0]!.reads = ["dots"];
+    expect(planEffectGraph(forward).errors).toContain(
+      "stateful pass step has a missing or forward read dots",
+    );
+    const missingHistory = structuredClone(definition);
+    missingHistory.passes[0]!.previousFrameReads = [];
+    expect(planEffectGraph(missingHistory).errors).toContain(
+      "stateful resource particles needs a previous-frame read",
+    );
+    const noSource = structuredClone(definition);
+    noSource.resources!.shift();
+    expect(planEffectGraph(noSource).errors).toContain(
+      "stateful graph needs exactly one external source texture",
+    );
+    const multipleSources = structuredClone(definition);
+    multipleSources.resources!.push({
+      name: "image",
+      kind: "texture-2d",
+      external: true,
+      usage: ["sampled"],
+    });
+    expect(planEffectGraph(multipleSources).errors).toContain(
+      "stateful graph needs exactly one external source texture",
+    );
+    const renamedSource = structuredClone(definition);
+    renamedSource.resources![0]!.name = "image";
+    expect(planEffectGraph(renamedSource).errors).toContain(
+      "stateful graph needs exactly one external source texture",
+    );
+    const unbounded = structuredClone(definition);
+    unbounded.properties.count = {
+      type: "int",
+      label: "Count",
+      default: 128,
+      min: 1,
+      max: 5000,
+    };
+    expect(planEffectGraph(unbounded).errors).toContain(
+      "stateful pass dots needs bounded buffer-backed draw",
+    );
+    const oversizedState = structuredClone(definition);
+    oversizedState.resources![1]!.byteLength = 16 * 1024 * 1024;
+    expect(planEffectGraph(oversizedState).errors).toContain(
+      "stateful graph exceeds fixed GPU resource budget",
+    );
+  });
+
   it("plans ordered mixed-resource linear graphs and binds the opt-in ABI to trust", () => {
     const resources = [
       {

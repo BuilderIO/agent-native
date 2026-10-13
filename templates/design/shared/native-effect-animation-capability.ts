@@ -396,6 +396,9 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-source-depth-particles@1",
   "an-native-magnetic-filings@1",
   "an-native-source-shape-fluid@1",
+  "an-native-owned-aq-fluid-advected-particles@1",
+  "an-native-owned-ar-content-bounds-tracker@1",
+  "an-native-owned-as-feature-trails@1",
 ]);
 
 const canonicalPayloadByVersion = new Map(

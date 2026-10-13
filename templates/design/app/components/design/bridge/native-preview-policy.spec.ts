@@ -105,4 +105,18 @@ describe("native preview policy", () => {
     );
     expect(policy.status(2).effectivePixelRatio).toBe(2);
   });
+
+  it("lowers auto density on a measured resource failure and holds that floor", () => {
+    const policy = new NativePreviewPolicyController();
+    expect(policy.observeResourceBudgetExceeded()).toBe(true);
+    expect(policy.status(1.6).effectivePixelRatio).toBeCloseTo(1.4);
+    for (let index = 0; index < 100; index += 1) policy.observeRenderWall(1);
+    expect(policy.status(1.6).effectivePixelRatio).toBeCloseTo(1.4);
+    expect(policy.observeResourceBudgetExceeded()).toBe(true);
+    expect(policy.status(1.6).effectivePixelRatio).toBeCloseTo(1.2);
+    expect(policy.observeResourceBudgetExceeded()).toBe(false);
+    policy.setPolicy({ quality: "quality", frameRateTarget: 60 });
+    expect(policy.observeResourceBudgetExceeded()).toBe(false);
+    expect(policy.status(1.6).effectivePixelRatio).toBe(1.6);
+  });
 });

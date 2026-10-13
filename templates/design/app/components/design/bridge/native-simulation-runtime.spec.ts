@@ -3,6 +3,7 @@ import { build } from "esbuild";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { FLOCKING_SWARM_EFFECT } from "../../../../shared/native-effect-owned-aa-flocking";
+import { FLUID_ADVECTED_PARTICLES_EFFECT } from "../../../../shared/native-effect-owned-aq-fluid-particles";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../../shared/native-effect-owned-test-fixtures";
 import { GRAIN_GRADIENT_EFFECT } from "../../../../shared/native-effect-presets";
 import { hashEffectDefinition } from "../../../../shared/native-effect-trust";
@@ -595,6 +596,28 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(ordinaryMount.instance).toBe(ordinaryInstance);
   expect(ordinaryMount.resourceTextures).toBe(ordinaryResources);
   expect(ordinaryMount.outputTexture).toBe(ordinaryOutput);
+  const cameraMount = {
+    ...ordinaryMount,
+    definition: FLUID_ADVECTED_PARTICLES_EFFECT,
+    instance: {
+      ...ordinaryInstance,
+      id: "stateful-camera",
+      definitionId: FLUID_ADVECTED_PARTICLES_EFFECT.id,
+      definitionVersion: FLUID_ADVECTED_PARTICLES_EFFECT.version,
+      bindings: { source: { kind: "camera" as const } },
+    },
+    stateful: null,
+  };
+  runtime.mounts = new Map([[cameraMount.instance.id, cameraMount]]);
+  await expect(
+    runtime.beginSimulationExportSession({
+      fps: 30,
+      totalFrames: 2,
+      startTimeSeconds: 0,
+    }),
+  ).rejects.toMatchObject({ code: "stateful-source-history-unavailable" });
+  expect(runtime.simulationExportSession).toBeNull();
+  runtime.mounts = new Map([[ordinaryMount.instance.id, ordinaryMount]]);
   await expect(
     runtime.beginSimulationExportSession({
       fps: 60,

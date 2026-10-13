@@ -1,3 +1,4 @@
+import { nativeEffectRequiresStateSession } from "@shared/native-effect-state-capability";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
   validateEffectDocument,
@@ -1002,7 +1003,7 @@ export class NativeThumbnailService {
           "validation-scan-timeout",
         );
         await this.awaitReady(scene.targets, signal);
-        if (entry.item.definition.simulation || entry.item.definition.feedback)
+        if (nativeEffectRequiresStateSession(entry.item.definition))
           sessionId = (
             await runtime.beginSimulationExportSession({
               fps: 60,
@@ -1266,10 +1267,8 @@ export class NativeThumbnailService {
           throw error;
         }
         await this.awaitReady(scene.targets, signal);
-        const hasStatefulEffect = misses.some(
-          (entry) =>
-            !!entry.item.definition.simulation ||
-            !!entry.item.definition.feedback,
+        const hasStatefulEffect = misses.some((entry) =>
+          nativeEffectRequiresStateSession(entry.item.definition),
         );
         let sessionId: string | undefined;
         let primaryFailed = false;
