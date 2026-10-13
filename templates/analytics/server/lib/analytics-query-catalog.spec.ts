@@ -391,7 +391,13 @@ describe("analytics query catalog", () => {
     });
   });
 
-  it.each(["do not exclude active members", "do not skip active members"])(
+  it.each([
+    "do not exclude active members",
+    "do not skip active members",
+    "not excluding active members",
+    "exclude everyone but active members",
+    "remove everyone except active members",
+  ])(
     "keeps active-only membership sources when explicitly retained: %s",
     (search) => {
       const results = rankAnalyticsQueryCatalog({
@@ -430,6 +436,8 @@ describe("analytics query catalog", () => {
   it.each([
     "not active workspace members",
     "exclude active workspace members",
+    "not including active members",
+    "exclude all members including active members",
     "show all members; do not include active workspace users in a separate subset",
     "all workspace members; active members are excluded",
   ])(

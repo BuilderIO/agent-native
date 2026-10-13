@@ -588,8 +588,10 @@ function activeMemberPhrasePolarity(search: string): {
     /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/gi;
   const negativeInstructionBeforePhrase =
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
-  const negatedExclusionBeforePhrase =
-    /\b(?:do\s+not|don't|never|cannot|can't)\s+(?:exclude|skip|omit|remove|filter(?:\s+out)?|leave\s+out)\s+(?:(?:all|any|the|those)\s+)?$/iu;
+  const negatedRemovalBeforePhrase =
+    /\b(?:do\s+not|don't|never|cannot|can't|not)\s+(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+  const exclusionExceptionBeforePhrase =
+    /\b(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b[^;.!?]*\b(?:but|except(?:\s+for)?|other\s+than|aside\s+from|apart\s+from)\s*$/iu;
   const negativeInstructionAfterPhrase =
     /^\s*(?:(?:are|were|will be|should be|must be|need to be|have been)\s+)?(?:excluded|omitted|removed|left\s+out|filtered\s+out|not\s+included)\b/iu;
   const positiveContinuation =
@@ -603,9 +605,10 @@ function activeMemberPhrasePolarity(search: string): {
     const scopedPrefix = lastContinuation
       ? prefix.slice((lastContinuation.index ?? 0) + lastContinuation[0].length)
       : prefix;
+    if (exclusionExceptionBeforePhrase.test(scopedPrefix)) return false;
     if (
       negativeInstructionBeforePhrase.test(scopedPrefix) &&
-      !negatedExclusionBeforePhrase.test(scopedPrefix)
+      !negatedRemovalBeforePhrase.test(scopedPrefix)
     ) {
       return true;
     }

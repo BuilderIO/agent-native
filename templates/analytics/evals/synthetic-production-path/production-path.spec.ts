@@ -204,7 +204,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v9";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v10";
 const BASELINE_GIT_REVISION = "d0caebd20464a2a00ad417c78943d81438d9333a";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
@@ -252,6 +252,18 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: "exclude-inactive-show-active-members",
     prompt:
       "Find the catalog reference for workspace users; exclude inactive users and show active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
+    id: "not-excluding-active-members",
+    prompt:
+      "Find the catalog reference for workspace members, not excluding active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
+    id: "exclude-everyone-but-active-members",
+    prompt:
+      "Find the catalog reference for workspace members; exclude everyone but active members. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.active_organization_member_roles",
   },
   {
@@ -912,6 +924,8 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "active-workspace-member-roster-with-roles",
       "active-workspace-users-map-to-membership",
       "exclude-inactive-show-active-members",
+      "not-excluding-active-members",
+      "exclude-everyone-but-active-members",
       "full-workspace-roster-excludes-active-only-source",
       "nonpositive-count-instruction-keeps-member-rows",
       "negated-counts-keep-positive-monthly-trend",
