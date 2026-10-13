@@ -254,6 +254,7 @@ import {
   isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
+  isIdentitySsoAvailableForRequest,
   isIdentitySsoExplicitlyEnabled,
   isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
@@ -284,6 +285,7 @@ import {
   markExplicitPersonalOrgScope,
   runWithRequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 import { captureAuthError } from "./sentry.js";
 import { isTestIdentity } from "./test-identity.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
@@ -380,6 +382,7 @@ export interface AuthSession {
  */
 export interface AuthSessionResponse extends AuthSession {
   testIdentity: boolean;
+  identitySsoEnabled?: boolean;
 }
 
 export interface AuthOptions {
@@ -4944,6 +4947,14 @@ function setFrameworkSessionHintCookie(event: H3Event): void {
   });
 }
 
+function identitySsoEnabledForRequest(event: H3Event): boolean {
+  const requestOrigin = new URL(getForwardedRequestOrigin(event));
+  return isIdentitySsoAvailableForRequest({
+    requestHost: requestOrigin.host,
+    requestProtocol: requestOrigin.protocol.slice(0, -1),
+  });
+}
+
 export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   if (!isReadMethod(event)) {
@@ -4963,6 +4974,7 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
   const response: AuthSessionResponse = {
     ...session,
     testIdentity: isTestIdentity(session.email),
+    identitySsoEnabled: identitySsoEnabledForRequest(event),
   };
   return response;
 });

@@ -107,7 +107,8 @@ test("Select layer lists the exact visible unlocked hit stack and dismisses with
   expect(await app.savedHtml(designId)).toBe(baselineContent);
 });
 
-test("Select layer on a non-active overview screen routes selection to that exact screen", async ({
+// fixme: #7453 removed the canvas menu's "Edit with AI…" entry this test opens (Edit with Agent now opens the agent sidebar); re-author against the new entry point
+test.fixme("Select layer on a non-active overview screen routes selection to that exact screen", async ({
   app,
   page,
 }) => {
@@ -183,7 +184,8 @@ test("Select layer on a non-active overview screen routes selection to that exac
   expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
 });
 
-test("Edit with AI opened from direct mode accepts textarea input", async ({
+// fixme: #7453 removed the canvas menu's "Edit with AI…" entry this test opens (Edit with Agent now opens the agent sidebar); re-author against the new entry point
+test.fixme("Edit with AI opened from direct mode accepts textarea input", async ({
   app,
   page,
 }) => {

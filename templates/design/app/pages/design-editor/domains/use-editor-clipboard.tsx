@@ -66,6 +66,7 @@ import { runPasteSelection } from "../commands/paste-selection";
 import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
 import {
+  clientToOverviewCanvasPoint,
   runPastedImageFiles,
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
@@ -1163,6 +1164,10 @@ export function useEditorClipboard({
           handlePasteSelection,
           handlePastedImageFiles,
           insertDroppedImageFiles,
+          resolveBoardPoint: (client) =>
+            viewModeRef.current === "overview"
+              ? clientToOverviewCanvasPoint(canvasContainerRef.current, client)
+              : null,
         },
         point,
       ),

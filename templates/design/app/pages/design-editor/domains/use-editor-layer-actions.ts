@@ -3,6 +3,7 @@ import { type CodeLayerNode, type CodeLayerTreeNode } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useCallback, useRef, useMemo } from "react";
+import { toast } from "sonner";
 
 import { type LayersPanelMoveIntent } from "@/components/design/LayersPanel";
 import {
@@ -289,15 +290,11 @@ export function useEditorLayerActions({
     applyLinkedComponentEdit,
     getFreshActiveContent,
     handleStyleChange,
-    handleFrameSelection,
   } = editorSelectionAndStyles;
   const {
     handleCopySelection,
-    handlePasteToReplace,
     handleDuplicateSelection,
     handleDeleteSelection,
-    handleGroupSelection,
-    handleUngroupSelection,
   } = editorClipboard;
   const { setRuntimeStructureDeleteRequest, getActiveFileSelectedNodeIds } =
     editorLayoutAndStructure;
@@ -671,6 +668,9 @@ export function useEditorLayerActions({
   );
   const selectedDomLayerOwners = selectedDomLayerIds.map((layerId) =>
     codeLayerOwnerByNodeId.get(layerId),
+  );
+  const selectedLayersInActiveFile = selectedDomLayerOwners.every(
+    (owner) => !owner || owner.fileId === activeFile?.id,
   );
   const selectedRuntimeLayerOwners = selectedDomLayerOwners.filter(
     (owner) => owner?.runtimeOnly,
@@ -1391,6 +1391,29 @@ export function useEditorLayerActions({
     ],
   );
 
+  const handleCopyLayerLink = useCallback(
+    (nodeId?: string) => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("selection");
+      if (nodeId && files.some((file) => file.id === nodeId)) {
+        url.searchParams.set("screen", nodeId);
+      } else if (nodeId) {
+        url.searchParams.set("selection", nodeId);
+        const ownerFileId = codeLayerOwnerByNodeId.get(nodeId)?.fileId;
+        if (ownerFileId) url.searchParams.set("screen", ownerFileId);
+      }
+      if (!navigator.clipboard) {
+        toast.error(t("review.copyLinkFailed"));
+        return;
+      }
+      navigator.clipboard
+        .writeText(url.toString())
+        .then(() => toast.success(t("review.linkCopied")))
+        .catch(() => toast.error(t("review.copyLinkFailed")));
+    },
+    [codeLayerOwnerByNodeId, files, t],
+  );
+
   const layerPanelHandlers = {
     onRename: handleLayerRename,
     onToggleLocked: handleToggleLayerLocked,
@@ -1400,13 +1423,10 @@ export function useEditorLayerActions({
     canMoveLayer,
     onSelectionChange: handleLayerSelectionChange,
     onCopyLayer: handleCopySelection,
+    onCopyLink: handleCopyLayerLink,
     onDuplicateLayer: handleDuplicateSelection,
     onDeleteLayer: handleDeleteSelection,
-    onGroupSelection: handleGroupSelection,
-    onUngroupSelection: handleUngroupSelection,
     onReorderLayer: changeSelectedZIndex,
-    onPasteToReplace: handlePasteToReplace,
-    onFrameSelection: handleFrameSelection,
     onFlipHorizontal: handleFlipHorizontal,
     onFlipVertical: handleFlipVertical,
   };
@@ -1431,16 +1451,13 @@ export function useEditorLayerActions({
         ...args: Parameters<typeof handleLayerSelectionChange>
       ) => latest().onSelectionChange(...args),
       onCopyLayer: () => latest().onCopyLayer(),
+      onCopyLink: (nodeId: string) => latest().onCopyLink(nodeId),
       onDuplicateLayer: () => latest().onDuplicateLayer(),
       onDeleteLayer: () => latest().onDeleteLayer(),
-      onGroupSelection: () => latest().onGroupSelection(),
-      onUngroupSelection: () => latest().onUngroupSelection(),
       onReorderLayer: (
         _ids: string[],
         direction: Parameters<typeof changeSelectedZIndex>[0],
       ) => latest().onReorderLayer(direction),
-      onPasteToReplace: () => latest().onPasteToReplace(),
-      onFrameSelection: () => latest().onFrameSelection(),
       onFlipHorizontal: () => latest().onFlipHorizontal(),
       onFlipVertical: () => latest().onFlipVertical(),
     };
@@ -1492,6 +1509,7 @@ export function useEditorLayerActions({
     editableLiveScreenIds,
     handleJoinPublishWaitlist,
     activeLayerId,
+    handleCopyLayerLink,
     fullViewScreenIds,
     gradientEditTarget,
     inScreenGradientEditTarget,
@@ -1512,6 +1530,7 @@ export function useEditorLayerActions({
     selectedDomLayerIds,
     selectedActiveFileNodeIds,
     selectedLayersUseCompatibleSourceBackend,
+    selectedLayersInActiveFile,
     canUngroup,
     handleCanvasLayerMarqueeSelectionChange,
     handleScreenElementMarqueeSelect,

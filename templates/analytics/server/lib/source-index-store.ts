@@ -11,10 +11,16 @@ const SOURCE_INDEX_CACHE_TTL_MS = 30_000;
 const MAX_SOURCE_INDEX_CACHE_ORGS = 12;
 export const SOURCE_INDEX_STALE_AFTER_DAYS = 90;
 
+export type SourceIndexFreshness = {
+  ageDays: number;
+  staleAfterDays: number;
+  stale: boolean;
+};
+
 export function sourceIndexFreshness(
   generatedAt: string,
   now = Date.now(),
-): { ageDays: number; staleAfterDays: number; stale: boolean } {
+): SourceIndexFreshness {
   const generatedAtMs = Date.parse(generatedAt);
   if (!Number.isFinite(generatedAtMs)) {
     throw new Error("The source index timestamp is invalid.");
@@ -35,6 +41,25 @@ export type SourceIndexRead =
   | { status: "unavailable" }
   | { status: "invalid" }
   | { status: "available"; bundle: SourceIndexBundle };
+
+export type SourceIndexScanCoverage = {
+  unsafeEntriesOmitted: number | null;
+  unsafeFieldsOmitted: number | null;
+  truncatedFields: number | null;
+  unresolvedTrackingCallSites: number | null;
+};
+
+export function sourceIndexScanCoverage(
+  bundle: SourceIndexBundle,
+): SourceIndexScanCoverage {
+  const summary = bundle.scanSummary;
+  return {
+    unsafeEntriesOmitted: summary?.unsafeEntriesOmitted ?? null,
+    unsafeFieldsOmitted: summary?.unsafeFieldsOmitted ?? null,
+    truncatedFields: summary?.truncatedFields ?? null,
+    unresolvedTrackingCallSites: summary?.unresolvedTrackingCallSites ?? null,
+  };
+}
 
 const sourceIndexCache = new Map<
   string,
@@ -92,7 +117,10 @@ export async function readSourceIndex(
   }
 }
 
-export function sourceIndexDictionaryEntries(bundle: SourceIndexBundle) {
+export function sourceIndexDictionaryEntries(
+  bundle: SourceIndexBundle,
+  freshness = sourceIndexFreshness(bundle.generatedAt),
+) {
   const sourceRevisions = bundle.sources
     .map((source) =>
       source.revision ? `${source.id}@${source.revision}` : source.id,
@@ -126,6 +154,9 @@ export function sourceIndexDictionaryEntries(bundle: SourceIndexBundle) {
     sourceRevision: entry.sourceRevision ?? "",
     sourceIndexGeneratedAt: bundle.generatedAt,
     sourceIndexSources: sourceRevisions,
+    sourceIndexAgeDays: freshness.ageDays,
+    sourceIndexStaleAfterDays: freshness.staleAfterDays,
+    sourceIndexStale: freshness.stale,
     sourceIndex: true,
     approved: false,
     aiGenerated: true,

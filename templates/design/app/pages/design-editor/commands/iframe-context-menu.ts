@@ -141,6 +141,7 @@ export function runIframeContextMenu(
   menu.openAt({
     clientX,
     clientY,
+    ...(payload.info ? {} : { emptyCanvas: true }),
     ...(canvasPoint
       ? {
           canvasX: canvasPoint.x + (scroll?.scrollX ?? 0),

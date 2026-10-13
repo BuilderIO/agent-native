@@ -12,6 +12,7 @@ import {
   semanticScopeCompatibility,
   semanticScopeForSearch,
   searchTerms,
+  stripNonPositiveInstructions,
   decodeSearchCursor,
   unrelatedNameTerms,
 } from "./analytics-term-matcher";
@@ -33,7 +34,11 @@ import {
 import { mergeDataDictionaryEntry } from "./data-dictionary-overlays";
 import {
   readSourceIndex,
+  sourceIndexScanCoverage,
   sourceIndexDictionaryEntries,
+  sourceIndexFreshness,
+  type SourceIndexScanCoverage,
+  type SourceIndexFreshness,
 } from "./source-index-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
@@ -142,6 +147,9 @@ export type AnalyticsQueryCatalogCandidate =
       sourceRevision?: string;
       sourceIndexGeneratedAt?: string;
       sourceIndexSources?: string;
+      sourceIndexAgeDays?: number;
+      sourceIndexStaleAfterDays?: number;
+      sourceIndexStale?: boolean;
     };
 
 export type AnalyticsQueryCatalogSearchResult = {
@@ -163,6 +171,8 @@ export type AnalyticsQueryCatalogSearchResult = {
   dictionarySearchTruncated: boolean;
   dictionarySearchStatus: "available" | "partial" | "unavailable";
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
+  sourceIndexScanCoverage: SourceIndexScanCoverage | null;
+  sourceIndexFreshness: SourceIndexFreshness | null;
 };
 
 export type AnalyticsDictionarySearchResult = {
@@ -175,6 +185,8 @@ export type AnalyticsDictionarySearchResult = {
   dictionarySearchTruncated: boolean;
   dictionarySearchStatus: "available" | "partial" | "unavailable";
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
+  sourceIndexScanCoverage: SourceIndexScanCoverage | null;
+  sourceIndexFreshness: SourceIndexFreshness | null;
 };
 
 function text(value: unknown): string {
@@ -264,6 +276,7 @@ const SEMANTIC_SCOPES = new Set([
   "person",
   "organization",
   "membership",
+  "membership_roster",
   "product_activity",
   "session",
   "crm_record",
@@ -273,9 +286,443 @@ function inferSemanticScope(value: string): string {
   return semanticScopeForSearch(value);
 }
 
+function isMembershipRosterRequest(search: string): boolean {
+  return inferSemanticScope(search) === "membership_roster";
+}
+
+function candidateTextFields(
+  candidate: AnalyticsQueryCatalogCandidate,
+): string[] {
+  if (candidate.kind === "data-dictionary") {
+    return [
+      candidate.metric,
+      candidate.definition,
+      candidate.table,
+      candidate.columnsUsed,
+      candidate.grain,
+      candidate.primaryEntity,
+      candidate.semanticModel,
+      candidate.joinPattern,
+    ].filter((value): value is string => Boolean(value));
+  }
+  return [
+    candidate.dashboardTitle,
+    candidate.dashboardDescription,
+    candidate.panelTitle,
+    candidate.panelDescription,
+    candidate.query
+      ? typeof candidate.query === "string"
+        ? candidate.query
+        : JSON.stringify(candidate.query)
+      : "",
+  ].filter((value): value is string => Boolean(value));
+}
+
+function normalizedCandidateText(candidate: AnalyticsQueryCatalogCandidate) {
+  return candidateTextFields(candidate)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+}
+
+function hasAggregateShape(candidate: AnalyticsQueryCatalogCandidate) {
+  const fields =
+    candidate.kind === "data-dictionary"
+      ? [
+          candidate.metric,
+          candidate.table,
+          candidate.columnsUsed,
+          candidate.grain,
+        ]
+      : [candidate.query ? JSON.stringify(candidate.query) : ""];
+  const searchable = fields
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  if (candidate.kind === "data-dictionary") {
+    const grain = (candidate.grain ?? "").toLowerCase().replace(/[_-]+/g, " ");
+    const declaredRosterRowGrain =
+      /\b(?:one|single)\s+row\s+per\b/.test(grain) &&
+      /\b(?:users?|people|persons?|members?)\b/.test(grain) &&
+      /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(grain);
+    const temporalDefinition = [candidate.definition]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .replace(/[_-]+/g, " ");
+    const temporalMembershipGrain =
+      /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
+        grain,
+      ) ||
+      /\b(?:historical|history|month end|as of (?:the )?(?:day|week|month|quarter|year))\b|\b(?:daily|weekly|monthly|quarterly|yearly)\s+snapshots?\b|\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+        temporalDefinition,
+      );
+    if (temporalMembershipGrain) return true;
+    // An explicit user-organization row grain is stronger than incidental
+    // field names such as member_count. Temporal grains remain snapshots.
+    if (declaredRosterRowGrain) return false;
+  }
+  if (
+    /\b(?:aggregate|aggregated|rollup|summary|snapshot|count|total|average|avg|sum|median)\b/.test(
+      searchable,
+    )
+  ) {
+    return true;
+  }
+  if (candidate.kind === "dashboard-panel") {
+    return /\bgroup\s+by\b|\b(?:count|sum|avg|average|min|max|median)\s*\(/i.test(
+      searchable,
+    );
+  }
+  return false;
+}
+
+function hasMembershipRoleContext(candidate: AnalyticsQueryCatalogCandidate) {
+  const searchable = normalizedCandidateText(candidate);
+  const scope = candidateSemanticScope(candidate);
+  return (
+    /\b(?:users?|people|persons?|members?)\b/.test(searchable) &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(searchable) &&
+    (scope === "membership" || scope === "membership_roster") &&
+    !hasExplicitActivityEvidence(candidate) &&
+    hasMembershipRoleField(candidate)
+  );
+}
+
+function hasMembershipRoleField(candidate: AnalyticsQueryCatalogCandidate) {
+  const values =
+    candidate.kind === "data-dictionary"
+      ? [
+          candidate.columnsUsed,
+          candidate.table,
+          candidate.joinPattern,
+          candidate.semanticModel,
+        ]
+      : [candidate.query ? JSON.stringify(candidate.query) : ""];
+  const searchable = values
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  return /\b(?:roles?|permissions?|authorization)\b|\baccess\s+(?:level|role|scope|grant|permission|policy|control)\b/.test(
+    searchable,
+  );
+}
+
+function requestsMembershipRoleDetail(search: string): boolean {
+  return /\b(?:roles?|permissions?|authorization)\b|\baccess\s+(?:level|role|scope|grant|permission|policy|control)\b|\bby\s+access\b/i.test(
+    search,
+  );
+}
+
+function hasMembershipIdentityKey(columns: string): boolean {
+  return /\b(?:user|member|person)\s+id\b/.test(columns);
+}
+
+function hasOrganizationIdentityKey(columns: string): boolean {
+  return /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
+}
+
+function isStaleGeneratedSourceIndexEntry(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  return (
+    candidate.kind === "data-dictionary" &&
+    candidate.origin === "source-index" &&
+    candidate.sourceIndexStale === true
+  );
+}
+
+function hasMembershipRosterEvidence(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  if (isStaleGeneratedSourceIndexEntry(candidate)) return false;
+  if (
+    hasExplicitNonMembershipScope(candidate) ||
+    hasExplicitActivityEvidence(candidate)
+  ) {
+    return false;
+  }
+  const searchable = normalizedCandidateText(candidate);
+  const hasUserEntity = /\b(?:users?|people|persons?|members?)\b/.test(
+    searchable,
+  );
+  const hasOrganizationEntity =
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(searchable);
+  if (!hasUserEntity || !hasOrganizationEntity) return false;
+
+  const grain =
+    candidate.kind === "data-dictionary" ? (candidate.grain ?? "") : "";
+  const normalizedGrain = grain.toLowerCase().replace(/[_-]+/g, " ");
+  const grainDescribesMembershipRows =
+    /\b(?:one|single)\s+row\s+per\b/.test(normalizedGrain) &&
+    /\b(?:users?|people|persons?|members?)\b/.test(normalizedGrain) &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(normalizedGrain);
+  const membershipGrain =
+    /\bmembership\b/.test(normalizedGrain) &&
+    /\b(?:users?|people|persons?|members?)\b/.test(normalizedGrain) &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(normalizedGrain);
+  const columns =
+    candidate.kind === "data-dictionary"
+      ? (candidate.columnsUsed ?? "").toLowerCase().replace(/[_-]+/g, " ")
+      : "";
+  const hasMembershipKeys =
+    hasMembershipIdentityKey(columns) && hasOrganizationIdentityKey(columns);
+  if (candidate.kind === "dashboard-panel") {
+    const queryText = dashboardQueryText(candidate);
+    const hasUserKey = hasMembershipIdentityKey(queryText);
+    const hasOrganizationKey = hasOrganizationIdentityKey(queryText);
+    return (
+      !hasAggregateShape(candidate) &&
+      hasUserKey &&
+      hasOrganizationKey &&
+      hasMembershipRelationEvidence(queryText)
+    );
+  }
+  const declaredMembershipScope =
+    candidate.semanticScope === "membership" ||
+    candidate.semanticScope === "membership_roster";
+  const hasRelationshipEvidence =
+    grainDescribesMembershipRows ||
+    membershipGrain ||
+    declaredMembershipScope ||
+    hasMembershipRelationEvidence(searchable);
+  const hasSingleEntityGrain =
+    /\b(?:one|single)\s+row\s+per\b/.test(normalizedGrain) &&
+    /\b(?:users?|people|persons?|members?)\b/.test(normalizedGrain) !==
+      /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(normalizedGrain);
+  return (
+    !hasAggregateShape(candidate) &&
+    !hasSingleEntityGrain &&
+    hasMembershipKeys &&
+    hasRelationshipEvidence
+  );
+}
+
+function dashboardQueryText(
+  candidate: Extract<
+    AnalyticsQueryCatalogCandidate,
+    { kind: "dashboard-panel" }
+  >,
+): string {
+  return typeof candidate.query === "string"
+    ? candidate.query.toLowerCase().replace(/[_-]+/g, " ")
+    : JSON.stringify(candidate.query ?? "")
+        .toLowerCase()
+        .replace(/[_-]+/g, " ");
+}
+
+function hasMembershipRelationEvidence(value: string): boolean {
+  return (
+    /\bmembership\b/.test(value) ||
+    /\b(?:(?:user|member)\s+)?(?:organization|org|workspace|team)\s+memberships?\b/.test(
+      value,
+    ) ||
+    /\b(?:workspace|team)\s+members?\b/.test(value) ||
+    /\b(?:user|member)\s+(?:organization|org|workspace|team)\s+roles?\b/.test(
+      value,
+    ) ||
+    /\b(?:user|member)\s+(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
+      value,
+    )
+  );
+}
+
+function hasExplicitNonMembershipScope(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  if (
+    candidate.kind !== "data-dictionary" ||
+    isStaleGeneratedSourceIndexEntry(candidate)
+  ) {
+    return false;
+  }
+  const scope = candidate.semanticScope;
+  return (
+    typeof scope === "string" &&
+    scope !== "unknown" &&
+    SEMANTIC_SCOPES.has(scope) &&
+    scope !== "membership" &&
+    scope !== "membership_roster"
+  );
+}
+
+function hasExplicitActivityEvidence(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  const values =
+    candidate.kind === "data-dictionary"
+      ? [
+          candidate.metric,
+          candidate.definition,
+          candidate.source,
+          candidate.table,
+          candidate.semanticModel,
+        ]
+      : [candidate.query];
+  const searchable = values
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  if (
+    /\b(?:events?|activities?|usage(?: logs?)?|sessions?|funnels?|conversions?)\b/.test(
+      searchable,
+    )
+  ) {
+    return true;
+  }
+  if (
+    candidate.kind === "data-dictionary" &&
+    !isStaleGeneratedSourceIndexEntry(candidate) &&
+    (candidate.semanticScope === "membership" ||
+      candidate.semanticScope === "membership_roster")
+  ) {
+    return false;
+  }
+  return inferSemanticScope(searchable) === "product_activity";
+}
+
+function hasActiveOnlyMembershipEvidence(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  const scope = candidateSemanticScope(candidate);
+  if (scope !== "membership" && scope !== "membership_roster") return false;
+  const values =
+    candidate.kind === "data-dictionary"
+      ? [
+          candidate.metric,
+          candidate.definition,
+          candidate.table,
+          candidate.semanticModel,
+        ]
+      : [candidate.panelTitle, candidate.panelDescription, candidate.query];
+  const searchable = values
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  return /(?:\b(?<!non )active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b|\b(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?(?<!non )active\b)/.test(
+    searchable,
+  );
+}
+
+function activeMemberPhrasePolarity(search: string): {
+  positive: boolean;
+  negated: boolean;
+} {
+  const intent = stripNonPositiveInstructions(search);
+  const activeMemberPhrase =
+    /\b(?<!non[- ])(?:active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)|(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?active)\b/gi;
+  const negativeInstructionBeforePhrase =
+    /\b(?:no|not|never|don't|do\s+not|cannot|can't|without)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+  const removalInstruction =
+    /\b(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b/giu;
+  const negatedRemovalOperatorBefore =
+    /\b(?:(?:do|does|did)\s+not|don't|doesn't|didn't|never|cannot|can't|not(?:\s+to)?|without)\s*$/iu;
+  const exceptionBeforePhrase =
+    /\b(?:but|except(?:\s+for)?|other\s+than|aside\s+from|apart\s+from)\s*$/iu;
+  const negativeInstructionAfterPhrase =
+    /^\s*(?:(?:are|were|will be|should be|must be|need to be|have been)\s+)?(?:excluded|omitted|removed|left\s+out|filtered\s+out|not\s+included)\b/iu;
+  const positiveContinuation =
+    /(?:^|[;,.!?]|\b(?:but|and)\b)\s*(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b/giu;
+
+  const matches = Array.from(intent.matchAll(activeMemberPhrase));
+  const isNegated = (match: RegExpMatchArray) => {
+    const prefix = intent.slice(0, match.index ?? 0);
+    const continuations = Array.from(prefix.matchAll(positiveContinuation));
+    const lastContinuation = continuations[continuations.length - 1];
+    const scopedPrefix = lastContinuation
+      ? prefix.slice((lastContinuation.index ?? 0) + lastContinuation[0].length)
+      : prefix;
+    const removals = Array.from(scopedPrefix.matchAll(removalInstruction));
+    const lastRemoval = removals[removals.length - 1];
+    if (lastRemoval) {
+      const beforeRemoval = scopedPrefix.slice(0, lastRemoval.index ?? 0);
+      const afterRemoval = scopedPrefix.slice(
+        (lastRemoval.index ?? 0) + lastRemoval[0].length,
+      );
+      if (exceptionBeforePhrase.test(afterRemoval)) return false;
+      if (!negatedRemovalOperatorBefore.test(beforeRemoval)) return true;
+      if (negativeInstructionBeforePhrase.test(afterRemoval)) return true;
+      const end = (match.index ?? 0) + match[0].length;
+      return negativeInstructionAfterPhrase.test(intent.slice(end));
+    }
+    if (exceptionBeforePhrase.test(scopedPrefix)) return true;
+    if (negativeInstructionBeforePhrase.test(scopedPrefix)) return true;
+    const end = (match.index ?? 0) + match[0].length;
+    return negativeInstructionAfterPhrase.test(intent.slice(end));
+  };
+  const negated = matches.some(isNegated);
+  const positive = matches.some((match) => {
+    return !isNegated(match);
+  });
+  return { positive, negated };
+}
+
+function requestsActiveMembers(search: string): boolean {
+  return activeMemberPhrasePolarity(search).positive;
+}
+
+function isRosterDimensionCandidate(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  if (candidate.kind !== "data-dictionary" || hasAggregateShape(candidate)) {
+    return false;
+  }
+  if (
+    hasExplicitNonMembershipScope(candidate) ||
+    hasExplicitActivityEvidence(candidate)
+  ) {
+    return false;
+  }
+  const grain = (candidate.grain ?? "").toLowerCase().replace(/[_-]+/g, " ");
+  if (!/\b(?:one|single)\s+row\s+per\b/.test(grain)) return false;
+  if (/\bmembership\b/.test(grain)) return false;
+  if (/\bper\s+(?:day|week|month|quarter|year)\b/.test(grain)) return false;
+  const isUserGrain = /\b(?:users?|people|persons?|members?)\b/.test(grain);
+  const isOrganizationGrain =
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(grain);
+  const columns = (candidate.columnsUsed ?? "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const hasMembershipKeys =
+    hasMembershipIdentityKey(columns) && hasOrganizationIdentityKey(columns);
+  return isUserGrain && isOrganizationGrain && hasMembershipKeys;
+}
+
+function rosterCandidateSupportsRequestedDetail(
+  candidate: AnalyticsQueryCatalogCandidate,
+  search: string,
+): boolean {
+  // Keep stale entries available as leads; ranking must not trust their claims.
+  if (isStaleGeneratedSourceIndexEntry(candidate)) return true;
+  if (
+    hasExplicitNonMembershipScope(candidate) ||
+    hasExplicitActivityEvidence(candidate) ||
+    candidateSemanticScope(candidate) === "product_activity"
+  ) {
+    return false;
+  }
+  const requestsRoleDetail = requestsMembershipRoleDetail(search);
+  if (requestsRoleDetail) {
+    return (
+      hasMembershipRosterEvidence(candidate) &&
+      hasMembershipRoleField(candidate)
+    );
+  }
+  if (isRosterDimensionCandidate(candidate)) return true;
+  return hasMembershipRosterEvidence(candidate);
+}
+
 export function candidateSemanticScope(
   candidate: AnalyticsQueryCatalogCandidate,
 ): string {
+  if (isStaleGeneratedSourceIndexEntry(candidate)) {
+    return "unknown";
+  }
   if (candidate.kind === "data-dictionary") {
     const declared = candidate.semanticScope;
     if (declared && declared !== "unknown" && SEMANTIC_SCOPES.has(declared)) {
@@ -292,6 +739,7 @@ export function candidateSemanticScope(
         .join(" "),
     );
   }
+  if (hasMembershipRosterEvidence(candidate)) return "membership_roster";
   return inferSemanticScope(
     [
       candidate.dashboardTitle,
@@ -580,6 +1028,15 @@ function dictionaryCandidates(
         ...(text(entry.sourceIndexSources)
           ? { sourceIndexSources: text(entry.sourceIndexSources) }
           : {}),
+        ...(typeof entry.sourceIndexAgeDays === "number"
+          ? { sourceIndexAgeDays: entry.sourceIndexAgeDays }
+          : {}),
+        ...(typeof entry.sourceIndexStaleAfterDays === "number"
+          ? { sourceIndexStaleAfterDays: entry.sourceIndexStaleAfterDays }
+          : {}),
+        ...(typeof entry.sourceIndexStale === "boolean"
+          ? { sourceIndexStale: entry.sourceIndexStale }
+          : {}),
       },
     ];
   });
@@ -635,6 +1092,97 @@ export function candidateTrustTier(
   return candidate.favorite ? 1 : 0;
 }
 
+function candidateQueryRankingTierForTerms(
+  candidate: AnalyticsQueryCatalogCandidate,
+  requestedTerms: ReadonlySet<string>,
+): number {
+  const hasExactQueryCoverage =
+    requestedTerms.size > 0 &&
+    [...requestedTerms].every((term) =>
+      candidateExactMatchedTerms(candidate).includes(term),
+    );
+  if (
+    candidate.kind === "data-dictionary" &&
+    candidate.approved === true &&
+    hasExactQueryCoverage
+  ) {
+    return 2;
+  }
+  if (
+    candidate.kind === "dashboard-panel" &&
+    ((candidate.dashboardCertified && hasExactQueryCoverage) ||
+      (candidateIsRunnable(candidate) &&
+        requestedTerms.size > 1 &&
+        hasExactQueryCoverage))
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+export function candidateQueryPriority(
+  candidate: AnalyticsQueryCatalogCandidate,
+  search: string,
+): {
+  rosterSpecificity: number;
+  membershipRowSpecificity: number;
+  rankingTier: number;
+  trust: number;
+  activeSubsetSpecificity: number;
+  scope: number;
+} {
+  const rankingIntent = stripNonPositiveInstructions(search);
+  const requestedScope = requestedSemanticScope(rankingIntent);
+  const aggregateRequest =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
+      rankingIntent,
+    );
+  const plainMembershipRequest =
+    requestedScope === "membership" && !aggregateRequest;
+  const rosterRequest = isMembershipRosterRequest(rankingIntent);
+  const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
+  const requestedActiveMembers =
+    (requestedScope === "membership" ||
+      requestedScope === "membership_roster") &&
+    requestsActiveMembers(rankingIntent);
+  const requestedTerms = new Set(searchTerms(rankingIntent));
+  const staleSourceIndex = isStaleGeneratedSourceIndexEntry(candidate);
+
+  return {
+    rosterSpecificity:
+      !staleSourceIndex && rosterRequest
+        ? hasMembershipRosterEvidence(candidate) &&
+          (!requestsRoleDetail || hasMembershipRoleField(candidate))
+          ? 2
+          : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
+            ? 1
+            : 0
+        : 0,
+    membershipRowSpecificity:
+      !staleSourceIndex &&
+      plainMembershipRequest &&
+      hasMembershipRosterEvidence(candidate)
+        ? 1
+        : 0,
+    rankingTier: candidateQueryRankingTierForTerms(candidate, requestedTerms),
+    trust: candidateTrustTier(candidate),
+    activeSubsetSpecificity:
+      !staleSourceIndex &&
+      requestedActiveMembers &&
+      hasActiveOnlyMembershipEvidence(candidate)
+        ? 1
+        : 0,
+    scope: staleSourceIndex
+      ? 0
+      : requestedScope === "unknown"
+        ? 1
+        : semanticScopeCompatibility(
+            candidateSemanticScope(candidate),
+            requestedScope,
+          ),
+  };
+}
+
 export function rankAnalyticsQueryCatalogPage(args: {
   search: string;
   dashboards: Array<{
@@ -657,6 +1205,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
   truncated: boolean;
   nextPage: string | null;
 } {
+  const rankingIntent = stripNonPositiveInstructions(args.search);
   const candidates = [
     ...args.dashboards.flatMap((dashboard) =>
       dashboardPanelCandidates({
@@ -665,47 +1214,39 @@ export function rankAnalyticsQueryCatalogPage(args: {
         dashboardDescription: dashboard.description,
         config: dashboard.config,
         origin: dashboard.origin,
-        search: args.search,
+        search: rankingIntent,
         certification: dashboard.certification ?? null,
         dashboardUpdatedAt: dashboard.updatedAt,
         favorite: dashboard.favorite === true,
       }),
     ),
-    ...dictionaryCandidates(args.dictionaryEntries, args.search),
+    ...dictionaryCandidates(args.dictionaryEntries, rankingIntent),
   ];
 
-  const requestedScope = requestedSemanticScope(args.search);
-  const requestedTerms = new Set(searchTerms(args.search));
-  const hasExactQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
-    requestedTerms.size > 0 &&
-    [...requestedTerms].every((term) =>
-      candidateExactMatchedTerms(candidate).includes(term),
+  const requestedScope = requestedSemanticScope(rankingIntent);
+  const requestedActiveMembers =
+    (requestedScope === "membership" ||
+      requestedScope === "membership_roster") &&
+    requestsActiveMembers(rankingIntent);
+  const aggregateRequest =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
+      rankingIntent,
     );
-  const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
-    requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
+  const plainMembershipRequest =
+    requestedScope === "membership" && !aggregateRequest;
+  const rosterRequest = isMembershipRosterRequest(rankingIntent);
+  const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
+  const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
+  const excludesMembershipForActivity = requestedScope === "product_activity";
+  const excludesActiveOnlyMembership =
+    !requestedActiveMembers &&
+    (rosterRequest || plainMembershipRequest || activeMemberIntent.negated);
+  const roleBreakdownRequest =
+    !rosterRequest && requestedScope === "membership" && requestsRoleDetail;
   // Strong definitions and proven panels outrank generic hits before coverage.
   const rankedCandidates = candidates.map((candidate) => ({
     candidate,
-    scope:
-      requestedScope === "unknown"
-        ? 1
-        : semanticScopeCompatibility(
-            candidateSemanticScope(candidate),
-            requestedScope,
-          ),
-    trust: candidateTrustTier(candidate),
-    rankingTier:
-      candidate.kind === "data-dictionary" &&
-      candidate.approved === true &&
-      hasExactQueryCoverage(candidate)
-        ? 2
-        : candidate.kind === "dashboard-panel" &&
-            ((candidate.dashboardCertified &&
-              hasExactQueryCoverage(candidate)) ||
-              (candidateIsRunnable(candidate) &&
-                hasFullQueryCoverage(candidate)))
-          ? 1
-          : 0,
+    ...candidateQueryPriority(candidate, rankingIntent),
     coverage:
       candidateExactMatchedTerms(candidate).length +
       (candidate.kind === "dashboard-panel" && candidate.dashboardCertified
@@ -714,27 +1255,61 @@ export function rankAnalyticsQueryCatalogPage(args: {
     runnable: candidateIsRunnable(candidate),
     tieBreak: JSON.stringify(candidate),
   }));
+  const eligibleCandidates = rankedCandidates.filter(
+    ({ candidate }) =>
+      !(
+        excludesActiveOnlyMembership &&
+        hasActiveOnlyMembershipEvidence(candidate)
+      ) &&
+      !(
+        excludesMembershipForActivity &&
+        ["membership", "membership_roster"].includes(
+          candidateSemanticScope(candidate),
+        )
+      ),
+  );
   const strongestScopeMatch = Math.max(
-    ...rankedCandidates.map(({ scope }) => scope),
+    ...eligibleCandidates.map(({ scope }) => scope),
     0,
   );
-  const bestScopeTrust = rankedCandidates.reduce(
+  const bestScopeTrust = eligibleCandidates.reduce(
     (strongest, candidate) =>
       candidate.scope === 2 ? Math.max(strongest, candidate.trust) : strongest,
     0,
   );
-  const scopeFiltered =
-    strongestScopeMatch === 2
-      ? rankedCandidates.filter(
-          ({ scope, trust }) => scope === 2 || trust > bestScopeTrust,
+  const scopeFiltered = rosterRequest
+    ? eligibleCandidates.filter(({ candidate }) =>
+        rosterCandidateSupportsRequestedDetail(candidate, rankingIntent),
+      )
+    : roleBreakdownRequest
+      ? eligibleCandidates.filter(({ candidate }) =>
+          hasMembershipRoleContext(candidate),
         )
-      : rankedCandidates;
+      : strongestScopeMatch === 2
+        ? eligibleCandidates.filter(({ candidate, scope, trust }) => {
+            if (isStaleGeneratedSourceIndexEntry(candidate)) return true;
+            if (scope === 2) return true;
+            if (requestedScope === "product_activity") {
+              return scope === 1 && trust > bestScopeTrust;
+            }
+            return trust > bestScopeTrust;
+          })
+        : eligibleCandidates;
   const ranked = scopeFiltered
     .sort((a, b) => {
+      if (b.rosterSpecificity !== a.rosterSpecificity) {
+        return b.rosterSpecificity - a.rosterSpecificity;
+      }
+      if (b.membershipRowSpecificity !== a.membershipRowSpecificity) {
+        return b.membershipRowSpecificity - a.membershipRowSpecificity;
+      }
       if (b.rankingTier !== a.rankingTier) {
         return b.rankingTier - a.rankingTier;
       }
       if (b.trust !== a.trust) return b.trust - a.trust;
+      if (b.activeSubsetSpecificity !== a.activeSubsetSpecificity) {
+        return b.activeSubsetSpecificity - a.activeSubsetSpecificity;
+      }
       if (b.scope !== a.scope) return b.scope - a.scope;
       if (b.coverage !== a.coverage) return b.coverage - a.coverage;
       if (b.candidate.score !== a.candidate.score) {
@@ -798,6 +1373,8 @@ async function listDictionaryEntries(args: {
   truncated: boolean;
   status: "available" | "partial" | "unavailable";
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
+  sourceIndexScanCoverage: SourceIndexScanCoverage | null;
+  sourceIndexFreshness: SourceIndexFreshness | null;
 }> {
   const entries: DictionaryEntry[] = [];
   const seen = new Map<string, number>();
@@ -862,11 +1439,20 @@ async function listDictionaryEntries(args: {
     | "unavailable"
     | "invalid"
     | "available" = "unavailable";
+  let sourceIndexCoverage: SourceIndexScanCoverage | null = null;
+  let sourceIndexFreshnessMetadata: SourceIndexFreshness | null = null;
   if (sourceIndexResult.status === "fulfilled") {
     sourceIndexStatus = sourceIndexResult.value.status;
     if (sourceIndexResult.value.status === "available") {
+      sourceIndexFreshnessMetadata = sourceIndexFreshness(
+        sourceIndexResult.value.bundle.generatedAt,
+      );
+      sourceIndexCoverage = sourceIndexScanCoverage(
+        sourceIndexResult.value.bundle,
+      );
       for (const entry of sourceIndexDictionaryEntries(
         sourceIndexResult.value.bundle,
+        sourceIndexFreshnessMetadata,
       )) {
         collect(entry);
       }
@@ -912,6 +1498,8 @@ async function listDictionaryEntries(args: {
           ? "partial"
           : "unavailable",
     sourceIndexStatus,
+    sourceIndexScanCoverage: sourceIndexCoverage,
+    sourceIndexFreshness: sourceIndexFreshnessMetadata,
   };
 }
 
@@ -950,6 +1538,8 @@ export async function searchAnalyticsDictionaryCatalog(args: {
     dictionarySearchTruncated: dictionary.truncated,
     dictionarySearchStatus: dictionary.status,
     sourceIndexStatus: dictionary.sourceIndexStatus,
+    sourceIndexScanCoverage: dictionary.sourceIndexScanCoverage,
+    sourceIndexFreshness: dictionary.sourceIndexFreshness,
   };
 }
 
@@ -1015,6 +1605,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   signal?: AbortSignal;
 }): Promise<AnalyticsQueryCatalogSearchResult> {
   args.signal?.throwIfAborted();
+  const rankingIntent = stripNonPositiveInstructions(args.search);
   const [
     summariesResult,
     dictionaryResult,
@@ -1035,7 +1626,7 @@ export async function searchAnalyticsQueryCatalog(args: {
     listFavoriteDashboardIds(args.email),
     searchDashboardReferencesPage(
       { email: args.email, orgId: args.orgId },
-      args.search,
+      rankingIntent,
       MAX_CATALOG_DASHBOARD_HYDRATION,
     ),
   ]);
@@ -1124,7 +1715,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   );
 
   const shortlistedSummaries = shortlistDashboardSummaries(
-    args.search,
+    rankingIntent,
     searchedSummaries,
     args.limit,
     favoriteIds,
@@ -1151,7 +1742,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   const shortlistedIdSet = new Set(shortlistedIds);
   const omittedSummaryMatch = searchedSummaries.some(
     (dashboard) =>
-      dashboardSummaryRelevance(args.search, dashboard) > 0 &&
+      dashboardSummaryRelevance(rankingIntent, dashboard) > 0 &&
       !shortlistedIdSet.has(dashboard.id),
   );
   const omittedDashboardReference = dashboardReferences.some(
@@ -1254,5 +1845,13 @@ export async function searchAnalyticsQueryCatalog(args: {
       dictionaryResult.status === "fulfilled"
         ? dictionaryResult.value.sourceIndexStatus
         : "unavailable",
+    sourceIndexScanCoverage:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexScanCoverage
+        : null,
+    sourceIndexFreshness:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexFreshness
+        : null,
   };
 }

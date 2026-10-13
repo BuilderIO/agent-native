@@ -1919,8 +1919,13 @@ export default {
     presetWeekdays: "Dias úteis às 06:00",
     presetWeekly: "Semanalmente na segunda-feira às 06:00",
     status: "Status",
+    unsafeEntriesOmitted: "Entradas omitidas pelas verificações de segurança",
+    unsafeFieldsOmitted: "Campos omitidos pelas verificações de segurança",
+    truncatedFields: "Campos truncados",
     unresolvedTrackingCallSites: "Chamadas de rastreamento não resolvidas",
     unresolvedTrackingCallSitesUnavailable: "Indisponível",
+    sourceIndexCoverageCaveat:
+      "As verificações de segurança podem omitir entradas ou campos; campos truncados e chamadas de rastreamento não resolvidas também podem limitar a cobertura.",
     dynamicTrackingCoverageCaveat:
       "Chamadas cujos nomes de evento são calculados em tempo de execução são excluídas; aliases ou outras APIs de rastreamento podem não ser detectados.",
     overviewFailed: "Não foi possível carregar o estado da geração.",

@@ -17,7 +17,12 @@ const mocks = vi.hoisted(() => {
   const state = {
     entries: [] as DictionaryEntry[],
     sourceIndexStatus: "available" as SourceIndexStatus,
-    unresolvedTrackingCallSites: 2 as number | null,
+    scanCoverage: {
+      unsafeEntriesOmitted: 1 as number | null,
+      unsafeFieldsOmitted: 2 as number | null,
+      truncatedFields: 3 as number | null,
+      unresolvedTrackingCallSites: 2 as number | null,
+    },
     canManageOrg: true,
     mutateAsync: vi.fn(async (_input: Record<string, unknown>) => ({
       success: true,
@@ -60,7 +65,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           status: "available",
           generatedAt: "2026-10-09T00:00:00.000Z",
           entryCount: mocks.entries.length,
-          unresolvedTrackingCallSites: mocks.unresolvedTrackingCallSites,
+          scanCoverage: mocks.scanCoverage,
           sources: [{ id: "dbt" }],
           sourceCounts: [{ source: "dbt", entryCount: 1 }],
           ageDays: 1,
@@ -146,7 +151,12 @@ describe("SemanticLayer", () => {
 
   beforeEach(() => {
     mocks.sourceIndexStatus = "available";
-    mocks.unresolvedTrackingCallSites = 2;
+    mocks.scanCoverage = {
+      unsafeEntriesOmitted: 1,
+      unsafeFieldsOmitted: 2,
+      truncatedFields: 3,
+      unresolvedTrackingCallSites: 2,
+    };
     mocks.canManageOrg = true;
     mocks.entries = [
       {
@@ -242,6 +252,12 @@ describe("SemanticLayer", () => {
     expect(container.textContent).toContain(
       "indexPanel.unresolvedTrackingCallSites",
     );
+    expect(container.textContent).toContain("indexPanel.unsafeEntriesOmitted");
+    expect(container.textContent).toContain("indexPanel.unsafeFieldsOmitted");
+    expect(container.textContent).toContain("indexPanel.truncatedFields");
+    expect(container.textContent).toContain(
+      "indexPanel.sourceIndexCoverageCaveat",
+    );
     expect(container.textContent).toContain(
       "indexPanel.dynamicTrackingCoverageCaveat",
     );
@@ -249,7 +265,12 @@ describe("SemanticLayer", () => {
   });
 
   it("shows legacy unresolved tracking coverage as unavailable", async () => {
-    mocks.unresolvedTrackingCallSites = null;
+    mocks.scanCoverage = {
+      unsafeEntriesOmitted: null,
+      unsafeFieldsOmitted: null,
+      truncatedFields: null,
+      unresolvedTrackingCallSites: null,
+    };
     await renderPage();
 
     await act(async () => {
@@ -263,6 +284,9 @@ describe("SemanticLayer", () => {
     expect(container.textContent).toContain(
       "indexPanel.unresolvedTrackingCallSitesUnavailable",
     );
+    expect(container.textContent).toContain("indexPanel.unsafeEntriesOmitted");
+    expect(container.textContent).toContain("indexPanel.unsafeFieldsOmitted");
+    expect(container.textContent).toContain("indexPanel.truncatedFields");
   });
 
   it.each(["unavailable", "invalid"] as const)(

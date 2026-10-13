@@ -31,24 +31,23 @@ const TWO_BOX_HTML = `<!doctype html>
 </html>`;
 
 const ELEMENT_MENU = [
-  "Select layer",
-  "Edit with AI…",
+  "Edit with Agent",
+  "Send to",
+  "Copy link",
   "Copy",
-  "Paste here",
   "Paste to replace",
   "Copy/Paste as",
-  "Bring to front",
-  "Send to back",
-  "Group selection",
+  "Rename",
   "Frame selection",
   "Add auto layout",
   "Create component",
   "Hide",
   "Lock",
-  "Rotate 90° clockwise",
-  "Flip horizontal",
-  "Flip vertical",
+  "Arrange",
+  "Transform",
 ];
+
+const ARRANGE_MENU = ["Bring to front", "Send to back"];
 
 async function openFixture(app: App, html: string) {
   const id = await app.seed(html);
@@ -69,6 +68,15 @@ async function rightClick(app: App, nodeId: string) {
   const menu = app.page.getByRole("menu").last();
   await expect(menu).toBeVisible();
   return menu;
+}
+
+async function openArrange(app: App) {
+  await app.page
+    .getByRole("menu")
+    .last()
+    .getByRole("menuitem", { name: "Arrange" })
+    .hover();
+  await expect(app.page.getByRole("menu")).toHaveCount(2);
 }
 
 async function clickNode(app: App, nodeId: string) {
@@ -140,6 +148,8 @@ test.describe("interaction: right-click canvas context menu", () => {
 
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     expect(await menuLabels(app.page)).toStrictEqual(ELEMENT_MENU);
+    await openArrange(app);
+    expect(await menuLabels(app.page)).toStrictEqual(ARRANGE_MENU);
     await app.page
       .getByRole("menu")
       .last()
@@ -158,6 +168,7 @@ test.describe("interaction: right-click canvas context menu", () => {
     ]);
 
     await rightClick(app, "b");
+    await openArrange(app);
     await app.page
       .getByRole("menu")
       .last()
@@ -176,12 +187,14 @@ test.describe("interaction: right-click canvas context menu", () => {
     expectOnlyChanged(before, restored, []);
   });
 
-  test("Rename is not on the canvas context menu but is on the layer row's context menu", async ({
+  test("Rename is on both the canvas context menu and the layer row's context menu", async ({
     app,
   }) => {
     const id = await openFixture(app, TWO_BOX_HTML);
     await rightClick(app, "a");
-    expect(await menuLabels(app.page)).not.toContain("Rename");
+    expect(
+      (await menuLabels(app.page)).filter((label) => label === "Rename"),
+    ).toHaveLength(1);
     await app.page.keyboard.press("Escape");
     await expect(app.page.getByRole("menu")).toHaveCount(0);
     const before = await app.savedNodes(id);
@@ -195,7 +208,7 @@ test.describe("interaction: right-click canvas context menu", () => {
     await app.page
       .getByRole("menu")
       .last()
-      .getByRole("menuitem", { name: /^Rename layer/ })
+      .getByRole("menuitem", { name: /^Rename/ })
       .click();
     const renameInput = app.page.getByRole("textbox", { name: /rename/i });
     await expect(renameInput).toHaveValue("Box A");
@@ -218,19 +231,6 @@ test.describe("interaction: right-click canvas context menu", () => {
     await expect.poll(() => app.selectedLayers()).toEqual(["Frame"]);
 
     await menu.getByText("Select layer", { exact: true }).hover();
-
-    await expect(app.page.getByRole("menu")).toHaveCount(2);
-    expect(await menuLabels(app.page)).toStrictEqual(["Frame", "Stage"]);
-  });
-
-  test("Edit with AI submenu label for the same unnamed container also matches the layers panel name", async ({
-    app,
-  }) => {
-    await openFixture(app, NAME_MISMATCH_HTML);
-    const menu = await rightClick(app, "card");
-    await expect.poll(() => app.selectedLayers()).toEqual(["Frame"]);
-
-    await menu.getByText("Edit with AI…", { exact: true }).hover();
 
     await expect(app.page.getByRole("menu")).toHaveCount(2);
     expect(await menuLabels(app.page)).toStrictEqual(["Frame", "Stage"]);
@@ -311,9 +311,6 @@ test.describe("interaction: right-click canvas context menu", () => {
     await openFixture(app, TWO_BOX_HTML);
     const firstMenu = await rightClick(app, "a");
     await expect(
-      firstMenu.getByRole("menuitem", { name: /Paste here/ }),
-    ).toBeEnabled();
-    await expect(
       firstMenu.getByRole("menuitem", { name: /Paste to replace/ }),
     ).toBeEnabled();
     await app.page.keyboard.press("Escape");
@@ -327,9 +324,6 @@ test.describe("interaction: right-click canvas context menu", () => {
     const secondMenu = await rightClick(app, "a");
 
     await expect(
-      secondMenu.getByRole("menuitem", { name: /Paste here/ }),
-    ).toBeDisabled();
-    await expect(
       secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
     ).toBeDisabled();
     await app.page.evaluate(() =>
@@ -338,13 +332,12 @@ test.describe("interaction: right-click canvas context menu", () => {
       ).__resolveClipboardRead(),
     );
     await expect(
-      secondMenu.getByRole("menuitem", { name: /Paste here/ }),
+      secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
       "an empty clipboard keeps paste off",
     ).toBeDisabled();
   });
 
-  // fixme: product bug: Empty-board right-click with no selection shows the element menu (Copy, Paste here, Paste to replace, Copy/Paste as, Bring to front …
-  test.fixme("right-click on empty canvas (no selection) shows only Paste here and Show/Hide UI/comments", async ({
+  test("right-click on empty canvas (no selection) shows Explore with Agent, Copy link, Paste here and Show/Hide UI/comments", async ({
     app,
   }) => {
     await openFixture(app, TWO_BOX_HTML);
@@ -360,6 +353,8 @@ test.describe("interaction: right-click canvas context menu", () => {
 
     await expect(app.page.getByRole("menu").last()).toBeVisible();
     expect(await menuLabels(app.page)).toStrictEqual([
+      "Explore with Agent",
+      "Copy link",
       "Paste here",
       "Hide UI",
       "Hide comments",
