@@ -5852,6 +5852,7 @@ describe("createProductionAgentHandler", () => {
       const pinned = pinAdditionalActionsToTurn(
         { "kept-tool": kept, "new-tool": actionEntry({}) },
         ["kept-tool", "gone-tool"],
+        {},
       );
 
       expect(Object.keys(pinned)).toEqual(["kept-tool", "gone-tool"]);
@@ -5859,6 +5860,14 @@ describe("createProductionAgentHandler", () => {
       expect(() => pinned["gone-tool"]!.run({})).toThrow(
         /gone-tool is no longer available/,
       );
+    });
+
+    it("leaves a vanished name that is now a registered action to that action", () => {
+      const pinned = pinAdditionalActionsToTurn({}, ["now-registered"], {
+        "now-registered": actionEntry({}),
+      });
+
+      expect(pinned).toEqual({});
     });
   });
 

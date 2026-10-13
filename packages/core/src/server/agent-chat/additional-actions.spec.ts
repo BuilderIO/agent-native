@@ -229,6 +229,20 @@ describe("resolveAppAdditionalActions", () => {
       expect(Object.keys(added)).toEqual(["untrusted-ok"]);
     });
 
+    it("refuses __proto__ as a name instead of dropping it silently", async () => {
+      const added = await resolveAppAdditionalActions(
+        config({ resolver: () => ({ ["__proto__"]: entry("x") }) }),
+        alice,
+        {},
+      );
+
+      expect(Object.getPrototypeOf(added)).toBe(Object.prototype);
+      expect(Object.keys(added)).toEqual([]);
+      expect(String(vi.mocked(console.warn).mock.calls[0]?.[0])).toMatch(
+        /"__proto__".*is not a valid action name/,
+      );
+    });
+
     it("refuses schema keywords and shapes outside the allowlist, each for its own reason", async () => {
       const regex = { type: "string", pattern: "^(a+)+$" };
       const cases: Array<[string, unknown, string]> = [

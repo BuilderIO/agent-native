@@ -1401,13 +1401,16 @@ function readPersistedAdditionalActionNames(
  * may have changed since the turn started. Keep the turn's names: drop entries
  * that appeared since, and keep a vanished name as an entry that fails loudly
  * when called, so a persisted action allowlist that names it still resolves.
+ * A name that has since become a registered action is left to that action.
  */
 export function pinAdditionalActionsToTurn(
   resolved: Record<string, ActionEntry>,
   turnNames: readonly string[],
+  registered: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
   const pinned: Record<string, ActionEntry> = {};
   for (const name of turnNames) {
+    if (Object.hasOwn(registered, name)) continue;
     pinned[name] = Object.hasOwn(resolved, name)
       ? resolved[name]
       : {
@@ -11095,6 +11098,7 @@ export function createProductionAgentHandler(
         ? pinAdditionalActionsToTurn(
             resolvedAdditionalActions,
             turnAdditionalActionNames,
+            resolvedActions,
           )
         : resolvedAdditionalActions;
       if (!isBackgroundWorker) {

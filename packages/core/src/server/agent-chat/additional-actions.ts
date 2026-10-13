@@ -282,6 +282,8 @@ function rejectActionName(
   if (!ACTION_NAME_PATTERN.test(name)) {
     return "is not a valid action name (letters, digits, '_' and '-', at most 64 characters)";
   }
+  // Assigning it to a registry object sets the prototype instead of a key.
+  if (name === "__proto__") return "is not a valid action name";
   if (Object.hasOwn(registered, name) || config.isReservedName(name)) {
     return "is a registered action name";
   }
