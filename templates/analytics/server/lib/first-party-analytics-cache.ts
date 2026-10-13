@@ -280,10 +280,16 @@ export async function withFirstPartyCache(
       return l2Hit;
     }
     let result: AnalyticsQueryResult;
+    let timeoutRetryUsed = false;
     while (true) {
       if (controller.signal.aborted) throw abortError(controller.signal);
       const attemptDeadlineAt = entry.sharedDeadlineAt;
-      const queryTimeoutMs = remainingTimeoutMs(attemptDeadlineAt);
+      // A single retry may use the full joiner-extension window. The shared
+      // controller still enforces the latest active waiter's actual deadline.
+      const queryDeadlineAt = timeoutRetryUsed
+        ? maxSharedDeadlineAt
+        : attemptDeadlineAt;
+      const queryTimeoutMs = remainingTimeoutMs(queryDeadlineAt);
       if (queryTimeoutMs <= 0) {
         throw new Error(
           `First-party analytics query timed out after ${timeoutMs}ms`,
@@ -298,11 +304,13 @@ export async function withFirstPartyCache(
           controller.signal.aborted ||
           entry.waiters === 0 ||
           !isTimeoutError(error) ||
+          timeoutRetryUsed ||
           retryDeadlineAt <= attemptDeadlineAt ||
           retryDeadlineAt <= Date.now()
         ) {
           throw error;
         }
+        timeoutRetryUsed = true;
       }
     }
     setL1(key, result);

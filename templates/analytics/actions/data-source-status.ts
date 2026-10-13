@@ -276,6 +276,8 @@ export default defineAction({
           label: provider.label,
           setupLink: dataSourceSetupLink(provider.provider),
           configured: configured ? true : workspace.error ? null : false,
+          credentialsConfigured:
+            hasRequiredCredentials && configuredProviderKeys.length > 0,
           configuredKeys: configuredProviderKeys,
           missingRequiredKeys,
           optionalKeys,

@@ -373,6 +373,7 @@ describe("data-source-status", () => {
 
     expect(hubspot).toMatchObject({
       configured: true,
+      credentialsConfigured: false,
       configuredKeys: [],
       workspaceConnection: {
         grantState: "granted",

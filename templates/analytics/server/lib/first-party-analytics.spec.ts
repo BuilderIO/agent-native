@@ -2548,7 +2548,7 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
-  it("retries a timed-out coalesced query within the later waiter's deadline", async () => {
+  it("caps retries across successive coalesced deadline extensions", async () => {
     vi.useFakeTimers();
     const result = {
       rows: [{ count: "1" }],
@@ -2561,9 +2561,15 @@ describe("queryFirstPartyAnalytics", () => {
     const firstAttemptStarted = new Promise<void>((resolve) => {
       markFirstAttemptStarted = resolve;
     });
-    let rejectFirstAttempt!: (error: Error) => void;
-    const compute = vi.fn();
-    compute
+    let rejectFirstAttempt: ((error: Error) => void) | undefined;
+    let rejectRetry: ((error: Error) => void) | undefined;
+    let markRetryStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      markRetryStarted = resolve;
+    });
+    let retrySignal: AbortSignal | undefined;
+    const compute = vi
+      .fn()
       .mockImplementationOnce(
         (_timeoutMs: number, signal: AbortSignal) =>
           new Promise<typeof result>((_resolve, reject) => {
@@ -2574,7 +2580,17 @@ describe("queryFirstPartyAnalytics", () => {
             });
           }),
       )
-      .mockResolvedValueOnce(result);
+      .mockImplementationOnce(
+        (_timeoutMs: number, signal: AbortSignal) =>
+          new Promise<typeof result>((_resolve, reject) => {
+            retrySignal = signal;
+            rejectRetry = reject;
+            markRetryStarted();
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      );
 
     const key = `deadline-retry-${Math.random()}`;
     try {
@@ -2590,18 +2606,30 @@ describe("queryFirstPartyAnalytics", () => {
         timeoutMs: 100,
         deadlineAt: Date.now() + 100,
       });
-      const secondResult = expect(second).resolves.toEqual(result);
+      const secondTimedOut = expect(second).rejects.toThrow(/timed out/);
       await vi.advanceTimersByTimeAsync(50);
       await firstTimedOut;
-      rejectFirstAttempt(timeoutError);
-
-      await secondResult;
-      expect(compute).toHaveBeenCalledTimes(2);
+      rejectFirstAttempt?.(timeoutError);
+      await retryStarted;
       expect(compute.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([
-        100, 50,
+        100, 100,
       ]);
+
+      const third = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const thirdTimedOut = expect(third).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(50);
+      await secondTimedOut;
+      expect(retrySignal?.aborted).toBe(false);
+      rejectRetry?.(timeoutError);
+
+      await thirdTimedOut;
+      expect(compute).toHaveBeenCalledTimes(2);
     } finally {
-      rejectFirstAttempt(timeoutError);
+      rejectFirstAttempt?.(timeoutError);
+      rejectRetry?.(timeoutError);
       vi.useRealTimers();
     }
   });

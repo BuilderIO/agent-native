@@ -464,6 +464,8 @@ interface DataSourceStatusSummary {
   availableExternalSources: Array<{
     aliases: string[];
     configured: boolean | null;
+    workspaceGrantState?: string;
+    credentialsConfigured?: boolean | null;
     label?: string;
     setupLink?: string;
   }>;
@@ -556,6 +558,15 @@ function hasMissingRequestedExternalSource(
       );
       if (
         matchingStatuses.some(
+          (source) =>
+            source.workspaceGrantState === "granted" &&
+            source.credentialsConfigured === false,
+        )
+      ) {
+        return true;
+      }
+      if (
+        matchingStatuses.some(
           ({ configured }) => configured === true || configured === null,
         )
       ) {
@@ -584,6 +595,10 @@ function dataSourceStatusSummary(
     label: unknown,
     configured: boolean | null,
     providerSetupLink?: unknown,
+    details?: {
+      workspaceGrantState?: string;
+      credentialsConfigured?: boolean | null;
+    },
   ) => {
     const aliases = [provider, label]
       .filter((value): value is string => typeof value === "string")
@@ -599,6 +614,23 @@ function dataSourceStatusSummary(
           : existing.configured === null || configured === null
             ? null
             : false;
+      if (
+        details?.workspaceGrantState &&
+        (!existing.workspaceGrantState ||
+          details.workspaceGrantState === "connected")
+      ) {
+        existing.workspaceGrantState = details.workspaceGrantState;
+      }
+      if (details?.credentialsConfigured !== undefined) {
+        existing.credentialsConfigured =
+          existing.credentialsConfigured === true ||
+          details.credentialsConfigured === true
+            ? true
+            : existing.credentialsConfigured === false ||
+                details.credentialsConfigured === false
+              ? false
+              : null;
+      }
       existing.aliases = [...new Set([...existing.aliases, ...aliases])];
       if (!existing.label && typeof label === "string" && label.trim()) {
         existing.label = label.trim();
@@ -615,6 +647,12 @@ function dataSourceStatusSummary(
     availableExternalSources.set(key, {
       aliases,
       configured,
+      ...(details?.workspaceGrantState
+        ? { workspaceGrantState: details.workspaceGrantState }
+        : {}),
+      ...(details?.credentialsConfigured !== undefined
+        ? { credentialsConfigured: details.credentialsConfigured }
+        : {}),
       ...(typeof label === "string" && label.trim()
         ? { label: label.trim() }
         : {}),
@@ -710,11 +748,23 @@ function dataSourceStatusSummary(
           workspaceConnectedSourceLabels.add(label.trim());
         }
       }
+      const workspaceGrantState =
+        via === "workspace-grant" || via === "credentials-and-workspace-grant"
+          ? "granted"
+          : via === "workspace" || via === "credentials-and-workspace"
+            ? "connected"
+            : undefined;
+      const credentialsConfigured = via.includes("credentials")
+        ? true
+        : via === "workspace" || via === "workspace-grant"
+          ? false
+          : undefined;
       addAvailableExternalSource(
         record.provider,
         label,
         true,
         record.setupLink,
+        { workspaceGrantState, credentialsConfigured },
       );
     }
 
@@ -739,21 +789,35 @@ function dataSourceStatusSummary(
       const label = record.label ?? record.provider;
       const configured =
         typeof record.configured === "boolean" ? record.configured : null;
-      addAvailableExternalSource(
-        record.provider,
-        label,
-        configured,
-        record.setupLink,
-      );
-      if (configured === true && typeof label === "string" && label.trim()) {
-        configuredSourceLabels.add(label.trim());
-      }
       const workspaceConnection =
         record.workspaceConnection &&
         typeof record.workspaceConnection === "object" &&
         !Array.isArray(record.workspaceConnection)
           ? (record.workspaceConnection as Record<string, unknown>)
           : null;
+      const workspaceGrantState =
+        typeof workspaceConnection?.grantState === "string"
+          ? workspaceConnection.grantState
+          : undefined;
+      const credentialsConfigured =
+        typeof record.credentialsConfigured === "boolean"
+          ? record.credentialsConfigured
+          : workspaceGrantState === "granted"
+            ? Array.isArray(record.configuredKeys) &&
+              record.configuredKeys.length > 0
+            : configured === true
+              ? true
+              : null;
+      addAvailableExternalSource(
+        record.provider,
+        label,
+        configured,
+        record.setupLink,
+        { workspaceGrantState, credentialsConfigured },
+      );
+      if (configured === true && typeof label === "string" && label.trim()) {
+        configuredSourceLabels.add(label.trim());
+      }
       if (
         workspaceConnection?.grantState === "connected" &&
         typeof label === "string" &&
@@ -789,7 +853,9 @@ function dataSourceStatusSummary(
               grantState === "not_connected"
             ? false
             : null;
-      addAvailableExternalSource(providerId, label, configured);
+      addAvailableExternalSource(providerId, label, configured, undefined, {
+        ...(grantState ? { workspaceGrantState: grantState } : {}),
+      });
       if (configured && typeof label === "string" && label.trim()) {
         configuredSourceLabels.add(label.trim());
       }
@@ -815,13 +881,21 @@ function dataSourceStatusSummary(
 function requestedExternalSourceSetup(
   userText: string,
   summary: DataSourceStatusSummary,
-): { label: string; setupLink: string } | null {
+): { label: string; setupLink: string; kind: "connect" | "review" } | null {
   let source:
     | DataSourceStatusSummary["availableExternalSources"][number]
     | undefined;
+  let kind: "connect" | "review" = "connect";
   let bestMatchLength = -1;
   for (const candidate of summary.availableExternalSources) {
-    if (candidate.configured !== false || !candidate.setupLink) continue;
+    const needsReview =
+      candidate.workspaceGrantState === "granted" &&
+      candidate.credentialsConfigured === false;
+    if (
+      (candidate.configured !== false && !needsReview) ||
+      !candidate.setupLink
+    )
+      continue;
     const matchLength = Math.max(
       -1,
       ...candidate.aliases
@@ -830,6 +904,7 @@ function requestedExternalSourceSetup(
     );
     if (matchLength > bestMatchLength) {
       source = candidate;
+      kind = needsReview ? "review" : "connect";
       bestMatchLength = matchLength;
     }
   }
@@ -837,6 +912,7 @@ function requestedExternalSourceSetup(
   return {
     label: source.label ?? source.aliases[0] ?? "data source",
     setupLink: source.setupLink,
+    kind,
   };
 }
 
@@ -882,13 +958,16 @@ export function realDataFinalGuard(
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
+  const sourceStatusDetails = sourceStatusDescription(sourceStatus);
   const requestedSourceSetup = requestedExternalSourceSetup(
     userText,
     sourceStatus,
   );
   const setupLink = requestedSourceSetup?.setupLink ?? sourceStatus.setupLink;
   const setupLabel = requestedSourceSetup
-    ? `Connect ${requestedSourceSetup.label}`
+    ? requestedSourceSetup.kind === "review"
+      ? `Review ${requestedSourceSetup.label} connection`
+      : `Connect ${requestedSourceSetup.label}`
     : "Connect data sources";
   const setupMarkdown = `[${setupLabel}](${setupLink})`;
   const hasUnknownExternalSourceStatus =
@@ -911,6 +990,14 @@ export function realDataFinalGuard(
     sourceStatus.checked &&
     externalSourceRequest &&
     (noConfiguredExternalSources || missingRequestedExternalSource);
+  const unavailableSourceGuidance =
+    requestedSourceSetup?.kind === "review"
+      ? `The requested ${requestedSourceSetup.label} source already has an Analytics workspace grant, but no healthy connection is active.${sourceStatusDetails ? ` Status reports ${sourceStatusDetails}.` : ""} Ask the user to review that existing connection and include this exact link: ${setupMarkdown}. Do not ask them to connect it again.`
+      : `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`;
+  const unavailableSourceFallback =
+    requestedSourceSetup?.kind === "review"
+      ? `I can query ${requestedSourceSetup.label} once its existing workspace connection is healthy.${sourceStatusDetails ? ` Status reports ${sourceStatusDetails}.` : ""} ${setupMarkdown}`
+      : `I can help with that once the relevant source is connected. ${setupMarkdown}`;
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -1051,8 +1138,8 @@ export function realDataFinalGuard(
       !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
-        fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
+        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. ${unavailableSourceGuidance}`,
+        fallbackMessage: unavailableSourceFallback,
         maxRetries: 2,
       };
     }
@@ -1077,8 +1164,8 @@ export function realDataFinalGuard(
 
   if (needsDataSourceLink) {
     return {
-      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
+      retryMessage: unavailableSourceGuidance,
+      fallbackMessage: unavailableSourceFallback,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -1094,7 +1181,6 @@ export function realDataFinalGuard(
   if (!draftMakesAnalyticsClaim) return null;
 
   const configuredSources = sourceStatus.configuredSourceLabels;
-  const sourceStatusDetails = sourceStatusDescription(sourceStatus);
   const configuredSourceGuidance = sourceStatusDetails
     ? ` \`data-source-status\` reports ${sourceStatusDetails}. It checks configuration and workspace grants but does not run a source query. Treat configured credentials separately from healthy workspace connections; do not call a credential-only source connected or ask the user to reconnect before trying its query action.`
     : "";

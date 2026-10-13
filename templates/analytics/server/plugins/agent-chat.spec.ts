@@ -1184,6 +1184,82 @@ describe("realDataFinalGuard", () => {
     );
   });
 
+  it("reviews an inactive granted source instead of asking to connect it again", () => {
+    const hubspotSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot pipeline",
+        draftText: "HubSpot is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "workspace-grant",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: false,
+                  configuredKeys: [],
+                  setupLink: hubspotSetupLink,
+                  workspaceConnection: {
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                  },
+                },
+              ],
+              dataSourcesSetupLink:
+                "/_agent-native/open?app=analytics&view=data-sources",
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [
+                  {
+                    id: "hubspot",
+                    label: "HubSpot",
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                    statuses: ["needs_reauth"],
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Review HubSpot connection](${hubspotSetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Review HubSpot connection](${hubspotSetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "already has an Analytics workspace grant, but no healthy connection is active",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      `[Connect HubSpot](${hubspotSetupLink})`,
+    );
+  });
+
   it("does not claim an unreadable provider is disconnected", () => {
     const hubspotSetupLink =
       "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
@@ -1526,7 +1602,11 @@ describe("realDataFinalGuard", () => {
                   label: "First-party Analytics",
                   via: "built-in",
                 },
-                { provider: "hubspot", label: "HubSpot", via: "credentials" },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "credentials-and-workspace-grant",
+                },
                 { provider: "github", label: "GitHub", via: "workspace" },
               ],
               providers: [
@@ -1534,8 +1614,9 @@ describe("realDataFinalGuard", () => {
                   provider: "hubspot",
                   label: "HubSpot",
                   configured: true,
+                  credentialsConfigured: true,
                   configuredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
-                  workspaceConnection: { grantState: "not_connected" },
+                  workspaceConnection: { grantState: "granted" },
                 },
                 {
                   provider: "github",
@@ -1553,7 +1634,7 @@ describe("realDataFinalGuard", () => {
                     id: "hubspot",
                     provider: "hubspot",
                     label: "HubSpot",
-                    grantState: "not_connected",
+                    grantState: "granted",
                   },
                   {
                     id: "github",
