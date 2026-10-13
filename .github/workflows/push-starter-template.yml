@@ -1,8 +1,9 @@
 name: Push Builder Code starter template to starter
 
-# Runs only after a stable publish, from the release commit. Building from main
-# HEAD paired unreleased template changes (scripts calling new CLI commands)
-# with the previous published core, breaking every app scaffolded in between.
+# Runs only after a stable publish, from the published core's release tag.
+# Building from main HEAD paired unreleased template changes (scripts calling
+# new CLI commands) with the previous published core, breaking every app
+# scaffolded in between.
 on:
   repository_dispatch:
     types: [agent-native-packages-published]
@@ -25,34 +26,66 @@ jobs:
     name: Materialize and push template branch
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve the release commit
+      # The dispatch payload's sha is not trusted: the auto-publish recovery
+      # redispatch sends the branch HEAD, not the release commit. Dispatches
+      # mirror npm `latest`, so a late or retried event cannot roll back.
+      - name: Resolve the published release tag
         id: source
         env:
-          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
           INPUT_VERSION: ${{ inputs.core_version }}
         run: |
           set -euo pipefail
-          if [ -n "${DISPATCH_SHA:-}" ]; then
-            if ! [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "::error::Dispatch sha is not a full commit SHA: ${DISPATCH_SHA}"
-              exit 1
-            fi
-            echo "ref=${DISPATCH_SHA}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # Registry failures retry, then fail loudly: no later dispatch will
+          # retry this run.
+          npm_view() {
+            local out attempt
+            for attempt in 1 2 3; do
+              if out="$(npm view "$@" --prefer-online 2>/dev/null)"; then
+                printf '%s' "$out"; return 0
+              fi
+              echo "npm registry lookup failed (attempt ${attempt}/3); retrying in 5s..." >&2
+              sleep 5
+            done
+            echo "::error::Could not reach npm for: npm view $*" >&2
+            return 1
+          }
           version="${INPUT_VERSION:-}"
           if [ -z "$version" ]; then
-            version="$(npm view @agent-native/core version --prefer-online)"
+            version="$(npm_view @agent-native/core version)"
           fi
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Not a stable core version: ${version}"
             exit 1
           fi
-          echo "ref=refs/tags/@agent-native/core@${version}" >> "$GITHUB_OUTPUT"
+          versions="$(npm_view @agent-native/core versions --json)"
+          if ! printf '%s' "$versions" \
+            | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
+            echo "::error::@agent-native/core@${version} is not published on npm."
+            exit 1
+          fi
+          tag="refs/tags/@agent-native/core@${version}"
+          if [ -z "$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "$tag")" ]; then
+            echo "::error::Release tag ${tag} does not exist; cannot locate the commit core ${version} was published from."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "ref=${tag}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ steps.source.outputs.ref }}
+
+      - name: Require the release commit to pin the resolved core version
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          set -euo pipefail
+          pinned="$(jq -r .version packages/core/package.json)"
+          if [ "$pinned" != "$VERSION" ]; then
+            echo "::error::Tag for core ${VERSION} checks out packages/core at ${pinned}; refusing to mirror a mismatched template."
+            exit 1
+          fi
+          echo "Mirroring the builder-code-starter template from the core ${VERSION} release commit."
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -60,35 +93,6 @@ jobs:
         with:
           node-version: "24"
           cache: "pnpm"
-
-      - name: Require the pinned core version to be published
-        run: |
-          set -euo pipefail
-          version="$(node -p "require('./packages/core/package.json').version")"
-          # Fetch the published version list. A successful query (exit 0) is an
-          # authoritative answer, so membership is definitive. A failed query
-          # means the registry was unreachable (timeout / DNS / 5xx / rate
-          # limit) — NOT that the version is unpublished; retry, then fail
-          # loudly, because no later dispatch will retry this run.
-          versions=""; ok=""
-          for attempt in 1 2 3; do
-            if versions="$(npm view "@agent-native/core" versions --json --prefer-online 2>/dev/null)"; then
-              ok=1; break
-            fi
-            echo "npm registry lookup failed (attempt ${attempt}/3); retrying in 5s..."
-            sleep 5
-          done
-          if [ -z "$ok" ]; then
-            echo "::error::Could not reach npm to check @agent-native/core@${version}; failing rather than silently skipping."
-            exit 1
-          fi
-          if printf '%s' "$versions" \
-            | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
-            echo "core ${version} is on npm — mirroring its release commit."
-          else
-            echo "::error::The release commit pins core ${version}, which is not on npm; refusing to mirror a template for an unpublished core."
-            exit 1
-          fi
 
       - run: pnpm install --frozen-lockfile
 
