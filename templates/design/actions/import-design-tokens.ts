@@ -267,11 +267,23 @@ function friendlyName(cssVar: string): string {
 }
 
 function normalizeValue(value: string): string {
-  return value
-    .trim()
-    .replace(/[;,]$/, "")
-    .replace(/^["']|["']$/g, "")
-    .trim();
+  const normalized = value.trim().replace(/[;,]$/, "").trim();
+  const quote = normalized[0];
+  if (quote !== "'" && quote !== '"') return normalized;
+
+  let escaped = false;
+  for (let index = 1; index < normalized.length; index += 1) {
+    const char = normalized[index]!;
+    if (escaped) escaped = false;
+    else if (char === "\\") escaped = true;
+    else if (char === quote) {
+      return index === normalized.length - 1
+        ? normalized.slice(1, -1).trim()
+        : normalized;
+    }
+  }
+
+  return normalized;
 }
 
 function tokenVar(prefix: string, key: string): string {
@@ -956,6 +968,174 @@ function splitCssFunctionArguments(value: string): string[] {
   return parts;
 }
 
+function readCssFunctionArgumentsAt(
+  value: string,
+  functionTokenEnd: number,
+): string | null {
+  let depth = 1;
+  let quote: "'" | '"' | null = null;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let index = functionTokenEnd; index < value.length; index += 1) {
+    const char = value[index]!;
+    const next = value[index + 1];
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      inBlockComment = true;
+      index += 1;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "(") {
+      depth += 1;
+    } else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return value.slice(functionTokenEnd, index);
+    }
+  }
+
+  return null;
+}
+
+const cssMathFunctions = new Set([
+  "calc",
+  "min",
+  "max",
+  "clamp",
+  "round",
+  "mod",
+  "rem",
+  "sin",
+  "cos",
+  "tan",
+  "asin",
+  "acos",
+  "atan",
+  "atan2",
+  "pow",
+  "sqrt",
+  "hypot",
+  "log",
+  "exp",
+  "abs",
+  "sign",
+]);
+
+function isValidCssMathExpression(value: string): boolean {
+  let parsed: csstree.CssNode;
+  try {
+    parsed = csstree.parse(value, { context: "value" });
+  } catch (error) {
+    if (error instanceof Error && error.name === "SyntaxError") return false;
+    throw error;
+  }
+  if (parsed.type !== "Value") return false;
+
+  csstree.walk(parsed, (node) => {
+    if (node.type !== "Function") return;
+    const name = csstree.ident.decode(node.name).toLowerCase();
+    if (name === "var" || name === "env" || name === "attr") {
+      Object.assign(node, { type: "Number", value: "1" });
+    }
+  });
+
+  return csstree.lexer.matchType("calc-sum", parsed).matched !== null;
+}
+
+const cssRoundingStrategies = new Set(["nearest", "up", "down", "to-zero"]);
+
+function isValidCssMathFunction(name: string, parts: string[]): boolean {
+  const allPartsValid = parts.every(isValidCssMathExpression);
+
+  if (name === "calc") return parts.length === 1 && allPartsValid;
+  if (name === "min" || name === "max" || name === "hypot") {
+    return parts.length > 0 && allPartsValid;
+  }
+  if (name === "clamp") {
+    const isCalculationOrNone = (part: string) =>
+      part.trim().toLowerCase() === "none" || isValidCssMathExpression(part);
+    return (
+      parts.length === 3 &&
+      isCalculationOrNone(parts[0]!) &&
+      isValidCssMathExpression(parts[1]!) &&
+      isCalculationOrNone(parts[2]!)
+    );
+  }
+  if (name === "round") {
+    if (parts.length < 1 || parts.length > 3) return false;
+    const hasStrategy = cssRoundingStrategies.has(
+      parts[0]!.trim().toLowerCase(),
+    );
+    if (parts.length === 3 && !hasStrategy) return false;
+    const calculationParts = hasStrategy ? parts.slice(1) : parts;
+    return (
+      calculationParts.length > 0 &&
+      calculationParts.length <= 2 &&
+      calculationParts.every(isValidCssMathExpression)
+    );
+  }
+  if (name === "log") {
+    return (parts.length === 1 || parts.length === 2) && allPartsValid;
+  }
+  if (["mod", "rem", "atan2", "pow"].includes(name)) {
+    return parts.length === 2 && allPartsValid;
+  }
+  return (
+    [
+      "sin",
+      "cos",
+      "tan",
+      "asin",
+      "acos",
+      "atan",
+      "sqrt",
+      "exp",
+      "abs",
+      "sign",
+    ].includes(name) &&
+    parts.length === 1 &&
+    allPartsValid
+  );
+}
+
+function hasValidCssMathFunctionSyntax(value: string): boolean {
+  let valid = true;
+
+  csstree.tokenize(value, (type, start, end) => {
+    if (!valid || type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (!cssMathFunctions.has(name)) return;
+
+    const args = readCssFunctionArgumentsAt(value, end);
+    if (args === null) {
+      valid = false;
+      return;
+    }
+
+    const parts = splitCssFunctionArguments(args);
+    valid = isValidCssMathFunction(name, parts);
+  });
+
+  return valid;
+}
+
 function isValidCssColor(value: string): boolean {
   const normalized = value.trim();
   if (csstree.lexer.matchType("color", normalized).matched) return true;
@@ -1021,6 +1201,7 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
     return false;
   }
   if (hasUnsafeCssValueFunction(token.value)) return false;
+  if (!hasValidCssMathFunctionSyntax(token.value)) return false;
   if (
     token.value.trim().startsWith("#") &&
     !/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(

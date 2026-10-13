@@ -971,6 +971,47 @@ Bad radius: 12px} body { color: red
     });
   });
 
+  it("rejects malformed CSS math expressions in non-color token values", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: [
+        "Spacing malformed: calc(12px +)",
+        "Spacing min malformed: min(12px,)",
+        "Spacing clamp malformed: clamp(1px, 2px)",
+        "Spacing fallback malformed: var(--spacing, calc(1px +))",
+        "Spacing round malformed: round(1px,)",
+        "Spacing valid: calc((12px + 2px) * 2)",
+        "Spacing min valid: min(12px, 24px)",
+        "Spacing round valid: round(down, 5px, 2px)",
+        "Spacing clamp none: clamp(none, 5px, none)",
+      ].join("\n"),
+    });
+
+    expect(result.importedCount).toBe(4);
+    expect(result.rejectedCount).toBe(5);
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--spacing-valid",
+          value: "calc((12px + 2px) * 2)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-min-valid",
+          value: "min(12px, 24px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-round-valid",
+          value: "round(down, 5px, 2px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-clamp-none",
+          value: "clamp(none, 5px, none)",
+        }),
+      ]),
+    );
+  });
+
   it("keeps an earlier valid token when a later duplicate is invalid", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -1121,6 +1162,26 @@ Bad radius: 12px} body { color: red
       );
     },
   );
+
+  it("preserves quoted multi-family font stacks", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.md",
+          content: "Font: 'Inter', 'Helvetica',",
+        },
+      ],
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--font",
+        value: "'Inter', 'Helvetica'",
+      }),
+    );
+  });
 
   it("skips malformed LESS while continuing to import other files", async () => {
     const result = await action.run({
