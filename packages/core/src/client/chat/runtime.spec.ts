@@ -5252,6 +5252,113 @@ describe("createAgentNativeChatRuntime", () => {
     expect(parts).not.toContainEqual({ type: "text", text: trailingText });
   });
 
+  it("replays the approved call when its paused result was not streamed", async () => {
+    const approvalInput = { resourceId: "resource-42" };
+    const approvalKey = 'write-resource:{"resourceId":"resource-42"}';
+    const skippedToolEvents = Array.from({ length: 64 }, (_, index) => {
+      const id = `call-skipped-${index}`;
+      return [
+        {
+          type: "tool_start",
+          id,
+          tool: "write-resource",
+          input: { resourceId: `resource-skipped-${index}` },
+        },
+        {
+          type: "tool_done",
+          id,
+          tool: "write-resource",
+          result:
+            "Not executed: write-resource was called after an earlier action paused this turn.",
+          completedSideEffect: false,
+        },
+      ];
+    }).flat();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-unapproved-pending",
+            tool: "write-resource",
+            input: { resourceId: "resource-41" },
+          },
+          {
+            type: "tool_start",
+            id: "call-approved-pending",
+            tool: "write-resource",
+            input: approvalInput,
+          },
+          {
+            type: "approval_required",
+            tool: "write-resource",
+            input: approvalInput,
+            approvalKey,
+            toolCallId: "call-approved-pending",
+          },
+          ...skippedToolEvents,
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-missing-paused-tool-result",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-missing-paused-tool-result",
+      threadId: "thread-missing-paused-tool-result",
+    });
+    const first = await session.startTurn({ prompt: "Write this resource" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalKey, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const parts = (
+      request.structuredHistory as Array<{
+        content: Array<{
+          type: string;
+          id?: string;
+          name?: string;
+          input?: unknown;
+          toolCallId?: string;
+          content?: string;
+        }>;
+      }>
+    ).flatMap((message) => message.content);
+
+    expect(request.approvedToolCalls).toEqual([approvalKey]);
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "call-approved-pending",
+        name: "write-resource",
+        input: approvalInput,
+      }),
+    );
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-approved-pending",
+        content: expect.stringContaining("did NOT execute"),
+      }),
+    );
+    expect(parts).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "call-unapproved-pending",
+      }),
+    );
+  });
+
   it("bounds supplemental approval history and omits oversized metadata", async () => {
     const oversizedToolCallId = "i".repeat(64 * 1024 + 1);
     const oversizedToolName = "n".repeat(64 * 1024 + 1);

@@ -3364,9 +3364,18 @@ interface BoundedPendingApprovalRuntimeMessages {
 
 function pendingApprovalRuntimeMessages(
   state: AgentNativeMessageProjectionState,
+  approvedToolCalls: readonly string[],
 ): BoundedPendingApprovalRuntimeMessages {
   const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
+  const approvedToolCallSet = new Set(approvedToolCalls);
+  const reservedApprovalCallCount = Math.min(
+    approvedToolCallSet.size,
+    MAX_TOOL_HISTORY_CALLS,
+  );
+  const unapprovedToolPartLimit =
+    MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS - reservedApprovalCallCount * 2;
   let selectedToolPartCount = 0;
+  let selectedApprovalCallCount = 0;
   let selectedTextPartCount = 0;
   let scannedPartCount = 0;
   let omitted = false;
@@ -3391,20 +3400,36 @@ function pendingApprovalRuntimeMessages(
       });
       continue;
     }
-    if (part.type !== "tool-call" || part.result === undefined) continue;
-    if (selectedToolPartCount + 2 > MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
-      omitted = true;
-      toolHistoryOmitted = true;
-      continue;
+    if (part.type !== "tool-call") continue;
+    const isApprovedPendingCall =
+      part.approval !== undefined &&
+      approvedToolCallSet.has(part.approval.approvalKey);
+    if (part.result === undefined && !isApprovedPendingCall) continue;
+    if (isApprovedPendingCall) {
+      if (selectedApprovalCallCount >= MAX_TOOL_HISTORY_CALLS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        continue;
+      }
+      selectedApprovalCallCount++;
+    } else {
+      if (selectedToolPartCount + 2 > unapprovedToolPartLimit) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        continue;
+      }
+      selectedToolPartCount += 2;
     }
-    selectedToolPartCount += 2;
     messagesReversed.push({
       role: "user",
       content: [
         {
           type: "tool-result",
           toolCallId: part.toolCallId,
-          result: part.result,
+          result:
+            isApprovedPendingCall && !part.result?.trim()
+              ? "Awaiting human approval. This action did NOT execute."
+              : part.result,
           ...(part.isError ? { isError: true } : {}),
         },
       ],
@@ -3851,6 +3876,31 @@ function mapAgentNativeEvent(
   }
   if (ev.type === "approval_required") {
     input.message.approvalPending = true;
+    const approvalKey = ev.approvalKey;
+    if (typeof approvalKey === "string" && approvalKey.length > 0) {
+      const toolCallId = ev.toolCallId ?? ev.id;
+      const toolName = ev.tool;
+      for (let index = input.message.content.length - 1; index >= 0; index--) {
+        const part = input.message.content[index];
+        if (
+          part?.type !== "tool-call" ||
+          part.result !== undefined ||
+          (toolCallId
+            ? part.toolCallId !== toolCallId
+            : part.toolName !== toolName)
+        ) {
+          continue;
+        }
+        part.approval = {
+          approvalKey,
+          ...(ev.askId ? { askId: ev.askId } : {}),
+          ...(ev.allowPersistentApproval === false
+            ? { allowPersistentApproval: false }
+            : {}),
+        };
+        break;
+      }
+    }
     return [
       {
         type: "approval-request",
@@ -4574,7 +4624,10 @@ export function createAgentNativeChatRuntime(
       const loadedSkillSlugs = loadedSkillSlugsFromMessages(turn.messages);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
-          ? pendingApprovalRuntimeMessages(continuationMessageState)
+          ? pendingApprovalRuntimeMessages(
+              continuationMessageState,
+              approvedToolCalls,
+            )
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
         messagesForHistory,
