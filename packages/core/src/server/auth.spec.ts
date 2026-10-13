@@ -113,6 +113,7 @@ describe("server/auth", () => {
     vi.doUnmock("../org/workspace-app-access.js");
     vi.doUnmock("./embed-session.js");
     vi.doUnmock("./email.js");
+    vi.doUnmock("./request-origin.js");
     vi.doUnmock("./sentry.js");
     vi.resetModules();
   });
@@ -6762,6 +6763,39 @@ describe("server/auth", () => {
         sessionHandler(eventFor("app.example.test")),
       ).resolves.toMatchObject({
         identitySsoEnabled: false,
+      });
+    });
+
+    it("propagates an invalid forwarded origin when resolving identity SSO", async () => {
+      const invalidOrigin = Object.assign(
+        new Error("Invalid forwarded request origin"),
+        {
+          statusCode: 400,
+          statusMessage: "Invalid forwarded request origin",
+        },
+      );
+      vi.doMock("./request-origin.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("./request-origin.js")>()),
+        getForwardedRequestOrigin: () => {
+          throw invalidOrigin;
+        },
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "person@example.test" }),
+      });
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      await expect(
+        sessionHandler(
+          createMockEvent({ path: "/_agent-native/auth/session" }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
       });
     });
 

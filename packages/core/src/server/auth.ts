@@ -4948,16 +4948,11 @@ function setFrameworkSessionHintCookie(event: H3Event): void {
 }
 
 function identitySsoEnabledForRequest(event: H3Event): boolean {
-  try {
-    const requestOrigin = new URL(getForwardedRequestOrigin(event));
-    return isIdentitySsoAvailableForRequest({
-      requestHost: requestOrigin.host,
-      requestProtocol: requestOrigin.protocol.slice(0, -1),
-    });
-  } catch (error) {
-    void error;
-    return isIdentitySsoAvailableForRequest();
-  }
+  const requestOrigin = new URL(getForwardedRequestOrigin(event));
+  return isIdentitySsoAvailableForRequest({
+    requestHost: requestOrigin.host,
+    requestProtocol: requestOrigin.protocol.slice(0, -1),
+  });
 }
 
 export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
