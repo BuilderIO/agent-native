@@ -14,9 +14,9 @@ import {
   hasCapability,
 } from "../shared/design-source-capabilities.js";
 import {
-  DESIGN_TOKEN_KINDS,
-  readTokenKinds,
-} from "../shared/design-token-kinds.js";
+  DESIGN_TOKEN_TYPES,
+  readTokenTypes,
+} from "../shared/design-token-types.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
@@ -43,13 +43,13 @@ const tokenEditSchema = z.object({
       'Token value may not contain ";", "{", "}", "<", ">", CSS comments, or control characters.',
     )
     .describe("New value for the token"),
-  kind: z
-    .enum(DESIGN_TOKEN_KINDS)
+  type: z
+    .enum(DESIGN_TOKEN_TYPES)
     .optional()
     .describe(
-      "Explicit token kind. Stored in designs.data.tokenKinds and decides the " +
-        "Tokens panel group instead of guessing from the name. Pass it when " +
-        "creating a token; omit it when only changing a value.",
+      "Token type, saved in designs.data.tokenTypes so the token keeps it " +
+        "instead of a guess from its name. Pass it when creating a token; " +
+        "omit it when only changing a value.",
     ),
 });
 
@@ -86,8 +86,8 @@ export default defineAction({
     "Tier-A (inline/Alpine): routes the edit through the same mechanism as " +
     "apply-tweaks — merges the value into designs.data.tweakSelections so the " +
     "tuned token survives reload and is visible in the Tokens panel. " +
-    "Pass `kind` on new tokens to store an explicit type in " +
-    "designs.data.tokenKinds; it decides the token's group. " +
+    "Pass `type` on new tokens to save it in designs.data.tokenTypes; " +
+    "otherwise the type is guessed from the name. " +
     "Source file write-back (Tier-B, real apps) is gated behind a capability " +
     "check and currently returns a 'planned' advisory — no file is written.",
   schema: z.object({
@@ -95,7 +95,7 @@ export default defineAction({
     edits: z
       .array(tokenEditSchema)
       .min(1)
-      .describe("One or more { cssVar, value, kind? } edits to persist"),
+      .describe("One or more { cssVar, value, type? } edits to persist"),
     sourceRef: z
       .string()
       .optional()
@@ -117,26 +117,26 @@ export default defineAction({
       mutate: (prevData, { updatedAt }) => {
         const tweaks = readTweaks(prevData);
         const newSelections = { ...readSelections(prevData) };
-        const tokenKinds = readTokenKinds(prevData);
-        for (const { cssVar, value, kind } of edits) {
+        const tokenTypes = readTokenTypes(prevData);
+        for (const { cssVar, value, type } of edits) {
           newSelections[selectionKeyForCssVar(tweaks, cssVar)] = value;
-          if (kind) tokenKinds[cssVar] = kind;
+          if (type) tokenTypes[cssVar] = type;
         }
         return {
           ...prevData,
           tweakSelections: newSelections,
-          tokenKinds,
+          tokenTypes,
           tweaksAppliedAt: updatedAt,
         };
       },
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
-        const tokenKinds = readTokenKinds(data);
+        const tokenTypes = readTokenTypes(data);
         return edits.every(
-          ({ cssVar, value, kind }) =>
+          ({ cssVar, value, type }) =>
             selections[selectionKeyForCssVar(tweaks, cssVar)] === value &&
-            (!kind || tokenKinds[cssVar] === kind),
+            (!type || tokenTypes[cssVar] === type),
         );
       },
     });

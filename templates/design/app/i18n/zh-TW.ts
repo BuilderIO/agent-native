@@ -1219,11 +1219,6 @@ export default {
       cssVar: "CSS 變數",
       value: "值",
       import: "匯入權杖",
-      importTitle: "匯入權杖",
-      importHint: "先使用 design.md、CSS、主題檔案或目前設計，再手動新增權杖。",
-      files: "檔案",
-      folder: "資料夾",
-      current: "目前",
       importDtcg: "DTCG 檔案…",
       importCssOrTailwind: "CSS 或 Tailwind 檔案…",
       importClipboard: "從剪貼簿貼上",
@@ -1241,7 +1236,7 @@ export default {
       emptyHint: "新增設計權杖以重複使用顏色、間距等。",
       applying: "套用中…",
       addFailed: "無法新增權杖：{{message}}",
-      kinds: {
+      types: {
         color: "顏色",
         fontFamily: "字型系列",
         fontWeight: "字重",

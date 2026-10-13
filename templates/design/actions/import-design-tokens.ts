@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import type { BrandKitTokenType } from "@agent-native/core/brand-kit";
+import {
+  friendlyTokenName,
+  isColorTokenValue,
+} from "@agent-native/core/brand-kit";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   CODE_MAX_FILES,
@@ -26,24 +29,22 @@ import {
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { parseDtcgTokens, toKebab } from "../server/lib/dtcg-tokens.js";
 import {
-  readTokenKinds,
-  tokenTypeForKind,
-  type DesignTokenKind,
-} from "../shared/design-token-kinds.js";
+  guessTokenType,
+  isMotionValue,
+  readTokenTypes,
+  type DesignTokenType,
+} from "../shared/design-token-types.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-type ImportedTokenType = BrandKitTokenType;
-
 interface ImportedDesignToken {
   name: string;
   cssVar: string;
   value: string;
-  type: ImportedTokenType;
-  kind?: DesignTokenKind;
+  type: DesignTokenType;
   source: string;
 }
 
@@ -119,96 +120,10 @@ function designDeepLink(designId: string): string {
   });
 }
 
-function isMotionValue(value: string): boolean {
-  const v = value.trim().toLowerCase();
-  return (
-    /^-?\d*\.?\d+m?s$/.test(v) ||
-    /^(cubic-bezier|steps|linear)\s*\(/.test(v) ||
-    /^(linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end)$/.test(v)
-  );
-}
-
 function isShadowValue(value: string): boolean {
   const v = value.trim().toLowerCase();
   if (v === "none") return true;
   return /\d/.test(v) && /(px|rem|em)\b/.test(v);
-}
-
-function classifyVar(name: string, value: string): ImportedTokenType {
-  const n = name.toLowerCase();
-  if (isColorValue(value)) return "color";
-  if (/radius|rounded/i.test(n)) return "radius";
-  if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
-    return "typography";
-  }
-  if (/spacing|gap|padding|margin|space/i.test(n)) return "spacing";
-  if (/shadow|blur|drop|elevation/i.test(n)) return "shadow";
-  if (/duration|easing|ease|transition|animation|motion|delay/i.test(n)) {
-    return "motion";
-  }
-  if (
-    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
-      n,
-    ) &&
-    !/^-?\d*\.?\d+(px|rem|em|ex|ch|%|vh|vw|vmin|vmax|pt|pc|cm|mm|in|s|ms|deg|fr)?$/i.test(
-      value.trim(),
-    )
-  ) {
-    return "color";
-  }
-  return "other";
-}
-
-function isColorValue(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (
-    /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/i.test(normalized)
-  ) {
-    return true;
-  }
-  return [
-    "red",
-    "blue",
-    "green",
-    "yellow",
-    "orange",
-    "purple",
-    "pink",
-    "cyan",
-    "magenta",
-    "teal",
-    "navy",
-    "maroon",
-    "coral",
-    "salmon",
-    "gold",
-    "silver",
-    "gray",
-    "grey",
-    "indigo",
-    "violet",
-    "lime",
-    "olive",
-    "aqua",
-    "fuchsia",
-    "crimson",
-    "turquoise",
-    "ivory",
-    "beige",
-    "lavender",
-    "tan",
-    "khaki",
-    "plum",
-    "orchid",
-    "sienna",
-  ].includes(normalized);
-}
-
-function friendlyName(cssVar: string): string {
-  return cssVar
-    .replace(/^--/, "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function normalizeValue(value: string): string {
@@ -270,7 +185,7 @@ function parseNamedLines(
       const lower = label.toLowerCase();
       let cssVar: string | null = null;
       if (
-        isColorValue(value) ||
+        isColorTokenValue(value) ||
         /color|background|surface|accent|brand/.test(lower)
       ) {
         cssVar = tokenVar("color", label.replace(/\bcolor\b/gi, ""));
@@ -291,10 +206,10 @@ function parseNamedLines(
 
       if (!cssVar) continue;
       tokens.push({
-        name: friendlyName(cssVar),
+        name: friendlyTokenName(cssVar),
         cssVar,
         value,
-        type: classifyVar(cssVar, value),
+        type: guessTokenType(cssVar, value),
         source: file.filename,
       });
     }
@@ -335,6 +250,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
   }
 
   const tokens: ImportedDesignToken[] = [];
+  const declared = new Map<ImportedDesignToken, DesignTokenType>();
   const looseFiles: { filename: string; content: string }[] = [];
   for (const file of accepted) {
     const dtcgTokens = parseDtcgTokens(file.content);
@@ -343,18 +259,15 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
       continue;
     }
     for (const token of dtcgTokens) {
-      tokens.push({
-        name: friendlyName(token.cssVar),
+      const imported: ImportedDesignToken = {
+        name: friendlyTokenName(token.cssVar),
         cssVar: token.cssVar,
         value: token.value,
-        type: token.kind
-          ? tokenTypeForKind(token.kind)
-          : token.motion
-            ? "motion"
-            : classifyVar(token.cssVar, token.value),
-        ...(token.kind ? { kind: token.kind } : {}),
+        type: token.type ?? guessTokenType(token.cssVar, token.value),
         source: file.filename,
-      });
+      };
+      tokens.push(imported);
+      if (token.type) declared.set(imported, token.type);
     }
   }
 
@@ -369,10 +282,10 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
   for (const [cssVar, value] of Object.entries(state.cssCustomProperties)) {
     const normalized = normalizeValue(value);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalized,
-      type: classifyVar(cssVar, normalized),
+      type: guessTokenType(cssVar, normalized),
       source: "CSS variables",
     });
   }
@@ -386,7 +299,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
         ? `--color-imported-${importedColorIndex++}`
         : tokenVar("color", key);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalized,
       type: "color",
@@ -398,7 +311,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     if (key.startsWith("--")) continue;
     const cssVar = tokenVar("spacing", key);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalizeValue(value),
       type: "spacing",
@@ -410,7 +323,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     if (key.startsWith("--")) continue;
     const cssVar = tokenVar("radius", key);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: normalizeValue(value),
       type: "radius",
@@ -426,17 +339,26 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
           ? "--font-body"
           : tokenVar("font", font.family);
     tokens.push({
-      name: friendlyName(cssVar),
+      name: friendlyTokenName(cssVar),
       cssVar,
       value: font.family,
-      type: "typography",
+      type: "font-family",
       source: font.source ?? "Fonts",
     });
   });
 
+  const finalTokens = uniqueTokenList(tokens).slice(0, 120);
+  // Only a type the file declared (DTCG `$type`) is saved; guessed types are
+  // recomputed on read so a better guess later still applies.
+  const declaredTypes: Record<string, DesignTokenType> = {};
+  for (const token of finalTokens) {
+    const type = declared.get(token);
+    if (type) declaredTypes[token.cssVar] = type;
+  }
   return {
     filesAnalyzed: accepted.map((file) => file.filename),
-    tokens: uniqueTokenList(tokens).slice(0, 120),
+    tokens: finalTokens,
+    declaredTypes,
   };
 }
 
@@ -445,8 +367,8 @@ export default defineAction({
     "Import design tokens into a design from pasted text, uploaded token/code files, " +
     "or the current design files. Parses CSS variables, design.md-style notes, " +
     "Tailwind/theme JSON, DTCG (W3C design tokens) JSON, hard-coded colors, " +
-    "spacing, radii, and fonts. DTCG `$type`s are saved as token kinds so each " +
-    "token lands in the right Tokens panel group. Persists the imported values " +
+    "spacing, radii, and fonts. A DTCG `$type` is saved as the token's type; " +
+    "other tokens get a type guessed from their name. Persists the imported values " +
     "through the same CSS-var tweak bridge used by " +
     "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
     "the Builder-backed design-system import flow.",
@@ -478,7 +400,8 @@ export default defineAction({
         importFiles.length === 1 ? importFiles[0].filename : "Imported files";
     }
 
-    const { filesAnalyzed, tokens } = tokensFromFiles(importFiles);
+    const { filesAnalyzed, tokens, declaredTypes } =
+      tokensFromFiles(importFiles);
     const safeTokens = tokens.filter(
       (token) =>
         isSafeCssVarName(token.cssVar) && isSafeCssTokenValue(token.value),
@@ -544,15 +467,16 @@ export default defineAction({
               },
             ];
 
-        const tokenKinds = readTokenKinds(prevData);
+        const tokenTypes = readTokenTypes(prevData);
         for (const token of safeTokens) {
-          if (token.kind) tokenKinds[token.cssVar] = token.kind;
+          const declaredType = declaredTypes[token.cssVar];
+          if (declaredType) tokenTypes[token.cssVar] = declaredType;
         }
 
         return {
           ...prevData,
           tweakSelections: nextSelections,
-          tokenKinds,
+          tokenTypes,
           tokenImportSources,
           tokenImports,
           tweaksAppliedAt: updatedAt,
@@ -561,7 +485,7 @@ export default defineAction({
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
-        const kinds = readTokenKinds(data);
+        const types = readTokenTypes(data);
         const sources =
           data.tokenImportSources &&
           typeof data.tokenImportSources === "object" &&
@@ -576,7 +500,8 @@ export default defineAction({
             (token) =>
               selections[selectionKeyForCssVar(tweaks, token.cssVar)] ===
                 token.value &&
-              (!token.kind || kinds[token.cssVar] === token.kind) &&
+              (!declaredTypes[token.cssVar] ||
+                types[token.cssVar] === declaredTypes[token.cssVar]) &&
               sources[token.cssVar] === tokenSourceLabel(token, sourceLabel),
           ) &&
           imports.some(

@@ -1085,12 +1085,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "استيراد الرموز",
-      importTitle: "استيراد الرموز",
-      importHint:
-        "استخدم design.md أو CSS أو ملفات السمة أو التصميم الحالي قبل إضافة الرموز يدويا.",
-      files: "ملفات",
-      folder: "مجلد",
-      current: "الحالي",
       importDtcg: "ملف DTCG…",
       importCssOrTailwind: "ملف CSS أو Tailwind…",
       importClipboard: "لصق من الحافظة",
@@ -1108,7 +1102,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "تعذّرت إضافة الرمز المميز: {{message}}",
-      kinds: {
+      types: {
         color: "اللون",
         fontFamily: "عائلة الخط",
         fontWeight: "وزن الخط",

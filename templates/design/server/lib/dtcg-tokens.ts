@@ -1,4 +1,7 @@
-import type { DesignTokenKind } from "../../shared/design-token-kinds.js";
+import {
+  guessTokenType,
+  type DesignTokenType,
+} from "../../shared/design-token-types.js";
 
 /**
  * Parser for W3C Design Tokens Community Group (DTCG) files: nested groups of
@@ -9,8 +12,8 @@ import type { DesignTokenKind } from "../../shared/design-token-kinds.js";
 export interface DtcgToken {
   cssVar: string;
   value: string;
-  kind?: DesignTokenKind;
-  motion?: boolean;
+  /** Absent when the DTCG token has no `$type`; the caller guesses one. */
+  type?: DesignTokenType;
 }
 
 export function toKebab(value: string): string {
@@ -163,57 +166,62 @@ function formatShadow(
   return parts.join(", ");
 }
 
-function dimensionKind(name: string): DesignTokenKind {
-  if (/radius|rounded/.test(name)) return "radius";
-  if (/letter|tracking/.test(name)) return "letter-spacing";
-  if (/line-?height|leading/.test(name)) return "line-height";
-  if (/font|text|type|heading|body/.test(name)) return "font-size";
-  if (/breakpoint|screen/.test(name)) return "breakpoint";
-  if (/container|max-?width/.test(name)) return "container";
-  return "spacing";
-}
+const DIMENSION_TYPES = new Set<DesignTokenType>([
+  "font-size",
+  "line-height",
+  "letter-spacing",
+  "spacing",
+  "container",
+  "breakpoint",
+  "radius",
+]);
+const NUMBER_TYPES = new Set<DesignTokenType>([
+  "font-weight",
+  "line-height",
+  "opacity",
+]);
 
-function numberKind(name: string): DesignTokenKind | undefined {
-  if (/opacity|alpha/.test(name)) return "opacity";
-  if (/line-?height|leading/.test(name)) return "line-height";
-  if (/weight/.test(name)) return "font-weight";
-  return undefined;
+/**
+ * A DTCG `dimension` or `number` says what the value is, not what it is for;
+ * the name decides that, limited to the types that value can be.
+ */
+function typeFromName(
+  cssVar: string,
+  value: string,
+  allowed: Set<DesignTokenType>,
+): DesignTokenType | undefined {
+  const guess = guessTokenType(cssVar, value);
+  return allowed.has(guess) ? guess : undefined;
 }
 
 const TYPOGRAPHY_PARTS: {
   key: string;
-  suffix: string;
-  kind: DesignTokenKind;
+  type: DesignTokenType;
   format: (value: Json) => string | null;
 }[] = [
   {
     key: "fontFamily",
-    suffix: "font-family",
-    kind: "font-family",
+    type: "font-family",
     format: formatFontFamily,
   },
   {
     key: "fontWeight",
-    suffix: "font-weight",
-    kind: "font-weight",
+    type: "font-weight",
     format: formatScalar,
   },
   {
     key: "fontSize",
-    suffix: "font-size",
-    kind: "font-size",
+    type: "font-size",
     format: formatDimension,
   },
   {
     key: "lineHeight",
-    suffix: "line-height",
-    kind: "line-height",
+    type: "line-height",
     format: (v) => formatScalar(v) ?? formatDimension(v),
   },
   {
     key: "letterSpacing",
-    suffix: "letter-spacing",
-    kind: "letter-spacing",
+    type: "letter-spacing",
     format: formatDimension,
   },
 ];
@@ -228,6 +236,7 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
   let json: Json;
   try {
     json = JSON.parse(content);
+    // coercion-ok: non-JSON content is "not DTCG" (null), distinct from an empty DTCG file ([]); callers fall back to the CSS/Tailwind parsers.
   } catch {
     return null;
   }
@@ -249,37 +258,48 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
   const tokens: DtcgToken[] = [];
   for (const token of raw) {
     const cssVar = cssVarForPath(token.path);
-    const name = cssVar.slice(2);
     const value = resolve(token.value);
     if (value === undefined) continue;
-    const push = (formatted: string | null, extra: Partial<DtcgToken>) => {
-      if (formatted) tokens.push({ cssVar, value: formatted, ...extra });
+    const push = (formatted: string | null, type?: DesignTokenType) => {
+      if (formatted) tokens.push({ cssVar, value: formatted, type });
     };
 
     switch (token.type) {
       case "color":
-        push(formatColor(value), { kind: "color" });
+        push(formatColor(value), "color");
         break;
-      case "dimension":
-        push(formatDimension(value), { kind: dimensionKind(name) });
+      case "dimension": {
+        const formatted = formatDimension(value);
+        push(
+          formatted,
+          formatted
+            ? (typeFromName(cssVar, formatted, DIMENSION_TYPES) ?? "spacing")
+            : undefined,
+        );
         break;
+      }
       case "fontFamily":
-        push(formatFontFamily(value), { kind: "font-family" });
+        push(formatFontFamily(value), "font-family");
         break;
       case "fontWeight":
-        push(formatScalar(value), { kind: "font-weight" });
+        push(formatScalar(value), "font-weight");
         break;
-      case "number":
-        push(formatScalar(value), { kind: numberKind(name) });
+      case "number": {
+        const formatted = formatScalar(value);
+        push(
+          formatted,
+          formatted ? typeFromName(cssVar, formatted, NUMBER_TYPES) : undefined,
+        );
         break;
+      }
       case "shadow":
-        push(formatShadow(value, resolve), { kind: "shadow" });
+        push(formatShadow(value, resolve), "shadow");
         break;
       case "duration":
-        push(formatDimension(value), { motion: true });
+        push(formatDimension(value), "motion");
         break;
       case "cubicBezier":
-        push(formatCubicBezier(value), { motion: true });
+        push(formatCubicBezier(value), "motion");
         break;
       case "typography":
         if (!isRecord(value)) break;
@@ -289,15 +309,15 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
             partValue === undefined ? null : part.format(partValue);
           if (formatted) {
             tokens.push({
-              cssVar: `${cssVar}-${part.suffix}`,
+              cssVar: `${cssVar}-${part.type}`,
               value: formatted,
-              kind: part.kind,
+              type: part.type,
             });
           }
         }
         break;
       case undefined:
-        push(formatScalar(value), {});
+        push(formatScalar(value));
         break;
       default:
         break;

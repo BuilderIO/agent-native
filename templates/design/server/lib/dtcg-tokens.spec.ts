@@ -10,7 +10,7 @@ describe("parseDtcgTokens", () => {
     ).toBeNull();
   });
 
-  it("maps $type to token kinds, inheriting $type from groups", () => {
+  it("maps $type to token types, inheriting $type from groups", () => {
     const tokens = parseDtcgTokens(
       JSON.stringify({
         color: {
@@ -34,17 +34,17 @@ describe("parseDtcgTokens", () => {
     );
 
     expect(tokens).toEqual([
-      { cssVar: "--color-brand-primary", value: "#2563eb", kind: "color" },
-      { cssVar: "--space-md", value: "16px", kind: "spacing" },
-      { cssVar: "--radius-lg", value: "12px", kind: "radius" },
+      { cssVar: "--color-brand-primary", value: "#2563eb", type: "color" },
+      { cssVar: "--space-md", value: "16px", type: "spacing" },
+      { cssVar: "--radius-lg", value: "12px", type: "radius" },
       {
         cssVar: "--font-body",
         value: '"Inter Variable", sans-serif',
-        kind: "font-family",
+        type: "font-family",
       },
-      { cssVar: "--font-bold", value: "700", kind: "font-weight" },
-      { cssVar: "--opacity-muted", value: "0.6", kind: "opacity" },
-      { cssVar: "--duration-fast", value: "120ms", motion: true },
+      { cssVar: "--font-bold", value: "700", type: "font-weight" },
+      { cssVar: "--opacity-muted", value: "0.6", type: "opacity" },
+      { cssVar: "--duration-fast", value: "120ms", type: "motion" },
     ]);
   });
 
@@ -58,8 +58,8 @@ describe("parseDtcgTokens", () => {
     );
 
     expect(tokens).toEqual([
-      { cssVar: "--base-blue", value: "#2563eb", kind: "color" },
-      { cssVar: "--accent", value: "var(--base-blue)", kind: "color" },
+      { cssVar: "--base-blue", value: "#2563eb", type: "color" },
+      { cssVar: "--accent", value: "var(--base-blue)", type: "color" },
     ]);
   });
 
@@ -96,23 +96,23 @@ describe("parseDtcgTokens", () => {
       {
         cssVar: "--shadow-card",
         value: "0px 1px 2px 0px #00000033",
-        kind: "shadow",
+        type: "shadow",
       },
       {
         cssVar: "--type-heading-font-family",
         value: "Inter",
-        kind: "font-family",
+        type: "font-family",
       },
       {
         cssVar: "--type-heading-font-weight",
         value: "600",
-        kind: "font-weight",
+        type: "font-weight",
       },
-      { cssVar: "--type-heading-font-size", value: "24px", kind: "font-size" },
+      { cssVar: "--type-heading-font-size", value: "24px", type: "font-size" },
       {
         cssVar: "--type-heading-line-height",
         value: "1.2",
-        kind: "line-height",
+        type: "line-height",
       },
     ]);
   });

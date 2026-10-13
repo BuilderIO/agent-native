@@ -1087,12 +1087,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "टोकन इम्पोर्ट करें",
-      importTitle: "टोकन इम्पोर्ट करें",
-      importHint:
-        "हाथ से जोड़ने से पहले design.md, CSS, theme files या current design इस्तेमाल करें।",
-      files: "फाइलें",
-      folder: "फोल्डर",
-      current: "मौजूदा",
       importDtcg: "DTCG फ़ाइल…",
       importCssOrTailwind: "CSS या Tailwind फ़ाइल…",
       importClipboard: "क्लिपबोर्ड से पेस्ट करें",
@@ -1111,7 +1105,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "टोकन नहीं जोड़ा जा सका: {{message}}",
-      kinds: {
+      types: {
         color: "रंग",
         fontFamily: "फ़ॉन्ट फ़ैमिली",
         fontWeight: "फ़ॉन्ट वज़न",

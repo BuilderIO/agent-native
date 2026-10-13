@@ -10,47 +10,14 @@ import "../server/db/index.js";
 import type { DesignSystemData } from "../shared/api.js";
 import {
   groupDesignTokens,
-  readTokenKinds,
-  tokenTypeForKind,
+  guessTokenType,
+  readTokenTypes,
   type DesignToken,
-  type DesignTokenType,
-} from "../shared/design-token-kinds.js";
+} from "../shared/design-token-types.js";
 import {
   isDirectCssVarSelectionKey,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
-
-function classifyVar(name: string, value: string): DesignTokenType {
-  const n = name.toLowerCase();
-  if (
-    /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/.test(value.trim())
-  ) {
-    return "color";
-  }
-  if (/radius|rounded/i.test(n)) {
-    return "radius";
-  }
-  if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
-    return "typography";
-  }
-  if (/spacing|gap|padding|margin|space/i.test(n)) {
-    return "spacing";
-  }
-  if (/shadow|blur|drop/i.test(n)) {
-    return "shadow";
-  }
-  if (
-    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
-      n,
-    ) &&
-    !/^-?\d*\.?\d+(px|rem|em|ex|ch|%|vh|vw|vmin|vmax|pt|pc|cm|mm|in|s|ms|deg|fr)?$/i.test(
-      value.trim(),
-    )
-  ) {
-    return "color";
-  }
-  return "other";
-}
 
 export default defineAction({
   description:
@@ -59,10 +26,11 @@ export default defineAction({
     "design's HTML :root block, the linked Brand Kit / design system, and " +
     "the user's applied tweak selections. When multiple files declare the " +
     "same cssVar, also returns `sources` (every contributing filename) and " +
-    "`sourceValues` (per-file value) if those files disagree. Returns tokens " +
-    "grouped by type (color, typography, spacing, radius, shadow, other). " +
-    "Tokens created with an explicit kind (apply-design-token-edit `kind`) " +
-    "also return `kind`, and their group follows it instead of the name.",
+    "`sourceValues` (per-file value) if those files disagree. Each token's " +
+    "`type` is the one saved when it was created (apply-design-token-edit " +
+    "`type`, or a DTCG `$type` on import), else a guess from its name and " +
+    "value. Also returns `groups`: tokens in panel sections (color, " +
+    "typography, spacing, radius, shadow, other) derived from each type.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
   }),
@@ -224,7 +192,7 @@ export default defineAction({
       !Array.isArray(designData.tokenImportSources)
         ? (designData.tokenImportSources as Record<string, string>)
         : {};
-    const tokenKinds = readTokenKinds(designData);
+    const tokenTypes = readTokenTypes(designData);
 
     type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
     const resolvedOverrides = resolveTweaksToCssVars(
@@ -244,13 +212,11 @@ export default defineAction({
       cssVar,
       { value, source, sources, sourceValues },
     ] of rawTokens) {
-      const kind = tokenKinds[cssVar];
       tokens.push({
         name: friendlyTokenName(cssVar),
         cssVar,
         value,
-        type: kind ? tokenTypeForKind(kind) : classifyVar(cssVar, value),
-        ...(kind ? { kind } : {}),
+        type: tokenTypes[cssVar] ?? guessTokenType(cssVar, value),
         source,
         ...(sources.length > 1 ? { sources } : {}),
         ...(sourceValues && new Set(Object.values(sourceValues)).size > 1

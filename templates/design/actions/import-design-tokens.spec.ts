@@ -137,12 +137,12 @@ Primary color: #f97316
         expect.objectContaining({
           cssVar: "--font-heading-font",
           value: "Inter",
-          type: "typography",
+          type: "font-family",
         }),
         expect.objectContaining({
           cssVar: "--text-body-size-medium",
           value: "1rem",
-          type: "typography",
+          type: "font-size",
         }),
       ]),
     );
@@ -226,7 +226,7 @@ Primary color: #f97316
     expect(result.tokens.filter((t) => /release/i.test(t.cssVar))).toEqual([]);
   });
 
-  it("imports DTCG files with their $type saved as the token kind", async () => {
+  it("imports DTCG files with their $type saved as the token type", async () => {
     const result = await action.run({
       designId: "design_1",
       source: "files",
@@ -245,19 +245,18 @@ Primary color: #f97316
       expect.objectContaining({
         cssVar: "--opacity-muted",
         value: "0.6",
-        kind: "opacity",
-        type: "shadow",
+        type: "opacity",
       }),
       expect.objectContaining({
         cssVar: "--color-primary",
         value: "#2563eb",
-        kind: "color",
+        type: "color",
       }),
     ]);
     const persisted = JSON.parse(designStore.row.data) as {
-      tokenKinds: Record<string, string>;
+      tokenTypes: Record<string, string>;
     };
-    expect(persisted.tokenKinds).toEqual({
+    expect(persisted.tokenTypes).toEqual({
       "--opacity-muted": "opacity",
       "--color-primary": "color",
     });

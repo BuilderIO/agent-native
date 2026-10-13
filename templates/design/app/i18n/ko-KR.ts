@@ -1089,12 +1089,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "토큰 가져오기",
-      importTitle: "토큰 가져오기",
-      importHint:
-        "수동으로 추가하기 전에 design.md, CSS, 테마 파일 또는 현재 디자인을 사용하세요.",
-      files: "파일",
-      folder: "폴더",
-      current: "현재",
       importDtcg: "DTCG 파일…",
       importCssOrTailwind: "CSS 또는 Tailwind 파일…",
       importClipboard: "클립보드에서 붙여넣기",
@@ -1113,7 +1107,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "토큰을 추가할 수 없습니다: {{message}}",
-      kinds: {
+      types: {
         color: "색상",
         fontFamily: "글꼴 패밀리",
         fontWeight: "글꼴 두께",

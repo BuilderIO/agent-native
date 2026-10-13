@@ -125,7 +125,7 @@ describe("index-design-tokens design-system access boundary", () => {
     expect(colorToken?.value).toBe("#ff0000");
   });
 
-  it("classifies text-size dimensions as typography rather than color", async () => {
+  it("classifies text-size dimensions as font sizes rather than colors", async () => {
     const fakeDesign = {
       id: "design_1",
       data: JSON.stringify({}),
@@ -150,7 +150,7 @@ describe("index-design-tokens design-system access boundary", () => {
     expect(result.tokens).toEqual([
       expect.objectContaining({
         cssVar: "--text-body-size-medium",
-        type: "typography",
+        type: "font-size",
       }),
     ]);
   });
@@ -235,7 +235,7 @@ describe("index-design-tokens design-system access boundary", () => {
     });
   });
 
-  it("groups tokens by their stored kind instead of guessing from the name", async () => {
+  it("uses the stored type instead of guessing from the name", async () => {
     const fakeDesign = {
       id: "design_1",
       data: JSON.stringify({
@@ -244,10 +244,10 @@ describe("index-design-tokens design-system access boundary", () => {
           "--breakpoint-1": "768px",
           "--legacy-unknown": "3",
         },
-        tokenKinds: {
+        tokenTypes: {
           "--opacity-1": "opacity",
           "--breakpoint-1": "breakpoint",
-          "--legacy-unknown": "not-a-kind",
+          "--legacy-unknown": "not-a-type",
         },
       }),
       designSystemId: null,
@@ -266,16 +266,14 @@ describe("index-design-tokens design-system access boundary", () => {
     const byVar = (cssVar: string) =>
       result.tokens.find((t: { cssVar: string }) => t.cssVar === cssVar);
 
-    expect(byVar("--opacity-1")).toMatchObject({
-      kind: "opacity",
-      type: "shadow",
-    });
-    expect(byVar("--breakpoint-1")).toMatchObject({
-      kind: "breakpoint",
-      type: "spacing",
-    });
+    expect(byVar("--opacity-1")).toMatchObject({ type: "opacity" });
+    expect(byVar("--breakpoint-1")).toMatchObject({ type: "breakpoint" });
     expect(byVar("--legacy-unknown")).toMatchObject({ type: "other" });
-    expect(byVar("--legacy-unknown")).not.toHaveProperty("kind");
+    expect(result.groups.map((section) => section.group)).toEqual([
+      "spacing",
+      "shadow",
+      "other",
+    ]);
   });
 
   it("uses import provenance as the source chip for imported tweak tokens", async () => {

@@ -1101,12 +1101,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "トークンをインポート",
-      importTitle: "トークンをインポート",
-      importHint:
-        "手入力の前に design.md、CSS、テーマファイル、または現在のデザインを使います。",
-      files: "ファイル",
-      folder: "フォルダー",
-      current: "現在",
       importDtcg: "DTCG ファイル…",
       importCssOrTailwind: "CSS または Tailwind ファイル…",
       importClipboard: "クリップボードから貼り付け",
@@ -1125,7 +1119,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "トークンを追加できませんでした: {{message}}",
-      kinds: {
+      types: {
         color: "カラー",
         fontFamily: "フォントファミリー",
         fontWeight: "フォントの太さ",

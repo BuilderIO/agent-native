@@ -1068,11 +1068,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "导入设计令牌",
-      importTitle: "导入设计令牌",
-      importHint: "先使用 design.md、CSS、主题文件或当前设计，再手动添加令牌。",
-      files: "文件",
-      folder: "文件夹",
-      current: "当前",
       importDtcg: "DTCG 文件…",
       importCssOrTailwind: "CSS 或 Tailwind 文件…",
       importClipboard: "从剪贴板粘贴",
@@ -1090,7 +1085,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "无法添加令牌：{{message}}",
-      kinds: {
+      types: {
         color: "颜色",
         fontFamily: "字体系列",
         fontWeight: "字重",

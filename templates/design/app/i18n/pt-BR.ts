@@ -1100,12 +1100,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "Importar tokens",
-      importTitle: "Importar tokens",
-      importHint:
-        "Use design.md, CSS, arquivos de tema ou o design atual antes de adicionar tokens manualmente.",
-      files: "Arquivos",
-      folder: "Pasta",
-      current: "Atual",
       importDtcg: "Arquivo DTCG…",
       importCssOrTailwind: "Arquivo CSS ou Tailwind…",
       importClipboard: "Colar da área de transferência",
@@ -1124,7 +1118,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "Não foi possível adicionar o token: {{message}}",
-      kinds: {
+      types: {
         color: "Cor",
         fontFamily: "Família da fonte",
         fontWeight: "Peso da fonte",

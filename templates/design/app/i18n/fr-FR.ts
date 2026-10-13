@@ -1110,12 +1110,6 @@ export default {
       cssVar: "CSS variable",
       value: "Value",
       import: "Importer des jetons",
-      importTitle: "Importer des jetons",
-      importHint:
-        "Utilisez design.md, CSS, les fichiers de thème ou le design actuel avant d'ajouter des jetons à la main.",
-      files: "Fichiers",
-      folder: "Dossier",
-      current: "Actuel",
       importDtcg: "Fichier DTCG…",
       importCssOrTailwind: "Fichier CSS ou Tailwind…",
       importClipboard: "Coller depuis le presse-papiers",
@@ -1134,7 +1128,7 @@ export default {
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
       addFailed: "Impossible d’ajouter le token : {{message}}",
-      kinds: {
+      types: {
         color: "Couleur",
         fontFamily: "Famille de police",
         fontWeight: "Graisse",
