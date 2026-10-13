@@ -86,6 +86,7 @@ type PinnedEvaluation = {
   caseIds: readonly string[];
   staleIndexMarker?: boolean;
   staleIndexCaseIds?: readonly string[];
+  staleIndexMarkerPhases?: readonly ("before" | "after")[];
 };
 
 const PINNED_EVALUATIONS = [
@@ -167,6 +168,24 @@ const PINNED_EVALUATIONS = [
       "stale-generated-index-yields-to-current-source",
       "approved-stale-generated-entry-yields-to-current-roster",
     ],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v16",
+    baselineRevision: "db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f",
+    baselineCodeRevision:
+      "sha256:1f4a8302df8d7a73e6b2a1149052a93c5ebcf93d31beeee4994883c08ab4c7d1",
+    candidateRevision: "7beae453965eb1590ddf80d0991a211aaa3aea7c",
+    candidateCodeRevision:
+      "sha256:96c8192effb85af20b1109a9b525156ce9f5fbaa44d390870660e350f465a1b8",
+    harnessRevision:
+      "sha256:9bee80ec0ce2bfb05e67cb5be619c8a98b82c3ef8aee3d3945905d1e9820a73a",
+    caseIds: V16_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
   },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
@@ -467,7 +486,9 @@ export function validateProductionPathComparisonCsv(
     if (
       row.stale_index_marked &&
       (!pinnedEvaluation.staleIndexMarker ||
-        row.phase !== "after" ||
+        !(pinnedEvaluation.staleIndexMarkerPhases ?? ["after"]).includes(
+          row.phase,
+        ) ||
         !pinnedEvaluation.staleIndexCaseIds?.includes(row.case_id))
     ) {
       throw new Error(
@@ -617,20 +638,23 @@ export function validateProductionPathComparisonCsv(
   }
 
   if (pinnedEvaluation.staleIndexMarker) {
+    const expectedMarkedPhases = new Set(
+      pinnedEvaluation.staleIndexMarkerPhases ?? ["after"],
+    );
     for (const caseId of pinnedEvaluation.staleIndexCaseIds ?? []) {
       const staleCaseRows = rows.filter((row) => row.case_id === caseId);
-      if (
-        staleCaseRows
-          .filter((row) => row.phase === "before")
-          .some((row) => row.stale_index_marked) ||
-        staleCaseRows.filter((row) => row.phase === "after").length !== 2 ||
-        staleCaseRows
-          .filter((row) => row.phase === "after")
-          .some((row) => !row.stale_index_marked)
-      ) {
-        throw new Error(
-          "Comparison CSV must record stale-index marking only for both candidate runs.",
-        );
+      for (const phase of ["before", "after"] as const) {
+        const phaseRows = staleCaseRows.filter((row) => row.phase === phase);
+        if (
+          phaseRows.length !== 2 ||
+          phaseRows.some(
+            (row) => row.stale_index_marked !== expectedMarkedPhases.has(phase),
+          )
+        ) {
+          throw new Error(
+            "Comparison CSV stale-index markers must match the pinned cases and phases.",
+          );
+        }
       }
     }
   }

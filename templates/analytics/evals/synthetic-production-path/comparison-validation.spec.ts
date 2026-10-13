@@ -1,12 +1,10 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 import {
-  PRODUCTION_PATH_BASELINE_CODE_REVISION,
-  PRODUCTION_PATH_BASELINE_REVISION,
-  PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
   PRODUCTION_PATH_CANDIDATE_REVISION,
   PRODUCTION_PATH_FIXTURE_REVISION,
   PRODUCTION_PATH_HARNESS_REVISION,
@@ -50,135 +48,39 @@ const V15_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
-const STALE_INDEX_CASE_IDS = new Set([
-  "stale-generated-index-yields-to-current-source",
-  "approved-stale-generated-entry-yields-to-current-roster",
-]);
-const CSV_COLUMNS = [
-  "case_id",
-  "phase",
-  "git_revision",
-  "code_revision",
-  "harness_revision",
-  "fixture_revision",
-  "run",
-  "score",
-  "reason_code",
-  "expected_rank",
-  "hit_at_5",
-  "find_data_calls",
-  "other_action_calls",
-  "failed_action_calls",
-  "completed",
-  "aborted",
-  "input_tokens",
-  "output_tokens",
-  "llm_calls",
-  "latency_ms",
-  "stale_index_marked",
-] as const;
-
-function makeComparisonCsv(): string {
-  const rows = [CSV_COLUMNS.join(",")];
-  const beforeRanks: readonly (number | null)[] = [
-    4,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    4,
-    1,
-    5,
-    1,
-    3,
-    3,
-    null,
-    4,
-    1,
-    4,
-    1,
-    null,
-    null,
-  ];
-  for (const phase of ["before", "after"] as const) {
-    for (const [
-      caseIndex,
-      caseId,
-    ] of SYNTHETIC_PRODUCTION_PATH_CASE_IDS.entries()) {
-      for (const run of [1, 2]) {
-        const expectedRank =
-          phase === "after" ? 1 : (beforeRanks[caseIndex] ?? null);
-        const hitAt5 = expectedRank !== null && expectedRank <= 5;
-        const reasonCode =
-          expectedRank === null
-            ? "candidate_missing"
-            : expectedRank === 1
-              ? "rank_1"
-              : "ranked_below_1";
-        const row = {
-          case_id: caseId,
-          phase,
-          git_revision:
-            phase === "before"
-              ? PRODUCTION_PATH_BASELINE_REVISION
-              : PRODUCTION_PATH_CANDIDATE_REVISION,
-          code_revision:
-            phase === "before"
-              ? PRODUCTION_PATH_BASELINE_CODE_REVISION
-              : PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
-          harness_revision: PRODUCTION_PATH_HARNESS_REVISION,
-          fixture_revision: PRODUCTION_PATH_FIXTURE_REVISION,
-          run,
-          score: reasonCode === "rank_1" ? 1 : 0,
-          reason_code: reasonCode,
-          expected_rank: expectedRank,
-          hit_at_5: hitAt5,
-          find_data_calls: 1,
-          other_action_calls: 0,
-          failed_action_calls: 0,
-          completed: true,
-          aborted: false,
-          input_tokens: 240,
-          output_tokens: 48,
-          llm_calls: 2,
-          latency_ms: 20 + run,
-          stale_index_marked:
-            phase === "after" && STALE_INDEX_CASE_IDS.has(caseId),
-        };
-        rows.push(
-          CSV_COLUMNS.map((column) =>
-            row[column] === null ? "" : String(row[column]),
-          ).join(","),
-        );
-      }
-    }
-  }
-  return rows.join("\n");
+const V16_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v16-before-after.csv",
+    import.meta.url,
+  ),
+);
+function loadMeasuredComparisonCsv(): string {
+  return readFileSync(V16_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("requires paired cases, two runs, pinned provenance, and safe completions", () => {
-    const result = validateProductionPathComparisonCsv(makeComparisonCsv());
+  it("validates the measured v16 production-path comparison", () => {
+    const result = validateProductionPathComparisonCsv(loadMeasuredComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 23,
+      cases: 24,
       before: {
-        rows: 46,
-        top1: 8,
-        hitAt5: 22,
-        staleIndexMarked: 0,
+        rows: 48,
+        top1: 44,
+        retrievalTop1: 44,
+        hitAt5: 46,
+        failedRuns: 4,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
-        rows: 46,
-        top1: 46,
-        hitAt5: 46,
+        rows: 48,
+        top1: 48,
+        retrievalTop1: 48,
+        hitAt5: 48,
+        failedRuns: 0,
+        abortedRuns: 0,
         staleIndexMarked: 4,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
@@ -188,7 +90,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects a missing phase/run row", () => {
-    const csv = makeComparisonCsv();
+    const csv = loadMeasuredComparisonCsv();
     const rows = csv.trimEnd().split(/\r?\n/);
 
     expect(() =>
@@ -197,7 +99,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects a zero-based candidate rank", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const columns = rows[1]!.split(",");
     columns[7] = "0";
     columns[8] = "ranked_below_1";
@@ -210,21 +112,21 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
-  it("rejects retrieval ranks without a completed production-path action", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+  it("rejects a top-1 result without a completed production-path action", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const columns = rows[1]!.split(",");
     columns[11] = "0";
     rows[1] = columns.join(",");
 
     expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
-      "retrieval ranks require a complete, valid production-path run",
+      "invalid successful production-path score",
     );
   });
 
   it.each(["production_path_failed", "unexpected_action"] as const)(
     "rejects a %s row that claims a retrieval rank",
     (reasonCode) => {
-      const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+      const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
       const columns = rows[1]!.split(",");
       columns[7] = "0";
       columns[8] = reasonCode;
@@ -243,7 +145,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   );
 
   it("rejects failure codes that contradict their observed action fields", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const columns = rows[1]!.split(",");
     columns[7] = "0";
     columns[8] = "unexpected_action";
@@ -258,7 +160,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects failed action counts above the recorded action total", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const columns = rows[1]!.split(",");
     columns[7] = "0";
     columns[8] = "action_failed";
@@ -273,7 +175,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects an after phase that is not pinned to the candidate revision", () => {
-    const stale = makeComparisonCsv().replaceAll(
+    const stale = loadMeasuredComparisonCsv().replaceAll(
       PRODUCTION_PATH_CANDIDATE_REVISION,
       "b".repeat(40),
     );
@@ -284,7 +186,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects well-formed code hashes unrelated to the pinned source revisions", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     for (let index = 1; index < rows.length; index++) {
       if (!rows[index]!.includes(",after,")) continue;
       const columns = rows[index]!.split(",");
@@ -298,7 +200,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects integers outside the safe numeric range", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const columns = rows[1]!.split(",");
     columns[19] = "9007199254740992";
     rows[1] = columns.join(",");
@@ -309,7 +211,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects a duplicate that misaligns the before/after case/run pairs", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const lastRow = rows.at(-1)!;
     const columns = lastRow.split(",");
     columns[0] = SYNTHETIC_PRODUCTION_PATH_CASE_IDS[7];
@@ -321,7 +223,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("rejects a mismatched before/after fixture", () => {
-    const changed = makeComparisonCsv().replaceAll(
+    const changed = loadMeasuredComparisonCsv().replaceAll(
       PRODUCTION_PATH_FIXTURE_REVISION,
       "synthetic-analytics-retrieval-v99",
     );
@@ -331,36 +233,36 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
-  it("pins stale-index markers to both candidate runs of the stale case", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+  it("pins stale-index markers to the measured cases and phases", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const header = rows[0]!.split(",");
     const markerIndex = header.indexOf("stale_index_marked");
-    const beforeRowIndex = rows.findIndex((line) =>
-      line.startsWith("stale-generated-index-yields-to-current-source,before,"),
+    const unrelatedRowIndex = rows.findIndex((line) =>
+      line.startsWith("current-organization-role-roster,before,"),
     );
-    const beforeColumns = rows[beforeRowIndex]!.split(",");
-    beforeColumns[markerIndex] = "true";
-    rows[beforeRowIndex] = beforeColumns.join(",");
+    const unrelatedColumns = rows[unrelatedRowIndex]!.split(",");
+    unrelatedColumns[markerIndex] = "true";
+    rows[unrelatedRowIndex] = unrelatedColumns.join(",");
 
     expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
       "stale-index markers must match the pinned candidate case",
     );
 
-    const validRows = makeComparisonCsv().trimEnd().split(/\r?\n/);
-    const afterRowIndex = validRows.findIndex((line) =>
-      line.startsWith("stale-generated-index-yields-to-current-source,after,"),
+    const validRows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
+    const beforeRowIndex = validRows.findIndex((line) =>
+      line.startsWith("stale-generated-index-yields-to-current-source,before,"),
     );
-    const afterColumns = validRows[afterRowIndex]!.split(",");
-    afterColumns[markerIndex] = "false";
-    validRows[afterRowIndex] = afterColumns.join(",");
+    const beforeColumns = validRows[beforeRowIndex]!.split(",");
+    beforeColumns[markerIndex] = "false";
+    validRows[beforeRowIndex] = beforeColumns.join(",");
 
     expect(() =>
       validateProductionPathComparisonCsv(validRows.join("\n")),
-    ).toThrow("must record stale-index marking only for both candidate runs");
+    ).toThrow("stale-index markers must match the pinned cases and phases");
   });
 
   it("rejects before/after rows made with different harness bytes", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     for (let index = 1; index < rows.length; index++) {
       if (!rows[index]!.includes(",after,")) continue;
       const columns = rows[index]!.split(",");
@@ -374,7 +276,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("retains aborted production-path runs as failures in the comparison", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
     const columns = rows[afterStart]!.split(",");
     columns[7] = "0";
@@ -394,17 +296,17 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      rows: 46,
-      top1: 45,
-      retrievalTop1: 45,
-      hitAt5: 45,
+      rows: 48,
+      top1: 47,
+      retrievalTop1: 47,
+      hitAt5: 47,
       failedRuns: 1,
       abortedRuns: 1,
     });
   });
 
   it("rejects a phase where most production-path runs fail", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
     const staleCases = new Set([
       "stale-generated-index-yields-to-current-source",
@@ -436,7 +338,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   });
 
   it("retains a completed retrieval miss for honest quality reporting", () => {
-    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
     const columns = rows[afterStart + 2]!.split(",");
     columns[7] = "0";
@@ -447,9 +349,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      top1: 45,
-      retrievalTop1: 45,
-      hitAt5: 45,
+      top1: 47,
+      retrievalTop1: 47,
+      hitAt5: 47,
       failedRuns: 1,
       abortedRuns: 0,
     });
@@ -593,5 +495,44 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     expect(() => validateProductionPathComparisonCsv(csv)).toThrow(
       "At least 90% of each phase must complete the production path",
     );
+  });
+
+  it("validates the checked-in v16 production-path measurement", async () => {
+    const csv = await readFile(V16_COMPARISON_CSV, "utf8");
+    const result = validateProductionPathComparisonCsv(csv);
+
+    expect(result).toMatchObject({
+      cases: 24,
+      before: {
+        rows: 48,
+        top1: 44,
+        retrievalTop1: 44,
+        hitAt5: 46,
+        failedRuns: 4,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
+        revision: "db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f",
+        codeRevision:
+          "sha256:1f4a8302df8d7a73e6b2a1149052a93c5ebcf93d31beeee4994883c08ab4c7d1",
+        harnessRevision:
+          "sha256:9bee80ec0ce2bfb05e67cb5be619c8a98b82c3ef8aee3d3945905d1e9820a73a",
+      },
+      after: {
+        rows: 48,
+        top1: 48,
+        retrievalTop1: 48,
+        hitAt5: 48,
+        failedRuns: 0,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
+        revision: "7beae453965eb1590ddf80d0991a211aaa3aea7c",
+        codeRevision:
+          "sha256:96c8192effb85af20b1109a9b525156ce9f5fbaa44d390870660e350f465a1b8",
+        harnessRevision:
+          "sha256:9bee80ec0ce2bfb05e67cb5be619c8a98b82c3ef8aee3d3945905d1e9820a73a",
+      },
+    });
+    expect(result.before.revision).not.toBe(result.after.revision);
+    expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
   });
 });

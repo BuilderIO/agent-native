@@ -24,6 +24,44 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
+## Latest measured v16 comparison
+
+The v16 artifact evaluates twenty-four synthetic retrieval cases twice per
+phase through the Analytics production agent loop. Its baseline is current
+`origin/main` at `db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f`; its candidate source
+snapshot is `7beae453965eb1590ddf80d0991a211aaa3aea7c`. Both phases used the
+same prompts, expected tables, and synthetic membership model. The baseline
+fixture omits projected-key metadata that the baseline source-index schema
+could not represent; the candidate includes verified user and organization
+roles for the aliased output columns.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). Both baseline misses were the aliased roster, which
+the baseline could not identify from its renamed keys. Two other baseline
+runs ranked an approved stale-index overlay above the current roster. The
+candidate ranked the expected source first in both runs for all twenty-four
+cases. All 96 runs completed without aborts; each made one `find-data` call and
+no other or failed action. The stale-index signal appears in four rows in each
+phase because that metadata is already present on the baseline branch.
+
+Evaluated-code hashes are
+`sha256:1f4a8302df8d7a73e6b2a1149052a93c5ebcf93d31beeee4994883c08ab4c7d1`
+before and
+`sha256:96c8192effb85af20b1109a9b525156ce9f5fbaa44d390870660e350f465a1b8`
+after. Both phases use the same harness bytes,
+`sha256:9bee80ec0ce2bfb05e67cb5be619c8a98b82c3ef8aee3d3945905d1e9820a73a`.
+The checked-in validator pins the source revisions and hashes and verifies the
+case/run pairs, safe CSV schema, completed production path, and stale-index
+marker.
+
+The harness uses a deterministic in-memory model and synthetic storage. It
+does not call a hosted model, BigQuery, or a connected data source. Its
+latencies are test-harness timings, not production latency measurements. The
+CSV contains coded ranks, action counts, aggregate usage, and source revisions;
+it contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v16-before-after.csv`](./SYNTHETIC-analytics-production-path-v16-before-after.csv).
+
 ## Historical v14 comparison (candidate snapshot `ba536105`)
 
 The checked-in v14 artifact runs twenty-two synthetic cases twice in each
