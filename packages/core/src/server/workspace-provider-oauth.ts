@@ -514,11 +514,8 @@ export async function handleWorkspaceProviderOAuthCallback(
                   )),
         );
         const scopes = mergeWorkspaceOAuthValues(
-          existing?.scopes ?? [],
-          mergeWorkspaceOAuthValues(
-            identity.scopes ?? [],
-            tokenScopes(tokens, provider.oauth!.scopes),
-          ),
+          identity.scopes ?? [],
+          tokenScopes(tokens, provider.oauth!.scopes),
         );
         const connectionConfig = {
           credentialMode: "oauth",

@@ -1602,7 +1602,10 @@ export async function upsertWorkspaceConnection(
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
-  const scopes = normalizeStringArray(input.scopes);
+  const scopes =
+    input.scopes === undefined
+      ? (existingConnection?.scopes ?? [])
+      : normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
   const allowedUsers =

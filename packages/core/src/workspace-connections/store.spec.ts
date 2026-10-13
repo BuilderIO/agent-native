@@ -604,6 +604,7 @@ describe("workspace connection store", () => {
           provider: "slack",
           label: "Team Slack",
           allowedApps: ["dispatch"],
+          scopes: ["channels:read"],
         }),
     );
 
@@ -628,6 +629,19 @@ describe("workspace connection store", () => {
         }),
     );
     expect(updated.label).toBe("Updated Team Slack");
+    expect(updated.scopes).toEqual(["channels:read"]);
+
+    const cleared = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-org",
+          provider: "slack",
+          label: "Updated Team Slack",
+          scopes: [],
+        }),
+    );
+    expect(cleared.scopes).toEqual([]);
 
     const otherOrg = await runWithRequestContext(
       { userEmail: "carol@example.com", orgId: "org-2" },

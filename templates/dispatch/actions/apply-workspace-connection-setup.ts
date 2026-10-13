@@ -86,7 +86,7 @@ export default defineAction({
     accountId: z.string().nullable().optional(),
     accountLabel: z.string().nullable().optional(),
     status: statusSchema.default("connected"),
-    scopes: z.array(z.string()).default([]),
+    scopes: z.array(z.string()).optional(),
     credentialRefs: z.array(credentialRefSchema).default([]),
     config: z
       .record(z.string(), z.unknown())
@@ -216,7 +216,8 @@ export default defineAction({
         accountId: args.accountId?.trim() || null,
         accountLabel: args.accountLabel?.trim() || null,
         status: args.status,
-        scopes: uniqueStrings(args.scopes),
+        scopes:
+          args.scopes === undefined ? undefined : uniqueStrings(args.scopes),
         config: args.config,
         credentialRefs,
         allowedApps,

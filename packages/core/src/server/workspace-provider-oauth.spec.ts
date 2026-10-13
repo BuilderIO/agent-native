@@ -1143,7 +1143,7 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
   );
 });
 
-it("preserves token-level Jira OAuth scopes alongside site-specific scopes", async () => {
+it("uses current Jira OAuth scopes and includes token-level scopes", async () => {
   const email = "requester@example.com";
   const redirectUri =
     "https://example.test/_agent-native/connections/oauth/jira/callback";
@@ -1166,7 +1166,14 @@ it("preserves token-level Jira OAuth scopes alongside site-specific scopes", asy
     email,
     role: "owner",
   });
-  callbackMocks.listWorkspaceConnections.mockResolvedValue([]);
+  callbackMocks.listWorkspaceConnections.mockResolvedValue([
+    {
+      id: "jira-connection-1",
+      accountId: scopedOAuthAccountId("jira", email, "cloud-1"),
+      allowedUsers: [email],
+      scopes: ["read:jira-work", "read:jira-user", "old:revoked-scope"],
+    },
+  ]);
   callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
     id: "jira-connection-1",
   } as never);
@@ -1224,15 +1231,18 @@ it("preserves token-level Jira OAuth scopes alongside site-specific scopes", asy
   await handleWorkspaceProviderOAuthCallback(event, "jira");
 
   expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
-    expect.objectContaining({
-      provider: "jira",
-      scopes: expect.arrayContaining([
-        "read:jira-work",
-        "read:jira-user",
-        "offline_access",
-      ]),
-    }),
+    expect.objectContaining({ provider: "jira" }),
   );
+  const [upsertedConnection] =
+    callbackMocks.upsertWorkspaceConnection.mock.calls[0] ?? [];
+  expect(upsertedConnection.scopes).toEqual(
+    expect.arrayContaining([
+      "read:jira-work",
+      "read:jira-user",
+      "offline_access",
+    ]),
+  );
+  expect(upsertedConnection.scopes).not.toContain("old:revoked-scope");
 });
 
 describe("oauthFlowFailure", () => {
