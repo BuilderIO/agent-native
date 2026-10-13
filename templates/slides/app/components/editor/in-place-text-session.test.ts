@@ -2620,8 +2620,8 @@ describe("in-place text session: undo", () => {
   });
 
   it("keeps the initial state undoable across sustained byte pressure", () => {
-    const previousByteLimit = 128 * 1024 * 1024;
-    const operationCount = 512;
+    const previousByteLimit = 192 * 1024 * 1024;
+    const operationCount = 960;
     const originalText = "x".repeat(280_000);
     const el = mount(`<p id="t">${originalText}</p>`);
     session = startInPlaceTextSession(el);
