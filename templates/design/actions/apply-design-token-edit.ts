@@ -14,6 +14,10 @@ import {
   hasCapability,
 } from "../shared/design-source-capabilities.js";
 import {
+  DESIGN_TOKEN_KINDS,
+  readTokenKinds,
+} from "../shared/design-token-kinds.js";
+import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
@@ -39,6 +43,14 @@ const tokenEditSchema = z.object({
       'Token value may not contain ";", "{", "}", "<", ">", CSS comments, or control characters.',
     )
     .describe("New value for the token"),
+  kind: z
+    .enum(DESIGN_TOKEN_KINDS)
+    .optional()
+    .describe(
+      "Explicit token kind. Stored in designs.data.tokenKinds and decides the " +
+        "Tokens panel group instead of guessing from the name. Pass it when " +
+        "creating a token; omit it when only changing a value.",
+    ),
 });
 
 function designDeepLink(designId: string): string {
@@ -74,6 +86,8 @@ export default defineAction({
     "Tier-A (inline/Alpine): routes the edit through the same mechanism as " +
     "apply-tweaks — merges the value into designs.data.tweakSelections so the " +
     "tuned token survives reload and is visible in the Tokens panel. " +
+    "Pass `kind` on new tokens to store an explicit type in " +
+    "designs.data.tokenKinds; it decides the token's group. " +
     "Source file write-back (Tier-B, real apps) is gated behind a capability " +
     "check and currently returns a 'planned' advisory — no file is written.",
   schema: z.object({
@@ -81,7 +95,7 @@ export default defineAction({
     edits: z
       .array(tokenEditSchema)
       .min(1)
-      .describe("One or more { cssVar, value } edits to persist"),
+      .describe("One or more { cssVar, value, kind? } edits to persist"),
     sourceRef: z
       .string()
       .optional()
@@ -103,21 +117,26 @@ export default defineAction({
       mutate: (prevData, { updatedAt }) => {
         const tweaks = readTweaks(prevData);
         const newSelections = { ...readSelections(prevData) };
-        for (const { cssVar, value } of edits) {
+        const tokenKinds = readTokenKinds(prevData);
+        for (const { cssVar, value, kind } of edits) {
           newSelections[selectionKeyForCssVar(tweaks, cssVar)] = value;
+          if (kind) tokenKinds[cssVar] = kind;
         }
         return {
           ...prevData,
           tweakSelections: newSelections,
+          tokenKinds,
           tweaksAppliedAt: updatedAt,
         };
       },
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
+        const tokenKinds = readTokenKinds(data);
         return edits.every(
-          ({ cssVar, value }) =>
-            selections[selectionKeyForCssVar(tweaks, cssVar)] === value,
+          ({ cssVar, value, kind }) =>
+            selections[selectionKeyForCssVar(tweaks, cssVar)] === value &&
+            (!kind || tokenKinds[cssVar] === kind),
         );
       },
     });

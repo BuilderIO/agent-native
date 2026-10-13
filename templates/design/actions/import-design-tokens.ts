@@ -24,6 +24,12 @@ import {
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { parseDtcgTokens, toKebab } from "../server/lib/dtcg-tokens.js";
+import {
+  readTokenKinds,
+  tokenTypeForKind,
+  type DesignTokenKind,
+} from "../shared/design-token-kinds.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
@@ -37,6 +43,7 @@ interface ImportedDesignToken {
   cssVar: string;
   value: string;
   type: ImportedTokenType;
+  kind?: DesignTokenKind;
   source: string;
 }
 
@@ -197,19 +204,6 @@ function isColorValue(value: string): boolean {
   ].includes(normalized);
 }
 
-function toKebab(value: string): string {
-  return (
-    value
-      .trim()
-      .replace(/^--/, "")
-      .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "token"
-  );
-}
-
 function friendlyName(cssVar: string): string {
   return cssVar
     .replace(/^--/, "")
@@ -340,13 +334,37 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     accepted.push(file);
   }
 
-  const state = createCodeAnalysisState();
+  const tokens: ImportedDesignToken[] = [];
+  const looseFiles: { filename: string; content: string }[] = [];
   for (const file of accepted) {
+    const dtcgTokens = parseDtcgTokens(file.content);
+    if (!dtcgTokens) {
+      looseFiles.push(file);
+      continue;
+    }
+    for (const token of dtcgTokens) {
+      tokens.push({
+        name: friendlyName(token.cssVar),
+        cssVar: token.cssVar,
+        value: token.value,
+        type: token.kind
+          ? tokenTypeForKind(token.kind)
+          : token.motion
+            ? "motion"
+            : classifyVar(token.cssVar, token.value),
+        ...(token.kind ? { kind: token.kind } : {}),
+        source: file.filename,
+      });
+    }
+  }
+
+  const state = createCodeAnalysisState();
+  for (const file of looseFiles) {
     analyzeCodeFile(state, file.filename, file.content);
     addLooseTextSignals(state, file.filename, file.content);
   }
 
-  const tokens: ImportedDesignToken[] = parseNamedLines(accepted);
+  tokens.push(...parseNamedLines(looseFiles));
 
   for (const [cssVar, value] of Object.entries(state.cssCustomProperties)) {
     const normalized = normalizeValue(value);
@@ -426,8 +444,10 @@ export default defineAction({
   description:
     "Import design tokens into a design from pasted text, uploaded token/code files, " +
     "or the current design files. Parses CSS variables, design.md-style notes, " +
-    "Tailwind/theme JSON, hard-coded colors, spacing, radii, and fonts, then " +
-    "persists the imported values through the same CSS-var tweak bridge used by " +
+    "Tailwind/theme JSON, DTCG (W3C design tokens) JSON, hard-coded colors, " +
+    "spacing, radii, and fonts. DTCG `$type`s are saved as token kinds so each " +
+    "token lands in the right Tokens panel group. Persists the imported values " +
+    "through the same CSS-var tweak bridge used by " +
     "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
     "the Builder-backed design-system import flow.",
   schema: tokenImportSchema,
@@ -524,9 +544,15 @@ export default defineAction({
               },
             ];
 
+        const tokenKinds = readTokenKinds(prevData);
+        for (const token of safeTokens) {
+          if (token.kind) tokenKinds[token.cssVar] = token.kind;
+        }
+
         return {
           ...prevData,
           tweakSelections: nextSelections,
+          tokenKinds,
           tokenImportSources,
           tokenImports,
           tweaksAppliedAt: updatedAt,
@@ -535,6 +561,7 @@ export default defineAction({
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
+        const kinds = readTokenKinds(data);
         const sources =
           data.tokenImportSources &&
           typeof data.tokenImportSources === "object" &&
@@ -549,6 +576,7 @@ export default defineAction({
             (token) =>
               selections[selectionKeyForCssVar(tweaks, token.cssVar)] ===
                 token.value &&
+              (!token.kind || kinds[token.cssVar] === token.kind) &&
               sources[token.cssVar] === tokenSourceLabel(token, sourceLabel),
           ) &&
           imports.some(

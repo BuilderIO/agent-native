@@ -235,6 +235,49 @@ describe("index-design-tokens design-system access boundary", () => {
     });
   });
 
+  it("groups tokens by their stored kind instead of guessing from the name", async () => {
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({
+        tweakSelections: {
+          "--opacity-1": "0.5",
+          "--breakpoint-1": "768px",
+          "--legacy-unknown": "3",
+        },
+        tokenKinds: {
+          "--opacity-1": "opacity",
+          "--breakpoint-1": "breakpoint",
+          "--legacy-unknown": "not-a-kind",
+        },
+      }),
+      designSystemId: null,
+    };
+
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: fakeDesign,
+    });
+
+    mockFrom.mockReturnValue({
+      where: () => Promise.resolve([]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+    const byVar = (cssVar: string) =>
+      result.tokens.find((t: { cssVar: string }) => t.cssVar === cssVar);
+
+    expect(byVar("--opacity-1")).toMatchObject({
+      kind: "opacity",
+      type: "shadow",
+    });
+    expect(byVar("--breakpoint-1")).toMatchObject({
+      kind: "breakpoint",
+      type: "spacing",
+    });
+    expect(byVar("--legacy-unknown")).toMatchObject({ type: "other" });
+    expect(byVar("--legacy-unknown")).not.toHaveProperty("kind");
+  });
+
   it("uses import provenance as the source chip for imported tweak tokens", async () => {
     const fakeDesign = {
       id: "design_1",

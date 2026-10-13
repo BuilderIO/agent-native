@@ -226,6 +226,43 @@ Primary color: #f97316
     expect(result.tokens.filter((t) => /release/i.test(t.cssVar))).toEqual([]);
   });
 
+  it("imports DTCG files with their $type saved as the token kind", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.json",
+          content: JSON.stringify({
+            opacity: { muted: { $type: "number", $value: 0.6 } },
+            color: { primary: { $type: "color", $value: "#2563eb" } },
+          }),
+        },
+      ],
+    });
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({
+        cssVar: "--opacity-muted",
+        value: "0.6",
+        kind: "opacity",
+        type: "shadow",
+      }),
+      expect.objectContaining({
+        cssVar: "--color-primary",
+        value: "#2563eb",
+        kind: "color",
+      }),
+    ]);
+    const persisted = JSON.parse(designStore.row.data) as {
+      tokenKinds: Record<string, string>;
+    };
+    expect(persisted.tokenKinds).toEqual({
+      "--opacity-muted": "opacity",
+      "--color-primary": "color",
+    });
+  });
+
   it("can extract tokens from the current design files", async () => {
     mockWhere.mockResolvedValueOnce([
       {

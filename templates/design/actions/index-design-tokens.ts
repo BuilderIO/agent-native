@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { friendlyTokenName } from "@agent-native/core/brand-kit";
 import { extractCssVars } from "@agent-native/core/server/design-token-utils";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -8,14 +9,18 @@ import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
 import type { DesignSystemData } from "../shared/api.js";
 import {
+  groupDesignTokens,
+  readTokenKinds,
+  tokenTypeForKind,
+  type DesignToken,
+  type DesignTokenType,
+} from "../shared/design-token-kinds.js";
+import {
   isDirectCssVarSelectionKey,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-function classifyVar(
-  name: string,
-  value: string,
-): "color" | "typography" | "spacing" | "radius" | "shadow" | "other" {
+function classifyVar(name: string, value: string): DesignTokenType {
   const n = name.toLowerCase();
   if (
     /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/.test(value.trim())
@@ -47,24 +52,6 @@ function classifyVar(
   return "other";
 }
 
-function friendlyName(cssVar: string): string {
-  return cssVar
-    .replace(/^--/, "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export interface DesignToken {
-  name: string;
-  cssVar: string;
-  value: string;
-  type: "color" | "typography" | "spacing" | "radius" | "shadow" | "other";
-  source: string;
-  sources?: string[];
-  sourceValues?: Record<string, string>;
-  isTweakOverride?: boolean;
-}
-
 export default defineAction({
   description:
     "Index the design tokens for a design as a friendly { name, cssVar, " +
@@ -73,7 +60,9 @@ export default defineAction({
     "the user's applied tweak selections. When multiple files declare the " +
     "same cssVar, also returns `sources` (every contributing filename) and " +
     "`sourceValues` (per-file value) if those files disagree. Returns tokens " +
-    "grouped by type (color, typography, spacing, radius, shadow, other).",
+    "grouped by type (color, typography, spacing, radius, shadow, other). " +
+    "Tokens created with an explicit kind (apply-design-token-edit `kind`) " +
+    "also return `kind`, and their group follows it instead of the name.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
   }),
@@ -235,6 +224,7 @@ export default defineAction({
       !Array.isArray(designData.tokenImportSources)
         ? (designData.tokenImportSources as Record<string, string>)
         : {};
+    const tokenKinds = readTokenKinds(designData);
 
     type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
     const resolvedOverrides = resolveTweaksToCssVars(
@@ -254,11 +244,13 @@ export default defineAction({
       cssVar,
       { value, source, sources, sourceValues },
     ] of rawTokens) {
+      const kind = tokenKinds[cssVar];
       tokens.push({
-        name: friendlyName(cssVar),
+        name: friendlyTokenName(cssVar),
         cssVar,
         value,
-        type: classifyVar(cssVar, value),
+        type: kind ? tokenTypeForKind(kind) : classifyVar(cssVar, value),
+        ...(kind ? { kind } : {}),
         source,
         ...(sources.length > 1 ? { sources } : {}),
         ...(sourceValues && new Set(Object.values(sourceValues)).size > 1
@@ -268,27 +260,11 @@ export default defineAction({
       });
     }
 
-    type TokenGroup = { type: DesignToken["type"]; tokens: DesignToken[] };
-    const ORDER: DesignToken["type"][] = [
-      "color",
-      "typography",
-      "spacing",
-      "radius",
-      "shadow",
-      "other",
-    ];
-    const byType = new Map<DesignToken["type"], DesignToken[]>(
-      ORDER.map((t) => [t, []]),
-    );
-    for (const tok of tokens) {
-      byType.get(tok.type)!.push(tok);
-    }
-    const groups: TokenGroup[] = [];
-    for (const type of ORDER) {
-      const toks = byType.get(type)!;
-      if (toks.length > 0) groups.push({ type, tokens: toks });
-    }
-
-    return { designId, tokenCount: tokens.length, groups, tokens };
+    return {
+      designId,
+      tokenCount: tokens.length,
+      groups: groupDesignTokens(tokens),
+      tokens,
+    };
   },
 });
