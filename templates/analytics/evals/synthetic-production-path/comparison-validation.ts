@@ -3,6 +3,7 @@ const CSV_COLUMNS = [
   "phase",
   "git_revision",
   "code_revision",
+  "harness_revision",
   "fixture_revision",
   "run",
   "score",
@@ -25,8 +26,10 @@ const CSV_COLUMNS = [
 export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
   "current-organization-role-roster",
   "active-workspace-member-roster-with-roles",
+  "active-workspace-users-map-to-membership",
   "full-workspace-roster-excludes-active-only-source",
   "nonpositive-count-instruction-keeps-member-rows",
+  "negated-counts-keep-positive-monthly-trend",
   "monthly-organization-user-count",
   "bare-active-members-map-to-membership",
   "active-product-users-map-to-activity",
@@ -37,7 +40,7 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
 export const PRODUCTION_PATH_BASELINE_REVISION =
   "75e39e8547b408aa09605e54872d9a8ef6522df9";
 export const PRODUCTION_PATH_FIXTURE_REVISION =
-  "synthetic-analytics-retrieval-v7";
+  "synthetic-analytics-retrieval-v8";
 const REASON_CODES = new Set([
   "rank_1",
   "ranked_below_1",
@@ -57,6 +60,7 @@ type ComparisonRow = {
   phase: Phase;
   git_revision: string;
   code_revision: string;
+  harness_revision: string;
   fixture_revision: string;
   run: number;
   score: number;
@@ -80,6 +84,7 @@ export type PhaseComparisonSummary = {
   hitAt5: number;
   revision: string;
   codeRevision: string;
+  harnessRevision: string;
 };
 
 export type ProductionPathComparisonSummary = {
@@ -137,6 +142,7 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
       phase,
       git_revision: row.git_revision,
       code_revision: row.code_revision,
+      harness_revision: row.harness_revision,
       fixture_revision: row.fixture_revision,
       run: parseInteger(row.run, "run number"),
       score: parseInteger(row.score, "score"),
@@ -162,6 +168,7 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
     if (
       !/^[a-f0-9]{40}$/.test(parsed.git_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(parsed.code_revision) ||
+      !/^sha256:[a-f0-9]{64}$/.test(parsed.harness_revision) ||
       parsed.fixture_revision !== PRODUCTION_PATH_FIXTURE_REVISION ||
       (parsed.score !== 0 && parsed.score !== 1) ||
       !REASON_CODES.has(parsed.reason_code)
@@ -179,12 +186,20 @@ function summarizePhase(
   const phaseRows = rows.filter((row) => row.phase === phase);
   const revisions = new Set(phaseRows.map((row) => row.git_revision));
   const codeRevisions = new Set(phaseRows.map((row) => row.code_revision));
-  if (revisions.size !== 1 || codeRevisions.size !== 1) {
+  const harnessRevisions = new Set(
+    phaseRows.map((row) => row.harness_revision),
+  );
+  if (
+    revisions.size !== 1 ||
+    codeRevisions.size !== 1 ||
+    harnessRevisions.size !== 1
+  ) {
     throw new Error("Comparison CSV mixes revisions within a phase.");
   }
   const [revision] = revisions;
   const [codeRevision] = codeRevisions;
-  if (!revision || !codeRevision) {
+  const [harnessRevision] = harnessRevisions;
+  if (!revision || !codeRevision || !harnessRevision) {
     throw new Error("Comparison CSV phase is missing provenance.");
   }
   return {
@@ -193,6 +208,7 @@ function summarizePhase(
     hitAt5: phaseRows.filter((row) => row.hit_at_5).length,
     revision,
     codeRevision,
+    harnessRevision,
   };
 }
 
@@ -261,8 +277,11 @@ export function validateProductionPathComparisonCsv(
 
   const before = summarizePhase("before", rows);
   const after = summarizePhase("after", rows);
-  if (before.rows !== 18 || after.rows !== 18) {
-    throw new Error("Comparison CSV must have 18 rows in each phase.");
+  const expectedPhaseRows = SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+  if (before.rows !== expectedPhaseRows || after.rows !== expectedPhaseRows) {
+    throw new Error(
+      "Comparison CSV must have two runs per case in each phase.",
+    );
   }
   if (
     before.revision !== PRODUCTION_PATH_BASELINE_REVISION ||
@@ -270,8 +289,15 @@ export function validateProductionPathComparisonCsv(
   ) {
     throw new Error("Comparison CSV revisions do not match the pinned phases.");
   }
-  if (after.top1 !== 18 || after.hitAt5 !== 18) {
-    throw new Error("Candidate production-path retrieval is not 18/18 top-1.");
+  if (before.harnessRevision !== after.harnessRevision) {
+    throw new Error(
+      "Before and after phases must use identical harness bytes.",
+    );
+  }
+  if (after.top1 !== expectedPhaseRows || after.hitAt5 !== expectedPhaseRows) {
+    throw new Error(
+      `Candidate production-path retrieval is not ${expectedPhaseRows}/${expectedPhaseRows} top-1.`,
+    );
   }
 
   return { before, after, cases: SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length };

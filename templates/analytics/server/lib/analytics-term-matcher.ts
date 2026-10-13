@@ -291,7 +291,6 @@ export function semanticScopeForSearch(value: string): string {
     return "membership_roster";
   }
   if (has("active") && has("membership", "member")) return "membership";
-  if (has("active")) return "product_activity";
   if (
     has("organization", "org", "company", "workspace", "team") &&
     has("membership", "member")
@@ -304,6 +303,7 @@ export function semanticScopeForSearch(value: string): string {
   ) {
     return "membership";
   }
+  if (has("active")) return "product_activity";
   if (has("builder", "product") && has("user", "person", "people", "member")) {
     return "product_user";
   }
@@ -315,6 +315,14 @@ export function semanticScopeForSearch(value: string): string {
 }
 
 export function stripNonPositiveInstructions(value: string): string {
+  const keepPositiveContinuation = (match: string) => {
+    const continuation =
+      /\b(?:but|and)\s+(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b/i.exec(
+        match,
+      );
+    return continuation ? ` ${match.slice(continuation.index).trim()}` : " ";
+  };
+
   return value
     .replace(/(?:^|[;,.!?])\s*metadata only\b/gi, " ")
     .replace(
@@ -322,16 +330,17 @@ export function stripNonPositiveInstructions(value: string): string {
       " ",
     )
     .replace(
-      /(?:^|[;,.!?]|\bbut\b|\band\b)\s*no\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
-      " ",
+      /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*(?:with\s+)?no\s+(?:(?:any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      keepPositiveContinuation,
     )
     .replace(
-      /\bwithout\s+(?:(?:a|an|any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
-      " ",
+      /(?:^|[;,.!?]|\bbut\b|\band\b)?\s*without\s+(?:(?:a|an|any|the)\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;,.!?]*/gi,
+      keepPositiveContinuation,
     )
     .trim()
     .replace(/^[,;.!?]+|[,;.!?]+$/g, "")
-    .trim();
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 export function semanticScopeCompatibility(

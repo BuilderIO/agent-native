@@ -12,7 +12,7 @@ import {
 
 const COMPARISON_CSV = fileURLToPath(
   new URL(
-    "./SYNTHETIC-analytics-production-path-v7-before-after.csv",
+    "./SYNTHETIC-analytics-production-path-v8-before-after.csv",
     import.meta.url,
   ),
 );
@@ -22,6 +22,7 @@ const CSV_COLUMNS = [
   "phase",
   "git_revision",
   "code_revision",
+  "harness_revision",
   "fixture_revision",
   "run",
   "score",
@@ -65,6 +66,7 @@ function makeComparisonCsv(): string {
             phase === "before"
               ? "sha256:" + "a".repeat(64)
               : "sha256:" + "b".repeat(64),
+          harness_revision: "sha256:" + "c".repeat(64),
           fixture_revision: PRODUCTION_PATH_FIXTURE_REVISION,
           run,
           score: expectedRank === 1 ? 1 : 0,
@@ -93,9 +95,19 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(makeComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 9,
-      before: { rows: 18, top1: 4, hitAt5: 12 },
-      after: { rows: 18, top1: 18, hitAt5: 18 },
+      cases: 11,
+      before: {
+        rows: 22,
+        top1: 4,
+        hitAt5: 12,
+        harnessRevision: "sha256:" + "c".repeat(64),
+      },
+      after: {
+        rows: 22,
+        top1: 22,
+        hitAt5: 22,
+        harnessRevision: "sha256:" + "c".repeat(64),
+      },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
@@ -125,7 +137,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   it("rejects a mismatched before/after fixture", () => {
     const csv = makeComparisonCsv();
     const changed = csv.replace(
-      "synthetic-analytics-retrieval-v7",
+      "synthetic-analytics-retrieval-v8",
       "synthetic-analytics-retrieval-v6",
     );
 
@@ -134,14 +146,28 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it("rejects before/after rows made with different harness bytes", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    for (let index = 1; index < rows.length; index++) {
+      if (!rows[index]!.includes(",after,")) continue;
+      const columns = rows[index]!.split(",");
+      columns[4] = "sha256:" + "d".repeat(64);
+      rows[index] = columns.join(",");
+    }
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "identical harness bytes",
+    );
+  });
+
   it("validates the checked-in measured comparison", async () => {
     const csv = await readFile(COMPARISON_CSV, "utf8");
     const result = validateProductionPathComparisonCsv(csv);
 
     expect(result).toMatchObject({
-      cases: 9,
-      before: { rows: 18, top1: 4, hitAt5: 12 },
-      after: { rows: 18, top1: 18, hitAt5: 18 },
+      cases: 11,
+      before: { rows: 22, top1: 4, hitAt5: 12 },
+      after: { rows: 22, top1: 22, hitAt5: 22 },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);

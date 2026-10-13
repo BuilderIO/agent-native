@@ -28,6 +28,7 @@ export default defineAction({
     const result = await readSourceIndex(getRequestOrgId() || null);
     if (result.status !== "available") return { status: result.status };
     const freshness = sourceIndexFreshness(result.bundle.generatedAt);
+    const scanCoverage = sourceIndexScanCoverage(result.bundle);
     const entryCountsBySource = new Map<string, number>();
     for (const entry of result.bundle.entries) {
       entryCountsBySource.set(
@@ -39,7 +40,8 @@ export default defineAction({
       status: result.status,
       generatedAt: result.bundle.generatedAt,
       entryCount: result.bundle.entries.length,
-      scanCoverage: sourceIndexScanCoverage(result.bundle),
+      scanCoverage,
+      unresolvedTrackingCallSites: scanCoverage.unresolvedTrackingCallSites,
       sources: result.bundle.sources,
       sourceCounts: result.bundle.sources.map(({ id }) => ({
         source: id,

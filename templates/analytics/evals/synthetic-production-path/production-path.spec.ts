@@ -188,10 +188,11 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v7";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v8";
 const BASELINE_GIT_REVISION = "75e39e8547b408aa09605e54872d9a8ef6522df9";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
+const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
 const ACTION_ALLOWLIST = ["find-data"] as const;
 const ANALYTICS_PROJECT_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -226,6 +227,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.active_organization_member_roles",
   },
   {
+    id: "active-workspace-users-map-to-membership",
+    prompt:
+      "Find the catalog reference for active workspace users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
     id: "full-workspace-roster-excludes-active-only-source",
     prompt:
       "Find the catalog reference for a full workspace member roster. Do not use active workspace members as a filtered subset. Metadata only; do not report live counts or values.",
@@ -236,6 +243,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     prompt:
       "Find workspace users, no live counts. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.organization_member_roles",
+  },
+  {
+    id: "negated-counts-keep-positive-monthly-trend",
+    prompt:
+      "Find workspace users with no live counts but show the monthly trend. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.monthly_org_user_counts",
   },
   {
     id: "monthly-organization-user-count",
@@ -287,6 +300,7 @@ export type PrivacySafeEvalRow = {
   phase: EvalPhase;
   git_revision: string;
   code_revision: string;
+  harness_revision: string;
   fixture_revision: string;
   run: number;
   score: number;
@@ -309,6 +323,7 @@ const CSV_COLUMNS: readonly (keyof PrivacySafeEvalRow)[] = [
   "phase",
   "git_revision",
   "code_revision",
+  "harness_revision",
   "fixture_revision",
   "run",
   "score",
@@ -379,14 +394,51 @@ function assertEvalProvenance(
 /** Accept only the copied harness as an untracked file in the baseline tree. */
 function assertBaselineWorkingTreeStatus(statusOutput: string): void {
   const entries = statusOutput.split("\0").filter(Boolean);
-  if (
-    entries.length === 0 ||
-    (entries.length === 1 && entries[0] === `?? ${BASELINE_HARNESS_PATH}`)
-  ) {
+  if (entries.length === 1 && entries[0] === `?? ${BASELINE_HARNESS_PATH}`) {
     return;
   }
   throw new Error(
     "Before-phase output requires a clean baseline source tree; only the copied production-path harness may be untracked.",
+  );
+}
+
+function assertBaselineHarnessMatchesCandidate(
+  copiedHarness: Uint8Array,
+  candidateHarness: Uint8Array,
+): void {
+  if (
+    copiedHarness.length !== candidateHarness.length ||
+    copiedHarness.some((byte, index) => byte !== candidateHarness[index])
+  ) {
+    throw new Error(
+      "Before-phase output requires the copied harness to match the pinned candidate harness revision.",
+    );
+  }
+}
+
+async function assertBaselineHarnessIntegrity(
+  candidateHarnessRevision: string,
+): Promise<void> {
+  if (
+    !/^[a-f0-9]{40}$/.test(candidateHarnessRevision) ||
+    candidateHarnessRevision === BASELINE_GIT_REVISION
+  ) {
+    throw new Error(
+      "Before-phase output requires a pinned candidate harness revision.",
+    );
+  }
+  const repositoryRelativePath = path.relative(
+    REPOSITORY_ROOT,
+    fileURLToPath(import.meta.url),
+  );
+  const candidateHarness = execFileSync(
+    "git",
+    ["show", `${candidateHarnessRevision}:${repositoryRelativePath}`],
+    { cwd: REPOSITORY_ROOT },
+  );
+  assertBaselineHarnessMatchesCandidate(
+    await readFile(fileURLToPath(import.meta.url)),
+    candidateHarness,
   );
 }
 
@@ -419,6 +471,11 @@ async function codeRevision(): Promise<string> {
   hash.update(BASELINE_HARNESS_PATH);
   hash.update(await readFile(fileURLToPath(import.meta.url)));
   return `sha256:${hash.digest("hex")}`;
+}
+
+async function harnessRevision(): Promise<string> {
+  const content = await readFile(fileURLToPath(import.meta.url));
+  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
 
 /** Ensure the files that define the evaluated production path are baseline bytes. */
@@ -512,6 +569,7 @@ export function renderPrivacySafeEvalCsv(
       (row.phase !== "before" && row.phase !== "after") ||
       !/^(?:[a-f0-9]{40}|working-tree)$/.test(row.git_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(row.code_revision) ||
+      !/^sha256:[a-f0-9]{64}$/.test(row.harness_revision) ||
       row.fixture_revision !== FIXTURE_REVISION ||
       !isNonnegativeInteger(row.run) ||
       (row.score !== 0 && row.score !== 1) ||
@@ -759,6 +817,7 @@ async function makeRows(
   phase: EvalPhase,
 ): Promise<PrivacySafeEvalRow[]> {
   const revision = await codeRevision();
+  const currentHarnessRevision = await harnessRevision();
   const rows: PrivacySafeEvalRow[] = [];
   for (const testCase of SYNTHETIC_CASES) {
     for (const run of [1, 2]) {
@@ -772,6 +831,7 @@ async function makeRows(
         phase,
         git_revision: gitRevision,
         code_revision: revision,
+        harness_revision: currentHarnessRevision,
         fixture_revision: FIXTURE_REVISION,
         run,
         score: successful ? 1 : 0,
@@ -805,6 +865,9 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     assertEvalProvenance(phase, actualGitRevision, gitRevision);
     if (phase === "before") {
       await assertBaselineSourceIntegrity();
+      await assertBaselineHarnessIntegrity(
+        process.env[CANDIDATE_HARNESS_REVISION_ENV] ?? "",
+      );
     } else {
       await assertCandidateSourceIntegrity(gitRevision);
     }
@@ -819,8 +882,10 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(SYNTHETIC_CASES.map(({ id }) => id)).toEqual([
       "current-organization-role-roster",
       "active-workspace-member-roster-with-roles",
+      "active-workspace-users-map-to-membership",
       "full-workspace-roster-excludes-active-only-source",
       "nonpositive-count-instruction-keeps-member-rows",
+      "negated-counts-keep-positive-monthly-trend",
       "monthly-organization-user-count",
       "bare-active-members-map-to-membership",
       "active-product-users-map-to-activity",
@@ -953,6 +1018,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       phase: "candidate",
       git_revision: "working-tree",
       code_revision: `sha256:${"a".repeat(64)}`,
+      harness_revision: `sha256:${"c".repeat(64)}`,
       fixture_revision: FIXTURE_REVISION,
       run: 1,
       score: 1,
@@ -982,11 +1048,23 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     ).toThrow("invalid metric value");
   });
 
-  it("rejects dirty baseline sources and permits only the copied harness", () => {
-    expect(() => assertBaselineWorkingTreeStatus("")).not.toThrow();
+  it("requires the copied baseline harness to be pinned and byte-identical", () => {
     expect(() =>
       assertBaselineWorkingTreeStatus(`?? ${BASELINE_HARNESS_PATH}\0`),
     ).not.toThrow();
+    expect(() => assertBaselineWorkingTreeStatus("")).toThrow(
+      "clean baseline source tree",
+    );
+    const candidateHarness = new TextEncoder().encode("candidate harness");
+    expect(() =>
+      assertBaselineHarnessMatchesCandidate(candidateHarness, candidateHarness),
+    ).not.toThrow();
+    expect(() =>
+      assertBaselineHarnessMatchesCandidate(
+        candidateHarness,
+        new TextEncoder().encode("modified harness"),
+      ),
+    ).toThrow("pinned candidate harness revision");
     expect(() =>
       assertBaselineWorkingTreeStatus(
         " M templates/analytics/server/lib/analytics-term-matcher.ts\0",
@@ -1007,5 +1085,14 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         `?? ${BASELINE_HARNESS_PATH}\0?? templates/analytics/actions/local.ts\0`,
       ),
     ).toThrow("clean baseline source tree");
+  });
+
+  it("rejects an unpinned or baseline harness revision", async () => {
+    await expect(assertBaselineHarnessIntegrity("")).rejects.toThrow(
+      "pinned candidate harness revision",
+    );
+    await expect(
+      assertBaselineHarnessIntegrity(BASELINE_GIT_REVISION),
+    ).rejects.toThrow("pinned candidate harness revision");
   });
 });

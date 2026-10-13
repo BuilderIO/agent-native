@@ -82,6 +82,7 @@ describe("get-data-dictionary-index-status", () => {
         truncatedFields: 4,
         unresolvedTrackingCallSites: 3,
       },
+      unresolvedTrackingCallSites: 3,
       sources: [
         { id: "dbt", revision: "abcdef123456" },
         { id: "builder-internal", contentFingerprint: "a".repeat(64) },
@@ -123,6 +124,7 @@ describe("get-data-dictionary-index-status", () => {
         truncatedFields: null,
         unresolvedTrackingCallSites: null,
       },
+      unresolvedTrackingCallSites: null,
     });
   });
 
@@ -149,6 +151,7 @@ describe("get-data-dictionary-index-status", () => {
         truncatedFields: 3,
         unresolvedTrackingCallSites: null,
       },
+      unresolvedTrackingCallSites: null,
     });
   });
 

@@ -94,6 +94,7 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("active workspace members")).toBe(
       "membership",
     );
+    expect(semanticScopeForSearch("active workspace users")).toBe("membership");
     expect(semanticScopeForSearch("workspace member roles")).toBe(
       "membership_roster",
     );
@@ -150,8 +151,21 @@ describe("Analytics term matching", () => {
       stripNonPositiveInstructions("workspace users, no live counts"),
     ).toBe("workspace users");
     expect(
+      stripNonPositiveInstructions("workspace users with no live counts"),
+    ).toBe("workspace users");
+    expect(
+      stripNonPositiveInstructions(
+        "workspace users, no live counts but show the monthly trend",
+      ),
+    ).toBe("workspace users but show the monthly trend");
+    expect(
       stripNonPositiveInstructions("workspace users without a count"),
     ).toBe("workspace users");
+    expect(
+      stripNonPositiveInstructions(
+        "workspace users without a count and show the monthly trend",
+      ),
+    ).toBe("workspace users and show the monthly trend");
     expect(
       semanticScopeForSearch("how many members have access per workspace"),
     ).toBe("membership");
