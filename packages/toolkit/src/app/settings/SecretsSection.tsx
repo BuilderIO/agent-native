@@ -394,10 +394,17 @@ function SecretCard({
         },
       );
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          error?: string;
-          validationCode?: string;
-        } | null;
+        let body: { error?: string; validationCode?: string } | null;
+        try {
+          body = (await res.json()) as {
+            error?: string;
+            validationCode?: string;
+          } | null;
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+          setToastAndClear("err", `Save failed (${res.status})`);
+          return;
+        }
         if (
           secret.key === "FIGMA_ACCESS_TOKEN" &&
           body?.validationCode === "figma_file_url_as_token"
