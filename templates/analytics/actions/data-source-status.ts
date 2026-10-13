@@ -167,10 +167,8 @@ export default defineAction({
     const normalizedKey = args.key?.toLowerCase().replace(/[\s_-]+/g, "");
     const workspaceProviderMatch = workspaceCatalog.some(
       (provider) =>
-        provider.id.toLowerCase().replace(/[\s_-]+/g, "") ===
-          normalizedKey ||
-        provider.label.toLowerCase().replace(/[\s_-]+/g, "") ===
-          normalizedKey,
+        provider.id.toLowerCase().replace(/[\s_-]+/g, "") === normalizedKey ||
+        provider.label.toLowerCase().replace(/[\s_-]+/g, "") === normalizedKey,
     );
     const { configs, known } = resolveCredentialConfigs(args.key);
     if (args.key && !known && !workspaceProviderMatch) {

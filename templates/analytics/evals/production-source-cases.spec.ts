@@ -33,7 +33,8 @@ function outputFor(
       );
       const meanings = [
         meaningClaim?.meanings[0],
-        ...(meaningClaim?.requiredMeaningGroups?.map((group) => group[0]) ?? []),
+        ...(meaningClaim?.requiredMeaningGroups?.map((group) => group[0]) ??
+          []),
         claim.grains[0],
       ];
       return `${claim.relation}: ${meanings.filter(Boolean).join("; ")}`;
@@ -244,11 +245,9 @@ describe("Analytics synthetic production source evals", () => {
       "",
     );
     const reportFor = (text: string) =>
-      runEvals(
-        [cases[1]!],
-        runnerFor(outputFor(contract, { text })),
-        { persist: false },
-      );
+      runEvals([cases[1]!], runnerFor(outputFor(contract, { text })), {
+        persist: false,
+      });
 
     const accepted = await reportFor(valid.text);
     const missing = await reportFor(missingPartialMonth);
@@ -365,11 +364,9 @@ describe("Analytics synthetic production source evals", () => {
     const relation = "dbt_mart.aggregate_monthly_users_per_org";
     const valid = outputFor(contract);
     const reportFor = (text: string) =>
-      runEvals(
-        [cases[2]!],
-        runnerFor(outputFor(contract, { text })),
-        { persist: false },
-      );
+      runEvals([cases[2]!], runnerFor(outputFor(contract, { text })), {
+        persist: false,
+      });
 
     const accepted = await reportFor(valid.text);
     const missingDisclaimer = await reportFor(
