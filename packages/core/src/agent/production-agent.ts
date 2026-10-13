@@ -4613,6 +4613,7 @@ export type AgentToolCallExecutionResult =
   | {
       status: "failed";
       output: string;
+      terminalError?: Extract<AgentChatEvent, { type: "error" }>;
     };
 
 export interface ExecuteAgentToolCallOptions {
@@ -4771,6 +4772,10 @@ export async function executeAgentToolCall(
       (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
         event.type === "tool_done" && event.tool === options.name,
     );
+  const terminalError = events.find(
+    (event): event is Extract<AgentChatEvent, { type: "error" }> =>
+      event.type === "error" && event.recoverable === false,
+  );
 
   if (approval) {
     return {
@@ -4778,6 +4783,13 @@ export async function executeAgentToolCall(
       approvalKey: approval.approvalKey,
       output:
         completed?.result ?? `Awaiting human approval to run ${options.name}.`,
+    };
+  }
+  if (terminalError) {
+    return {
+      status: "failed",
+      output: completed?.result ?? terminalError.error,
+      terminalError,
     };
   }
   if (!completed) {
@@ -13495,6 +13507,9 @@ export function createProductionAgentHandler(
               send,
             });
             if (execution.status === "approval_required") return;
+            if (execution.status === "failed" && execution.terminalError) {
+              return;
+            }
             agentLoopOpts.messages = replaceApprovedToolResult(
               agentLoopOpts.messages,
               approvedToolResultLocation,

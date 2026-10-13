@@ -583,13 +583,14 @@ function findPendingToolCallIndexById(
  * `tool_done` resolves the call right after the gate fires, so a replayed or
  * reordered approval would otherwise miss on id and silently attach this call's
  * approvalKey to a *different* in-flight call of the same action — putting the
- * wrong key behind a visible Approve button.
+ * wrong key behind a visible Approve button. A resumed paused call is eligible
+ * only after its exact `tool_start` marks it as an approval-resume candidate.
  *
- * Without an event id, the required input must identify one pending call by
- * itself. A name-only match can attach a stale approval to a different
- * same-name call. With an event id, the only tolerated fallback is a single
- * unambiguous reader-local (`tc_N`) placeholder, which is how a call looks
- * when an older server omitted the id on `tool_start`.
+ * Without an event id, the required input must identify one pending call or
+ * explicitly resumed pause by itself. A name-only match can attach a stale
+ * approval to a different same-name call. With an event id, the only tolerated
+ * fallback is a single unambiguous reader-local (`tc_N`) placeholder, which is
+ * how a call looks when an older server omitted the id on `tool_start`.
  */
 export function findApprovalToolCallIndex(
   content: readonly ContentPart[],
@@ -605,7 +606,9 @@ export function findApprovalToolCallIndex(
       if (
         part.type === "tool-call" &&
         part.toolName === toolName &&
-        part.result === undefined &&
+        (part.result === undefined ||
+          (part.approvalPause === true &&
+            part.approvalResumeCandidate === true)) &&
         toolInputsMatch(part.args, approvalInput)
       ) {
         matchingInputCandidates.push(i);
@@ -618,6 +621,23 @@ export function findApprovalToolCallIndex(
 
   const exactIndex = findPendingToolCallIndexById(content, toolCallId);
   if (exactIndex >= 0) return exactIndex;
+
+  const resumedCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.toolName === toolName &&
+      part.result !== undefined &&
+      part.approvalPause === true &&
+      part.approvalResumeCandidate === true &&
+      (approvalInput === undefined || toolInputsMatch(part.args, approvalInput))
+    ) {
+      resumedCandidates.push(i);
+    }
+  }
+  if (resumedCandidates.length === 1) return resumedCandidates[0]!;
 
   const readerLocalCandidates: number[] = [];
   for (let i = 0; i < content.length; i += 1) {

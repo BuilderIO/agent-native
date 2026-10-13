@@ -3230,6 +3230,7 @@ function nativeStructuredHistoryFromMessages(
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
   const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
   const resultReferences: StructuredToolHistoryResultReference[] = [];
   const approvalAskIdByToolCallId = new Map<string, string>();
@@ -3327,7 +3328,10 @@ function nativeStructuredHistoryFromMessages(
           const approvedReplay =
             part.approvedReplay === true ||
             (part.approval !== undefined &&
-              approvedToolCallSet.has(part.approval.approvalKey));
+              approvedToolCallSet.has(part.approval.approvalKey) &&
+              (approvedToolCallAskIdSet.size === 0 ||
+                (part.approval.askId !== undefined &&
+                  approvedToolCallAskIdSet.has(part.approval.askId))));
           const input =
             part.input === undefined
               ? approvedReplay
@@ -3471,10 +3475,14 @@ interface BoundedPendingApprovalRuntimeMessages {
 function isPendingApprovedToolCall(
   part: Extract<ContentPart, { type: "tool-call" }>,
   approvedToolCallSet: ReadonlySet<string>,
+  approvedToolCallAskIdSet: ReadonlySet<string>,
 ): boolean {
   return (
     part.approval !== undefined &&
     approvedToolCallSet.has(part.approval.approvalKey) &&
+    (approvedToolCallAskIdSet.size === 0 ||
+      (part.approval.askId !== undefined &&
+        approvedToolCallAskIdSet.has(part.approval.askId))) &&
     (part.result === undefined || part.approvalPause === true)
   );
 }
@@ -3482,13 +3490,19 @@ function isPendingApprovedToolCall(
 function pendingApprovalRuntimeMessages(
   state: AgentNativeMessageProjectionState,
   approvedToolCalls: readonly string[],
+  approvedToolCallAskIds: readonly string[],
 ): BoundedPendingApprovalRuntimeMessages {
   const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
   const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const approvedCallCount = state.message.content.filter(
     (part) =>
       part.type === "tool-call" &&
-      isPendingApprovedToolCall(part, approvedToolCallSet),
+      isPendingApprovedToolCall(
+        part,
+        approvedToolCallSet,
+        approvedToolCallAskIdSet,
+      ),
   ).length;
   const reservedApprovalCallCount = Math.min(
     approvedCallCount,
@@ -3525,7 +3539,11 @@ function pendingApprovalRuntimeMessages(
     if (part.type !== "tool-call") continue;
     const isApprovedPendingCall =
       part.type === "tool-call" &&
-      isPendingApprovedToolCall(part, approvedToolCallSet);
+      isPendingApprovedToolCall(
+        part,
+        approvedToolCallSet,
+        approvedToolCallAskIdSet,
+      );
     if (part.result === undefined && !isApprovedPendingCall) continue;
     if (isApprovedPendingCall) {
       if (selectedApprovalCallCount >= MAX_TOOL_HISTORY_CALLS) {
@@ -3569,7 +3587,7 @@ function pendingApprovalRuntimeMessages(
           toolName: part.toolName,
           input: part.args,
           approval: part.approval,
-          approvedReplay: true,
+          ...(isApprovedPendingCall ? { approvedReplay: true } : {}),
         },
       ],
     });
@@ -3876,6 +3894,11 @@ function mapAgentNativeEvent(
           : part.result === undefined && part.toolName === toolName),
     );
     if (toolCall?.type === "tool-call") {
+      if (toolCall.result !== undefined && toolCall.approvalPause === true) {
+        toolCall.approvalResumeCandidate = true;
+      } else {
+        delete toolCall.approvalResumeCandidate;
+      }
       toolCall.args = ev.input ?? {};
       toolCall.argsText = JSON.stringify(toolCall.args);
       if (structuredMeta) toolCall.structuredMeta = structuredMeta;
@@ -3939,6 +3962,7 @@ function mapAgentNativeEvent(
         delete storedToolCall.approval;
       }
       delete storedToolCall.approvalPauseCandidate;
+      delete storedToolCall.approvalResumeCandidate;
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);
       storedToolCall.completedSideEffect = ev.completedSideEffect === true;
       if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
@@ -4036,6 +4060,7 @@ function mapAgentNativeEvent(
             : {}),
         };
         part.approvalPauseCandidate = true;
+        delete part.approvalResumeCandidate;
       }
     }
     return [
@@ -4770,6 +4795,7 @@ export function createAgentNativeChatRuntime(
           ? pendingApprovalRuntimeMessages(
               continuationMessageState,
               approvedToolCalls,
+              approvedToolCallAskIds ?? [],
             )
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(

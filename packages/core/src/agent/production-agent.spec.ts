@@ -135,6 +135,7 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import * as runStore from "./run-store.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
+import * as toolApprovalStore from "./tool-approval-store.js";
 import {
   classifyToolCallJournal,
   findCompletedJournalEntry,
@@ -3793,6 +3794,115 @@ describe("createProductionAgentHandler", () => {
       retryable: false,
     });
     expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("does not continue the outer model after an approved action terminally stops", async () => {
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The action succeeded." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const runAction = vi.fn(async () => {
+      throw new AgentActionStopError("This action cannot proceed", {
+        errorCode: "permanent_precondition",
+      });
+    });
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const persistRunEvent = vi
+      .spyOn(runStore, "insertRunEvent")
+      .mockResolvedValue(undefined);
+    const onRunComplete = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        publish: {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete,
+    });
+    const input = {};
+    const approvalKey = toolCallCacheKey("publish", input);
+    const response = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () =>
+        handler(
+          mockEvent(
+            new Request("http://app.example.com/_agent-native/agent-chat", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                message: "Approved. Continue.",
+                approvedToolCalls: [approvalKey],
+                structuredHistory: [
+                  {
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "tool-call",
+                        id: "call-publish",
+                        name: "publish",
+                        input,
+                      },
+                    ],
+                  },
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "tool-result",
+                        toolCallId: "call-publish",
+                        toolName: "publish",
+                        toolInput: "{}",
+                        content: "Awaiting human approval.",
+                        approvalPause: true,
+                      },
+                    ],
+                  },
+                ],
+              }),
+            }),
+          ),
+        ),
+    );
+
+    try {
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledOnce());
+
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(runAction).toHaveBeenCalledOnce();
+      expect(onRunComplete.mock.calls[0]?.[0]).toMatchObject({
+        status: "errored",
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "error",
+              errorCode: "permanent_precondition",
+              recoverable: false,
+            }),
+          }),
+        ]),
+      });
+      expect(outerStream).not.toHaveBeenCalled();
+    } finally {
+      consumeApproval.mockRestore();
+      persistRunEvent.mockRestore();
+    }
   });
 
   it("rejects malformed approval ids instead of falling back to a key-only approval", async () => {
