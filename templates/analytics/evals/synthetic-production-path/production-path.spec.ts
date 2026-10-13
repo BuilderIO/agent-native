@@ -97,6 +97,9 @@ const syntheticData = vi.hoisted(() => {
         grain: "One row per user_id per workspace_id",
         semanticScope: "membership",
         approved: true,
+        sourceIndexStale: false,
+        sourceIndexAgeDays: 0,
+        sourceIndexStaleAfterDays: 36_500,
       },
     },
     activeCaseId: null as string | null,
@@ -1352,6 +1355,9 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       sourceIndexStale: true,
       approved: true,
     });
+    expect(candidateList[staleSourceIndex].sourceIndexAgeDays).toBeGreaterThan(
+      0,
+    );
   });
 
   it("rejects attempts to serialize unapproved transcript or tool fields", () => {

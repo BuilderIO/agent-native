@@ -8,6 +8,9 @@ const SOURCE_INDEX_FIELDS = [
   "sourceRevision",
   "sourceIndexGeneratedAt",
   "sourceIndexSources",
+  "sourceIndexStale",
+  "sourceIndexAgeDays",
+  "sourceIndexStaleAfterDays",
 ] as const;
 
 function hasOverlayValue(value: unknown): boolean {
