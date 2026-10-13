@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { AgentActionStopError } from "../action.js";
 import { executeAgentToolCall, type ActionEntry } from "./production-agent.js";
 
 function action(
@@ -57,6 +58,41 @@ describe("executeAgentToolCall", () => {
     if (result.status === "approval_required") {
       expect(result.approvalKey).toBeTruthy();
     }
+  });
+
+  it("returns terminal action errors from the nested tool run", async () => {
+    const run = vi.fn(async () => {
+      throw new AgentActionStopError("This action cannot proceed", {
+        errorCode: "permanent_precondition",
+      });
+    });
+    const send = vi.fn();
+
+    const result = await executeAgentToolCall({
+      actions: { publish: action(run, { readOnly: false }) },
+      name: "publish",
+      input: { value: "public" },
+      callId: "call-terminal-stop",
+      continueWithModelResponse: true,
+      send,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: "failed",
+      terminalError: {
+        type: "error",
+        errorCode: "permanent_precondition",
+        recoverable: false,
+      },
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "permanent_precondition",
+        recoverable: false,
+      }),
+    );
   });
 
   it("rejects invalid input before the action runs", async () => {

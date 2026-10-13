@@ -160,6 +160,7 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const mockInsertRunEvent = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -213,6 +214,7 @@ vi.mock("./run-manager.js", async () => ({
 vi.mock("./run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-store.js")>()),
   insertRun: (...args: any[]) => mockInsertRun(...args),
+  insertRunEvent: (...args: any[]) => mockInsertRunEvent(...args),
 }));
 
 vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
@@ -3816,9 +3818,7 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    const persistRunEvent = vi
-      .spyOn(runStore, "insertRunEvent")
-      .mockResolvedValue(undefined);
+    mockInsertRunEvent.mockClear();
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -3901,7 +3901,6 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
-      persistRunEvent.mockRestore();
     }
   });
 
