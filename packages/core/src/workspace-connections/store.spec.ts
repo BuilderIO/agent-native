@@ -1412,6 +1412,47 @@ describe("workspace connection store", () => {
     expect(missing.reason).toMatch(/not found/i);
   });
 
+  it("blocks connected OAuth grants that no longer meet provider scopes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+    const requestContext = {
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    };
+
+    await runWithRequestContext(requestContext, () =>
+      upsertWorkspaceConnection({
+        id: "conn-sheets-needs-reauth",
+        provider: "google_sheets",
+        label: "Google Sheets",
+        accountId: "alice-google-account",
+        status: "connected",
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+        config: { credentialMode: "oauth" },
+      }),
+    );
+
+    const resolved = await runWithRequestContext(requestContext, () =>
+      resolveWorkspaceConnectionForApp({
+        appId: "analytics",
+        provider: "google_sheets",
+        connectionId: "conn-sheets-needs-reauth",
+        requireConnected: true,
+      }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: false,
+      connection: {
+        id: "conn-sheets-needs-reauth",
+        status: "needs_reauth",
+      },
+    });
+    expect(resolved.reason).toMatch(/needs_reauth/);
+  });
+
   it("builds a reusable provider catalog for one app", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

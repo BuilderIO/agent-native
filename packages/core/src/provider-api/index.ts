@@ -4799,7 +4799,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     ctx: options.ctx,
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
-    connectionId: requestedConnectionId,
+    connectionId: resolved.connection.id,
     salesforceLoginUrl:
       options.auth.oauthProvider === "salesforce" &&
       typeof resolved.connection.config?.salesforceLoginUrl === "string"

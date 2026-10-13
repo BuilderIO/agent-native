@@ -1211,6 +1211,74 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("uses a legacy Google token for an implicitly selected Sheets connection", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "granted-sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "legacy-google-access",
+                expiry_date: Date.now() + 300_000,
+                scope: "https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets/sheet-1/values/A1",
+    });
+
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "google_sheets",
+        requireConnected: true,
+      }),
+    );
+    expect(listOAuthAccountsByOwner).toHaveBeenNthCalledWith(
+      1,
+      "google_sheets",
+      "ada@example.com",
+    );
+    expect(listOAuthAccountsByOwner).toHaveBeenNthCalledWith(
+      2,
+      "google",
+      "ada@example.com",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/A1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer legacy-google-access",
+        }),
+      }),
+    );
+  });
+
   it("rejects absolute URLs outside the Google Sheets API host", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const runtime = createProviderApiRuntime({

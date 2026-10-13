@@ -1458,13 +1458,13 @@ export async function resolveWorkspaceConnectionForApp({
       continue;
     }
 
-    if (requireConnected && connection.status !== "connected") {
+    if (requireConnected && connectionWithAccess.status !== "connected") {
       if (normalizedConnectionId) {
         return {
           available: false,
           connection: connectionWithAccess,
           appAccess: connectionWithAccess.appAccess,
-          reason: `Workspace connection "${connection.id}" is ${connection.status}; a connected workspace connection is required.`,
+          reason: `Workspace connection "${connection.id}" is ${connectionWithAccess.status}; a connected workspace connection is required.`,
         };
       }
       continue;

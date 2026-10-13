@@ -53,15 +53,11 @@ Resolve known duplicate clusters before claiming. For an eligible item, add
 the Slack ownership gate. Post **In progress** only when work continues beyond
 this run.
 
-**Defects are in scope: fix them or ask for the one detail needed to fix them.**
-For every defect, finish triage with a concrete next action: do the next
-internal investigation/fix, or ask the direct reporter-only question when its
-answer changes that action. A Slack reply cannot be status narration alone:
-never send **Open - no question**, **Open pending**, or a symptom/source-access
-description without the exact blocking question or the concrete internal
-action and owner. Investigate first; ask what they saw or did in plain language.
-Gather request details and logs yourself; don't send reporters to developer
-tools.
+**Fix defects or ask the one reporter-only question that changes the next
+action.** Otherwise continue internal work. Never send a Slack reply that only
+says **Open**, restates symptoms, or cites a source-access gap; ask the exact
+gating question or name the concrete next action and owner. Gather logs and
+inspect supplied evidence yourself. Ask plainly what they saw or did.
 
 A reporter's proposed remedy may be wrong while the bug is real. Trace the
 failure to its owner.
@@ -82,29 +78,22 @@ routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
 **Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
 Follow the reply reference before marking an item replied.
 
-Before recording an evidence limit or asking, try to reproduce every defect
-from its screenshot, URL, error, supplied run ID, logs, or artifacts. Investigate
-internal access, config, observability, and deployment gaps ourselves; don't
-ask reporters to use developer tools. For each distinct defect, either do the
-next internal investigation/fix or ask one direct, concrete question when a
-reporter-only fact changes that next action. Name exactly what is needed and
-why it gates progress. Don't ask for supplied evidence, send a generic "more
-details" question, or bundle unrelated defects into one ask. If nothing from the
-reporter changes the next action, state the internal action and owner. Never
-reply only with **Open**/**Open pending** and a symptom restatement. After four
-days without an answer, record **Abandoned - no answer in 4 days**.
+Before recording an evidence limit or asking, try to reproduce the defect from
+the supplied artifact, URL, error, run ID, or logs. Investigate our access,
+config, observability, and deployment gaps. For each defect, continue internal
+work unless one reporter-only fact changes the next action; then ask one direct
+question naming the fact and why it gates progress. Never request supplied
+evidence, generic details, or answers to unrelated questions. Without a
+reporter gate, state the internal action and owner. After four days unanswered,
+record **Abandoned - no answer in 4 days**.
 
-For a supplied run/request ID, query the configured Thread Debug source by that
-exact ID and inspect its run events and tool results before describing the
-failure as unavailable or asking for another run. If the source lookup fails,
-record the exact source and error, then continue with code-level investigation;
-an inaccessible source is an observability gap, not evidence that the run does
-not exist. Ask for a new run only when the original run cannot answer a
-reporter-dependent question and the reporter's answer changes the next action.
+For a supplied run/request ID, query Thread Debug by exact ID and inspect its
+events and tool results. If unavailable, record the exact source/error and
+continue code investigation; do not infer the run is absent. Ask for another
+run only if the original cannot answer a reporter-dependent question.
 
-Use **Skipped** only for non-defects, never breakage. In the ledger,
-**Open - no question** means reporter input cannot change the internal next
-action; name that action and its owner. Do not use it as a Slack reply.
+Use **Skipped** only for non-defects. **Open - no question** is ledger-only:
+name the internal next action and owner; never send it as a Slack reply.
 
 ### Authoritative disposition vocabulary
 
@@ -500,18 +489,12 @@ human work.
 
 ### Ask only answerable questions
 
-Ask one direct question for each distinct blocked defect when the reporter's
-answer or action changes reproduction or unblocks the fix. There is no per-run
-cap; do not replace a useful question with **Open** or an in-progress status.
-Keep one pending question per thread. After an answer, try the fix before asking
-anything else. Never ask for supplied logs/IDs, internal access/config/tooling,
-subjective choices, or details that do not change the next step. If a
-user-visible link or ID alone blocks reproduction, ask for it and say where to
-find it.
-
-If an answer exposes a different required detail, ask at most one new,
-non-repeating question. If an artifact is inaccessible, request a fresh link,
-not its contents.
+Ask one direct question per blocked defect when the answer changes reproduction
+or unblocks the fix; there is no per-run cap. Keep one pending question per
+thread and try the fix before any follow-up. Never request supplied logs/IDs,
+internal access/config/tooling, subjective choices, or irrelevant details. If a
+missing user-visible link or ID blocks reproduction, ask for it and say where
+to find it. For an inaccessible artifact, request a fresh link.
 
 ## Verification and identity
 
@@ -588,11 +571,9 @@ Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complet
 Unavailable or unverified: ...
 ```
 
-`Open - no question` is only for ledger rows where reproduction and source
-tracing show no reporter answer changes the internal next step. Name that step
-and its owner or ownership gap. If an answer changes it, ask. Mostly open
-ledgers mean under-asking. Keep `👀`, no `✅`. "Nothing matched" requires
-successful source queries and a stated cursor.
+**Open - no question** is ledger-only when reporter input cannot change the
+internal next step; name the step and owner. Keep `👀`, no `✅`. If an answer
+changes it, ask. "Nothing matched" requires successful queries and a cursor.
 
 ## Related skills
 
