@@ -1114,6 +1114,8 @@ export default {
       importing: "Importando tokens…",
       importedWithSkipped:
         "{{count}} tokens importados. {{skipped}} valores ou arquivos inválidos foram ignorados.",
+      importedWithOmissions:
+        "{{count}} tokens importados. {{skipped}} itens inválidos foram ignorados. Não processados devido aos limites (tokens: {{omittedTokens}}, arquivos: {{omittedFiles}}).",
       noTokensFound:
         "Nenhum token válido foi encontrado. Verifique o formato do arquivo e os valores.",
       count: "{{count}} tokens",

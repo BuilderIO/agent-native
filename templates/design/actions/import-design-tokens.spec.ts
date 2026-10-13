@@ -503,6 +503,92 @@ Bad radius: 12px} body { color: red
     });
   });
 
+  it.each(['font family: "Inter;', "font family: red; /* unclosed"])(
+    "does not strip invalid CSS declarations while removing prose labels: %s",
+    async (invalidLine) => {
+      const result = await action.run({
+        designId: "design_1",
+        source: "paste",
+        text: `:root {
+  --color-accent: #2563eb;
+}
+${invalidLine}`,
+      });
+
+      expect(result.filesAnalyzed).toEqual([]);
+      expect(result.importedCount).toBe(0);
+      expect(result.skippedCount).toBe(1);
+      expect(result.tokens).toEqual([]);
+      expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+    },
+  );
+
+  it("does not strip malformed CSS properties from pasted token lists", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `Primary color: #2563eb
+font family: "Inter;
+--color-accent: #2563eb;`,
+    });
+
+    expect(result.filesAnalyzed).toEqual([]);
+    expect(result.importedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(result.tokens).toEqual([]);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("imports token lists with a bracketed note prefix", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `[1]
+Primary color: #2563eb
+--color-accent: #2563eb;`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent",
+          value: "#2563eb",
+        }),
+      ]),
+    );
+  });
+
+  it("reports valid tokens omitted by the import limit", async () => {
+    const declarations = Array.from(
+      { length: 121 },
+      (_, index) => `  --spacing-gap-${index}: ${index + 1}px;`,
+    ).join("\n");
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {\n${declarations}\n}`,
+    });
+
+    expect(result.importedCount).toBe(120);
+    expect(result.tokens).toHaveLength(120);
+    expect(result.omittedTokenCount).toBe(1);
+  });
+
+  it("reports files omitted by the import limit", async () => {
+    const files = Array.from({ length: 21 }, (_, index) => ({
+      filename: `tokens-${index}.css`,
+      content: `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+    }));
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files,
+    });
+
+    expect(result.filesAnalyzed).toHaveLength(20);
+    expect(result.omittedFileCount).toBe(1);
+  });
+
   it("reports unsupported indented Sass files as skipped", async () => {
     const result = await action.run({
       designId: "design_1",

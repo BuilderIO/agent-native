@@ -333,13 +333,69 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
 const TOKEN_LABEL_LINE =
   /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
 
+function hasBalancedCssValueSyntax(value: string): boolean {
+  const delimiters: string[] = [];
+  let quote: "'" | '"' | null = null;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    const next = value[index + 1];
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      inBlockComment = true;
+      index += 1;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "(" || char === "[") {
+      delimiters.push(char);
+    } else if (char === ")" || char === "]") {
+      const opening = delimiters.pop();
+      if (opening !== (char === ")" ? "(" : "[")) return false;
+    }
+  }
+
+  return !quote && !inBlockComment && !escaped && delimiters.length === 0;
+}
+
+function isProseTokenLabelLine(line: string): boolean {
+  const match = line.match(TOKEN_LABEL_LINE);
+  return Boolean(
+    match &&
+    /\s/.test(match[1]?.replace(/\*\*/g, "").trim() ?? "") &&
+    hasBalancedCssValueSyntax(match[2] ?? ""),
+  );
+}
+
 function pastedTokenListCssCandidate(content: string): string | null {
   if (/[{}]/.test(content)) return null;
 
   const declarations: string[] = [];
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || TOKEN_LABEL_LINE.test(line)) continue;
+    if (
+      !line ||
+      isProseTokenLabelLine(line) ||
+      /^\[[^\]\r\n]{1,80}\]$/.test(line)
+    ) {
+      continue;
+    }
     if (/^--[\w-]+\s*:\s*.+;?$/.test(line)) {
       declarations.push(line);
       continue;
@@ -355,9 +411,86 @@ function pastedTokenListCssCandidate(content: string): string | null {
     : null;
 }
 
+function pastedStylesheetCssCandidate(content: string): string | null {
+  if (!/[{}]/.test(content)) return null;
+
+  const lines: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  let inBlockComment = false;
+  let escaped = false;
+  let changed = false;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (
+      !quote &&
+      !inBlockComment &&
+      depth === 0 &&
+      isProseTokenLabelLine(line)
+    ) {
+      changed = true;
+      continue;
+    }
+
+    for (let index = 0; index < rawLine.length; index += 1) {
+      const char = rawLine[index]!;
+      const next = rawLine[index + 1];
+
+      if (inBlockComment) {
+        if (char === "*" && next === "/") {
+          inBlockComment = false;
+          index += 1;
+        }
+        continue;
+      }
+
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === quote) quote = null;
+        continue;
+      }
+
+      if (char === "/" && next === "*") {
+        inBlockComment = true;
+        index += 1;
+      } else if (char === "'" || char === '"') {
+        quote = char;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth < 0) return null;
+      }
+    }
+
+    lines.push(rawLine);
+  }
+
+  return changed && depth === 0 && !quote && !inBlockComment
+    ? lines.join("\n")
+    : null;
+}
+
 function looksLikePastedJson(content: string): boolean {
-  const trimmed = content.trimStart();
-  return trimmed.startsWith("{") || /^\[\s*(?:\]|\{|"|-?\d)/.test(trimmed);
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{")) return true;
+  if (!trimmed.startsWith("[")) return false;
+
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+
+  const [firstLine = "", ...remainingLines] = trimmed.split(/\r?\n/);
+  const isNoteWithTokenList =
+    /^\[[^\]\r\n]{1,80}\]$/.test(firstLine.trim()) &&
+    remainingLines.some((line) => /^--[\w-]+\s*:/.test(line.trim()));
+
+  return !isNoteWithTokenList;
 }
 
 function looksLikePastedCss(content: string): boolean {
@@ -470,18 +603,14 @@ function isValidImportFile(file: {
   const tokenListCandidate = isPastedStylesheet
     ? pastedTokenListCssCandidate(file.content)
     : null;
+  const stylesheetCandidate = isPastedStylesheet
+    ? pastedStylesheetCssCandidate(file.content)
+    : null;
   const cssCandidates = isPastedStylesheet
     ? [
         file.content,
         ...(tokenListCandidate ? [tokenListCandidate] : []),
-        file.content
-          .split(/\r?\n/)
-          .filter((line) => {
-            const trimmed = line.trim();
-            const isRuleStart = /\{\s*(?:\/\*.*?\*\/\s*)?$/.test(trimmed);
-            return !TOKEN_LABEL_LINE.test(trimmed) || isRuleStart;
-          })
-          .join("\n"),
+        ...(stylesheetCandidate ? [stylesheetCandidate] : []),
       ]
     : [file.content];
   const isScssOrLess = /\.(scss|less)$/.test(filename);
@@ -594,10 +723,18 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
 function tokensFromFiles(files: { filename: string; content: string }[]) {
   const accepted: { filename: string; content: string }[] = [];
   let totalBytes = 0;
+  let omittedFileCount = 0;
 
-  for (const file of files.slice(0, CODE_MAX_FILES)) {
+  for (const [index, file] of files.entries()) {
+    if (accepted.length >= CODE_MAX_FILES) {
+      omittedFileCount += files.length - index;
+      break;
+    }
     const size = new TextEncoder().encode(file.content).byteLength;
-    if (totalBytes + size > CODE_MAX_TOTAL_BYTES) break;
+    if (totalBytes + size > CODE_MAX_TOTAL_BYTES) {
+      omittedFileCount += files.length - index;
+      break;
+    }
     totalBytes += size;
     accepted.push(file);
   }
@@ -698,6 +835,9 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     filesAnalyzed: validFiles.map((file) => file.filename),
     tokens: imported,
     rejectedCount,
+    skippedCount: accepted.length - validFiles.length,
+    omittedFileCount,
+    omittedTokenCount: candidates.length - imported.length,
   };
 }
 
@@ -737,8 +877,14 @@ export default defineAction({
         importFiles.length === 1 ? importFiles[0].filename : "Imported files";
     }
 
-    const { filesAnalyzed, tokens, rejectedCount } =
-      tokensFromFiles(importFiles);
+    const {
+      filesAnalyzed,
+      tokens,
+      rejectedCount,
+      skippedCount,
+      omittedFileCount,
+      omittedTokenCount,
+    } = tokensFromFiles(importFiles);
     const safeTokens = tokens.filter(
       (token) =>
         isSafeCssVarName(token.cssVar) && isSafeCssTokenValue(token.value),
@@ -749,7 +895,9 @@ export default defineAction({
         source,
         importedCount: 0,
         rejectedCount,
-        skippedCount: importFiles.length - filesAnalyzed.length,
+        skippedCount,
+        omittedFileCount,
+        omittedTokenCount,
         filesAnalyzed,
         tokens: [],
         resolvedCssVars: {},
@@ -850,7 +998,9 @@ export default defineAction({
       source,
       importedCount: safeTokens.length,
       rejectedCount,
-      skippedCount: importFiles.length - filesAnalyzed.length,
+      skippedCount,
+      omittedFileCount,
+      omittedTokenCount,
       filesAnalyzed,
       tokens: safeTokens,
       resolvedCssVars: resolveTweaksToCssVars(tweaks, nextSelections),

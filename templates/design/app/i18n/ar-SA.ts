@@ -1099,6 +1099,8 @@ export default {
       importing: "جارٍ استيراد الرموز…",
       importedWithSkipped:
         "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من القيم أو الملفات غير الصالحة.",
+      importedWithOmissions:
+        "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من العناصر غير الصالحة. لم تتم المعالجة بسبب الحدود (الرموز: {{omittedTokens}}، الملفات: {{omittedFiles}}).",
       noTokensFound:
         "لم يتم العثور على رموز صالحة. تحقق من تنسيق الملف والقيم.",
       count: "{{count}} رمز",

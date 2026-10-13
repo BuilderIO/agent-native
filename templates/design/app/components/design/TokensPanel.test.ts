@@ -4,6 +4,7 @@ import {
   getTokenImportStatus,
   isColorValue,
   normalizeCssVarName,
+  readImportFiles,
   snapshotImportFiles,
 } from "./TokensPanel";
 
@@ -78,5 +79,36 @@ describe("getTokenImportStatus", () => {
       key: "designEditor.tokens.importedWithSkipped",
       values: { count: 0, skipped: 3 },
     });
+  });
+
+  it("shows token and file counts omitted at import limits", () => {
+    expect(
+      getTokenImportStatus({
+        importedCount: 120,
+        omittedTokenCount: 3,
+        omittedFileCount: 2,
+      }),
+    ).toEqual({
+      key: "designEditor.tokens.importedWithOmissions",
+      values: { count: 120, skipped: 0, omittedTokens: 3, omittedFiles: 2 },
+    });
+  });
+});
+
+describe("readImportFiles", () => {
+  it("reports selected files beyond the client-side import cap", async () => {
+    const files = Array.from(
+      { length: 21 },
+      (_, index) =>
+        ({
+          name: `tokens-${index}.css`,
+          text: async () => `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+        }) as File,
+    );
+
+    const result = await readImportFiles(files);
+
+    expect(result.files).toHaveLength(20);
+    expect(result.omittedFileCount).toBe(1);
   });
 });

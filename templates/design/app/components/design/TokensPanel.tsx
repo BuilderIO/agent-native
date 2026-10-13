@@ -65,6 +65,8 @@ interface ImportDesignTokensResult {
   filesAnalyzed: string[];
   rejectedCount?: number;
   skippedCount?: number;
+  omittedTokenCount?: number;
+  omittedFileCount?: number;
   resolvedCssVars?: Record<string, string>;
 }
 
@@ -72,14 +74,35 @@ export function getTokenImportStatus(result: {
   importedCount: number;
   rejectedCount?: number;
   skippedCount?: number;
+  omittedTokenCount?: number;
+  omittedFileCount?: number;
 }): {
   key:
     | "designEditor.tokens.importedCount"
     | "designEditor.tokens.importedWithSkipped"
+    | "designEditor.tokens.importedWithOmissions"
     | "designEditor.tokens.noTokensFound";
-  values?: { count: number; skipped?: number };
+  values?: {
+    count: number;
+    skipped?: number;
+    omittedTokens?: number;
+    omittedFiles?: number;
+  };
 } {
   const skippedCount = (result.skippedCount ?? 0) + (result.rejectedCount ?? 0);
+  const omittedTokenCount = result.omittedTokenCount ?? 0;
+  const omittedFileCount = result.omittedFileCount ?? 0;
+  if (omittedTokenCount > 0 || omittedFileCount > 0) {
+    return {
+      key: "designEditor.tokens.importedWithOmissions",
+      values: {
+        count: result.importedCount,
+        skipped: skippedCount,
+        omittedTokens: omittedTokenCount,
+        omittedFiles: omittedFileCount,
+      },
+    };
+  }
   if (skippedCount > 0) {
     return {
       key: "designEditor.tokens.importedWithSkipped",
@@ -406,6 +429,7 @@ function AddTokenPopover({
 interface ImportTokensPopoverProps {
   onImportFiles: (
     files: TokenImportFile[],
+    omittedFileCount: number,
   ) => Promise<ImportDesignTokensResult>;
   onImportText: (text: string) => Promise<ImportDesignTokensResult>;
   onImportCurrentDesign: () => Promise<ImportDesignTokensResult>;
@@ -445,7 +469,10 @@ function ImportTokensPopover({
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = snapshotImportFiles(event.currentTarget);
     if (files.length === 0) return;
-    void runImport(async () => onImportFiles(await readImportFiles(files)));
+    void runImport(async () => {
+      const imported = await readImportFiles(files);
+      return onImportFiles(imported.files, imported.omittedFileCount);
+    });
   };
 
   return (
@@ -616,9 +643,9 @@ export function snapshotImportFiles(
   return files;
 }
 
-async function readImportFiles(
+export async function readImportFiles(
   selectedFiles: File[],
-): Promise<TokenImportFile[]> {
+): Promise<{ files: TokenImportFile[]; omittedFileCount: number }> {
   const selected = selectedFiles.slice(0, 20);
   const files = await Promise.all(
     selected.map(async (file) => ({
@@ -629,7 +656,10 @@ async function readImportFiles(
     })),
   );
 
-  return files.filter((file) => file.content.trim().length > 0);
+  return {
+    files,
+    omittedFileCount: selectedFiles.length - selected.length,
+  };
 }
 
 export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
@@ -704,14 +734,24 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     return result;
   };
 
-  const importFiles = async (files: TokenImportFile[]) => {
+  const importFiles = async (
+    files: TokenImportFile[],
+    clientOmittedFileCount: number,
+  ) => {
     const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "files",
       files,
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result, requestDesignId);
+    return handleImportSuccess(
+      {
+        ...result,
+        omittedFileCount:
+          (result.omittedFileCount ?? 0) + clientOmittedFileCount,
+      },
+      requestDesignId,
+    );
   };
 
   const importText = async (text: string) => {

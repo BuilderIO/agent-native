@@ -1081,6 +1081,8 @@ export default {
       importing: "正在导入令牌…",
       importedWithSkipped:
         "已导入 {{count}} 个令牌，已跳过 {{skipped}} 个无效值或文件。",
+      importedWithOmissions:
+        "已导入 {{count}} 个令牌，已跳过 {{skipped}} 个无效项。因导入限制未处理的数量：令牌 {{omittedTokens}}，文件 {{omittedFiles}}。",
       noTokensFound: "未找到有效令牌。请检查文件格式和令牌值。",
       count: "{{count}} 个令牌",
       search: "搜索令牌",

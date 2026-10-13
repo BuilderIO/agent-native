@@ -1040,6 +1040,8 @@ export default {
       importing: "Importing tokens…",
       importedWithSkipped:
         "Imported {{count}} tokens. Skipped {{skipped}} invalid values or files.",
+      importedWithOmissions:
+        "Imported {{count}} tokens. Skipped {{skipped}} invalid items. Not processed due to limits (tokens: {{omittedTokens}}, files: {{omittedFiles}}).",
       noTokensFound:
         "No valid tokens were found. Check the file format and token values.",
       count: "{{count}} tokens",

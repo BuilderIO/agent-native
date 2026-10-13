@@ -1232,6 +1232,8 @@ export default {
       importing: "正在匯入權杖…",
       importedWithSkipped:
         "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效值或檔案。",
+      importedWithOmissions:
+        "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效項目。因匯入限制未處理的數量：權杖 {{omittedTokens}}，檔案 {{omittedFiles}}。",
       noTokensFound: "找不到有效權杖。請檢查檔案格式和權杖值。",
       count: "{{count}} 個權杖",
       search: "搜尋權杖",
