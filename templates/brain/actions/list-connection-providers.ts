@@ -386,76 +386,77 @@ export default defineAction({
     const catalogProviderIds = new Set<string>(
       catalogProviders.map((provider) => provider.id),
     );
+    const visibleProviders = providersWithBrainLocal(catalogProviders).filter(
+      (provider) => canManageZoom || provider.id !== "zoom",
+    );
     const providers = await Promise.all(
-      providersWithBrainLocal(catalogProviders)
-        .filter((provider) => canManageZoom || provider.id !== "zoom")
-        .map(async (provider) => {
-          const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
-          const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
-            provider.id,
-          );
-          const workspaceConnection = provider.workspaceConnection;
-          const credentialHealth = await credentialHealthForProvider(provider);
-          const providerApi = isProviderApiId(provider.id)
-            ? (listProviderApiCatalog(provider.id)[0] ?? null)
-            : null;
-          const providerApiIsConfigured = providerApiConfigured({
+      visibleProviders.map(async (provider) => {
+        const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
+        const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
+          provider.id,
+        );
+        const workspaceConnection = provider.workspaceConnection;
+        const credentialHealth = await credentialHealthForProvider(provider);
+        const providerApi = isProviderApiId(provider.id)
+          ? (listProviderApiCatalog(provider.id)[0] ?? null)
+          : null;
+        const providerApiIsConfigured = providerApiConfigured({
+          credentialHealth,
+          providerApi,
+          workspace: workspaceConnection,
+        });
+        return {
+          id: provider.id,
+          label: provider.label,
+          description: provider.description,
+          capabilities: [...provider.capabilities],
+          credentialKeys: provider.credentialKeys.map((credential) => ({
+            key: credential.key,
+            label: credential.label,
+            description: credential.description,
+            required: credential.required ?? false,
+          })),
+          configuredSourceCount,
+          hasConfiguredSources: configuredSourceCount > 0,
+          sourceProviderSupported,
+          configured:
+            providerApiIsConfigured ??
+            (sourceProviderSupported ? credentialHealth.available : null),
+          setupLink: catalogProviderIds.has(provider.id)
+            ? dispatchIntegrationsHref(provider.id, dispatchHref)
+            : undefined,
+          credentialHealth,
+          providerHealth: providerHealthForProvider({
             credentialHealth,
             providerApi,
-            workspace: workspaceConnection,
-          });
-          return {
-            id: provider.id,
-            label: provider.label,
-            description: provider.description,
-            capabilities: [...provider.capabilities],
-            credentialKeys: provider.credentialKeys.map((credential) => ({
-              key: credential.key,
-              label: credential.label,
-              description: credential.description,
-              required: credential.required ?? false,
-            })),
-            configuredSourceCount,
-            hasConfiguredSources: configuredSourceCount > 0,
+            providerApiIsConfigured,
             sourceProviderSupported,
-            configured:
-              providerApiIsConfigured ??
-              (sourceProviderSupported ? credentialHealth.available : null),
-            setupLink: catalogProviderIds.has(provider.id)
-              ? dispatchIntegrationsHref(provider.id, dispatchHref)
-              : undefined,
-            credentialHealth,
-            providerHealth: providerHealthForProvider({
-              credentialHealth,
-              providerApi,
-              providerApiIsConfigured,
-              sourceProviderSupported,
-              workspace: workspaceConnection,
-            }),
-            rawProviderApi: providerApi
-              ? {
-                  available: true,
-                  actionNames: [
-                    "provider-api-catalog",
-                    "provider-api-docs",
-                    "provider-api-request",
-                  ],
-                  docsUrls: providerApi.docsUrls,
-                  specUrls: providerApi.specUrls,
-                  auth: providerApi.auth,
-                  examples: providerApi.examples,
-                }
-              : {
-                  available: false,
-                  actionNames: [],
-                  docsUrls: [],
-                  specUrls: [],
-                  auth: null,
-                  examples: [],
-                },
-            workspaceConnection,
-          };
-        }),
+            workspace: workspaceConnection,
+          }),
+          rawProviderApi: providerApi
+            ? {
+                available: true,
+                actionNames: [
+                  "provider-api-catalog",
+                  "provider-api-docs",
+                  "provider-api-request",
+                ],
+                docsUrls: providerApi.docsUrls,
+                specUrls: providerApi.specUrls,
+                auth: providerApi.auth,
+                examples: providerApi.examples,
+              }
+            : {
+                available: false,
+                actionNames: [],
+                docsUrls: [],
+                specUrls: [],
+                auth: null,
+                examples: [],
+              },
+          workspaceConnection,
+        };
+      }),
     );
 
     return {
