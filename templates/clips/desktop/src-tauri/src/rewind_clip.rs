@@ -780,32 +780,43 @@ fn plan_retained_audio(
     requested_mic: bool,
     requested_system_audio: bool,
 ) -> RetainedAudioPlan {
-    let audio_segments_are_complete = !selected.is_empty()
-        && selected
-            .iter()
-            .all(|segment| segment.capture_mode == crate::config::RewindCaptureMode::VisualsAudio);
+    let captures_audio = |segment: &ScreenMemorySegmentMetadata| {
+        segment.capture_mode == crate::config::RewindCaptureMode::VisualsAudio
+    };
     let include_mic = requested_mic
-        && audio_segments_are_complete
-        && selected.iter().all(|segment| {
-            segment
-                .microphone_path
-                .as_ref()
-                .is_some_and(|path| path.exists())
+        && selected.iter().any(|segment| {
+            captures_audio(segment)
+                && segment
+                    .microphone_path
+                    .as_ref()
+                    .is_some_and(|path| path.exists())
         });
     let include_system_audio = requested_system_audio
-        && audio_segments_are_complete
-        && selected.iter().all(|segment| {
-            segment
+        && selected.iter().any(|segment| {
+            captures_audio(segment)
+                && segment
+                    .system_audio_path
+                    .as_ref()
+                    .is_some_and(|path| path.exists())
+        });
+
+    for (slice, segment) in slices.iter_mut().zip(selected) {
+        if !include_system_audio
+            || !captures_audio(segment)
+            || !slice
                 .system_audio_path
                 .as_ref()
                 .is_some_and(|path| path.exists())
-        });
-
-    for slice in &mut slices {
-        if !include_system_audio {
+        {
             slice.system_audio_path = None;
         }
-        if !include_mic {
+        if !include_mic
+            || !captures_audio(segment)
+            || !slice
+                .microphone_path
+                .as_ref()
+                .is_some_and(|path| path.exists())
+        {
             slice.microphone_path = None;
         }
     }
@@ -1972,6 +1983,44 @@ mod tests {
         assert!(plan.include_system_audio);
         assert!(plan.slices[0].microphone_path.is_none());
         assert_eq!(plan.slices[0].system_audio_path, Some(system_audio_path));
+    }
+
+    #[test]
+    fn retained_screen_history_keeps_audio_from_each_segment_that_has_it() {
+        let available_audio_path = std::env::current_exe().unwrap();
+        let mut system_only = segment("system-only", 0, 50);
+        system_only.system_audio_path = Some(available_audio_path.clone());
+        let mut microphone_only = segment("microphone-only", 50, 100);
+        microphone_only.microphone_path = Some(available_audio_path.clone());
+        let mut visuals_only = segment("visuals-only", 100, 150);
+        visuals_only.capture_mode = RewindCaptureMode::Visuals;
+        visuals_only.system_audio_path = Some(available_audio_path.clone());
+        visuals_only.microphone_path = Some(available_audio_path.clone());
+
+        let selected = [system_only, microphone_only, visuals_only];
+        let slices = selected
+            .iter()
+            .map(|segment| NativeMediaSlice {
+                path: segment.path.clone(),
+                system_audio_path: segment.system_audio_path.clone(),
+                microphone_path: segment.microphone_path.clone(),
+                start_ms: 0,
+                end_ms: 50,
+            })
+            .collect();
+        let plan = plan_retained_audio(slices, &selected, true, true);
+
+        assert!(plan.include_mic);
+        assert!(plan.include_system_audio);
+        assert_eq!(
+            plan.slices[0].system_audio_path,
+            Some(available_audio_path.clone())
+        );
+        assert!(plan.slices[0].microphone_path.is_none());
+        assert!(plan.slices[1].system_audio_path.is_none());
+        assert_eq!(plan.slices[1].microphone_path, Some(available_audio_path));
+        assert!(plan.slices[2].system_audio_path.is_none());
+        assert!(plan.slices[2].microphone_path.is_none());
     }
 
     #[test]
