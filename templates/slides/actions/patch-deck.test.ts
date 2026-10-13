@@ -5650,7 +5650,7 @@ describe("run() — patch-slide edits", () => {
     ]);
   });
 
-  it("applies several edits ops on one slide in order", async () => {
+  it("applies several edit ops on the same slide in order", async () => {
     await patchDeckAction.run(
       {
         deckId: "deck-1",
@@ -5658,12 +5658,13 @@ describe("run() — patch-slide edits", () => {
           OperationSchema.parse({
             op: "patch-slide",
             slideId: "slide-1",
+            styleOnly: true,
             edits: [{ find: "#a85f43", replace: "#8a4a33" }],
           }),
           OperationSchema.parse({
             op: "patch-slide",
             slideId: "slide-1",
-            edits: [{ find: "Title", replace: "Renamed" }],
+            edits: [{ find: "<h1>Title</h1>", replace: "<h1>Renamed</h1>" }],
           }),
         ],
       },
@@ -5672,7 +5673,7 @@ describe("run() — patch-slide edits", () => {
 
     const saved = JSON.parse(String(lastUpdatedDeckData));
     expect(saved.slides[0].content).toBe(
-      eyebrow("#8a4a33").replace("Title", "Renamed"),
+      eyebrow("#8a4a33").replace("<h1>Title</h1>", "<h1>Renamed</h1>"),
     );
   });
 

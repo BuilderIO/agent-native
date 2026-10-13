@@ -837,6 +837,7 @@ describe("create-file: canvas placement and landing URL", () => {
           output_type: "design",
           file_type: fileType,
           source: "create_file_action",
+          caller: "tool",
         },
         context,
       );

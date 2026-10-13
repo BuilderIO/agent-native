@@ -3,6 +3,22 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-12
+
+### Fixed
+
+- Failed source imports no longer leave an empty deck behind.
+- Hosted PowerPoint download links keep recent exports available for up to one day, and missing files are recreated automatically when requested.
+- New decks explain when to wait for brand settings to finish loading or check access before trying again.
+- PPTX export tools now return an authenticated download link instead of inline file bytes
+- Slide transition controls stay visible while you choose an effect.
+- Slides asks you to check the deck before trying again when it cannot confirm whether slides were created.
+- Your prompt returns if deck setup fails so you can try again.
+
+### Security
+
+- PowerPoint downloads respect current deck access.
+
 ## 2026-10-11
 
 ### Improved
@@ -67,6 +83,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- The agent no longer edits slides you didn't ask it to change when it finds contrast or layout issues; it reports them instead
 - Custom-key setup opens model settings after onboarding.
 - Slide slash menus keep opening when the browser updates the caret late.
 - Slides keeps prompts ready, shows one provider retry hint, and blocks generation until a provider is connected.

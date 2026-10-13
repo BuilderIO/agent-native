@@ -679,26 +679,6 @@ describe("update-slide", () => {
     );
   });
 
-  it("does not add default slide padding when edits swap the wrapper background", async () => {
-    const content =
-      '<div class="fmd-slide" style="background: #000;"><style>.fmd-slide{padding:32px}</style><h1>Headline</h1></div>';
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [{ id: "slide-1", content }],
-    });
-
-    const result = await runSlideActionWithCurrentHash({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      edits: [{ find: "background: #000;", replace: "background: #fff;" }],
-    });
-
-    expect(result).toMatchObject({ ok: true, applied: true });
-    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      content.replace("background: #000;", "background: #fff;"),
-    );
-  });
-
   it("keeps reveals across a content edit that leaves them resolvable", async () => {
     const animations = [
       { id: "reveal-title", elementIndex: 0, elementPath: [0], type: "fade" },

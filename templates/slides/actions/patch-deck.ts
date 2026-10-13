@@ -40,7 +40,6 @@ import {
 } from "../server/lib/deck-versions.js";
 import {
   applySlideContentEdits,
-  SlideContentEditError,
   SlideContentEditSchema,
   type SlideContentEdit,
 } from "../server/lib/slide-content-patch.js";
@@ -737,33 +736,23 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
-// Content resolved from edits keeps the wrapper's padding as written, so a
-// wrapper background or --deck-* swap does not inline default padding.
-const editResolvedOperations = new WeakSet<Operation>();
-
 async function resolvePatchSlideEdits(
   operations: Operation[],
   slides: Array<{ id?: unknown; content?: unknown }>,
 ): Promise<Operation[]> {
-  // Each op builds on the content left by earlier ops on the same slide, so
-  // several edits ops in one batch do not discard each other.
-  const runningContents = new Map<string, string>();
+  // Resolved in order so a later op on the same slide builds on the content
+  // an earlier op produced instead of clobbering it. baseContentHash still
+  // names the pre-batch content, which is what the stale check compares.
+  const pendingContent = new Map<string, string>();
   const resolved: Operation[] = [];
-  for (const [operationIndex, operation] of operations.entries()) {
+  for (const operation of operations) {
     if (operation.op !== "patch-slide") {
       resolved.push(operation);
       continue;
     }
     if (!operation.edits) {
       if (operation.fields.content !== undefined) {
-        const source = slides.find((entry) => entry?.id === operation.slideId);
-        runningContents.set(
-          operation.slideId,
-          normalizeSlidePaddingForWrite(
-            typeof source?.content === "string" ? source.content : undefined,
-            operation.fields.content,
-          ),
-        );
+        pendingContent.set(operation.slideId, operation.fields.content);
       }
       resolved.push(operation);
       continue;
@@ -773,30 +762,21 @@ async function resolvePatchSlideEdits(
       resolved.push(operation);
       continue;
     }
-    const sourceContent = String(slide.content ?? "");
+    const originalContent = String(slide.content ?? "");
     const currentContent =
-      runningContents.get(operation.slideId) ?? sourceContent;
+      pendingContent.get(operation.slideId) ?? originalContent;
     const { edits, ...rest } = operation;
-    // Name the failing slide so the caller can fix that one operation
-    // instead of guessing which part of the batch was rejected.
     const patched = await applySlideContentEdits(
       currentContent,
       edits as SlideContentEdit[],
-    ).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new SlideContentEditError(
-        `patch-slide edits failed for slide "${operation.slideId}" (operations[${operationIndex}]): ${message}. No slides were changed.`,
-        { slideId: operation.slideId, operationIndex },
-      );
-    });
-    runningContents.set(operation.slideId, patched.content);
-    const next: Operation = {
+    );
+    pendingContent.set(operation.slideId, patched.content);
+    resolved.push({
       ...rest,
       fields: { ...rest.fields, content: patched.content },
-      baseContentHash: rest.baseContentHash ?? hashSlideContent(sourceContent),
-    };
-    editResolvedOperations.add(next);
-    resolved.push(next);
+      baseContentHash:
+        rest.baseContentHash ?? hashSlideContent(originalContent),
+    });
   }
   return resolved;
 }
@@ -1006,9 +986,10 @@ export function applyOperation(
       if (fields.content !== undefined) {
         const previousContent =
           typeof slide.content === "string" ? slide.content : undefined;
-        const nextContent = editResolvedOperations.has(op)
-          ? fields.content
-          : normalizeSlidePaddingForWrite(previousContent, fields.content);
+        const nextContent = normalizeSlidePaddingForWrite(
+          previousContent,
+          fields.content,
+        );
         assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
@@ -1662,12 +1643,10 @@ export default defineAction({
             nextContent:
               op.fields.content === undefined
                 ? undefined
-                : editResolvedOperations.has(op)
-                  ? op.fields.content
-                  : normalizeSlidePaddingForWrite(
-                      contentsBeforeOperations.get(op.slideId),
-                      op.fields.content,
-                    ),
+                : normalizeSlidePaddingForWrite(
+                    contentsBeforeOperations.get(op.slideId),
+                    op.fields.content,
+                  ),
             nextNotes: op.fields.notes,
             preserveSource: op.preserveSource,
           });

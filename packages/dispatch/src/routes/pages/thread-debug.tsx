@@ -48,6 +48,7 @@ import {
   type ConversationRow,
 } from "../../lib/thread-debug-conversation";
 import { cn } from "../../lib/utils";
+import { isThreadDebugNoiseEventType } from "../../shared/thread-debug-noise";
 
 export function meta() {
   return [{ title: "Thread Debug — Dispatch" }];
@@ -360,13 +361,7 @@ function eventType(event: any): string {
 }
 
 function eventIsNoise(event: any): boolean {
-  return [
-    "thinking",
-    "text",
-    "tool_input_delta",
-    "stream_keepalive",
-    "activity",
-  ].includes(eventType(event));
+  return isThreadDebugNoiseEventType(eventType(event));
 }
 
 function json(value: unknown): string {
