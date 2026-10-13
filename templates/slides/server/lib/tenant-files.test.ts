@@ -9,6 +9,7 @@ import {
   MAX_HOSTED_PPTX_EXPORTS_PER_TENANT,
   isHostedSlidesRuntime,
   pruneHostedPptxExports,
+  pptxDeckBindingPath,
   tenantExportDir,
   tenantFileKey,
   tenantUploadDir,
@@ -88,7 +89,12 @@ describe("Slides tenant file storage", () => {
     const recent = path.join(directory, "recent.pptx");
     const unrelated = path.join(directory, "notes.txt");
     fs.writeFileSync(expired, "expired");
+    fs.writeFileSync(
+      pptxDeckBindingPath(directory, "expired.pptx"),
+      "deck-key",
+    );
     fs.writeFileSync(recent, "recent");
+    fs.writeFileSync(pptxDeckBindingPath(directory, "recent.pptx"), "deck-key");
     fs.writeFileSync(unrelated, "keep");
     const expiredAt = now - HOSTED_PPTX_EXPORT_TTL_MS - 1_000;
     fs.utimesSync(expired, new Date(expiredAt), new Date(expiredAt));
@@ -96,7 +102,13 @@ describe("Slides tenant file storage", () => {
     pruneHostedPptxExports(directory, now);
 
     expect(fs.existsSync(expired)).toBe(false);
+    expect(fs.existsSync(pptxDeckBindingPath(directory, "expired.pptx"))).toBe(
+      false,
+    );
     expect(fs.existsSync(recent)).toBe(true);
+    expect(fs.existsSync(pptxDeckBindingPath(directory, "recent.pptx"))).toBe(
+      true,
+    );
     expect(fs.existsSync(unrelated)).toBe(true);
   });
 

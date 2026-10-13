@@ -18,6 +18,8 @@ import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
   isHostedSlidesRuntime,
   pruneHostedPptxExports,
+  pptxDeckBindingKey,
+  pptxDeckBindingPath,
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
@@ -1957,7 +1959,7 @@ export default defineAction({
       downloadContext?.slidesPptxDownloadFilename,
     )
       ? downloadContext.slidesPptxDownloadFilename
-      : safeGeneratedFilename(row.title, ".pptx");
+      : safeGeneratedFilename(row.title, ".pptx", deckId);
     const persistExport =
       !downloadContext || downloadContext.slidesPptxDownloadPersist === true;
 
@@ -1965,13 +1967,24 @@ export default defineAction({
     if (persistExport) {
       fs.mkdirSync(exportDir, { recursive: true });
       fs.writeFileSync(path.join(exportDir, filename), buffer);
+      fs.writeFileSync(
+        pptxDeckBindingPath(exportDir, filename),
+        pptxDeckBindingKey(deckId),
+      );
     }
     if (isHostedSlidesRuntime()) {
-      pruneHostedPptxExports(
-        exportDir,
-        Date.now(),
-        persistExport ? filename : undefined,
-      );
+      try {
+        pruneHostedPptxExports(
+          exportDir,
+          Date.now(),
+          persistExport ? filename : undefined,
+        );
+      } catch (error) {
+        console.warn(
+          "[export-pptx] Could not prune hosted PPTX exports",
+          error,
+        );
+      }
     }
 
     trackDeckExported(

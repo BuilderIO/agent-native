@@ -30,7 +30,12 @@ vi.mock("../server/db/index.js", () => ({}));
 import PptxGenJS from "pptxgenjs";
 
 import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
-import { tenantExportDir } from "../server/lib/tenant-files";
+import {
+  pptxDeckBindingKey,
+  pptxDeckBindingPath,
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files";
 import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
@@ -199,6 +204,11 @@ describe("export-pptx action", () => {
   it("persists authenticated download regeneration for later GET requests", async () => {
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("K_SERVICE", "slides");
+    const filename = safeGeneratedFilename(
+      "requested-export",
+      ".pptx",
+      "deck-1",
+    );
     mocks.resolveAccess.mockResolvedValue({
       resource: {
         title: "Deck",
@@ -213,7 +223,7 @@ describe("export-pptx action", () => {
       {
         caller: "http",
         slidesPptxDownload: true,
-        slidesPptxDownloadFilename: "requested-export.pptx",
+        slidesPptxDownloadFilename: filename,
         slidesPptxDownloadPersist: true,
       } as never,
     );
@@ -221,8 +231,12 @@ describe("export-pptx action", () => {
 
     expect(result.buffer).toBeInstanceOf(Buffer);
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      path.join(exportDir, "requested-export.pptx"),
+      path.join(exportDir, filename),
       expect.any(Buffer),
+    );
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      pptxDeckBindingPath(exportDir, filename),
+      pptxDeckBindingKey("deck-1"),
     );
   });
 
@@ -248,6 +262,34 @@ describe("export-pptx action", () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       path.join(exportDir, result.filename),
       expect.any(Buffer),
+    );
+  });
+
+  it("reports hosted export cleanup failures without failing the export", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    const cleanupError = new Error("temporary directory is unavailable");
+    vi.mocked(fs.readdirSync).mockImplementationOnce(() => {
+      throw cleanupError;
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      "[export-pptx] Could not prune hosted PPTX exports",
+      cleanupError,
     );
   });
 

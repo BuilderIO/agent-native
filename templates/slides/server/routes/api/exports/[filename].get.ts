@@ -1,9 +1,10 @@
 import { createReadStream } from "fs";
-import { stat } from "fs/promises";
+import { readFile, stat } from "fs/promises";
 import path from "path";
 
 import { isActionContractError } from "@agent-native/core";
 import { runWithRequestContext, streamFile } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import {
   defineEventHandler,
   getQuery,
@@ -15,7 +16,13 @@ import {
 import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { asPptxDownloadRegeneration } from "../../../lib/deck-export-tracking.js";
-import { tenantExportDir } from "../../../lib/tenant-files.js";
+import {
+  PPTX_DECK_BINDING_FILE_SUFFIX,
+  deckBindingFromPptxFilename,
+  pptxDeckBindingKey,
+  pptxDeckBindingPath,
+  tenantExportDir,
+} from "../../../lib/tenant-files.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".pptx":
@@ -42,6 +49,7 @@ export default defineEventHandler(async (event) => {
     !filename ||
     filename.includes("/") ||
     filename.includes("..") ||
+    filename.endsWith(PPTX_DECK_BINDING_FILE_SUFFIX) ||
     !/^[a-zA-Z0-9_.-]+$/.test(filename)
   ) {
     setResponseStatus(event, 400);
@@ -51,28 +59,37 @@ export default defineEventHandler(async (event) => {
   const exportsDir = path.resolve(tenantExportDir(session.email));
   const filepath = path.resolve(exportsDir, filename);
   const query = getQuery(event);
+  const ext = path.extname(filename).toLowerCase();
+  const deckId = typeof query.deckId === "string" ? query.deckId : "";
+  const pptxDeckBinding =
+    ext === ".pptx" ? deckBindingFromPptxFilename(filename) : null;
+
+  if (ext === ".pptx") {
+    if (!deckId) {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+    if (pptxDeckBinding && pptxDeckBinding !== pptxDeckBindingKey(deckId)) {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+  }
 
   if (!filepath.startsWith(exportsDir + path.sep)) {
     setResponseStatus(event, 403);
     return { error: "Forbidden" };
   }
 
-  try {
-    await stat(filepath);
-  } catch {
-    const deckId = typeof query.deckId === "string" ? query.deckId : "";
-    if (path.extname(filename).toLowerCase() !== ".pptx" || !deckId) {
-      setResponseStatus(event, 404);
-      return { error: "Not found" };
-    }
-
+  const regeneratePptx = async (persistFilename?: string) => {
     try {
       const actionContext = {
         caller: "http" as const,
         userEmail: session.email,
         orgId: session.orgId,
         slidesPptxDownload: true as const,
-        slidesPptxDownloadFilename: filename,
+        ...(persistFilename
+          ? { slidesPptxDownloadFilename: persistFilename }
+          : {}),
         slidesPptxDownloadPersist: true as const,
       };
       const result = await runWithRequestContext(
@@ -117,9 +134,64 @@ export default defineEventHandler(async (event) => {
       );
       return { error: message };
     }
+  };
+
+  let fileExists = true;
+  try {
+    await stat(filepath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      setResponseStatus(event, 500);
+      return { error: "Could not read cached export." };
+    }
+    fileExists = false;
   }
 
-  const ext = path.extname(filename).toLowerCase();
+  if (!fileExists) {
+    if (ext !== ".pptx") {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+    return regeneratePptx(pptxDeckBinding ? filename : undefined);
+  }
+
+  if (ext === ".pptx" && !pptxDeckBinding) {
+    return regeneratePptx();
+  }
+
+  if (ext === ".pptx") {
+    let cachedDeckBinding: string;
+    try {
+      cachedDeckBinding = await readFile(
+        pptxDeckBindingPath(exportsDir, filename),
+        "utf8",
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return regeneratePptx();
+      }
+      setResponseStatus(event, 500);
+      return { error: "Could not verify cached export binding." };
+    }
+    if (cachedDeckBinding !== pptxDeckBinding) {
+      return regeneratePptx();
+    }
+
+    try {
+      const access = await runWithRequestContext(
+        { userEmail: session.email, orgId: session.orgId },
+        () => resolveAccess("deck", deckId),
+      );
+      if (!access) {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
+    } catch {
+      setResponseStatus(event, 500);
+      return { error: "Could not verify deck access." };
+    }
+  }
+
   const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
   setResponseHeader(event, "Content-Type", contentType);

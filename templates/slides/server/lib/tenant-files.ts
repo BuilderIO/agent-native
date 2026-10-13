@@ -5,6 +5,8 @@ import path from "path";
 
 export const HOSTED_PPTX_EXPORT_TTL_MS = 24 * 60 * 60 * 1_000;
 export const MAX_HOSTED_PPTX_EXPORTS_PER_TENANT = 20;
+const PPTX_DECK_BINDING_HEX_LENGTH = 24;
+export const PPTX_DECK_BINDING_FILE_SUFFIX = ".deck-binding";
 
 export function tenantFileKey(email: string): string {
   return crypto
@@ -107,11 +109,42 @@ export function pruneHostedPptxExports(
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
+      try {
+        fs.unlinkSync(pptxDeckBindingPath(exportDir, file.name));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
   }
 }
 
-export function safeGeneratedFilename(title: string, ext: ".html" | ".pptx") {
+export function pptxDeckBindingPath(
+  exportDir: string,
+  filename: string,
+): string {
+  return path.join(exportDir, `${filename}${PPTX_DECK_BINDING_FILE_SUFFIX}`);
+}
+
+export function pptxDeckBindingKey(deckId: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(deckId)
+    .digest("hex")
+    .slice(0, PPTX_DECK_BINDING_HEX_LENGTH);
+}
+
+export function deckBindingFromPptxFilename(filename: string): string | null {
+  const match = filename.match(
+    new RegExp(`-([a-f0-9]{${PPTX_DECK_BINDING_HEX_LENGTH}})\\.pptx$`, "i"),
+  );
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+export function safeGeneratedFilename(
+  title: string,
+  ext: ".html" | ".pptx",
+  deckId?: string,
+) {
   const base =
     title
       .replace(/[^a-zA-Z0-9_-]/g, "-")
@@ -119,5 +152,7 @@ export function safeGeneratedFilename(title: string, ext: ".html" | ".pptx") {
       .replace(/^-|-$/g, "")
       .slice(0, 80) || "deck";
   const suffix = crypto.randomBytes(6).toString("hex");
-  return `${base}-${Date.now()}-${suffix}${ext}`;
+  const deckBinding =
+    ext === ".pptx" && deckId ? `-${pptxDeckBindingKey(deckId)}` : "";
+  return `${base}-${Date.now()}-${suffix}${deckBinding}${ext}`;
 }
