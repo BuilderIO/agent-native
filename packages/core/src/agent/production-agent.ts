@@ -4960,11 +4960,19 @@ function isApprovalPauseResult(result: string | undefined): boolean {
 export function findApprovedStructuredToolCall(
   history: AgentChatStructuredMessage[] | undefined,
   approvedToolCalls: readonly string[] | undefined,
-): { name: string; input: unknown; callId: string } | undefined {
-  if (!Array.isArray(history) || !approvedToolCalls?.length) return undefined;
+):
+  | {
+      status: "found";
+      toolCall: { name: string; input: unknown; callId: string };
+    }
+  | { status: "ambiguous" }
+  | { status: "missing" } {
+  if (!Array.isArray(history) || !approvedToolCalls?.length) {
+    return { status: "missing" };
+  }
   const approved = new Set(approvedToolCalls);
   const calls = new Map<string, { name: string; input: unknown }>();
-  let match: { name: string; input: unknown; callId: string } | undefined;
+  const matches: Array<{ name: string; input: unknown; callId: string }> = [];
 
   for (const message of history) {
     if (message.role === "assistant") {
@@ -4995,11 +5003,13 @@ export function findApprovedStructuredToolCall(
         continue;
       }
       if (!isApprovalPauseResult(part.content)) continue;
-      match = { ...call, callId: part.toolCallId };
+      matches.push({ ...call, callId: part.toolCallId });
     }
   }
 
-  return match;
+  if (matches.length > 1) return { status: "ambiguous" };
+  const [toolCall] = matches;
+  return toolCall ? { status: "found", toolCall } : { status: "missing" };
 }
 
 export function findApprovedToolResultLocation(
@@ -12114,11 +12124,26 @@ export function createProductionAgentHandler(
     // may truncate tool arguments and intentionally assigns fresh replay ids.
     // The loop still consumes only a matching server-created grant for the
     // current owner/org/thread/turn/tool/input tuple.
-    const exactApprovedToolCall = findApprovedStructuredToolCall(
+    const approvedToolCallLookup = findApprovedStructuredToolCall(
       requestStructuredHistory,
       requestedApprovedToolCalls,
     );
-    if (requestedApprovedToolCalls?.length && !exactApprovedToolCall) {
+    if (approvedToolCallLookup.status === "ambiguous") {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_history_ambiguous",
+        retryable: false,
+      };
+    }
+    const exactApprovedToolCall =
+      approvedToolCallLookup.status === "found"
+        ? approvedToolCallLookup.toolCall
+        : undefined;
+    if (
+      requestedApprovedToolCalls?.length &&
+      approvedToolCallLookup.status === "missing"
+    ) {
       setResponseStatus(event, 422);
       return {
         error: "The agent run failed.",

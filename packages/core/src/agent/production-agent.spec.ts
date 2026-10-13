@@ -2369,7 +2369,7 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("finds the latest exact pending approval call from structured history", () => {
+  it("finds the unique exact pending approval call from structured history", () => {
     expect(
       findApprovedStructuredToolCall(
         [
@@ -2399,10 +2399,59 @@ describe("buildUserContentWithAttachments", () => {
         ['create-builder-branch:{"branchName":"feature/test"}'],
       ),
     ).toEqual({
-      callId: "call-1",
-      name: "create-builder-branch",
-      input: { branchName: "feature/test" },
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "create-builder-branch",
+        input: { branchName: "feature/test" },
+      },
     });
+  });
+
+  it("rejects ambiguous exact pending approval calls from structured history", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", id: "call-1", name: "send-email", input },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                content:
+                  "Awaiting human approval. This action did NOT execute.",
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", id: "call-2", name: "send-email", input },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-2",
+                content:
+                  "Awaiting human approval. This action did NOT execute.",
+              },
+            ],
+          },
+        ],
+        [approvalKey],
+      ),
+    ).toEqual({ status: "ambiguous" });
   });
 
   it("replaces the latest matching pending result when history reuses a call id", () => {
@@ -3490,6 +3539,83 @@ describe("createProductionAgentHandler", () => {
       code: "approved_tool_call_count_unsupported",
       retryable: false,
     });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects an approval key that matches multiple pending calls", async () => {
+    const engine = engineWithUncalledStream();
+    const runAction = vi.fn(async () => "sent");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          run: runAction,
+        },
+      },
+    });
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: [approvalKey],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                { type: "tool-call", id: "call-1", name: "send-email", input },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-1",
+                  content:
+                    "Awaiting human approval. This action did NOT execute.",
+                },
+              ],
+            },
+            {
+              role: "assistant",
+              content: [
+                { type: "tool-call", id: "call-2", name: "send-email", input },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-2",
+                  content:
+                    "Awaiting human approval. This action did NOT execute.",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_history_ambiguous",
+      retryable: false,
+    });
+    expect(runAction).not.toHaveBeenCalled();
     expect(engine.stream).not.toHaveBeenCalled();
   });
 

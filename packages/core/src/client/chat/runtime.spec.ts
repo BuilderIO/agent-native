@@ -4906,7 +4906,8 @@ describe("createAgentNativeChatRuntime", () => {
           { type: "text", text: "Release published." },
           { type: "done" },
         ]),
-      );
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
     const runtime = createAgentNativeChatRuntime({
       apiUrl: "/_agent-native/agent-chat",
       threadId: "thread-approval",
@@ -5058,6 +5059,17 @@ describe("createAgentNativeChatRuntime", () => {
         },
       },
     );
+
+    const nextContinuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Check the release status.",
+    });
+    expect(nextContinuation).toBeDefined();
+    await drain(nextContinuation!.events);
+
+    const nextRequest = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(nextRequest.message).toBe("Check the release status.");
+    expect(nextRequest).not.toHaveProperty("approvedToolCalls");
   });
 
   it("does not replay stale approval metadata for a completed empty-result call", async () => {

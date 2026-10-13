@@ -4751,8 +4751,13 @@ export function createAgentNativeChatRuntime(
       const {
         [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
         [CONTINUE_OF_RUN_METADATA_KEY]: _continueOf,
+        [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: _approvedToolCalls,
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
+      const continuationMetadata = { ...continuation.metadata };
+      delete continuationMetadata[
+        AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY
+      ];
       const turnToContinue = continuation.attachments?.length
         ? { ...previousTurn, attachments: continuation.attachments }
         : previousTurn;
@@ -4777,7 +4782,7 @@ export function createAgentNativeChatRuntime(
             `The ${connection.id} connection is now available. Continue the requested work.`,
           metadata: {
             ...previousMetadata,
-            ...continuation.metadata,
+            ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
@@ -4798,7 +4803,7 @@ export function createAgentNativeChatRuntime(
           prompt: continuation.prompt,
           metadata: {
             ...previousMetadata,
-            ...continuation.metadata,
+            ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
@@ -4823,7 +4828,7 @@ export function createAgentNativeChatRuntime(
           "Approved. Go ahead and run the requested action.",
         metadata: {
           ...previousMetadata,
-          ...continuation.metadata,
+          ...continuationMetadata,
           [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approval.id],
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
           [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,

@@ -462,6 +462,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
       continue;
     }
     if (event.type === "tool_done") {
+      if (event.approvalPause === true) return false;
       toolResultAfterLastAssistantText =
         event.isError === true ||
         (event.chatUI === undefined && event.mcpApp === undefined);
