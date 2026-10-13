@@ -1732,7 +1732,7 @@ describe("home funnel tracking", () => {
         {
           output_id: "design-1",
           output_type: "design",
-          source: "composer",
+          prompt_source: "composer",
           has_text: true,
           prompt_length_bucket: "1-50",
           reference_types: ["figma", "image"],
@@ -1767,7 +1767,7 @@ describe("home funnel tracking", () => {
     await act(async () => suggestion?.click());
     expect(promptEvents()).toHaveLength(1);
     expect(promptEvents()[0][1]).toMatchObject({
-      source: "suggestion_chip",
+      prompt_source: "suggestion_chip",
       output_id: "design-1",
     });
   });
