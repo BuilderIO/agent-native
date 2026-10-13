@@ -303,6 +303,49 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it.each([
+    "not active workspace members",
+    "exclude active workspace members",
+    "show all members; do not include active workspace users in a separate subset",
+  ])(
+    "does not select active-only sources for a negated active-member request: %s",
+    (search) => {
+      const results = rankAnalyticsQueryCatalog({
+        search,
+        limit: 6,
+        dashboards: [],
+        dictionaryEntries: [
+          {
+            id: "active-members-by-workspace",
+            metric: "Active workspace members",
+            definition: "A filtered list of active workspace memberships.",
+            table: "active_members_by_workspace",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+          },
+          {
+            id: "all-workspace-members",
+            metric: "Workspace member roles",
+            definition: "Current roles for all workspace memberships.",
+            table: "workspace_member_roles",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+          },
+        ],
+      });
+
+      const ids = results.map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      );
+      expect(ids).not.toContain("active-members-by-workspace");
+      expect(ids).toContain("all-workspace-members");
+    },
+  );
+
   it("respects explicit membership scope for active-only metadata without role fields", () => {
     const dictionaryEntries = [
       {

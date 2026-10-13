@@ -188,8 +188,8 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v4";
-const BASELINE_GIT_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v6";
+const BASELINE_GIT_REVISION = "70afdad34554c793777fccfa8778a639ee7cd0e7";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const ACTION_ALLOWLIST = ["find-data"] as const;
@@ -224,6 +224,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     prompt:
       "Find the catalog reference for active workspace members with roles. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
+    id: "full-workspace-roster-excludes-active-only-source",
+    prompt:
+      "Find the catalog reference for a full workspace member roster. Do not use active workspace members as a filtered subset. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.organization_member_roles",
   },
   {
     id: "nonpositive-count-instruction-keeps-member-rows",
@@ -769,6 +775,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(SYNTHETIC_CASES.map(({ id }) => id)).toEqual([
       "current-organization-role-roster",
       "active-workspace-member-roster-with-roles",
+      "full-workspace-roster-excludes-active-only-source",
       "nonpositive-count-instruction-keeps-member-rows",
       "monthly-organization-user-count",
       "active-product-users-map-to-activity",

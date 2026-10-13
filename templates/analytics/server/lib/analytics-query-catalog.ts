@@ -578,9 +578,15 @@ function hasActiveOnlyMembershipEvidence(
 
 function requestsActiveMembers(search: string): boolean {
   const intent = stripNonPositiveInstructions(search);
-  return /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/i.test(
-    intent,
-  );
+  const activeMemberPhrase =
+    /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/gi;
+  const negativeInstructionBeforePhrase =
+    /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+
+  return Array.from(intent.matchAll(activeMemberPhrase)).some((match) => {
+    const prefix = intent.slice(0, match.index ?? 0);
+    return !negativeInstructionBeforePhrase.test(prefix);
+  });
 }
 
 function isRosterDimensionCandidate(
