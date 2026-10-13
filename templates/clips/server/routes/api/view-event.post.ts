@@ -334,7 +334,6 @@ export default defineEventHandler(async (event) => {
             lastViewedAt: now,
             totalWatchMs: sql`CASE WHEN ${schema.recordingViewers.totalWatchMs} > ${Math.floor(totalWatchMs)} THEN ${schema.recordingViewers.totalWatchMs} ELSE ${Math.floor(totalWatchMs)} END`,
             completedPct: sql`CASE WHEN ${schema.recordingViewers.completedPct} > ${Math.floor(completedPct)} THEN ${schema.recordingViewers.completedPct} ELSE ${Math.floor(completedPct)} END`,
-            ...(meetsThreshold ? { countedView: true } : {}),
             ...(kind === "cta-click" ? { ctaClicked: true } : {}),
           })
           .where(
@@ -343,6 +342,25 @@ export default defineEventHandler(async (event) => {
               eq(schema.recordingViewers.viewerKey, viewerKey),
             ),
           );
+
+        // The only place a viewer becomes counted: a concurrent post for the
+        // same viewer waits on this row lock, then matches nothing, so exactly
+        // one request observes the transition.
+        const becameCounted = meetsThreshold
+          ? (
+              await tx
+                .update(schema.recordingViewers)
+                .set({ countedView: true })
+                .where(
+                  and(
+                    eq(schema.recordingViewers.recordingId, recordingId),
+                    eq(schema.recordingViewers.viewerKey, viewerKey),
+                    eq(schema.recordingViewers.countedView, false),
+                  ),
+                )
+                .returning({ id: schema.recordingViewers.id })
+            ).length > 0
+          : false;
 
         await tx.insert(schema.recordingEvents).values({
           id: nanoid(),
@@ -383,18 +401,15 @@ export default defineEventHandler(async (event) => {
           )
           .limit(1);
         if (!updated) throw new Error("Canonical recording viewer disappeared");
-        return updated;
+        return { countedView: updated.countedView, becameCounted };
       });
 
       const ownerEmail = rec.ownerEmail?.trim();
-      const transitionedToCountedView =
-        !existing.countedView && persisted.countedView;
+      const transitionedToCountedView = persisted.becameCounted;
       const viewerIsOwner =
         Boolean(viewerEmail && ownerEmail) &&
         viewerEmail!.trim().toLowerCase() === ownerEmail!.toLowerCase();
       if (transitionedToCountedView && !viewerIsOwner) {
-        // Two in-flight progress posts from one viewer can both observe the
-        // counted transition, so consumers dedupe on viewer_id.
         trackClipEventForOwner(
           event,
           "clip_view_counted",

@@ -76,6 +76,9 @@ vi.mock("@agent-native/core/event-bus", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getBetterAuthUserIdForEmail: (...args: unknown[]) =>
     mocks.getBetterAuthUserIdForEmail(...args),
+  platformWaitUntil: (req: {
+    waitUntil?: (promise: Promise<unknown>) => void;
+  }) => req?.waitUntil,
   getSession: (...args: unknown[]) => mocks.getSession(...args),
   readBodyWithSizeLimit: (...args: unknown[]) =>
     mocks.readBodyWithSizeLimit(...args),
@@ -91,6 +94,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
+  flushTracking: async () => [],
   readAnalyticsAnonymousId: (cookieHeader: string | undefined) =>
     cookieHeader?.match(/(?:^|; )an_aid=([^;]+)/)?.[1],
 }));
@@ -136,6 +140,7 @@ function makeEvent(
   body: Record<string, unknown> = {},
   options: { ip?: string; contentLength?: number; cookie?: string } = {},
 ) {
+  const pending: Promise<unknown>[] = [];
   return {
     body: {
       recordingId: "rec-example",
@@ -146,9 +151,11 @@ function makeEvent(
     ip: options.ip ?? "203.0.113.10",
     contentLength: options.contentLength,
     status: 200,
-    pending: [] as Promise<unknown>[],
-    waitUntil(promise: Promise<unknown>) {
-      this.pending.push(promise);
+    pending,
+    req: {
+      waitUntil(promise: Promise<unknown>) {
+        pending.push(promise);
+      },
     },
     headers: {
       "x-forwarded-for": "198.51.100.99",
@@ -258,30 +265,50 @@ function createStatefulDb(
       set(next: Record<string, unknown>) {
         values = next;
         return {
-          where: async () => {
-            if (!state.viewer) return;
-            if (typeof values.viewerKey === "string") {
-              if (state.viewer.viewerKey === null) {
-                state.viewer.viewerKey = values.viewerKey;
+          where: () => {
+            let ran = false;
+            let rows: Array<{ id: string }> = [];
+            const run = () => {
+              if (ran) return rows;
+              ran = true;
+              if (!state.viewer) return rows;
+              if (typeof values.viewerKey === "string") {
+                if (state.viewer.viewerKey === null) {
+                  state.viewer.viewerKey = values.viewerKey;
+                }
+                return rows;
               }
-              return;
-            }
-            const watchSql = values.totalWatchMs as
-              | { values?: unknown[] }
-              | undefined;
-            const completionSql = values.completedPct as
-              | { values?: unknown[] }
-              | undefined;
-            state.viewer.totalWatchMs = Math.max(
-              state.viewer.totalWatchMs,
-              Number(watchSql?.values?.[1] ?? 0),
-            );
-            state.viewer.completedPct = Math.max(
-              state.viewer.completedPct,
-              Number(completionSql?.values?.[1] ?? 0),
-            );
-            if (values.countedView === true) state.viewer.countedView = true;
-            if (values.ctaClicked === true) state.viewer.ctaClicked = true;
+              // The guarded flip: counted only while it is still false.
+              if (Object.keys(values).join() === "countedView") {
+                if (!state.viewer.countedView) {
+                  state.viewer.countedView = true;
+                  rows = [{ id: state.viewer.id }];
+                }
+                return rows;
+              }
+              const watchSql = values.totalWatchMs as
+                | { values?: unknown[] }
+                | undefined;
+              const completionSql = values.completedPct as
+                | { values?: unknown[] }
+                | undefined;
+              state.viewer.totalWatchMs = Math.max(
+                state.viewer.totalWatchMs,
+                Number(watchSql?.values?.[1] ?? 0),
+              );
+              state.viewer.completedPct = Math.max(
+                state.viewer.completedPct,
+                Number(completionSql?.values?.[1] ?? 0),
+              );
+              if (values.ctaClicked === true) state.viewer.ctaClicked = true;
+              return rows;
+            };
+            return {
+              returning: async () => run(),
+              then(resolve: (value: unknown) => void) {
+                resolve(run());
+              },
+            };
           },
         };
       },
@@ -684,6 +711,19 @@ describe("POST /api/view-event", () => {
           { userId: undefined, anonymousId: "anon-abc" },
         ],
       ]);
+    });
+
+    it("fires once when two posts from one viewer cross the threshold together", async () => {
+      const { db } = createStatefulDb(uncountedViewer());
+      mocks.getDb.mockReturnValue(db);
+      const first = makeEvent({ kind: "watch-progress", totalWatchMs: 5000 });
+      const second = makeEvent({ kind: "watch-progress", totalWatchMs: 6000 });
+
+      await Promise.all([handler(first as any), handler(second as any)]);
+      await Promise.all([...first.pending, ...second.pending]);
+
+      expect(viewCountedCalls()).toHaveLength(1);
+      expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledOnce();
     });
 
     it("attributes a signed-in non-owner view to the viewer", async () => {
