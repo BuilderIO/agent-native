@@ -53,11 +53,14 @@ Resolve known duplicate clusters before claiming. For an eligible item, add
 the Slack ownership gate. Post **In progress** only when work continues beyond
 this run.
 
-**Fix defects or ask the one reporter-only question that changes the next
-action.** Otherwise continue internal work. Never send a Slack reply that only
-says **Open**, restates symptoms, or cites a source-access gap; ask the exact
-gating question or name the concrete next action and owner. Gather logs and
-inspect supplied evidence yourself. Ask plainly what they saw or did.
+**Fix defects or ask directly for the exact reporter-only fact or action that
+unlocks the next step.** If reporter input gates progress, the reply must contain
+that specific question and briefly say why it is needed. Do not replace the ask
+with an **Open** label, a symptom recap, a source-access explanation, or a vague
+request for more details. If no reporter-only fact gates progress, ask no filler
+question: continue the internal investigation or fix and report a concrete
+action when a reply is due. Gather logs and inspect supplied evidence yourself;
+never ask for evidence, IDs, or tool details already supplied.
 
 A reporter's proposed remedy may be wrong while the bug is real. Trace the
 failure to its owner.
