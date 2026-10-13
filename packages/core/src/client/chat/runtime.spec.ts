@@ -5090,6 +5090,7 @@ describe("createAgentNativeChatRuntime", () => {
   it("does not replay stale approval metadata for a completed empty-result call", async () => {
     const approvalInput = { release: "1.2.3" };
     const approvalKey = 'publish-release:{"release":"1.2.3"}';
+    const pendingApprovalAskId = "agent-tool-approval-pending";
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -5106,6 +5107,7 @@ describe("createAgentNativeChatRuntime", () => {
             approvalKey,
             input: approvalInput,
             toolCallId: "call-empty-result",
+            askId: "agent-tool-approval-completed",
           },
           {
             type: "tool_done",
@@ -5114,6 +5116,27 @@ describe("createAgentNativeChatRuntime", () => {
             result: "",
             completedSideEffect: true,
             approvalPause: false,
+          },
+          {
+            type: "tool_start",
+            id: "call-pending",
+            tool: "publish-release",
+            input: approvalInput,
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey,
+            input: approvalInput,
+            toolCallId: "call-pending",
+            askId: pendingApprovalAskId,
+          },
+          {
+            type: "tool_done",
+            id: "call-pending",
+            tool: "publish-release",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
           },
           { type: "done" },
         ]),
@@ -5133,7 +5156,7 @@ describe("createAgentNativeChatRuntime", () => {
 
     const continuation = await session.continueTurn?.({
       turnId: first.id,
-      approval: { id: approvalKey, approved: true },
+      approval: { id: pendingApprovalAskId, approved: true },
     });
     expect(continuation).toBeDefined();
     await drain(continuation!.events);
@@ -5157,6 +5180,110 @@ describe("createAgentNativeChatRuntime", () => {
         content: expect.stringContaining("did NOT execute"),
       }),
     );
+  });
+
+  it("does not send an ask id as the approved tool key when no call is linked", async () => {
+    const approvalAskId = "agent-tool-approval-unlinked";
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      sseResponse([
+        {
+          type: "tool_start",
+          id: "call-read-release",
+          tool: "read-release",
+          input: {},
+        },
+        {
+          type: "approval_required",
+          tool: "publish-release",
+          input: { version: "1.2.3" },
+          approvalKey: 'publish-release:{"version":"1.2.3"}',
+          askId: approvalAskId,
+          toolCallId: "missing-call-id",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-unlinked-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-unlinked-approval",
+      threadId: "thread-unlinked-approval",
+    });
+    const first = await session.startTurn({ prompt: "Publish the release" });
+    const events = await drain(first.events);
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval-request",
+        approvalId: approvalAskId,
+      }),
+    );
+    expect(session.continueTurn).toBeDefined();
+    expect(() =>
+      session.continueTurn!({
+        turnId: first.id,
+        approval: { id: approvalAskId, approved: true },
+      }),
+    ).toThrow("The agent run failed.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails explicitly when an approved input cannot fit its history envelope", async () => {
+    const input = { payload: "x".repeat(262_000) };
+    const approvalAskId = "agent-tool-approval-large-input";
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      sseResponse([
+        {
+          type: "tool_start",
+          id: "call-large-input",
+          tool: "publish-release",
+          input,
+        },
+        {
+          type: "approval_required",
+          tool: "publish-release",
+          input,
+          approvalKey: "publish-release:large-input",
+          askId: approvalAskId,
+          toolCallId: "call-large-input",
+        },
+        {
+          type: "tool_done",
+          id: "call-large-input",
+          tool: "publish-release",
+          result: "Awaiting human approval. This action did NOT execute.",
+          approvalPause: true,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-large-approved-input",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-large-approved-input",
+      threadId: "thread-large-approved-input",
+    });
+    const first = await session.startTurn({ prompt: "Publish the release" });
+    await drain(first.events);
+
+    expect(session.continueTurn).toBeDefined();
+    await expect(
+      session.continueTurn!({
+        turnId: first.id,
+        approval: { id: approvalAskId, approved: true },
+      }),
+    ).rejects.toMatchObject({
+      code: "http_413",
+      status: 413,
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("preserves the original brief in bounded history without assistant reasoning", async () => {

@@ -10907,11 +10907,28 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
     }
+    const submittedApprovedToolCalls: unknown = (
+      body as unknown as Record<string, unknown>
+    ).approvedToolCalls;
+    if (
+      submittedApprovedToolCalls !== undefined &&
+      (!Array.isArray(submittedApprovedToolCalls) ||
+        submittedApprovedToolCalls.length > 200 ||
+        submittedApprovedToolCalls.some(
+          (key: unknown) => typeof key !== "string" || key.length === 0,
+        ))
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_invalid",
+        retryable: false,
+      };
+    }
     const requestedApprovedToolCalls =
-      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
-        ? body.approvedToolCalls
-            .filter((key: unknown): key is string => typeof key === "string")
-            .slice(0, 200)
+      Array.isArray(submittedApprovedToolCalls) &&
+      submittedApprovedToolCalls.length > 0
+        ? (submittedApprovedToolCalls as string[])
         : undefined;
     const submittedApprovedToolCallAskIds: unknown = (
       body as unknown as Record<string, unknown>
