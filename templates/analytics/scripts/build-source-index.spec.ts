@@ -341,6 +341,13 @@ describe("compileSourceIndex", () => {
         "cross join unnest(users.organizations) as organization",
       ].join("\n"),
     );
+    await writeFile(
+      path.join(mapping, "user_organization_distinct.sql"),
+      [
+        "select distinct user_id, organization_id",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
 
     const bundle = await compileSourceIndex({
       dbtRoots: [dbtRoot],
@@ -449,6 +456,12 @@ describe("compileSourceIndex", () => {
     expect(
       byMetric.get("model:user_organization_duplicate_source"),
     ).toMatchObject({ sqlProjectedColumns: "organization_id, user_id" });
+    expect(byMetric.get("model:user_organization_distinct")).toMatchObject({
+      sqlProjectedColumns: "organization_id, user_id",
+    });
+    expect(byMetric.get("model:user_organization_distinct")).not.toHaveProperty(
+      "grain",
+    );
     expect(
       byMetric.get("model:user_organization_duplicate_source"),
     ).not.toHaveProperty("columnsUsed");

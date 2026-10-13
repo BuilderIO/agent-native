@@ -2298,9 +2298,10 @@ function projectedOutputColumn(projection: string): string | undefined {
 function projectedColumnsFromSql(sql: string): string[] {
   const selectList = finalSelectList(sqlWithoutComments(sql, true));
   if (!selectList) return [];
+  const projectionList = selectList.replace(/^\s*(?:distinct|all)\b\s*/i, "");
   return [
     ...new Set(
-      splitTopLevelSqlList(selectList)
+      splitTopLevelSqlList(projectionList)
         .map(projectedOutputColumn)
         .filter((column): column is string => Boolean(column)),
     ),

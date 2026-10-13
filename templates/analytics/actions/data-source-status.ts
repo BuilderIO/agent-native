@@ -110,12 +110,20 @@ function summarizeWorkspaceConnections(
   connections: SerializedWorkspaceConnection[],
   grants: SerializedWorkspaceConnectionGrant[],
 ) {
-  return summarizeWorkspaceConnectionProviderForApp({
+  const summary = summarizeWorkspaceConnectionProviderForApp({
     providerId,
     appId: APP_ID,
     connections,
     grants,
   });
+  return {
+    ...summary,
+    // The core aggregate includes ungranted connections; expose health only
+    // for the app-scoped connections returned in this summary.
+    statuses: [
+      ...new Set(summary.connections.map((connection) => connection.status)),
+    ],
+  };
 }
 
 async function listWorkspaceConnectionsForStatus(): Promise<{
@@ -303,16 +311,18 @@ export default defineAction({
           provider: provider.provider,
           label: provider.label,
           via:
-            provider.configuredKeys.length > 0 &&
+            provider.credentialsConfigured &&
             provider.workspaceConnection.grantState === "connected"
               ? "credentials-and-workspace"
               : provider.workspaceConnection.grantState === "connected"
                 ? "workspace"
                 : provider.workspaceConnection.grantState === "granted"
-                  ? provider.configuredKeys.length > 0
+                  ? provider.credentialsConfigured
                     ? "credentials-and-workspace-grant"
                     : "workspace-grant"
-                  : "credentials",
+                  : provider.credentialsConfigured
+                    ? "credentials"
+                    : "workspace-grant",
         })),
     ];
     const scopedProviderIds = requestedProviderIds(

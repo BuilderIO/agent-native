@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     hasWorkspaceConnection: false,
     hasGrantedWorkspaceConnection: false,
     hasActiveWorkspaceConnection: false,
+    connections: [],
   },
 }));
 
@@ -367,6 +368,7 @@ describe("data-source-status", () => {
       hasGrantedWorkspaceConnection: true,
       hasActiveWorkspaceConnection: false,
       statuses: ["error"],
+      connections: [{ id: "analytics-grant", status: "error" }],
     };
 
     const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
@@ -397,6 +399,71 @@ describe("data-source-status", () => {
       hasConnectedExternalDataSources: false,
       connectedExternalDataSourceCount: 0,
     });
+  });
+
+  it("does not describe optional-only credentials as configured credentials", async () => {
+    mocks.hasCredential.mockImplementation(async (key: string) =>
+      key === "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+    );
+    mocks.workspaceSummaryByProvider.bigquery = {
+      ...mocks.workspaceSummary,
+      provider: "bigquery",
+      grantState: "granted",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["error"],
+      connections: [{ id: "analytics-grant", status: "error" }],
+    };
+
+    const result = (await dataSourceStatus.run({})) as any;
+    const bigquery = result.providers.find(
+      (provider: any) => provider.provider === "bigquery",
+    );
+
+    expect(bigquery).toMatchObject({
+      configured: true,
+      ready: false,
+      credentialsConfigured: false,
+      configuredKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+    });
+    expect(result.configuredDataSources).toContainEqual({
+      provider: "bigquery",
+      label: "BigQuery",
+      via: "workspace-grant",
+    });
+    expect(result.configuredDataSources).not.toContainEqual(
+      expect.objectContaining({ via: "credentials-and-workspace-grant" }),
+    );
+  });
+
+  it("excludes health from workspace connections not granted to Analytics", async () => {
+    mocks.workspaceSummaryByProvider.hubspot = {
+      ...mocks.workspaceSummary,
+      grantState: "connected",
+      grantAvailability: "available",
+      connectionCount: 2,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      ungrantedConnectionCount: 1,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+      statuses: ["connected", "error"],
+      connections: [{ id: "analytics-grant", status: "connected" }],
+    };
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+    const hubspot = result.providers.find(
+      (provider: any) => provider.provider === "hubspot",
+    );
+
+    expect(hubspot.workspaceConnection.statuses).toEqual(["connected"]);
+    expect(hubspot.workspaceConnection.statuses).not.toContain("error");
   });
 
   it("scopes the connected-source summary to the requested provider", async () => {
