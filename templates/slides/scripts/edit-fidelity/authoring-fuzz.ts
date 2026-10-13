@@ -4912,6 +4912,11 @@ export async function runAuthoringFuzz(
         activeItem: itemState(activeItem),
         tokenItem: itemState(tokenItem),
         caretInTokenItem: !!activeItem && activeItem === tokenItem,
+        caretInSiblingItem:
+          !!activeItem &&
+          !!tokenItem &&
+          activeItem !== tokenItem &&
+          activeItem.parentElement === tokenItem.parentElement,
       };
     }, token);
   const listRowCount = async (kind: "styled" | "ul" | "ol") =>
@@ -4955,9 +4960,30 @@ export async function runAuthoringFuzz(
       await runSlashCommand(kind === "ul" ? "bulletList" : "orderedList");
       await typeText(firstToken);
     }
+    const caretAfterFirst =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterFirst && !caretAfterFirst.caretInTokenItem) {
+      throw new Error(
+        `${kind} caret left its list item after typing (${JSON.stringify(caretAfterFirst)})`,
+      );
+    }
     const afterFirst = await listRowCount(kind);
     await editor.press(lineEndKey);
+    const caretAfterLineEnd =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterLineEnd && !caretAfterLineEnd.caretInTokenItem) {
+      throw new Error(
+        `${kind} caret left its list item at the line end (${JSON.stringify(caretAfterLineEnd)})`,
+      );
+    }
     await editor.press("Enter");
+    const caretAfterEnter =
+      kind === "styled" ? null : await listCaretState(firstToken);
+    if (caretAfterEnter && !caretAfterEnter.caretInSiblingItem) {
+      throw new Error(
+        `${kind} Enter did not move the caret into a sibling list item (${JSON.stringify(caretAfterEnter)})`,
+      );
+    }
     await typeText(secondToken);
     const after = await listRowCount(kind);
     const siblingEntries = await editor.evaluate(
@@ -5124,7 +5150,7 @@ export async function runAuthoringFuzz(
         [firstToken, secondToken],
       );
       throw new Error(
-        `${kind} Enter did not create a sibling list item (${JSON.stringify({ before, afterShortcut, afterFirst, after, siblingEntries, state })})`,
+        `${kind} Enter did not create a sibling list item (${JSON.stringify({ before, afterShortcut, afterFirst, after, siblingEntries, caretAfterFirst, caretAfterLineEnd, caretAfterEnter, state })})`,
       );
     }
     return { firstToken, secondToken };

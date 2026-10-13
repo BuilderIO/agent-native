@@ -4068,26 +4068,52 @@ export function startInPlaceTextSession(
   }
 
   function toggleListAtBlock(block: HTMLElement, kind: SlideListKind): boolean {
-    return keepingSelection(() => {
-      if (
-        block === el &&
-        Array.from(el.childNodes).some(
-          (child) =>
-            child instanceof HTMLElement &&
-            (BLOCK_TAGS.has(child.tagName) || child.tagName === "HR"),
-        ) &&
-        Array.from(el.childNodes).some(
-          (child) =>
-            !(child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)),
-        )
-      ) {
-        materializeRootInlineBlocks();
-        const caret = selectionRange();
-        if (caret) {
-          const target = commandBlock(caret.startContainer);
-          if (target !== el) return toggleListAtBlock(target, kind);
-        }
+    const caretBefore = selectionRange();
+    const elementCaretOffset =
+      caretBefore?.collapsed &&
+      !(caretBefore.startContainer instanceof Text) &&
+      block.contains(caretBefore.startContainer)
+        ? textOffset(block, caretBefore.startContainer, caretBefore.startOffset)
+        : null;
+    if (
+      block === el &&
+      Array.from(el.childNodes).some(
+        (child) =>
+          child instanceof HTMLElement &&
+          (BLOCK_TAGS.has(child.tagName) || child.tagName === "HR"),
+      ) &&
+      Array.from(el.childNodes).some(
+        (child) =>
+          !(child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)),
+      )
+    ) {
+      const range = selectionRange();
+      const points = range
+        ? ([
+            [range.startContainer, range.startOffset],
+            [range.endContainer, range.endOffset],
+          ] as const)
+        : null;
+      const offsets = selectionOffsets();
+      materializeRootInlineBlocks();
+      const intact = points?.every(
+        ([node, offset]) =>
+          node !== el &&
+          el.contains(node) &&
+          offset <=
+            (node instanceof Text ? node.length : node.childNodes.length),
+      );
+      if (points && intact) select(points[0], points[1], offsets.backward);
+      else selectOffsets(offsets);
+
+      const caret = selectionRange();
+      if (caret) {
+        const target = commandBlock(caret.startContainer);
+        if (target !== el) return toggleListAtBlock(target, kind);
       }
+    }
+    let convertedLine: HTMLElement | null = null;
+    const changed = keepingSelection(() => {
       if (isBulletRow(block) && block !== el) {
         if (kind === "bullet") {
           rowMarker(block)?.remove();
@@ -4133,12 +4159,17 @@ export function startInPlaceTextSession(
       preserveBlockMargins(block, list);
       const look = sourceTextLook(block);
       const line = block.tagName === "LI" ? block : retag(block, "LI");
+      convertedLine = line;
       keepTextLook(line, look);
       line.replaceWith(list);
       list.append(line);
       mergeAdjacentLists(list);
       return true;
     });
+    if (changed && elementCaretOffset !== null && convertedLine) {
+      placeCaret(...textPoint(convertedLine, elementCaretOffset));
+    }
+    return changed;
   }
 
   function insertDividerAtBlock(block: HTMLElement, caret: Range) {

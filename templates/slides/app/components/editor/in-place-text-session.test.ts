@@ -1444,6 +1444,51 @@ describe("in-place text session: Enter", () => {
     expect(session.element.querySelector("p")?.textContent).toBe("Plain line");
   });
 
+  it("splits a real list item inside a flex text box after a list command", () => {
+    const el = mount(
+      '<div id="t" style="display:flex"><div><p></p></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.querySelector("p")!, 0);
+
+    expect(session.commands.applyAuthoringCommand("bulletList")).toBe(true);
+    type(session.element, "First");
+    const firstItem = el.querySelector("ul > li");
+    expect(firstItem?.textContent).toContain("First");
+    expect(firstItem?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+
+    expect(
+      beforeInput(session.element, "insertParagraph").defaultPrevented,
+    ).toBe(true);
+
+    const items = Array.from(el.querySelectorAll(":scope ul > li"));
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.textContent)).toEqual(["First", ZWSP]);
+    expect(items[1]?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+    type(session.element, "Second");
+    expect(items.map((item) => item.textContent)).toEqual(["First", "Second"]);
+  });
+
+  it("keeps an empty materialized root line as the list caret target", () => {
+    const el = mount('<div id="t"><span></span><p>After</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(el.querySelector("span")!, 0);
+
+    expect(session.commands.applyAuthoringCommand("bulletList")).toBe(true);
+    type(session.element, "First");
+
+    const item = el.querySelector("ul > li");
+    expect(item?.textContent).toContain("First");
+    expect(item?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+    expect(el.querySelector("p")?.textContent).toBe("After");
+  });
+
   it("keeps inline styling when the empty list item exits into a paragraph", () => {
     const el = mount(
       '<ul id="t"><li><span style="color: red"><strong>One</strong></span></li></ul>',
