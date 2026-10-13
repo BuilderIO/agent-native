@@ -203,6 +203,37 @@ describe("RecordingContextPanel", () => {
     expect(alert?.textContent).toBe("Export failed: disk full");
   });
 
+  it("retries a failed item using its saved time window", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: {
+        items: [
+          item({
+            status: "failed",
+            mediaRecordingId: null,
+            error: "Export failed: disk full",
+          }),
+        ],
+      },
+    });
+    render();
+
+    act(() => buttonWithText(container, "Retry")?.click());
+
+    expect(removal.calls).toEqual([
+      {
+        action: "set-recording-context-window",
+        input: {
+          id: "ctx_1",
+          startedAt: "2026-10-09T10:04:30.000Z",
+          endedAt: "2026-10-09T10:05:00.000Z",
+        },
+      },
+    ]);
+    expect(toast.success).toHaveBeenCalledWith("Saving earlier screen time…");
+  });
+
   it("plays a ready item inline from the media recording and offers a larger view", () => {
     setQuery({
       isSuccess: true,

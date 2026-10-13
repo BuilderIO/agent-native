@@ -8718,19 +8718,15 @@ fn prepare_audio_sidecar_slices(
     let mut prepared = Vec::with_capacity(slices.len());
     let mut temporary = Vec::new();
     for (index, slice) in slices.iter().enumerate() {
-        if slice.system_audio_path.is_none() && slice.microphone_path.is_none() {
+        let system = slice.system_audio_path.as_deref();
+        let microphone = slice.microphone_path.as_deref();
+        if system.is_none() && microphone.is_none() {
             prepared.push(slice.clone());
             continue;
         }
-        let system = slice
-            .system_audio_path
-            .as_ref()
-            .ok_or_else(|| "Rewind system-audio sidecar is missing".to_string())?;
-        let microphone = slice
-            .microphone_path
-            .as_ref()
-            .ok_or_else(|| "Rewind microphone sidecar is missing".to_string())?;
-        for path in [&slice.path, system, microphone] {
+        for path in
+            std::iter::once(slice.path.as_path()).chain([system, microphone].into_iter().flatten())
+        {
             if !path.exists() {
                 return Err(format!(
                     "Rewind media unit is incomplete: {}",
@@ -8740,13 +8736,23 @@ fn prepare_audio_sidecar_slices(
         }
         let muxed = output.with_extension(format!("sidecar-{index}.mp4"));
         let _ = std::fs::remove_file(&muxed);
-        let child = Command::new(&ffmpeg)
+        let mut command = Command::new(&ffmpeg);
+        command
             .args(["-y", "-v", "error", "-nostdin", "-i"])
-            .arg(&slice.path)
-            .arg("-i")
-            .arg(system)
-            .arg("-i")
-            .arg(microphone)
+            .arg(&slice.path);
+        for sidecar in [system, microphone] {
+            if let Some(path) = sidecar {
+                command.arg("-i").arg(path);
+            } else {
+                command.args([
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "anullsrc=channel_layout=stereo:sample_rate=48000",
+                ]);
+            }
+        }
+        let child = command
             .args([
                 "-map",
                 "0:v:0",
@@ -8778,6 +8784,140 @@ fn prepare_audio_sidecar_slices(
         temporary.push(muxed);
     }
     Ok((prepared, PreparedSliceFiles(temporary)))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod audio_sidecar_materialization_tests {
+    use super::*;
+
+    struct TempDirectory(PathBuf);
+
+    impl TempDirectory {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "clips-audio-sidecar-test-{}-{}",
+                std::process::id(),
+                Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn create_test_video(ffmpeg: &str, path: &Path) {
+        let status = Command::new(ffmpeg)
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=64x64:r=30",
+                "-t",
+                "1",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "could not create test video");
+    }
+
+    fn create_test_audio(ffmpeg: &str, path: &Path) {
+        let status = Command::new(ffmpeg)
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=880:sample_rate=48000",
+                "-t",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+            ])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "could not create test audio");
+    }
+
+    fn probe_audio_track(ffmpeg: &str, path: &Path, index: usize) -> AudioSignalProbe {
+        let child = Command::new(ffmpeg)
+            .args(["-hide_banner", "-nostdin", "-i"])
+            .arg(path)
+            .args(["-map"])
+            .arg(format!("0:a:{index}"))
+            .args(["-af", "volumedetect", "-f", "null", "-"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stderr = wait_for_child_collect_stderr(
+            child,
+            FFMPEG_AUDIO_PROBE_TIMEOUT,
+            "ffmpeg",
+            "checking sidecar audio track",
+        )
+        .unwrap();
+        AudioSignalProbe {
+            mean_volume_db: parse_ffmpeg_volume_db(&stderr, "mean_volume:"),
+            max_volume_db: parse_ffmpeg_volume_db(&stderr, "max_volume:"),
+        }
+    }
+
+    #[test]
+    fn materializes_each_available_audio_track_in_its_expected_slot() {
+        let ffmpeg = resolve_ffmpeg_path().expect("ffmpeg is required for this test");
+        let directory = TempDirectory::new();
+        let video = directory.0.join("video.mp4");
+        let audio = directory.0.join("audio.wav");
+        create_test_video(&ffmpeg, &video);
+        create_test_audio(&ffmpeg, &audio);
+
+        for (name, expected_stream, system_audio_path, microphone_path) in [
+            ("system", 0, Some(audio.clone()), None),
+            ("microphone", 1, None, Some(audio.clone())),
+        ] {
+            let output = directory.0.join(format!("{name}-prepared.mp4"));
+            let slice = NativeMediaSlice {
+                path: video.clone(),
+                system_audio_path,
+                microphone_path,
+                start_ms: 0,
+                end_ms: 1_000,
+            };
+
+            let (prepared, _temporary_files) =
+                prepare_audio_sidecar_slices(&[slice], &output).unwrap();
+
+            assert_eq!(prepared.len(), 1);
+            assert_eq!(mp4_has_audio_track(&prepared[0].path), Some(true));
+            let signal = probe_audio_track(&ffmpeg, &prepared[0].path, expected_stream);
+            assert!(
+                signal.mean_volume_db.is_some_and(|mean| mean > -60.0),
+                "{name} selection did not retain the available audio: {signal:?}"
+            );
+            let placeholder = probe_audio_track(&ffmpeg, &prepared[0].path, 1 - expected_stream);
+            assert!(
+                placeholder.mean_volume_db.is_some_and(|mean| mean <= -60.0),
+                "{name} selection did not leave silence in the other slot: {placeholder:?}"
+            );
+        }
+    }
 }
 
 const MAX_PREPARED_SLICE_DURATION_DRIFT_MS: u64 = 1_000;

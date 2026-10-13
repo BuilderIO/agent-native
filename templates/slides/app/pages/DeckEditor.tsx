@@ -54,6 +54,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   useBlocker,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -531,11 +532,21 @@ function clearEmptyGenerationRecovery(
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const routeGenerationSubmitId = searchParams.get("generationSubmitId");
   const isNewDeckGenerationRouteFromUrl =
     searchParams.get("generating") === "1" || Boolean(routeGenerationSubmitId);
+  const routeGenerationRetryPrompt = (
+    location.state as { generationOriginalPrompt?: unknown } | null
+  )?.generationOriginalPrompt;
+  const generationRetryPrompt =
+    isNewDeckGenerationRouteFromUrl &&
+    typeof routeGenerationRetryPrompt === "string" &&
+    routeGenerationRetryPrompt.trim()
+      ? routeGenerationRetryPrompt
+      : null;
   const {
     generating: newDeckGenerationGenerating,
     submitMessageId: restoredGenerationSubmitId,
@@ -1059,7 +1070,12 @@ export default function DeckEditor() {
         generationHomeNavigationRef.current = true;
         generationHomeExitInFlightRef.current = false;
         pendingDeckNavigationBlocker.reset();
-        void navigate("/home", { replace: true });
+        void navigate("/home", {
+          replace: true,
+          ...(generationRetryPrompt
+            ? { state: { retryPrompt: generationRetryPrompt } }
+            : {}),
+        });
       },
       () => {
         generationHomeExitInFlightRef.current = false;
@@ -1069,6 +1085,7 @@ export default function DeckEditor() {
     );
   }, [
     flushDeckSave,
+    generationRetryPrompt,
     generationContext,
     id,
     isRestoringPromptBeforeLeavingGeneration,
@@ -2120,7 +2137,11 @@ export default function DeckEditor() {
                         settledSlideCount < targetSlideCount
                       ? "incomplete_output"
                       : null;
-        if (failureCode && settledSlideCount === 0 && generationContext) {
+        if (
+          failureCode &&
+          failureCode !== "incomplete_output" &&
+          generationContext
+        ) {
           updateDeck(id, {
             generationContext: {
               ...generationContext,
@@ -2128,29 +2149,33 @@ export default function DeckEditor() {
               generationFailureAttemptId: generationAttemptId,
             },
           });
-          const recovery: EmptyGenerationRecovery = {
-            kind: "generation_failure",
-            attemptId: generationAttemptId,
-            failureCode,
-          };
-          const serializedRecovery = JSON.stringify(recovery);
-          if (retryRecoveryStorageKey) {
-            try {
-              window.localStorage.setItem(
-                retryRecoveryStorageKey,
-                serializedRecovery,
-              );
-              emptyGenerationRecoveryRef.current = serializedRecovery;
-            } catch (error) {
-              console.error(
-                "Failed to store Slides generation recovery data.",
-                error,
-              );
+          let serializedRecovery: string | null = null;
+          if (settledSlideCount === 0) {
+            const recovery: EmptyGenerationRecovery = {
+              kind: "generation_failure",
+              attemptId: generationAttemptId,
+              failureCode,
+            };
+            serializedRecovery = JSON.stringify(recovery);
+            if (retryRecoveryStorageKey) {
+              try {
+                window.localStorage.setItem(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                );
+                emptyGenerationRecoveryRef.current = serializedRecovery;
+              } catch (error) {
+                console.error(
+                  "Failed to store Slides generation recovery data.",
+                  error,
+                );
+              }
             }
           }
           try {
             await flushDeckSave(id);
             if (
+              serializedRecovery &&
               clearEmptyGenerationRecovery(
                 retryRecoveryStorageKey,
                 serializedRecovery,
@@ -2267,6 +2292,13 @@ export default function DeckEditor() {
   const generationRecoveryState =
     getNewDeckGenerationRecoveryState(generationState);
   const showGenerationRecovery = generationRecoveryState !== null;
+  const showPartialGenerationFailure =
+    slideCount > 0 &&
+    typeof generationContext?.generationFailureCode === "string" &&
+    generationContext.generationFailureCode !== "incomplete_output" &&
+    generationContext.generationFailureAttemptId === generationAttemptId &&
+    !newDeckGenerationSignal &&
+    !waitingOnNewDeckQuestions;
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -4076,6 +4108,7 @@ export default function DeckEditor() {
         requestAccessDialogOpen={requestAccessDialogOpen}
         requesterEmail={requesterEmail}
         requestAccessDialogError={requestAccessDialogError}
+        originalPrompt={generationRetryPrompt}
         signedIn={Boolean(session) && !sessionLoading}
         signInHref={buildSignInReturnHref({
           returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
@@ -4091,7 +4124,14 @@ export default function DeckEditor() {
         onSubmitGuestAccessRequest={submitGuestAccessRequest}
         onSignIn={openSignIn}
         onRetry={() => void retryOpenDeck()}
-        onBack={() => navigate("/home")}
+        onBack={() =>
+          navigate(
+            "/home",
+            generationRetryPrompt
+              ? { state: { retryPrompt: generationRetryPrompt } }
+              : undefined,
+          )
+        }
       />
     );
   }
@@ -4467,6 +4507,25 @@ export default function DeckEditor() {
         className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
       />
 
+      {showPartialGenerationFailure ? (
+        <div className="shrink-0 border-b bg-muted/50 px-4 py-3" role="alert">
+          <div className="mx-auto max-w-6xl text-start">
+            <p>{t("deckEditor.partialGenerationFailed")}</p>
+            {typeof generationContext?.originalPrompt === "string" &&
+            generationContext.originalPrompt.trim() ? (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t("deckEditor.originalPrompt")}
+                </p>
+                <p className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-sm">
+                  {generationContext.originalPrompt}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
         {sidebarOpen && (
           <>
@@ -4622,6 +4681,17 @@ export default function DeckEditor() {
                       ? t("deckEditor.generationOutcomeUnresolved")
                       : t("deckEditor.generationFailed")}
                 </p>
+                {typeof generationContext?.originalPrompt === "string" &&
+                generationContext.originalPrompt.trim() ? (
+                  <div className="w-full text-left">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("deckEditor.originalPrompt")}
+                    </p>
+                    <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
+                      {generationContext.originalPrompt}
+                    </p>
+                  </div>
+                ) : null}
                 <Button
                   disabled={!canEdit || generationRetryPending}
                   onClick={() => void retryEmptyGeneration()}

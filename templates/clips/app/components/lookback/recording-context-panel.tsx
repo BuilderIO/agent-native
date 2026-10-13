@@ -171,6 +171,7 @@ function ContextItemCard({
   const [largerOpen, setLargerOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const removeContext = useActionMutation("remove-recording-context");
+  const retryContext = useActionMutation("set-recording-context-window");
   const label = item.label?.trim() || t("lookbackContext.label");
   const windowText = t("lookbackContext.window", {
     start: formatClock(0),
@@ -197,6 +198,20 @@ function ContextItemCard({
     );
   }
 
+  function retry() {
+    retryContext.mutate(
+      {
+        id: item.id,
+        startedAt: item.startedAt,
+        endedAt: item.endedAt,
+      },
+      {
+        onSuccess: () => toast.success(t("lookbackContext.savingEarlierTime")),
+        onError: () => toast.error(t("lookbackContext.editFailed")),
+      },
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -207,6 +222,17 @@ function ContextItemCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {item.status === "failed" ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={retryContext.isPending}
+              onClick={retry}
+            >
+              {t("lookbackContext.retry")}
+            </Button>
+          ) : null}
           {src ? (
             <Button
               type="button"

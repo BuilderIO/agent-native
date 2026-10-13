@@ -823,6 +823,10 @@ const messages = {
       "Les diapositives n’ont pas été créées. Consultez les détails dans le chat, puis réessayez.",
     generationOutcomeUnresolved:
       "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation avant de réessayer.",
+    partialGenerationFailed:
+      "Nous n’avons pas pu terminer la création des diapositives. Vérifiez celles déjà présentes et votre demande initiale avant de continuer.",
+    originalPrompt: "Votre demande",
+    backToHome: "Retour à l’accueil",
     checkedDeckTryAgain: "J’ai vérifié la présentation. Réessayer",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",

@@ -3,7 +3,7 @@
 import { AGENT_CHAT_SUBMIT_RESULT_EVENT } from "@agent-native/core/client/agent-chat";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
       originalPrompt: "" as string,
     },
   },
+  deckMissing: false,
   broadGenerating: true,
   showInlineEditTrigger: false,
   readOnlyWidget: false,
@@ -131,7 +132,7 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
 
 vi.mock("@/context/DeckContext", () => ({
   useDecks: () => ({
-    getDeck: () => mocks.deck,
+    getDeck: () => (mocks.deckMissing ? null : mocks.deck),
     reloadDecks: vi.fn(),
     reloadDecksWithStatus: vi.fn(),
     refreshOpenDeck: mocks.refreshOpenDeck,
@@ -386,6 +387,13 @@ import { SLIDES_GENERATION_STARTED_EVENT } from "@/hooks/use-agent-generating";
 
 import DeckEditor from "./DeckEditor";
 
+function HomeRouteProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="home-route-state">{JSON.stringify(location.state)}</div>
+  );
+}
+
 const localStorageState = new Map<string, string>();
 const localStorageStub: Storage = {
   get length() {
@@ -447,6 +455,7 @@ describe("DeckEditor generation signal wiring", () => {
     delete (mocks.deck.generationContext as Record<string, unknown>)
       .generationFailureCode;
     Object.assign(mocks, {
+      deckMissing: false,
       broadGenerating: true,
       showInlineEditTrigger: false,
       readOnlyWidget: false,
@@ -2051,6 +2060,8 @@ describe("DeckEditor generation signal wiring", () => {
   });
 
   it("keeps an uncertain write outcome distinct and asks before retrying", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
     mocks.attemptGenerating = true;
     mocks.attemptObservedRun = true;
     mocks.attemptRunError = true;
@@ -2085,6 +2096,7 @@ describe("DeckEditor generation signal wiring", () => {
           .generationFailureCode,
       ).toBe("outcome_unresolved"),
     );
+    expect(mocks.deck.generationContext.originalPrompt).toBe(originalPrompt);
     expect(
       screen.getByText("deckEditor.generationOutcomeUnresolved"),
     ).toBeTruthy();
@@ -2093,7 +2105,135 @@ describe("DeckEditor generation signal wiring", () => {
         name: "deckEditor.checkedDeckTryAgain",
       }),
     ).toBeTruthy();
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
     expect(screen.queryByText("deckEditor.agentRunFailed")).toBeNull();
+  });
+
+  it("shows the saved request after a partial deck fails without offering a retry", async () => {
+    const originalPrompt = "Make a deck about sustainable product design.";
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>First slide</p>" }];
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    mocks.attemptRunError = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(
+        (mocks.deck.generationContext as Record<string, unknown>)
+          .generationFailureCode,
+      ).toBe("agent_error"),
+    );
+    await waitFor(() =>
+      expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+    );
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.getByText("deckEditor.partialGenerationFailed")).toBeTruthy();
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(screen.getByTestId("slide-editor")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "deckEditor.checkedDeckTryAgain",
+      }),
+    ).toBeNull();
+    expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+  });
+
+  it("retries an empty failed deck with the saved original request", async () => {
+    const originalPrompt = "Create a deck about coastal restoration.";
+    Object.assign(mocks.deck.generationContext, {
+      originalPrompt,
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    expect(mocks.submitAndConfirm).toHaveBeenCalledWith(
+      originalPrompt,
+      expect.stringContaining("Continue the original deck generation"),
+      expect.objectContaining({ generationOutputId: "deck-1" }),
+    );
+  });
+
+  it("shows and restores the generated request from the missing-deck route", async () => {
+    const originalPrompt = "Create a deck about coastal restoration.";
+    mocks.deckMissing = true;
+    const recoveryRouter = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <HomeRouteProbe /> },
+      ],
+      {
+        initialEntries: [
+          {
+            pathname: "/deck/deck-1",
+            search: "?generating=1&generation_attempt_id=attempt-1",
+            state: { generationOriginalPrompt: originalPrompt },
+          },
+        ],
+      },
+    );
+
+    router = recoveryRouter;
+    render(<RouterProvider router={recoveryRouter} />);
+
+    expect(await screen.findByText("deckEditor.originalPrompt")).toBeTruthy();
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.backToHome" }),
+    ).toBeTruthy();
+    expect(
+      recoveryRouter.state.location.pathname +
+        recoveryRouter.state.location.search,
+    ).not.toContain(originalPrompt);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.backToHome" }).click();
+    });
+
+    await waitFor(() =>
+      expect(recoveryRouter.state.location.pathname).toBe("/home"),
+    );
+    expect(
+      JSON.parse(screen.getByTestId("home-route-state").textContent!),
+    ).toEqual({ retryPrompt: originalPrompt });
+    expect(
+      recoveryRouter.state.location.pathname +
+        recoveryRouter.state.location.search,
+    ).not.toContain(originalPrompt);
   });
 
   it("explains when generation ends without creating slides", () => {

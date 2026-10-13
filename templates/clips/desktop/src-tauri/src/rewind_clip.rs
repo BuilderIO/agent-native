@@ -768,6 +768,54 @@ fn validate_and_plan_wall_clock(
     Ok((slices, selected))
 }
 
+struct RetainedAudioPlan {
+    slices: Vec<NativeMediaSlice>,
+    include_mic: bool,
+    include_system_audio: bool,
+}
+
+fn plan_retained_audio(
+    mut slices: Vec<NativeMediaSlice>,
+    selected: &[ScreenMemorySegmentMetadata],
+    requested_mic: bool,
+    requested_system_audio: bool,
+) -> RetainedAudioPlan {
+    let audio_segments_are_complete = !selected.is_empty()
+        && selected
+            .iter()
+            .all(|segment| segment.capture_mode == crate::config::RewindCaptureMode::VisualsAudio);
+    let include_mic = requested_mic
+        && audio_segments_are_complete
+        && selected.iter().all(|segment| {
+            segment
+                .microphone_path
+                .as_ref()
+                .is_some_and(|path| path.exists())
+        });
+    let include_system_audio = requested_system_audio
+        && audio_segments_are_complete
+        && selected.iter().all(|segment| {
+            segment
+                .system_audio_path
+                .as_ref()
+                .is_some_and(|path| path.exists())
+        });
+
+    for slice in &mut slices {
+        if !include_system_audio {
+            slice.system_audio_path = None;
+        }
+        if !include_mic {
+            slice.microphone_path = None;
+        }
+    }
+    RetainedAudioPlan {
+        slices,
+        include_mic,
+        include_system_audio,
+    }
+}
+
 fn select_audio(
     sources: &[CaptureSource],
     include_mic: bool,
@@ -876,19 +924,22 @@ fn materialize_retained_wall_clock_exact(
             screen_memory::pin_segment(app, &segment.id, &pin_id)?;
             pinned_segments.push(segment.id.clone());
         }
-        let audio_available = selected
-            .iter()
-            .all(|segment| segment.capture_mode == crate::config::RewindCaptureMode::VisualsAudio);
-        if (include_mic || include_system_audio) && !audio_available {
-            return Err("The selected Rewind range does not contain the requested audio.".into());
+        let audio = plan_retained_audio(slices, &selected, include_mic, include_system_audio);
+        if (include_mic && !audio.include_mic)
+            || (include_system_audio && !audio.include_system_audio)
+        {
+            eprintln!(
+                "[clips-tray] earlier screen time is missing requested audio tracks (microphone available: {}, system audio available: {})",
+                audio.include_mic, audio.include_system_audio
+            );
         }
-        let audio_selection = match (include_mic, include_system_audio) {
+        let audio_selection = match (audio.include_mic, audio.include_system_audio) {
             (false, false) => NativeAudioSelection::None,
             (true, false) => NativeAudioSelection::Microphone,
             (false, true) => NativeAudioSelection::System,
             (true, true) => NativeAudioSelection::MixBoth,
         };
-        native_screen::materialize_mp4_slices_exact(&slices, &output, audio_selection)?;
+        native_screen::materialize_mp4_slices_exact(&audio.slices, &output, audio_selection)?;
         let first = selected
             .first()
             .ok_or_else(|| "no Rewind media selected".to_string())?;
@@ -900,8 +951,8 @@ fn materialize_retained_wall_clock_exact(
                 .max(0) as u128,
             first.width,
             first.height,
-            include_mic,
-            include_system_audio,
+            audio.include_mic,
+            audio.include_system_audio,
         ))
     })();
     for segment_id in pinned_segments {
@@ -1856,6 +1907,71 @@ mod tests {
             select_audio(&sources, true, true).unwrap(),
             NativeAudioSelection::MixBoth
         );
+    }
+
+    #[test]
+    fn retained_screen_history_without_complete_audio_exports_video_only() {
+        let mut visual = segment("visual", 0, 100);
+        visual.capture_mode = RewindCaptureMode::Visuals;
+        visual.system_audio_path = Some(PathBuf::from("visual.system.wav"));
+        visual.microphone_path = Some(PathBuf::from("visual.mic.wav"));
+        let slice = NativeMediaSlice {
+            path: PathBuf::from("visual.mp4"),
+            system_audio_path: visual.system_audio_path.clone(),
+            microphone_path: visual.microphone_path.clone(),
+            start_ms: 0,
+            end_ms: 100,
+        };
+
+        let plan = plan_retained_audio(vec![slice], &[visual], true, true);
+
+        assert!(!plan.include_mic);
+        assert!(!plan.include_system_audio);
+        assert_eq!(plan.slices.len(), 1);
+        assert!(plan.slices[0].system_audio_path.is_none());
+        assert!(plan.slices[0].microphone_path.is_none());
+    }
+
+    #[test]
+    fn retained_screen_history_keeps_microphone_when_system_audio_is_missing() {
+        let microphone_path = std::env::current_exe().unwrap();
+        let mut visual = segment("visual", 0, 100);
+        visual.microphone_path = Some(microphone_path.clone());
+        let slice = NativeMediaSlice {
+            path: PathBuf::from("visual.mp4"),
+            system_audio_path: None,
+            microphone_path: Some(microphone_path.clone()),
+            start_ms: 0,
+            end_ms: 100,
+        };
+
+        let plan = plan_retained_audio(vec![slice], &[visual], true, true);
+
+        assert!(plan.include_mic);
+        assert!(!plan.include_system_audio);
+        assert_eq!(plan.slices[0].microphone_path, Some(microphone_path));
+        assert!(plan.slices[0].system_audio_path.is_none());
+    }
+
+    #[test]
+    fn retained_screen_history_keeps_system_audio_without_an_unrequested_microphone() {
+        let system_audio_path = std::env::current_exe().unwrap();
+        let mut visual = segment("visual", 0, 100);
+        visual.system_audio_path = Some(system_audio_path.clone());
+        let slice = NativeMediaSlice {
+            path: PathBuf::from("visual.mp4"),
+            system_audio_path: Some(system_audio_path.clone()),
+            microphone_path: None,
+            start_ms: 0,
+            end_ms: 100,
+        };
+
+        let plan = plan_retained_audio(vec![slice], &[visual], false, true);
+
+        assert!(!plan.include_mic);
+        assert!(plan.include_system_audio);
+        assert!(plan.slices[0].microphone_path.is_none());
+        assert_eq!(plan.slices[0].system_audio_path, Some(system_audio_path));
     }
 
     #[test]
