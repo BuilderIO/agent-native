@@ -1848,8 +1848,13 @@ export default {
     presetWeekdays: "सप्ताह के कार्यदिवस 06:00 बजे",
     presetWeekly: "हर सोमवार 06:00 बजे",
     status: "स्थिति",
+    unsafeEntriesOmitted: "सुरक्षा जाँचों में छोड़ी गई प्रविष्टियाँ",
+    unsafeFieldsOmitted: "सुरक्षा जाँचों में छोड़े गए फ़ील्ड",
+    truncatedFields: "छाँटे गए फ़ील्ड",
     unresolvedTrackingCallSites: "अनसुलझे ट्रैकिंग कॉल",
     unresolvedTrackingCallSitesUnavailable: "उपलब्ध नहीं",
+    sourceIndexCoverageCaveat:
+      "सुरक्षा जाँचें प्रविष्टियाँ या फ़ील्ड छोड़ सकती हैं; छाँटे गए फ़ील्ड और अनसुलझे ट्रैकिंग कॉल भी कवरेज सीमित कर सकते हैं।",
     dynamicTrackingCoverageCaveat:
       "रनटाइम पर जिन कॉल के इवेंट नाम बनते हैं, वे शामिल नहीं होते; aliases या अन्य tracking APIs छूट सकती हैं।",
     overviewFailed: "बिल्ड स्थिति लोड नहीं हो सकी।",

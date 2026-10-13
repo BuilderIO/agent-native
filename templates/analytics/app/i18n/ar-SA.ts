@@ -1866,8 +1866,13 @@ export default {
     presetWeekdays: "أيام العمل في 06:00",
     presetWeekly: "أسبوعيًا يوم الاثنين في 06:00",
     status: "الحالة",
+    unsafeEntriesOmitted: "إدخالات تم استبعادها بفحوصات الأمان",
+    unsafeFieldsOmitted: "حقول تم استبعادها بفحوصات الأمان",
+    truncatedFields: "حقول تم اقتطاعها",
     unresolvedTrackingCallSites: "استدعاءات التتبّع غير المحسومة",
     unresolvedTrackingCallSitesUnavailable: "غير متاح",
+    sourceIndexCoverageCaveat:
+      "قد تستبعد فحوصات الأمان إدخالات أو حقولًا، كما قد يحدّ اقتطاع الحقول أو استدعاءات التتبّع غير المحسومة من التغطية.",
     dynamicTrackingCoverageCaveat:
       "تُستبعد الاستدعاءات التي تُحسب أسماء أحداثها وقت التشغيل؛ وقد لا تُكتشف الأسماء المستعارة أو واجهات التتبّع الأخرى.",
     overviewFailed: "تعذّر تحميل حالة البناء.",

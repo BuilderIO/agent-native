@@ -1402,18 +1402,20 @@ export function startRun(
   const persistRunEvent = async (
     runEvent: RunEvent,
     eventData: string,
+    eventAt: number,
   ): Promise<void> => {
     if (runEvent.event.type === "tool_start") await insertRunPromise;
     const write = () =>
       runEvent.event.type === "tool_start" ||
       runEvent.event.type === "tool_done"
         ? insertRunEvent(runId, runEvent.seq, eventData, {
+            eventAt,
             toolInputSource: "execution",
             ...(runEvent.event.type === "tool_start"
               ? { requireInserted: true }
               : {}),
           })
-        : insertRunEvent(runId, runEvent.seq, eventData);
+        : insertRunEvent(runId, runEvent.seq, eventData, { eventAt });
     return options?.persistEvent
       ? options.persistEvent(write, {
           terminal: isTerminalRunEvent(runEvent.event),
@@ -1429,6 +1431,7 @@ export function startRun(
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
     const eventData = JSON.stringify(runEvent.event);
+    const eventAt = Date.now();
     run.events.push(runEvent);
 
     for (const subscriber of run.subscribers) {
@@ -1474,7 +1477,7 @@ export function startRun(
       }
       openEventBatch.events.push({
         seq: runEvent.seq,
-        eventAt: Date.now(),
+        eventAt,
         eventData,
       });
       persistence = openEventBatch.write;
@@ -1482,7 +1485,7 @@ export function startRun(
       // Anything emitted after this event must not persist before it.
       openEventBatch = null;
       persistence = persistenceChain.then(() =>
-        retryOnce(() => persistRunEvent(runEvent, eventData)),
+        retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
       );
       persistenceChain = persistence;
     }
@@ -1701,7 +1704,11 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await persistRunEvent(terminal, JSON.stringify(terminal.event));
+                await persistRunEvent(
+                  terminal,
+                  JSON.stringify(terminal.event),
+                  Date.now(),
+                );
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

@@ -225,6 +225,350 @@ describe("retrieveAnalyticsPromptReferences", () => {
     );
   });
 
+  it("uses one transitive trust ordering across candidate kinds", async () => {
+    const approved: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "data-dictionary",
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope", "neutral"],
+      id: "approved-truth",
+      metric: "Approved truth",
+      definition: "Approved source of truth.",
+      score: 100,
+      semanticScope: "unknown",
+      approved: true,
+    };
+    const dbt: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "source-index",
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope", "neutral"],
+      id: "dbt-truth",
+      metric: "dbt truth",
+      definition: "Generated from a dbt model.",
+      approved: false,
+      aiGenerated: false,
+      sourceKind: "dbt",
+      score: 100,
+      semanticScope: "unknown",
+    };
+    const certifiedPanel = {
+      kind: "dashboard-panel",
+      origin: "saved-dashboard",
+      score: 100,
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope", "neutral"],
+      dashboardId: "dashboard-certified",
+      dashboardTitle: "Certified truth",
+      panelId: "panel-certified",
+      panelTitle: "Reference panel",
+      panelDescription: "Certified reference panel.",
+      query: "SELECT 1",
+      dashboardCertified: true,
+    } satisfies AnalyticsQueryCatalogCandidate;
+    const expectedNames = [
+      "Data dictionary: Approved truth",
+      "Certified truth: Reference panel",
+      "Source index: dbt truth",
+    ];
+    const permutations = [
+      [approved, dbt, certifiedPanel],
+      [approved, certifiedPanel, dbt],
+      [dbt, approved, certifiedPanel],
+      [dbt, certifiedPanel, approved],
+      [certifiedPanel, approved, dbt],
+      [certifiedPanel, dbt, approved],
+    ];
+    mocks.embed.mockImplementation(
+      async (inputs: { text?: string }[], purpose: string) => {
+        if (purpose === "query") return inputs.map(() => [1, 0]);
+        return inputs.map(({ text }) => {
+          if (text?.includes("Approved truth")) return [0.2, Math.sqrt(0.96)];
+          if (text?.includes("dbt truth")) return [0.9, Math.sqrt(0.19)];
+          if (text?.includes("Certified truth")) return [0.5, Math.sqrt(0.75)];
+          return [0, 1];
+        });
+      },
+    );
+
+    for (const permutation of permutations) {
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+        candidates: permutation,
+        searched: permutation.length,
+        of: permutation.length,
+        truncated: false,
+        nextPage: null,
+        searchedDictionaryEntryCount: permutation.length,
+        dictionarySearchTruncated: false,
+        dictionarySearchStatus: "available",
+        sourceIndexStatus: "available",
+      });
+
+      const result = await retrieveAnalyticsPromptReferences({
+        request: "scope neutral",
+        email: "owner@example.com",
+        orgId: null,
+      });
+
+      expect(result.jevPromptCandidates.map(({ name }) => name)).toEqual(
+        expectedNames,
+      );
+    }
+  });
+
+  it("keeps generated dbt truth above an uncertified partial dashboard match", async () => {
+    const dbt: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "source-index",
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope", "neutral"],
+      id: "dbt-truth",
+      metric: "dbt truth",
+      definition: "Generated from a dbt model.",
+      approved: false,
+      aiGenerated: false,
+      sourceKind: "dbt",
+      score: 100,
+      semanticScope: "unknown",
+    };
+    const partialPanel = {
+      kind: "dashboard-panel",
+      origin: "saved-dashboard",
+      score: 100,
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope"],
+      dashboardId: "dashboard-unverified",
+      dashboardTitle: "Unverified dashboard",
+      panelId: "panel-partial",
+      panelTitle: "Partial reference panel",
+      panelDescription: "An unverified partial match.",
+      query: "SELECT 1",
+      dashboardCertified: false,
+    } satisfies AnalyticsQueryCatalogCandidate;
+    mocks.embed.mockImplementation(
+      async (inputs: { text?: string }[], purpose: string) => {
+        if (purpose === "query") return inputs.map(() => [1, 0]);
+        return inputs.map(({ text }) =>
+          text?.includes("dbt truth")
+            ? [0.4, Math.sqrt(0.84)]
+            : [0.99, Math.sqrt(0.0199)],
+        );
+      },
+    );
+
+    for (const permutation of [
+      [dbt, partialPanel],
+      [partialPanel, dbt],
+    ]) {
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+        candidates: permutation,
+        searched: permutation.length,
+        of: permutation.length,
+        truncated: false,
+        nextPage: null,
+        searchedDictionaryEntryCount: permutation.length,
+        dictionarySearchTruncated: false,
+        dictionarySearchStatus: "available",
+        sourceIndexStatus: "available",
+      });
+
+      const result = await retrieveAnalyticsPromptReferences({
+        request: "scope neutral",
+        email: "owner@example.com",
+        orgId: null,
+      });
+
+      expect(result.jevPromptCandidates[0]?.name).toBe(
+        "Source index: dbt truth",
+      );
+    }
+  });
+
+  it("labels stale generated entries as discovery leads in the prompt", async () => {
+    const stale: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "source-index",
+      matchedTerms: ["workspace", "member", "role"],
+      exactMatchedTerms: ["workspace", "member", "role"],
+      id: "stale-workspace-member-roles",
+      metric: "Workspace member roles",
+      definition:
+        "One row per user-workspace membership, including the assigned role.",
+      table: "workspace_member_role_bridge",
+      columnsUsed: "user_id, workspace_id, role",
+      grain: "One row per user-workspace membership",
+      semanticScope: "membership",
+      sourceKind: "dbt",
+      sourceIndexStale: true,
+      sourceIndexAgeDays: 104,
+      sourceIndexStaleAfterDays: 90,
+      approved: false,
+      aiGenerated: true,
+      score: 100,
+    };
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+      candidates: [stale],
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
+      searchedDictionaryEntryCount: 1,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
+    });
+    mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
+      inputs.map(() => [1, 0]),
+    );
+
+    const result = await retrieveAnalyticsPromptReferences({
+      request: "current workspace member roles",
+      email: "owner@example.com",
+      orgId: "org-analytics",
+    });
+
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Stale generated metadata (104 days old; refresh threshold 90 days)",
+    );
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Treat this entry only as a search lead",
+    );
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Unverified scope claim from stale source-index metadata",
+    );
+  });
+
+  it("keeps a row-level dbt membership bridge above an approved monthly aggregate", async () => {
+    const dbtBridge: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "source-index",
+      matchedTerms: ["workspace", "membership"],
+      exactMatchedTerms: ["workspace", "membership"],
+      id: "workspace-membership-bridge",
+      metric: "Workspace membership bridge",
+      definition:
+        "One row per user-workspace membership, including the assigned role.",
+      table: "workspace_member_role_bridge",
+      columnsUsed: "user_id, workspace_id, role",
+      grain: "One row per user-workspace membership",
+      semanticScope: "membership",
+      approved: false,
+      aiGenerated: true,
+      sourceKind: "dbt",
+      score: 100,
+    };
+    const approvedMonthlyAggregate: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "data-dictionary",
+      matchedTerms: ["workspace", "membership"],
+      exactMatchedTerms: ["workspace", "membership"],
+      id: "approved-monthly-workspace-user-count",
+      metric: "Monthly workspace user count",
+      definition: "Month-end count of users by workspace.",
+      table: "workspace_user_monthly_rollup",
+      columnsUsed: "workspace_id, month, user_count",
+      grain: "One row per workspace per month",
+      semanticScope: "membership",
+      approved: true,
+      score: 100,
+    };
+    mocks.embed.mockImplementation(
+      async (inputs: { text?: string }[], purpose: string) => {
+        if (purpose === "query") return inputs.map(() => [1, 0]);
+        return inputs.map(({ text }) =>
+          text?.includes("Monthly workspace user count")
+            ? [0.99, Math.sqrt(0.0199)]
+            : [0.4, Math.sqrt(0.84)],
+        );
+      },
+    );
+
+    for (const permutation of [
+      [approvedMonthlyAggregate, dbtBridge],
+      [dbtBridge, approvedMonthlyAggregate],
+    ]) {
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+        candidates: permutation,
+        searched: permutation.length,
+        of: permutation.length,
+        truncated: false,
+        nextPage: null,
+        searchedDictionaryEntryCount: permutation.length,
+        dictionarySearchTruncated: false,
+        dictionarySearchStatus: "available",
+        sourceIndexStatus: "available",
+      });
+
+      const result = await retrieveAnalyticsPromptReferences({
+        request: "workspace membership",
+        email: "owner@example.com",
+        orgId: null,
+      });
+
+      expect(result.jevPromptCandidates[0]?.name).toBe(
+        "Source index: Workspace membership bridge",
+      );
+    }
+  });
+
+  it("breaks equal-name candidate ties by stable source identity", async () => {
+    const alpha: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "data-dictionary",
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope", "neutral"],
+      id: "alpha-source",
+      metric: "Same-named reference",
+      definition: "Identity alpha.",
+      score: 100,
+      semanticScope: "unknown",
+    };
+    const zeta: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "data-dictionary",
+      matchedTerms: ["scope", "neutral"],
+      exactMatchedTerms: ["scope", "neutral"],
+      id: "zeta-source",
+      metric: "Same-named reference",
+      definition: "Identity zeta.",
+      score: 100,
+      semanticScope: "unknown",
+    };
+    mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
+      inputs.map(() => [1, 0]),
+    );
+
+    for (const permutation of [
+      [zeta, alpha],
+      [alpha, zeta],
+    ] satisfies AnalyticsQueryCatalogCandidate[][]) {
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+        candidates: permutation,
+        searched: permutation.length,
+        of: permutation.length,
+        truncated: false,
+        nextPage: null,
+        searchedDictionaryEntryCount: permutation.length,
+        dictionarySearchTruncated: false,
+        dictionarySearchStatus: "available",
+        sourceIndexStatus: "available",
+      });
+
+      const result = await retrieveAnalyticsPromptReferences({
+        request: "scope neutral candidate order",
+        email: "owner@example.com",
+        orgId: null,
+      });
+
+      expect(result.jevPromptCandidates[0]?.content).toContain(
+        "Identity alpha.",
+      );
+      expect(result.jevPromptCandidates[1]?.content).toContain(
+        "Identity zeta.",
+      );
+    }
+  });
+
   it("keeps initial prefetch dictionary-only and leaves saved query search on demand", async () => {
     mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
       candidates: [candidates[0]],

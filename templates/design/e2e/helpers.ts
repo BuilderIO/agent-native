@@ -141,6 +141,7 @@ export async function enableFeatureFlag(
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
+const BOARD_SURFACE_IFRAME_SELECTOR = `[data-board-surface-layer] ${DESIGN_PREVIEW_IFRAME_SELECTOR}`;
 const E2E_BASE_URL =
   process.env.E2E_BASE_URL ??
   `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
@@ -305,27 +306,60 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The Frame group's main button. It arms whichever of Frame and Screen was used
+ * last, so it is found by its group, not by a label.
+ */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen"]',
+      '[data-design-bottom-toolbar] [data-design-toolbar-group="frame"] button',
     )
     .first();
+}
+
+/** Toolbar tools that sit in a group's menu, and the group each one is in. */
+const MENU_TOOL_GROUP = {
+  Move: "Move",
+  Hand: "Move",
+  Scale: "Move",
+  Frame: "Frame",
+  Screen: "Frame",
+  Rectangle: "Shapes",
+  Line: "Shapes",
+  Arrow: "Shapes",
+  Ellipse: "Shapes",
+  Polygon: "Shapes",
+  Star: "Shapes",
+} as const;
+export type ToolbarTool = keyof typeof MENU_TOOL_GROUP | "Text";
+
+/**
+ * Arm a tool the way a user does: Text is a button of its own; every other tool
+ * is an item in its group's menu, opened from the chevron. A group's main button
+ * only arms the tool used last, so it cannot be relied on to reach a particular
+ * one.
+ */
+export async function selectTool(page: Page, tool: ToolbarTool): Promise<void> {
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  if (tool === "Text") {
+    await toolbar.getByRole("button", { name: "Text", exact: true }).click();
+    return;
+  }
+  await toolbar
+    .getByRole("button", {
+      name: `${MENU_TOOL_GROUP[tool]} options`,
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${tool}\\b`) }).click();
 }
 
 export async function pickFrameMode(
   page: Page,
   mode: "Frame" | "Screen",
 ): Promise<void> {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
+  await selectTool(page, mode);
 }
 
 export async function resetPersistedCanvasState(page: Page): Promise<void> {
@@ -427,8 +461,20 @@ export async function enterDirectMode(
     await expect(allScreens).toHaveAttribute("aria-current", "page");
   }
   await waitForDesignBridgeReady(page);
+  // The board surface iframe carries no data-screen-iframe-id, so a `screen=`
+  // URL that targets the board never matches a Screen iframe.
+  const targetsBoard =
+    !_options?.screenId &&
+    (await page.locator(screenFrameSelector(screenId)).count()) === 0 &&
+    (await page.locator(BOARD_SURFACE_IFRAME_SELECTOR).count()) > 0;
+  const frameSelector = targetsBoard
+    ? BOARD_SURFACE_IFRAME_SELECTOR
+    : screenFrameSelector(screenId);
   await expect(
-    designFrame(page, screenId)
+    (targetsBoard
+      ? page.locator(BOARD_SURFACE_IFRAME_SELECTOR).contentFrame()
+      : designFrame(page, screenId)
+    )
       .locator('[data-agent-native-edit-overlay="shield"]')
       .first(),
   ).toBeAttached({ timeout: 15_000 });
@@ -473,7 +519,7 @@ export async function enterDirectMode(
             "*",
           );
         }),
-      screenFrameSelector(screenId),
+      frameSelector,
     );
   }
 }
@@ -504,11 +550,7 @@ export async function enterInteractView(
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
-  // Focusing may swap the preview for the Screen's live editor, so the
-  // iframe that must survive is the one on screen when Interact is pressed.
   await expect(previewIframe).toBeVisible();
-  const previewIframeHandle = await previewIframe.elementHandle();
-  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
   await page
     .locator('[data-design-top-bar] [data-design-mode="interact"]')
     .click();
@@ -517,17 +559,13 @@ export async function enterInteractView(
     "true",
   );
   await expect(
-    page.getByRole("button", { name: "Exit responsive preview" }),
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
-  expect(
-    await previewIframeHandle.evaluate((before) =>
-      Boolean(
-        before
-          .closest("[data-screen-shell]")
-          ?.querySelector("iframe[data-design-preview-iframe]") === before,
-      ),
-    ),
-  ).toBe(true);
+  // Interact loads the page afresh with only its own bridges, so the preview
+  // is a new iframe; the screen still has exactly one.
+  await expect(screenShell.locator(DESIGN_PREVIEW_IFRAME_SELECTOR)).toHaveCount(
+    1,
+  );
   await expect
     .poll(
       async () =>

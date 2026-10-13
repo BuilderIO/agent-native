@@ -2443,7 +2443,11 @@ export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
-  options?: { toolInputSource?: "execution"; requireInserted?: boolean },
+  options?: {
+    toolInputSource?: "execution";
+    requireInserted?: boolean;
+    eventAt?: number;
+  },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
@@ -2470,7 +2474,7 @@ export async function insertRunEvent(
     args: [
       runId,
       seq,
-      Date.now(),
+      options?.eventAt ?? Date.now(),
       storedEventData,
       ...(options?.requireInserted ? [] : [runId]),
     ],

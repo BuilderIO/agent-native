@@ -2,15 +2,16 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
-  IconArrowUpRight,
+  IconArrowRight,
   IconBrush,
-  IconCircle,
   IconDevices,
   IconFrame,
   IconHandClick,
   IconHandStop,
+  IconHexagon,
   IconLine,
   IconMessage,
+  IconOval,
   IconPhotoVideo,
   IconPointer,
   IconScale,
@@ -18,7 +19,6 @@ import {
   IconSquare,
   IconStar,
   IconTransformPoint,
-  IconTriangle,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -32,6 +32,16 @@ import { IconText } from "@/components/design/inspector/design-icons";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
+  getActiveFrameGroupTool,
+  getActivePenGroupTool,
+  getActiveShapeGroupTool,
+  getToolbarGroups,
+  resolveGroupTool,
+  type FrameGroupTool,
+  type PenGroupTool,
+  type ToolbarGroupId,
+} from "@/pages/design-editor/floating-toolbar";
+import {
   MOVE_GROUP_TOOL_PRESENTATIONS,
   getMoveGroupToolPresentation,
 } from "@/pages/design-editor/tool-state";
@@ -44,60 +54,147 @@ import type {
 export const DESIGN_FILE_STORAGE_REQUIRED_EVENT =
   "design:file-storage-required";
 
+/** One tool of a group: its menu row, and the group's main button while it is the one shown. */
+type ToolDescriptor<Tool extends string> = {
+  key: Tool;
+  label: string;
+  shortcut?: string;
+  disabled?: boolean;
+  icon: (className: string) => ReactNode;
+  select: () => void;
+};
+
+type ToolbarGroup = {
+  id: ToolbarGroupId;
+  active: boolean;
+  label: string;
+  /** The group's name, which names its chevron; the armed variant names the main button. */
+  groupLabel: string;
+  icon: ReactNode;
+  primaryShortcut?: string;
+  onClick: () => void;
+  options: DesignToolbarOption[];
+};
+
+/**
+ * The tool a group had armed last. State is set while rendering rather than in
+ * an effect, so the main button is on the right icon in the frame the tool
+ * changes, whoever changed it (a click, a hotkey, the agent).
+ */
+function useLastUsedTool<Tool extends string>(
+  active: Tool | null,
+  initial: Tool,
+): Tool {
+  const [lastUsed, setLastUsed] = useState(initial);
+  if (active !== null && active !== lastUsed) setLastUsed(active);
+  return lastUsed;
+}
+
+/**
+ * A group whose main button arms one of several tools: the one in use, else the
+ * last one, unarmed. The group is highlighted while any of its tools is armed.
+ */
+function buildToolVariantGroup<Tool extends string>({
+  id,
+  groupLabel,
+  tools,
+  active,
+  lastUsed,
+  extraOptions = [],
+}: {
+  id: ToolbarGroupId;
+  groupLabel: string;
+  tools: ToolDescriptor<Tool>[];
+  active: Tool | null;
+  lastUsed: Tool;
+  extraOptions?: DesignToolbarOption[];
+}): ToolbarGroup {
+  const { tool, armed } = resolveGroupTool({
+    active,
+    lastUsed,
+    available: tools.map((candidate) => candidate.key),
+  });
+  const main = tools.find((candidate) => candidate.key === tool)!;
+  return {
+    id,
+    active: armed,
+    label: main.label,
+    groupLabel,
+    icon: main.icon("size-4"),
+    primaryShortcut: main.shortcut,
+    onClick: main.select,
+    options: [
+      ...tools.map((candidate) => ({
+        key: candidate.key,
+        label: candidate.label,
+        icon: candidate.icon("size-4"),
+        shortcut: candidate.shortcut,
+        active: candidate.key === active,
+        disabled: candidate.disabled,
+        onSelect: candidate.select,
+      })),
+      ...extraOptions,
+    ],
+  };
+}
+
 export function DesignBottomToolbar({
   mode,
-  pinMode,
-  drawMode,
   activeTool,
-  shapeTool,
-  isOverview,
+  drawMode,
+  pinMode,
   hasActiveFile,
-  onMove,
-  onFrame,
   frameToolDraws,
   onFrameToolDrawsChange,
-  onShape,
-  onText,
-  onPen,
+  onMove,
   onHand,
-  onDraw,
   onScale,
+  onFrame,
+  onText,
+  onShape,
   onMediaFiles,
+  onPen,
+  onDraw,
   onCommentPin,
   canComment,
   onModeChange,
   showModeTabs,
+  annotateEnabled,
 }: {
   mode: EditorMode;
-  pinMode: boolean;
-  drawMode: boolean;
   activeTool: DesignTool;
-  shapeTool: ShapeTool;
-  isOverview: boolean;
+  drawMode: boolean;
+  pinMode: boolean;
   hasActiveFile: boolean;
+  frameToolDraws: FrameGroupTool;
+  onFrameToolDrawsChange: (value: FrameGroupTool) => void;
   onMove: () => void;
-  onFrame: () => void;
-  frameToolDraws: "screen" | "frame";
-  onFrameToolDrawsChange: (value: "screen" | "frame") => void;
-  onShape: (tool: ShapeTool) => void;
-  onText: () => void;
-  onPen: () => void;
   onHand: () => void;
-  onDraw: () => void;
   onScale: () => void;
+  onFrame: () => void;
+  onText: () => void;
+  onShape: (tool: ShapeTool) => void;
   onMediaFiles: (files: File[]) => void;
+  onPen: () => void;
+  onDraw: () => void;
+  /** Toggles the comment pin tool, which also opens the Threads panel. */
   onCommentPin: () => void;
   /** Comments and annotation drawing need a signed-in commenter; a widget's write ticket covers neither. */
   canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
   /**
-   * The Interact / Design / Annotate switch lives in the editor top bar. Shells
-   * that do not render that bar (minimal UI, embedded chrome, the visual-edit
-   * route, hidden UI) still render this toolbar, so it carries the switch there.
+   * The Interact / Design / Annotate switch lives in the editor top bar, and in
+   * Interact's own floating bar where that bar is absent. Shells with neither
+   * (minimal UI, embedded chrome, the visual-edit route, hidden UI) still render
+   * this toolbar, so it carries the switch there. In Interact no tool applies,
+   * so the switch is all it shows.
    */
   showModeTabs: boolean;
+  /** The Annotate lab: without it the Draw tool and the Annotate mode tab do not exist. */
+  annotateEnabled: boolean;
 }) {
   const t = useT();
+  const annotateAvailable = annotateEnabled && canComment;
   const fileUploadStatus = useFileUploadStatus();
   const canUploadMedia =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
@@ -107,6 +204,22 @@ export function DesignBottomToolbar({
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const applePlatform = useApplePlatform();
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  // Each group's main button keeps the last tool armed, so a second click draws
+  // another Rectangle rather than going back to a Frame.
+  const activeFrameTool = getActiveFrameGroupTool(activeTool, frameToolDraws);
+  const activeShapeTool = getActiveShapeGroupTool(activeTool);
+  const activePenTool = getActivePenGroupTool({
+    activeTool,
+    mode,
+    drawMode,
+    annotateAvailable,
+  });
+  const lastFrameTool = useLastUsedTool<FrameGroupTool>(
+    activeFrameTool,
+    frameToolDraws,
+  );
+  const lastShapeTool = useLastUsedTool<ShapeTool>(activeShapeTool, "rect");
+  const lastPenTool = useLastUsedTool<PenGroupTool>(activePenTool, "pen");
   useEffect(() => {
     const openStorageSetup = () => setStorageSetupOpen(true);
     window.addEventListener(
@@ -122,125 +235,37 @@ export function DesignBottomToolbar({
   useEffect(() => {
     if (canUploadMedia) setStorageSetupOpen(false);
   }, [canUploadMedia]);
-  const shapeTools = new Set<DesignTool>([
-    "rect",
-    "line",
-    "arrow",
-    "ellipse",
-    "polygon",
-    "star",
-  ]);
-  const activeShape = shapeTools.has(activeTool)
-    ? (activeTool as ShapeTool)
-    : shapeTool;
-  const shapeIcon = (tool: ShapeTool, className: string) => {
-    switch (tool) {
-      case "line":
-        return <IconLine className={className} />;
-      case "arrow":
-        return <IconArrowUpRight className={className} />;
-      case "ellipse":
-        return <IconCircle className={className} />;
-      case "polygon":
-        return <IconTriangle className={className} />;
-      case "star":
-        return <IconStar className={className} />;
-      case "rect":
-      default:
-        return <IconSquare className={className} />;
-    }
-  };
-  const shapeOptions: DesignToolbarOption[] = [
-    {
-      key: "rect",
-      label: t("designEditor.tools.rect"),
-      icon: shapeIcon("rect", "size-4"),
-      shortcut: "R",
-      active: activeTool === "rect",
-      onSelect: () => onShape("rect"),
-    },
-    {
-      key: "line",
-      label: t("designEditor.tools.line"),
-      icon: shapeIcon("line", "size-4"),
-      shortcut: "L",
-      active: activeTool === "line",
-      onSelect: () => onShape("line"),
-    },
-    {
-      key: "arrow",
-      label: t("designEditor.tools.arrow"),
-      icon: shapeIcon("arrow", "size-4"),
-      shortcut: formatShortcutLabel("shift+l", applePlatform),
-      active: activeTool === "arrow",
-      onSelect: () => onShape("arrow"),
-    },
-    {
-      key: "ellipse",
-      label: t("designEditor.tools.ellipse"),
-      icon: shapeIcon("ellipse", "size-4"),
-      shortcut: "O",
-      active: activeTool === "ellipse",
-      onSelect: () => onShape("ellipse"),
-    },
-    {
-      key: "polygon",
-      label: t("designEditor.tools.polygon"),
-      icon: shapeIcon("polygon", "size-4"),
-      active: activeTool === "polygon",
-      onSelect: () => onShape("polygon"),
-    },
-    {
-      key: "star",
-      label: t("designEditor.tools.star"),
-      icon: shapeIcon("star", "size-4"),
-      active: activeTool === "star",
-      onSelect: () => onShape("star"),
-    },
-    {
-      key: "image-video",
-      label: t("designEditor.tools.imageVideo"),
-      icon: <IconPhotoVideo className="size-4" />,
-      onSelect: () => {
-        if (canUploadMedia) mediaInputRef.current?.click();
-        else setStorageSetupOpen(true);
-      },
-    },
-  ];
-  const activeShapeOption =
-    shapeOptions.find((option) => option.key === activeShape) ??
-    shapeOptions[0]!;
-  const activeMoveGroupTool = getMoveGroupToolPresentation(activeTool);
-  const handleActiveMoveGroupTool =
-    activeMoveGroupTool.tool === "hand"
-      ? onHand
-      : activeMoveGroupTool.tool === "scale"
-        ? onScale
-        : onMove;
-  const tools: Array<{
-    key: string;
-    active: boolean;
-    label: string;
-    icon: ReactNode;
-    onClick: () => void;
-    options: DesignToolbarOption[];
-  }> = [
-    {
-      key: "move",
+
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
+  const optionsLabel = (group: string) =>
+    t("designEditor.tools.options", { tool: group });
+  const moveGroup = ((): ToolbarGroup => {
+    const groupLabel = t("designEditor.tools.move");
+    const armed = getMoveGroupToolPresentation(activeTool);
+    return {
+      id: "move",
       active:
         (activeTool === "move" && mode === "edit") ||
         activeTool === "hand" ||
         activeTool === "scale",
-      label: t(activeMoveGroupTool.labelKey),
+      label: t(armed.labelKey),
+      groupLabel,
       icon:
-        activeTool === "hand" ? (
-          <IconHandStop className="size-[18px]" />
-        ) : activeTool === "scale" ? (
-          <IconScale className="size-[18px]" />
+        armed.tool === "hand" ? (
+          <IconHandStop className="size-4" />
+        ) : armed.tool === "scale" ? (
+          <IconScale className="size-4" />
         ) : (
-          <IconPointer className="size-[18px]" />
+          <IconPointer className="size-4" />
         ),
-      onClick: handleActiveMoveGroupTool,
+      primaryShortcut: armed.shortcut,
+      onClick:
+        armed.tool === "hand"
+          ? onHand
+          : armed.tool === "scale"
+            ? onScale
+            : onMove,
       options: [
         {
           key: "move",
@@ -267,125 +292,158 @@ export function DesignBottomToolbar({
           onSelect: onScale,
         },
       ],
-    },
-    {
-      key: "frame",
-      active: activeTool === "frame",
-      label:
-        frameToolDraws === "screen"
-          ? t("designEditor.tools.screen")
-          : t("designEditor.tools.frame"),
-      icon:
-        frameToolDraws === "screen" ? (
-          <IconDevices className="size-[18px]" />
-        ) : (
-          <IconFrame className="size-[18px]" />
+    };
+  })();
+
+  const frameGroup = buildToolVariantGroup<FrameGroupTool>({
+    id: "frame",
+    groupLabel: t("designEditor.tools.frame"),
+    active: activeFrameTool,
+    lastUsed: lastFrameTool,
+    tools: [
+      {
+        key: "frame",
+        label: t("designEditor.tools.frame"),
+        shortcut: "F",
+        icon: (className) => <IconFrame className={className} />,
+        select: () => {
+          onFrameToolDrawsChange("frame");
+          onFrame();
+        },
+      },
+      {
+        key: "screen",
+        label: t("designEditor.tools.screen"),
+        icon: (className) => <IconDevices className={className} />,
+        select: () => {
+          onFrameToolDrawsChange("screen");
+          onFrame();
+        },
+      },
+    ],
+  });
+
+  const shapesGroup = ((): ToolbarGroup => {
+    const shapeTool = (
+      key: ShapeTool,
+      icon: (className: string) => ReactNode,
+      binding?: string,
+    ): ToolDescriptor<ShapeTool> => ({
+      key,
+      label: t(`designEditor.tools.${key}`),
+      shortcut: binding ? shortcut(binding) : undefined,
+      icon,
+      select: () => onShape(key),
+    });
+    return buildToolVariantGroup<ShapeTool>({
+      id: "shapes",
+      groupLabel: t("designEditor.tools.shapes"),
+      active: activeShapeTool,
+      lastUsed: lastShapeTool,
+      tools: [
+        shapeTool(
+          "rect",
+          (className) => <IconSquare className={className} />,
+          "r",
         ),
-      onClick: onFrame,
-      options: [
+        shapeTool(
+          "line",
+          (className) => <IconLine className={className} />,
+          "l",
+        ),
+        shapeTool(
+          "arrow",
+          (className) => <IconArrowRight className={className} />,
+          "shift+l",
+        ),
+        shapeTool(
+          "ellipse",
+          (className) => <IconOval className={className} />,
+          "o",
+        ),
+        shapeTool("polygon", (className) => (
+          <IconHexagon className={className} />
+        )),
+        shapeTool("star", (className) => <IconStar className={className} />),
+      ],
+      extraOptions: [
         {
-          key: "frame",
-          label: t("designEditor.tools.frame"),
-          icon: <IconFrame className="size-4" />,
-          shortcut: "F",
-          active: activeTool === "frame" && frameToolDraws === "frame",
+          key: "image-video",
+          label: t("designEditor.tools.imageVideo"),
+          icon: <IconPhotoVideo className="size-4" />,
+          shortcut: shortcut("$mod+shift+k"),
+          dimmed: !canUploadMedia,
+          separatorBefore: true,
           onSelect: () => {
-            onFrameToolDrawsChange("frame");
-            onFrame();
-          },
-        },
-        {
-          key: "screen",
-          label: t("designEditor.tools.screen"),
-          icon: <IconDevices className="size-4" />,
-          active: activeTool === "frame" && frameToolDraws === "screen",
-          onSelect: () => {
-            onFrameToolDrawsChange("screen");
-            onFrame();
+            if (canUploadMedia) mediaInputRef.current?.click();
+            else setStorageSetupOpen(true);
           },
         },
       ],
-    },
-    {
-      key: "shape",
-      active: shapeTools.has(activeTool),
-      label: activeShapeOption.label,
-      icon: shapeIcon(activeShape, "size-[18px]"),
-      onClick: () => onShape(activeShape),
-      options: shapeOptions,
-    },
-    {
-      key: "pen",
-      active: activeTool === "pen",
-      label: t("designEditor.tools.pen"),
-      icon: <DesignPenToolIcon className="size-[18px]" />,
-      onClick: onPen,
-      options: [
-        {
-          key: "pen",
-          label: t("designEditor.tools.pen"),
-          icon: <DesignPenToolIcon className="size-4" />,
-          shortcut: "P",
-          active: activeTool === "pen",
-          onSelect: onPen,
-        },
-        ...(canComment
-          ? [
-              {
-                key: "draw",
-                label: t("designEditor.modes.draw"),
-                icon: <IconBrush className="size-4" />,
-                shortcut: "⇧Y",
-                active:
-                  activeTool === "draw" && mode === "annotate" && drawMode,
-                disabled: !hasActiveFile,
-                onSelect: onDraw,
-              },
-            ]
-          : []),
-      ],
-    },
-    {
-      key: "text",
-      active: activeTool === "text",
-      label: t("designEditor.tools.text"),
-      icon: <IconText className="size-[18px]" />,
-      onClick: onText,
-      options: [
-        {
-          key: "text",
-          label: t("designEditor.tools.text"),
-          icon: <IconText className="size-4" />,
-          shortcut: "T",
-          active: activeTool === "text",
-          onSelect: onText,
-        },
-      ],
-    },
-    ...(canComment
-      ? [
-          {
-            key: "comment",
-            active: activeTool === "comment" && mode === "annotate" && pinMode,
-            label: t("designEditor.pinComment"),
-            icon: <IconMessage className="size-[18px]" />,
-            onClick: onCommentPin,
-            options: [
-              {
-                key: "comment",
-                label: t("designEditor.pinComment"),
-                icon: <IconMessage className="size-4" />,
-                shortcut: "C",
-                active:
-                  activeTool === "comment" && mode === "annotate" && pinMode,
-                disabled: !hasActiveFile || isOverview,
-                onSelect: onCommentPin,
-              },
-            ],
-          },
-        ]
-      : []),
-  ];
+    });
+  })();
+
+  const textGroup: ToolbarGroup = {
+    id: "text",
+    active: activeTool === "text",
+    label: t("designEditor.tools.text"),
+    groupLabel: t("designEditor.tools.text"),
+    icon: <IconText className="size-4" />,
+    primaryShortcut: "T",
+    onClick: onText,
+    options: [],
+  };
+
+  const penGroup = buildToolVariantGroup<PenGroupTool>({
+    id: "pen",
+    groupLabel: t("designEditor.tools.pen"),
+    active: activePenTool,
+    lastUsed: lastPenTool,
+    tools: [
+      {
+        key: "pen",
+        label: t("designEditor.tools.pen"),
+        shortcut: "P",
+        icon: (className) => <DesignPenToolIcon className={className} />,
+        select: onPen,
+      },
+      ...(annotateAvailable
+        ? [
+            {
+              key: "draw" as const,
+              label: t("designEditor.modes.draw"),
+              shortcut: shortcut("shift+y"),
+              disabled: !hasActiveFile,
+              icon: (className: string) => <IconBrush className={className} />,
+              select: onDraw,
+            },
+          ]
+        : []),
+    ],
+  });
+
+  const commentGroup: ToolbarGroup = {
+    id: "comment",
+    active: activeTool === "comment" && mode === "annotate" && pinMode,
+    label: t("designEditor.pinComment"),
+    groupLabel: t("designEditor.pinComment"),
+    icon: <IconMessage className="size-4" />,
+    primaryShortcut: "C",
+    onClick: onCommentPin,
+    options: [],
+  };
+
+  const groupsById: Record<ToolbarGroupId, ToolbarGroup> = {
+    move: moveGroup,
+    frame: frameGroup,
+    shapes: shapesGroup,
+    text: textGroup,
+    pen: penGroup,
+    comment: commentGroup,
+  };
+  const groups = getToolbarGroups(mode, { canComment }).map(
+    (id) => groupsById[id],
+  );
 
   const modes: Array<{
     key: EditorMode;
@@ -394,7 +452,7 @@ export function DesignBottomToolbar({
     icon: ReactNode;
     onClick: () => void;
   }> = [
-    ...(canComment
+    ...(annotateAvailable
       ? [
           {
             key: "annotate" as const,
@@ -420,11 +478,13 @@ export function DesignBottomToolbar({
       onClick: () => onModeChange("interact"),
     },
   ];
+  if (groups.length === 0 && !showModeTabs) return null;
   return (
     <div
       data-design-bottom-toolbar
+      data-design-toolbar-mode={mode === "interact" ? "interact" : "design"}
       /* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */
-      className="fixed bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur md:max-w-[calc(100%-2rem)] md:overflow-visible"
+      className="fixed bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-xl overscroll-x-contain bg-[var(--design-editor-dock-bg)] p-2 text-white shadow-[0_4px_8px_rgba(0,0,0,0.18)] md:max-w-[calc(100%-2rem)] md:overflow-visible"
     >
       <input
         ref={mediaInputRef}
@@ -440,18 +500,19 @@ export function DesignBottomToolbar({
           if (files.length > 0) onMediaFiles(files);
         }}
       />
-      <div className="flex min-w-0 items-center gap-0.5">
-        {tools.map((tool) => (
-          <DesignToolbarTool
-            key={tool.key}
-            active={tool.active}
-            label={tool.label}
-            icon={tool.icon}
-            options={tool.options}
-            onPrimary={tool.onClick}
-          />
-        ))}
-      </div>
+      {groups.map((group) => (
+        <DesignToolbarTool
+          key={group.id}
+          groupId={group.id}
+          active={group.active}
+          label={group.label}
+          icon={group.icon}
+          optionsLabel={optionsLabel(group.groupLabel)}
+          options={group.options}
+          onPrimary={group.onClick}
+          primaryShortcut={group.primaryShortcut}
+        />
+      ))}
       <FileStorageSetupPopover
         open={
           storageSetupOpen && (fileStorageMissing || fileStorageUnavailable)
@@ -467,8 +528,10 @@ export function DesignBottomToolbar({
 
       {showModeTabs ? (
         <>
-          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
-          <div className="h-9 w-px shrink-0 bg-white/15" />
+          {groups.length > 0 ? (
+            /* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */
+            <div className="mx-1 h-8 w-px shrink-0 bg-white/15" />
+          ) : null}
 
           {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
           <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">

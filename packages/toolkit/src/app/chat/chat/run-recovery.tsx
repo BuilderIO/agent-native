@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
+import { resendVerificationEmail as requestVerificationEmail } from "@agent-native/core/client/auth/resend-verification-email";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -742,6 +743,8 @@ export function BuilderSetupCard({
 
 export function RunErrorRecoveryCard({
   info,
+  verificationEmail,
+  verificationCallbackURL,
   onContinue,
   onRetry,
   onRetryWithoutAttachments,
@@ -753,6 +756,8 @@ export function RunErrorRecoveryCard({
   continueError,
 }: {
   info: RunErrorInfo;
+  verificationEmail?: string | null;
+  verificationCallbackURL?: string;
   /** Absent when the stopped run can no longer be continued. */
   onContinue?: () => void;
   continueError?: string | null;
@@ -772,6 +777,9 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
+  const [verificationEmailStatus, setVerificationEmailStatus] = useState<
+    "idle" | "sending" | "sent" | "failed"
+  >("idle");
   const retryRequestedRef = useRef(false);
   const builderReconnect = useBuilderConnectFlow({
     provisionAccount: true,
@@ -796,6 +804,26 @@ export function RunErrorRecoveryCard({
     (isProviderAuthError && !shouldShowBuilderReconnect);
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
+  const requestVerification = useCallback(async () => {
+    if (
+      !verificationEmail ||
+      verificationEmailStatus === "sending" ||
+      verificationEmailStatus === "sent"
+    ) {
+      return;
+    }
+    setVerificationEmailStatus("sending");
+    try {
+      await requestVerificationEmail(
+        verificationEmail,
+        verificationCallbackURL ??
+          `${window.location.origin}${window.location.pathname}`,
+      );
+      setVerificationEmailStatus("sent");
+    } catch {
+      setVerificationEmailStatus("failed");
+    }
+  }, [verificationCallbackURL, verificationEmail, verificationEmailStatus]);
   // Rejected provider keys keep their setup path below — update/connect the
   // credential and the setup callback re-runs the turn. They ALSO get a retry
   // now, which the old comment here ruled out because "retry replays the same
@@ -882,6 +910,15 @@ export function RunErrorRecoveryCard({
       onDismiss();
     }
   }, [builderReconnectResolved, onDismiss]);
+
+  useEffect(() => {
+    if (verificationEmailStatus !== "sent") return;
+    const timeout = window.setTimeout(
+      () => setVerificationEmailStatus("idle"),
+      60_000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [verificationEmailStatus]);
 
   if (shouldShowProviderSetup) {
     return (
@@ -988,6 +1025,38 @@ export function RunErrorRecoveryCard({
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {t("agentChat.recovery.retryAttachmentUnavailable")}
             </p>
+          )}
+          {isUnblockableExternally && verificationEmail && (
+            <div className="mt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  verificationEmailStatus === "sending" ||
+                  verificationEmailStatus === "sent"
+                }
+                onClick={() => void requestVerification()}
+              >
+                {verificationEmailStatus === "sending" && (
+                  <IconLoader2 size={14} className="animate-spin" />
+                )}
+                {t(
+                  verificationEmailStatus === "sending"
+                    ? "agentChat.recovery.sendingVerificationEmail"
+                    : "agentChat.recovery.resendVerificationEmail",
+                )}
+              </Button>
+              {verificationEmailStatus === "sent" && (
+                <p role="status" className="mt-2 text-xs text-muted-foreground">
+                  {t("agentChat.recovery.verificationEmailRequested")}
+                </p>
+              )}
+              {verificationEmailStatus === "failed" && (
+                <p role="alert" className="mt-2 text-xs text-destructive">
+                  {t("agentChat.recovery.verificationEmailFailed")}
+                </p>
+              )}
+            </div>
           )}
           {(info.runId || info.errorCode || info.details) && (
             <button

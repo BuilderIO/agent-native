@@ -1,6 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
+  buildAgentShareDeepLink,
+  type AgentShareDestination,
+} from "@agent-native/toolkit/sharing";
+import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
@@ -301,13 +305,17 @@ export function useEditorExportAndHandoff({
     [],
   );
 
+  const refreshCodingHandoffText = useCallback(async () => {
+    const text = getCodingHandoffClipboardText(
+      await ensureCodingHandoff({ refresh: true }),
+    );
+    if (!text) toast.error(t("designEditor.toasts.codingHandoffError"));
+    return text;
+  }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+
   const handleCopyCodingHandoff = useCallback(async () => {
-    const result = await ensureCodingHandoff({ refresh: true });
-    const text = getCodingHandoffClipboardText(result);
-    if (!text) {
-      toast.error(t("designEditor.toasts.codingHandoffError"));
-      return;
-    }
+    const text = await refreshCodingHandoffText();
+    if (!text) return;
     try {
       if (!(await writeClipboardText(text))) {
         toast.error(t("designEditor.toasts.clipboardBlocked"));
@@ -317,7 +325,16 @@ export function useEditorExportAndHandoff({
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
-  }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+  }, [refreshCodingHandoffText, t]);
+
+  const handleSendCodingHandoff = useCallback(
+    async (destination: AgentShareDestination) => {
+      const text = await refreshCodingHandoffText();
+      if (text)
+        window.location.assign(buildAgentShareDeepLink(destination, text));
+    },
+    [refreshCodingHandoffText],
+  );
   const pendingVisualStyleScreenSourceTypes = useMemo(
     () =>
       new Map<string, unknown>(
@@ -986,6 +1003,13 @@ export function useEditorExportAndHandoff({
     ],
   );
 
+  const inspectorRasterScope: PngCaptureScope =
+    pngSelectedElements.length > 0
+      ? "element"
+      : viewMode === "overview" && overviewSelectedScreenIds.length > 0
+        ? "screens"
+        : "document";
+
   const handleCopyAsPng = useCallback(async () => {
     if (pngExportingRef.current) return;
     if (!canCopyPngToClipboard()) {
@@ -996,7 +1020,7 @@ export function useEditorExportAndHandoff({
     pngExportingRef.current = true;
     setPngExporting(true);
     try {
-      const pngBlob = renderPngBlob({ scope: "screens" });
+      const pngBlob = renderPngBlob({ scope: inspectorRasterScope });
       await copyPngPromiseToClipboard(pngBlob);
       toast.success(t("designEditor.toasts.pngCopied"));
     } catch (error) {
@@ -1015,7 +1039,7 @@ export function useEditorExportAndHandoff({
       pngExportingRef.current = false;
       setPngExporting(false);
     }
-  }, [renderPngBlob, showRasterCaptureError, t]);
+  }, [inspectorRasterScope, renderPngBlob, showRasterCaptureError, t]);
 
   const resolveLiveFigmaSvgSource = useCallback(
     (targetFileId: string | undefined): LiveFigmaSvgSource | null => {
@@ -1215,13 +1239,6 @@ export function useEditorExportAndHandoff({
     ],
   );
 
-  const inspectorRasterScope: PngCaptureScope =
-    pngSelectedElements.length > 0
-      ? "element"
-      : viewMode === "overview" && overviewSelectedScreenIds.length > 0
-        ? "screens"
-        : "document";
-
   const handleRenderExportPreview = useCallback(
     () =>
       renderPngBlob({ scope: inspectorRasterScope, settings: { scale: 1 } }),
@@ -1271,6 +1288,7 @@ export function useEditorExportAndHandoff({
     handleFindLayers,
     getCodingHandoffClipboardText,
     handleCopyCodingHandoff,
+    handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
     visualEditPromptResult,

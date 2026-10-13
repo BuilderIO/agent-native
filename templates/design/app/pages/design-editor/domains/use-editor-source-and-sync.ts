@@ -200,7 +200,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds,
     layerStateOverridesRef,
     motionDockOpen,
-    focusDesignInspectorForSelection,
     undoManagerRef,
     contentUndoStackRef,
     selectedLayerIdsStateRef,
@@ -210,6 +209,7 @@ export function useEditorSourceAndSync({
     hasLocalPendingVisualEdits,
   } = editorHistory;
   const {
+    annotateLab,
     setDrawMode,
     setPinMode,
     generationIssue,
@@ -484,13 +484,13 @@ export function useEditorSourceAndSync({
   }, [activeFile, canEditDesign]);
 
   const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign) return;
+    if (!activeFile || !canEditDesign || annotateLab !== "on") return;
     setActiveTool("draw");
     setMode("annotate");
     setSelectedElement(null);
     setDrawMode(true);
     setPinMode(false);
-  }, [activeFile, canEditDesign]);
+  }, [activeFile, annotateLab, canEditDesign]);
 
   const handleBooleanSubtractSelection = useCallback(
     () =>
@@ -619,6 +619,7 @@ export function useEditorSourceAndSync({
     ...annotationHotkeyHandlers({
       canEditDesign,
       canCommentDesign,
+      annotateLab,
       onComment: handlePinToolToggle,
       onDraw: handleDrawTool,
     }),
@@ -1374,16 +1375,12 @@ export function useEditorSourceAndSync({
     setHoveredElementScreenId(null);
     setActiveTool("move");
     setMode("edit");
-    if (!selectionBlocked) {
-      focusDesignInspectorForSelection();
-    }
     initialUrlSelectionHydratedForIdRef.current = id;
   }, [
     activeFileId,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
-    focusDesignInspectorForSelection,
     id,
     initialRouteSelectionId,
     selectedElementLayerId,

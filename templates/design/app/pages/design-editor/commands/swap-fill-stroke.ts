@@ -1,4 +1,4 @@
-import { parseCssColor, rgbaToCss } from "@shared/color-utils";
+import { parseCssColor, withCssColorAlpha } from "@shared/color-utils";
 
 import { isVectorShapeElement } from "@/components/design/edit-panel/element-classification";
 import type { ElementInfo } from "@/components/design/types";
@@ -25,9 +25,8 @@ function swappedPaint(
   const alpha = Number.parseFloat(opacity ?? "1");
   if (!Number.isFinite(alpha) || alpha >= 1) return { paint, opacity: "" };
   const color = parseCssColor(paint);
-  if (color) {
-    return { paint: rgbaToCss({ ...color, a: color.a * alpha }), opacity: "" };
-  }
+  const faded = color ? withCssColorAlpha(paint, color.a * alpha) : null;
+  if (faded) return { paint: faded, opacity: "" };
   return { paint, opacity: String(alpha) };
 }
 

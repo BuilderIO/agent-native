@@ -192,35 +192,43 @@ export function LookbackRow({
         data-popover-resize-overlay="true"
         className="max-h-[var(--radix-popover-content-available-height)] w-[248px] overflow-y-auto p-3"
       >
-        <div className="grid gap-2">
-          <span className="text-xs font-medium">
-            {t("lookbackContext.rewindOffTitle")}
-          </span>
-          <p className="text-xs text-[var(--fg-muted)]">
-            {t("lookbackContext.rewindOffBody")}
-          </p>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              setRewindOffOpen(false);
-              onTurnOnRewind();
-            }}
-          >
-            {t("lookbackContext.turnOnRewind")}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="justify-self-start px-0"
-            onClick={() => {
-              setRewindOffOpen(false);
-              openHelp();
-            }}
-          >
-            {t("lookbackContext.whatIsThis")}
-          </Button>
+        <div
+          className="rewind-off-popover-reveal"
+          data-state={rewindOffOpen ? "open" : "closed"}
+        >
+          <div className="rewind-off-popover-reveal__content">
+            <div className="grid gap-2">
+              <span className="text-xs font-medium">
+                {t("lookbackContext.rewindOffTitle")}
+              </span>
+              <p className="text-xs text-[var(--fg-muted)]">
+                {t("lookbackContext.rewindOffBody")}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                className="focus-visible:ring-inset focus-visible:ring-offset-0"
+                onClick={() => {
+                  setRewindOffOpen(false);
+                  onTurnOnRewind();
+                }}
+              >
+                {t("lookbackContext.turnOnRewind")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-center focus-visible:ring-inset focus-visible:ring-offset-0"
+                onClick={() => {
+                  setRewindOffOpen(false);
+                  openHelp();
+                }}
+              >
+                {t("lookbackContext.whatIsThis")}
+              </Button>
+            </div>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

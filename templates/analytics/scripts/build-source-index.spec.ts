@@ -727,6 +727,11 @@ describe("compileSourceIndex", () => {
         "      - name: order_status",
         "        dimension:",
         "          type: categorical",
+        ...Array.from({ length: 100 }, (_, index) => [
+          `      - name: dimension_${String(index).padStart(3, "0")}_${"segment".repeat(6)}`,
+          "        dimension:",
+          "          type: categorical",
+        ]).flat(),
         "    metrics:",
         "      - name: order_total",
         "        description: Total order amount.",
@@ -767,6 +772,13 @@ describe("compileSourceIndex", () => {
     expect(semanticModel?.definition).toContain(
       "Dimensions: ordered_at (time, day); order_status (categorical)",
     );
+    expect(semanticModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(model?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(bundle.scanSummary.truncatedFields).toBe(2);
     expect(metric).toMatchObject({
       metric: "metric:order_total",
       owner: "Revenue Analytics",
@@ -800,6 +812,15 @@ describe("compileSourceIndex", () => {
         "  - name: long_model",
         "    description: >",
         `      ${"Business context ".repeat(200)}`,
+        "  - name: long_column_model",
+        "    description: Short model summary.",
+        "    columns:",
+        "      - name: first_column",
+        "        description: " + "Column context ".repeat(120),
+        "      - name: second_column",
+        "        description: " + "Column context ".repeat(120),
+        "      - name: third_column",
+        "        description: " + "Column context ".repeat(120),
       ].join("\n"),
     );
 
@@ -813,6 +834,9 @@ describe("compileSourceIndex", () => {
     const longModel = bundle.entries.find(
       (entry) => entry.metric === "model:long_model",
     );
+    const longColumnModel = bundle.entries.find(
+      (entry) => entry.metric === "model:long_column_model",
+    );
 
     expect(validModel?.status).toBe("active");
     expect(validModel?.definition).toContain(
@@ -824,13 +848,61 @@ describe("compileSourceIndex", () => {
     expect(longModel?.definition).toContain(
       "definition excerpt truncated; inspect source",
     );
+    expect(longColumnModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
     expect(bundle.scanSummary).toMatchObject({
       unsafeEntriesOmitted: 1,
-      truncatedFields: 1,
+      truncatedFields: 2,
     });
     expect(sourceIndexBundleSchema.parse(bundle).scanSummary).toEqual(
       bundle.scanSummary,
     );
+  });
+
+  it("counts dbt definition, column, and dependency truncations in scan coverage", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    const columns = Array.from(
+      { length: 120 },
+      (_, index) =>
+        `column_${String(index).padStart(3, "0")}_${"x".repeat(80)}`,
+    );
+    const dependencies = Array.from(
+      { length: 120 },
+      (_, index) =>
+        `dependency_${String(index).padStart(3, "0")}_${"x".repeat(20)}`,
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "wide_model.sql"),
+      dependencies.map((name) => `{{ ref('${name}') }}`).join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: wide_model",
+        "    columns:",
+        ...columns.map((name) => `      - name: ${name}`),
+      ].join("\n"),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const model = bundle.entries.find(
+      (entry) => entry.metric === "model:wide_model",
+    );
+
+    expect(model?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(model?.columnsUsed).toContain("additional entries omitted");
+    expect(model?.dependencies).toContain("additional entries omitted");
+    expect(bundle.scanSummary.truncatedFields).toBe(3);
   });
 
   it("fails loudly on a malformed quoted dbt YAML scalar", async () => {

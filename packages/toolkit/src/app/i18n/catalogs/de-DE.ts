@@ -844,6 +844,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "errorMessages.invalidAttachmentNamed":
     "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.resendVerificationEmail": "Bestätigungs-E-Mail erneut senden",
+  "recovery.sendingVerificationEmail": "Wird gesendet...",
+  "recovery.verificationEmailRequested":
+    "Bestätigungs-E-Mail angefordert. Prüfe Posteingang und Spam-Ordner.",
+  "recovery.verificationEmailFailed":
+    "Bestätigungs-E-Mail konnte nicht angefordert werden. Bitte versuche es erneut.",
   "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
