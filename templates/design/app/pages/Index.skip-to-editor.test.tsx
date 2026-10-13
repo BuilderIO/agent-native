@@ -923,6 +923,43 @@ describe("Index skip to editor", () => {
     ).toBe(true);
   });
 
+  it("restarts the suggestion timeout when returning to a previous identity", async () => {
+    await act(async () => root.render(null));
+    vi.useFakeTimers();
+    mocks.suggestionPending = true;
+    await act(async () => root.render(<Index />));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+
+    mocks.suggestionSession = {
+      authUserId: "viewer-b",
+      userId: "viewer-b",
+      email: "viewer-b@example.test",
+      orgId: "org-b",
+    };
+    await act(async () => root.render(<Index />));
+
+    mocks.suggestionSession = {
+      authUserId: "viewer-a",
+      userId: "viewer-a",
+      email: "viewer-a@example.test",
+      orgId: "org-a",
+    };
+    await act(async () => root.render(<Index />));
+
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+  });
+
   it("keeps the suggestion slot while readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {

@@ -446,11 +446,20 @@ export default function Index() {
       homeSuggestionsQuery.data?.status === "unavailable" ||
       (homeSuggestionsQuery.data?.status === "ready" &&
         homeSuggestionsQuery.data.suggestions.length !== 3));
-  const [homeSuggestionsTimeoutScope, setHomeSuggestionsTimeoutScope] =
-    useState<string | null>(null);
+  const [homeSuggestionsTimeout, setHomeSuggestionsTimeout] = useState({
+    scope: homeSuggestionsIdentityScope,
+    timedOut: false,
+  });
+  if (homeSuggestionsTimeout.scope !== homeSuggestionsIdentityScope) {
+    setHomeSuggestionsTimeout({
+      scope: homeSuggestionsIdentityScope,
+      timedOut: false,
+    });
+  }
   const homeSuggestionsTimedOut =
     quickActionsEnabled &&
-    homeSuggestionsTimeoutScope === homeSuggestionsIdentityScope;
+    homeSuggestionsTimeout.scope === homeSuggestionsIdentityScope &&
+    homeSuggestionsTimeout.timedOut;
   useEffect(() => {
     if (
       !quickActionsEnabled ||
@@ -458,11 +467,18 @@ export default function Index() {
       readyHomeSuggestions !== null ||
       homeSuggestionsQueryUnavailable
     ) {
-      setHomeSuggestionsTimeoutScope(null);
+      setHomeSuggestionsTimeout({
+        scope: homeSuggestionsIdentityScope,
+        timedOut: false,
+      });
       return;
     }
     const timer = window.setTimeout(
-      () => setHomeSuggestionsTimeoutScope(homeSuggestionsIdentityScope),
+      () =>
+        setHomeSuggestionsTimeout({
+          scope: homeSuggestionsIdentityScope,
+          timedOut: true,
+        }),
       HOME_SUGGESTIONS_UI_TIMEOUT_MS,
     );
     return () => window.clearTimeout(timer);
