@@ -15,6 +15,7 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import postcss from "postcss";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -315,7 +316,6 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
 
   for (const token of tokens) {
     if (!/^--[-_a-zA-Z0-9]+$/.test(token.cssVar)) continue;
-    if (!isSafeCssTokenValue(token.value)) continue;
     const previous = byVar.get(token.cssVar);
     byVar.set(token.cssVar, token);
     if (!previous && !/^--color-imported-\d+$/.test(token.cssVar)) {
@@ -329,6 +329,76 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
   });
 }
 
+const TOKEN_LABEL_LINE =
+  /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
+
+function looksLikePastedJson(content: string): boolean {
+  const trimmed = content.trimStart();
+  return trimmed.startsWith("{") || /^\[\s*(?:\]|\{|"|-?\d)/.test(trimmed);
+}
+
+function looksLikePastedCss(content: string): boolean {
+  return (
+    /(?:^|\n)\s*--[\w-]+\s*:/m.test(content) ||
+    /(?:^|\n)\s*:root\s*\{/m.test(content)
+  );
+}
+
+function isValidImportFile(file: {
+  filename: string;
+  content: string;
+}): boolean {
+  const filename = file.filename.toLowerCase();
+  const isPastedInput = filename === "pasted-tokens.txt";
+  const isJsonFile = filename.endsWith(".json");
+  const isPastedJson = isPastedInput && looksLikePastedJson(file.content);
+
+  if (isJsonFile || isPastedJson) {
+    try {
+      JSON.parse(file.content);
+    } catch (error) {
+      if (error instanceof SyntaxError) return false;
+      throw error;
+    }
+  }
+
+  const isStylesheet = /\.(css|scss|sass|less)$/.test(filename);
+  if (!isStylesheet && !(isPastedInput && looksLikePastedCss(file.content))) {
+    return true;
+  }
+
+  const css = isPastedInput
+    ? file.content
+        .split(/\r?\n/)
+        .filter((line) => !TOKEN_LABEL_LINE.test(line.trim()))
+        .join("\n")
+    : file.content;
+
+  try {
+    postcss.parse(css);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CssSyntaxError") return false;
+    throw error;
+  }
+}
+
+function isValidImportedToken(token: ImportedDesignToken): boolean {
+  if (!isSafeCssVarName(token.cssVar) || !isSafeCssTokenValue(token.value)) {
+    return false;
+  }
+  if (/\b(?:url|expression)\s*\(/i.test(token.value)) return false;
+  if (
+    token.value.trim().startsWith("#") &&
+    !/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(
+      token.value.trim(),
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function tokensFromFiles(files: { filename: string; content: string }[]) {
   const accepted: { filename: string; content: string }[] = [];
   let totalBytes = 0;
@@ -340,9 +410,15 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     accepted.push(file);
   }
 
+  const validFiles = accepted.filter(isValidImportFile);
   const state = createCodeAnalysisState();
-  for (const file of accepted) {
-    analyzeCodeFile(state, file.filename, file.content);
+  for (const file of validFiles) {
+    const analysisFilename =
+      file.filename.toLowerCase() === "pasted-tokens.txt" &&
+      looksLikePastedJson(file.content)
+        ? "pasted-tokens.json"
+        : file.filename;
+    analyzeCodeFile(state, analysisFilename, file.content);
     addLooseTextSignals(state, file.filename, file.content);
   }
 
@@ -416,9 +492,22 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     });
   });
 
+  const candidates = uniqueTokenList(tokens);
+  const imported: ImportedDesignToken[] = [];
+  let rejectedCount = 0;
+  for (const token of candidates) {
+    if (!isValidImportedToken(token)) {
+      rejectedCount++;
+      continue;
+    }
+    if (imported.length === 120) break;
+    imported.push(token);
+  }
+
   return {
-    filesAnalyzed: accepted.map((file) => file.filename),
-    tokens: uniqueTokenList(tokens).slice(0, 120),
+    filesAnalyzed: validFiles.map((file) => file.filename),
+    tokens: imported,
+    rejectedCount,
   };
 }
 
@@ -458,7 +547,8 @@ export default defineAction({
         importFiles.length === 1 ? importFiles[0].filename : "Imported files";
     }
 
-    const { filesAnalyzed, tokens } = tokensFromFiles(importFiles);
+    const { filesAnalyzed, tokens, rejectedCount } =
+      tokensFromFiles(importFiles);
     const safeTokens = tokens.filter(
       (token) =>
         isSafeCssVarName(token.cssVar) && isSafeCssTokenValue(token.value),
@@ -468,6 +558,7 @@ export default defineAction({
         designId,
         source,
         importedCount: 0,
+        rejectedCount,
         skippedCount: importFiles.length - filesAnalyzed.length,
         filesAnalyzed,
         tokens: [],
@@ -568,6 +659,7 @@ export default defineAction({
       designId,
       source,
       importedCount: safeTokens.length,
+      rejectedCount,
       skippedCount: importFiles.length - filesAnalyzed.length,
       filesAnalyzed,
       tokens: safeTokens,

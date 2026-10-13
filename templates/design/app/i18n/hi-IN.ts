@@ -1098,6 +1098,10 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      importing: "टोकन इम्पोर्ट हो रहे हैं…",
+      importedWithSkipped:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य मान या फाइलें छोड़ी गईं।",
+      noTokensFound: "कोई मान्य टोकन नहीं मिला। फाइल के फ़ॉर्मैट और टोकन मान जांचें।",
       count: "{{count}} टोकन",
       search: "टोकन खोजें",
       noMatches: "कोई मेल खाता टोकन नहीं",

@@ -1078,6 +1078,10 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "导入粘贴的令牌",
       importedCount: "已导入 {{count}} 个令牌",
+      importing: "正在导入令牌…",
+      importedWithSkipped:
+        "已导入 {{count}} 个令牌，已跳过 {{skipped}} 个无效值或文件。",
+      noTokensFound: "未找到有效令牌。请检查文件格式和令牌值。",
       count: "{{count}} 个令牌",
       search: "搜索令牌",
       noMatches: "没有匹配的令牌",

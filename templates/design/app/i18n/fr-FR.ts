@@ -1121,6 +1121,11 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importer les jetons collés",
       importedCount: "{{count}} jetons importés",
+      importing: "Importation des jetons…",
+      importedWithSkipped:
+        "{{count}} jetons importés. {{skipped}} valeurs ou fichiers non valides ignorés.",
+      noTokensFound:
+        "Aucun jeton valide trouvé. Vérifiez le format du fichier et les valeurs.",
       count: "{{count}} jetons",
       search: "Rechercher des jetons",
       noMatches: "Aucun jeton correspondant",

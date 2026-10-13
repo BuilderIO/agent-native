@@ -1112,6 +1112,11 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "貼り付けたトークンをインポート",
       importedCount: "{{count}} 個のトークンをインポートしました",
+      importing: "トークンをインポートしています…",
+      importedWithSkipped:
+        "{{count}} 個のトークンをインポートしました。無効な値またはファイルを {{skipped}} 件スキップしました。",
+      noTokensFound:
+        "有効なトークンが見つかりません。ファイル形式と値を確認してください。",
       count: "{{count}} 個のトークン",
       search: "トークンを検索",
       noMatches: "一致するトークンがありません",

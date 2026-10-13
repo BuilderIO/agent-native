@@ -293,4 +293,61 @@ Bad radius: 12px} body { color: red
       ]),
     );
   });
+
+  it("does not import CSS from a syntactically incomplete paste", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: ":root { --color-accent: #2563eb;",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("rejects malformed colors, markup, URL payloads, and oversized values", async () => {
+    const longValue = "a".repeat(301);
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --color-invalid-hex: #GGGGGG;
+  --color-html: "</style><script>alert(1)</script>";
+  --color-url: url(javascript:alert(1));
+  --spacing-too-long: ${longValue};
+}`,
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.rejectedCount).toBeGreaterThanOrEqual(4);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("rejects malformed hex values even when the variable name is not color-like", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: ":root { --custom-token: #GGGGGG; }",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("ignores malformed JSON token files instead of scraping values from them", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.json",
+          content: '{"colors":{"accent":"#2563eb"',
+        },
+      ],
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
 });

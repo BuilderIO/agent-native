@@ -1037,6 +1037,11 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Import pasted tokens",
       importedCount: "Imported {{count}} tokens",
+      importing: "Importing tokens…",
+      importedWithSkipped:
+        "Imported {{count}} tokens. Skipped {{skipped}} invalid values or files.",
+      noTokensFound:
+        "No valid tokens were found. Check the file format and token values.",
       count: "{{count}} tokens",
       search: "Search tokens",
       noMatches: "No matching tokens",

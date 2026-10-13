@@ -14388,7 +14388,9 @@ function sameScreenRootComputedStylesById(
   );
 }
 
-const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
+const BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH = 128;
+const BREAKPOINT_LABEL_MIN_SCREEN_WIDTH = 80;
+const BREAKPOINT_LABEL_END_RESERVE = 28;
 
 function BreakpointPreviewRow({
   screen,
@@ -14524,8 +14526,15 @@ function BreakpointPreviewRow({
             });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
+        const frameScreenWidth = frameWidth / Math.max(chromeScale, 0.001);
         const showBreakpointWidth =
-          frameWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH;
+          frameScreenWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH;
+        const frameLabelMaxWidth = Math.max(
+          0,
+          frameScreenWidth - BREAKPOINT_LABEL_END_RESERVE,
+        );
+        const frameLabelHidden =
+          frameScreenWidth < BREAKPOINT_LABEL_MIN_SCREEN_WIDTH;
         const activateThisFrame = (e: React.MouseEvent<HTMLElement>) => {
           onPick?.(screen.id, e);
           onActiveBreakpointChange?.(widthPx);
@@ -14557,11 +14566,9 @@ function BreakpointPreviewRow({
               zIndex: primaryGeometry.z,
             }}
           >
-            {/* Frame label row — same height/typography/chromeScale
-                transform as the primary frame's own label row (Screen, see
-                the `data-frame-label` block above) so breakpoint chrome
-                doesn't visibly shrink relative to regular screens at
-                zoom-out (BP-DEEP item 3c). */}
+            {/* Keep breakpoint labels screen-sized, but bound them to the
+                frame's rendered width so responsive previews cannot overlap
+                neighboring screens at low canvas zoom. */}
             <div
               className="relative flex w-full cursor-pointer select-none items-center"
               style={{ height: FRAME_LABEL_HEIGHT * chromeScale }}
@@ -14584,6 +14591,9 @@ function BreakpointPreviewRow({
                 className="absolute left-1 top-1/2 flex min-w-0 max-w-[calc(100%-28px)] items-center gap-1.5"
                 data-an-chrome-scale
                 style={{
+                  width: frameLabelMaxWidth,
+                  maxWidth: frameLabelMaxWidth,
+                  visibility: frameLabelHidden ? "hidden" : undefined,
                   transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                   transformOrigin: "left center",
                   transition: getChromeLabelTransition(chromeSettling),

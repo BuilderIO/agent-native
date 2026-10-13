@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isColorValue, normalizeCssVarName } from "./TokensPanel";
+import {
+  isColorValue,
+  normalizeCssVarName,
+  snapshotImportFiles,
+} from "./TokensPanel";
 
 describe("isColorValue", () => {
   it("accepts valid hex color lengths (#rgb, #rgba, #rrggbb, #rrggbbaa)", () => {
@@ -40,5 +44,23 @@ describe("normalizeCssVarName", () => {
   it("trims surrounding whitespace before checking the prefix", () => {
     expect(normalizeCssVarName("  --foo  ")).toBe("--foo");
     expect(normalizeCssVarName("  foo  ")).toBe("--foo");
+  });
+});
+
+describe("snapshotImportFiles", () => {
+  it("copies selected files before clearing the input", () => {
+    const selectedFile = { name: "tokens.css" } as File;
+    const liveFiles = [selectedFile];
+    const input = {
+      get files() {
+        return liveFiles as unknown as FileList;
+      },
+      set value(_value: string) {
+        liveFiles.length = 0;
+      },
+    } as Pick<HTMLInputElement, "files" | "value">;
+
+    expect(snapshotImportFiles(input)).toEqual([selectedFile]);
+    expect(input.files).toHaveLength(0);
   });
 });

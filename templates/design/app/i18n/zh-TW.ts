@@ -1229,6 +1229,10 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\n主要顏色: #2563eb",
       importPasted: "匯入貼上的權杖",
       importedCount: "已匯入 {{count}} 個權杖",
+      importing: "正在匯入權杖…",
+      importedWithSkipped:
+        "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效值或檔案。",
+      noTokensFound: "找不到有效權杖。請檢查檔案格式和權杖值。",
       count: "{{count}} 個權杖",
       search: "搜尋權杖",
       noMatches: "沒有符合的權杖",

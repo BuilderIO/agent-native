@@ -63,6 +63,8 @@ interface ImportDesignTokensResult {
   designId: string;
   importedCount: number;
   filesAnalyzed: string[];
+  rejectedCount?: number;
+  skippedCount?: number;
   resolvedCssVars?: Record<string, string>;
 }
 
@@ -400,14 +402,27 @@ function ImportTokensPopover({
   const runImport = async (
     importer: () => Promise<ImportDesignTokensResult>,
   ) => {
-    setStatus(null);
+    setStatus(t("designEditor.tokens.importing"));
     try {
       const result = await importer();
-      setStatus(
-        t("designEditor.tokens.importedCount", {
-          count: result.importedCount,
-        }),
-      );
+      const skippedCount =
+        (result.skippedCount ?? 0) + (result.rejectedCount ?? 0);
+      if (result.importedCount === 0) {
+        setStatus(t("designEditor.tokens.noTokensFound"));
+      } else if (skippedCount > 0) {
+        setStatus(
+          t("designEditor.tokens.importedWithSkipped", {
+            count: result.importedCount,
+            skipped: skippedCount,
+          }),
+        );
+      } else {
+        setStatus(
+          t("designEditor.tokens.importedCount", {
+            count: result.importedCount,
+          }),
+        );
+      }
       if (result.importedCount > 0) {
         setText("");
       }
@@ -417,9 +432,8 @@ function ImportTokensPopover({
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.currentTarget.files;
-    event.currentTarget.value = "";
-    if (!files?.length) return;
+    const files = snapshotImportFiles(event.currentTarget);
+    if (files.length === 0) return;
     void runImport(async () => onImportFiles(await readImportFiles(files)));
   };
 
@@ -510,7 +524,11 @@ function ImportTokensPopover({
       />
 
       {status && (
-        <p className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground">
+        <p
+          className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
           {status}
         </p>
       )}
@@ -580,8 +598,18 @@ const TOKEN_IMPORT_ACCEPT = [
   ".txt",
 ].join(",");
 
-async function readImportFiles(fileList: FileList): Promise<TokenImportFile[]> {
-  const selected = [...fileList].slice(0, 20);
+export function snapshotImportFiles(
+  input: Pick<HTMLInputElement, "files" | "value">,
+): File[] {
+  const files = Array.from(input.files ?? []);
+  input.value = "";
+  return files;
+}
+
+async function readImportFiles(
+  selectedFiles: File[],
+): Promise<TokenImportFile[]> {
+  const selected = selectedFiles.slice(0, 20);
   const files = await Promise.all(
     selected.map(async (file) => ({
       filename:

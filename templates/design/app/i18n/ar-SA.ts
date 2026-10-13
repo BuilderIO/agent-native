@@ -1096,6 +1096,11 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "استيراد الرموز الملصقة",
       importedCount: "تم استيراد {{count}} رمزا",
+      importing: "جارٍ استيراد الرموز…",
+      importedWithSkipped:
+        "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من القيم أو الملفات غير الصالحة.",
+      noTokensFound:
+        "لم يتم العثور على رموز صالحة. تحقق من تنسيق الملف والقيم.",
       count: "{{count}} رمز",
       search: "البحث في الرموز",
       noMatches: "لا توجد رموز مطابقة",
