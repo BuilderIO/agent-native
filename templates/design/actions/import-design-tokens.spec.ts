@@ -484,6 +484,27 @@ Bad radius: 12px} body { color: red
     expect(result.filesAnalyzed).toEqual(["pasted-tokens.txt"]);
   });
 
+  it("counts unsafe named-line values as rejected", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: [
+        "Accent: #2563eb",
+        "Accent hover: url(javascript:alert(1))",
+        "--color-x: #000;",
+      ].join("\n"),
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-accent",
+        value: "#2563eb",
+      }),
+    );
+    expect(result.importedCount).toBe(2);
+    expect(result.rejectedCount).toBe(1);
+  });
+
   it("keeps an earlier valid token when a later duplicate is invalid", async () => {
     const result = await action.run({
       designId: "design_1",

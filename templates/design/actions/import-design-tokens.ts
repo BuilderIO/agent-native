@@ -277,7 +277,6 @@ function parseNamedLines(
 
       const label = match[1].replace(/\*\*/g, "").trim();
       const value = normalizeValue(match[2]);
-      if (!isSafeCssTokenValue(value)) continue;
 
       const lower = label.toLowerCase();
       let cssVar: string | null = null;
