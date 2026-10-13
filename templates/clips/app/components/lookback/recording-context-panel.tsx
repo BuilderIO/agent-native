@@ -3,12 +3,16 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
 import { CLIPS_LOOKBACK_CONTEXT } from "@shared/labs";
 import { IconArrowsMaximize, IconTrash } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
+import { useLocation } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -43,6 +47,19 @@ import {
 } from "./recording-context-model";
 
 const CONTEXT_POLL_MS = 3000;
+const CONTEXT_SYNC_ACTIONS = new Set([
+  "request-recording-context",
+  "update-recording-context",
+  "set-recording-context-window",
+  "remove-recording-context",
+]);
+
+export function isAuthenticatedRecordingPath(
+  pathname: string,
+  authenticated: boolean,
+): boolean {
+  return authenticated && /(?:^|\/)r\/[^/]+$/.test(pathname);
+}
 
 // Same route the editor and the Rewind extension use for a recording's own video.
 export function contextVideoSrc(mediaRecordingId: string): string {
@@ -76,6 +93,31 @@ export function RecordingContextSection({
   recordingId: string | undefined;
 }) {
   const lab = useLabState(CLIPS_LOOKBACK_CONTEXT);
+  const location = useLocation();
+  const { session } = useSession();
+  const queryClient = useQueryClient();
+  useDbSync({
+    queryClient,
+    realtime:
+      isAuthenticatedRecordingPath(location.pathname, !!session) &&
+      lab.enabled &&
+      recordingId
+        ? {
+            reason: "desktop finishes earlier screen time",
+          }
+        : undefined,
+    actionInvalidatePredicate: (query, events) =>
+      query.queryKey[0] === "action" &&
+      query.queryKey[1] === "list-recording-context" &&
+      (query.queryKey[2] as { recordingId?: unknown } | undefined)
+        ?.recordingId === recordingId &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          CONTEXT_SYNC_ACTIONS.has(event.key),
+      ),
+  });
   const itemsQuery = useRecordingContextItems(recordingId, lab.enabled);
   const { isError, error } = itemsQuery;
   useEffect(() => {

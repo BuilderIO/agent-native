@@ -2110,6 +2110,88 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.queryByText("deckEditor.agentRunFailed")).toBeNull();
   });
 
+  it("saves the original prompt when the editor closes during failure settlement", async () => {
+    const originalPrompt = "Create a deck about coastal restoration.";
+    mocks.deck.generationContext.originalPrompt = originalPrompt;
+    let resolveRefresh!: (deck: typeof mocks.deck) => void;
+    const refreshPromise = new Promise<typeof mocks.deck>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mocks.refreshOpenDeck.mockImplementation(() => refreshPromise);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    mocks.attemptRunError = true;
+    mocks.attemptRunErrorCode = "write_tool_outcome_unknown";
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/next", element: <div /> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.refreshOpenDeck).toHaveBeenCalledWith("deck-1"),
+    );
+    await act(async () => router?.navigate("/next"));
+    expect(router?.state.location.pathname).toBe("/next");
+
+    await act(async () => {
+      resolveRefresh(mocks.deck);
+      await refreshPromise;
+      await lockTail;
+    });
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "outcome_unresolved",
+        originalPrompt,
+      }),
+    );
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_outcome_unresolved",
+      expect.objectContaining({ reason: "route_exit" }),
+    );
+
+    cleanup();
+    router?.dispose();
+    mocks.broadGenerating = false;
+    mocks.attemptObservedRun = false;
+    mocks.attemptRunError = false;
+    mocks.refreshOpenDeck.mockReset().mockResolvedValue(mocks.deck);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
+    ).toBeTruthy();
+  });
+
   it("shows the saved request after a partial deck fails without offering a retry", async () => {
     const originalPrompt = "Make a deck about sustainable product design.";
     mocks.deck.slides = [{ id: "slide-1", content: "<p>First slide</p>" }];
@@ -2283,6 +2365,67 @@ describe("DeckEditor generation signal wiring", () => {
       expect.stringContaining("Continue the original deck generation"),
       expect.objectContaining({ generationOutputId: "deck-1" }),
     );
+  });
+
+  it("settles a retry error even if the running state never renders", async () => {
+    const originalPrompt = "Create a deck about coastal restoration.";
+    Object.assign(mocks.deck.generationContext, {
+      originalPrompt,
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    const retryAttemptId = String(
+      mocks.deck.generationContext.generationAttemptId,
+    );
+    expect(retryAttemptId).not.toBe("attempt-1");
+
+    mocks.attemptGenerating = false;
+    mocks.attemptObservedRun = false;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: retryAttemptId,
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptRunError = true;
+    mocks.attemptRunErrorCode = "write_tool_outcome_unknown";
+    act(() => {
+      publishAgentGeneratingChange();
+    });
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationAttemptId: retryAttemptId,
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: retryAttemptId,
+        originalPrompt,
+      }),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.checkedDeckTryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it("shows and restores the generated request from the missing-deck route", async () => {

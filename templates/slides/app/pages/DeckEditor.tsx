@@ -1953,6 +1953,10 @@ export default function DeckEditor() {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= generationStartedAt;
     }
+    if (attemptRunError) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+    }
     if (newDeckGenerationSignal) {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= generationStartedAt;
