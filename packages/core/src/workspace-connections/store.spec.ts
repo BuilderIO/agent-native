@@ -339,7 +339,7 @@ describe("workspace connection store", () => {
     });
   });
 
-  it("requires reauthorization when a Google Sheets summary omits its provider", async () => {
+  it("requires reauthorization when an OAuth summary omits its provider", async () => {
     const {
       summarizeWorkspaceConnectionProviderForApp,
       summarizeWorkspaceConnectionProviderReadiness,
@@ -356,7 +356,7 @@ describe("workspace connection store", () => {
       accountLabel: "Alice",
       status: "connected" as const,
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-      config: {},
+      config: { credentialMode: "oauth" },
       allowedApps: [],
       allowedUsers: [],
       credentialRefs: [
@@ -393,6 +393,66 @@ describe("workspace connection store", () => {
       status: "needs_attention",
       readyConnectionCount: 0,
       appGrant: { statuses: ["needs_reauth"] },
+    });
+  });
+
+  it("keeps an API-token connection with an account ID active without an OAuth marker", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const catalogProvider = getWorkspaceConnectionProvider("hubspot");
+    if (!catalogProvider) throw new Error("HubSpot provider is missing.");
+    const provider = {
+      ...catalogProvider,
+      credentialKeys: [{ key: "HUBSPOT_PRIVATE_APP_TOKEN", required: true }],
+    };
+    const connection = {
+      id: "conn-hubspot-api-token",
+      provider: "hubspot",
+      label: "HubSpot: Acme",
+      accountId: "portal-42",
+      accountLabel: "Acme",
+      status: "connected" as const,
+      scopes: [],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "HUBSPOT_PRIVATE_APP_TOKEN", scope: "org" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      grantState: "connected",
+      activeConnectionCount: 1,
+      statuses: ["connected"],
+    });
+    expect(readiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      missingRequiredCredentialKeys: [],
     });
   });
 

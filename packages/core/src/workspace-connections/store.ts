@@ -1005,8 +1005,7 @@ function connectionStatusForProvider(
   const grantedScopes = new Set(connection.scopes.map(normalizeOAuthScope));
   if (
     connection.status === "connected" &&
-    (connection.accountId !== null ||
-      connection.config.credentialMode === "oauth") &&
+    connection.config.credentialMode === "oauth" &&
     provider?.oauth?.scopes.some(
       (scope) => !grantedScopes.has(normalizeOAuthScope(scope)),
     )
