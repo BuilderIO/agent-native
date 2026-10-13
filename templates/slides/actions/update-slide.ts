@@ -480,10 +480,7 @@ export default defineAction({
           edits as SlideContentEdit[],
           format,
         );
-        const nextContent = normalizeSlidePaddingForWrite(
-          previousContent,
-          patched.content,
-        );
+        const nextContent = patched.content;
         validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;

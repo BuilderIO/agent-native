@@ -736,6 +736,10 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
+// Edit results keep the wrapper exactly as written: re-normalizing would insert
+// default padding when a color or --deck-* edit touches an unpadded wrapper.
+const editResolvedOperations = new WeakSet<Operation>();
+
 async function resolvePatchSlideEdits(
   operations: Operation[],
   slides: Array<{ id?: unknown; content?: unknown }>,
@@ -752,15 +756,23 @@ async function resolvePatchSlideEdits(
     }
     if (!operation.edits) {
       if (operation.fields.content !== undefined) {
-        pendingContent.set(operation.slideId, operation.fields.content);
+        const source = slides.find((entry) => entry?.id === operation.slideId);
+        pendingContent.set(
+          operation.slideId,
+          normalizeSlidePaddingForWrite(
+            typeof source?.content === "string" ? source.content : undefined,
+            operation.fields.content,
+          ),
+        );
       }
       resolved.push(operation);
       continue;
     }
     const slide = slides.find((entry) => entry?.id === operation.slideId);
     if (!slide) {
-      resolved.push(operation);
-      continue;
+      throw new Error(
+        `patch-slide edits target slide "${operation.slideId}", which is not in the deck before this batch; edits cannot follow add-slide in the same call. No slides were changed.`,
+      );
     }
     const originalContent = String(slide.content ?? "");
     const currentContent =
@@ -771,12 +783,14 @@ async function resolvePatchSlideEdits(
       edits as SlideContentEdit[],
     );
     pendingContent.set(operation.slideId, patched.content);
-    resolved.push({
+    const next: Operation = {
       ...rest,
       fields: { ...rest.fields, content: patched.content },
       baseContentHash:
         rest.baseContentHash ?? hashSlideContent(originalContent),
-    });
+    };
+    editResolvedOperations.add(next);
+    resolved.push(next);
   }
   return resolved;
 }
@@ -986,10 +1000,9 @@ export function applyOperation(
       if (fields.content !== undefined) {
         const previousContent =
           typeof slide.content === "string" ? slide.content : undefined;
-        const nextContent = normalizeSlidePaddingForWrite(
-          previousContent,
-          fields.content,
-        );
+        const nextContent = editResolvedOperations.has(op)
+          ? fields.content
+          : normalizeSlidePaddingForWrite(previousContent, fields.content);
         assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
@@ -1643,10 +1656,12 @@ export default defineAction({
             nextContent:
               op.fields.content === undefined
                 ? undefined
-                : normalizeSlidePaddingForWrite(
-                    contentsBeforeOperations.get(op.slideId),
-                    op.fields.content,
-                  ),
+                : editResolvedOperations.has(op)
+                  ? op.fields.content
+                  : normalizeSlidePaddingForWrite(
+                      contentsBeforeOperations.get(op.slideId),
+                      op.fields.content,
+                    ),
             nextNotes: op.fields.notes,
             preserveSource: op.preserveSource,
           });
