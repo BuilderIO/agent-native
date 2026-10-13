@@ -210,6 +210,7 @@ describe("import-design-tokens", () => {
     );
     mockWhere
       .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 5 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(candidates)
       .mockResolvedValueOnce(
         candidates
@@ -226,8 +227,8 @@ describe("import-design-tokens", () => {
     });
 
     expect(mockLimit).toHaveBeenCalledWith(DESIGN_TOKEN_IMPORT_MAX_FILES);
-    expect(mockOrderBy).toHaveBeenCalledOnce();
-    expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
+    expect(mockOrderBy).toHaveBeenCalledTimes(2);
+    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
       kind: "inArray",
       values: candidates
         .slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES)
@@ -236,7 +237,7 @@ describe("import-design-tokens", () => {
     expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
     expect(result.omittedFileCount).toBe(5);
 
-    const metadataSelection = mockSelect.mock.calls[1]?.[0] as
+    const metadataSelection = mockSelect.mock.calls[2]?.[0] as
       | Record<string, { strings?: string[] }>
       | undefined;
     expect(metadataSelection).not.toHaveProperty("content");
@@ -252,6 +253,7 @@ describe("import-design-tokens", () => {
   it("bounds current-design filenames in the database query", async () => {
     mockWhere
       .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: "file-1",
@@ -269,10 +271,10 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    const metadataSelection = mockSelect.mock.calls[1]?.[0] as
+    const metadataSelection = mockSelect.mock.calls[2]?.[0] as
       | Record<string, { strings?: string[] }>
       | undefined;
-    const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
+    const candidateFilter = mockWhere.mock.calls[2]?.[0] as {
       conditions?: { strings?: string[]; values?: { strings?: string[] }[] }[];
     };
     expect(metadataSelection?.filename?.strings?.join("")).toContain("left(");
@@ -286,7 +288,7 @@ describe("import-design-tokens", () => {
     expect(candidateFilter.conditions?.[3]?.strings?.join("")).toContain(
       "css|scss|less|json|md|mdx|txt",
     );
-    const fileOrder = mockOrderBy.mock.calls[0]?.[0] as {
+    const fileOrder = mockOrderBy.mock.calls[1]?.[0] as {
       column?: { strings?: string[] };
     };
     expect(fileOrder.column?.strings?.join("")).toContain("octet_length(left(");
@@ -297,6 +299,7 @@ describe("import-design-tokens", () => {
   it("filters oversized current-design candidates before the row limit", async () => {
     mockWhere
       .mockResolvedValueOnce([{ fileCount: 22 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: "small", filename: "tokens.md", contentBytes: 24 },
       ])
@@ -310,7 +313,7 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
+    const candidateFilter = mockWhere.mock.calls[2]?.[0] as {
       conditions?: { strings?: string[] }[];
     };
     expect(
@@ -326,6 +329,7 @@ describe("import-design-tokens", () => {
   it("keeps current-design contents under the aggregate byte limit", async () => {
     mockWhere
       .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: "second",
@@ -348,7 +352,7 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
+    expect(mockWhere.mock.calls[4]?.[0]).toMatchObject({
       kind: "inArray",
       values: ["second"],
     });
@@ -359,6 +363,7 @@ describe("import-design-tokens", () => {
   it("continues past an oversized current-design file", async () => {
     mockWhere
       .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: "large",
@@ -381,7 +386,7 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
+    expect(mockWhere.mock.calls[4]?.[0]).toMatchObject({
       kind: "inArray",
       values: ["small"],
     });
@@ -400,6 +405,7 @@ describe("import-design-tokens", () => {
     );
     mockWhere
       .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 2 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(oversizedCandidates)
       .mockResolvedValueOnce([
         { id: "small", filename: "tokens.md", contentBytes: 10 },
@@ -413,17 +419,17 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    const preferredFilter = mockWhere.mock.calls[1]?.[0] as {
+    const preferredFilter = mockWhere.mock.calls[2]?.[0] as {
       conditions?: { strings?: string[]; values?: { strings?: string[] }[] }[];
     };
-    const fallbackFilter = mockWhere.mock.calls[2]?.[0] as {
+    const fallbackFilter = mockWhere.mock.calls[3]?.[0] as {
       conditions?: { strings?: string[] }[];
     };
     expect(
       preferredFilter.conditions?.[2]?.values?.[0]?.strings?.join(""),
     ).toContain("octet_length(left(");
     expect(fallbackFilter.conditions?.[3]?.strings?.join("")).toContain("!~*");
-    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
+    expect(mockWhere.mock.calls[4]?.[0]).toMatchObject({
       kind: "inArray",
       values: ["small"],
     });
@@ -640,6 +646,7 @@ button:focus-visible {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: "file-1",
@@ -661,6 +668,198 @@ button:focus-visible {
         }),
       ]),
     );
+  });
+
+  it("keeps an HTML screen when preferred files fill the current-design limit", async () => {
+    const htmlContent =
+      "<style>:root { --color-html-screen: #123456; }</style>";
+    const htmlCandidate = {
+      id: "screen",
+      filename: "screen.html",
+      contentBytes: new TextEncoder().encode(htmlContent).length,
+    };
+    const preferredCandidates = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES },
+      (_, index) => ({
+        id: `preferred-${index}`,
+        filename: `tokens-${index}.css`,
+        contentBytes: 10,
+      }),
+    );
+    const selectedPreferred = preferredCandidates.slice(
+      0,
+      DESIGN_TOKEN_IMPORT_MAX_FILES - 1,
+    );
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 }])
+      .mockResolvedValueOnce([htmlCandidate])
+      .mockResolvedValueOnce(selectedPreferred)
+      .mockResolvedValueOnce([
+        { id: "screen", content: htmlContent },
+        ...selectedPreferred.map(({ id }, index) => ({
+          id,
+          content: `:root { --spacing-gap-${index}: ${index + 1}px; }`,
+        })),
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
+    expect(result.filesAnalyzed).toContain("screen.html");
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-html-screen",
+        value: "#123456",
+      }),
+    );
+    expect(result.omittedFileCount).toBe(1);
+    const htmlFilter = mockWhere.mock.calls[1]?.[0] as {
+      conditions?: { strings?: string[] }[];
+    };
+    expect(htmlFilter.conditions?.[3]?.strings?.join("")).toContain("html?");
+  });
+
+  it("selects multiple HTML screens when preferred files leave room", async () => {
+    const htmlFiles = [
+      {
+        id: "screen-one",
+        filename: "screen-one.html",
+        content: "<style>:root { --color-screen-one: #123456; }</style>",
+      },
+      {
+        id: "screen-two",
+        filename: "screen-two.htm",
+        content: "<style>:root { --color-screen-two: #abcdef; }</style>",
+      },
+    ];
+    const cssFile = {
+      id: "tokens",
+      filename: "tokens.css",
+      content: ":root { --spacing-gap: 8px; }",
+    };
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 3 }])
+      .mockResolvedValueOnce(
+        htmlFiles.map(({ id, filename, content }) => ({
+          id,
+          filename,
+          contentBytes: new TextEncoder().encode(content).length,
+        })),
+      )
+      .mockResolvedValueOnce([
+        {
+          id: cssFile.id,
+          filename: cssFile.filename,
+          contentBytes: new TextEncoder().encode(cssFile.content).length,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        ...htmlFiles.map(({ id, content }) => ({ id, content })),
+        { id: cssFile.id, content: cssFile.content },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(result.filesAnalyzed).toHaveLength(3);
+    expect(result.filesAnalyzed).toEqual(
+      expect.arrayContaining([
+        "screen-one.html",
+        "screen-two.htm",
+        "tokens.css",
+      ]),
+    );
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--color-screen-one" }),
+        expect.objectContaining({ cssVar: "--color-screen-two" }),
+        expect.objectContaining({ cssVar: "--spacing-gap" }),
+      ]),
+    );
+    expect(result.omittedFileCount).toBe(0);
+  });
+
+  it("selects preferred files before a near-limit HTML screen", async () => {
+    const cssContent = ":root { --spacing-gap: 8px; }";
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([
+        {
+          id: "large-screen",
+          filename: "large-screen.html",
+          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - 1,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "tokens",
+          filename: "tokens.css",
+          contentBytes: new TextEncoder().encode(cssContent).length,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "tokens", content: cssContent }]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(result.filesAnalyzed).toEqual(["tokens.css"]);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({ cssVar: "--spacing-gap", value: "8px" }),
+    );
+    expect(result.omittedFileCount).toBe(1);
+    expect(mockWhere.mock.calls[4]?.[0]).toMatchObject({
+      kind: "inArray",
+      values: ["tokens"],
+    });
+  });
+
+  it("fills the reserved HTML slot with a preferred file when HTML is too large", async () => {
+    const preferredCandidates = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES },
+      (_, index) => ({
+        id: `tokens-${index}`,
+        filename: `tokens-${index}.css`,
+        contentBytes: 10,
+      }),
+    );
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 }])
+      .mockResolvedValueOnce([
+        {
+          id: "large-screen",
+          filename: "large-screen.html",
+          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - 1,
+        },
+      ])
+      .mockResolvedValueOnce(preferredCandidates)
+      .mockResolvedValueOnce(
+        preferredCandidates.map(({ id, filename }) => ({
+          id,
+          content: `/* ${filename} */ :root { --spacing-${id}: 8px; }`,
+        })),
+      );
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
+    expect(result.filesAnalyzed).not.toContain("large-screen.html");
+    expect(result.omittedFileCount).toBe(1);
+    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
+      kind: "inArray",
+      values: preferredCandidates.map(({ id }) => id),
+    });
   });
 
   it("skips unsafe token values while importing safe ones", async () => {
@@ -980,7 +1179,18 @@ Bad radius: 12px} body { color: red
         "Spacing min malformed: min(12px,)",
         "Spacing clamp malformed: clamp(1px, 2px)",
         "Spacing fallback malformed: var(--spacing, calc(1px +))",
+        "Spacing var name malformed: calc(var(not-a-custom-property, 2px) + 1px)",
+        "Spacing env malformed: calc(env() + 2px)",
+        "Spacing attr malformed: calc(attr(, 2px) + 1px)",
+        "Spacing attr syntax malformed: calc(attr(data-gap <length> nonsense) + 1px)",
+        "Spacing attr syntax malformed words: calc(attr(data-gap length nonsense) + 1px)",
         "Spacing round malformed: round(1px,)",
+        "Spacing var valid: calc(var(--spacing-gap, 2px) + 1px)",
+        "Spacing env valid: calc(env(safe-area-inset-top, 2px) + 1px)",
+        "Spacing env none: calc(env(none, 2px) + 1px)",
+        "Spacing attr valid: calc(attr(data-gap, 2px) + 1px)",
+        "Spacing attr syntax valid: calc(attr(data-gap length, 2px) + 1px)",
+        'Spacing attr quoted syntax valid: calc(attr(data-gap "length", 2px) + 1px)',
         "Spacing valid: calc((12px + 2px) * 2)",
         "Spacing min valid: min(12px, 24px)",
         "Spacing round valid: round(down, 5px, 2px)",
@@ -988,10 +1198,34 @@ Bad radius: 12px} body { color: red
       ].join("\n"),
     });
 
-    expect(result.importedCount).toBe(4);
-    expect(result.rejectedCount).toBe(5);
+    expect(result.importedCount).toBe(10);
+    expect(result.rejectedCount).toBe(10);
     expect(result.tokens).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--spacing-var-valid",
+          value: "calc(var(--spacing-gap, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-env-valid",
+          value: "calc(env(safe-area-inset-top, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-env-none",
+          value: "calc(env(none, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-attr-valid",
+          value: "calc(attr(data-gap, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-attr-syntax-valid",
+          value: "calc(attr(data-gap length, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-attr-quoted-syntax-valid",
+          value: 'calc(attr(data-gap "length", 2px) + 1px)',
+        }),
         expect.objectContaining({
           cssVar: "--spacing-valid",
           value: "calc((12px + 2px) * 2)",
@@ -1142,6 +1376,21 @@ Bad radius: 12px} body { color: red
         cssVar: "--font-body-font",
         value: "Inter",
       }),
+    );
+  });
+
+  it("strips trailing line comments from named token values", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "Spacing: 12px // designer's spacing\nRadius: 8px // design note",
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--spacing", value: "12px" }),
+        expect.objectContaining({ cssVar: "--radius", value: "8px" }),
+      ]),
     );
   });
 
@@ -1466,6 +1715,7 @@ fontFamily: [
     }));
     mockWhere
       .mockResolvedValueOnce([{ fileCount: files.length }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(files)
       .mockResolvedValueOnce(
         files.slice(0, 20).map((file, index) => ({

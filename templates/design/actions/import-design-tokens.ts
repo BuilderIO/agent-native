@@ -351,7 +351,7 @@ function parseNamedLines(
       if (!match || isConfigStructureOpenerValue(match[2] ?? "")) continue;
 
       const label = match[1].replace(/\*\*/g, "").trim();
-      const rawValue = match[2].trim();
+      const rawValue = stripTrailingCssLineComment(match[2]).trim();
       if (!hasBalancedCssValueSyntax(rawValue)) continue;
       const value = normalizeValue(rawValue);
 
@@ -410,7 +410,55 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
   });
 }
 
+function stripTrailingCssLineComment(value: string): string {
+  const delimiters: string[] = [];
+  let quote: "'" | '"' | null = null;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    const next = value[index + 1];
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      inBlockComment = true;
+      index += 1;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "(" || char === "[") {
+      delimiters.push(char);
+    } else if (char === ")" || char === "]") {
+      delimiters.pop();
+    } else if (
+      char === "/" &&
+      next === "/" &&
+      delimiters.length === 0 &&
+      (index === 0 || /\s/.test(value[index - 1]!))
+    ) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+
+  return value;
+}
+
 function hasBalancedCssValueSyntax(value: string): boolean {
+  value = stripTrailingCssLineComment(value);
   const delimiters: string[] = [];
   let quote: "'" | '"' | null = null;
   let inBlockComment = false;
@@ -968,10 +1016,118 @@ function splitCssFunctionArguments(value: string): string[] {
   return parts;
 }
 
-function readCssFunctionArgumentsAt(
+function readSingleCssIdentifier(value: string): string | null {
+  let parsed: csstree.CssNode;
+  try {
+    parsed = csstree.parse(value.trim(), { context: "value" });
+  } catch (error) {
+    if (error instanceof Error && error.name === "SyntaxError") return null;
+    throw error;
+  }
+
+  if (parsed.type !== "Value" || parsed.children.size !== 1) return null;
+  const child = parsed.children.first;
+  return child?.type === "Identifier" ? csstree.ident.decode(child.name) : null;
+}
+
+function readSingleCssString(value: string): string | null {
+  let parsed: csstree.CssNode;
+  try {
+    parsed = csstree.parse(value.trim(), { context: "value" });
+  } catch (error) {
+    if (error instanceof Error && error.name === "SyntaxError") return null;
+    throw error;
+  }
+
+  if (parsed.type !== "Value" || parsed.children.size !== 1) return null;
+  const child = parsed.children.first;
+  return child?.type === "String" ? csstree.string.decode(child.value) : null;
+}
+
+const cssAttrSyntaxTypes = new Set([
+  "angle",
+  "color",
+  "custom-ident",
+  "image",
+  "integer",
+  "length",
+  "length-percentage",
+  "number",
+  "percentage",
+  "resolution",
+  "string",
+  "time",
+  "transform-function",
+  "transform-list",
+  "url",
+]);
+
+function isValidCssAttrSyntax(value: string): boolean {
+  if (value.trim() === "*") return true;
+  const components = value.split("|").map((component) => component.trim());
+  if (components.some((component) => !component || component === "*")) {
+    return false;
+  }
+  if (components.length === 1) {
+    const syntaxString = readSingleCssString(components[0]!);
+    if (syntaxString !== null) return isValidCssAttrSyntax(syntaxString);
+  }
+
+  return components.every((component) => {
+    const multiplier = component[component.length - 1];
+    const type =
+      multiplier === "#" || multiplier === "+"
+        ? component.slice(0, -1)
+        : component;
+    if (!type) return false;
+
+    const typedSyntax = type.match(/^<([a-z-]+)>$/i);
+    if (typedSyntax)
+      return cssAttrSyntaxTypes.has(typedSyntax[1]!.toLowerCase());
+    return readSingleCssIdentifier(type) !== null;
+  });
+}
+
+function isValidCssSubstitutionFunction(name: string, args: string): boolean {
+  const parts = splitCssFunctionArguments(args);
+  const head = parts[0]?.trim() ?? "";
+
+  if (name === "var") {
+    const propertyName = readSingleCssIdentifier(head);
+    return Boolean(propertyName?.startsWith("--") && propertyName !== "--");
+  }
+
+  if (name === "env") {
+    const headParts = head.split(/\s+/);
+    const environmentName = readSingleCssIdentifier(headParts.shift() ?? "");
+    if (
+      !environmentName ||
+      /^(?:initial|inherit|unset|revert|revert-layer|default)$/i.test(
+        environmentName,
+      )
+    ) {
+      return false;
+    }
+    return headParts.every((index) => /^\+?\d+$/.test(index));
+  }
+
+  if (parts.length > 2) return false;
+  const attrName = head.match(
+    /^([^\s|]+)(?:\s*\|\s*([^\s|]+))?(?:\s+([\s\S]*))?$/,
+  );
+  if (!attrName) return false;
+  if (!readSingleCssIdentifier(attrName[1] ?? "")) return false;
+  if (attrName[2] && !readSingleCssIdentifier(attrName[2])) return false;
+  const syntax = attrName[3]?.trim();
+  if (syntax && !isValidCssAttrSyntax(syntax)) return false;
+
+  return true;
+}
+
+function readCssFunctionAt(
   value: string,
   functionTokenEnd: number,
-): string | null {
+): { args: string; end: number } | null {
   let depth = 1;
   let quote: "'" | '"' | null = null;
   let inBlockComment = false;
@@ -1005,7 +1161,12 @@ function readCssFunctionArgumentsAt(
       depth += 1;
     } else if (char === ")") {
       depth -= 1;
-      if (depth === 0) return value.slice(functionTokenEnd, index);
+      if (depth === 0) {
+        return {
+          args: value.slice(functionTokenEnd, index),
+          end: index + 1,
+        };
+      }
     }
   }
 
@@ -1037,22 +1198,46 @@ const cssMathFunctions = new Set([
 ]);
 
 function isValidCssMathExpression(value: string): boolean {
+  const substitutions: { start: number; end: number }[] = [];
+  try {
+    csstree.tokenize(value, (type, start, end) => {
+      if (type !== csstree.tokenTypes.Function) return;
+      const name = csstree.ident
+        .decode(value.slice(start, end - 1))
+        .toLowerCase();
+      if (name !== "var" && name !== "env" && name !== "attr") return;
+      const functionValue = readCssFunctionAt(value, end);
+      if (
+        functionValue &&
+        !substitutions.some(
+          (substitution) =>
+            substitution.start < start && substitution.end >= functionValue.end,
+        )
+      ) {
+        substitutions.push({ start, end: functionValue.end });
+      }
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "SyntaxError") return false;
+    throw error;
+  }
+  let mathValue = value;
+  for (let index = substitutions.length - 1; index >= 0; index -= 1) {
+    const substitution = substitutions[index]!;
+    mathValue =
+      mathValue.slice(0, substitution.start) +
+      "1" +
+      mathValue.slice(substitution.end);
+  }
+
   let parsed: csstree.CssNode;
   try {
-    parsed = csstree.parse(value, { context: "value" });
+    parsed = csstree.parse(mathValue, { context: "value" });
   } catch (error) {
     if (error instanceof Error && error.name === "SyntaxError") return false;
     throw error;
   }
   if (parsed.type !== "Value") return false;
-
-  csstree.walk(parsed, (node) => {
-    if (node.type !== "Function") return;
-    const name = csstree.ident.decode(node.name).toLowerCase();
-    if (name === "var" || name === "env" || name === "attr") {
-      Object.assign(node, { type: "Number", value: "1" });
-    }
-  });
 
   return csstree.lexer.matchType("calc-sum", parsed).matched !== null;
 }
@@ -1121,15 +1306,22 @@ function hasValidCssMathFunctionSyntax(value: string): boolean {
     const name = csstree.ident
       .decode(value.slice(start, end - 1))
       .toLowerCase();
-    if (!cssMathFunctions.has(name)) return;
+    if (!cssMathFunctions.has(name) && !["var", "env", "attr"].includes(name)) {
+      return;
+    }
 
-    const args = readCssFunctionArgumentsAt(value, end);
-    if (args === null) {
+    const functionValue = readCssFunctionAt(value, end);
+    if (functionValue === null) {
       valid = false;
       return;
     }
 
-    const parts = splitCssFunctionArguments(args);
+    if (["var", "env", "attr"].includes(name)) {
+      valid = isValidCssSubstitutionFunction(name, functionValue.args);
+      return;
+    }
+
+    const parts = splitCssFunctionArguments(functionValue.args);
     valid = isValidCssMathFunction(name, parts);
   });
 
@@ -1382,6 +1574,27 @@ export default defineAction({
           const candidateFilename = sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`;
           const candidateContentBytes = sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`;
           const boundedFilename = sql`char_length(${candidateFilename}) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`;
+          const htmlCandidates = await tx
+            .select({
+              id: schema.designFiles.id,
+              filename: candidateFilename,
+              contentBytes: candidateContentBytes,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                boundedFilename,
+                sql`${candidateContentBytes} <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES}`,
+                sql`${schema.designFiles.filename} ~* '\\.(html?)$'`,
+              ),
+            )
+            .orderBy(
+              asc(candidateContentBytes),
+              asc(schema.designFiles.filename),
+              asc(schema.designFiles.id),
+            )
+            .limit(DESIGN_TOKEN_IMPORT_MAX_FILES);
           const preferredCandidates = await tx
             .select({
               id: schema.designFiles.id,
@@ -1420,7 +1633,15 @@ export default defineAction({
             }
           };
 
-          addCandidates(preferredCandidates);
+          const primaryPreferredCandidates =
+            htmlCandidates.length > 0
+              ? preferredCandidates.slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES - 1)
+              : preferredCandidates;
+          addCandidates(primaryPreferredCandidates);
+          addCandidates(htmlCandidates);
+          addCandidates(
+            preferredCandidates.slice(primaryPreferredCandidates.length),
+          );
           if (
             selected.length < DESIGN_TOKEN_IMPORT_MAX_FILES &&
             totalBytes < DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
@@ -1437,7 +1658,7 @@ export default defineAction({
                   eq(schema.designFiles.designId, designId),
                   boundedFilename,
                   sql`${candidateContentBytes} <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes}`,
-                  sql`${schema.designFiles.filename} !~* '\\.(css|scss|less|json|md|mdx|txt)$'`,
+                  sql`${schema.designFiles.filename} !~* '\\.(css|scss|less|json|md|mdx|txt|html?)$'`,
                 ),
               )
               .orderBy(

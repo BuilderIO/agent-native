@@ -82,6 +82,7 @@ describe("getTokenImportStatus", () => {
       importedCount: 0,
       filesAnalyzed: [],
       omittedFileCount: 2,
+      readFailureCount: 0,
     });
     expect(getTokenImportStatus(result)).toEqual({
       key: "designEditor.tokens.importedWithOmissions",
@@ -99,6 +100,18 @@ describe("getTokenImportStatus", () => {
     ).toEqual({
       key: "designEditor.tokens.importedWithSkipped",
       values: { count: 0, skipped: 3 },
+    });
+  });
+
+  it("reports unreadable files as skipped rather than omitted by limits", () => {
+    expect(
+      getTokenImportStatus({
+        importedCount: 1,
+        readFailureCount: 2,
+      }),
+    ).toEqual({
+      key: "designEditor.tokens.importedWithSkipped",
+      values: { count: 1, skipped: 2 },
     });
   });
 
@@ -162,6 +175,7 @@ describe("readImportFiles", () => {
     expect(result).toEqual({
       files: [{ filename: "smaller.css", content }],
       omittedFileCount: 1,
+      readFailureCount: 0,
     });
   });
 
@@ -205,6 +219,7 @@ describe("readImportFiles", () => {
         { filename: "later.css", content },
       ],
       omittedFileCount: 1,
+      readFailureCount: 0,
     });
   });
 
@@ -229,7 +244,8 @@ describe("readImportFiles", () => {
 
     expect(result).toEqual({
       files: [{ filename: "readable.css", content }],
-      omittedFileCount: 1,
+      omittedFileCount: 0,
+      readFailureCount: 1,
     });
   });
 
@@ -255,8 +271,10 @@ describe("readImportFiles", () => {
       { filename: "at-limit.css", content },
     ]);
     expect(exactLimitResult.omittedFileCount).toBe(0);
+    expect(exactLimitResult.readFailureCount).toBe(0);
     expect(decodedOverLimitResult.files).toEqual([]);
     expect(decodedOverLimitResult.omittedFileCount).toBe(1);
+    expect(decodedOverLimitResult.readFailureCount).toBe(0);
   });
 
   it("continues after decoded content exceeds the remaining byte budget", async () => {
@@ -288,6 +306,7 @@ describe("readImportFiles", () => {
         { filename: "later.css", content },
       ],
       omittedFileCount: 1,
+      readFailureCount: 0,
     });
   });
 });
