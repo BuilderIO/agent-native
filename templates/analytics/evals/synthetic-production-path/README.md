@@ -18,55 +18,54 @@ loop.
 ## Reproduce the evaluation
 
 The before phase is pinned to `origin/main` revision
-`75e39e8547b408aa09605e54872d9a8ef6522df9`. The candidate source revision is
-`08d5983fb124b8ba28305d9906975674c818485d`. Both phases used the same
-`synthetic-analytics-retrieval-v8` fixture and eleven cases, twice each.
+`d0caebd20464a2a00ad417c78943d81438d9333a`. The candidate source revision is
+`910d2c585496ef2f8540870ad9d05bf9be2c5288`, pinned in the comparison
+validator. Both phases used the same `synthetic-analytics-retrieval-v9` fixture
+and thirteen cases, twice each. The candidate SHA identifies the exact commit
+whose production source files and harness were measured; the later artifact
+commit adds the CSV, refreshes the comparison assertions and this README, and
+pins the validator to that exact candidate SHA. It does not change evaluated
+production source or harness files.
 Before-phase checks verify all evaluated production source bytes against the
 pinned baseline commit and require the copied harness to match the bytes at the
 candidate commit named by `ANALYTICS_EVAL_HARNESS_REVISION`. The CSV records the
 harness hash separately, and the validator requires it to be identical in both
 phases. After-phase checks require a clean candidate source tree and every
 evaluated file to match the supplied candidate commit. The evaluated code hashes
-are `sha256:bd37891206f57c7e53afbebae9bd8d5cb2c56163bc032e4fbd486a3307c38b86`
+are `sha256:88d2c189cab2af16505fb56a6f307ee24ea2fcff8660959955268e71c3831024`
 before and
-`sha256:44b1422d2ebf0c5e83a9d7d77dbc6731774f32270ce386f6ed23c077c730efc4`
+`sha256:5246fb1d67576bb1f73be139ce2dd38fed5f11814789a752f154df066609dec2`
 after. The shared harness hash is
-`sha256:b293d76e7899bbb276afcd4ab58ff7639ab868d3708b9062c480873f32f4bc59`.
+`sha256:ada2b65af8ce5a9a09e70d7ccd61b046948bfc98363e2debdc63159a490f6f3f`.
 
-The baseline was `origin/main` at evaluation time, pinned to
-`75e39e8547b408aa09605e54872d9a8ef6522df9`. The PR is based on
-`8ff15a5577e6530316d59c4e4b2aa751a8f56a63`, and `origin/main` has since advanced
-to `d0caebd20464a2a00ad417c78943d81438d9333a`. This artifact preserves its
-point-in-time baseline; it is not a comparison against the current main tip.
-Between the pinned baseline and candidate, `packages/core/src/agent/production-agent.ts`
-adds a retry for transient provider rate-limit errors on the baseline. The
-synthetic engine does not generate provider errors, so that branch is not
-exercised in this comparison. This is a pinned main snapshot versus candidate,
-not a same-base replay.
+The baseline is the exact `origin/main` snapshot at
+`d0caebd20464a2a00ad417c78943d81438d9333a`, which is newer than the PR's base.
+This comparison measures current main against the candidate source commit, not a
+same-base replay.
 
 Re-run the baseline from the repository root:
 
 ```sh
-git worktree add --detach /tmp/analytics-eval-before 75e39e8547b408aa09605e54872d9a8ef6522df9
-mkdir -p /tmp/analytics-eval-before/templates/analytics/evals/synthetic-production-path
-cp templates/analytics/evals/synthetic-production-path/production-path.spec.ts /tmp/analytics-eval-before/templates/analytics/evals/synthetic-production-path/
-cd /tmp/analytics-eval-before
+git worktree add --detach /tmp/analytics-eval-before-d0caebd d0caebd20464a2a00ad417c78943d81438d9333a
+mkdir -p /tmp/analytics-eval-before-d0caebd/templates/analytics/evals/synthetic-production-path
+git -C /tmp/analytics-eval-before-d0caebd show 910d2c585496ef2f8540870ad9d05bf9be2c5288:templates/analytics/evals/synthetic-production-path/production-path.spec.ts > /tmp/analytics-eval-before-d0caebd/templates/analytics/evals/synthetic-production-path/production-path.spec.ts
+cd /tmp/analytics-eval-before-d0caebd
 pnpm install --frozen-lockfile
-ANALYTICS_EVAL_PHASE=before ANALYTICS_EVAL_GIT_REVISION=75e39e8547b408aa09605e54872d9a8ef6522df9 ANALYTICS_EVAL_HARNESS_REVISION=08d5983fb124b8ba28305d9906975674c818485d ANALYTICS_EVAL_EMIT_CSV=1 pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+ANALYTICS_EVAL_PHASE=before ANALYTICS_EVAL_GIT_REVISION=d0caebd20464a2a00ad417c78943d81438d9333a ANALYTICS_EVAL_HARNESS_REVISION=910d2c585496ef2f8540870ad9d05bf9be2c5288 ANALYTICS_EVAL_EMIT_CSV=1 pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
 ```
 
 Re-run the candidate on its pinned source commit in a separate clean worktree:
 
 ```sh
-git worktree add --detach /tmp/analytics-eval-after 08d5983fb124b8ba28305d9906975674c818485d
-cd /tmp/analytics-eval-after
+git worktree add --detach /tmp/analytics-eval-after-910d2c5 910d2c585496ef2f8540870ad9d05bf9be2c5288
+cd /tmp/analytics-eval-after-910d2c5
 pnpm install --frozen-lockfile
-ANALYTICS_EVAL_PHASE=after ANALYTICS_EVAL_GIT_REVISION=08d5983fb124b8ba28305d9906975674c818485d ANALYTICS_EVAL_EMIT_CSV=1 pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+ANALYTICS_EVAL_PHASE=after ANALYTICS_EVAL_GIT_REVISION=910d2c585496ef2f8540870ad9d05bf9be2c5288 ANALYTICS_EVAL_EMIT_CSV=1 pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
 ```
 
 The combined artifact is
-`SYNTHETIC-analytics-production-path-v8-before-after.csv`. Its validator checks
-the exact privacy-safe schema, all eleven case IDs, exactly two runs per phase,
+`SYNTHETIC-analytics-production-path-v9-before-after.csv`. Its validator checks
+the exact privacy-safe schema, all thirteen case IDs, exactly two runs per phase,
 matching before/after `(case_id, run)` pairs, fixture, code, and shared harness
 revisions, completion state, and the one-action allowlist. To verify the CSV and
 the validator's mismatch tests, run:
@@ -77,12 +76,11 @@ pnpm --filter analytics exec vitest run evals/synthetic-production-path/comparis
 
 ## Results
 
-Top-1 retrieval rose from 6/22 to 22/22 runs (27.3% to 100%). Hit@5 rose from
-14/22 to 22/22 (63.6% to 100%). All 44 runs completed without aborts; each made
-one `find-data` call and no other or failed action. Both phases recorded the
-same aggregate token counts: 5,280 input and 1,056 output tokens. Per-run latency
-is included as local harness telemetry, not as a hosted-model or production
-latency claim.
+Top-1 retrieval rose from 6/26 to 26/26 runs (23.1% to 100%). Hit@5 rose from
+16/26 to 26/26 (61.5% to 100%). All 52 runs completed without aborts; each made
+one `find-data` call and no other or failed action. Each phase recorded 6,240
+input and 1,248 output tokens. Per-run latency is included as local harness
+telemetry, not as a hosted-model or production latency claim.
 
 The CSV serializer permits only synthetic case IDs and execution metadata:
 phase, Git, code, and harness revisions, fixture revision, run number, coded
