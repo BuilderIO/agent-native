@@ -40,7 +40,7 @@ function objectRecord(value: unknown): Record<string, unknown> {
 
 export default defineAction({
   description:
-    "Update a Brain source's title, status, config, cursor, or trusted-answer policy. Config keys are merged into the existing config; a top-level key such as zoom is replaced as a whole.",
+    "Update a Brain source's title, status, config, cursor, or trusted-answer policy. Config keys are merged into the existing config; a top-level key such as zoom is replaced as a whole. Only organization owners and admins can change a Zoom source's config or cursor; other editors can still change its title, status, or trusted-answer policy.",
   schema: z.object({
     id: z.string().min(1),
     title: z.string().min(1).optional(),

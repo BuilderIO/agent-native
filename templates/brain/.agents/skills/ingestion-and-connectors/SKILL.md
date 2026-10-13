@@ -69,6 +69,18 @@ Zoom. Titles are never matched (any host can reuse one); create/update reject
 that room, so approve only real recurring series. Keep Zoom's account-wide
 auto-recording and AI Companion summary settings off and enable cloud
 recording per approved series; Brain ignores unapproved recordings either way.
+
+Only Brain admins (organization owners and admins) can create a Zoom source or
+change a Zoom source's `config` (including `meetingIds`, `includeSummaries`,
+`lookbackDays`, `userIds`, `pollMinutes`, and `autoSync`) or cursor; anyone
+else gets `brain_admin_required` (403). Other editors can still change a Zoom
+source's title, status, or trusted-answer policy. A sync refuses to run when the source owner is not a
+Brain admin, which also covers sources created before this rule. When a
+non-admin asks to set up or change Zoom, tell them an organization owner or
+admin has to do it. Allowlist changes (actor, series added/removed, settings
+changed), per-meeting allow/deny decisions, refused syncs, and sync completion
+are recorded in `brain_zoom_audit_events`. It never stores transcript or
+summary text or the IDs of unapproved meetings, and no action reads it yet.
 `update-source` replaces the whole `zoom` object, so send every Zoom field you
 want to keep, including `meetingIds`. Changing the allowlist or raising
 `lookbackDays` rewinds the next sync to the `lookbackDays` window, so newly
