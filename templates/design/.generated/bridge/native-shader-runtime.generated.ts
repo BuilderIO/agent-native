@@ -17234,6 +17234,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.running = null;
       this.scopedDraftTimeInstanceId = null;
       this.disposed = false;
+      this.disposalDone = null;
+      this.disposalState = "idle";
       this.started = false;
       this.rescanObserver = null;
       this.authoredStyleObserver = null;
@@ -19808,6 +19810,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       scene.suppressedElements.clear();
       scene.canvas.style.visibility = "hidden";
       scene.canvas.remove();
+    }
+    hasCurrentScenePresentation(scene) {
+      return this.scenePresentation === scene && scene.canvas.isConnected && scene.canvas.style.visibility === "visible" && [...scene.suppressedElements].every(
+        (element) => element.isConnected && element.hasAttribute("data-an-native-scene-suppressed")
+      );
     }
     releaseScenePresentation() {
       const scene = this.scenePresentation;
@@ -29434,46 +29441,70 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.requestScan();
     }
     dispose() {
-      if (this.disposed) return;
-      this.cameraSource.stop();
-      this.clearCameraClip();
-      this.releaseCameraTexture();
-      this.cameraSnapshot?.close();
-      this.cameraSnapshot = null;
-      this.presentationFaultLatch.clear();
-      this.presentationFaultHold = false;
-      this.presentationMirrorCapture = false;
-      this.compositionAbort?.abort();
-      this.mountedBenchmark?.fail(
-        new NativeMountedBenchmarkError("benchmark-aborted")
-      );
-      this.disposed = true;
-      this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
-      this.authoredInputReuseEpoch = -1;
-      this.clearIdleSourcePoll();
-      document.documentElement.removeAttribute(
-        "data-an-native-source-idle-diagnostic"
-      );
-      this.pause();
-      this.rescanObserver?.disconnect();
-      this.authoredStyleObserver?.disconnect();
-      window.removeEventListener("message", this.onMessage);
-      clearTimeout(this.rescanTimer);
-      clearTimeout(this.deviceRetryTimer);
-      if (this.scenePresentation)
-        this.unpublishScenePresentation(this.scenePresentation);
-      const pending = [];
-      if (this.compositionDone) pending.push(this.compositionDone);
-      if (this.scanning) pending.push(this.scanning);
-      if (this.previewRestoreWork) pending.push(this.previewRestoreWork);
-      if (this.running) pending.push(this.running);
-      if (pending.length) {
-        void Promise.allSettled(pending).then(
-          () => this.releaseDisposedResources()
+      if (this.disposalDone) return this.disposalDone;
+      let complete;
+      let fail;
+      const done = new Promise((resolve, reject) => {
+        complete = resolve;
+        fail = reject;
+      });
+      this.disposalDone = done;
+      this.disposalState = "pending";
+      void done.catch((error) => {
+        console.error("Native shader runtime disposal failed.", error);
+      });
+      const release = () => {
+        try {
+          this.releaseDisposedResources();
+          this.disposalState = "complete";
+          complete();
+        } catch (error) {
+          this.disposalState = "failed";
+          this.issue("runtime-disposal-failed", String(error));
+          fail(error);
+        }
+      };
+      try {
+        this.cameraSource.stop();
+        this.clearCameraClip();
+        this.releaseCameraTexture();
+        this.cameraSnapshot?.close();
+        this.cameraSnapshot = null;
+        this.presentationFaultLatch.clear();
+        this.presentationFaultHold = false;
+        this.presentationMirrorCapture = false;
+        this.compositionAbort?.abort();
+        this.mountedBenchmark?.fail(
+          new NativeMountedBenchmarkError("benchmark-aborted")
         );
-        return;
+        this.disposed = true;
+        this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
+        this.authoredInputReuseEpoch = -1;
+        this.clearIdleSourcePoll();
+        document.documentElement.removeAttribute(
+          "data-an-native-source-idle-diagnostic"
+        );
+        this.pause();
+        this.rescanObserver?.disconnect();
+        this.authoredStyleObserver?.disconnect();
+        window.removeEventListener("message", this.onMessage);
+        clearTimeout(this.rescanTimer);
+        clearTimeout(this.deviceRetryTimer);
+        if (this.scenePresentation && !this.hasCurrentScenePresentation(this.scenePresentation))
+          this.unpublishScenePresentation(this.scenePresentation);
+        const pending = [];
+        if (this.compositionDone) pending.push(this.compositionDone);
+        if (this.scanning) pending.push(this.scanning);
+        if (this.previewRestoreWork) pending.push(this.previewRestoreWork);
+        if (this.running) pending.push(this.running);
+        if (pending.length) void Promise.allSettled(pending).then(release);
+        else release();
+      } catch (error) {
+        this.disposalState = "failed";
+        this.issue("runtime-disposal-failed", String(error));
+        fail(error);
       }
-      this.releaseDisposedResources();
+      return done;
     }
     releaseDisposedResources() {
       this.releaseScenePresentation();
@@ -29524,15 +29555,70 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.deviceLifecycle.dispose();
       this.device = null;
     }
+    reportReplacementFailure(error) {
+      const diagnostic = {
+        code: "runtime-replacement-failed",
+        message: "The previous shader runtime did not finish disposing."
+      };
+      this.issue(diagnostic.code, String(error));
+      document.documentElement.setAttribute(
+        "data-an-native-runtime-error",
+        diagnostic.code
+      );
+      for (const manifest of this.parse() ?? [])
+        for (const instance of manifest.instances)
+          this.postStatus(
+            instance.id,
+            instance.nodeId,
+            "error",
+            diagnostic,
+            void 0,
+            true
+          );
+    }
   };
   var prior = window.__anNativeShaders;
-  prior?.dispose();
+  var inheritedHandoff = window.__anNativeShaderHandoff;
+  var priorDisposal;
+  var priorDisposeFailed = false;
+  try {
+    priorDisposal = prior?.dispose();
+  } catch (error) {
+    priorDisposeFailed = true;
+    priorDisposal = Promise.reject(error);
+  }
   var runtime = new NativeShaderRuntime(document.currentScript);
   window.__anNativeShaders = runtime;
-  if (document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", () => runtime.start(), {
-      once: true
+  var startIfCurrent = () => {
+    if (window.__anNativeShaders !== runtime) return;
+    if (document.readyState === "loading")
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          if (window.__anNativeShaders === runtime) runtime.start();
+        },
+        { once: true }
+      );
+    else runtime.start();
+  };
+  if (priorDisposeFailed || prior?.disposalState === "pending" || prior?.disposalState === "failed" || inheritedHandoff?.state === "pending" || inheritedHandoff?.state === "failed") {
+    const handoff = {
+      state: "pending",
+      promise: Promise.all([inheritedHandoff?.promise, priorDisposal]).then(
+        () => {
+          handoff.state = "ready";
+        },
+        (error) => {
+          handoff.state = "failed";
+          throw error;
+        }
+      )
+    };
+    window.__anNativeShaderHandoff = handoff;
+    void handoff.promise.then(startIfCurrent, (error) => {
+      if (window.__anNativeShaders === runtime)
+        runtime.reportReplacementFailure(error);
     });
-  else runtime.start();
+  } else startIfCurrent();
 })();
 `;

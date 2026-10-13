@@ -869,6 +869,230 @@ const frame = {
   sourceContract: "declarative-only" as const,
 };
 
+it("waits for prior GPU work before a replacement runtime claims the document", async () => {
+  fakeGpu();
+  const originalRuntime = await startRuntime(true);
+  await originalRuntime.renderAt(0);
+  const originalCanvas = document.querySelector<HTMLCanvasElement>(
+    'canvas[data-an-native-canvas="test-instance"]',
+  );
+  expect(originalCanvas?.isConnected).toBe(true);
+  const originalReadyState = Object.getOwnPropertyDescriptor(
+    document,
+    "readyState",
+  );
+  Object.defineProperty(document, "readyState", {
+    configurable: true,
+    value: "complete",
+  });
+  let finishPending!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finishPending = resolve;
+  });
+  const originalInternal = originalRuntime as PixelRuntime & {
+    running: Promise<unknown> | null;
+    disposalState: string;
+  };
+  originalInternal.running = pending;
+  try {
+    new Function(nativeShaderRuntimeBridgeScript)();
+    const superseded = (window as Window & { __anNativeShaders?: PixelRuntime })
+      .__anNativeShaders as PixelRuntime & { started: boolean };
+    expect(superseded.started).toBe(false);
+    expect(originalInternal.disposalState).toBe("pending");
+    expect(originalCanvas?.isConnected).toBe(true);
+
+    new Function(nativeShaderRuntimeBridgeScript)();
+    const replacement = (
+      window as Window & { __anNativeShaders?: PixelRuntime }
+    ).__anNativeShaders as PixelRuntime & { started: boolean };
+    runtime = replacement;
+    expect(replacement).not.toBe(superseded);
+    expect(replacement.started).toBe(false);
+    expect(originalCanvas?.isConnected).toBe(true);
+    const disposal = originalRuntime.dispose() as unknown as Promise<void>;
+    expect(originalRuntime.dispose()).toBe(disposal);
+    finishPending();
+    await disposal;
+    await (
+      window as Window & {
+        __anNativeShaderHandoff?: { promise: Promise<void> };
+      }
+    ).__anNativeShaderHandoff?.promise;
+    await Promise.resolve();
+    expect(originalCanvas?.isConnected).toBe(false);
+    expect(superseded.started).toBe(false);
+    expect(replacement.started).toBe(true);
+    await replacement.scan();
+  } finally {
+    finishPending();
+    restoreProperty(document, "readyState", originalReadyState);
+  }
+});
+
+it("keeps a connected scene presentation visible until pending teardown settles", async () => {
+  fakeGpu();
+  const originalRuntime = await startRuntime(true);
+  const manifest = document.querySelector<HTMLScriptElement>(
+    'script[type="application/x-agent-native-effects"]',
+  );
+  if (!manifest?.textContent) throw new Error("Manifest unavailable.");
+  const source = JSON.parse(manifest.textContent) as {
+    definitions: unknown[];
+    instances: Array<Record<string, unknown>>;
+  };
+  const processor = OWNED_PROCESSOR_DEFINITIONS.find(
+    (definition) => definition.id === "an-native-owned-directional-smear",
+  );
+  if (!processor) throw new Error("Owned processor missing.");
+  source.definitions.push(processor);
+  source.instances[0] = {
+    ...source.instances[0],
+    definitionId: processor.id,
+    definitionVersion: processor.version,
+    placement: "backdrop",
+    params: { mix: 0 },
+  };
+  manifest.textContent = JSON.stringify(source);
+  await originalRuntime.scan();
+  await originalRuntime.renderAt(0);
+  const scene = document.querySelector<HTMLCanvasElement>(
+    "canvas[data-an-native-scene-presentation]",
+  );
+  const target = document.querySelector<HTMLElement>(
+    '[data-agent-native-node-id="test-target"]',
+  );
+  expect(scene?.isConnected).toBe(true);
+  expect(scene?.style.visibility).toBe("visible");
+  expect(target?.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+  let finishPending!: () => void;
+  (
+    originalRuntime as PixelRuntime & { running: Promise<unknown> | null }
+  ).running = new Promise<void>((resolve) => {
+    finishPending = resolve;
+  });
+  try {
+    new Function(nativeShaderRuntimeBridgeScript)();
+    const replacement = (
+      window as Window & { __anNativeShaders?: PixelRuntime }
+    ).__anNativeShaders as PixelRuntime & { started: boolean };
+    runtime = replacement;
+    expect(replacement.started).toBe(false);
+    expect(scene?.isConnected).toBe(true);
+    expect(scene?.style.visibility).toBe("visible");
+    expect(target?.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+    finishPending();
+    await (
+      window as Window & {
+        __anNativeShaderHandoff?: { promise: Promise<void> };
+      }
+    ).__anNativeShaderHandoff?.promise;
+    await Promise.resolve();
+    expect(scene?.isConnected).toBe(false);
+    expect(replacement.started).toBe(true);
+  } finally {
+    finishPending();
+  }
+});
+
+it("reports a failed prior teardown without starting its replacement", async () => {
+  fakeGpu();
+  const originalRuntime = await startRuntime(true);
+  const originalInternal = originalRuntime as PixelRuntime & {
+    running: Promise<unknown> | null;
+    releaseDisposedResources(): void;
+  };
+  const releaseResources =
+    originalInternal.releaseDisposedResources.bind(originalRuntime);
+  let finishPending!: () => void;
+  originalInternal.running = new Promise<void>((resolve) => {
+    finishPending = resolve;
+  });
+  originalInternal.releaseDisposedResources = () => {
+    throw new Error("test teardown failure");
+  };
+  const statuses: unknown[] = [];
+  const onStatus = (event: Event) => {
+    statuses.push((event as CustomEvent).detail);
+  };
+  window.addEventListener("native-shader-status", onStatus);
+  try {
+    new Function(nativeShaderRuntimeBridgeScript)();
+    const replacement = (
+      window as Window & { __anNativeShaders?: PixelRuntime }
+    ).__anNativeShaders as PixelRuntime & { started: boolean };
+    runtime = replacement;
+    finishPending();
+    await (
+      window as Window & {
+        __anNativeShaderHandoff?: { promise: Promise<void> };
+      }
+    ).__anNativeShaderHandoff?.promise.catch(() => {});
+    expect(replacement.started).toBe(false);
+    expect(
+      document.documentElement.getAttribute("data-an-native-runtime-error"),
+    ).toBe("runtime-replacement-failed");
+    expect(statuses).toContainEqual(
+      expect.objectContaining({
+        instanceId: "test-instance",
+        status: "error",
+        code: "runtime-replacement-failed",
+      }),
+    );
+  } finally {
+    finishPending();
+    originalInternal.releaseDisposedResources = releaseResources;
+    releaseResources();
+    window.removeEventListener("native-shader-status", onStatus);
+    document.documentElement.removeAttribute("data-an-native-runtime-error");
+    Reflect.deleteProperty(window, "__anNativeShaderHandoff");
+  }
+});
+
+it("does not start after a legacy runtime throws during synchronous disposal", async () => {
+  fakeGpu();
+  const originalRuntime = await startRuntime(true);
+  await originalRuntime.dispose();
+  Object.defineProperty(window, "__anNativeShaders", {
+    configurable: true,
+    writable: true,
+    value: {
+      dispose() {
+        throw new Error("legacy disposal failed");
+      },
+    },
+  });
+  const statuses: unknown[] = [];
+  const onStatus = (event: Event) => {
+    statuses.push((event as CustomEvent).detail);
+  };
+  window.addEventListener("native-shader-status", onStatus);
+  try {
+    new Function(nativeShaderRuntimeBridgeScript)();
+    const replacement = (
+      window as Window & { __anNativeShaders?: PixelRuntime }
+    ).__anNativeShaders as PixelRuntime & { started: boolean };
+    runtime = replacement;
+    await (
+      window as Window & {
+        __anNativeShaderHandoff?: { promise: Promise<void> };
+      }
+    ).__anNativeShaderHandoff?.promise.catch(() => {});
+    expect(replacement.started).toBe(false);
+    expect(statuses).toContainEqual(
+      expect.objectContaining({
+        instanceId: "test-instance",
+        status: "error",
+        code: "runtime-replacement-failed",
+      }),
+    );
+  } finally {
+    window.removeEventListener("native-shader-status", onStatus);
+    document.documentElement.removeAttribute("data-an-native-runtime-error");
+    Reflect.deleteProperty(window, "__anNativeShaderHandoff");
+  }
+});
+
 describe("atomic backdrop scene presentation", () => {
   const nestedClipFixture = async (initiallyClipped: boolean) => {
     const gpu = fakeGpu({ completeCanvasConfiguration: true });
