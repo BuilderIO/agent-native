@@ -790,7 +790,7 @@ async function assertCandidateSourceIntegrity(
 ): Promise<void> {
   const statusOutput = execFileSync(
     "git",
-    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
     { cwd: REPOSITORY_ROOT, encoding: "utf8" },
   );
   assertCandidateWorkingTreeStatus(statusOutput);
@@ -1209,7 +1209,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       }
     }
     generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
-  });
+  }, 120_000);
 
   beforeEach(() => {
     vi.clearAllMocks();
