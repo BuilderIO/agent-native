@@ -223,10 +223,28 @@ export function validateProductionPathComparisonCsv(
       row.other_action_calls !== 0 ||
       row.failed_action_calls !== 0 ||
       !row.completed ||
-      row.aborted
+      row.aborted ||
+      row.llm_calls === 0
     ) {
       throw new Error(
         "Comparison CSV contains an invalid production-path run.",
+      );
+    }
+    const expectedHitAt5 = row.expected_rank !== null && row.expected_rank <= 5;
+    const expectedReason =
+      row.expected_rank === null
+        ? "candidate_missing"
+        : row.expected_rank === 1
+          ? "rank_1"
+          : "ranked_below_1";
+    if (
+      row.hit_at_5 !== expectedHitAt5 ||
+      row.reason_code !== expectedReason ||
+      row.score !== (expectedReason === "rank_1" ? 1 : 0)
+    ) {
+      throw new Error(
+        "Comparison CSV score does not match the measured rank: " +
+          JSON.stringify({ row, expectedHitAt5, expectedReason }),
       );
     }
   }

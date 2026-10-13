@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +9,13 @@ import {
   SYNTHETIC_PRODUCTION_PATH_CASE_IDS,
   validateProductionPathComparisonCsv,
 } from "./comparison-validation";
+
+const COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v7-before-after.csv",
+    import.meta.url,
+  ),
+);
 
 const CSV_COLUMNS = [
   "case_id",
@@ -38,7 +48,11 @@ function makeComparisonCsv(): string {
     ] of SYNTHETIC_PRODUCTION_PATH_CASE_IDS.entries()) {
       for (const run of [1, 2]) {
         const expectedRank =
-          phase === "after" || caseIndex < 2 ? 1 : 2 + (caseIndex % 3);
+          phase === "after" || caseIndex < 2
+            ? 1
+            : caseIndex < 6
+              ? caseIndex
+              : caseIndex + 1;
         const hitAt5 = phase === "after" || caseIndex < 6;
         const row = {
           case_id: caseId,
@@ -96,6 +110,18 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     ).toThrow("two runs per case and phase");
   });
 
+  it("rejects a duplicate that misaligns the before/after case/run pairs", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const lastRow = rows.at(-1)!;
+    const columns = lastRow.split(",");
+    columns[0] = SYNTHETIC_PRODUCTION_PATH_CASE_IDS[7];
+    rows[rows.length - 1] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "duplicate case/run pair",
+    );
+  });
+
   it("rejects a mismatched before/after fixture", () => {
     const csv = makeComparisonCsv();
     const changed = csv.replace(
@@ -106,5 +132,18 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     expect(() => validateProductionPathComparisonCsv(changed)).toThrow(
       "invalid provenance or score fields",
     );
+  });
+
+  it("validates the checked-in measured comparison", async () => {
+    const csv = await readFile(COMPARISON_CSV, "utf8");
+    const result = validateProductionPathComparisonCsv(csv);
+
+    expect(result).toMatchObject({
+      cases: 9,
+      before: { rows: 18, top1: 4, hitAt5: 12 },
+      after: { rows: 18, top1: 18, hitAt5: 18 },
+    });
+    expect(result.before.revision).not.toBe(result.after.revision);
+    expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
   });
 });
