@@ -161,6 +161,31 @@ describe("readImportFiles", () => {
     expect(result.omittedFileCount).toBe(2);
   });
 
+  it("counts a failed file read and continues with readable files", async () => {
+    const content = ":root { --spacing-gap: 12px; }";
+    const files = [
+      {
+        name: "unreadable.css",
+        size: 8,
+        text: async () => {
+          throw new Error("read failed");
+        },
+      },
+      {
+        name: "readable.css",
+        size: content.length,
+        text: async () => content,
+      },
+    ] as File[];
+
+    const result = await readImportFiles(files);
+
+    expect(result).toEqual({
+      files: [{ filename: "readable.css", content }],
+      omittedFileCount: 1,
+    });
+  });
+
   it("accepts a file at the byte budget and preserves the encoded-content cap", async () => {
     const content = "x".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES);
     const exactLimitFile = {

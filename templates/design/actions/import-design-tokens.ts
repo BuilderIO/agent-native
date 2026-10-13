@@ -426,6 +426,7 @@ function removeMalformedNamedLines(content: string): {
 } {
   let rejectedCount = 0;
   const lines = content.split(/\r?\n/).filter((line) => {
+    if (line.length > MAX_TOKEN_LABEL_LINE_LENGTH) return true;
     const match = line.trim().match(TOKEN_LABEL_LINE);
     if (!match || hasBalancedCssValueSyntax(match[2] ?? "")) return true;
     rejectedCount += 1;
@@ -918,6 +919,23 @@ function isValidCssColor(value: string): boolean {
   );
 }
 
+function hasUnsafeCssValueFunction(value: string): boolean {
+  let unsafe = false;
+  csstree.tokenize(value, (type, start, end) => {
+    if (unsafe) return;
+    if (type === csstree.tokenTypes.Url || type === csstree.tokenTypes.BadUrl) {
+      unsafe = true;
+      return;
+    }
+    if (type !== csstree.tokenTypes.Function) return;
+
+    const name = csstree.ident.decode(value.slice(start, end - 1));
+    unsafe =
+      name.toLowerCase() === "url" || name.toLowerCase() === "expression";
+  });
+  return unsafe;
+}
+
 function isValidImportedToken(token: ImportedDesignToken): boolean {
   if (
     !isSafeCssVarName(token.cssVar) ||
@@ -926,7 +944,7 @@ function isValidImportedToken(token: ImportedDesignToken): boolean {
   ) {
     return false;
   }
-  if (/\b(?:url|expression)\s*\(/i.test(token.value)) return false;
+  if (hasUnsafeCssValueFunction(token.value)) return false;
   if (
     token.value.trim().startsWith("#") &&
     !/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(

@@ -599,7 +599,7 @@ Bad radius: 12px} body { color: red
     const result = await action.run({
       designId: "design_1",
       source: "paste",
-      text: "Spacing:" + " ".repeat(16_000) + "12px",
+      text: "Spacing: 1" + " ".repeat(16_000) + "x",
     });
 
     expect(result.importedCount).toBe(0);
@@ -664,6 +664,22 @@ Bad radius: 12px} body { color: red
     expect(result.importedCount).toBe(0);
     expect(result.rejectedCount).toBeGreaterThanOrEqual(4);
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("rejects escaped URL and expression functions in custom token values", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --custom-escaped-url: u\\72 l("https://example.com/x");
+  --custom-nested-escaped-url: var(--missing, u\\72 l("https://example.com/y"));
+  --custom-escaped-expression: e\\78 pression(alert(1));
+}`,
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.rejectedCount).toBe(3);
+    expect(result.tokens).toEqual([]);
   });
 
   it("rejects malformed hex values even when the variable name is not color-like", async () => {

@@ -697,7 +697,13 @@ export async function readImportFiles(
       break;
     }
 
-    const content = await file.text();
+    let content: string;
+    try {
+      content = await file.text();
+    } catch {
+      omittedFileCount += 1;
+      continue;
+    }
     const encodedSize = encoder.encode(content).byteLength;
     if (contentBytes + encodedSize > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
       omittedFileCount += selected.length - index;
