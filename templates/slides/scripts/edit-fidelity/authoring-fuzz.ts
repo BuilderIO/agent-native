@@ -2832,6 +2832,14 @@ export async function runAuthoringFuzz(
               emptyInlineLink: boolean;
             }>;
             targets: HTMLElement[];
+            originalListRows: Element[];
+            emptyListExit?: {
+              list: HTMLElement;
+              item: HTMLElement;
+              expectedMoves: Element[];
+              listStyles: Record<string, string>;
+              listAttributes: string;
+            };
             merge?: {
               direction: "backward" | "forward";
               source: HTMLElement;
@@ -2880,6 +2888,32 @@ export async function runAuthoringFuzz(
                       candidate !== element && element.contains(candidate),
                   ),
               );
+        if (
+          phase === "capture" &&
+          operation.kind === "delete-list-edge" &&
+          targets[0]?.tagName === "LI"
+        ) {
+          const followingItem = targets[0].nextElementSibling;
+          if (followingItem?.tagName === "LI")
+            targets.push(followingItem as HTMLElement);
+        }
+        if (phase === "capture" && operation.kind === "backspace-list-edge") {
+          const isStyledBulletRow = (element: Element | null) => {
+            const marker = element?.firstElementChild;
+            return (
+              element?.tagName === "DIV" &&
+              getComputedStyle(element).display === "flex" &&
+              marker?.tagName === "SPAN" &&
+              /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+              element.lastElementChild?.tagName === "SPAN"
+            );
+          };
+          const row = targets[0];
+          const previousRow = row?.previousElementSibling;
+          if (isStyledBulletRow(row) && isStyledBulletRow(previousRow)) {
+            targets.unshift(previousRow as HTMLElement);
+          }
+        }
         const activeItem =
           targets[0]?.tagName === "LI" ? targets[0] : targets[0]?.closest("li");
         const activeList = activeItem?.parentElement ?? null;
@@ -2899,7 +2933,8 @@ export async function runAuthoringFuzz(
         if (
           phase === "assert" &&
           (operation.kind === "backspace-block-edge" ||
-            operation.kind === "delete-block-edge") &&
+            operation.kind === "delete-block-edge" ||
+            operation.kind === "empty-list-exit") &&
           previous?.root === root
         ) {
           targets = previous.targets;
@@ -3157,7 +3192,9 @@ export async function runAuthoringFuzz(
           node instanceof Element &&
           (node.tagName === "LI" || isListGroup(node));
         const originalListRows = new Set<Element>();
-        if (listShortcut) {
+        if (phase === "assert" && previous?.root === root) {
+          previous.originalListRows.forEach((row) => originalListRows.add(row));
+        } else if (listShortcut) {
           for (const target of targets) {
             let candidate = target.parentElement;
             while (candidate && candidate !== root) {
@@ -3174,6 +3211,41 @@ export async function runAuthoringFuzz(
             }
           }
         }
+        const emptyListExit =
+          phase === "capture" &&
+          operation.kind === "empty-list-exit" &&
+          activeItem &&
+          activeList &&
+          /^(OL|UL)$/.test(activeList.tagName)
+            ? (() => {
+                const rows = Array.from(activeList.children).filter(
+                  (child) => child.tagName === "LI",
+                );
+                const itemIndex = rows.indexOf(activeItem);
+                if (itemIndex < 0) {
+                  throw new Error(
+                    "empty-list-exit setup could not find its active list item",
+                  );
+                }
+                const before = rows.slice(0, itemIndex);
+                const after = rows.slice(itemIndex + 1);
+                const expectedMoves =
+                  activeList === root
+                    ? rows.filter((row) => row !== activeItem)
+                    : before.length && after.length
+                      ? after
+                      : [];
+                return {
+                  list: activeList,
+                  item: activeItem,
+                  expectedMoves,
+                  listStyles: styleValues(activeList),
+                  listAttributes: authoredAttributes(activeList),
+                };
+              })()
+            : phase === "assert"
+              ? previous?.emptyListExit
+              : undefined;
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
           isEditorInlineStyleSpan(element) &&
           !element.textContent &&
@@ -3251,6 +3323,8 @@ export async function runAuthoringFuzz(
             root,
             records,
             targets: [...targets],
+            originalListRows: [...originalListRows],
+            emptyListExit,
             merge,
           };
           return [];
@@ -3367,6 +3441,13 @@ export async function runAuthoringFuzz(
             newParent.children.length === 2 &&
             newParent.firstElementChild?.tagName === "H2" &&
             newParent.lastElementChild === record.node;
+          const expectedEmptyListMove =
+            operation.kind === "empty-list-exit" &&
+            record.node instanceof Element &&
+            baseline.emptyListExit?.expectedMoves.includes(record.node) &&
+            isListContainer(record.parent) &&
+            record.node.parentNode &&
+            isListContainer(record.node.parentNode);
           if (
             moved &&
             !(
@@ -3377,7 +3458,8 @@ export async function runAuthoringFuzz(
                 originalListRows.has(record.node) &&
                 isListContainer(record.parent) &&
                 record.node.parentNode &&
-                isListContainer(record.node.parentNode))
+                isListContainer(record.node.parentNode)) ||
+              expectedEmptyListMove
             )
           ) {
             const structure = (node: Node) =>
@@ -3468,6 +3550,32 @@ export async function runAuthoringFuzz(
             failures.push(
               `changed ${record.node.nodeName} at ${path(record.node)} (${changes.join(", ")}${changes.includes("text") ? `, content signature length=${record.contentSignature.length}->${changedTextLength}` : ""}${styleDetails.length ? `: ${styleDetails.join(", ")}` : ""})`,
             );
+          }
+        }
+        if (baseline.emptyListExit && baseline.emptyListExit.list !== root) {
+          const { list, listStyles, listAttributes } = baseline.emptyListExit;
+          if (!root.contains(list)) {
+            failures.push(
+              "empty-list-exit removed its existing list container",
+            );
+          } else {
+            const changed = changedStyleProperties(list, listStyles);
+            if (changed.length) {
+              failures.push(
+                `empty-list-exit changed list container style: ${changed
+                  .slice(0, 6)
+                  .map(
+                    (property) =>
+                      `${property}=${listStyles[property] ?? ""}->${getComputedStyle(list).getPropertyValue(property)}`,
+                  )
+                  .join(", ")}`,
+              );
+            }
+            if (authoredAttributes(list) !== listAttributes) {
+              failures.push(
+                "empty-list-exit changed list container attributes",
+              );
+            }
           }
         }
         if (mergeAssertion) {
@@ -3975,42 +4083,174 @@ export async function runAuthoringFuzz(
     });
   const newPlainLine = async (label = "authoring operation") => {
     await editor.evaluate((root: HTMLElement) => {
-      root.focus();
+      if (document.activeElement !== root) root.focus();
       const selection = window.getSelection();
       if (!selection) throw new Error("editor has no text selection");
-      const range = document.createRange();
-      const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let lastText: Text | null = null;
-      for (let node = textNodes.nextNode(); node; node = textNodes.nextNode()) {
-        lastText = node as Text;
+      const isVisible = (range: Range) => {
+        const rangeRect = range.getBoundingClientRect();
+        const anchor =
+          range.startContainer instanceof Element
+            ? range.startContainer
+            : range.startContainer.parentElement;
+        const rect =
+          rangeRect.height > 0 ? rangeRect : anchor?.getBoundingClientRect();
+        return (
+          !!rect &&
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.left <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight
+        );
+      };
+      const blockEdgeRange = (block: HTMLElement, end: boolean) => {
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        let firstText: Text | null = null;
+        let lastText: Text | null = null;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          if (!text.length) continue;
+          firstText ??= text;
+          lastText = text;
+        }
+        const range = document.createRange();
+        const text = end ? lastText : firstText;
+        if (text) range.setStart(text, end ? text.length : 0);
+        else range.selectNodeContents(block);
+        range.collapse(end);
+        return range;
+      };
+      let emptyPlainRange: Range | null = null;
+      let plainEndRange: Range | null = null;
+      let plainStartRange: Range | null = null;
+      const plainBlocks = [
+        ...(root.matches("p,div") ? [root] : []),
+        ...root.querySelectorAll<HTMLElement>("p,div"),
+      ];
+      for (const block of plainBlocks) {
+        if (
+          block.querySelector("p,div,li,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre")
+        )
+          continue;
+        if (block.closest("li,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre"))
+          continue;
+        const marker = block.firstElementChild;
+        if (
+          getComputedStyle(block).display === "flex" &&
+          marker?.tagName === "SPAN" &&
+          /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+          block.lastElementChild?.tagName === "SPAN"
+        )
+          continue;
+        if (block.querySelector("img,svg,video,canvas,picture,iframe,input,hr"))
+          continue;
+        const text = (block.textContent ?? "")
+          .replaceAll(/[\u200b\ufeff]/g, "")
+          .replaceAll("\u00a0", "");
+        const endRange = blockEdgeRange(block, true);
+        if (isVisible(endRange)) {
+          if (!text) {
+            emptyPlainRange = endRange;
+            break;
+          }
+          plainEndRange ??= endRange;
+          continue;
+        }
+        if (!text) continue;
+        const startRange = blockEdgeRange(block, false);
+        if (isVisible(startRange)) plainStartRange ??= startRange;
       }
-      if (lastText) range.setStart(lastText, lastText.length);
-      else {
+      let range = emptyPlainRange ?? plainEndRange ?? plainStartRange;
+      if (!range) {
+        const headings = [
+          ...(root.matches("h1,h2,h3,h4,h5,h6") ? [root] : []),
+          ...root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"),
+        ];
+        for (const heading of headings) {
+          const candidate = blockEdgeRange(heading, true);
+          if (isVisible(candidate)) {
+            range = candidate;
+            break;
+          }
+        }
+      }
+      if (!range) {
+        range = document.createRange();
         range.selectNodeContents(root);
         range.collapse(false);
       }
-      range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
-      const caretTarget =
-        range.startContainer instanceof Element
-          ? range.startContainer
-          : range.startContainer.parentElement;
-      (caretTarget ?? root).scrollIntoView({
+      const caretTarget = range.startContainer.parentElement ?? root;
+      caretTarget.scrollIntoView({
         block: "nearest",
         inline: "nearest",
       });
+      const rangeRect = range.getBoundingClientRect();
+      const caretRect =
+        rangeRect.height > 0
+          ? rangeRect
+          : range.startContainer instanceof Element
+            ? range.startContainer.getBoundingClientRect()
+            : range.startContainer.parentElement?.getBoundingClientRect();
+      if (
+        !caretRect ||
+        caretRect.height <= 0 ||
+        caretRect.left < 0 ||
+        caretRect.left > window.innerWidth ||
+        caretRect.top < 0 ||
+        caretRect.bottom > window.innerHeight
+      ) {
+        throw new Error("authoring fuzz could not place its caret in view");
+      }
     });
     let state = await plainLineState();
+    const setupStates = [state];
     let attempts = 0;
     for (let attempt = 0; !state.valid && attempt < 8; attempt += 1) {
-      await editor.press("Enter");
+      await page.keyboard.press("Enter");
+      await editor.evaluate((root: HTMLElement) => {
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return;
+        const range = selection.getRangeAt(0);
+        if (!root.contains(range.startContainer)) return;
+        const caretTarget = range.startContainer.parentElement ?? root;
+        caretTarget.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
       state = await plainLineState();
+      setupStates.push(state);
       attempts += 1;
     }
     if (!state.valid)
       throw new Error(
-        `${label} setup did not reach an empty plain line (${JSON.stringify({ attempts, state })})`,
+        `${label} setup did not reach an empty plain line (${JSON.stringify({ attempts, state, setupStates })})`,
+      );
+    const finalCaret = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !root.contains(selection.focusNode))
+        return null;
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        withinViewport:
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.left <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight,
+      };
+    });
+    if (!finalCaret?.withinViewport)
+      throw new Error(
+        `${label} setup left the caret outside the viewport (${JSON.stringify(finalCaret)})`,
       );
     const operation = plan[activeIndex];
     if (!operation) throw new Error("authoring operation is unavailable");
@@ -4335,6 +4575,38 @@ export async function runAuthoringFuzz(
   const placeCaretAtToken = async (token: string, edge: "start" | "end") => {
     await selectToken(token, edge);
   };
+  const listCaretState = async (token: string) =>
+    editor.evaluate((root: HTMLElement, value: string) => {
+      const selection = window.getSelection();
+      const anchorNode = selection?.anchorNode ?? null;
+      const anchor =
+        anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
+      const activeItem = anchor?.closest<HTMLElement>("li") ?? null;
+      const tokenItem =
+        Array.from(root.querySelectorAll<HTMLElement>("li")).find((item) =>
+          item.textContent?.includes(value),
+        ) ?? null;
+      const itemState = (item: HTMLElement | null) =>
+        item
+          ? {
+              connected: item.isConnected,
+              parentTag: item.parentElement?.tagName ?? null,
+              textLength: item.textContent?.length ?? 0,
+            }
+          : null;
+      return {
+        focused: document.activeElement === root,
+        selectionCollapsed: selection?.isCollapsed ?? false,
+        anchorTag:
+          anchorNode instanceof Element
+            ? anchorNode.tagName
+            : (anchorNode?.parentElement?.tagName ?? null),
+        anchorOffset: selection?.anchorOffset ?? null,
+        activeItem: itemState(activeItem),
+        tokenItem: itemState(tokenItem),
+        caretInTokenItem: !!activeItem && activeItem === tokenItem,
+      };
+    }, token);
   const listRowCount = async (kind: "styled" | "ul" | "ol") =>
     editor.evaluate((root: HTMLElement, type: string) => {
       if (type === "styled") {
@@ -4386,31 +4658,49 @@ export async function runAuthoringFuzz(
         root: HTMLElement,
         values: { kind: string; first: string; second: string },
       ) => {
-        const entryFor = (token: string) => {
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            if (!(node as Text).data.includes(token)) continue;
-            let entry = (node as Text).parentElement;
-            if (values.kind === "styled") {
-              while (entry && entry !== root) {
-                const marker = entry.firstElementChild;
-                if (
-                  getComputedStyle(entry).display === "flex" &&
-                  marker?.tagName === "SPAN" &&
-                  /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "")
-                ) {
-                  return entry.textContent?.includes(token) ? entry : null;
-                }
-                entry = entry.parentElement;
-              }
-              return null;
-            }
-            const item = entry?.closest<HTMLElement>("li");
-            return item?.parentElement?.tagName === values.kind.toUpperCase()
-              ? item
-              : null;
+        const points: Array<{ text: Text; offset: number }> = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let visible = "";
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          for (let offset = 0; offset < text.length; offset += 1) {
+            if (text.data[offset] === "\u200b") continue;
+            points.push({ text, offset });
+            visible += text.data[offset] === "\u00a0" ? " " : text.data[offset];
           }
-          return null;
+        }
+        const entryFor = (token: string) => {
+          const start = visible.lastIndexOf(token);
+          if (start < 0) return null;
+          const firstPoint = points[start];
+          const lastPoint = points[start + token.length - 1];
+          if (!firstPoint || !lastPoint) return null;
+          const firstElement = firstPoint.text.parentElement;
+          const lastElement = lastPoint.text.parentElement;
+          if (values.kind === "styled") {
+            let entry = firstElement;
+            while (entry && entry !== root) {
+              const marker = entry.firstElementChild;
+              if (
+                getComputedStyle(entry).display === "flex" &&
+                marker?.tagName === "SPAN" &&
+                /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "")
+              ) {
+                return entry.contains(lastElement) &&
+                  entry.textContent?.includes(token)
+                  ? entry
+                  : null;
+              }
+              entry = entry.parentElement;
+            }
+            return null;
+          }
+          const item = firstElement?.closest<HTMLElement>("li");
+          return item &&
+            item.contains(lastElement) &&
+            item.parentElement?.tagName === values.kind.toUpperCase()
+            ? item
+            : null;
         };
         const first = entryFor(values.first);
         const second = entryFor(values.second);
@@ -4430,24 +4720,48 @@ export async function runAuthoringFuzz(
           const anchor = selection?.anchorNode;
           const element =
             anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
-          const tokenBlock = (token: string) => {
+          const tokenLocation = (token: string) => {
             const walker = document.createTreeWalker(
               root,
               NodeFilter.SHOW_TEXT,
             );
+            const points: Array<{ text: Text; offset: number }> = [];
+            let visible = "";
             for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-              if (!(node as Text).data.includes(token)) continue;
-              const block = (node as Text).parentElement?.closest<HTMLElement>(
-                "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
-              );
-              const text = block?.textContent ?? "";
-              return {
-                tag: block?.tagName ?? null,
-                length: text.length,
-                shortcutPrefixRemains: text.includes(`- ${token}`),
-              };
+              const text = node as Text;
+              for (let offset = 0; offset < text.length; offset += 1) {
+                if (text.data[offset] === "\u200b") continue;
+                points.push({ text, offset });
+                visible +=
+                  text.data[offset] === "\u00a0" ? " " : text.data[offset];
+              }
             }
-            return null;
+            const start = visible.lastIndexOf(token);
+            const firstPoint = start < 0 ? null : points[start];
+            const lastPoint =
+              start < 0 ? null : points[start + token.length - 1];
+            if (!firstPoint || !lastPoint) return null;
+            const firstElement = firstPoint.text.parentElement;
+            const item = firstElement?.closest("li");
+            const lastElement = lastPoint.text.parentElement;
+            const ancestors: string[] = [];
+            for (
+              let current: Element | null = firstElement;
+              current && root.contains(current);
+              current = current.parentElement
+            ) {
+              ancestors.push(current.tagName);
+              if (current === root) break;
+            }
+            return {
+              ancestors,
+              blockTag:
+                firstElement?.closest(
+                  "p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre",
+                )?.tagName ?? null,
+              listTag: item?.parentElement?.tagName ?? null,
+              sameListItem: !!item && item.contains(lastElement),
+            };
           };
           const rows = [
             ...(root.matches("div") ? [root] : []),
@@ -4496,7 +4810,8 @@ export async function runAuthoringFuzz(
             })(),
             firstTokenPresent: root.textContent?.includes(tokens[0] ?? ""),
             secondTokenPresent: root.textContent?.includes(tokens[1] ?? ""),
-            firstTokenBlock: tokenBlock(tokens[0] ?? ""),
+            firstTokenLocation: tokenLocation(tokens[0] ?? ""),
+            secondTokenLocation: tokenLocation(tokens[1] ?? ""),
           };
         },
         [firstToken, secondToken],
@@ -5160,24 +5475,50 @@ export async function runAuthoringFuzz(
           break;
         }
         case "empty-list-exit": {
-          await runSlashCommand("bulletList");
-          const token = `list${activeIndex}`;
-          await typeText(token);
-          await editor.press(lineEndKey);
-          await editor.press("Enter");
-          await editor.press("Enter");
-          const exited = await editor.evaluate(
-            (root: HTMLElement, expected: string) =>
-              Array.from(root.querySelectorAll("ul,ol")).some(
-                (list) =>
-                  list.textContent?.includes(expected) &&
-                  list.nextElementSibling?.tagName === "P",
-              ),
-            token,
-          );
-          if (!exited)
+          const { secondToken } = await createList("ul");
+          await placeCaretAtToken(secondToken, "end");
+          const beforeEnter = await listCaretState(secondToken);
+          await page.keyboard.press(lineEndKey);
+          const afterLineEnd = await listCaretState(secondToken);
+          await page.keyboard.press("Enter");
+          const afterFirstEnter = await listCaretState(secondToken);
+          if (
+            !afterFirstEnter.activeItem ||
+            afterFirstEnter.caretInTokenItem ||
+            afterFirstEnter.activeItem.parentTag !== "UL"
+          ) {
             throw new Error(
-              "Enter on an empty list item did not exit the list",
+              `Enter did not create an empty list item (${JSON.stringify({ beforeEnter, afterLineEnd, afterFirstEnter })})`,
+            );
+          }
+          await snapshotEditorSiblings("capture", operation);
+          await page.keyboard.press("Enter");
+          const result = await editor.evaluate(
+            (root: HTMLElement, expected: string) =>
+              (() => {
+                const state = window as Window & {
+                  __authoringFuzzSiblingSnapshot?: {
+                    emptyListExit?: { item: HTMLElement };
+                  };
+                };
+                const item =
+                  state.__authoringFuzzSiblingSnapshot?.emptyListExit?.item;
+                return {
+                  itemRemoved: !!item && !root.contains(item),
+                  listFollowedByParagraph: Array.from(
+                    root.querySelectorAll("ul,ol"),
+                  ).some(
+                    (list) =>
+                      list.textContent?.includes(expected) &&
+                      list.nextElementSibling?.tagName === "P",
+                  ),
+                };
+              })(),
+            secondToken,
+          );
+          if (!result.itemRemoved || !result.listFollowedByParagraph)
+            throw new Error(
+              `Enter on an empty list item did not exit the list (${JSON.stringify(result)})`,
             );
           break;
         }
@@ -5325,6 +5666,7 @@ export async function runAuthoringFuzz(
         }
         case "enter-list-edge":
           await createList("ul");
+          await snapshotEditorSiblings("capture", operation);
           {
             const before = await listRowCount("ul");
             await editor.press(lineEndKey);
@@ -5338,6 +5680,7 @@ export async function runAuthoringFuzz(
             const { firstToken, secondToken } = await createList("styled");
             const before = await listRowCount("styled");
             await placeCaretAtToken(secondToken, "start");
+            await snapshotEditorSiblings("capture", operation);
             await editor.press("Backspace");
             const afterDemotion = await listRowCount("styled");
             const firstPressState = await editor.evaluate(
@@ -5438,6 +5781,7 @@ export async function runAuthoringFuzz(
             const { firstToken, secondToken } = await createList("ol");
             const before = await listRowCount("ol");
             await placeCaretAtToken(firstToken, "end");
+            await snapshotEditorSiblings("capture", operation);
             await editor.press("Delete");
             const text = (await inspectSelection()).text;
             if (
@@ -5452,6 +5796,7 @@ export async function runAuthoringFuzz(
         case "tab": {
           const { secondToken } = await createList(operation.list);
           await placeCaretAtToken(secondToken, "end");
+          await snapshotEditorSiblings("capture", operation);
           if (operation.list === "styled") {
             const before = await rowIndent(secondToken);
             await editor.press("Tab");
@@ -5472,6 +5817,7 @@ export async function runAuthoringFuzz(
             const original = await rowIndent(secondToken);
             await editor.press("Tab");
             const indented = await rowIndent(secondToken);
+            await snapshotEditorSiblings("capture", operation);
             await page.keyboard.press("Shift+Tab");
             const outdented = await rowIndent(secondToken);
             if (
@@ -5490,6 +5836,7 @@ export async function runAuthoringFuzz(
             if (!(await isNestedListToken(secondToken)))
               throw new Error(`Tab did not nest the ${operation.list} item`);
             await placeCaretAtToken(secondToken, "end");
+            await snapshotEditorSiblings("capture", operation);
             await page.keyboard.press("Shift+Tab");
             if (await isNestedListToken(secondToken))
               throw new Error(
@@ -5889,11 +6236,13 @@ export async function runAuthoringFuzz(
         }
         case "select-cross-block-type": {
           await makeCrossBlockSelection();
+          await snapshotEditorSiblings("capture", operation);
           await typeText("R");
           break;
         }
         case "select-cross-block-delete": {
           await makeCrossBlockSelection();
+          await snapshotEditorSiblings("capture", operation);
           const selected = await inspectSelection();
           const expected =
             selected.text.slice(0, selected.start) +
@@ -6539,6 +6888,25 @@ export async function runAuthoringFuzz(
             prefixEmpty: prefix.length === 0,
             prefixEndsInWhitespace: /\s$/.test(prefix),
             slashOffset: prefix.lastIndexOf("/"),
+            caretRect: (() => {
+              if (!selection?.rangeCount) return null;
+              const rect = selection.getRangeAt(0).getBoundingClientRect();
+              return {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+              };
+            })(),
+          },
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+            documentHeight: document.documentElement.scrollHeight,
           },
           slashMenu: {
             count: listboxes.length,
@@ -6552,6 +6920,63 @@ export async function runAuthoringFuzz(
               listbox.getClientRects().length > 0,
             optionCount:
               listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            activeOption: (() => {
+              const activeId =
+                root instanceof HTMLElement
+                  ? root.getAttribute("aria-activedescendant")
+                  : null;
+              const active = activeId
+                ? document.getElementById(activeId)
+                : null;
+              const activeStyle = active ? getComputedStyle(active) : null;
+              const activeRect = active?.getBoundingClientRect();
+              return {
+                id: activeId,
+                exists: !!active,
+                role: active?.getAttribute("role") ?? null,
+                contained: !!(listbox && active && listbox.contains(active)),
+                text: active?.textContent?.trim().slice(0, 100) ?? null,
+                display: activeStyle?.display ?? null,
+                visibility: activeStyle?.visibility ?? null,
+                opacity: activeStyle?.opacity ?? null,
+                clientRects: active?.getClientRects().length ?? 0,
+                rect: activeRect
+                  ? {
+                      left: activeRect.left,
+                      top: activeRect.top,
+                      right: activeRect.right,
+                      bottom: activeRect.bottom,
+                      width: activeRect.width,
+                      height: activeRect.height,
+                    }
+                  : null,
+              };
+            })(),
+            options: Array.from(
+              listbox?.querySelectorAll<HTMLElement>('[role="option"]') ?? [],
+            ).map((option) => {
+              const style = getComputedStyle(option);
+              const rect = option.getBoundingClientRect();
+              return {
+                id: option.id,
+                text: option.textContent?.trim().slice(0, 100) ?? null,
+                selected:
+                  option.getAttribute("aria-selected") ??
+                  option.getAttribute("data-selected"),
+                display: style.display,
+                visibility: style.visibility,
+                opacity: style.opacity,
+                clientRects: option.getClientRects().length,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  right: rect.right,
+                  bottom: rect.bottom,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            }),
             listboxes: listboxes.map((menu) => {
               const style = getComputedStyle(menu);
               const rect = menu.getBoundingClientRect();
