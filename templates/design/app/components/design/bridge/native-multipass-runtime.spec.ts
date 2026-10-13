@@ -271,8 +271,16 @@ describe("native multipass texture bindings", () => {
         simulatedPixels.set(id, new Uint8Array(4));
         return texture;
       },
-      createBuffer: ({ size = 256 }: { size?: number } = {}) => ({
-        mapState: "unmapped",
+      createBuffer: ({
+        size = 256,
+        usage = 0,
+        label = "",
+      }: { size?: number; usage?: number; label?: string } = {}) => ({
+        __brand: "GPUBuffer" as const,
+        size,
+        usage,
+        label,
+        mapState: "unmapped" as GPUBufferMapState,
         async mapAsync() {
           this.mapState = "mapped";
         },

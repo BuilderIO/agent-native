@@ -264,7 +264,9 @@ const definition = {
 
 function fakeGpu() {
   let nextId = 0;
-  const groups: GPUBindGroupDescriptor[] = [];
+  const groups: {
+    entries: { binding: number; resource: unknown }[];
+  }[] = [];
   const waits: Array<() => void> = [];
   const released: number[] = [];
   let leases = 0;
@@ -299,7 +301,12 @@ function fakeGpu() {
       destroy: () => undefined,
     }),
     createBindGroup: (descriptor: GPUBindGroupDescriptor) => {
-      groups.push(descriptor);
+      groups.push({
+        entries: descriptor.entries.map((entry) => ({
+          binding: entry.binding,
+          resource: entry.resource,
+        })),
+      });
       return {};
     },
     createCommandEncoder: () => encoder,
@@ -722,8 +729,9 @@ describe("NativeStatefulResourceSession", () => {
     expect(gpu.groups).toHaveLength(groupsBeforeRepeat + 1);
     expect(
       (
-        gpu.groups.at(-1)!.entries.find((entry) => entry.binding === 3)!
-          .resource as { buffer: GPUBuffer }
+        gpu.groups[gpu.groups.length - 1]!.entries.find(
+          (entry) => entry.binding === 3,
+        )!.resource as { buffer: GPUBuffer }
       ).buffer,
     ).toBe(committedParticles.buffer);
     const repeatCommit = repeated.commit();
