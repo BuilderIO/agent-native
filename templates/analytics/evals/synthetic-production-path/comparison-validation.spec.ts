@@ -54,12 +54,18 @@ const V16_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V17_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v17-before-after.csv",
+    import.meta.url,
+  ),
+);
 function loadMeasuredComparisonCsv(): string {
-  return readFileSync(V16_COMPARISON_CSV, "utf8");
+  return readFileSync(V17_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("validates the measured v16 production-path comparison", () => {
+  it("validates the measured v17 production-path comparison", () => {
     const result = validateProductionPathComparisonCsv(
       loadMeasuredComparisonCsv(),
     );
@@ -74,6 +80,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 4,
         abortedRuns: 0,
         staleIndexMarked: 4,
+        revision: "fadfb1b593c71e6a03282269dcb0c9df946188d1",
+        codeRevision:
+          "sha256:8a02bfc89d66d8c5465847c557fc03bf5319119b72c8b793de17ff3fd1cafa35",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
@@ -84,6 +93,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 0,
         abortedRuns: 0,
         staleIndexMarked: 4,
+        revision: "5a53b3d1bef1fccbfb4ea49da16babd9cb45413c",
+        codeRevision:
+          "sha256:eff504faed54f807031617dc94807db6062939095f02305bef26d8677acefb34",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });

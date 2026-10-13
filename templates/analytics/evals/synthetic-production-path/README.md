@@ -24,10 +24,44 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
-## Latest measured v16 comparison
+## Latest measured v17 comparison
+
+The v17 artifact evaluates the same twenty-four synthetic retrieval cases twice
+per phase through the Analytics production agent loop. Its baseline is current
+`origin/main` at `fadfb1b593c71e6a03282269dcb0c9df946188d1`; its candidate source
+snapshot is `5a53b3d1bef1fccbfb4ea49da16babd9cb45413c`. Both phases use the same
+synthetic prompts, expected source IDs, and metadata fixtures.
+
+Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
+(95.8%) to 48/48 (100%). The four baseline retrieval misses were two runs where
+the aliased membership source was missing and two where an approved stale
+generated entry ranked above the current roster. The candidate ranked the
+expected source first for all twenty-four cases. All 96 runs completed the
+production path without aborts; each made one `find-data` call and no other or
+failed action. The stale-index marker appears in four rows in each phase.
+
+Evaluated-code hashes are
+`sha256:8a02bfc89d66d8c5465847c557fc03bf5319119b72c8b793de17ff3fd1cafa35`
+before and
+`sha256:eff504faed54f807031617dc94807db6062939095f02305bef26d8677acefb34`
+after. Both phases used the same harness bytes,
+`sha256:410af60f8fe7f4e33c2a06c525de18809f7184df110538d5f4806ae577f0c573`.
+The checked-in validator pins both source revisions and hashes, the fixture,
+case IDs, and harness hash, and checks paired runs, safe CSV fields, production
+path completion, and stale-index markers.
+
+This synthetic test does not call a hosted model, Builder.io BigQuery, or a
+connected data source. It measures retrieval over fixture-backed catalog data,
+not answer quality on real user chats or production latency. The cache,
+connection-status, and source-index truncation fixes have separate regression
+tests and are not performance claims in this CSV. It contains no prompts, tool
+inputs, SQL, identities, or source values. The artifact is
+[`SYNTHETIC-analytics-production-path-v17-before-after.csv`](./SYNTHETIC-analytics-production-path-v17-before-after.csv).
+
+## Historical measured v16 comparison
 
 The v16 artifact evaluates twenty-four synthetic retrieval cases twice per
-phase through the Analytics production agent loop. Its baseline is current
+phase through the Analytics production agent loop. Its baseline was
 `origin/main` at `db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f`; its candidate source
 snapshot is `7beae453965eb1590ddf80d0991a211aaa3aea7c`. Both phases used the
 same prompts, expected tables, and synthetic membership model. The baseline
