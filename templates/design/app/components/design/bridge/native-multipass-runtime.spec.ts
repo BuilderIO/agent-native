@@ -1342,6 +1342,7 @@ describe("native multipass texture bindings", () => {
         )
         .mockResolvedValue(undefined);
       const composeAppearance = vi.spyOn(internal, "composeScene");
+      authoredDependencies.complete.add("authored-backdrop");
       const appearanceTexture = await authoredRunner.authoredInputTexture(
         mounted,
         "authored",
@@ -1359,6 +1360,31 @@ describe("native multipass texture bindings", () => {
           composeAppearance.mock.calls.length - 1
         ]?.[1].map((record) => record.nativeInstanceId),
       ).toEqual(["authored-backdrop", undefined]);
+      const appearanceCapture = (
+        mounted as typeof mounted & {
+          authoredInputs: Map<
+            string,
+            { provider: { diagnosticSnapshot(): { readSceneCalls: number } } }
+          >;
+        }
+      ).authoredInputs.get("authored")!;
+      expect(
+        appearanceCapture.provider.diagnosticSnapshot().readSceneCalls,
+      ).toBe(1);
+      authoredDependencies.complete.delete("authored-backdrop");
+      await authoredRunner.authoredInputTexture(
+        mounted,
+        "authored",
+        { nodeId: "other-node", capture: "appearance" },
+        0,
+        false,
+        device.createCommandEncoder(),
+        authoredDependencies.complete,
+        authoredDependencies.active,
+      );
+      expect(
+        appearanceCapture.provider.diagnosticSnapshot().readSceneCalls,
+      ).toBe(3);
       backdropCanvas.remove();
       await expect(
         authoredRunner.authoredInputTexture(

@@ -24873,8 +24873,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "effect-dependency-cycle",
             \`Authored input \${binding.nodeId} depends on an active effect.\`
           );
+        const wasComplete = complete.has(dependency.instance.id);
         await this.renderMount(dependency, time, deterministic, complete, active);
-        refreshed = true;
+        if (!wasComplete) refreshed = true;
       }
       if (refreshed) {
         read = await readStableScene();
@@ -27042,6 +27043,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               );
             if (nestedTransaction && dependency.instance.placement === "backdrop" && dependency.target !== mount.target && mount.target.contains(dependency.target))
               continue;
+            const wasComplete = complete.has(dependency.instance.id);
             await this.renderMount(
               dependency,
               time,
@@ -27049,7 +27051,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               complete,
               active
             );
-            renderedDependency = true;
+            if (!wasComplete) renderedDependency = true;
           }
           if (renderedDependency) {
             const sourceStarted2 = performance.now();
