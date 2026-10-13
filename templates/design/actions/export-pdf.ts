@@ -1,14 +1,21 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import { injectHiddenLayerExportStyle } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js";
+
+const trackPdfExportFailures = withDesignExportFailureTracking<{ id: string }>(
+  "pdf",
+);
 
 export default defineAction({
   description:
@@ -19,9 +26,10 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ id }, ctx) => {
+  run: trackPdfExportFailures(async ({ id }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
@@ -31,17 +39,10 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        export_format: "pdf",
-        file_count: exportFiles.length,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "pdf", status: "completed" },
       ctx,
     );
 
@@ -65,5 +66,5 @@ export default defineAction({
         note: "The Design editor renders the active artboard as a single-page raster PDF at its fixed authored size. This preserves visual appearance but does not provide selectable/vector text; export separate screens individually.",
       },
     };
-  },
+  }),
 });

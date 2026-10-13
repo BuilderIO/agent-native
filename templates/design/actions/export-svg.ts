@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import {
   buildStandaloneHtml,
   buildSvgForeignObject,
@@ -13,6 +16,12 @@ import {
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js";
+
+const trackSvgExportFailures = withDesignExportFailureTracking<{
+  id: string;
+  width: number;
+  height: number;
+}>("svg");
 
 export default defineAction({
   description:
@@ -36,9 +45,10 @@ export default defineAction({
       .describe("SVG viewport height in pixels"),
   }),
   readOnly: true,
-  run: async ({ id, width, height }, ctx) => {
+  run: trackSvgExportFailures(async ({ id, width, height }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
@@ -48,6 +58,7 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
     const html = buildStandaloneHtml({
       title: row.title,
@@ -63,19 +74,11 @@ export default defineAction({
     const filename = exportFilename(row.title, "svg");
     const saveResult = await trySaveExportFile(filename, svg);
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        export_format: "svg",
-        file_count: exportFiles.length,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "svg", status: "completed" },
       ctx,
     );
 
     return { svg, filename, ...saveResult, fileCount: exportFiles.length };
-  },
+  }),
 });
