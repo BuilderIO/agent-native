@@ -1286,6 +1286,7 @@ function parseBlocksFromNodes(
     markdownBlockIds?: string[];
     markdownBlocks?: MarkdownBlockState[];
     preserveAuthoringFieldPresence?: boolean;
+    salvageInvalidBlocks?: boolean;
   } = {},
 ): PlanBlock[] {
   const parsedNodes: ParsedPlanNode[] = [];
@@ -1298,18 +1299,34 @@ function parseBlocksFromNodes(
   };
 
   for (const [index, child] of (nodes ?? []).entries()) {
-    const parsedBlock = parseBlock(
-      child,
-      `${idContext}-${index}`,
-      options.preserveAuthoringFieldPresence,
-    );
-    const block = parsedBlock
-      ? validateAndPreserveAuthoringField(
-          parsedBlock,
-          child,
-          options.preserveAuthoringFieldPresence === true,
-        )
-      : parsedBlock;
+    let block: PlanBlock | null;
+    try {
+      const parsedBlock = parseBlock(
+        child,
+        `${idContext}-${index}`,
+        options.preserveAuthoringFieldPresence,
+      );
+      block = parsedBlock
+        ? validateAndPreserveAuthoringField(
+            parsedBlock,
+            child,
+            options.preserveAuthoringFieldPresence === true,
+          )
+        : parsedBlock;
+    } catch (error) {
+      if (!options.salvageInvalidBlocks) throw error;
+      flushLoose();
+      parsedNodes.push({
+        type: "block",
+        block: invalidBlockWarningPlaceholder(
+          stringAttr(child, "id") ?? createPlanBlockId("block"),
+          elementName(child) ?? "unknown",
+          stringAttr(child, "title"),
+          error,
+        ),
+      });
+      continue;
+    }
     if (block) {
       flushLoose();
       parsedNodes.push({ type: "block", block });
@@ -1337,6 +1354,25 @@ function parseBlocksFromNodes(
     } satisfies PlanBlock;
   });
   return blocks;
+}
+
+function invalidBlockWarningPlaceholder(
+  id: string,
+  originalType: string,
+  title: string | undefined,
+  error: unknown,
+): PlanBlock {
+  const summary =
+    error instanceof Error ? error.message.slice(0, 500) : "Parse error";
+  return {
+    id,
+    type: "callout",
+    title,
+    data: {
+      tone: "warning",
+      body: `​__unknown_block__:${originalType}\n${summary}`,
+    },
+  };
 }
 
 function elementName(node: MdxNode | undefined): string | undefined {
@@ -1813,6 +1849,7 @@ export async function parsePlanMdxFolder(
     markdownBlocks: state?.markdownBlocks,
     preserveAuthoringFieldPresence:
       options.validateAuthoringChangesAgainst !== undefined,
+    salvageInvalidBlocks: options.salvageInvalidBlocks,
   });
 
   const canvas = files["canvas.mdx"]
@@ -1823,7 +1860,7 @@ export async function parsePlanMdxFolder(
     : undefined;
   if (canvas && state?.canvas) canvas.viewport = state.canvas;
 
-  const content: PlanContent = {
+  let content: PlanContent = {
     version:
       typeof parsedMatter.data.version === "number"
         ? parsedMatter.data.version
@@ -1841,7 +1878,15 @@ export async function parsePlanMdxFolder(
     canvas,
     blocks,
   };
-  if (options.validateAuthoringChangesAgainst !== undefined) {
+  if (
+    options.salvageInvalidBlocks &&
+    options.validateAuthoringChangesAgainst !== undefined
+  ) {
+    content = salvageInvalidAuthoringBlocks(
+      content,
+      options.validateAuthoringChangesAgainst,
+    );
+  } else if (options.validateAuthoringChangesAgainst !== undefined) {
     assertPlanContentAuthoringChanges(
       content,
       options.validateAuthoringChangesAgainst,
@@ -1854,6 +1899,40 @@ export async function parsePlanMdxFolder(
   if (!normalized)
     throw new Error("MDX source did not parse into valid plan content.");
   return normalized;
+}
+
+function salvageInvalidAuthoringBlocks(
+  content: PlanContent,
+  previous: PlanContent | null | undefined,
+): PlanContent {
+  const blocks = content.blocks.map((block) => {
+    try {
+      assertPlanContentAuthoringChanges(
+        { version: content.version, blocks: [block] },
+        previous,
+      );
+      return block;
+    } catch (error) {
+      if (
+        previous &&
+        !(
+          error instanceof Error &&
+          error.message.startsWith(
+            "Plan source edit contains invalid authored block data",
+          )
+        )
+      ) {
+        throw error;
+      }
+      return invalidBlockWarningPlaceholder(
+        block.id,
+        block.type,
+        block.title,
+        error,
+      );
+    }
+  });
+  return { ...content, blocks };
 }
 
 function parsePrototype(tree: MdxNode): PlanPrototype | undefined {

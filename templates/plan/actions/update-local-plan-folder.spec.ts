@@ -221,6 +221,68 @@ describe("update-local-plan-folder", () => {
     );
   });
 
+  it("migrates legacy full content before validating authored changes", async () => {
+    const content = sampleContent();
+    await writePlanLocalFolder({
+      slug: "legacy-full-content-update",
+      planId: "local-legacy-full-content-update",
+      title: content.title ?? "Checkout review",
+      brief: content.brief,
+      content,
+      url: "/local-plans/legacy-full-content-update",
+    });
+
+    const result = await updateLocalPlanFolder.run({
+      slug: "legacy-full-content-update",
+      content: {
+        title: "Migrated content",
+        brief: "Legacy content shape.",
+        blocks: [
+          {
+            id: "summary",
+            type: "rich-text",
+            data: { markdown: "Updated summary." },
+          },
+          {
+            id: "legacy-wireframe",
+            type: "sketch-wireframe",
+            data: { regions: [] },
+          },
+          {
+            id: "tabs",
+            type: "tabs",
+            data: {
+              tabs: [
+                {
+                  label: "Overview",
+                  blocks: [
+                    {
+                      type: "rich-text",
+                      data: { markdown: "Migrated nested block." },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.plan.content?.version).toBe(1);
+    expect(result.plan.content?.blocks[1]?.type).toBe("legacy-wireframe");
+    const tabs = result.plan.content?.blocks.find(
+      (block) => block.id === "tabs",
+    );
+    expect(tabs).toMatchObject({
+      type: "tabs",
+      data: { tabs: [{ label: "Overview" }] },
+    });
+    if (tabs?.type !== "tabs") throw new Error("Expected migrated tabs.");
+    expect(tabs.data.tabs[0]?.id).toEqual(expect.any(String));
+    expect(tabs.data.tabs[0]?.blocks[0]?.id).toEqual(expect.any(String));
+  });
+
   it("rejects newly authored empty blocks in a full local content update", async () => {
     const content = sampleContent();
     await writePlanLocalFolder({

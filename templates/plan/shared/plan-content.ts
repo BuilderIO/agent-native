@@ -2160,7 +2160,7 @@ export function parsePlanContentAuthoringChanges(
   input: unknown,
   previous: PlanContent,
 ): PlanContent {
-  const parsed = storedPlanContentSchema.parse(input);
+  const parsed = storedPlanContentSchema.parse(migratePlanContent(input));
   assertPlanContentAuthoringInput(input, parsed, previous);
   return parsed;
 }

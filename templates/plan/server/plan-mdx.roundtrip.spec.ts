@@ -178,6 +178,96 @@ describe("stored legacy defaults in MDX source", () => {
 
   it.each([
     {
+      source: '<Checklist id="invalid" />',
+      message: /require data\.items/,
+    },
+    {
+      source: '<AnnotatedCode id="invalid" code={42} />',
+      message: /attribute "code" must resolve to a string/,
+    },
+  ])(
+    "salvages recap blocks with invalid authored fields while preserving siblings",
+    async ({ source }) => {
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          { id: "good", type: "rich-text", data: { markdown: "Old text." } },
+        ],
+      });
+      const folder = await replacePlanSource(
+        [
+          "---",
+          "version: 2",
+          "---",
+          "",
+          "Preserved sibling text.",
+          source,
+        ].join("\n"),
+      );
+
+      const parsed = await parsePlanMdxFolder(folder, {
+        allowStoredLegacyDefaults: true,
+        salvageInvalidBlocks: true,
+        validateAuthoringChangesAgainst: previous,
+      });
+
+      expect(parsed.blocks).toHaveLength(2);
+      expect(parsed.blocks[0]).toMatchObject({
+        type: "rich-text",
+        data: { markdown: "Preserved sibling text." },
+      });
+      expect(parsed.blocks[1]).toMatchObject({
+        id: "invalid",
+        type: "callout",
+        data: { tone: "warning" },
+      });
+      if (parsed.blocks[1]?.type !== "callout") {
+        throw new Error("Expected a warning callout for the invalid block.");
+      }
+      expect(parsed.blocks[1].data.body).toContain("__unknown_block__");
+    },
+  );
+
+  it.each([
+    {
+      source: '<Checklist id="invalid" />',
+      message: /require data\.items/,
+    },
+    {
+      source: '<AnnotatedCode id="invalid" code={42} />',
+      message: /attribute "code" must resolve to a string/,
+    },
+  ])(
+    "rejects recap-invalid authored fields when salvage is disabled",
+    async ({ source, message }) => {
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          { id: "good", type: "rich-text", data: { markdown: "Old text." } },
+        ],
+      });
+      const folder = await replacePlanSource(
+        [
+          "---",
+          "version: 2",
+          "---",
+          "",
+          "Preserved sibling text.",
+          source,
+        ].join("\n"),
+      );
+
+      await expect(
+        parsePlanMdxFolder(folder, {
+          allowStoredLegacyDefaults: true,
+          validateAuthoringChangesAgainst: previous,
+        }),
+      ).rejects.toThrow(message);
+    },
+  );
+
+  it.each([
+    {
       source: '<Checklist id="legacy-checklist" items="not-an-array" />',
       message: /attribute "items" must resolve to an array/,
     },
