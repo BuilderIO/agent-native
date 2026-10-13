@@ -154,9 +154,14 @@ export class Jira {
         response.status === 429 || (idempotent && response.status >= 500);
       if (retryable && attempt < 3) {
         const wait = retryAfterMs(response.headers.get("retry-after"), attempt);
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.min(wait, 30_000)),
-        );
+        // Retry-After is a minimum; retrying sooner only earns another 429.
+        if (wait > 30_000) {
+          throw new ScriptError(
+            `Jira ${method} ${route} → ${response.status}: retry after ${Math.ceil(wait / 1000)}s${idempotent ? "" : "; outcome unknown, re-run to reconcile"}`,
+            2,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, wait));
         continue;
       }
       if (response.status === 404 && extra.allow404) return null;
@@ -336,9 +341,12 @@ export function runMarker(runId: string): string {
   return `fragility run ${runId}`;
 }
 
-// Delimited so run "bug-eng-45" never matches a comment for "bug-eng-456".
+// Delimited so run "bug-eng-45" never matches a comment for "bug-eng-456" or
+// "bug-eng-45.2"; a sentence-ending period still ends the id.
 function runMarkerPattern(runId: string): RegExp {
-  return new RegExp(`fragility run ${escapeRegExp(runId)}(?![A-Za-z0-9_-])`);
+  return new RegExp(
+    `fragility run ${escapeRegExp(runId)}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`,
+  );
 }
 
 function escapeRegExp(value: string): string {
