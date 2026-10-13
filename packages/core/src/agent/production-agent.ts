@@ -3411,6 +3411,9 @@ export function structuredHistoryToEngineMessages(
           ...(typeof part.approvalPause === "boolean"
             ? { approvalPause: part.approvalPause }
             : {}),
+          ...(typeof part.approvalAskId === "string"
+            ? { approvalAskId: part.approvalAskId }
+            : {}),
         });
       }
     }
@@ -4630,6 +4633,7 @@ export interface ExecuteAgentToolCallOptions {
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
+  approvedToolCallAskId?: string;
   onApprovalRequired?: (
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
@@ -4644,6 +4648,7 @@ export interface AgentApprovalBinding {
   input: unknown;
   callId: string;
   approvalKey: string;
+  approvalId?: string;
 }
 
 export async function executeAgentToolCall(
@@ -4744,6 +4749,7 @@ export async function executeAgentToolCall(
       threadId: options.threadId,
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
+      approvedToolCallAskId: options.approvedToolCallAskId,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
@@ -4954,10 +4960,16 @@ export function toolCallCacheKey(toolName: string, input: unknown): string {
 export function findApprovedStructuredToolCall(
   history: AgentChatStructuredMessage[] | undefined,
   approvedToolCalls: readonly string[] | undefined,
+  approvedToolCallAskIds?: readonly string[],
 ):
   | {
       status: "found";
-      toolCall: { name: string; input: unknown; callId: string };
+      toolCall: {
+        name: string;
+        input: unknown;
+        callId: string;
+        approvalAskId?: string;
+      };
     }
   | { status: "ambiguous" }
   | { status: "missing" } {
@@ -4965,8 +4977,17 @@ export function findApprovedStructuredToolCall(
     return { status: "missing" };
   }
   const approved = new Set(approvedToolCalls);
-  const calls = new Map<string, { name: string; input: unknown }>();
-  const matches: Array<{ name: string; input: unknown; callId: string }> = [];
+  const approvedAskIds = new Set(approvedToolCallAskIds ?? []);
+  const calls = new Map<
+    string,
+    { name: string; input: unknown; approvalAskId?: string }
+  >();
+  const matches: Array<{
+    name: string;
+    input: unknown;
+    callId: string;
+    approvalAskId?: string;
+  }> = [];
 
   for (const message of history) {
     if (message.role === "assistant") {
@@ -4985,7 +5006,11 @@ export function findApprovedStructuredToolCall(
               ? part.toolName
               : "";
         if (!callId || !name) continue;
-        calls.set(callId, { name, input: part.input ?? part.args ?? {} });
+        calls.set(callId, {
+          name,
+          input: part.input ?? part.args ?? {},
+          ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
+        });
       }
       continue;
     }
@@ -4997,24 +5022,61 @@ export function findApprovedStructuredToolCall(
         continue;
       }
       if (part.approvalPause !== true) continue;
-      matches.push({ ...call, callId: part.toolCallId });
+      if (
+        approvedAskIds.size > 0 &&
+        (!call.approvalAskId ||
+          !approvedAskIds.has(call.approvalAskId) ||
+          part.approvalAskId !== call.approvalAskId)
+      ) {
+        continue;
+      }
+      if (
+        call.approvalAskId &&
+        part.approvalAskId &&
+        call.approvalAskId !== part.approvalAskId
+      ) {
+        continue;
+      }
+      matches.push({
+        ...call,
+        callId: part.toolCallId,
+        ...((part.approvalAskId ?? call.approvalAskId)
+          ? { approvalAskId: part.approvalAskId ?? call.approvalAskId }
+          : {}),
+      });
     }
   }
 
-  if (
-    new Set(matches.map((match) => toolCallCacheKey(match.name, match.input)))
-      .size > 1
-  ) {
-    return { status: "ambiguous" };
+  if (approvedAskIds.size > 0) {
+    const distinctAskIds = new Set(
+      matches.map((match) => match.approvalAskId).filter(Boolean),
+    );
+    if (
+      distinctAskIds.size !== 1 ||
+      distinctAskIds.size !== approvedAskIds.size
+    ) {
+      return { status: matches.length === 0 ? "missing" : "ambiguous" };
+    }
+    const exactMatches = matches.filter((match) =>
+      approvedAskIds.has(match.approvalAskId ?? ""),
+    );
+    if (exactMatches.length === 0) return { status: "missing" };
+    return { status: "found", toolCall: exactMatches.at(-1)! };
   }
-  // Repeated pauses for the same call key are superseded by the latest turn.
-  const toolCall = matches.at(-1);
+
+  if (matches.length > 1) return { status: "ambiguous" };
+  const toolCall = matches[0];
   return toolCall ? { status: "found", toolCall } : { status: "missing" };
 }
 
 export function findApprovedToolResultLocation(
   messages: EngineMessage[],
-  toolCall: { name: string; input: unknown; callId: string },
+  toolCall: {
+    name: string;
+    input: unknown;
+    callId: string;
+    approvalAskId?: string;
+  },
 ): { messageIndex: number; contentIndex: number } | undefined {
   let match: { messageIndex: number; contentIndex: number } | undefined;
   const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -5030,9 +5092,12 @@ export function findApprovedToolResultLocation(
       const part = message.content[contentIndex]!;
       if (
         part.type !== "tool-result" ||
-        part.toolCallId !== toolCall.callId ||
+        (toolCall.approvalAskId === undefined &&
+          part.toolCallId !== toolCall.callId) ||
         part.toolName !== toolCall.name ||
-        part.approvalPause !== true
+        part.approvalPause !== true ||
+        (toolCall.approvalAskId !== undefined &&
+          part.approvalAskId !== toolCall.approvalAskId)
       ) {
         continue;
       }
@@ -5997,6 +6062,7 @@ export async function runAgentLoop(opts: {
     hardMaxResultChars?: number;
   };
   approvedToolCalls?: string[];
+  approvedToolCallAskId?: string;
   /**
    * Server-side approval persistence hooks. The HTTP transport supplies these
    * so client-supplied history is never the authorization source; direct loop
@@ -7669,13 +7735,16 @@ export async function runAgentLoop(opts: {
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
+      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
         input: toolCall.input,
         callId: toolCall.id,
         approvalKey,
+        ...(requestedApproval && opts.approvedToolCallAskId
+          ? { approvalId: opts.approvedToolCallAskId }
+          : {}),
       };
-      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
       const wasApproved =
         requestedApproval && opts.consumeApproval
           ? await opts.consumeApproval(approvalBinding)
@@ -10844,12 +10913,48 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    const submittedApprovedToolCallAskIds: unknown = (
+      body as unknown as Record<string, unknown>
+    ).approvedToolCallAskIds;
+    if (
+      submittedApprovedToolCallAskIds !== undefined &&
+      (!Array.isArray(submittedApprovedToolCallAskIds) ||
+        submittedApprovedToolCallAskIds.length > 200 ||
+        submittedApprovedToolCallAskIds.some(
+          (id: unknown) =>
+            typeof id !== "string" || id.length === 0 || id.trim() !== id,
+        ))
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_ask_id_invalid",
+        retryable: false,
+      };
+    }
+    const requestedApprovedToolCallAskIds =
+      Array.isArray(submittedApprovedToolCallAskIds) &&
+      submittedApprovedToolCallAskIds.length > 0
+        ? (submittedApprovedToolCallAskIds as string[])
+        : undefined;
     // The approval fast path replays one call, so reject batches before any key can be dropped.
     if (requestedApprovedToolCalls && requestedApprovedToolCalls.length > 1) {
       setResponseStatus(event, 422);
       return {
         error: "The agent run failed.",
         code: "approved_tool_call_count_unsupported",
+        retryable: false,
+      };
+    }
+    if (
+      requestedApprovedToolCallAskIds &&
+      (requestedApprovedToolCallAskIds.length !== 1 ||
+        requestedApprovedToolCalls?.length !== 1)
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_ask_id_count_unsupported",
         retryable: false,
       };
     }
@@ -10864,6 +10969,9 @@ export function createProductionAgentHandler(
             threadId,
             requestedTurnId: requestTurnId,
             approvalKeys: requestedApprovedToolCalls,
+            ...(requestedApprovedToolCallAskIds
+              ? { approvalId: requestedApprovedToolCallAskIds[0] }
+              : {}),
           })
         : null;
     // The continuation marker is client-controlled. Defer setup admission only
@@ -12128,6 +12236,7 @@ export function createProductionAgentHandler(
     const approvedToolCallLookup = findApprovedStructuredToolCall(
       requestStructuredHistory,
       requestedApprovedToolCalls,
+      requestedApprovedToolCallAskIds,
     );
     if (approvedToolCallLookup.status === "ambiguous") {
       setResponseStatus(event, 422);
@@ -12312,6 +12421,7 @@ export function createProductionAgentHandler(
         toolName: binding.toolName,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
+        ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
       };
     };
     const approvalHooks = {
@@ -13356,6 +13466,11 @@ export function createProductionAgentHandler(
               threadId: effectiveThreadId,
               turnId: effectiveTurnId,
               approvedToolCalls: approvedToolCallsForExecution,
+              ...(requestedApprovedToolCallAskIds
+                ? {
+                    approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
+                  }
+                : {}),
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,

@@ -178,6 +178,7 @@ export type AgentChatStructuredContentPart =
       toolName?: string;
       input?: unknown;
       args?: unknown;
+      approvalAskId?: string;
     }
   | {
       type: "tool-result";
@@ -187,6 +188,7 @@ export type AgentChatStructuredContentPart =
       content: string;
       isError?: boolean;
       approvalPause?: boolean;
+      approvalAskId?: string;
     };
 
 export interface AgentChatStructuredMessage {
@@ -352,6 +354,7 @@ export interface AgentChatRequest {
   harness?: AgentChatHarnessRequest;
   trackInRunsTray?: boolean;
   approvedToolCalls?: string[];
+  approvedToolCallAskIds?: string[];
   skipPendingSelectionContext?: boolean;
 }
 

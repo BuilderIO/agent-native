@@ -51,6 +51,7 @@ interface ContentPart {
   result?: string;
   isError?: boolean;
   approvalPause?: true;
+  approvalAskId?: string;
   outcome?: "unknown";
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
@@ -1154,6 +1155,12 @@ function assistantReplayContent(
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
       ...result,
+      ...(part.approvalPause === true ? { approvalPause: true } : {}),
+      ...(typeof part.approval?.askId === "string"
+        ? { approvalAskId: part.approval.askId }
+        : typeof part.approvalAskId === "string"
+          ? { approvalAskId: part.approvalAskId }
+          : {}),
       ...(part.isError === true || result.outcome === "unknown"
         ? { isError: true }
         : {}),

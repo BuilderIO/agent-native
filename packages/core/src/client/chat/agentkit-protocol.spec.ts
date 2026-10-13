@@ -390,7 +390,10 @@ describe("createAgentKitProtocolAdapter", () => {
               toolCallId: "call-get-document",
               toolName: "get_document",
               input: { documentId: "doc-1" },
-              approval: { approvalKey: "get_document:approved" },
+              approval: {
+                approvalKey: "get_document:approved",
+                askId: "agent-tool-approval-doc-1",
+              },
             },
             {
               type: "tool-result",
@@ -398,6 +401,7 @@ describe("createAgentKitProtocolAdapter", () => {
               toolName: "get_document",
               resultText: "Document title: Project Brief",
               approvalPause: true,
+              approvalAskId: "agent-tool-approval-doc-1",
             },
             {
               type: "tool-call",
@@ -1210,7 +1214,10 @@ describe("createAgentKitProtocolAdapter", () => {
               toolCallId: "call-approval-history",
               toolName: "send-large-data",
               input: { payload: "large" },
-              approval: { approvalKey: "send-large-data:approved" },
+              approval: {
+                approvalKey: "send-large-data:approved",
+                askId: "agent-tool-approval-large-1",
+              },
             },
             {
               type: "tool-result",
@@ -1218,6 +1225,7 @@ describe("createAgentKitProtocolAdapter", () => {
               toolName: "send-large-data",
               result: "The action paused.",
               approvalPause: true,
+              approvalAskId: "agent-tool-approval-large-1",
             },
           ],
         },
@@ -1246,6 +1254,7 @@ describe("createAgentKitProtocolAdapter", () => {
               name: "send-large-data",
               input: { payload: "large" },
               approvalKey: "send-large-data:approved",
+              approvalAskId: "agent-tool-approval-large-1",
             },
           },
           {
@@ -1256,6 +1265,7 @@ describe("createAgentKitProtocolAdapter", () => {
               name: "send-large-data",
               result: "The action paused.",
               approvalPause: true,
+              approvalAskId: "agent-tool-approval-large-1",
             },
           },
         ],

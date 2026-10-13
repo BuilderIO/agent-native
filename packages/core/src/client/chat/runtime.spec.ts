@@ -4842,6 +4842,7 @@ describe("createAgentNativeChatRuntime", () => {
   it("resumes the exact approved tool call with false-valued arguments", async () => {
     const approvedInput = { dryRun: false };
     const approvalKey = 'publish-release:{"dryRun":false}';
+    const approvalAskId = "agent-tool-approval-ask-1";
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -4875,6 +4876,7 @@ describe("createAgentNativeChatRuntime", () => {
             tool: "publish-release",
             input: approvedInput,
             approvalKey,
+            askId: approvalAskId,
             toolCallId: "call-1",
           },
           {
@@ -4919,11 +4921,17 @@ describe("createAgentNativeChatRuntime", () => {
     });
     const first = await session.startTurn({ prompt: "Publish it" });
     const firstEvents = await drain(first.events);
+    expect(firstEvents).toContainEqual(
+      expect.objectContaining({
+        type: "approval-request",
+        approvalId: approvalAskId,
+      }),
+    );
 
     const continuation = await session.continueTurn?.({
       turnId: first.id,
       approval: {
-        id: approvalKey,
+        id: approvalAskId,
         approved: true,
       },
     });
@@ -4938,6 +4946,7 @@ describe("createAgentNativeChatRuntime", () => {
       turnId: first.id,
       internalContinuation: true,
       approvedToolCalls: [approvalKey],
+      approvedToolCallAskIds: [approvalAskId],
       structuredHistory: expect.arrayContaining([
         {
           role: "user",
@@ -4958,6 +4967,7 @@ describe("createAgentNativeChatRuntime", () => {
               id: "call-1",
               name: "publish-release",
               input: approvedInput,
+              approvalAskId,
             },
           ],
         },
@@ -4969,6 +4979,7 @@ describe("createAgentNativeChatRuntime", () => {
               toolCallId: "call-1",
               content: "Awaiting human approval. This action did NOT execute.",
               approvalPause: true,
+              approvalAskId,
             },
           ],
         },
@@ -5016,6 +5027,7 @@ describe("createAgentNativeChatRuntime", () => {
             id: "call-1",
             name: "publish-release",
             input: approvedInput,
+            approvalAskId,
           },
         ],
       },
@@ -5027,6 +5039,7 @@ describe("createAgentNativeChatRuntime", () => {
             toolCallId: "call-1",
             content: "Awaiting human approval. This action did NOT execute.",
             approvalPause: true,
+            approvalAskId,
           },
         ],
       },

@@ -134,6 +134,7 @@ import {
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import * as runStore from "./run-store.js";
+import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import {
   classifyToolCallJournal,
   findCompletedJournalEntry,
@@ -2032,7 +2033,7 @@ describe("buildUserContentWithAttachments", () => {
 
   it("hydrates an earlier image reference into a later text-only turn", async () => {
     const url = "https://storage.example.test/uploads/reference.png";
-    const history = [
+    const history: Parameters<typeof findApprovedStructuredToolCall>[0] = [
       {
         role: "user" as const,
         content: [
@@ -2408,7 +2409,76 @@ describe("buildUserContentWithAttachments", () => {
     });
   });
 
-  it("selects the latest of repeated identical pending approvals", () => {
+  it("matches repeated identical pending approvals by exact ask id", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input,
+            approvalAskId: "ask-old",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+            approvalAskId: "ask-old",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-2",
+            name: "send-email",
+            input,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-2",
+            content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+    ];
+    expect(
+      findApprovedStructuredToolCall(history, [approvalKey], ["ask-old"]),
+    ).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "send-email",
+        input,
+        approvalAskId: "ask-old",
+      },
+    });
+    expect(
+      findApprovedStructuredToolCall(history, [approvalKey], ["ask-new"]),
+    ).toMatchObject({ status: "found", toolCall: { callId: "call-2" } });
+  });
+
+  it("rejects repeated identical pending approvals without an ask id", () => {
     const input = { to: "a@b.com" };
     const approvalKey = `send-email:${JSON.stringify(input)}`;
     expect(
@@ -2426,8 +2496,7 @@ describe("buildUserContentWithAttachments", () => {
               {
                 type: "tool-result",
                 toolCallId: "call-1",
-                content:
-                  "Awaiting human approval. This action did NOT execute.",
+                content: "Awaiting human approval.",
                 approvalPause: true,
               },
             ],
@@ -2444,8 +2513,7 @@ describe("buildUserContentWithAttachments", () => {
               {
                 type: "tool-result",
                 toolCallId: "call-2",
-                content:
-                  "Awaiting human approval. This action did NOT execute.",
+                content: "Awaiting human approval.",
                 approvalPause: true,
               },
             ],
@@ -2453,14 +2521,7 @@ describe("buildUserContentWithAttachments", () => {
         ],
         [approvalKey],
       ),
-    ).toEqual({
-      status: "found",
-      toolCall: {
-        callId: "call-2",
-        name: "send-email",
-        input,
-      },
-    });
+    ).toEqual({ status: "ambiguous" });
   });
 
   it("ignores completed outputs that mention approval when finding the pending call", () => {
@@ -2573,6 +2634,88 @@ describe("buildUserContentWithAttachments", () => {
         { name: "send-email", input: { to: "a@b.com" }, callId: "call-1" },
       ),
     ).toBeUndefined();
+  });
+
+  it("locates the approved result by ask id when a call id was reused", () => {
+    const input = { to: "a@b.com" };
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id",
+            toolName: "send-email",
+            toolInput: JSON.stringify(input),
+            content: "Awaiting human approval.",
+            approvalPause: true,
+            approvalAskId: "ask-old",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id",
+            toolName: "send-email",
+            toolInput: JSON.stringify(input),
+            content: "Awaiting human approval.",
+            approvalPause: true,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      findApprovedToolResultLocation(messages, {
+        name: "send-email",
+        input,
+        callId: "reused-call-id",
+        approvalAskId: "ask-old",
+      }),
+    ).toEqual({ messageIndex: 0, contentIndex: 0 });
+  });
+
+  it("keeps approval identity when rebuilding paused results from thread data", () => {
+    const input = { to: "a@b.com" };
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolCallId: "reused-call-id",
+                  toolName: "send-email",
+                  args: input,
+                  result: "Awaiting human approval.",
+                  approvalPause: true,
+                  approval: {
+                    approvalKey: toolCallCacheKey("send-email", input),
+                    askId: "ask-old",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+
+    expect(messages[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      approvalPause: true,
+      approvalAskId: "ask-old",
+    });
+    expect(
+      findApprovedToolResultLocation(messages, {
+        name: "send-email",
+        input,
+        callId: "reused-call-id",
+        approvalAskId: "ask-old",
+      }),
+    ).toEqual({ messageIndex: 1, contentIndex: 0 });
   });
 
   it("replaces the latest matching pending result when history reuses a call id", () => {
@@ -3601,6 +3744,39 @@ describe("createProductionAgentHandler", () => {
     expect(result).toEqual({
       error: "The agent run failed.",
       code: "approved_tool_call_history_missing",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed approval ids instead of falling back to a key-only approval", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+          approvedToolCallAskIds: [42],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_ask_id_invalid",
       retryable: false,
     });
     expect(engine.stream).not.toHaveBeenCalled();
@@ -17134,6 +17310,7 @@ describe("runAgentLoop", () => {
     const approvalKey = events1.find(
       (event) => event.type === "approval_required",
     )?.approvalKey as string;
+    const approvalId = "agent-tool-approval-ask-1";
     let continuationStreamCalls = 0;
     const continuationEngine: AgentEngine = {
       ...approvalEngine().engine,
@@ -17162,8 +17339,13 @@ describe("runAgentLoop", () => {
       },
     };
     const consumeApproval = vi.fn(
-      async (binding: { callId: string; approvalKey: string }) => {
+      async (binding: {
+        callId: string;
+        approvalKey: string;
+        approvalId?: string;
+      }) => {
         expect(binding.callId).toBe("replayed-call-id");
+        expect(binding.approvalId).toBe(approvalId);
         return binding.approvalKey === approvalKey;
       },
     );
@@ -17177,6 +17359,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions,
       approvedToolCalls: [approvalKey],
+      approvedToolCallAskId: approvalId,
       consumeApproval,
       onApprovalRequired: vi.fn(async () => undefined),
       send: (event) => events2.push(event),

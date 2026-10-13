@@ -891,6 +891,9 @@ function runtimePartToProtocolPart(
           ...(part.approval?.approvalKey
             ? { approvalKey: part.approval.approvalKey }
             : {}),
+          ...(part.approval?.askId
+            ? { approvalAskId: part.approval.askId }
+            : {}),
         },
       } satisfies DataPart;
     case "tool-result":
@@ -906,6 +909,7 @@ function runtimePartToProtocolPart(
           ...(typeof part.approvalPause === "boolean"
             ? { approvalPause: part.approvalPause }
             : {}),
+          ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
         },
       } satisfies DataPart;
     case "data":
@@ -979,7 +983,15 @@ function protocolPartToRuntimePart(
             : {}),
           ...(typeof data.approvalKey === "string" &&
           data.approvalKey.length > 0
-            ? { approval: { approvalKey: data.approvalKey } }
+            ? {
+                approval: {
+                  approvalKey: data.approvalKey,
+                  ...(typeof data.approvalAskId === "string" &&
+                  data.approvalAskId.length > 0
+                    ? { askId: data.approvalAskId }
+                    : {}),
+                },
+              }
             : {}),
         };
       }
@@ -1001,6 +1013,10 @@ function protocolPartToRuntimePart(
           ...(data.isError === true ? { isError: true } : {}),
           ...(typeof data.approvalPause === "boolean"
             ? { approvalPause: data.approvalPause }
+            : {}),
+          ...(typeof data.approvalAskId === "string" &&
+          data.approvalAskId.length > 0
+            ? { approvalAskId: data.approvalAskId }
             : {}),
         };
       }

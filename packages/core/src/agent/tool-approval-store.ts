@@ -76,6 +76,7 @@ export interface AgentToolApprovalBinding {
   toolName: string;
   callId: string;
   approvalKey: string;
+  approvalId?: string;
   expiresAt?: number;
 }
 
@@ -161,6 +162,7 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   threadId?: string | null;
   requestedTurnId?: string | null;
   approvalKeys: readonly string[];
+  approvalId?: string;
 }): Promise<string | null> {
   const approvalKeys = [...new Set(binding.approvalKeys)].slice(0, 200);
   if (!binding.threadId || approvalKeys.length === 0) return null;
@@ -175,6 +177,7 @@ export async function resolveAgentToolApprovalTurnId(binding: {
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
         AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
         AND approval_key_hash IN (${placeholders})
+        AND (? IS NULL OR id = ?)
         AND status = 'pending'
         AND expires_at > ?
         AND turn_id IS NOT NULL`,
@@ -185,6 +188,8 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       binding.threadId,
       binding.threadId,
       ...hashes,
+      binding.approvalId ?? null,
+      binding.approvalId ?? null,
       now,
     ],
   });
@@ -198,6 +203,13 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       .filter((turnId: string | null): turnId is string => turnId !== null),
   );
   const requestedTurnId = binding.requestedTurnId?.trim();
+  if (binding.approvalId) {
+    if (turnIds.size !== 1) return null;
+    const exactTurnId = [...turnIds][0]!;
+    return requestedTurnId && requestedTurnId !== exactTurnId
+      ? null
+      : exactTurnId;
+  }
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
   return turnIds.size === 1 ? [...turnIds][0]! : null;
 }
@@ -257,21 +269,23 @@ export async function consumeAgentToolApproval(
 ): Promise<boolean> {
   await ensureAgentToolApprovalTable();
   const now = Date.now();
+  const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
+  const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
   const result = await getDbExec().execute({
     sql: `UPDATE agent_tool_approvals
       SET status = 'consumed', consumed_at = ?, updated_at = ?
       WHERE id = (
-        SELECT id FROM agent_tool_approvals
+        SELECT MIN(id) FROM agent_tool_approvals
         WHERE owner_email = ?
           AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
           AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
           AND tool_name = ?
           AND approval_key_hash = ?
+          ${exactApprovalFilter}
           AND status = 'pending'
           AND expires_at > ?
-        ORDER BY created_at DESC
-        LIMIT 1
+        HAVING COUNT(*) = 1
       )
       AND status = 'pending'`,
     args: [
@@ -286,6 +300,7 @@ export async function consumeAgentToolApproval(
       binding.turnId ?? null,
       binding.toolName,
       hashAgentToolApprovalKey(binding.approvalKey),
+      ...approvalIdArgs,
       now,
     ],
   });

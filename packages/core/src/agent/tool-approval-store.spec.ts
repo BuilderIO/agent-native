@@ -90,6 +90,33 @@ describe("agent tool approval store", () => {
     ).resolves.toBe("turn-1");
   });
 
+  it("resolves an approval turn by the exact pending approval row id", async () => {
+    const approvalId = "agent-tool-approval-exact";
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ turn_id: "turn-1" }],
+      rowsAffected: 0,
+    });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        requestedTurnId: "turn-1",
+        approvalKeys: [binding.approvalKey],
+        approvalId,
+      }),
+    ).resolves.toBe("turn-1");
+    expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("AND (? IS NULL OR id = ?)"),
+        args: expect.arrayContaining([approvalId]),
+      }),
+    );
+  });
+
   it("does not guess between pending approvals from different turns", async () => {
     dbMocks.execute.mockResolvedValueOnce({
       rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],
@@ -135,12 +162,29 @@ describe("agent tool approval store", () => {
         sql: string;
         args: unknown[];
       };
+      expect(consumeQuery.sql).toContain("HAVING COUNT(*) = 1");
       expect(consumeQuery.sql).toContain("turn_id");
       expect(consumeQuery.sql).not.toContain("call_id = ?");
       expect(consumeQuery.args).toContain(binding.turnId);
       expect(consumeQuery.args).not.toContain(binding.callId);
     },
   );
+
+  it("consumes the exact approval row when an ask id is supplied", async () => {
+    const approvalId = "agent-tool-approval-exact";
+    const { consumeAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      consumeAgentToolApproval({ ...binding, approvalId }),
+    ).resolves.toBe(true);
+    expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("AND id = ?"),
+        args: expect.arrayContaining([approvalId]),
+      }),
+    );
+  });
 
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute.mockRejectedValueOnce(new Error("consume unavailable"));
