@@ -80,7 +80,8 @@ export default {
     sigmaImportable: "インポート可能",
     sigmaUnsupported: "未対応",
     sigmaNoElements: "ワークブックに要素が見つかりませんでした。",
-    sigmaNoImportable: "このワークブックにはインポート可能な要素がありません。",
+    sigmaNoImportable:
+      "インポートできる要素がありません。下のメモを確認してください。",
     sigmaPreviewTruncated: "{{total}} 件中 {{shown}} 件を表示しています。",
     sigmaImportWorkbook: "ワークブックをインポート",
     sigmaImporting: "ワークブックをインポート中…",
@@ -91,7 +92,7 @@ export default {
       "インポートの応答が不完全でした。状態を確認するため、ワークブック一覧を再読み込みしてください。",
     sigmaImportComplete: "ダッシュボードを作成しました",
     sigmaImportSummary:
-      "{{imported}} 件をインポートし、未対応の {{unsupported}} 件をスキップしました。",
+      "{{imported}} 件をインポートしました。未対応の {{unsupported}} 件は確認用の注意パネルとして残しました。",
     sigmaAlreadyImported: "このワークブックはすでにインポートされています。",
     sigmaImportedNoDashboard:
       "ダッシュボードはインポートされましたが、このアカウントからは開けません。",
@@ -107,11 +108,14 @@ export default {
       "この要素をインポートするには、Analytics の BigQuery ソースを接続してください。",
     sigmaReasonUnsupportedSource:
       "この要素のソースはインポートに対応していません。",
+    sigmaReasonSourceMappingRequired:
+      "Sigma は Analytics が検証できる BigQuery プロジェクトの対応情報を提供していないため、この SQL はまだインポートできません。",
     sigmaReasonQueryUnavailable:
       "この要素のインポート可能なクエリが Sigma から返されませんでした。",
     sigmaReasonUnsafeSql: "このクエリ形式は安全にインポートできません。",
     sigmaReasonVisualizationReview:
       "データはインポートできますが、インポート後に可視化を確認してください。",
+    sigmaRetryOwnerOnly: "このインポートを開始したユーザーのみ再試行できます。",
     sigmaImportedByTeammate: "チームメンバーがインポート済み",
     sigmaFlaggedCount: "{{count}} 件を要確認としてマーク",
     sigmaMoreWorkbooksFailed: "追加のワークブックを読み込めませんでした",

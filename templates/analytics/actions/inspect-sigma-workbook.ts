@@ -5,7 +5,6 @@ import {
   inspectSigmaWorkbook,
   type SigmaPortableElement,
   type SigmaWorkbookInspection,
-  type SigmaWorkbookSqlQuery,
 } from "../server/lib/bi-migration/sigma-adapter.js";
 import { resolveSigmaConnectionSelection } from "../server/lib/bi-migration/sigma-connections.js";
 import {
@@ -13,7 +12,6 @@ import {
   requireSigmaMigrationContext,
   sigmaMigrationSetupLink,
 } from "../server/lib/bi-migration/sigma-migration.js";
-import { assertReadOnlySql } from "../server/lib/read-only-sql.js";
 
 const inspectSchema = z.object({
   workbookId: z
@@ -36,6 +34,7 @@ export type SigmaElementReviewReason =
   | "unsupported_element"
   | "analytics_bigquery_required"
   | "unsupported_source"
+  | "source_mapping_required"
   | "query_unavailable"
   | "unsafe_sql"
   | "visualization_review";
@@ -49,21 +48,9 @@ export interface SigmaElementReview {
   reason?: SigmaElementReviewReason;
 }
 
-function uniqueQueryByElementId(
-  queries: SigmaWorkbookSqlQuery[],
-): Map<string, SigmaWorkbookSqlQuery | null> {
-  const byId = new Map<string, SigmaWorkbookSqlQuery | null>();
-  for (const query of queries) {
-    if (!query.elementId) continue;
-    byId.set(query.elementId, byId.has(query.elementId) ? null : query);
-  }
-  return byId;
-}
-
 function reviewElement(
   element: SigmaPortableElement,
   inspection: SigmaWorkbookInspection,
-  queriesByElementId: Map<string, SigmaWorkbookSqlQuery | null>,
   analyticsBigQueryReady: boolean,
 ): SigmaElementReview {
   if (element.kind !== "panel") {
@@ -102,51 +89,15 @@ function reviewElement(
     };
   }
 
-  const query = queriesByElementId.get(element.id);
-  if (!query || !query.sql || query.hasError) {
-    return {
-      id: element.id,
-      name: element.title,
-      type: element.chartType,
-      importable: false,
-      visualizationPreserved: false,
-      reason: "query_unavailable",
-    };
-  }
-
-  if (/\{\{|\}\}|\bsigma_element\s*\(/i.test(query.sql)) {
-    return {
-      id: element.id,
-      name: element.title,
-      type: element.chartType,
-      importable: false,
-      visualizationPreserved: false,
-      reason: "unsafe_sql",
-    };
-  }
-  try {
-    assertReadOnlySql(query.sql, "bigquery");
-  } catch {
-    return {
-      id: element.id,
-      name: element.title,
-      type: element.chartType,
-      importable: false,
-      visualizationPreserved: false,
-      reason: "unsafe_sql",
-    };
-  }
-
-  const visualizationPreserved = element.chartType === "table";
+  // Sigma reports the provider type, but the current connection API does not
+  // establish that this Analytics credential points at the same project.
   return {
     id: element.id,
     name: element.title,
     type: element.chartType,
-    importable: true,
-    visualizationPreserved,
-    ...(!visualizationPreserved
-      ? { reason: "visualization_review" as const }
-      : {}),
+    importable: false,
+    visualizationPreserved: false,
+    reason: "source_mapping_required",
   };
 }
 
@@ -154,24 +105,18 @@ export function summarizeSigmaElementReview(args: {
   inspection: SigmaWorkbookInspection;
   analyticsBigQueryReady: boolean;
 }): SigmaElementReview[] {
-  const queriesByElementId = uniqueQueryByElementId(args.inspection.sqlQueries);
   return args.inspection.elements.map((element) =>
-    reviewElement(
-      element,
-      args.inspection,
-      queriesByElementId,
-      args.analyticsBigQueryReady,
-    ),
+    reviewElement(element, args.inspection, args.analyticsBigQueryReady),
   );
 }
 
 export default defineAction({
   description:
-    "Inspect a Sigma workbook before import. Returns element names, supported chart/source status, and review warnings; it never returns Sigma SQL or workbook payloads. Requires Analytics BigQuery to be configured because only matching BigQuery source elements can be imported.",
+    "Inspect a Sigma workbook before import. Returns element names, source compatibility, and review warnings without returning SQL or workbook payloads. BigQuery elements stay blocked until Analytics can verify the Sigma source project mapping.",
   schema: inspectSchema,
   http: { method: "GET" },
   readOnly: true,
-  mcpTool: true,
+  mcpTool: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     const context = await requireSigmaMigrationContext();
@@ -196,7 +141,8 @@ export default defineAction({
     ).length;
     const unsupportedCount = elements.length - importableCount;
     const reviewRequiredCount = elements.filter(
-      (element) => element.reason === "visualization_review",
+      (element) =>
+        !element.importable || element.reason === "visualization_review",
     ).length;
     return {
       workbook: {

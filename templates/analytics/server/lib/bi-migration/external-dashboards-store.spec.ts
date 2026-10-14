@@ -30,6 +30,23 @@ import * as dbModule from "../../db/index.js";
 import * as store from "./external-dashboards-store.js";
 
 describe("external dashboard migration store", () => {
+  it("stores only the diagnostic limit while retaining the total flagged count", () => {
+    const diagnostics = Array.from({ length: 21 }, (_, index) => ({
+      id: `element-${index}`,
+      name: `Element ${index}`,
+      status: "red" as const,
+      reason: "manual_review_required" as const,
+    }));
+
+    expect(store.boundExternalDashboardDiagnostics(diagnostics)).toEqual({
+      elementDiagnostics: diagnostics.slice(
+        0,
+        store.EXTERNAL_DASHBOARD_DIAGNOSTIC_LIMIT,
+      ),
+      flaggedCount: 21,
+    });
+  });
+
   type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
   let client: PGliteClient;
 

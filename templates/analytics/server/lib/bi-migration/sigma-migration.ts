@@ -63,9 +63,12 @@ export async function hasAnalyticsBigQuerySource(
 }
 
 export function sigmaMigrationSetupLink(source: "sigma" | "bigquery"): string {
+  if (source === "sigma") {
+    return buildDeepLink({ app: "dispatch", view: "overview" });
+  }
   return buildDeepLink({
     app: "analytics",
     view: "data-sources",
-    to: `/data-sources?source=${encodeURIComponent(source)}&returnTo=ask`,
+    to: "/data-sources?source=bigquery&returnTo=ask",
   });
 }

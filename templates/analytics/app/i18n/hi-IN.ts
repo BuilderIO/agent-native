@@ -77,7 +77,7 @@ export default {
     sigmaImportable: "आयात योग्य",
     sigmaUnsupported: "असमर्थित",
     sigmaNoElements: "वर्कबुक में कोई एलिमेंट नहीं मिला।",
-    sigmaNoImportable: "इस वर्कबुक में आयात के लिए समर्थित एलिमेंट नहीं हैं।",
+    sigmaNoImportable: "कोई एलिमेंट आयात के लिए तैयार नहीं है। नीचे दिए गए नोट देखें।",
     sigmaPreviewTruncated: "{{total}} में से {{shown}} एलिमेंट दिखाए गए हैं।",
     sigmaImportWorkbook: "वर्कबुक आयात करें",
     sigmaImporting: "वर्कबुक आयात हो रही है…",
@@ -87,7 +87,7 @@ export default {
       "आयात का जवाब अधूरा था। स्थिति देखने के लिए वर्कबुक सूची फिर से लोड करें।",
     sigmaImportComplete: "डैशबोर्ड बनाया गया",
     sigmaImportSummary:
-      "{{imported}} एलिमेंट आयात किए गए; {{unsupported}} असमर्थित एलिमेंट छोड़े गए।",
+      "{{imported}} एलिमेंट आयात किए गए; {{unsupported}} असमर्थित एलिमेंट समीक्षा कॉलआउट के रूप में रखे गए।",
     sigmaAlreadyImported: "यह वर्कबुक पहले ही आयात की जा चुकी है।",
     sigmaImportedNoDashboard:
       "डैशबोर्ड आयात किया गया, लेकिन इसे इस खाते से खोला नहीं जा सकता।",
@@ -102,11 +102,15 @@ export default {
       "यह एलिमेंट आयात करने के लिए Analytics BigQuery स्रोत कनेक्ट करें।",
     sigmaReasonUnsupportedSource:
       "यह एलिमेंट ऐसे स्रोत का उपयोग करता है जो आयात के लिए समर्थित नहीं है।",
+    sigmaReasonSourceMappingRequired:
+      "Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके, इसलिए यह SQL अभी आयात नहीं हो सकता।",
     sigmaReasonQueryUnavailable:
       "Sigma ने इस एलिमेंट के लिए आयात योग्य क्वेरी नहीं दी।",
     sigmaReasonUnsafeSql: "इस क्वेरी पैटर्न को सुरक्षित रूप से आयात नहीं किया जा सकता।",
     sigmaReasonVisualizationReview:
       "डेटा आयात किया जा सकता है, लेकिन बाद में विज़ुअलाइज़ेशन जाँचें।",
+    sigmaRetryOwnerOnly:
+      "केवल इस आयात को शुरू करने वाला व्यक्ति इसे फिर से आज़मा सकता है।",
     sigmaImportedByTeammate: "टीम के किसी सदस्य ने आयात किया",
     sigmaFlaggedCount: "{{count}} समीक्षा के लिए चिह्नित",
     sigmaMoreWorkbooksFailed: "और वर्कबुक लोड नहीं हो सकीं",

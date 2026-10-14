@@ -93,9 +93,15 @@ describe("Sigma migration context", () => {
   it("builds provider setup links without returning credentials", () => {
     expect(migration.sigmaMigrationSetupLink("sigma")).toBe("/data-sources");
     expect(mocks.buildDeepLink).toHaveBeenCalledWith({
+      app: "dispatch",
+      view: "overview",
+    });
+    mocks.buildDeepLink.mockClear();
+    expect(migration.sigmaMigrationSetupLink("bigquery")).toBe("/data-sources");
+    expect(mocks.buildDeepLink).toHaveBeenCalledWith({
       app: "analytics",
       view: "data-sources",
-      to: "/data-sources?source=sigma&returnTo=ask",
+      to: "/data-sources?source=bigquery&returnTo=ask",
     });
   });
 });

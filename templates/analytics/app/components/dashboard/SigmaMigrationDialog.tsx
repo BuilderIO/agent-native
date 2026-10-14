@@ -1,7 +1,6 @@
 import {
   useActionMutation,
   useActionQuery,
-  actionErrorMessage,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
@@ -53,6 +52,7 @@ type SigmaWorkbook = {
   dashboardUrl?: string;
   flaggedCount?: number;
   migratedByTeammate?: boolean;
+  retryableByCurrentUser: boolean;
 };
 
 type SigmaWorkbookListResult = {
@@ -71,6 +71,7 @@ type SigmaElementReviewReason =
   | "unsupported_element"
   | "analytics_bigquery_required"
   | "unsupported_source"
+  | "source_mapping_required"
   | "query_unavailable"
   | "unsafe_sql"
   | "visualization_review";
@@ -296,6 +297,7 @@ export function SigmaMigrationDialog({
     Boolean(selectedWorkbook && connectionId && inspectionIsValid) &&
     (inspection.data?.importableCount ?? 0) > 0 &&
     !migrationInProgress &&
+    selectedWorkbook?.retryableByCurrentUser !== false &&
     selectedWorkbook?.status !== "migrated" &&
     selectedWorkbook?.status !== "migrating";
   const isImported =
@@ -367,11 +369,8 @@ export function SigmaMigrationDialog({
       setPageCursor(selectedWorkbookPage);
       setRefreshVersion((current) => current + 1);
       onImported?.();
-    } catch (error) {
-      setMigrationError(
-        actionErrorMessage(error) ??
-          t("dashboardOverview.sigmaMigrationFailed"),
-      );
+    } catch {
+      setMigrationError(t("dashboardOverview.sigmaMigrationFailed"));
     }
   };
 
@@ -460,10 +459,7 @@ export function SigmaMigrationDialog({
               <StateMessage
                 icon={<IconAlertCircle className="size-4" />}
                 title={t("dashboardOverview.sigmaWorkbooksLoadFailed")}
-                detail={
-                  actionErrorMessage(workbookList.error) ??
-                  t("dashboardOverview.sigmaRetryConnection")
-                }
+                detail={t("dashboardOverview.sigmaRetryConnection")}
                 action={
                   <Button
                     type="button"
@@ -629,6 +625,12 @@ export function SigmaMigrationDialog({
                         </h3>
                         <WorkbookStatusBadge status={selectedWorkbook.status} />
                       </div>
+                      {selectedWorkbook.status === "failed" &&
+                      selectedWorkbook.retryableByCurrentUser === false ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t("dashboardOverview.sigmaRetryOwnerOnly")}
+                        </p>
+                      ) : null}
 
                       {inspection.isPending ? (
                         <PreviewSkeleton />
@@ -637,10 +639,7 @@ export function SigmaMigrationDialog({
                         <StateMessage
                           icon={<IconAlertCircle className="size-4" />}
                           title={t("dashboardOverview.sigmaPreviewFailed")}
-                          detail={
-                            actionErrorMessage(inspection.error) ??
-                            t("dashboardOverview.sigmaRetryPreview")
-                          }
+                          detail={t("dashboardOverview.sigmaRetryPreview")}
                           action={
                             <Button
                               type="button"
@@ -876,6 +875,8 @@ function reasonTranslationKey(reason: SigmaElementReviewReason) {
     analytics_bigquery_required:
       "dashboardOverview.sigmaReasonBigQueryRequired",
     unsupported_source: "dashboardOverview.sigmaReasonUnsupportedSource",
+    source_mapping_required:
+      "dashboardOverview.sigmaReasonSourceMappingRequired",
     query_unavailable: "dashboardOverview.sigmaReasonQueryUnavailable",
     unsafe_sql: "dashboardOverview.sigmaReasonUnsafeSql",
     visualization_review: "dashboardOverview.sigmaReasonVisualizationReview",
@@ -984,7 +985,8 @@ function isWorkbookListResult(
           (typeof workbook.flaggedCount === "number" &&
             workbook.flaggedCount >= 0)) &&
         (workbook.migratedByTeammate === undefined ||
-          typeof workbook.migratedByTeammate === "boolean"),
+          typeof workbook.migratedByTeammate === "boolean") &&
+        typeof workbook.retryableByCurrentUser === "boolean",
     ) &&
     (result.nextPage === undefined ||
       result.nextPage === null ||
@@ -1023,6 +1025,7 @@ function isWorkbookInspection(
             "unsupported_element",
             "analytics_bigquery_required",
             "unsupported_source",
+            "source_mapping_required",
             "query_unavailable",
             "unsafe_sql",
             "visualization_review",

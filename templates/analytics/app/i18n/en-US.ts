@@ -246,7 +246,8 @@ export default {
     sigmaImportable: "Importable",
     sigmaUnsupported: "Unsupported",
     sigmaNoElements: "No workbook elements were found.",
-    sigmaNoImportable: "This workbook has no supported elements to import.",
+    sigmaNoImportable:
+      "No elements are ready to import. Review the notes below.",
     sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
     sigmaImportWorkbook: "Import workbook",
     sigmaImporting: "Importing workbook…",
@@ -257,7 +258,7 @@ export default {
       "The import response was incomplete. Reload the workbook list to check its status.",
     sigmaImportComplete: "Dashboard created",
     sigmaImportSummary:
-      "{{imported}} elements imported; {{unsupported}} unsupported elements skipped.",
+      "{{imported}} elements imported; {{unsupported}} unsupported elements retained as review callouts.",
     sigmaAlreadyImported: "This workbook has already been imported.",
     sigmaImportedNoDashboard:
       "The imported dashboard isn't available to open from this account.",
@@ -273,11 +274,15 @@ export default {
       "Connect an Analytics BigQuery source to import this element.",
     sigmaReasonUnsupportedSource:
       "This element uses a source that is not supported for import.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma doesn't expose a BigQuery project mapping Analytics can verify, so this SQL can't be imported yet.",
     sigmaReasonQueryUnavailable:
       "Sigma did not return an importable query for this element.",
     sigmaReasonUnsafeSql: "This query pattern cannot be imported safely.",
     sigmaReasonVisualizationReview:
       "The data can be imported, but verify its visualization after import.",
+    sigmaRetryOwnerOnly:
+      "Only the person who started this import can retry it.",
     sigmaImportedByTeammate: "Imported by a teammate",
     sigmaFlaggedCount: "{{count}} flagged for review",
     sigmaMoreWorkbooksFailed: "Could not load more workbooks",

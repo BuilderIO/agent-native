@@ -240,14 +240,22 @@ visualizations outside these contracts may remain Custom Blocks.
 For an explicitly requested Sigma migration, list workbooks with
 `list-sigma-workbooks`, inspect the selected workbook with
 `inspect-sigma-workbook`, and call `migrate-sigma-workbook` only after the user
-chooses to import it. The feature is controlled by
-`analytics.sigma-dashboard-migration` and requires a granted Sigma connection
-plus an Analytics BigQuery source. It creates a private snapshot in the user's
-personal `Sigma` folder. BigQuery-backed read-only SQL is imported as tables;
-other source types and unsupported elements become review callouts. Preserve
-the migration warnings and never describe the result as parity-complete or
-automatically synchronized. Sigma's workbook-code API is public Beta and can
-omit unsupported workbook features before the importer receives the response.
+chooses to import it and inspection marks elements ready. The feature is
+controlled by `analytics.sigma-dashboard-migration` and requires a granted
+Sigma connection plus an Analytics BigQuery source. A Sigma BigQuery type is
+only a candidate: the current API response does not expose a source-to-project
+mapping Analytics can verify, so inspection blocks that SQL and migration fails
+closed. Do not treat the presence of an Analytics BigQuery credential as proof
+that it targets the Sigma project. The Dispatch setup link can create a Sigma
+workspace connection from Vault-backed client ID and client secret references
+and grant Analytics access; never copy their values into Analytics settings.
+
+Once a source mapping can be verified, the workflow creates a private snapshot
+in the user's personal `Sigma` folder. Other source types and unsupported
+elements become review callouts. Preserve migration warnings and never describe
+the result as parity-complete or automatically synchronized. Sigma's
+workbook-code API is public Beta and can omit unsupported workbook features
+before the importer receives the response.
 
 The source tree ships four provider-free v2 manifests in
 `server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,

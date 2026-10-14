@@ -82,7 +82,7 @@ export default {
     sigmaUnsupported: "Non pris en charge",
     sigmaNoElements: "Aucun élément n’a été trouvé dans ce classeur.",
     sigmaNoImportable:
-      "Ce classeur ne contient aucun élément pris en charge à importer.",
+      "Aucun élément n’est prêt à être importé. Consultez les remarques ci-dessous.",
     sigmaPreviewTruncated: "{{shown}} éléments sur {{total}} affichés.",
     sigmaImportWorkbook: "Importer le classeur",
     sigmaImporting: "Importation du classeur…",
@@ -92,7 +92,7 @@ export default {
       "La réponse d’importation était incomplète. Rechargez la liste des classeurs pour vérifier son état.",
     sigmaImportComplete: "Tableau de bord créé",
     sigmaImportSummary:
-      "{{imported}} éléments importés ; {{unsupported}} éléments non pris en charge ignorés.",
+      "{{imported}} éléments importés ; les {{unsupported}} éléments non pris en charge sont conservés comme alertes à vérifier.",
     sigmaAlreadyImported: "Ce classeur a déjà été importé.",
     sigmaImportedNoDashboard:
       "Le tableau de bord a été importé, mais ce compte ne peut pas l’ouvrir.",
@@ -108,12 +108,16 @@ export default {
       "Connectez une source BigQuery d’Analytics pour importer cet élément.",
     sigmaReasonUnsupportedSource:
       "Cet élément utilise une source qui n’est pas prise en charge.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma ne fournit pas de correspondance avec un projet BigQuery qu’Analytics puisse vérifier. Ce SQL ne peut donc pas encore être importé.",
     sigmaReasonQueryUnavailable:
       "Sigma n’a pas fourni de requête importable pour cet élément.",
     sigmaReasonUnsafeSql:
       "Ce type de requête ne peut pas être importé en toute sécurité.",
     sigmaReasonVisualizationReview:
       "Les données peuvent être importées, mais vérifiez la visualisation après l’importation.",
+    sigmaRetryOwnerOnly:
+      "Seule la personne qui a lancé cet import peut réessayer.",
     sigmaImportedByTeammate: "Importé par un membre de l’équipe",
     sigmaFlaggedCount: "{{count}} à vérifier",
     sigmaMoreWorkbooksFailed: "Impossible de charger d’autres classeurs",

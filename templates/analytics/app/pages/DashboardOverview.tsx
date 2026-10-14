@@ -260,11 +260,7 @@ export default function DashboardOverview() {
     }
   };
 
-  if (
-    sigmaMigrationFlag.status === "loading" ||
-    dashboardsQuery.isLoading ||
-    foldersQuery.isLoading
-  ) {
+  if (dashboardsQuery.isLoading || foldersQuery.isLoading) {
     return <DashboardOverviewSkeleton />;
   }
   if (dashboardsQuery.isError || foldersQuery.isError) {

@@ -63,15 +63,12 @@ const DIRECT_MCP_READS = [
   "list-error-issues",
   "list-session-recordings",
   "list-sql-dashboards",
-  "list-sigma-workbooks",
-  "inspect-sigma-workbook",
   "match-error-issues",
   "search-analytics-query-catalog",
   "search-dashboard-references",
 ];
 
 const DIRECT_MCP_WRITES = [
-  "migrate-sigma-workbook",
   "run-gong-native-insight",
   "update-analytics-public-key",
 ];
@@ -85,6 +82,9 @@ const VETOED = [
   "import-data-dictionary-index",
   "query-agent-native-analytics",
   "search-bigquery-schema",
+  "list-sigma-workbooks",
+  "inspect-sigma-workbook",
+  "migrate-sigma-workbook",
 ];
 
 // UI, bulk replay, and unapproved writes stay off the read-scoped catalog.
@@ -188,7 +188,7 @@ describe("Analytics direct MCP tools", () => {
         expect(action.mcpTool, name).not.toBe(true);
       }
     }
-    expect(actions["migrate-sigma-workbook"].mcpTool).toBe(true);
+    expect(actions["migrate-sigma-workbook"].mcpTool).toBe(false);
     expect(actions["migrate-sigma-workbook"].readOnly).not.toBe(true);
     expect(actions["migrate-sigma-workbook"].needsApproval).toBe(true);
   });

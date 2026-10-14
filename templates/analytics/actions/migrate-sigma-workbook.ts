@@ -11,6 +11,7 @@ import type {
 } from "../app/pages/adhoc/sql-dashboard/types.js";
 import {
   claimExternalDashboard,
+  boundExternalDashboardDiagnostics,
   completeExternalDashboard,
   createExternalDashboard,
   failExternalDashboard,
@@ -89,27 +90,15 @@ function safeText(value: string, maxLength = 180): string {
     .slice(0, maxLength);
 }
 
-function quoteSqlText(value: string): string {
-  return safeText(value).replace(/'/g, "''");
-}
-
-function reviewMessage(element: SigmaPortableElement): string {
-  if (element.kind === "unsupported") {
-    return `Sigma element “${safeText(element.title, 80)}” (${safeText(element.sigmaKind, 60)}) needs manual review in the source workbook.`;
-  }
-  return `Sigma element “${safeText(element.title, 80)}” was kept as a table for manual chart review.`;
-}
-
 function makeReviewCallout(
   element: SigmaPortableElement,
   index: number,
   tab?: string,
 ): SqlPanel {
-  const message = quoteSqlText(reviewMessage(element));
   return {
     id: panelId(index, element.id),
     title: safeText(element.title || "Sigma element", 200),
-    sql: `SELECT 'warning' AS severity, '${message}' AS message`,
+    sql: "SELECT 'warning' AS severity, 'Review this Sigma element in the source workbook before using it.' AS message",
     source: "bigquery",
     chartType: "callout",
     width: 6,
@@ -172,6 +161,7 @@ function migrationDiagnostics(
       });
       continue;
     }
+    if (!result.reason) continue;
     diagnostics.push({
       id: element.id,
       name: safeText(element.title, 200) || element.id,
@@ -294,11 +284,11 @@ function dashboardUrl(dashboardId: string): string {
 
 export default defineAction({
   description:
-    "Import a Sigma workbook into a private Analytics SQL dashboard. Only BigQuery-backed Sigma elements with read-only SQL are imported; other elements remain visible as review callouts. Charts are imported as tables so this never claims visual parity. The result is saved in the current user's Sigma folder. Requires a connected Analytics BigQuery source and explicit user confirmation.",
+    "Import a Sigma workbook into a private Analytics SQL dashboard. Requires a connected Analytics BigQuery source, a verified Sigma source-project mapping, and explicit user confirmation. Unsupported elements remain visible as review callouts; chart visuals are imported as tables without a parity claim.",
   schema: migrateSchema,
   http: { method: "POST" },
   needsApproval: true,
-  mcpTool: true,
+  mcpTool: false,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   link: ({ result }) => {
     const dashboardId =
@@ -337,6 +327,20 @@ export default defineAction({
       inspection: preliminaryInspection,
       analyticsBigQueryReady: true,
     });
+    if (
+      preliminaryReview.some(
+        (element) => element.reason === "source_mapping_required",
+      )
+    ) {
+      fail(
+        "Sigma does not expose a BigQuery project mapping Analytics can verify, so this workbook's SQL cannot be imported yet.",
+        {
+          errorCode: "sigma_source_mapping_required",
+          statusCode: 409,
+          details: { setupUrl: sigmaMigrationSetupLink("bigquery") },
+        },
+      );
+    }
     await createExternalDashboard({
       provider: "sigma",
       sourceId: args.workbookId,
@@ -425,7 +429,7 @@ export default defineAction({
         !saved ||
         saved.kind !== "sql" ||
         saved.visibility !== "private" ||
-        saved.ownerEmail.toLowerCase() !== context.email ||
+        saved.ownerEmail.toLowerCase() !== context.userEmail ||
         saved.orgId !== context.orgId ||
         saved.config.name !== compiled.config.name
       ) {
@@ -440,13 +444,13 @@ export default defineAction({
       }
 
       const diagnostics = migrationDiagnostics(inspection, review);
+      const storedDiagnostics = boundExternalDashboardDiagnostics(diagnostics);
       await completeExternalDashboard({
         provider: "sigma",
         sourceId: args.workbookId,
         claimToken: claim.claimToken,
         targetDashboardId: id,
-        elementDiagnostics: diagnostics,
-        flaggedCount: diagnostics.length,
+        ...storedDiagnostics,
       });
       const _receipt: WriteReceipt = {
         changed: true,

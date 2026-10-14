@@ -82,7 +82,7 @@ export default {
     sigmaUnsupported: "Sem suporte",
     sigmaNoElements: "Nenhum elemento foi encontrado nesta pasta de trabalho.",
     sigmaNoImportable:
-      "Esta pasta de trabalho não tem elementos compatíveis para importar.",
+      "Nenhum elemento está pronto para importação. Confira as observações abaixo.",
     sigmaPreviewTruncated: "Exibindo {{shown}} de {{total}} elementos.",
     sigmaImportWorkbook: "Importar pasta de trabalho",
     sigmaImporting: "Importando pasta de trabalho…",
@@ -94,7 +94,7 @@ export default {
       "A resposta da importação estava incompleta. Atualize a lista de pastas de trabalho para verificar o status.",
     sigmaImportComplete: "Painel criado",
     sigmaImportSummary:
-      "{{imported}} elementos importados; {{unsupported}} elementos sem suporte ignorados.",
+      "{{imported}} elementos importados; os {{unsupported}} elementos sem suporte foram mantidos como avisos para revisão.",
     sigmaAlreadyImported: "Esta pasta de trabalho já foi importada.",
     sigmaImportedNoDashboard:
       "O painel foi importado, mas não pode ser aberto por esta conta.",
@@ -110,12 +110,16 @@ export default {
       "Conecte uma fonte BigQuery do Analytics para importar este elemento.",
     sigmaReasonUnsupportedSource:
       "Este elemento usa uma fonte que não é compatível com a importação.",
+    sigmaReasonSourceMappingRequired:
+      "O Sigma não fornece um mapeamento de projeto BigQuery que o Analytics possa verificar, então este SQL ainda não pode ser importado.",
     sigmaReasonQueryUnavailable:
       "O Sigma não retornou uma consulta importável para este elemento.",
     sigmaReasonUnsafeSql:
       "Este padrão de consulta não pode ser importado com segurança.",
     sigmaReasonVisualizationReview:
       "Os dados podem ser importados, mas confira a visualização depois.",
+    sigmaRetryOwnerOnly:
+      "Somente quem iniciou esta importação pode tentar novamente.",
     sigmaImportedByTeammate: "Importado por um colega da equipe",
     sigmaFlaggedCount: "{{count}} marcados para revisão",
     sigmaMoreWorkbooksFailed:

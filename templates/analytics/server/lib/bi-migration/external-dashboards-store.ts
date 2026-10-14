@@ -206,6 +206,21 @@ type ExternalDashboardRow =
 
 type ExternalDashboardContext = { orgId: string; userEmail: string };
 
+export function boundExternalDashboardDiagnostics(
+  diagnostics: ExternalDashboardElementDiagnostic[],
+): {
+  elementDiagnostics: ExternalDashboardElementDiagnostic[];
+  flaggedCount: number;
+} {
+  return {
+    elementDiagnostics: diagnostics.slice(
+      0,
+      EXTERNAL_DASHBOARD_DIAGNOSTIC_LIMIT,
+    ),
+    flaggedCount: diagnostics.length,
+  };
+}
+
 function requireExternalDashboardContext(): ExternalDashboardContext {
   const userEmail = getRequestUserEmail()?.trim().toLowerCase();
   if (!userEmail) {

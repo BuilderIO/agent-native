@@ -245,6 +245,79 @@ describe("Sigma read-only migration adapter", () => {
     expect(safeSummary).not.toHaveProperty("sqlQueries");
   });
 
+  it("preserves malformed elements as unsupported review items", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(async (args) => {
+      if (args.path === `/v2/workbooks/${WORKBOOK_ID}`) {
+        const payload = representation();
+        (payload.contents.elements as unknown[]).push(
+          null,
+          { id: "missing-kind", name: "Half parsed element" },
+          { kind: "plugin", name: "Missing element ID" },
+          {
+            id: "unrecognized-element-6",
+            kind: "plugin",
+            name: "Reserved fallback ID",
+          },
+        );
+        return apiResponse(payload);
+      }
+      if (args.path === "/v2/connections/warehouse-1") {
+        return apiResponse({ connectionId: "warehouse-1", type: "bigQuery" });
+      }
+      if (args.path === `/v2/workbooks/${WORKBOOK_ID}/queries`) {
+        return apiResponse({ entries: [], nextPage: null, total: 0 });
+      }
+      throw new Error(`Unexpected synthetic path: ${args.path}`);
+    });
+
+    const inspection = await inspectSigmaWorkbook({
+      connectionId: CONNECTION_ID,
+      workbookId: WORKBOOK_ID,
+    });
+
+    expect(inspection.elements).toHaveLength(7);
+    expect(inspection.elements).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "unsupported",
+          id: "unrecognized-element-4",
+          title: "Unrecognized Sigma element 4",
+          sigmaKind: "unknown",
+        },
+        {
+          kind: "unsupported",
+          id: "missing-kind",
+          title: "Half parsed element",
+          sigmaKind: "unknown",
+        },
+        {
+          kind: "unsupported",
+          id: "unrecognized-element-6-1",
+          title: "Missing element ID",
+          sigmaKind: "plugin",
+        },
+        {
+          kind: "unsupported",
+          id: "unrecognized-element-6",
+          title: "Reserved fallback ID",
+          sigmaKind: "plugin",
+        },
+      ]),
+    );
+    expect(inspection.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "sigma_element_invalid",
+          elementId: "unrecognized-element-4",
+        }),
+        expect.objectContaining({
+          code: "sigma_element_identity_missing",
+          elementId: "missing-kind",
+        }),
+      ]),
+    );
+  });
+
   it("marks unsupported Sigma data platforms and never promotes them to BigQuery", async () => {
     mocks.executeProviderApiRequest.mockImplementation(async (args) => {
       if (args.path === `/v2/workbooks/${WORKBOOK_ID}`) {

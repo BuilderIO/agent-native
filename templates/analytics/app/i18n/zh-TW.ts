@@ -211,7 +211,7 @@ export default {
     sigmaImportable: "可匯入",
     sigmaUnsupported: "不支援",
     sigmaNoElements: "找不到活頁簿元素。",
-    sigmaNoImportable: "此活頁簿沒有可匯入的支援元素。",
+    sigmaNoImportable: "目前沒有可匯入的元素，請查看下方說明。",
     sigmaPreviewTruncated: "顯示 {{total}} 個元素中的 {{shown}} 個。",
     sigmaImportWorkbook: "匯入活頁簿",
     sigmaImporting: "正在匯入活頁簿…",
@@ -221,7 +221,7 @@ export default {
       "匯入回應不完整。請重新載入活頁簿清單以查看狀態。",
     sigmaImportComplete: "已建立儀表板",
     sigmaImportSummary:
-      "已匯入 {{imported}} 個元素；略過 {{unsupported}} 個不支援的元素。",
+      "已匯入 {{imported}} 個元素；{{unsupported}} 個不支援的元素會保留為檢查提示面板。",
     sigmaAlreadyImported: "此活頁簿已匯入。",
     sigmaImportedNoDashboard: "儀表板已匯入，但此帳戶無法開啟。",
     sigmaReviewRequiredCount: "{{count}} 項需要檢查",
@@ -234,9 +234,12 @@ export default {
     sigmaReasonBigQueryRequired:
       "連結 Analytics BigQuery 資料來源後才能匯入此元素。",
     sigmaReasonUnsupportedSource: "此元素使用了不支援匯入的資料來源。",
+    sigmaReasonSourceMappingRequired:
+      "Sigma 未提供 Analytics 可驗證的 BigQuery 專案對應資訊，因此目前無法匯入此 SQL。",
     sigmaReasonQueryUnavailable: "Sigma 未傳回此元素可匯入的查詢。",
     sigmaReasonUnsafeSql: "此查詢模式無法安全匯入。",
     sigmaReasonVisualizationReview: "資料可以匯入，但匯入後請檢查視覺化效果。",
+    sigmaRetryOwnerOnly: "只有發起此匯入的人可以重試。",
     sigmaImportedByTeammate: "已由團隊成員匯入",
     sigmaFlaggedCount: "{{count}} 項已標記待檢查",
     sigmaMoreWorkbooksFailed: "無法載入更多活頁簿",

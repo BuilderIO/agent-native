@@ -591,31 +591,68 @@ function reportUnmappedFields(args: {
   });
 }
 
+function fallbackSigmaElementId(
+  index: number,
+  reservedIds: Set<string>,
+): string {
+  const base = `unrecognized-element-${index + 1}`;
+  let candidate = base;
+  let suffix = 1;
+  while (reservedIds.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  reservedIds.add(candidate);
+  return candidate;
+}
+
 function parseSigmaElement(
   value: unknown,
   index: number,
   pageAssignments: Map<string, SigmaPageAssignment>,
   diagnostics: SigmaAdapterDiagnostic[],
-): SigmaPortableElement | null {
+  reservedIds: Set<string>,
+): SigmaPortableElement {
   if (!isRecord(value)) {
+    const id = fallbackSigmaElementId(index, reservedIds);
     diagnostics.push({
       code: "sigma_element_invalid",
       severity: "warning",
       message: "Sigma returned a workbook element with an invalid shape.",
+      elementId: id,
       fieldPath: `contents.elements[${index}]`,
     });
-    return null;
+    return {
+      kind: "unsupported",
+      id,
+      title: `Unrecognized Sigma element ${index + 1}`,
+      sigmaKind: "unknown",
+    };
   }
   const id = asOptionalString(value.id);
   const sigmaKind = asOptionalString(value.kind);
-  if (!id || !sigmaKind) {
+  if (!id || id.length > 200 || !sigmaKind) {
+    const elementId =
+      id && id.length <= 200 ? id : fallbackSigmaElementId(index, reservedIds);
+    const kind = sigmaKind?.slice(0, 80) ?? "unknown";
     diagnostics.push({
       code: "sigma_element_identity_missing",
       severity: "warning",
       message: "Sigma returned a workbook element without a usable ID or kind.",
+      elementId,
+      ...(sigmaKind ? { sigmaKind: kind } : {}),
       fieldPath: `contents.elements[${index}]`,
     });
-    return null;
+    return {
+      kind: "unsupported",
+      id: elementId,
+      title:
+        asOptionalString(value.title)?.slice(0, 200) ??
+        asOptionalString(value.name)?.slice(0, 200) ??
+        `Unrecognized Sigma element ${index + 1}`,
+      sigmaKind: kind,
+      ...placementFor(pageAssignments.get(id ?? "")),
+    };
   }
   const title =
     asOptionalString(value.title) ?? asOptionalString(value.name) ?? id;
@@ -1183,12 +1220,17 @@ export async function inspectSigmaWorkbook(
     pages,
     diagnostics,
   );
-  const parsedElements = contents.elements
-    .map((element, index) =>
-      parseSigmaElement(element, index, pageAssignments, diagnostics),
-    )
-    .filter((element): element is SigmaPortableElement => !!element);
   const sourceGraph = collectSourceConnectionIds(contents.elements);
+  const reservedElementIds = new Set(sourceGraph.elementsById.keys());
+  const parsedElements = contents.elements.map((element, index) =>
+    parseSigmaElement(
+      element,
+      index,
+      pageAssignments,
+      diagnostics,
+      reservedElementIds,
+    ),
+  );
   const sourceConnections = await loadSigmaSourceConnections({
     connectionId,
     sourceConnectionIds: sourceGraph.connectionIds,

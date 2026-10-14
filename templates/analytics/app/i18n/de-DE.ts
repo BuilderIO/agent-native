@@ -82,7 +82,7 @@ export default {
     sigmaUnsupported: "Nicht unterstützt",
     sigmaNoElements: "In dieser Arbeitsmappe wurden keine Elemente gefunden.",
     sigmaNoImportable:
-      "Diese Arbeitsmappe enthält keine unterstützten Elemente zum Importieren.",
+      "Es sind keine Elemente zum Import bereit. Lies die Hinweise unten.",
     sigmaPreviewTruncated:
       "{{shown}} von {{total}} Elementen werden angezeigt.",
     sigmaImportWorkbook: "Arbeitsmappe importieren",
@@ -94,7 +94,7 @@ export default {
       "Die Importantwort war unvollständig. Lade die Arbeitsmappenliste neu, um den Status zu prüfen.",
     sigmaImportComplete: "Dashboard erstellt",
     sigmaImportSummary:
-      "{{imported}} Elemente importiert; {{unsupported}} nicht unterstützte Elemente übersprungen.",
+      "{{imported}} Elemente importiert; {{unsupported}} nicht unterstützte Elemente als Prüfhinweise beibehalten.",
     sigmaAlreadyImported: "Diese Arbeitsmappe wurde bereits importiert.",
     sigmaImportedNoDashboard:
       "Das importierte Dashboard kann von diesem Konto aus nicht geöffnet werden.",
@@ -110,12 +110,16 @@ export default {
       "Verbinde eine Analytics-BigQuery-Quelle, um dieses Element zu importieren.",
     sigmaReasonUnsupportedSource:
       "Dieses Element verwendet eine nicht unterstützte Quelle.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics prüfen kann. Daher kann dieses SQL noch nicht importiert werden.",
     sigmaReasonQueryUnavailable:
       "Sigma hat für dieses Element keine importierbare Abfrage zurückgegeben.",
     sigmaReasonUnsafeSql:
       "Dieses Abfragemuster kann nicht sicher importiert werden.",
     sigmaReasonVisualizationReview:
       "Die Daten können importiert werden. Überprüfe die Visualisierung danach.",
+    sigmaRetryOwnerOnly:
+      "Nur die Person, die diesen Import gestartet hat, kann ihn erneut versuchen.",
     sigmaImportedByTeammate: "Von einem Teammitglied importiert",
     sigmaFlaggedCount: "{{count}} zur Überprüfung markiert",
     sigmaMoreWorkbooksFailed:

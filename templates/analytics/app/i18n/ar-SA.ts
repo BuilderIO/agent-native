@@ -80,7 +80,7 @@ export default {
     sigmaImportable: "قابل للاستيراد",
     sigmaUnsupported: "غير مدعوم",
     sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
-    sigmaNoImportable: "لا يحتوي هذا المصنف على عناصر مدعومة للاستيراد.",
+    sigmaNoImportable: "لا توجد عناصر جاهزة للاستيراد. راجع الملاحظات أدناه.",
     sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
     sigmaImportWorkbook: "استيراد المصنف",
     sigmaImporting: "جارٍ استيراد المصنف…",
@@ -90,7 +90,7 @@ export default {
       "كانت استجابة الاستيراد غير مكتملة. أعد تحميل قائمة المصنفات للتحقق من حالتها.",
     sigmaImportComplete: "تم إنشاء لوحة المعلومات",
     sigmaImportSummary:
-      "تم استيراد {{imported}} عنصرًا، وتجاوز {{unsupported}} عنصرًا غير مدعوم.",
+      "تم استيراد {{imported}} عنصرًا، مع الاحتفاظ بـ {{unsupported}} عنصرًا غير مدعوم كتنبيهات للمراجعة.",
     sigmaAlreadyImported: "تم استيراد هذا المصنف من قبل.",
     sigmaImportedNoDashboard:
       "تم استيراد لوحة المعلومات، لكن لا يمكن فتحها من هذا الحساب.",
@@ -104,11 +104,14 @@ export default {
     sigmaReasonBigQueryRequired:
       "اربط مصدر BigQuery في Analytics لاستيراد هذا العنصر.",
     sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
+    sigmaReasonSourceMappingRequired:
+      "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",
     sigmaReasonQueryUnavailable:
       "لم تُرجع Sigma استعلامًا قابلًا للاستيراد لهذا العنصر.",
     sigmaReasonUnsafeSql: "لا يمكن استيراد نمط هذا الاستعلام بأمان.",
     sigmaReasonVisualizationReview:
       "يمكن استيراد البيانات، لكن تحقّق من التصور بعد الاستيراد.",
+    sigmaRetryOwnerOnly: "يمكن لمن بدأ هذا الاستيراد وحده إعادة المحاولة.",
     sigmaImportedByTeammate: "استورده أحد الزملاء",
     sigmaFlaggedCount: "{{count}} معلّم للمراجعة",
     sigmaMoreWorkbooksFailed: "تعذّر تحميل مزيد من المصنفات",

@@ -79,7 +79,8 @@ export default {
     sigmaImportable: "가져올 수 있음",
     sigmaUnsupported: "지원되지 않음",
     sigmaNoElements: "워크북 요소를 찾지 못했습니다.",
-    sigmaNoImportable: "이 워크북에는 가져올 수 있는 지원 요소가 없습니다.",
+    sigmaNoImportable:
+      "가져올 준비가 된 요소가 없습니다. 아래 안내를 확인하세요.",
     sigmaPreviewTruncated: "{{total}}개 중 {{shown}}개 요소 표시 중입니다.",
     sigmaImportWorkbook: "워크북 가져오기",
     sigmaImporting: "워크북 가져오는 중…",
@@ -89,7 +90,7 @@ export default {
       "가져오기 응답이 완전하지 않았습니다. 상태를 확인하려면 워크북 목록을 새로고침하세요.",
     sigmaImportComplete: "대시보드 생성됨",
     sigmaImportSummary:
-      "{{imported}}개 요소를 가져왔고 지원되지 않는 {{unsupported}}개 요소는 건너뛰었습니다.",
+      "{{imported}}개 요소를 가져왔으며 지원되지 않는 {{unsupported}}개 요소는 검토 안내로 남겼습니다.",
     sigmaAlreadyImported: "이 워크북은 이미 가져왔습니다.",
     sigmaImportedNoDashboard:
       "대시보드를 가져왔지만 이 계정에서는 열 수 없습니다.",
@@ -103,11 +104,14 @@ export default {
     sigmaReasonBigQueryRequired:
       "이 요소를 가져오려면 Analytics BigQuery 소스를 연결하세요.",
     sigmaReasonUnsupportedSource: "이 요소는 가져올 수 없는 소스를 사용합니다.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma가 Analytics에서 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않아 이 SQL을 아직 가져올 수 없습니다.",
     sigmaReasonQueryUnavailable:
       "Sigma가 이 요소에 사용할 수 있는 쿼리를 반환하지 않았습니다.",
     sigmaReasonUnsafeSql: "이 쿼리 패턴은 안전하게 가져올 수 없습니다.",
     sigmaReasonVisualizationReview:
       "데이터는 가져올 수 있지만 가져온 후 시각화를 확인하세요.",
+    sigmaRetryOwnerOnly: "이 가져오기를 시작한 사람만 다시 시도할 수 있습니다.",
     sigmaImportedByTeammate: "팀원이 가져옴",
     sigmaFlaggedCount: "{{count}}개 검토 표시됨",
     sigmaMoreWorkbooksFailed: "추가 워크북을 불러오지 못했습니다",

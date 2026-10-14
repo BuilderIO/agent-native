@@ -77,7 +77,7 @@ export default {
     sigmaImportable: "可导入",
     sigmaUnsupported: "不支持",
     sigmaNoElements: "未找到工作簿元素。",
-    sigmaNoImportable: "此工作簿没有可导入的支持元素。",
+    sigmaNoImportable: "没有可导入的元素。请查看下方说明。",
     sigmaPreviewTruncated: "显示 {{total}} 个元素中的 {{shown}} 个。",
     sigmaImportWorkbook: "导入工作簿",
     sigmaImporting: "正在导入工作簿…",
@@ -87,7 +87,7 @@ export default {
       "导入响应不完整。请重新加载工作簿列表以查看状态。",
     sigmaImportComplete: "仪表板已创建",
     sigmaImportSummary:
-      "已导入 {{imported}} 个元素；跳过 {{unsupported}} 个不支持的元素。",
+      "已导入 {{imported}} 个元素；{{unsupported}} 个不支持的元素会保留为审核提示面板。",
     sigmaAlreadyImported: "此工作簿已导入。",
     sigmaImportedNoDashboard: "仪表板已导入，但此账户无法打开它。",
     sigmaReviewRequiredCount: "{{count}} 项需要检查",
@@ -100,10 +100,13 @@ export default {
     sigmaReasonBigQueryRequired:
       "连接 Analytics BigQuery 数据源后才能导入此元素。",
     sigmaReasonUnsupportedSource: "此元素使用了不支持导入的数据源。",
+    sigmaReasonSourceMappingRequired:
+      "Sigma 未提供 Analytics 可验证的 BigQuery 项目映射，因此暂时无法导入此 SQL。",
     sigmaReasonQueryUnavailable: "Sigma 未返回此元素可导入的查询。",
     sigmaReasonUnsafeSql: "此查询模式无法安全导入。",
     sigmaReasonVisualizationReview:
       "数据可以导入，但导入后请检查其可视化效果。",
+    sigmaRetryOwnerOnly: "只有发起此导入的人可以重试。",
     sigmaImportedByTeammate: "已由团队成员导入",
     sigmaFlaggedCount: "{{count}} 项已标记为需检查",
     sigmaMoreWorkbooksFailed: "无法加载更多工作簿",

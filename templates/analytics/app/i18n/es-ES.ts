@@ -82,7 +82,7 @@ export default {
     sigmaUnsupported: "No compatible",
     sigmaNoElements: "No se han encontrado elementos en este libro de trabajo.",
     sigmaNoImportable:
-      "Este libro de trabajo no contiene elementos compatibles para importar.",
+      "No hay elementos listos para importar. Revisa las notas siguientes.",
     sigmaPreviewTruncated: "Se muestran {{shown}} de {{total}} elementos.",
     sigmaImportWorkbook: "Importar libro de trabajo",
     sigmaImporting: "Importando libro de trabajo…",
@@ -94,7 +94,7 @@ export default {
       "La respuesta de importación estaba incompleta. Vuelve a cargar la lista de libros para comprobar su estado.",
     sigmaImportComplete: "Panel creado",
     sigmaImportSummary:
-      "Se han importado {{imported}} elementos y se han omitido {{unsupported}} no compatibles.",
+      "Se han importado {{imported}} elementos; los {{unsupported}} no compatibles se conservan como avisos de revisión.",
     sigmaAlreadyImported: "Este libro de trabajo ya se ha importado.",
     sigmaImportedNoDashboard:
       "El panel se importó, pero no se puede abrir desde esta cuenta.",
@@ -110,12 +110,16 @@ export default {
       "Conecta una fuente de BigQuery de Analytics para importar este elemento.",
     sigmaReasonUnsupportedSource:
       "Este elemento usa una fuente que no se admite para la importación.",
+    sigmaReasonSourceMappingRequired:
+      "Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar, así que todavía no se puede importar este SQL.",
     sigmaReasonQueryUnavailable:
       "Sigma no devolvió una consulta importable para este elemento.",
     sigmaReasonUnsafeSql:
       "Este patrón de consulta no se puede importar de forma segura.",
     sigmaReasonVisualizationReview:
       "Se pueden importar los datos, pero revisa la visualización después.",
+    sigmaRetryOwnerOnly:
+      "Solo quien inició esta importación puede volver a intentarla.",
     sigmaImportedByTeammate: "Importado por un compañero",
     sigmaFlaggedCount: "{{count}} marcados para revisión",
     sigmaMoreWorkbooksFailed: "No se pudieron cargar más libros de trabajo",

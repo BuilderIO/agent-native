@@ -1,9 +1,5 @@
-import { defineAction, fail } from "@agent-native/core/action";
-import {
-  buildDeepLink,
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
+import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -16,7 +12,7 @@ import {
   requireSigmaMigrationContext,
   sigmaMigrationSetupLink,
 } from "../server/lib/bi-migration/sigma-migration.js";
-import { getDashboard } from "../server/lib/dashboards-store.js";
+import { loadAccessibleDashboardMetadataByIds } from "../server/lib/dashboards-store.js";
 
 const listSchema = z.object({
   connectionId: z
@@ -37,14 +33,14 @@ const listSchema = z.object({
 
 export default defineAction({
   description:
-    "List Sigma workbooks accessible to the granted Analytics Sigma connection. Returns workbook metadata, migration status, and a dashboard link only when the current user can access the private imported dashboard. Use inspect-sigma-workbook before migrate-sigma-workbook.",
+    "List Sigma workbooks accessible to the granted Analytics Sigma connection. Returns workbook metadata, migration status, retry eligibility, and a dashboard link only when the current user owns and can access the private imported dashboard. Use inspect-sigma-workbook before migrate-sigma-workbook.",
   schema: listSchema,
   http: { method: "GET" },
   readOnly: true,
-  mcpTool: true,
+  mcpTool: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
-    await requireSigmaMigrationContext();
+    const context = await requireSigmaMigrationContext();
     const selection = await resolveSigmaConnectionSelection(args.connectionId);
     const connected = selection.connections.some(
       (connection) => connection.status === "connected",
@@ -74,63 +70,70 @@ export default defineAction({
     const migrationBySourceId = new Map(
       migrations.map((migration) => [migration.sourceId, migration]),
     );
-    const email = getRequestUserEmail();
-    const orgId = getRequestOrgId() || null;
-    if (!email) {
-      fail("Sign in to list Sigma workbooks.", {
-        errorCode: "authentication_required",
-        statusCode: 401,
-      });
-    }
-
-    const workbooks = await Promise.all(
-      page.workbooks.map(async (workbook) => {
-        const migration = migrationBySourceId.get(workbook.workbookId);
-        const status: ExternalDashboardMigrationStatus =
-          migration?.status ?? "not_started";
-        let dashboardId: string | undefined;
-        let dashboardName: string | undefined;
-        if (
-          migration?.status === "migrated" &&
-          migration.migratedByCurrentUser &&
-          migration.targetDashboardId
-        ) {
-          const dashboard = await getDashboard(migration.targetDashboardId, {
-            email,
-            orgId,
-          });
-          if (dashboard?.kind === "sql") {
-            dashboardId = dashboard.id;
-            dashboardName = dashboard.title;
-          }
-        }
-        return {
-          id: workbook.workbookId,
-          name: workbook.name,
-          ...(workbook.path ? { path: workbook.path } : {}),
-          ...(workbook.updatedAt ? { updatedAt: workbook.updatedAt } : {}),
-          status,
-          ...(dashboardId
-            ? {
-                dashboardId,
-                dashboardName,
-                dashboardUrl: buildDeepLink({
-                  app: "analytics",
-                  view: "adhoc",
-                  params: { dashboardId },
-                }),
-              }
-            : {}),
-          ...(migration?.flaggedCount
-            ? { flaggedCount: migration.flaggedCount }
-            : {}),
-          ...(migration?.status === "migrated" &&
-          !migration.migratedByCurrentUser
-            ? { migratedByTeammate: true }
-            : {}),
-        };
-      }),
+    const dashboardIds = migrations.flatMap((migration) =>
+      migration.status === "migrated" &&
+      migration.migratedByCurrentUser &&
+      migration.targetDashboardId
+        ? [migration.targetDashboardId]
+        : [],
     );
+    const dashboards = await loadAccessibleDashboardMetadataByIds(
+      { email: context.userEmail, orgId: context.orgId },
+      dashboardIds,
+    );
+    const dashboardById = new Map(
+      dashboards.map((dashboard) => [dashboard.id, dashboard]),
+    );
+
+    const workbooks = page.workbooks.map((workbook) => {
+      const migration = migrationBySourceId.get(workbook.workbookId);
+      const status: ExternalDashboardMigrationStatus =
+        migration?.status ?? "not_started";
+      let dashboardId: string | undefined;
+      let dashboardName: string | undefined;
+      if (
+        migration?.status === "migrated" &&
+        migration.migratedByCurrentUser &&
+        migration.targetDashboardId
+      ) {
+        const dashboard = dashboardById.get(migration.targetDashboardId);
+        if (
+          dashboard?.kind === "sql" &&
+          dashboard.visibility === "private" &&
+          dashboard.ownerEmail.toLowerCase() === context.userEmail &&
+          dashboard.orgId === context.orgId
+        ) {
+          dashboardId = dashboard.id;
+          dashboardName = dashboard.title;
+        }
+      }
+      return {
+        id: workbook.workbookId,
+        name: workbook.name,
+        ...(workbook.path ? { path: workbook.path } : {}),
+        ...(workbook.updatedAt ? { updatedAt: workbook.updatedAt } : {}),
+        status,
+        ...(dashboardId
+          ? {
+              dashboardId,
+              dashboardName,
+              dashboardUrl: buildDeepLink({
+                app: "analytics",
+                view: "adhoc",
+                params: { dashboardId },
+              }),
+            }
+          : {}),
+        ...(migration?.flaggedCount
+          ? { flaggedCount: migration.flaggedCount }
+          : {}),
+        retryableByCurrentUser:
+          status !== "failed" || migration?.migratedByCurrentUser === true,
+        ...(migration?.status === "migrated" && !migration.migratedByCurrentUser
+          ? { migratedByTeammate: true }
+          : {}),
+      };
+    });
 
     return {
       connected,
