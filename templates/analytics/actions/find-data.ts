@@ -9,6 +9,7 @@ import { searchAnalyticsQueryCatalog } from "../server/lib/analytics-query-catal
 import type {
   SourceIndexFreshness,
   SourceIndexScanCoverage,
+  SourceIndexSourcesFreshness,
 } from "../server/lib/source-index-store.js";
 
 function countLabel(
@@ -58,6 +59,22 @@ function sourceIndexFreshnessGuidance(
   return `The generated source index is stale (${freshness.ageDays} days old; refresh threshold ${freshness.staleAfterDays} days). Use its entries only to discover leads; do not treat its definitions, grain, joins, or omissions as current. Verify current schema and owner-approved definitions before querying.`;
 }
 
+function sourceIndexSourcesFreshnessGuidance(
+  status: "not-configured" | "unavailable" | "invalid" | "available",
+  freshness: SourceIndexSourcesFreshness | null,
+): string {
+  if (status !== "available") return "";
+  if (
+    freshness?.fresh === true &&
+    freshness.sourceCount > 0 &&
+    freshness.unknownTimestampCount === 0 &&
+    freshness.staleSourceCount === 0
+  ) {
+    return "";
+  }
+  return "Per-source source-index freshness is stale or unknown. Treat missing references as inconclusive and verify current schema or source metadata before reporting that no matching source exists.";
+}
+
 export default defineAction({
   description:
     "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, freshness and coverage, not live values. For rosters, use row-grain sources over aggregates. Stale generated entries are hints; use `search-bigquery-schema` for columns or partitions, then query live before reporting.",
@@ -103,6 +120,10 @@ export default defineAction({
       result.sourceIndexStatus,
       result.sourceIndexFreshness,
     );
+    const sourceFreshnessGuidance = sourceIndexSourcesFreshnessGuidance(
+      result.sourceIndexStatus,
+      result.sourceIndexSourcesFreshness,
+    );
     return {
       question,
       results: candidates,
@@ -113,6 +134,7 @@ export default defineAction({
         sourceIndexGuidance,
         scanGuidance,
         freshnessGuidance,
+        sourceFreshnessGuidance,
       ]
         .filter(Boolean)
         .join(" "),

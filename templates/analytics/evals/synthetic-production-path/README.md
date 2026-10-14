@@ -32,6 +32,10 @@ The v23 artifact compares baseline commit
 retrieval cases twice in each phase, including the aggregate-only abstention
 case.
 
+These scores apply only to the pinned candidate and harness revisions above.
+Later PR changes add per-source freshness checks; the v23 score deltas do not
+measure those changes.
+
 Top-1 retrieval rises from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
 rise from 0/2 to 2/2, and total contract accuracy rises from 46/50 (92%) to
 50/50 (100%). All 100 runs complete the production path without aborts; each
@@ -82,7 +86,7 @@ artifact is
 The preserved v22 artifact measures candidate revision
 `4021bd355e7de06321bd692cb754a6d7a06ad72e`, which predates the current catalog
 and abstention harness changes. It remains available as historical evidence;
-v23 above reruns the same cases against the current candidate with matching
+v23 above reruns the same cases against the candidate at `fe0be8a` with matching
 harness bytes on both sides.
 
 ## Historical measured v21 comparison (superseded by v23)

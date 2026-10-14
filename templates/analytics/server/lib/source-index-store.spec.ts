@@ -6,6 +6,7 @@ import {
   SOURCE_INDEX_STALE_AFTER_DAYS,
   sourceIndexDictionaryEntries,
   sourceIndexFreshness,
+  sourceIndexSourcesFreshness,
 } from "./source-index-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -37,6 +38,56 @@ describe("sourceIndexFreshness", () => {
     expect(() => sourceIndexFreshness("invalid", Date.now())).toThrow(
       "source index timestamp is invalid",
     );
+  });
+});
+
+describe("sourceIndexSourcesFreshness", () => {
+  it("reports stale sources and unknown per-source timestamps separately", () => {
+    const now = Date.parse("2026-10-13T00:00:00.000Z");
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "dbt",
+          revision: "abcdef123456",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+        {
+          id: "tracking-code",
+          revision: "fedcba654321",
+          generatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        { id: "sigma", revision: "123456abcdef" },
+      ],
+      entries: [
+        {
+          id: "model-users",
+          metric: "model:users",
+          definition: "User profile records.",
+          source: "dbt",
+        },
+        {
+          id: "signup-event",
+          metric: "event:signup",
+          definition: "Signup event.",
+          source: "tracking-code",
+        },
+        {
+          id: "dashboard-example",
+          metric: "dashboard:users",
+          definition: "Dashboard example.",
+          source: "sigma",
+        },
+      ],
+    });
+
+    expect(sourceIndexSourcesFreshness(bundle, now)).toEqual({
+      sourceCount: 3,
+      unknownTimestampCount: 1,
+      staleSourceCount: 1,
+      fresh: false,
+    });
   });
 });
 
@@ -232,7 +283,13 @@ describe("sourceIndexDictionaryEntries", () => {
     const bundle = parseSourceIndexBundle({
       schemaVersion: 1,
       generatedAt: "2026-07-01T00:00:00.000Z",
-      sources: [{ id: "dbt", revision: "abcdef123456" }],
+      sources: [
+        {
+          id: "dbt",
+          revision: "abcdef123456",
+          generatedAt: "2026-07-01T00:00:00.000Z",
+        },
+      ],
       entries: [
         {
           id: "workspace-members",
@@ -253,8 +310,33 @@ describe("sourceIndexDictionaryEntries", () => {
       sourceIndexAgeDays: 104,
       sourceIndexStaleAfterDays: 90,
       sourceIndexStale: true,
+      sourceIndexFreshnessUnknown: false,
       approved: false,
     });
+  });
+
+  it("marks entries stale when their source timestamp is unknown", () => {
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [{ id: "dbt", revision: "abcdef123456" }],
+      entries: [
+        {
+          id: "workspace-members",
+          metric: "Workspace members",
+          definition: "One row per workspace member.",
+          source: "dbt",
+        },
+      ],
+    });
+
+    const [entry] = sourceIndexDictionaryEntries(bundle);
+    expect(entry).toMatchObject({
+      sourceIndexStale: true,
+      sourceIndexFreshnessUnknown: true,
+    });
+    expect(entry).not.toHaveProperty("sourceIndexGeneratedAt");
+    expect(entry).not.toHaveProperty("sourceIndexAgeDays");
   });
 
   it("keeps each source's freshness separate in a merged index", () => {
@@ -304,6 +386,65 @@ describe("sourceIndexDictionaryEntries", () => {
 });
 
 describe("mergeSourceIndexBundles", () => {
+  it("preserves unknown freshness on sources retained by a newer build", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [
+        { id: "tracking-code", sourceKind: "code", revision: "222222222222" },
+      ],
+      entries: [
+        {
+          id: "signup-event",
+          metric: "event:signup",
+          definition: "Signup event.",
+          source: "tracking-code",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "dbt",
+          sourceKind: "dbt",
+          revision: "abcdef123456",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+      ],
+      entries: [
+        {
+          id: "model-users",
+          metric: "model:users",
+          definition: "User profile records.",
+          source: "dbt",
+        },
+      ],
+    });
+
+    const merged = mergeSourceIndexBundles(current, update);
+    const now = Date.parse("2026-10-13T00:00:00.000Z");
+
+    expect(
+      merged.sources.find(({ id }) => id === "tracking-code")?.generatedAt,
+    ).toBeUndefined();
+    expect(sourceIndexSourcesFreshness(merged, now)).toEqual({
+      sourceCount: 2,
+      unknownTimestampCount: 1,
+      staleSourceCount: 0,
+      fresh: false,
+    });
+    expect(
+      sourceIndexDictionaryEntries(merged, undefined, now).find(
+        ({ id }) => id === "index-signup-event",
+      ),
+    ).toMatchObject({
+      sourceIndexStale: true,
+      sourceIndexFreshnessUnknown: true,
+    });
+  });
+
   it("replaces matching sources while preserving other sources and entries", () => {
     const current = parseSourceIndexBundle({
       schemaVersion: 1,
@@ -374,8 +515,8 @@ describe("mergeSourceIndexBundles", () => {
     expect(merged).toMatchObject({
       generatedAt: "2026-10-12T00:00:00.000Z",
       sources: [
-        { id: "tracking-code", generatedAt: current.generatedAt },
-        { id: "sigma", generatedAt: current.generatedAt },
+        { id: "tracking-code" },
+        { id: "sigma" },
         {
           id: "dbt",
           revision: "333333333333",

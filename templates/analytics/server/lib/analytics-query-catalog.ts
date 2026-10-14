@@ -37,8 +37,10 @@ import {
   sourceIndexScanCoverage,
   sourceIndexDictionaryEntries,
   sourceIndexFreshness,
+  sourceIndexSourcesFreshness,
   type SourceIndexScanCoverage,
   type SourceIndexFreshness,
+  type SourceIndexSourcesFreshness,
 } from "./source-index-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
@@ -153,6 +155,7 @@ export type AnalyticsQueryCatalogCandidate =
       sourceIndexAgeDays?: number;
       sourceIndexStaleAfterDays?: number;
       sourceIndexStale?: boolean;
+      sourceIndexFreshnessUnknown?: boolean;
     };
 
 export type AnalyticsQueryCatalogSearchResult = {
@@ -176,6 +179,7 @@ export type AnalyticsQueryCatalogSearchResult = {
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
   sourceIndexFreshness: SourceIndexFreshness | null;
+  sourceIndexSourcesFreshness: SourceIndexSourcesFreshness | null;
 };
 
 export type AnalyticsDictionarySearchResult = {
@@ -190,6 +194,7 @@ export type AnalyticsDictionarySearchResult = {
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
   sourceIndexFreshness: SourceIndexFreshness | null;
+  sourceIndexSourcesFreshness: SourceIndexSourcesFreshness | null;
 };
 
 function text(value: unknown): string {
@@ -1134,6 +1139,9 @@ function dictionaryCandidates(
         ...(typeof entry.sourceIndexStale === "boolean"
           ? { sourceIndexStale: entry.sourceIndexStale }
           : {}),
+        ...(typeof entry.sourceIndexFreshnessUnknown === "boolean"
+          ? { sourceIndexFreshnessUnknown: entry.sourceIndexFreshnessUnknown }
+          : {}),
       },
     ];
   });
@@ -1482,6 +1490,7 @@ async function listDictionaryEntries(args: {
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
   sourceIndexFreshness: SourceIndexFreshness | null;
+  sourceIndexSourcesFreshness: SourceIndexSourcesFreshness | null;
 }> {
   const entries: DictionaryEntry[] = [];
   const seen = new Map<string, number>();
@@ -1548,11 +1557,19 @@ async function listDictionaryEntries(args: {
     | "available" = "unavailable";
   let sourceIndexCoverage: SourceIndexScanCoverage | null = null;
   let sourceIndexFreshnessMetadata: SourceIndexFreshness | null = null;
+  let sourceIndexSourcesFreshnessMetadata: SourceIndexSourcesFreshness | null =
+    null;
   if (sourceIndexResult.status === "fulfilled") {
     sourceIndexStatus = sourceIndexResult.value.status;
     if (sourceIndexResult.value.status === "available") {
+      const now = Date.now();
       sourceIndexFreshnessMetadata = sourceIndexFreshness(
         sourceIndexResult.value.bundle.generatedAt,
+        now,
+      );
+      sourceIndexSourcesFreshnessMetadata = sourceIndexSourcesFreshness(
+        sourceIndexResult.value.bundle,
+        now,
       );
       sourceIndexCoverage = sourceIndexScanCoverage(
         sourceIndexResult.value.bundle,
@@ -1607,6 +1624,7 @@ async function listDictionaryEntries(args: {
     sourceIndexStatus,
     sourceIndexScanCoverage: sourceIndexCoverage,
     sourceIndexFreshness: sourceIndexFreshnessMetadata,
+    sourceIndexSourcesFreshness: sourceIndexSourcesFreshnessMetadata,
   };
 }
 
@@ -1647,6 +1665,7 @@ export async function searchAnalyticsDictionaryCatalog(args: {
     sourceIndexStatus: dictionary.sourceIndexStatus,
     sourceIndexScanCoverage: dictionary.sourceIndexScanCoverage,
     sourceIndexFreshness: dictionary.sourceIndexFreshness,
+    sourceIndexSourcesFreshness: dictionary.sourceIndexSourcesFreshness,
   };
 }
 
@@ -1959,6 +1978,10 @@ export async function searchAnalyticsQueryCatalog(args: {
     sourceIndexFreshness:
       dictionaryResult.status === "fulfilled"
         ? dictionaryResult.value.sourceIndexFreshness
+        : null,
+    sourceIndexSourcesFreshness:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexSourcesFreshness
         : null,
   };
 }

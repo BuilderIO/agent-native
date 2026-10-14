@@ -110,6 +110,7 @@ const syntheticData = vi.hoisted(() => {
         {
           id: "fixture_warehouse",
           contentFingerprint: "a".repeat(64),
+          generatedAt,
         },
       ],
       entries: [
@@ -984,6 +985,7 @@ function hasCompleteEmptyDictionarySearch(
   }
   const coverage = result.sourceIndexScanCoverage;
   const freshness = result.sourceIndexFreshness;
+  const sourcesFreshness = result.sourceIndexSourcesFreshness;
   const coverageFields = [
     "unsafeEntriesOmitted",
     "unsafeFieldsOmitted",
@@ -1004,17 +1006,27 @@ function hasCompleteEmptyDictionarySearch(
     Number.isSafeInteger(freshness.staleAfterDays) &&
     freshness.staleAfterDays > freshness.ageDays &&
     freshness.stale === false;
+  const freshSources =
+    sourcesFreshness !== null &&
+    typeof sourcesFreshness === "object" &&
+    !Array.isArray(sourcesFreshness) &&
+    Number.isSafeInteger(sourcesFreshness.sourceCount) &&
+    Number(sourcesFreshness.sourceCount) > 0 &&
+    sourcesFreshness.unknownTimestampCount === 0 &&
+    sourcesFreshness.staleSourceCount === 0 &&
+    sourcesFreshness.fresh === true;
   return (
     result.results.length === 0 &&
     result.sourceIndexStatus === "available" &&
     Number.isSafeInteger(result.searchedDictionaryEntryCount) &&
-    Number(result.searchedDictionaryEntryCount) >= 0 &&
+    Number(result.searchedDictionaryEntryCount) > 0 &&
     result.truncated === false &&
     result.nextPage === null &&
     result.dictionarySearchTruncated === false &&
     result.dictionarySearchStatus === "available" &&
     completeCoverage &&
-    freshIndex
+    freshIndex &&
+    freshSources
   );
 }
 
@@ -1179,11 +1191,15 @@ async function runOnce(testCase: SyntheticCase) {
   const { invalidateSourceIndexCache } =
     await import("../../server/lib/source-index-store.js");
   syntheticData.activeCaseId = testCase.id;
-  syntheticData.sourceIndexBundle.generatedAt =
+  const generatedAt =
     testCase.id === STALE_INDEX_CASE_ID ||
     testCase.id === APPROVED_STALE_INDEX_CASE_ID
       ? STALE_INDEX_GENERATED_AT
       : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  syntheticData.sourceIndexBundle.generatedAt = generatedAt;
+  for (const source of syntheticData.sourceIndexBundle.sources) {
+    source.generatedAt = generatedAt;
+  }
   invalidateSourceIndexCache(IDENTITY.orgId);
   const context = resolveProductionEvalContext(IDENTITY);
   const productionChatPath = context.productionChatPath;
@@ -1346,6 +1362,12 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         staleAfterDays: 90,
         stale: false,
       },
+      sourceIndexSourcesFreshness: {
+        sourceCount: 2,
+        unknownTimestampCount: 0,
+        staleSourceCount: 0,
+        fresh: true,
+      },
     };
 
     expect(hasCompleteEmptyDictionarySearch(1, completeEmptyResult)).toBe(true);
@@ -1404,6 +1426,38 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       hasCompleteEmptyDictionarySearch(1, {
         ...completeEmptyResult,
         sourceIndexFreshness: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        searchedDictionaryEntryCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexSourcesFreshness: {
+          ...completeEmptyResult.sourceIndexSourcesFreshness,
+          staleSourceCount: 1,
+          fresh: false,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexSourcesFreshness: {
+          ...completeEmptyResult.sourceIndexSourcesFreshness,
+          unknownTimestampCount: 1,
+          fresh: false,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexSourcesFreshness: null,
       }),
     ).toBe(false);
   });
@@ -1594,6 +1648,12 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(result).toMatchObject({
       sourceIndexStatus: "available",
       searchedDictionaryEntryCount: 1,
+      sourceIndexSourcesFreshness: {
+        sourceCount: 1,
+        unknownTimestampCount: 0,
+        staleSourceCount: 0,
+        fresh: true,
+      },
     });
     if (phase === "before") {
       expect(result?.results).toEqual(
