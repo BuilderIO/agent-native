@@ -1,6 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+export const CORE_BUNDLED_INGESTION_OPTIONAL_PEERS = [
+  "fast-xml-parser",
+  "jszip",
+  "officeparser",
+  "pdf-parse",
+  "pdfjs-dist",
+] as const;
 
 function isMissingFileError(error: unknown): boolean {
   return (
@@ -11,7 +19,20 @@ function isMissingFileError(error: unknown): boolean {
   );
 }
 
-function findCoreSourceRoot(cwd: string): string | null {
+function findCorePackageRoot(cwd: string): string | null {
+  const installedManifest = findDependencyManifestPath(
+    "@agent-native/core",
+    cwd,
+  );
+  if (installedManifest) {
+    const manifest = JSON.parse(fs.readFileSync(installedManifest, "utf8")) as {
+      name?: string;
+    };
+    if (manifest.name === "@agent-native/core") {
+      return fs.realpathSync(path.dirname(installedManifest));
+    }
+  }
+
   try {
     const appPackage = JSON.parse(
       fs.readFileSync(path.join(cwd, "package.json"), "utf8"),
@@ -23,8 +44,18 @@ function findCoreSourceRoot(cwd: string): string | null {
       appPackage.dependencies?.["@agent-native/core"] ??
       appPackage.devDependencies?.["@agent-native/core"];
     if (localCore?.startsWith("file:")) {
-      const root = fileURLToPath(localCore);
-      if (fs.existsSync(path.join(root, "src/index.ts"))) return root;
+      const root = fileURLToPath(
+        new URL(localCore, pathToFileURL(path.join(cwd, "package.json"))),
+      );
+      const manifestPath = path.join(root, "package.json");
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+          name?: string;
+        };
+        if (manifest.name === "@agent-native/core") {
+          return fs.realpathSync(root);
+        }
+      }
     }
   } catch (error) {
     if (!isMissingFileError(error)) throw error;
@@ -40,10 +71,7 @@ function findCoreSourceRoot(cwd: string): string | null {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
       name?: string;
     };
-    if (
-      manifest.name === "@agent-native/core" &&
-      fs.existsSync(path.join(candidate, "src/index.ts"))
-    ) {
+    if (manifest.name === "@agent-native/core") {
       return fs.realpathSync(candidate);
     }
   }
@@ -103,11 +131,13 @@ function getRuntimeDependencyNames(cwd: string): Set<string> {
     const manifest = JSON.parse(fs.readFileSync(realManifestPath, "utf8")) as {
       dependencies?: Record<string, string>;
       optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
     };
     const packageDir = path.dirname(realManifestPath);
     for (const name of [
       ...Object.keys(manifest.dependencies ?? {}),
       ...Object.keys(manifest.optionalDependencies ?? {}),
+      ...Object.keys(manifest.peerDependencies ?? {}),
     ]) {
       pending.push({ name, fromDir: packageDir });
     }
@@ -117,7 +147,7 @@ function getRuntimeDependencyNames(cwd: string): Set<string> {
 }
 
 export function getMissingCoreOptionalPeers(cwd: string): string[] {
-  const coreRoot = findCoreSourceRoot(cwd);
+  const coreRoot = findCorePackageRoot(cwd);
   if (!coreRoot) return [];
 
   const corePackage = JSON.parse(
@@ -126,10 +156,15 @@ export function getMissingCoreOptionalPeers(cwd: string): string[] {
     peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   };
   const runtimeDependencies = getRuntimeDependencyNames(cwd);
+  const bundledIngestionPeers = new Set<string>(
+    CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  );
   return Object.entries(corePackage.peerDependenciesMeta ?? {})
     .filter(
       ([name, peer]) =>
-        peer.optional === true && !runtimeDependencies.has(name),
+        peer.optional === true &&
+        !runtimeDependencies.has(name) &&
+        !bundledIngestionPeers.has(name),
     )
     .map(([name]) => name)
     .sort();

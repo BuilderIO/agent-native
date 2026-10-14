@@ -5020,9 +5020,9 @@ function createAgentNativeConfig(
     build: {
       ...userBuild,
       rolldownOptions: {
+        external: optionalSsrExternals,
         experimental: {
-          lazyBarrel:
-            userConfig.build?.rolldownOptions?.experimental?.lazyBarrel ?? true,
+          lazyBarrel: _buildRolldownOptions?.experimental?.lazyBarrel ?? true,
         },
       },
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",

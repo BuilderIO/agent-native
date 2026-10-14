@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { createServer, resolveConfig } from "vite";
+import { build, createServer, resolveConfig } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
@@ -3662,7 +3662,7 @@ describe("Vite SSR optional dependencies", () => {
       path.join(otelRoot, "package.json"),
       JSON.stringify({
         name: "@agent-native/otel",
-        dependencies: { "@opentelemetry/api": "^1.9.1" },
+        peerDependencies: { "@opentelemetry/api": "^1.9.1" },
       }),
     );
     fs.writeFileSync(
@@ -3684,14 +3684,115 @@ describe("Vite SSR optional dependencies", () => {
       expect(config.ssr.external).toContain("xlsx");
       expect(config.ssr.external).toContain("@sentry/node");
       expect(config.ssr.external).not.toContain("@opentelemetry/api");
+      expect(config.build.rolldownOptions.external).toContain("prettier");
+      const entryPath = path.join(appRoot, "entry.ts");
+      fs.writeFileSync(
+        entryPath,
+        'import { format } from "prettier"; export const result = format("x");\n',
+      );
+      await build({
+        configFile: false,
+        logLevel: "silent",
+        root: appRoot,
+        ssr: { external: config.ssr.external as string[] },
+        build: {
+          emptyOutDir: true,
+          outDir: path.join(appRoot, "dist"),
+          rolldownOptions: config.build.rolldownOptions,
+          ssr: entryPath,
+        },
+      });
+      const distPath = path.join(appRoot, "dist");
+      const collectOutputFiles = (directory: string): string[] =>
+        fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+          const entryPath = path.join(directory, entry.name);
+          return entry.isDirectory()
+            ? collectOutputFiles(entryPath)
+            : /\.(?:mjs|js)$/u.test(entry.name)
+              ? [entryPath]
+              : [];
+        });
+      const outputFiles = collectOutputFiles(distPath);
+      expect(outputFiles).toHaveLength(1);
+      expect(fs.readFileSync(outputFiles[0]!, "utf8")).toMatch(
+        /from ["']prettier["']/u,
+      );
       const missingPeers = getMissingCoreOptionalPeers(appRoot);
       expect(missingPeers).toContain("prettier");
       expect(missingPeers).toContain("xlsx");
       expect(missingPeers).toContain("@sentry/node");
       expect(missingPeers).not.toContain("@opentelemetry/api");
+      for (const peer of [
+        "fast-xml-parser",
+        "jszip",
+        "officeparser",
+        "pdf-parse",
+        "pdfjs-dist",
+      ]) {
+        expect(missingPeers).not.toContain(peer);
+      }
     } finally {
       cwd.mockRestore();
       fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads optional peers from a published Core package without source files", () => {
+    const appRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-published-core-"),
+    );
+    const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");
+    fs.mkdirSync(coreRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "published-core-app",
+        dependencies: { "@agent-native/core": "0.208.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependenciesMeta: { prettier: { optional: true } },
+      }),
+    );
+
+    try {
+      expect(fs.existsSync(path.join(coreRoot, "src/index.ts"))).toBe(false);
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain("prettier");
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves relative file Core dependencies from the application", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-file-core-"),
+    );
+    const appRoot = path.join(workspaceRoot, "apps/demo");
+    const coreRoot = path.join(workspaceRoot, "packages/core");
+    fs.mkdirSync(appRoot, { recursive: true });
+    fs.mkdirSync(coreRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "relative-file-core-app",
+        dependencies: { "@agent-native/core": "file:../../packages/core" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependenciesMeta: { prettier: { optional: true } },
+      }),
+    );
+
+    try {
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain("prettier");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
 

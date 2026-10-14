@@ -64,7 +64,10 @@ import {
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
-import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
+import {
+  CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getMissingCoreOptionalPeers,
+} from "../shared/optional-peer-ssr.js";
 import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
@@ -4388,14 +4391,6 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
-const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
-  "fast-xml-parser",
-  "jszip",
-  "officeparser",
-  "pdf-parse",
-  "pdfjs-dist",
-] as const;
-
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
@@ -4875,7 +4870,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of NETLIFY_BUNDLED_INGESTION_DEPENDENCIES) {
+    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
       if (hasBareRuntimeImport(source, dependency)) {
         bareIngestionImports.push(
           `${dependency} in ${path.relative(projectCwd, filePath)}`,
