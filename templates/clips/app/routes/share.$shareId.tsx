@@ -122,10 +122,10 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -853,7 +853,10 @@ export default function ShareRoute() {
       : Boolean(recording.videoUrl);
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const phase = storageSetupFailure
       ? "waiting-storage"
       : recording.status === "ready"
@@ -887,6 +890,7 @@ export default function ShareRoute() {
     failProcessingToast,
     recording?.id,
     recording?.failureReason,
+    recording?.sourceAppName,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,
@@ -1428,7 +1432,10 @@ export default function ShareRoute() {
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure =

@@ -1,3 +1,8 @@
+import { isLoomRecordingSource, type LoomRecordingLike } from "@shared/loom";
+import { WAITING_STORAGE_EXPIRED_REASON } from "@shared/upload-interruption";
+
+import { isStorageSetupFailureReason } from "./storage-failures";
+
 export type RecordingProcessingPhase =
   | "failed"
   | "processing"
@@ -16,6 +21,18 @@ export type RecordingProcessingTransition =
   | "processing"
   | "ready"
   | null;
+
+export function isRecordingWaitingForStorage(
+  recording: LoomRecordingLike | null | undefined,
+  failureReason: string | null | undefined,
+): boolean {
+  return (
+    isStorageSetupFailureReason(failureReason) ||
+    ((isLoomRecordingSource(recording) ||
+      recording?.sourceAppName?.trim().toLowerCase() === "video link") &&
+      failureReason === WAITING_STORAGE_EXPIRED_REASON)
+  );
+}
 
 export function recordingProcessingTransition(
   previous: RecordingProcessingSnapshot | null,

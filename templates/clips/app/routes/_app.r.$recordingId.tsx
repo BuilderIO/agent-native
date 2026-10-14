@@ -46,7 +46,6 @@ import {
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
-import { WAITING_STORAGE_EXPIRED_REASON } from "@shared/upload-interruption";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -162,6 +161,7 @@ import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
@@ -169,7 +169,6 @@ import {
   setRecordingSection,
   type RecordingSection,
 } from "@/lib/recording-section";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -955,11 +954,10 @@ export default function RecordingPage() {
       : Boolean(recording.videoUrl);
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const waitingForStorage =
-      isStorageSetupFailureReason(rawFailureReason) ||
-      ((isLoomRecordingSource(recording) ||
-        recording.sourceAppName?.trim().toLowerCase() === "video link") &&
-        rawFailureReason === WAITING_STORAGE_EXPIRED_REASON);
+    const waitingForStorage = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const phase = waitingForStorage
       ? "waiting-storage"
       : recording.status === "ready"
@@ -2145,11 +2143,10 @@ export default function RecordingPage() {
       ((recording as any).failureReason as string | null | undefined) ?? null;
     // An import that expired waiting for storage keeps its source URL, so it
     // can still be retried once storage connects.
-    const waitingForStorage =
-      isStorageSetupFailureReason(rawFailureReason) ||
-      ((isLoomRecording ||
-        recording.sourceAppName?.trim().toLowerCase() === "video link") &&
-        rawFailureReason === WAITING_STORAGE_EXPIRED_REASON);
+    const waitingForStorage = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const storedButUnservableFailure =
       isStoredButUnservableFinalizeError(rawFailureReason);
     const loomStorageSetupFailure = waitingForStorage && isLoomRecording;
