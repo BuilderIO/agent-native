@@ -1274,7 +1274,7 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     } as never);
 
     const ladder = prompt.indexOf("Retrieval ladder");
-    const scan = prompt.indexOf("Fetch every relevant page");
+    const scan = prompt.indexOf("fetch every relevant page");
     expect(ladder).toBeGreaterThan(-1);
     expect(scan).toBeGreaterThan(ladder);
     expect(prompt).toContain("native search, semantic, or MCP tool");

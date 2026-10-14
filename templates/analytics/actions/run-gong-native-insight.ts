@@ -32,7 +32,7 @@ function mcpToolErrorText(result: unknown): string {
 
 export default defineAction({
   description:
-    "FIRST CHOICE for any natural-language question about a Gong account, deal, customer, or topic (what did they say about X, risks, objections, themes, next steps, call prep, summaries). Sends one question to Gong's official MCP, which searches the calls server-side and answers in seconds, so never page /calls or /calls/extensive to answer a question. Each invocation consumes one Gong credit request, so put every related sub-question in one call. Workspace owners can turn it off with configure-gong-native-insights. Call gong-native-insights to see the connected operation schemas. Use gong-calls or the provider corpus path only for verbatim quotes, exact counts, or proof that something was absent across all calls.",
+    "First choice for a question about a Gong account, deal, customer, or topic (what they said, risks, objections, next steps, call prep). One call to Gong's MCP searches the calls server-side and answers in seconds; do not page /calls or /calls/extensive to answer a question. Each call consumes one Gong credit request, so combine related sub-questions. Call gong-native-insights for operation schemas. Use gong-calls or the provider corpus path for verbatim quotes, exact counts, or absence proof. Owners can disable it with configure-gong-native-insights.",
   schema: z.object({
     operation: z
       .enum(GONG_NATIVE_OPERATIONS)

@@ -339,13 +339,11 @@ Available corpus-capable tools: ${available.join(", ")}.
 
 This workflow does not apply to ordinary structured lookups, bounded aggregates, or counts grouped over one known source. For those requests, use the single most directly authoritative source, run one bounded query, and answer as soon as it succeeds. Do not cross-check or expand into a corpus workflow unless the user asks for multiple sources, exhaustive unstructured-record coverage, or an absence claim.
 
-Retrieval ladder. Take the first rung that can answer the question:
-1. A tool shaped like the question: the provider's native search, semantic, or MCP tool (for example an ask-about-this-account operation), or an owning app reached with \`call-agent\`. These search on the provider's side and answer in one request, but they report no coverage, so an absence claim or exact count starts at rung 3 (or carries an explicit coverage caveat).
-2. A server-side filter or query parameter on a list endpoint, with a bounded window.
-3. A staged or durable scan (\`stageAs\`, \`provider-corpus-job\`) over an explicit cohort, only when the user needs exhaustive coverage, exact counts, an absence claim, classification of records, or a cross-source join.
-Pulling a collection into your context or a run-code loop to filter it locally is not a rung: it is what a missing rung 1 or 2 looks like, so say what is missing instead.
-
-For broad provider searches that reach rung 3, multi-page cohorts, cross-source joins, classification over unstructured records, or absence-sensitive answers, do not stop at a bounded shortcut action. Fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the staged cohort with durable corpus jobs, staged-dataset queries, or code execution over the staged data.
+Retrieval ladder. Take the first rung that answers the question:
+1. A tool shaped like the question: the provider's native search, semantic, or MCP tool, or an owning app via \`call-agent\`. It searches provider-side in one request but reports no coverage, so absence claims and exact counts start at rung 3 or carry a coverage caveat.
+2. A server-side filter or query parameter on a bounded window.
+3. A staged or durable scan (\`stageAs\`, \`provider-corpus-job\`) over an explicit cohort, only for exhaustive coverage, exact counts, absence claims, classification, or cross-source joins: fetch every relevant page or the bounded cohort, stage large responses, and reduce them with corpus jobs, staged-dataset queries, or code over the staged data.
+Pulling a collection into context or a run-code loop to filter it locally is not a rung; it means rung 1 or 2 is missing, so say so.
 
 When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, use providerFetchAll() only for short cursor/page/offset pagination over a cohort you already narrowed, and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
 }
