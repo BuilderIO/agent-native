@@ -8,8 +8,8 @@ name: Deploy paths reaper
 # are at least two hours old, so it cannot touch a real site or database, nor a
 # run still in progress.
 #
-# A failed listing or delete fails this workflow, and
-# email-workflow-failures.yml emails it.
+# A failed listing or delete fails this workflow, and its last step posts that
+# to #qa-agent-native.
 
 on:
   schedule:
@@ -69,3 +69,13 @@ jobs:
             args+=(--dry-run)
           fi
           pnpm exec tsx scripts/reap-deploy-paths.ts "${args[@]}"
+
+      - name: Post the failure
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          payload: |
+            channel: C0C4U4XRT6X
+            text: ":rotating_light: The deploy-path reaper failed, so leaked Netlify sites or Neon databases may not have been cleaned up. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
