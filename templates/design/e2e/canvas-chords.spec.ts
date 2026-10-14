@@ -70,6 +70,22 @@ const INLINE_CHILD_HTML = `<!doctype html>
   </body>
 </html>`;
 
+const FLOW_INLINE_TEXT_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Canvas Chords Flow Text</title>
+  </head>
+  <body style="margin:0;font-family:system-ui,sans-serif;background:#fff;color:#111">
+    <main data-agent-native-node-id="flow-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:640px">
+      <div data-agent-native-node-id="flow-before" data-agent-native-layer-name="Before" style="height:86px">Before content</div>
+      <div data-agent-native-node-id="flow-caption" data-agent-native-layer-name="Caption" style="margin:23px 0 0 34px;padding:7px 11px;font-size:28px;line-height:36px">Prefix text <span data-agent-native-node-id="flow-underline" data-agent-native-layer-name="Underlined phrase" style="text-decoration:underline">klsajfk</span> suffix text</div>
+      <div data-agent-native-node-id="flow-after" data-agent-native-layer-name="After" style="margin-top:19px">After content</div>
+      <div data-agent-native-node-id="flow-source" data-agent-native-layer-name="Replacement source" style="position:absolute;left:520px;top:260px;width:92px;height:54px;background:#22c55e"></div>
+    </main>
+  </body>
+</html>`;
+
 const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -328,6 +344,113 @@ test.describe("canvas chords", () => {
       "60px",
     ]);
     expectOnlyChanged(before, after, ["nz-target", copies[0]!.id]);
+  });
+
+  test("Cmd+Shift+R replaces a flow text root at its measured origin", async ({
+    app,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(appPath("/")).origin,
+    });
+    const { id, before } = await openChords(app, FLOW_INLINE_TEXT_HTML);
+    const expectedPosition = await app
+      .node("flow-caption")
+      .evaluate((caption) => {
+        const captionElement = caption as HTMLElement;
+        const containingBlock = captionElement.offsetParent;
+        if (!containingBlock)
+          throw new Error("Caption has no position reference");
+        const captionRect = captionElement.getBoundingClientRect();
+        const underline = caption.querySelector(
+          "[data-agent-native-node-id='flow-underline']",
+        );
+        if (!underline) throw new Error("Caption has no inline underline");
+        const underlineRect = underline.getBoundingClientRect();
+        const rootRect = containingBlock.getBoundingClientRect();
+        return {
+          containingBlockId: containingBlock.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          captionPosition: getComputedStyle(captionElement).position,
+          authoredLeft: captionElement.style.left,
+          authoredTop: captionElement.style.top,
+          underlineOffsetX: underlineRect.x - captionRect.x,
+          x: Math.round(
+            captionRect.x -
+              rootRect.x -
+              containingBlock.clientLeft +
+              containingBlock.scrollLeft,
+          ),
+          y: Math.round(
+            captionRect.y -
+              rootRect.y -
+              containingBlock.clientTop +
+              containingBlock.scrollTop,
+          ),
+        };
+      });
+    expect(expectedPosition.containingBlockId).toBe("flow-root");
+    expect(expectedPosition.captionPosition).toBe("static");
+    expect(expectedPosition.authoredLeft).toBe("");
+    expect(expectedPosition.authoredTop).toBe("");
+    expect(
+      expectedPosition.underlineOffsetX,
+      "the inline selection starts inside Caption, not at its origin",
+    ).toBeGreaterThan(0);
+    expect(
+      expectedPosition.x,
+      "Caption is offset from the reference origin",
+    ).toBeGreaterThan(0);
+    expect(
+      expectedPosition.y,
+      "Caption is below the first flow sibling",
+    ).toBeGreaterThan(0);
+
+    await selectLayerRow(app.page, "Replacement source");
+    await pressEditorKey(app.page, `ControlOrMeta+C`);
+    const underline = app.node("flow-underline");
+    const box = (await underline.boundingBox())!;
+    await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect
+      .poll(() => app.selectedLayers())
+      .toEqual(["Underlined phrase"]);
+    await pressEditorKey(app.page, `ControlOrMeta+Shift+R`);
+    await expect
+      .poll(async () => (await app.savedNodes(id)).has("flow-caption"))
+      .toBe(false);
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    const copies = newNodes(before, after);
+    expect(copies, "one replacement sibling").toHaveLength(1);
+    expect(after.has("flow-underline")).toBe(false);
+    expect(copies[0]!.parent).toBe("flow-root");
+    expect(childrenOf(after, "flow-root")).toEqual([
+      "flow-before",
+      copies[0]!.id,
+      "flow-after",
+      "flow-source",
+    ]);
+    const copy = styleOf(copies[0]);
+    expect([copy.left, copy.top, copy.width, copy.height]).toEqual([
+      `${expectedPosition.x}px`,
+      `${expectedPosition.y}px`,
+      "92px",
+      "54px",
+    ]);
+    expectOnlyChanged(before, after, [
+      "flow-caption",
+      "flow-underline",
+      copies[0]!.id,
+    ]);
+    expect(after.get("flow-source")).toMatchObject({
+      parent: before.get("flow-source")!.parent,
+      attrs: before.get("flow-source")!.attrs,
+      text: before.get("flow-source")!.text,
+    });
+    expect(after.get("flow-before")?.text).toBe("Before content");
+    expect(after.get("flow-after")?.text).toBe("After content");
   });
 
   test("clicking an inline child inside a text layer selects it and does not duplicate its text", async ({

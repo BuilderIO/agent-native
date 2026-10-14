@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
@@ -120,6 +121,215 @@ describe("runPasteToReplace with pasted OS content", () => {
     ).toBe("holder");
     expect([holder.style.left, holder.style.top]).toEqual(["40px", "60px"]);
     expect(holder.querySelector("span")?.textContent).toBe("klsajfk");
+  });
+
+  it("positions a promoted flow-text replacement from the promoted target's measured origin", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 2;
+        readonly b = 0;
+        readonly c = 0;
+        readonly d = 2;
+        readonly e = 0;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const content = `<!doctype html><html><body><main data-agent-native-node-id="root"><section data-agent-native-node-id="holder" style="position:relative;left:100px;top:80px;width:500px;height:320px;border:2px solid;padding:20px;transform:scale(2);transform-origin:top left"><div data-agent-native-node-id="before" style="height:80px">Before</div><div data-agent-native-node-id="caption" data-agent-native-layer-name="Caption" style="font-size:28px;width:50px;height:20px;transform:scale(2);transform-origin:50% 50%"><span style="text-decoration:underline">Caption text</span></div><p data-agent-native-node-id="after">After</p></section></main></body></html>`;
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    });
+    const selected = projection.nodes.find((node) => node.tag === "span")!;
+    const applyLocalContentUpdate = vi.fn();
+
+    runPasteToReplace({
+      activeFile: { id: "screen-1", content } as DesignFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      getCanvasClipboardEntries: () => [
+        {
+          html: '<div data-agent-native-node-id="caption" data-agent-native-layer-name="Caption" style="font-size:28px;width:50px;height:20px;transform:scale(2);transform-origin:50% 50%"><span style="text-decoration:underline">Caption text</span></div>',
+          rootNodeId: "caption",
+          sourceFileId: "screen-1",
+        },
+      ],
+      getFreshActiveContent: () => content,
+      getRenderedElementInfoForSelector: () => ({
+        tagName: "div",
+        selector: '[data-agent-native-node-id="caption"]',
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 152, y: 302, width: 100, height: 40 },
+        positionContainingBlockOrigin: { x: 102, y: 82 },
+        positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectInsertedLayers: vi.fn(),
+      selectedCanvasSelector: selected.selectors[0]!,
+      selectedElement: {
+        tagName: selected.tag,
+        selector: selected.selectors[0]!,
+        sourceId: selected.id,
+        classes: selected.classes,
+        computedStyles: {},
+        inlineStyles: {},
+        hasOwnText: selected.paintsOwnText,
+        wholeTextStyleRoot: selected.wholeTextStyleRoot,
+        boundingRect: { x: 152, y: 202, width: 82, height: 34 },
+        parentBoundingRect: { x: 152, y: 202, width: 180, height: 34 },
+        positionContainingBlockOrigin: { x: 102, y: 82 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      setRuntimeStructureInsertRequest: vi.fn(),
+      t: (key) => key,
+    });
+
+    const next = applyLocalContentUpdate.mock.calls[0]?.[0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Caption"]:not([data-agent-native-node-id="caption"])',
+    );
+
+    expect(
+      replacement?.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("holder");
+    expect([replacement?.style.left, replacement?.style.top]).toEqual([
+      "50px",
+      "120px",
+    ]);
+    expect(
+      doc.querySelector('[data-agent-native-node-id="caption"]'),
+    ).toBeNull();
+    expect(
+      doc.querySelector('[data-agent-native-node-id="before"]'),
+    ).not.toBeNull();
+    expect(
+      doc.querySelector('[data-agent-native-node-id="after"]'),
+    ).not.toBeNull();
+  });
+
+  it("leaves source unchanged when promoted flow-text geometry cannot be measured", () => {
+    const content =
+      '<main><section data-agent-native-node-id="holder"><div data-agent-native-node-id="caption"><span>Caption text</span></div></section></main>';
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    });
+    const selected = projection.nodes.find((node) => node.tag === "span")!;
+    const applyLocalContentUpdate = vi.fn();
+    const toastError = vi.spyOn(toast, "error");
+
+    runPasteToReplace({
+      activeFile: { id: "screen-1", content } as DesignFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      getCanvasClipboardEntries: () => [
+        {
+          html: '<div data-agent-native-layer-name="Caption"><span>Caption text</span></div>',
+          rootNodeId: "clipboard-caption",
+          sourceFileId: "screen-2",
+        },
+      ],
+      getFreshActiveContent: () => content,
+      getRenderedElementInfoForSelector: () => null,
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectInsertedLayers: vi.fn(),
+      selectedCanvasSelector: selected.selectors[0]!,
+      selectedElement: {
+        tagName: selected.tag,
+        selector: selected.selectors[0]!,
+        sourceId: selected.id,
+        classes: selected.classes,
+        computedStyles: {},
+        inlineStyles: {},
+        hasOwnText: selected.paintsOwnText,
+        wholeTextStyleRoot: selected.wholeTextStyleRoot,
+        boundingRect: { x: 10, y: 20, width: 80, height: 24 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      setRuntimeStructureInsertRequest: vi.fn(),
+      t: (key) => key,
+    });
+
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteReplaceFailed",
+      { duration: 4000 },
+    );
+    toastError.mockRestore();
+  });
+
+  it("uses fresh geometry for an ordinary replacement target", () => {
+    const content =
+      '<main><button data-agent-native-node-id="target">Target</button><p>After</p></main>';
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    });
+    const selected = projection.nodes.find((node) => node.tag === "button")!;
+    const applyLocalContentUpdate = vi.fn();
+
+    runPasteToReplace({
+      activeFile: { id: "screen-1", content } as DesignFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      getCanvasClipboardEntries: () => [
+        {
+          html: '<button data-agent-native-layer-name="Target">Replacement</button>',
+          rootNodeId: "replacement",
+          sourceFileId: "screen-2",
+        },
+      ],
+      getFreshActiveContent: () => content,
+      getRenderedElementInfoForSelector: () => ({
+        tagName: "button",
+        selector: '[data-agent-native-node-id="target"]',
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 120, y: 230, width: 80, height: 32 },
+        positionContainingBlockOrigin: { x: 100, y: 200 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectInsertedLayers: vi.fn(),
+      selectedCanvasSelector: selected.selectors[0]!,
+      selectedElement: {
+        tagName: selected.tag,
+        selector: selected.selectors[0]!,
+        sourceId: selected.id,
+        classes: selected.classes,
+        computedStyles: {},
+        inlineStyles: {},
+        hasOwnText: selected.paintsOwnText,
+        wholeTextStyleRoot: selected.wholeTextStyleRoot,
+        boundingRect: { x: 2, y: 4, width: 80, height: 32 },
+        positionContainingBlockOrigin: { x: 0, y: 0 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      setRuntimeStructureInsertRequest: vi.fn(),
+      t: (key) => key,
+    });
+
+    const next = applyLocalContentUpdate.mock.calls[0]?.[0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Target"]',
+    );
+
+    expect([replacement?.style.left, replacement?.style.top]).toEqual([
+      "20px",
+      "30px",
+    ]);
   });
 
   it.each([

@@ -433,6 +433,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title:
       "Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together",
   },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R replaces a flow text root at its measured origin",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

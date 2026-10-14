@@ -105,8 +105,12 @@ test.describe("drop containers", () => {
         top: `${held.y - 300}px`,
         width: "100px",
         height: "60px",
-        background: "rgb(168, 85, 247)",
+        background: styleOf(before.get("mover")).background,
       });
+      await expect(app.node("mover")).toHaveCSS(
+        "background-color",
+        "rgb(168, 85, 247)",
+      );
       expectOnlyChanged(before, after, ["mover"]);
       expect(await app.designRect("mover")).toEqual(held);
       expect(

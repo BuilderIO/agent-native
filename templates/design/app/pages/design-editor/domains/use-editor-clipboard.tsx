@@ -231,6 +231,30 @@ export function useEditorClipboard({
   } = editorSelectionAndStyles;
   const { recordPendingLiveStructureEdit } = editorScreenChangeHandlers;
 
+  const getRenderedElementInfoForSelector = useCallback(
+    (selector: string): ElementInfo | null => {
+      if (!activeFile) return null;
+      const projection = buildCodeLayerProjection(getFreshActiveContent(), {
+        source: { kind: "design-file", fileId: activeFile.id },
+      });
+      const node = projection.nodes.find((candidate) =>
+        candidate.selectors.includes(selector),
+      );
+      if (!node) return null;
+      const measured = withMeasuredGeometry(
+        elementInfoFromCodeLayerNode(node),
+        activeFile.id,
+      );
+      return measured.positionContainingBlockOrigin &&
+        measured.positionContainingBlockTransform &&
+        measured.boundingRect.width > 0 &&
+        measured.boundingRect.height > 0
+        ? measured
+        : null;
+    },
+    [activeFile, getFreshActiveContent],
+  );
+
   const canUploadDesignMedia =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
   const requestFileStorageSetup = useCallback(() => {
@@ -1199,6 +1223,7 @@ export function useEditorClipboard({
             canEditDesign,
             getCanvasClipboardEntries,
             getFreshActiveContent,
+            getRenderedElementInfoForSelector,
             runtimeStructureInsertRevisionRef,
             selectInsertedLayers,
             selectedCanvasSelector,
@@ -1231,6 +1256,7 @@ export function useEditorClipboard({
       uploadImageFileForHtml,
       getCanvasClipboardEntries,
       getFreshActiveContent,
+      getRenderedElementInfoForSelector,
       selectedCanvasSelector,
       selectInsertedLayers,
       selectedElement?.boundingRect,

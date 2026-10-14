@@ -44,6 +44,7 @@ export interface PasteToReplaceArgs {
   canEditDesign: boolean;
   getCanvasClipboardEntries: () => CanvasLayerClipboardEntry[];
   getFreshActiveContent: () => string;
+  getRenderedElementInfoForSelector?: (selector: string) => ElementInfo | null;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   selectInsertedLayers: (
     screenId: string,
@@ -69,6 +70,47 @@ function pixelLength(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function visualPositionInContainingBlock(
+  info: ElementInfo | null | undefined,
+): { x: number; y: number } | null {
+  const origin = info?.positionContainingBlockOrigin;
+  const transform = info?.positionContainingBlockTransform;
+  const { x, y, width, height } = info?.boundingRect ?? {
+    x: Number.NaN,
+    y: Number.NaN,
+    width: 0,
+    height: 0,
+  };
+  if (
+    !origin ||
+    !transform ||
+    width <= 0 ||
+    height <= 0 ||
+    ![
+      x,
+      y,
+      origin.x,
+      origin.y,
+      transform.a,
+      transform.b,
+      transform.c,
+      transform.d,
+    ].every(Number.isFinite)
+  ) {
+    return null;
+  }
+  const determinant = transform.a * transform.d - transform.b * transform.c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return null;
+  }
+  const dx = x - origin.x;
+  const dy = y - origin.y;
+  return {
+    x: (transform.d * dx - transform.c * dy) / determinant,
+    y: (-transform.b * dx + transform.a * dy) / determinant,
+  };
+}
+
 function onlyInlineTextDescendants(
   node: CodeLayerNode,
   nodesById: ReadonlyMap<string, CodeLayerNode>,
@@ -89,6 +131,7 @@ export function runPasteToReplace(
     canEditDesign,
     getCanvasClipboardEntries,
     getFreshActiveContent,
+    getRenderedElementInfoForSelector,
     runtimeStructureInsertRevisionRef,
     selectInsertedLayers,
     selectedCanvasSelector,
@@ -194,13 +237,18 @@ export function runPasteToReplace(
   const authoredLeft = pixelLength(targetNode.style.left);
   const authoredTop = pixelLength(targetNode.style.top);
   const hasAuthoredPosition = authoredLeft !== null && authoredTop !== null;
-  const parentRect = selectedElement?.parentBoundingRect;
+  const targetGeometry = getRenderedElementInfoForSelector
+    ? getRenderedElementInfoForSelector(replacementSelector)
+    : targetNode.id === selectedNode.id
+      ? selectedElement
+      : null;
   const position = hasAuthoredPosition
     ? { x: authoredLeft, y: authoredTop }
-    : {
-        x: targetPosition.x - (parentRect?.x ?? 0),
-        y: targetPosition.y - (parentRect?.y ?? 0),
-      };
+    : visualPositionInContainingBlock(targetGeometry);
+  if (!position) {
+    failed();
+    return;
+  }
   const inserted = insertClonedHtmlLayers(baseContent, [layerHtml], {
     anchorSelectors: [replacementSelector],
     placement: "after",

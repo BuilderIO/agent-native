@@ -130,10 +130,16 @@ function patchInlineStyleDeclarations(
     }
 
     updatedProperties.add(update.property.toLowerCase());
+    const rawValue = declaration.slice(separator + 1);
+    const commentStart = trailingCommentStart(rawValue);
+    const trailingComments =
+      commentStart < 0 ? "" : rawValue.slice(commentStart);
     if (update.value) {
       declarations.push(
-        `${declaration.slice(0, separator + 1)} ${update.value}${update.priority ? " !important" : ""}`,
+        `${declaration.slice(0, separator + 1)} ${update.value}${update.priority ? " !important" : ""}${trailingComments}`,
       );
+    } else if (trailingComments) {
+      declarations.push(trailingComments);
     }
   }
 
@@ -591,6 +597,65 @@ function stylePropertySeparator(declaration: string): number {
     if (char === ":") return index;
   }
   return -1;
+}
+
+function trailingCommentStart(value: string): number {
+  const comments: Array<{ start: number; end: number }> = [];
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let commentStart = -1;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    const next = value[index + 1];
+    if (commentStart >= 0) {
+      if (char === "*" && next === "/") {
+        comments.push({ start: commentStart, end: index + 2 });
+        commentStart = -1;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      commentStart = index;
+      index += 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") escaped = true;
+  }
+
+  let cursor = value.length;
+  while (cursor > 0 && /\s/u.test(value[cursor - 1]!)) cursor -= 1;
+  let previous = comments.find((comment) => comment.end === cursor);
+  if (!previous) return -1;
+  let start = previous.start;
+  cursor = start;
+  while (cursor > 0) {
+    while (cursor > 0 && /\s/u.test(value[cursor - 1]!)) cursor -= 1;
+    previous = comments.find((comment) => comment.end === cursor);
+    if (!previous) break;
+    start = previous.start;
+    cursor = start;
+  }
+  while (start > 0 && /\s/u.test(value[start - 1]!)) start -= 1;
+  return start;
 }
 
 const SHORTHAND_FOR_LONGHAND: Record<string, string> = {

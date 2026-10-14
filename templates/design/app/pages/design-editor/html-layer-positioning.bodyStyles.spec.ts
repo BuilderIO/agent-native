@@ -351,6 +351,25 @@ describe("node positioning source shape", () => {
     expect(style).toContain("top: 90px");
   });
 
+  it("keeps trailing comments attached to declarations whose values change", () => {
+    const content = String.raw`<div data-agent-native-node-id="moving-node" style='position: relative; /* left prefix */ left: 7px /* keep ; left */; top: 9px /* keep top */; color: red'></div>`;
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+    const style = new DOMParser()
+      .parseFromString(next, "text/html")
+      .querySelector<HTMLElement>("[data-agent-native-node-id='moving-node']")!
+      .getAttribute("style")!;
+
+    expect(style).toContain("left: 100px /* keep ; left */");
+    expect(style).toContain("top: 90px /* keep top */");
+    expect(style.match(/\/\* keep ; left/g)).toHaveLength(1);
+    expect(style.match(/\/\* left prefix \*\//g)).toHaveLength(1);
+    expect(style).toContain("color: red");
+  });
+
   it("changes only the target style attribute in fragments and documents", () => {
     const fragment =
       '<main data-note="preserve > and spacing">\n<!-- keep -->\n<div data-agent-native-node-id="styled-sibling" style="color: purple; margin: 4px">Sibling</div>\n<div data-agent-native-node-id="moving-node" data-keep="yes" style="position:absolute;left:1px;top:2px">Text</div>\n</main>';

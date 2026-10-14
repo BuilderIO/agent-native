@@ -200,6 +200,11 @@ const REQUIRED_CORE_COVERAGE = [
     title:
       "Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together",
   },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R replaces a flow text root at its measured origin",
+  },
 ] as const;
 
 test("required core Design interaction coverage has explicit regression pins", () => {
@@ -221,7 +226,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 71);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 72);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
