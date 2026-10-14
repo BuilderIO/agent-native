@@ -326,6 +326,7 @@ export function analyticsExtraContext(): string {
 // answer. "I need" is the agent narrating ("I need the table to reload")
 // unless it names an identifier to supply or asks which one, so it has its own
 // pattern instead of a bare alternative.
+const SCHEMA_DETAILS_MAX_RETRIES = 2;
 const SCHEMA_DETAILS_NOUN =
   "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
 // Bare provide/share/send count only as an imperative opening a sentence or
@@ -335,11 +336,11 @@ const SCHEMA_DETAILS_IMPERATIVE =
   "(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b";
 // "Would you like me to show ..." is an offer, never a request for details.
 const SCHEMA_DETAILS_ASK = `(?:\\b(?:could you|can you|would you(?! like)|do you know|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
-// A list lead-in has no "tell me": "Tell me what else is off:" followed by a
-// summary bullet that mentions a table is feedback, not a schema request.
-const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:could you|can you|would you(?! like)|please\\s+(?:provide|share|send)|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// A list lead-in must ask to be given something: "Can you tell me what else is
+// off:" followed by a summary bullet that mentions a table is feedback.
+const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)(?: please)? (?:provide|share|send)|please\\s+(?:provide|share|send)|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!:\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:(?:names?|identifiers?|details)|(?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?))\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:(?:names?|identifiers?|details)|(?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?))\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
@@ -350,7 +351,7 @@ const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
 // metric, which table ...?"): "Want me to show which table this came from?" is
 // an offer, not a request for an identifier.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|what\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\b)[^.?!\\n]*\\?`,
   "i",
 );
 
@@ -1210,6 +1211,10 @@ export function realDataFinalGuard(
 
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
   if (looksLikeSchemaDetailsRequest(context.text)) {
+    // The detector is a heuristic over prose. Once the retries are spent the
+    // draft stands: a real ask lets the user answer it, and a false match
+    // keeps a correct answer instead of replacing it with a canned failure.
+    if (context.retryCount >= SCHEMA_DETAILS_MAX_RETRIES) return null;
     const failedQueryRecovery = failedQueryMessage
       ? ` ${failedQueryMessage}`
       : "";
@@ -1217,9 +1222,7 @@ export function realDataFinalGuard(
       retryMessage:
         "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
         failedQueryRecovery,
-      fallbackMessage:
-        "I couldn't complete that lookup from the configured Analytics sources yet. Please retry and I'll inspect the catalog and warehouse schema directly rather than asking you to provide internal table names.",
-      maxRetries: 2,
+      maxRetries: SCHEMA_DETAILS_MAX_RETRIES,
       expandToolSurface: true,
     };
   }
