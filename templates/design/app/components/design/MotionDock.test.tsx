@@ -489,7 +489,9 @@ describe("Motion animation style menu", () => {
       ),
     ).toBe(true);
     expect(
-      document.body.querySelector('[role="menu"]')?.classList.contains("w-32"),
+      document.body
+        .querySelector('[role="menu"]')
+        ?.classList.contains("w-[7.5rem]"),
     ).toBe(true);
   });
 
@@ -971,8 +973,8 @@ describe("MotionDock time units and Size preset", () => {
     });
 
     expect(onDurationChange.mock.calls).toEqual([
-      [2010],
-      [1000],
+      [2001],
+      [1990],
       [50],
       [120000],
     ]);

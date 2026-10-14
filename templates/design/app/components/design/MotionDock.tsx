@@ -50,7 +50,6 @@ import {
   IconRepeatOnce,
   IconTrash,
   IconRefresh,
-  IconLayersSubtract,
   IconArrowsMove,
   IconCircleHalf,
   IconResize,
@@ -895,7 +894,7 @@ export function MotionDock({
   const handleTimelineDurationKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>) => {
       if (readOnly || !onDurationChange) return;
-      const stepMs = event.shiftKey ? 1000 : 10;
+      const stepMs = event.shiftKey ? 10 : 1;
       let nextDurationMs: number | null = null;
       if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
         nextDurationMs = durationMs - stepMs;
@@ -2312,8 +2311,7 @@ export function MotionDock({
               onSeek={(timeMs) => jumpToPlayhead(timeMs / durationMs)}
             />
             {layers.length === 0 && audioClips.length === 0 ? (
-              <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-4 py-6">
-                <IconLayersSubtract className="size-5 text-muted-foreground/40" />
+              <div data-motion-empty-state className="sr-only">
                 {selectedTarget ? (
                   <>
                     <p className="!text-[11px] text-muted-foreground/70 leading-snug">

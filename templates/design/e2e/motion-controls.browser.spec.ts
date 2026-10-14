@@ -184,6 +184,26 @@ test("Motion inspector states match the editable timeline", async ({
   await launchMotion.click();
   const dock = page.getByRole("region", { name: "Motion dock" }).first();
   await expect(dock).toBeVisible();
+  const emptyState = dock.locator("[data-motion-empty-state]");
+  await expect(emptyState).toHaveClass("sr-only");
+  await expect(emptyState).toContainText(
+    "Animate Rectangle. Pick a property to add the first track.",
+  );
+
+  const emptyTimelineAutoKeyframe = dock.getByRole("checkbox", {
+    name: "Toggle auto-keyframing",
+  });
+  await expect(emptyTimelineAutoKeyframe).not.toBeChecked();
+  await emptyTimelineAutoKeyframe.click();
+  await expect(emptyTimelineAutoKeyframe).toBeChecked();
+  await expect(dock.locator("[data-motion-track-row]")).toHaveCount(0);
+  await expect(dock.locator("[data-motion-keyframe]")).toHaveCount(0);
+  await expect(
+    dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
+  ).toHaveCount(2);
+  await captureReferenceState(page, "motion-controls-empty-auto-keyframe");
+  await emptyTimelineAutoKeyframe.click();
+  await expect(emptyTimelineAutoKeyframe).not.toBeChecked();
 
   const addAnimation = page
     .getByRole("button", { name: "Add animation", exact: true })
@@ -286,9 +306,25 @@ test("Motion inspector states match the editable timeline", async ({
   await durationHandle.focus();
   await durationHandle.press("ArrowRight");
   await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
-    "2010",
+    "2001",
+  );
+  await durationHandle.press("Shift+ArrowRight");
+  await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
+    "2011",
+  );
+  await durationHandle.press("Shift+ArrowLeft");
+  await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
+    "2001",
   );
   await durationHandle.press("ArrowLeft");
+  await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
+    "2000",
+  );
+  await durationHandle.press("Shift+ArrowRight");
+  await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
+    "2010",
+  );
+  await durationHandle.press("Shift+ArrowLeft");
   await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
     "2000",
   );
@@ -346,6 +382,40 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(page.getByRole("radio")).toHaveCount(9);
   await expect(page.getByRole("textbox", { name: "Origin X" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Origin Y" })).toBeVisible();
+  const originPopover = page.getByRole("dialog");
+  await originPopover.evaluate(async (popover) => {
+    const finiteAnimations = popover
+      .getAnimations()
+      .filter(
+        (animation) => animation.effect?.getTiming().iterations !== Infinity,
+      );
+    await Promise.all(finiteAnimations.map((animation) => animation.finished));
+  });
+  const originGeometry = await origin.evaluate((trigger) => {
+    const popover = document.querySelector<HTMLElement>('[role="dialog"]');
+    if (!popover) return null;
+    const triggerRect = trigger.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    return {
+      trigger: {
+        right: triggerRect.right,
+        bottom: triggerRect.bottom,
+      },
+      popover: {
+        x: popoverRect.x,
+        y: popoverRect.y,
+        width: popoverRect.width,
+        height: popoverRect.height,
+        right: popoverRect.right,
+      },
+    };
+  });
+  expect(originGeometry?.popover.width).toBe(212);
+  expect(originGeometry?.popover.height).toBe(109);
+  expect(
+    Math.abs(originGeometry!.popover.right - originGeometry!.trigger.right),
+  ).toBeLessThanOrEqual(1);
+  expect(originGeometry!.popover.y - originGeometry!.trigger.bottom).toBe(6);
   const originMarker = designFrame(page, fileId).locator(
     "[data-motion-origin-marker]",
   );
