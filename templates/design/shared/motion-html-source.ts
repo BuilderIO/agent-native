@@ -771,11 +771,7 @@ function resolveAuthoredHtmlTarget(
   let hasDynamicMatch = false;
 
   for (const node of nodes) {
-    if (
-      !node.tagName ||
-      node.insideTemplate ||
-      !isMotionSourceHostElementTag(node.tagName)
-    ) {
+    if (!node.tagName || !isMotionSourceHostElementTag(node.tagName)) {
       continue;
     }
     const attrs = node.attrs ?? [];
@@ -790,6 +786,7 @@ function resolveAuthoredHtmlTarget(
     }
     const attributeMatch = matchesHtmlSelector(node, parsed);
     if (!attributeMatch) continue;
+    if (node.insideTemplate) return { status: "ambiguous" };
     const targetNodeId =
       targetAttrs[0]?.value ??
       generatedIds.get(node.sourceCodeLocation?.startTag?.startOffset);

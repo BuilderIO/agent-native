@@ -221,6 +221,46 @@ async function readManagedCssFromFile(
     );
   }
   const textDocument = textRead.status === "valid" ? textRead.document : null;
+  if (file.fileType === "html" && /\.html?$/i.test(file.filename)) {
+    const htmlRead = readMotionHtmlSource(content, file.filename);
+    if (htmlRead.status === "invalid") {
+      const legacyCss =
+        htmlRead.error.code === "invalid-managed-style"
+          ? extractManagedMotionCss(content)
+          : null;
+      if (
+        !legacyCss ||
+        decodeMotionCodeMetadata(legacyCss).status !== "absent"
+      ) {
+        throw invalidManagedSource(
+          `motion_html_source_${htmlRead.error.code.replace(/-/g, "_")}`,
+          htmlRead.error,
+        );
+      }
+    } else if (htmlRead.status === "absent") {
+      return null;
+    } else {
+      const document = htmlRead.document;
+      const nativeStyles = document?.nativeStyles ?? [];
+      const css = htmlRead.css.trim();
+      return {
+        css,
+        hash: css ? hashCss(css) : null,
+        tracks: document?.tracks ?? [],
+        animationStyles: document?.animationStyles ?? [],
+        nativeStyles,
+        easingVariables: document?.easingVariables ?? [],
+        audioClips: document?.audioClips ?? [],
+        textDocument: motionTextDocumentWithoutNativeStyles(
+          htmlRead.textDocument,
+          nativeStyles,
+        ),
+        durationMs: document?.durationMs ?? null,
+        playbackMode: htmlRead.playbackMode,
+        defaultEase: document?.defaultEase ?? null,
+      };
+    }
+  }
   const css = extractManagedMotionCss(content);
   if (!css) {
     return textDocument

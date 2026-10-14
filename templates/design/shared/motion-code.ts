@@ -342,6 +342,15 @@ export function reconcileMotionCodeDocument(
       );
     }
     if (motionNames.length === 0) return;
+    const fillModes = declarationValues(declarations, "animation-fill-mode");
+    if (
+      fillModes.length === 0 ||
+      fillModes.some((mode) => mode.toLowerCase() !== "both")
+    ) {
+      throw invalidMotionCss(
+        "Managed Motion CSS supports animation-fill-mode: both only. Repair the CSS before editing it in Motion.",
+      );
+    }
     referencedMotionNames.push(...motionNames);
 
     const durations = declarationValues(declarations, "animation-duration");
@@ -643,15 +652,13 @@ function assertManagedMotionCssShape(root: postcss.Root): void {
       "Managed Motion CSS contains authored rules the timeline cannot represent. Move those rules outside the managed Motion style before editing it.",
     );
   };
-  const isNodeIdSelector = (selector: string) => {
-    const selectorPattern =
-      /\[data-agent-native-node-id\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\]/g;
-    const parts = selector.match(selectorPattern) ?? [];
-    return (
-      parts.length > 0 &&
-      selector.replace(selectorPattern, "").replace(/[\s,]/g, "") === ""
-    );
-  };
+  const nodeIdSelectorSource = String.raw`\[data-agent-native-node-id\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\]`;
+  const isNodeIdSelector = (selector: string) =>
+    new RegExp(String.raw`^\s*${nodeIdSelectorSource}\s*$`).test(selector);
+  const isNodeIdSelectorList = (selector: string) =>
+    new RegExp(
+      String.raw`^\s*${nodeIdSelectorSource}(?:\s*,\s*${nodeIdSelectorSource})*\s*$`,
+    ).test(selector);
   const assertDeclarations = (
     rule: postcss.Rule,
     allowedProperties: ReadonlySet<string> | null,
@@ -717,7 +724,7 @@ function assertManagedMotionCssShape(root: postcss.Root): void {
         continue;
       }
       if (child.type !== "rule") return rejectUnmanagedCss();
-      if (!isNodeIdSelector(child.selector)) return rejectUnmanagedCss();
+      if (!isNodeIdSelectorList(child.selector)) return rejectUnmanagedCss();
       let declarationCount = 0;
       assertDeclarations(child, new Set(["animation"]), (declaration) => {
         declarationCount += 1;

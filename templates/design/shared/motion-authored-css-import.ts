@@ -135,7 +135,7 @@ export function importAuthoredCssAnimations(
 
   const definedKeyframeNames: string[] = [];
   root.walkAtRules((atRule) => {
-    if (isKeyframesRule(atRule.name) && atRule.parent === root) {
+    if (isKeyframesRule(atRule.name)) {
       const name = atRule.params.trim();
       if (name) definedKeyframeNames.push(name);
     }
@@ -461,7 +461,11 @@ export function removeAuthoredCssSourceRanges(
   ranges: readonly MotionAuthoredCssSourceRange[],
 ): string {
   const expanded = ranges.map((range) =>
-    expandSourceRangeToOwnLine(css, range),
+    expandSourceRangeToOwnLine(
+      css,
+      range,
+      range.kind === "animation-declaration",
+    ),
   );
   const ordered = [...expanded].sort((left, right) => left.start - right.start);
   for (let index = 0; index < ordered.length; index += 1) {
@@ -489,16 +493,21 @@ export function removeAuthoredCssSourceRanges(
 function expandSourceRangeToOwnLine(
   source: string,
   range: MotionAuthoredCssSourceRange,
+  requireWholeLine = false,
 ): MotionAuthoredCssSourceRange {
-  let start = range.start;
-  let end = range.end;
-  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
-  if (/^[\t \r\f]*$/.test(source.slice(lineStart, start))) start = lineStart;
-  const lineEnd = source.indexOf("\n", end);
-  if (lineEnd !== -1 && /^[\t \r\f]*$/.test(source.slice(end, lineEnd))) {
-    end = lineEnd + 1;
-  }
-  return { ...range, start, end };
+  const lineStart = source.lastIndexOf("\n", range.start - 1) + 1;
+  const lineEnd = source.indexOf("\n", range.end);
+  const startOnOwnLine = /^[\t \r\f]*$/.test(
+    source.slice(lineStart, range.start),
+  );
+  const endOnOwnLine =
+    lineEnd !== -1 && /^[\t \r\f]*$/.test(source.slice(range.end, lineEnd));
+  if (requireWholeLine && (!startOnOwnLine || !endOnOwnLine)) return range;
+  return {
+    ...range,
+    start: startOnOwnLine ? lineStart : range.start,
+    end: endOnOwnLine ? lineEnd + 1 : range.end,
+  };
 }
 
 function unsupported(reason: string): MotionAuthoredCssImportResult {

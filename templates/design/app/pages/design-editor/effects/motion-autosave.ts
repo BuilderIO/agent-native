@@ -57,7 +57,7 @@ function isStaleMotionSourceError(error: unknown): boolean {
   }
   return (
     typeof error.errorCode === "string" &&
-    /^motion_(?:html|local|react|text)_source_stale_(?:source|preview)$/.test(
+    /^motion_(?:html|local|react|text)_source_stale_(?:source|preview|timeline)$/.test(
       error.errorCode,
     )
   );

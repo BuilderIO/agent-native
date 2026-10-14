@@ -250,6 +250,69 @@ describe("get-motion-timeline inline source recovery", () => {
     expect(mocks.readLocal).not.toHaveBeenCalled();
   });
 
+  it("imports static authored HTML animation CSS into the selected timeline", async () => {
+    mocks.setLiveContents({
+      "file-1": `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  50% { opacity: 0.5; }
+  to { opacity: 1; }
+}
+  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "file-1",
+    });
+
+    expect(result.timelines[0]).toMatchObject({
+      sourceRef: "file-1",
+      source: "recovered-css",
+      durationMs: 900,
+      tracks: [
+        {
+          targetNodeId: "hero-css",
+          property: "opacity",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-in" },
+            { t: 0.5, value: "0.5", ease: "ease-in" },
+            { t: 1, value: "1", ease: "ease" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("fails closed when authored HTML Motion cannot be represented", async () => {
+    mocks.setLiveContents({
+      "file-1": `<!doctype html><html><head><style>
+.hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body><main :class="{ hero: active }">Hello</main></body></html>`,
+    });
+
+    await expect(
+      action.run({ designId: "design-1", sourceRef: "file-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unsupported_authored_motion",
+      statusCode: 422,
+    });
+  });
+
   it("recovers an unindexed source without duplicating indexed timelines", async () => {
     mocks.setTimelineRows([
       {

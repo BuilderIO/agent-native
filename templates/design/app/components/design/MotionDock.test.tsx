@@ -980,6 +980,56 @@ describe("MotionDock time units and Size preset", () => {
     ]);
   });
 
+  it("steps the duration field by the active time format", async () => {
+    const onDurationChange = vi.fn();
+    await renderInteractive({ durationMs: 2000, onDurationChange });
+    const durationInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Duration"]',
+    )!;
+
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      ),
+    );
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    expect(onDurationChange.mock.calls).toEqual([[2001], [2011]]);
+
+    const timeFormatButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Change time format"]',
+    )!;
+    await act(async () => timeFormatButton.click());
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      ),
+    );
+    await act(async () =>
+      durationInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+
+    expect(onDurationChange.mock.calls).toEqual([
+      [2001],
+      [2011],
+      [2100],
+      [3100],
+    ]);
+  });
+
   it("round-trips millisecond and second inputs without changing stored time", () => {
     expect(formatMotionTimeValue(1250, "ms")).toBe("1250");
     expect(formatMotionTimeValue(1250, "s")).toBe("1.25");

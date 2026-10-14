@@ -85,6 +85,17 @@ async function captureReferenceState(
         text: inspector?.innerText ?? null,
         rect: bounds(inspector),
       },
+      inspectorSections: Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "[data-design-inspector-section]",
+        ),
+      )
+        .filter((element) => element.getBoundingClientRect().width > 0)
+        .map((element) => ({
+          label: element.getAttribute("aria-label"),
+          text: element.innerText,
+          rect: bounds(element),
+        })),
       dock: { text: dock?.innerText ?? null, rect: bounds(dock) },
       visibleMenus: Array.from(
         document.querySelectorAll<HTMLElement>(
@@ -205,6 +216,26 @@ test("Motion inspector states match the editable timeline", async ({
   await emptyTimelineAutoKeyframe.click();
   await expect(emptyTimelineAutoKeyframe).not.toBeChecked();
 
+  await page.mouse.click(1380, 600);
+  await expect(dock).toBeVisible();
+  await expect(dock.locator("[data-motion-track-row]")).toHaveCount(0);
+  await expect(dock.locator("[data-motion-keyframe]")).toHaveCount(0);
+  await expect(
+    dock.getByText(
+      "Select an element on the canvas, then add a track to animate it.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await captureReferenceState(page, "motion-controls-deselected-empty");
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+    deep: false,
+  });
+  await expect(
+    page.getByRole("button", { name: "Add animation", exact: true }).first(),
+  ).toBeVisible();
+
   const addAnimation = page
     .getByRole("button", { name: "Add animation", exact: true })
     .first();
@@ -291,6 +322,15 @@ test("Motion inspector states match the editable timeline", async ({
   );
   await expect(page.getByRole("button", { name: "Ease out" })).toBeVisible();
   await captureReferenceState(page, "motion-controls-position");
+  const typeControl = page.getByRole("combobox", { name: "Type" });
+  await typeControl.click();
+  await expect(page.getByRole("option")).toHaveText([
+    "Slide in",
+    "Slide out",
+    "Custom",
+  ]);
+  await captureReferenceState(page, "motion-controls-position-type-menu");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     dock.locator(
@@ -328,6 +368,32 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
     "2000",
   );
+  const durationInput = dock.getByRole("textbox", { name: "Duration" });
+  await durationInput.focus();
+  await durationInput.press("ArrowUp");
+  await expect(durationInput).toHaveValue("2001");
+  await durationInput.press("Shift+ArrowUp");
+  await expect(durationInput).toHaveValue("2011");
+  await durationInput.press("Shift+ArrowDown");
+  await expect(durationInput).toHaveValue("2001");
+  await durationInput.press("ArrowDown");
+  await expect(durationInput).toHaveValue("2000");
+  await dock.getByRole("button", { name: "Change time format" }).click();
+  await expect(durationInput).toHaveValue("2");
+  await durationInput.press("ArrowUp");
+  await expect(durationInput).toHaveValue("2.1");
+  await durationInput.press("Shift+ArrowUp");
+  await expect(durationInput).toHaveValue("3.1");
+  await durationInput.press("Shift+ArrowDown");
+  await expect(durationInput).toHaveValue("2.1");
+  await durationInput.press("ArrowDown");
+  await expect(durationInput).toHaveValue("2");
+  await dock.getByRole("button", { name: "Change time format" }).click();
+  await expect(durationInput).toHaveValue("2000");
+  await durationInput.press("Home");
+  await expect(durationInput).toHaveValue("2000");
+  await durationInput.press("End");
+  await expect(durationInput).toHaveValue("2000");
   await expect(
     dock.getByRole("slider", { name: "Position animation span" }),
   ).toHaveAttribute("aria-valuetext", "0ms – 500ms");

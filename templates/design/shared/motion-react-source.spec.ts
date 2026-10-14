@@ -378,6 +378,20 @@ function Card() {
     }
   });
 
+  it("does not resolve a React style parameter from an outer same-name binding", () => {
+    const authored = `const style = { opacity: 1 };
+function Card(style = { animationName: "fade" }) {
+  return <main><button style={style}>Hello</button></main>;
+}`;
+
+    expect(
+      readMotionReactSource(authored, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("fails closed on animation declarations in React style props", () => {
     const authored = `function Card() {
   return <main><button style={{ opacity: 1, animationName: "fade" }}>Hello</button></main>;

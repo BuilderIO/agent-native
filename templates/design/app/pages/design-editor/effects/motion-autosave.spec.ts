@@ -644,7 +644,7 @@ describe("runMotionAutosave", () => {
     expect(removeMotionTimeline.mock.calls[1]?.[0]).toBe(originalInput);
   });
 
-  it("blocks stale-source retries until the user reloads the current source", async () => {
+  it("blocks stale-timeline retries until the user reloads the current source", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", globalThis);
     const refs = {
@@ -697,7 +697,7 @@ describe("runMotionAutosave", () => {
     ];
     firstCall[1].onError(
       Object.assign(new Error("Motion source is stale."), {
-        errorCode: "motion_react_source_stale_source",
+        errorCode: "motion_local_source_stale_timeline",
       }),
     );
 

@@ -1080,10 +1080,12 @@ calls, or Alpine `x-transition`/`x-effect` behavior. In localhost React/TSX,
 write through the verified module path, connection id, and version hash in
 `localSource`. Include the current `moduleVersionHash` and the captured
 `timelineVersionHash`; autosave compares both before writing so a code edit
-cannot replace the source underneath a dirty timeline. React JSX `style` props with animation or transition
-declarations are detected and rejected because they cannot be imported
-losslessly. Keep runtime-only animation code source-owned and do not claim that
-Motion round-trips it.
+cannot replace the source underneath a dirty timeline. React inline `style`
+props such as `style={{ animationName: "fade" }}` are detected and rejected
+because they cannot be imported losslessly. This is separate from static JSX
+`<style>` elements, which can be imported under the constraints above. Keep
+runtime-only animation code source-owned and do not claim that Motion
+round-trips it.
 
 ## Imagery
 

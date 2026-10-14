@@ -317,6 +317,33 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("rejects conditional keyframes that redefine an imported animation name", () => {
+    const source = `<!doctype html><html><head>
+<style>#hero { animation-name: pulse; animation-duration: 800ms; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }</style>
+<style>@media (min-width: 1px) { @keyframes pulse { from { opacity: 1; } to { opacity: 0; } } }</style>
+</head><body><h1 id="hero">Hello</h1></body></html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects authored CSS targets that also match HTML template content", () => {
+    const source = `<!doctype html><html><head><style>
+.hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body>
+<h1 class="hero" data-agent-native-node-id="hero-title">Hello</h1>
+<template x-for="item in items"><h1 class="hero">Template item</h1></template>
+</body></html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("resolves inline CSS selectors to the same path-derived HTML target IDs as preview", () => {
     const source = `<!doctype html>
 <html><head><style>

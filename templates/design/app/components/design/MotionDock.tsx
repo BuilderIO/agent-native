@@ -2033,6 +2033,27 @@ export function MotionDock({
                 commitDurationDraft();
               }}
               onKeyDown={(e) => {
+                if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                  if (readOnly || !onDurationChange) return;
+                  const currentMs = parseMotionTimeValue(
+                    durationInput,
+                    timeUnit,
+                  );
+                  if (currentMs === null) return;
+                  e.preventDefault();
+                  const stepMs =
+                    (timeUnit === "s" ? 100 : 1) * (e.shiftKey ? 10 : 1);
+                  const nextMs = Math.max(
+                    50,
+                    Math.min(
+                      MOTION_TIMELINE_MAX_DURATION_MS,
+                      currentMs + (e.key === "ArrowUp" ? stepMs : -stepMs),
+                    ),
+                  );
+                  setDurationInput(formatMotionTimeValue(nextMs, timeUnit));
+                  if (nextMs !== durationMs) onDurationChange(nextMs);
+                  return;
+                }
                 if (e.key === "Enter") {
                   e.preventDefault();
                   commitDurationDraft();

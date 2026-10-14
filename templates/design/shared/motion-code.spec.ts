@@ -406,6 +406,91 @@ describe("Motion source document CSS codec", () => {
     ).toThrow(/authored rules the timeline cannot represent/);
   });
 
+  it("rejects grouped target selectors before reconciliation can retarget a track", () => {
+    const root = postcss.parse(compileMotionCode(timeline).css);
+    let targetRule: postcss.Rule | undefined;
+    root.walkRules((rule) => {
+      if (
+        rule.nodes?.some(
+          (node) =>
+            node.type === "decl" &&
+            node.prop.toLowerCase() === "animation-name",
+        )
+      ) {
+        targetRule = rule;
+      }
+    });
+
+    expect(targetRule).toBeDefined();
+    targetRule!.selector += ', [data-agent-native-node-id="another-target"]';
+
+    expect(() =>
+      reconcileMotionCodeDocument(
+        root.toString(),
+        motionCodeDocumentFromTimeline(timeline),
+      ),
+    ).toThrow(/authored rules the timeline cannot represent/);
+  });
+
+  it("reconciles compiler-generated grouped reduced-motion selectors for multiple targets", () => {
+    const sourceTimeline = {
+      ...timeline,
+      tracks: [
+        { ...timeline.tracks[0]!, targetNodeId: "hero-one" },
+        { ...timeline.tracks[0]!, targetNodeId: "hero-two" },
+      ],
+    };
+    const compiled = compileMotionCode(sourceTimeline);
+    const root = postcss.parse(compiled.css);
+    let groupedReducedMotionRule: postcss.Rule | undefined;
+    root.walkAtRules("media", (media) => {
+      if (!media.params.includes("prefers-reduced-motion")) return;
+      media.walkRules((rule) => {
+        if (rule.selector.includes(",")) groupedReducedMotionRule = rule;
+      });
+    });
+
+    expect(groupedReducedMotionRule).toBeDefined();
+    expect(groupedReducedMotionRule?.nodes).toHaveLength(1);
+    expect(() =>
+      reconcileMotionCodeDocument(
+        compiled.css,
+        motionCodeDocumentFromTimeline(sourceTimeline),
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects fill modes that the timeline compiler cannot preserve", () => {
+    const sourceTimeline = {
+      ...timeline,
+      tracks: [{ ...timeline.tracks[0]!, targetNodeId: "hero-title" }],
+    };
+    const compiled = compileMotionCode(sourceTimeline).css;
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+
+    for (const fillMode of ["none", "forwards", "backwards", "both, none"]) {
+      const root = postcss.parse(compiled);
+      let fillDeclaration: postcss.Declaration | undefined;
+      root.walkDecls("animation-fill-mode", (declaration) => {
+        fillDeclaration = declaration;
+      });
+      expect(fillDeclaration).toBeDefined();
+      fillDeclaration!.value = fillMode;
+
+      expect(() =>
+        reconcileMotionCodeDocument(root.toString(), stored),
+      ).toThrow(/animation-fill-mode: both only/);
+    }
+
+    const withoutFillMode = postcss.parse(compiled);
+    withoutFillMode.walkDecls("animation-fill-mode", (declaration) => {
+      declaration.remove();
+    });
+    expect(() =>
+      reconcileMotionCodeDocument(withoutFillMode.toString(), stored),
+    ).toThrow(/animation-fill-mode: both only/);
+  });
+
   it("treats removal of a native source animation as an explicit track deletion", () => {
     const sourceStyle = createMotionNativeStyleInstance({
       styleKey: "Opacity",

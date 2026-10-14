@@ -24,6 +24,15 @@ describe("importAuthoredCssAnimations", () => {
     });
   });
 
+  it("reports nested keyframe definitions when there are no animation declarations", () => {
+    expect(
+      importAuthoredCssAnimations(
+        "@media (min-width: 1px) { @keyframes pulse { to { opacity: 1; } } }",
+        resolveHero,
+      ),
+    ).toEqual({ status: "absent", definedKeyframeNames: ["pulse"] });
+  });
+
   it("preserves global keyframes and removes only adopted animation declarations", () => {
     const css = `/* before */
 .hero {
@@ -126,6 +135,20 @@ describe("importAuthoredCssAnimations", () => {
   to { opacity: 1; }
 }`,
     );
+  });
+
+  it("removes compact animation declarations without deleting unrelated declarations", () => {
+    const css =
+      ".hero { color: red; animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }\n@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }";
+    const result = importAuthoredCssAnimations(css, resolveHero);
+
+    expect(result.status).toBe("valid");
+    if (result.status !== "valid") return;
+
+    const remainder = removeAuthoredCssSourceRanges(css, result.rangesToRemove);
+    expect(remainder).toContain(".hero { color: red;");
+    expect(remainder).not.toMatch(/animation-(?:name|duration|fill-mode):/);
+    expect(remainder).toContain("@keyframes pulse");
   });
 
   it.each([

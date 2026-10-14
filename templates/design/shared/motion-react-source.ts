@@ -949,6 +949,8 @@ function resolveReactStyleExpression(
       : null;
   if (!name) return null;
 
+  if (hasReactStyleParameterShadow(expression, sourceFile, name)) return null;
+
   const matches: TypeScript.VariableDeclaration[] = [];
   const visit = (node: TypeScript.Node): void => {
     if (
@@ -963,6 +965,8 @@ function resolveReactStyleExpression(
   visit(sourceFile);
   if (matches.length !== 1) return null;
   const declaration = matches[0]!;
+  const scope = reactVariableDeclarationScope(declaration);
+  if (!scope || !isReactNodeWithinScope(scope, expression)) return null;
   const initializer = declaration.initializer;
   if (
     ts.isPropertyAccessExpression(expression) &&
@@ -993,6 +997,81 @@ function resolveReactStyleExpression(
         end: initializer.end,
       }
     : null;
+}
+
+function hasReactStyleParameterShadow(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  name: string,
+): boolean {
+  for (
+    let node: TypeScript.Node | undefined = expression.parent;
+    node && node !== sourceFile;
+    node = node.parent
+  ) {
+    if (
+      ts.isFunctionLike(node) &&
+      node.parameters.some((parameter) =>
+        reactBindingNameContains(parameter.name, name),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function reactBindingNameContains(
+  bindingName: TypeScript.BindingName,
+  name: string,
+): boolean {
+  if (ts.isIdentifier(bindingName)) return bindingName.text === name;
+  if (ts.isObjectBindingPattern(bindingName)) {
+    return bindingName.elements.some((element) =>
+      reactBindingNameContains(element.name, name),
+    );
+  }
+  return bindingName.elements.some(
+    (element) =>
+      !ts.isOmittedExpression(element) &&
+      reactBindingNameContains(element.name, name),
+  );
+}
+
+function reactVariableDeclarationScope(
+  declaration: TypeScript.VariableDeclaration,
+): TypeScript.Node | null {
+  for (
+    let node: TypeScript.Node | undefined = declaration.parent;
+    node;
+    node = node.parent
+  ) {
+    if (
+      ts.isBlock(node) ||
+      ts.isModuleBlock(node) ||
+      ts.isSourceFile(node) ||
+      ts.isForStatement(node) ||
+      ts.isForInStatement(node) ||
+      ts.isForOfStatement(node)
+    ) {
+      return node;
+    }
+  }
+  return null;
+}
+
+function isReactNodeWithinScope(
+  scope: TypeScript.Node,
+  node: TypeScript.Node,
+): boolean {
+  for (
+    let current: TypeScript.Node | undefined = node;
+    current;
+    current = current.parent
+  ) {
+    if (current === scope) return true;
+  }
+  return false;
 }
 
 function isReactMotionStylePropName(name: string): boolean {
