@@ -324,6 +324,38 @@ struct CameraBubbleAlignment {
     generation: u64,
 }
 
+#[cfg(target_os = "macos")]
+fn should_auto_align_camera_bubble(
+    current_position: (i32, i32),
+    previous_aligned_position: Option<(i32, i32)>,
+    already_inside: bool,
+) -> bool {
+    !already_inside || previous_aligned_position == Some(current_position)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod camera_bubble_alignment_tests {
+    use super::should_auto_align_camera_bubble;
+
+    #[test]
+    fn reanchors_an_auto_aligned_bubble_inside_a_moved_window() {
+        assert!(should_auto_align_camera_bubble(
+            (120, 240),
+            Some((120, 240)),
+            true,
+        ));
+    }
+
+    #[test]
+    fn keeps_a_user_moved_bubble_inside_the_window() {
+        assert!(!should_auto_align_camera_bubble(
+            (132, 252),
+            Some((120, 240)),
+            true,
+        ));
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub struct NativeCaptureRegion {
     x: f64,
@@ -2231,26 +2263,23 @@ fn align_camera_bubble_to_selected_window_inner(
     if !can_align() {
         return Err("Recording stopped while positioning the Clips camera.".into());
     }
-    if already_inside {
-        if let Some(previous) = *alignment {
-            if (current_position.x, current_position.y) == previous.aligned_position {
-                *alignment = Some(CameraBubbleAlignment {
-                    generation,
-                    ..previous
-                });
-            } else {
-                *alignment = None;
-            }
-        }
+    let current_position = (current_position.x, current_position.y);
+    let previous_alignment = *alignment;
+    if !should_auto_align_camera_bubble(
+        current_position,
+        previous_alignment.map(|previous| previous.aligned_position),
+        already_inside,
+    ) {
+        *alignment = None;
         return Ok(content);
     }
 
     let aligned_position = (min_x, max_y);
-    let original_position = alignment
-        .filter(|previous| (current_position.x, current_position.y) == previous.aligned_position)
+    let original_position = previous_alignment
+        .filter(|previous| current_position == previous.aligned_position)
         .map(|previous| previous.original_position)
-        .unwrap_or((current_position.x, current_position.y));
-    if (current_position.x, current_position.y) != aligned_position {
+        .unwrap_or(current_position);
+    if current_position != aligned_position {
         bubble
             .set_position(PhysicalPosition::new(
                 aligned_position.0,
