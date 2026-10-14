@@ -323,17 +323,18 @@ export function analyticsExtraContext(): string {
 // A request stays inside one sentence or one bulleted list: a summary of the
 // agent's own work ("tell me if something else is off. ... 43 rows in the
 // table") is not a request, and a cross-sentence match discards a correct
-// answer. "I need to check which table" is the agent narrating, so the bare
-// "i need" form needs a direct object.
+// answer. "I need" is the agent narrating ("I need the table to reload")
+// unless it names an identifier to supply or asks which one, so it has its own
+// pattern instead of a bare alternative.
 const SCHEMA_DETAILS_NOUN =
   "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
 // Bare provide/share/send count only as an imperative opening a sentence or
 // line; mid-sentence they are the agent offering its answer ("I can provide a
 // table of the results").
 const SCHEMA_DETAILS_ASK =
-  "(?:\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|tell me|i need (?:you to|an?|the|your))\\b|(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b)";
+  "(?:\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b)";
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}`,
+  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know (?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b)`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(

@@ -1246,23 +1246,34 @@ describe("realDataFinalGuard", () => {
     expect(result).toMatchObject({ maxRetries: 2 });
   });
 
-  it("does not treat an offer of the answer as a schema request", () => {
-    const result = realDataFinalGuard(
-      guardContext({
-        userText: "How many accounts are under 5% utilization?",
-        draftText: "I can provide a table of the results if that helps.",
-        toolResults: [
-          { name: "bigquery", isError: false, content: '{"rows":[{"n":43}]}' },
-        ],
-      }),
-    );
+  it.each([
+    "I can provide a table of the results if that helps.",
+    "I need the table to reload, so I re-ran the query and it shows 43 accounts.",
+  ])(
+    "does not treat the agent's own narration as a schema request: %s",
+    (draftText) => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: "How many accounts are under 5% utilization?",
+          draftText,
+          toolResults: [
+            {
+              name: "bigquery",
+              isError: false,
+              content: '{"rows":[{"n":43}]}',
+            },
+          ],
+        }),
+      );
 
-    expect(result).toBeNull();
-  });
+      expect(result).toBeNull();
+    },
+  );
 
   it.each([
     "I need the table name before I can continue.",
     "I need a table name before I can continue.",
+    "I need to know which table holds monthly usage before I can continue.",
     "To continue, please provide:\n- the dataset name\n- the column that holds usage",
     "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
     "Share the dataset name.",
