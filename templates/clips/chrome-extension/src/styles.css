@@ -135,6 +135,7 @@ svg {
 }
 
 .desktop-header {
+  position: relative;
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content;
   column-gap: 8px;
