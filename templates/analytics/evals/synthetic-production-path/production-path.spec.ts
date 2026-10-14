@@ -178,7 +178,7 @@ const syntheticData = vi.hoisted(() => {
           sourcePath: "fixtures/models/monthly_workspace_users_by_role.sql",
         },
         {
-          id: "fixture-approved-monthly-workspace-membership",
+          id: "fixture-generated-monthly-workspace-membership",
           metric: "Monthly Workspace Membership",
           definition:
             "Monthly aggregate of workspace membership counts, with one row per month and workspace.",
@@ -273,11 +273,11 @@ const storage = vi.hoisted(() => ({
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain";
     const includeAggregateOnlyMembership =
-      syntheticData.activeCaseId === "aggregate-only-membership-reference";
+      syntheticData.activeCaseId === "aggregate-only-membership-abstains";
     const entries = bundle.entries
       .filter((entry) => {
         if (includeAggregateOnlyMembership) {
-          return entry.id === "fixture-approved-monthly-workspace-membership";
+          return entry.id === "fixture-generated-monthly-workspace-membership";
         }
         if (includeAliasedRoster) {
           return entry.id === "fixture-aliased-workspace-member-roster";
@@ -311,6 +311,9 @@ const storage = vi.hoisted(() => ({
       throw new Error("Synthetic fixture received an unexpected org scope.");
     }
     if (prefix !== "data-dict-") return {};
+    if (syntheticData.activeCaseId === "aggregate-only-membership-abstains") {
+      return {};
+    }
     if (
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain"
@@ -408,7 +411,7 @@ const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "3f5d70102cb653147533c1065e194e43fb49515d";
+const BASELINE_GIT_REVISION = "1da583a5059d855ef7f61dc1e017607416e123d9";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -530,7 +533,7 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
-    id: "aggregate-only-membership-reference",
+    id: "aggregate-only-membership-abstains",
     prompt:
       "Workspace membership. Metadata only; do not report live counts or values.",
     expectedTable: null,
@@ -995,8 +998,15 @@ function reasonForRun(
     return "guard_not_applied";
   }
   if (testCase.expectedTable === null) {
-    const candidates = getToolResult(output)?.results;
-    if (!Array.isArray(candidates)) return "candidate_missing";
+    const result = getToolResult(output);
+    const candidates = result?.results;
+    if (
+      !Array.isArray(candidates) ||
+      result?.sourceIndexStatus !== "available" ||
+      result.searchedDictionaryEntryCount !== 1
+    ) {
+      return "candidate_missing";
+    }
     return candidates.length === 0 ? "no_match_expected" : "unexpected_match";
   }
   if (rank === null) return "candidate_missing";
@@ -1284,7 +1294,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "negated-counts-preserve-role-detail",
       "monthly-organization-user-count",
       "workspace-membership-prefers-row-grain",
-      "aggregate-only-membership-reference",
+      "aggregate-only-membership-abstains",
       "aliased-membership-keys-preserve-roster-grain",
       "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",
@@ -1438,6 +1448,31 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       expect(getToolResult(output)?.guidance).toContain(
         "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
       );
+    }
+  }, 120_000);
+
+  it("reports the aggregate-only membership reference as an unsupported roster", async () => {
+    const testCase = SYNTHETIC_CASES.find(
+      ({ id }) => id === "aggregate-only-membership-abstains",
+    );
+    expect(testCase).toBeDefined();
+    const { output } = await runOnce(testCase!);
+    expect(output.ok).toBe(true);
+    const result = getToolResult(output);
+    expect(result).toMatchObject({
+      sourceIndexStatus: "available",
+      searchedDictionaryEntryCount: 1,
+    });
+    if (phase === "before") {
+      expect(result?.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            table: "fixture_warehouse.monthly_workspace_memberships",
+          }),
+        ]),
+      );
+    } else {
+      expect(result?.results).toEqual([]);
     }
   }, 120_000);
 
