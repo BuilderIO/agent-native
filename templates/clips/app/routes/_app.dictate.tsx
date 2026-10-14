@@ -452,7 +452,19 @@ function DictationCard({
   const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const cleanup = useActionMutation<any, { id: string }>("cleanup-dictation");
-  const restoreCleanup = useActionMutation("update-dictation");
+  const restoreCleanup = useActionMutation("update-dictation", {
+    onSuccess: () => {
+      toast.success(t("dictateRoute.cleanupRestored"));
+      void qc.invalidateQueries({
+        queryKey: ["action", "list-dictations"],
+      });
+    },
+    onError: (error) => {
+      toast.error(
+        actionErrorMessage(error) ?? t("dictateRoute.cleanupRestoreFailed"),
+      );
+    },
+  });
   const deleteDictation = useActionMutation<any, { id: string }>(
     "delete-dictation",
   );
@@ -482,22 +494,7 @@ function DictationCard({
   const displayText = dictation.cleanedText || dictation.fullText;
 
   const handleRestoreCleanup = () => {
-    restoreCleanup.mutate(
-      { id: dictation.id, cleanedText: null },
-      {
-        onSuccess: () => {
-          toast.success(t("dictateRoute.cleanupRestored"));
-          void qc.invalidateQueries({
-            queryKey: ["action", "list-dictations"],
-          });
-        },
-        onError: (error) => {
-          toast.error(
-            actionErrorMessage(error) ?? t("dictateRoute.cleanupRestoreFailed"),
-          );
-        },
-      },
-    );
+    restoreCleanup.mutate({ id: dictation.id, cleanedText: null });
   };
 
   const handleCleanup = () => {
