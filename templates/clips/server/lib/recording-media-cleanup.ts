@@ -9,6 +9,7 @@ import { screenshotLeftoverUrls } from "./screenshot-edits.js";
 
 interface RecordingMediaUrls {
   id?: string;
+  storageMode?: "own" | "hosted" | null;
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -142,9 +143,24 @@ async function deleteBuilderAssetByUrl(
  * refuse to claim a redaction that only half happened — including when it was
  * already gone, so a retry can finish.
  */
-export async function deleteStoredMediaUrl(url: string): Promise<boolean> {
+export async function deleteStoredMediaUrl(
+  url: string,
+  options: {
+    storageMode?: "own" | "hosted" | null;
+    recordingId?: string;
+  } = {},
+): Promise<boolean> {
   if (!url || url.startsWith("data:")) return false;
-  if (await deleteS3ObjectByUrl(url)) return true;
+  if (options.storageMode === "hosted") {
+    return deleteS3ObjectByUrl(url, {
+      storageMode: "hosted",
+      recordingId: options.recordingId,
+    });
+  }
+  const deletedFromS3 = await deleteS3ObjectByUrl(url);
+  if (deletedFromS3) {
+    return true;
+  }
   return (await deleteBuilderAssetByUrl(url)) !== false;
 }
 
@@ -167,10 +183,20 @@ export async function deleteRecordingMediaObjects(
       continue;
     }
     try {
-      if (
-        (await deleteS3ObjectByUrl(url)) ||
-        (await deleteBuilderAssetByUrl(url)) === "deleted"
-      ) {
+      if (recording.storageMode === "hosted") {
+        const deleted = await deleteS3ObjectByUrl(url, {
+          storageMode: "hosted",
+          recordingId: recording.id,
+        });
+        if (deleted) {
+          result.deleted += 1;
+        } else {
+          result.skipped += 1;
+        }
+        continue;
+      }
+      const deletedFromS3 = await deleteS3ObjectByUrl(url);
+      if (deletedFromS3 || (await deleteBuilderAssetByUrl(url)) === "deleted") {
         result.deleted += 1;
       } else {
         result.skipped += 1;

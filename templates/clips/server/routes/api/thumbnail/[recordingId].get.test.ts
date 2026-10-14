@@ -16,6 +16,7 @@ const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockCreateSsrfSafeDispatcher = vi.hoisted(() => vi.fn());
 const mockIsBlockedExtensionUrlWithDns = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -71,9 +72,14 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       password: "recordings.password",
       sharePasswordVersion: "recordings.sharePasswordVersion",
+      storageMode: "recordings.storageMode",
       visibility: "recordings.visibility",
     },
   },
+}));
+
+vi.mock("../../../lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
 vi.mock("../../../lib/recordings.js", () => ({
@@ -164,6 +170,7 @@ describe("/api/thumbnail/:recordingId route", () => {
     mockResolveAccess.mockResolvedValue(null);
     mockCreateSsrfSafeDispatcher.mockResolvedValue(null);
     mockIsBlockedExtensionUrlWithDns.mockResolvedValue(false);
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
     mockVerifyShortLivedToken.mockReturnValue({ ok: false });
     mockSignShortLivedToken.mockReturnValue("renewed-token");
   });
@@ -186,6 +193,32 @@ describe("/api/thumbnail/:recordingId route", () => {
       "https://cdn.example.com/thumb.jpg",
       expect.objectContaining({ redirect: "manual" }),
     );
+  });
+
+  it("uses the recording-scoped signed reader for hosted public thumbnails", async () => {
+    const thumbnailUrl = "https://storage.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "hosted" })),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("private thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(await (result as Response).text()).toBe("private thumbnail");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      thumbnailUrl,
+      expect.objectContaining({
+        recordingId: "rec-1",
+        storageMode: "hosted",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("redirects to the branded image while a thumbnail is unavailable", async () => {

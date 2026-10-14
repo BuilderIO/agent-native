@@ -14,6 +14,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mocks.uploadFile,
 }));
+vi.mock("../server/lib/upload-recording-media.js", () => ({
+  uploadRecordingMedia: (...args: unknown[]) => mocks.uploadFile(...args),
+}));
+vi.mock("../server/lib/video-storage.js", () => ({
+  requiresConfiguredVideoStorage: () => false,
+}));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(async () => undefined),
 }));

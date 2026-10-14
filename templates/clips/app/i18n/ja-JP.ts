@@ -1863,6 +1863,16 @@ const messages = {
     validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
+    freeClipsLeft_one: "無料クリップの残り {{count}} 本",
+    freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
+    hostedClipsExhaustedDescription:
+      "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
+    clipExceedsSizeLimit:
+      "このクリップは現在のアップロード容量制限を超えています。",
+    clipExceedsMaxDuration: "このクリップは現在の録画時間制限を超えています。",
+    maxClipDurationReached:
+      "クリップの最大時間に達しました。録画を保存しています。",
     pageTitle: "New recording — Clips (ローカライズ済み)",
     uploadFailed: "Upload failed (ローカライズ済み)",
     uploadFailedAtChunk:
@@ -2052,6 +2062,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
@@ -2102,6 +2116,10 @@ const messages = {
     vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips のホストストレージがいっぱいです。クリップを保存し続けるには Builder.io ストレージを接続してください。",
+    hostedRecordingTakenDown:
+      "この録画は Clips のホストストレージから削除されました。",
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
     selectAll: "すべて選択",

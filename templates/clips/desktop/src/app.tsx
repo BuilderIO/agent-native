@@ -71,10 +71,7 @@ import { Input } from "@/components/ui/input";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import {
-  readFileUploadStatusProbe,
-  type FileUploadStatusProbe,
-} from "../../shared/file-upload-status";
+import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
   CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
@@ -514,47 +511,53 @@ function serverUrlForPendingUpload(
 
 const VIDEO_STORAGE_PROBE_TIMEOUT_MS = Math.max(10_000, 5000 * 4);
 
-async function fetchWithAbortTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function hasConfiguredVideoStorage(
   serverUrl: string,
   account: string | null,
 ): Promise<FileUploadStatusProbe> {
-  const base = serverUrl.replace(/\/+$/, "");
-
-  const probeEndpoint = async (
-    path: string,
-  ): Promise<FileUploadStatusProbe> => {
-    try {
-      const res = await fetchWithAbortTimeout(
-        `${base}${path}`,
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        VIDEO_STORAGE_PROBE_TIMEOUT_MS,
-      );
-      return await readFileUploadStatusProbe(res);
-    } catch {
-      return "unavailable";
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    VIDEO_STORAGE_PROBE_TIMEOUT_MS,
+  );
+  let probe: FileUploadStatusProbe = "unavailable";
+  try {
+    const status = await callClipsActionFor<{
+      configured: boolean;
+      mode: "own" | "hosted" | "none";
+      hostedRemaining: number;
+    }>(
+      { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+      "get-video-storage-status",
+      {},
+      { method: "GET", signal: controller.signal },
+    );
+    if (
+      typeof status.configured !== "boolean" ||
+      (status.mode !== "own" &&
+        status.mode !== "hosted" &&
+        status.mode !== "none") ||
+      !Number.isSafeInteger(status.hostedRemaining) ||
+      status.hostedRemaining < 0 ||
+      status.configured !== (status.mode !== "none") ||
+      (status.mode === "hosted" && status.hostedRemaining < 1)
+    ) {
+      throw new Error("Video storage status response is invalid");
     }
-  };
-
-  const probe = await probeEndpoint("/_agent-native/file-upload/status");
-  if (probe === "configured" && account) {
-    saveBool(videoStorageConfiguredKey(serverUrl, account), true);
+    if (status.mode === "own") {
+      probe = "configured";
+      if (account)
+        saveBool(videoStorageConfiguredKey(serverUrl, account), true);
+    } else {
+      probe =
+        status.mode === "hosted" && status.hostedRemaining > 0
+          ? "configured"
+          : "missing";
+    }
+  } catch {
+    probe = "unavailable";
+  } finally {
+    window.clearTimeout(timeout);
   }
   return probe;
 }

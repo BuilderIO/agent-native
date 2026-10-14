@@ -87,6 +87,8 @@ interface RecordingRow {
   updatedAt?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
+  failureCode?: string | null;
+  storageMode?: "own" | "hosted" | null;
   videoUrl?: string | null;
   visibility?: string | null;
 }
@@ -362,6 +364,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
       const rec = recRow;
 
+      if (rec.failureCode === "taken_down") {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
+
       if (
         isRecordingExpiredForViewer({
           expiresAt: rec.expiresAt,
@@ -473,6 +480,7 @@ export default defineEventHandler(async (event: H3Event) => {
             .select({
               videoUrl: schema.recordings.videoUrl,
               editsJson: schema.recordings.editsJson,
+              storageMode: schema.recordings.storageMode,
             })
             .from(schema.recordings)
             .where(eq(schema.recordings.id, recordingId))
@@ -482,6 +490,9 @@ export default defineEventHandler(async (event: H3Event) => {
             persistedUrl: persistedMedia?.videoUrl,
             editsJson: persistedMedia?.editsJson,
           });
+          const storageMode = persistedMedia
+            ? persistedMedia.storageMode
+            : (rec.storageMode ?? null);
           const signedS3Response = await runWithRequestContext(
             {
               userEmail: rec.ownerEmail ?? undefined,
@@ -494,7 +505,10 @@ export default defineEventHandler(async (event: H3Event) => {
                   : undefined,
                 timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
                 recordingId,
-                ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
+                storageMode: storageMode === "hosted" ? "hosted" : "own",
+                ...(storageMode !== "hosted" && allowLegacyObjectKey
+                  ? { allowLegacyObjectKey }
+                  : {}),
               }),
           );
           if (
@@ -503,6 +517,15 @@ export default defineEventHandler(async (event: H3Event) => {
             signedS3Response?.status === 416
           ) {
             upstream = signedS3Response;
+          } else if (storageMode === "hosted") {
+            await signedS3Response?.body?.cancel().catch(() => undefined);
+            upstream = {
+              status:
+                !signedS3Response || signedS3Response.status === 404
+                  ? 404
+                  : 502,
+              error: "The recording's media could not be loaded from storage.",
+            };
           } else {
             await signedS3Response?.body?.cancel().catch(() => undefined);
             upstream = await fetchProviderMedia(sourceUrl, rangeHeader);

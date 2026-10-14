@@ -35,6 +35,7 @@ import {
 } from "../../../lib/pending-redactions.js";
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
+import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
   verifySharePassword,
@@ -64,6 +65,8 @@ type ThumbnailRecording = {
   password?: string | null;
   sharePasswordVersion?: string | null;
   updatedAt?: string | null;
+  failureCode?: string | null;
+  storageMode?: "own" | "hosted" | null;
   visibility?: string | null;
 };
 
@@ -225,6 +228,34 @@ async function fetchThumbnail(sourceUrl: string): Promise<Response> {
   return imageResponse(null, "text/plain", 508);
 }
 
+async function fetchHostedThumbnail(
+  sourceUrl: string,
+  recordingId: string,
+): Promise<Response> {
+  const upstream = await fetchS3ObjectByUrl(sourceUrl, {
+    recordingId,
+    storageMode: "hosted",
+    timeoutMs: FETCH_TIMEOUT_MS,
+  });
+  if (!upstream) return imageResponse(null, "text/plain", 404);
+
+  const contentType =
+    upstream.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase() ?? "";
+  if (!upstream.ok || !SAFE_RASTER_IMAGE_TYPES.has(contentType)) {
+    await upstream.body?.cancel().catch(() => {});
+    return imageResponse(
+      null,
+      "text/plain; charset=utf-8",
+      upstream.ok ? 415 : upstream.status,
+    );
+  }
+  return imageResponse(upstream.body, contentType, upstream.status);
+}
+
 async function loadRecording(recordingId: string, event: H3Event) {
   const access = await resolveAccess("recording", recordingId);
   let recording = (access?.resource as ThumbnailRecording | undefined) ?? null;
@@ -239,11 +270,13 @@ async function loadRecording(recordingId: string, event: H3Event) {
         thumbnailUrl: schema.recordings.thumbnailUrl,
         animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
         baseImageUrl: schema.recordings.baseImageUrl,
+        storageMode: schema.recordings.storageMode,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
         updatedAt: schema.recordings.updatedAt,
+        failureCode: schema.recordings.failureCode,
         visibility: schema.recordings.visibility,
       })
       .from(schema.recordings)
@@ -290,6 +323,10 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const { recording } = loaded;
+      if (recording.failureCode === "taken_down") {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
       if (
         isRecordingExpiredForViewer({
           expiresAt: recording.expiresAt,
@@ -374,7 +411,10 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       try {
-        const response = await fetchThumbnail(resolvedSourceUrl);
+        const response =
+          recording.storageMode === "hosted"
+            ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
+            : await fetchThumbnail(resolvedSourceUrl);
         if (response.status >= 500) {
           captureRouteError(
             new Error(

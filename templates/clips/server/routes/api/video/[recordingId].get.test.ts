@@ -90,6 +90,7 @@ vi.mock("../../../db/index.js", () => ({
       visibility: "recordings.visibility",
       videoUrl: "recordings.videoUrl",
       editsJson: "recordings.editsJson",
+      storageMode: "recordings.storageMode",
     },
   },
 }));
@@ -185,6 +186,72 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toEqual({
       error: "Recording media could not be fetched.",
     });
+  });
+
+  it("uses the persisted hosted mode for a public recording's signed media read", async () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl,
+        storageMode: "own",
+      },
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        { videoUrl, editsJson: null, storageMode: "hosted" },
+      ]),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("private media", {
+        status: 200,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(await (result as Response).text()).toBe("private media");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      videoUrl,
+      expect.objectContaining({
+        recordingId: "rec-1",
+        storageMode: "hosted",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to an unsigned public fetch for hosted media", async () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl,
+      },
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        { videoUrl, editsJson: null, storageMode: "hosted" },
+      ]),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(404);
+    expect(result).toEqual({
+      error: "The recording's media could not be loaded from storage.",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("maps provider fetch aborts to timeout errors", async () => {
@@ -288,6 +355,7 @@ describe("/api/video/:recordingId route", () => {
       range: "bytes=0-31",
       timeoutMs: 30_000,
       recordingId: "rec-1",
+      storageMode: "own",
     });
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       {
@@ -327,6 +395,7 @@ describe("/api/video/:recordingId route", () => {
       timeoutMs: 30_000,
       recordingId: "rec-1",
       allowLegacyObjectKey: true,
+      storageMode: "own",
     });
   });
 

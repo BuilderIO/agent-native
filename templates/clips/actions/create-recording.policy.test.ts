@@ -9,6 +9,7 @@ const calls = vi.hoisted(() => ({
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
+  resolveStorage: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -17,6 +18,9 @@ vi.mock("@agent-native/core/action", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => calls.writeState(...args),
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => null,
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
@@ -34,7 +38,9 @@ vi.mock("../server/db/index.js", () => ({
       },
     }),
   }),
-  schema: { recordings: { id: "recordings.id" } },
+  schema: {
+    recordings: { id: "recordings.id", storageMode: "recordings.storageMode" },
+  },
 }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -60,6 +66,9 @@ vi.mock("./lib/recording-scope.js", () => ({
 }));
 vi.mock("../server/lib/video-storage.js", () => ({
   allowsSqlRecordingChunkScratch: () => calls.bufferedFallbackAvailable,
+  resolveClipsVideoStorage: (...args: unknown[]) =>
+    calls.resolveStorage(...args),
+  releaseHostedClipRecording: vi.fn(),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
 }));
 vi.mock("../server/lib/streaming-upload-mode.js", () => ({
@@ -78,6 +87,18 @@ describe("create-recording policy", () => {
     calls.snapshot.mockResolvedValue(false);
     calls.bufferedFallbackAvailable = true;
     calls.streamingEnabled = false;
+    calls.resolveStorage.mockImplementation(async () => {
+      const provider = await calls.uploadProvider();
+      return {
+        mode: "own",
+        provider,
+        hostedRemaining: 0,
+        hostedLimit: 3,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+        reservationCreated: false,
+      };
+    });
   });
 
   it("saves the new recording's policy before initializing its upload", async () => {
@@ -175,7 +196,8 @@ describe("create-recording policy", () => {
     ).rejects.toBe(error);
 
     expect(calls.snapshot).toHaveBeenCalledOnce();
-    expect(calls.uploadProvider).not.toHaveBeenCalled();
+    expect(calls.resolveStorage).toHaveBeenCalledOnce();
+    expect(calls.uploadProvider).toHaveBeenCalledOnce();
     expect(calls.writeState).not.toHaveBeenCalled();
   });
 

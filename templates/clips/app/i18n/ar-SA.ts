@@ -1840,6 +1840,18 @@ const messages = {
     validWebUrl: "أدخل عنوان http:// أو https:// صالحًا.",
   },
   recordRoute: {
+    freeClipsLeft_zero: "لا توجد مقاطع مجانية متبقية ({{count}})",
+    freeClipsLeft_one: "متبقٍ {{count}} من المقاطع المجانية",
+    freeClipsLeft_two: "متبقيان ({{count}}) من المقاطع المجانية",
+    freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
+    freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
+    freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
+    hostedClipsExhaustedDescription:
+      "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",
+    clipExceedsSizeLimit: "يتجاوز هذا المقطع حد حجم الرفع الحالي.",
+    clipExceedsMaxDuration: "يتجاوز هذا المقطع الحد الحالي لمدة التسجيل.",
+    maxClipDurationReached: "تم بلوغ الحد الأقصى لمدة المقطع. جارٍ حفظ التسجيل.",
     pageTitle: "New recording — Clips (مترجم)",
     uploadFailed: "Upload failed (مترجم)",
     uploadFailedAtChunk:
@@ -2022,6 +2034,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (مترجم)",
     cleanupComplete: "تم تنظيف الإملاء",
     cleanupFailed: "تعذر تنظيف الإملاء",
+    undoCleanup: "تراجع",
+    restoreOriginal: "استعادة الأصل",
+    cleanupRestored: "تمت استعادة الإملاء الأصلي",
+    cleanupRestoreFailed: "تعذّرت استعادة الإملاء الأصلي",
     startFirst: "حوّل أفكارك إلى نص",
     recordOnDesktop: "التسجيل على سطح المكتب",
     emptyDesktopDescription:
@@ -2068,6 +2084,9 @@ const messages = {
     vocabularyRemoveFailed: "تعذّرت إزالة المصطلح",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "امتلأت مساحة Clips المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع.",
+    hostedRecordingTakenDown: "تمت إزالة هذا التسجيل من مساحة Clips المستضافة.",
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
     selectAll: "تحديد الكل",

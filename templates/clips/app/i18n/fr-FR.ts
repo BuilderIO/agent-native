@@ -1889,6 +1889,19 @@ const messages = {
     validWebUrl: "Saisissez une adresse http:// ou https:// valide.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Il vous reste {{count}} clip gratuit",
+    freeClipsLeft_other: "Il vous reste {{count}} clips gratuits",
+    freeClipsLeft_many: "Il vous reste {{count}} clips gratuits",
+    hostedClipsExhaustedTitle:
+      "Connectez Builder.io gratuitement pour continuer à enregistrer",
+    hostedClipsExhaustedDescription:
+      "Vous avez utilisé tous vos clips hébergés gratuits. Connectez le stockage Builder.io pour continuer à enregistrer des clips dans votre bibliothèque.",
+    clipExceedsSizeLimit:
+      "Ce clip dépasse la limite actuelle de taille d’envoi.",
+    clipExceedsMaxDuration:
+      "Ce clip dépasse la durée d’enregistrement maximale actuelle.",
+    maxClipDurationReached:
+      "La durée maximale du clip est atteinte. Enregistrement en cours.",
     pageTitle: "New recording — Clips (Localisé)",
     uploadFailed: "Upload failed (Localisé)",
     uploadFailedAtChunk:
@@ -2081,6 +2094,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Localisé)",
     cleanupComplete: "Dictée nettoyée",
     cleanupFailed: "Impossible de nettoyer la dictée",
+    undoCleanup: "Annuler",
+    restoreOriginal: "Restaurer l’original",
+    cleanupRestored: "Dictée d’origine restaurée",
+    cleanupRestoreFailed: "Impossible de restaurer la dictée d’origine",
     startFirst: "Transformez vos idées en texte",
     recordOnDesktop: "Enregistrer sur le bureau",
     emptyDesktopDescription:
@@ -2128,6 +2145,10 @@ const messages = {
     vocabularyRemoveFailed: "Impossible de supprimer le terme",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Le stockage hébergé de Clips est plein. Connectez le stockage Builder.io pour continuer à enregistrer des clips.",
+    hostedRecordingTakenDown:
+      "Cet enregistrement a été supprimé du stockage hébergé de Clips.",
     splitAtPlayhead: "Couper à la tête de lecture (S)",
     selectedCount: "{{count}} sélectionnés",
     selectAll: "Tout sélectionner",

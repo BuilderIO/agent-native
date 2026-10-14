@@ -416,6 +416,7 @@ export default defineAction({
         seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
+        failureCode: rec.failureCode,
         ...(canEditRecording
           ? {
               uploadAttemptId: rec.uploadAttemptId ?? null,

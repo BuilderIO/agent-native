@@ -135,6 +135,39 @@ describe("recording-media-cleanup", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("deletes hosted objects with the recording's pinned storage mode", async () => {
+    mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+
+    await deleteRecordingMediaObjects({
+      id: "rec_1",
+      storageMode: "hosted",
+      videoUrl: "https://storage.example.com/clips/rec_1/clip.mp4",
+    });
+
+    expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
+      "https://storage.example.com/clips/rec_1/clip.mp4",
+      { storageMode: "hosted", recordingId: "rec_1" },
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("leaves another recording's hosted object untouched", async () => {
+    mockDeleteS3ObjectByUrl.mockResolvedValue(false);
+
+    const result = await deleteRecordingMediaObjects({
+      id: "rec_1",
+      storageMode: "hosted",
+      videoUrl: "https://storage.example.com/clips/victim/clip.mp4",
+    });
+
+    expect(result).toMatchObject({ deleted: 0, skipped: 1, errors: [] });
+    expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
+      "https://storage.example.com/clips/victim/clip.mp4",
+      { storageMode: "hosted", recordingId: "rec_1" },
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   describe("deleteStoredMediaUrl", () => {
     const url = "https://cdn.builder.io/api/v1/image/assets%2Fshot.png";
     const respond = (status: number) => ({
@@ -164,6 +197,38 @@ describe("recording-media-cleanup", () => {
         .mockResolvedValueOnce(respond(404))
         .mockResolvedValueOnce(respond(200));
       await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
+    });
+
+    it("passes hosted mode for a single hosted media deletion", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+
+      await expect(
+        deleteStoredMediaUrl(
+          "https://storage.example.com/clips/rec_1/clip.mp4",
+          { storageMode: "hosted", recordingId: "rec_1" },
+        ),
+      ).resolves.toBe(true);
+      expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
+        "https://storage.example.com/clips/rec_1/clip.mp4",
+        { storageMode: "hosted", recordingId: "rec_1" },
+      );
+    });
+
+    it("does not fall back to Builder for an unbound hosted URL", async () => {
+      mockDeleteS3ObjectByUrl.mockResolvedValue(false);
+
+      await expect(
+        deleteStoredMediaUrl(
+          "https://storage.example.com/clips/rec_1/clip.mp4",
+          { storageMode: "hosted", recordingId: "other-recording" },
+        ),
+      ).resolves.toBe(false);
+
+      expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
+        "https://storage.example.com/clips/rec_1/clip.mp4",
+        { storageMode: "hosted", recordingId: "other-recording" },
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 

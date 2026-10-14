@@ -1765,6 +1765,14 @@ const messages = {
     validWebUrl: "请输入有效的 http:// 或 https:// 地址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "还剩 {{count}} 个免费片段",
+    freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
+    hostedClipsExhaustedDescription:
+      "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
+    clipExceedsSizeLimit: "此片段超出当前上传大小限制。",
+    clipExceedsMaxDuration: "此片段超出当前录制时长限制。",
+    maxClipDurationReached: "已达到片段时长上限。正在保存录制内容。",
     pageTitle: "New recording — Clips (已本地化)",
     uploadFailed: "Upload failed (已本地化)",
     uploadFailedAtChunk:
@@ -1940,6 +1948,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (已本地化)",
     cleanupComplete: "听写已清理",
     cleanupFailed: "无法清理听写",
+    undoCleanup: "撤销",
+    restoreOriginal: "恢复原文",
+    cleanupRestored: "已恢复原始听写",
+    cleanupRestoreFailed: "无法恢复原始听写",
     startFirst: "把想法变成文字",
     recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:
@@ -1984,6 +1996,9 @@ const messages = {
     vocabularyRemoveFailed: "无法移除词条",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 托管存储空间已满。请连接 Builder.io 存储以继续保存片段。",
+    hostedRecordingTakenDown: "此录制已从 Clips 托管存储中移除。",
     splitAtPlayhead: "在播放头处分割 (S)",
     selectedCount: "已选择 {{count}} 项",
     selectAll: "全选",

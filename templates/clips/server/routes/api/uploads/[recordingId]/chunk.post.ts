@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/application-state";
 import {
   readBrowserSessionIdHeader,
+  getAppConfig,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
@@ -45,23 +46,29 @@ import {
 } from "../../../../lib/recordings.js";
 import {
   compareAndSetResumableSession,
+  deleteResumableSession,
   getResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
+  markHostedCleanupConfirmed,
   renewUploadLease,
   type UploadLeaseResult,
 } from "../../../../lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  releaseHostedClipRecording,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
   VideoStorageStatusUnavailableError,
 } from "../../../../lib/video-storage.js";
 
-const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+function recordingTooLargeReason(maxBytes: number): string {
+  return `Recording exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+}
 
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
@@ -592,6 +599,8 @@ export async function handleRecordingChunk(
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        storageMode: schema.recordings.storageMode,
+        videoUrl: schema.recordings.videoUrl,
         uploadGenerationId: schema.recordings.uploadGenerationId,
         recordingPlatform: schema.recordings.recordingPlatform,
       })
@@ -611,16 +620,19 @@ export async function handleRecordingChunk(
       throw createError({ statusCode: 404, message: "Recording not found" });
     }
 
+    const maxUploadBytes =
+      existing.storageMode === "hosted"
+        ? getAppConfig().clips.hostedStorage.maxClipBytes
+        : MAX_RECORDING_UPLOAD_BYTES;
+    const tooLargeReason = recordingTooLargeReason(maxUploadBytes);
+
     const failedUploadResponse = (reason: string, bytes?: number) => {
-      setResponseStatus(
-        event,
-        reason === RECORDING_TOO_LARGE_REASON ? 413 : 409,
-      );
+      setResponseStatus(event, reason === tooLargeReason ? 413 : 409);
       return {
         ok: false,
         error: reason,
         bytesReceived: bytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
       };
     };
 
@@ -658,7 +670,9 @@ export async function handleRecordingChunk(
     let storageStatusUnavailable = false;
     if (activeUpload && !pendingProcessingState && !resumableSession) {
       try {
-        rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage();
+        rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage({
+          storageMode: existing.storageMode,
+        });
       } catch (error) {
         if (!(error instanceof VideoStorageStatusUnavailableError)) throw error;
         storageStatusUnavailable = true;
@@ -836,6 +850,10 @@ export async function handleRecordingChunk(
         uploadGenerationId,
         existing.recordingPlatform,
         browserSessionId,
+        maxUploadBytes,
+        existing.storageMode ?? null,
+        authUserId,
+        failCurrentUpload,
       );
     }
 
@@ -907,6 +925,14 @@ export async function handleRecordingChunk(
           },
         );
       }
+      if (existing.storageMode === "hosted" && !existing.videoUrl) {
+        await markHostedCleanupConfirmed(recordingId);
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+          ownerEmail,
+        });
+      }
       setResponseStatus(event, 409);
       return {
         ok: false,
@@ -963,12 +989,7 @@ export async function handleRecordingChunk(
     const failRecordingTooLarge = async (nextBytes: number) => {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
-      if (
-        !(await failCurrentUpload(
-          "recording_too_large",
-          RECORDING_TOO_LARGE_REASON,
-        ))
-      ) {
+      if (!(await failCurrentUpload("recording_too_large", tooLargeReason))) {
         setResponseStatus(event, 409);
         return {
           ok: false,
@@ -991,11 +1012,23 @@ export async function handleRecordingChunk(
         uploadAttemptId: attemptId,
         uploadGenerationId,
         status: "failed",
-        failureReason: RECORDING_TOO_LARGE_REASON,
+        failureReason: tooLargeReason,
         bytesReceived: nextBytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         updatedAt: now,
       });
+      if (existing.storageMode === "hosted") {
+        if (!authUserId) {
+          throw new Error(
+            "Hosted Clips reservation is missing its authenticated user id.",
+          );
+        }
+        await markHostedCleanupConfirmed(recordingId);
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+        });
+      }
       await deleteRecordingChunks(
         ownerEmail,
         recordingId,
@@ -1009,9 +1042,9 @@ export async function handleRecordingChunk(
       setResponseStatus(event, 413);
       return {
         ok: false,
-        error: RECORDING_TOO_LARGE_REASON,
+        error: tooLargeReason,
         bytesReceived: nextBytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
       };
     };
 
@@ -1028,7 +1061,7 @@ export async function handleRecordingChunk(
       const nextBytes =
         Math.max(0, persistedBytesBefore - previousBytes) + bytes.byteLength;
 
-      if (nextBytes > MAX_RECORDING_UPLOAD_BYTES) {
+      if (nextBytes > maxUploadBytes) {
         return failRecordingTooLarge(nextBytes);
       }
 
@@ -1047,7 +1080,7 @@ export async function handleRecordingChunk(
         recordingId,
         uploadGenerationId,
       );
-      if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
+      if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
     }
@@ -1080,7 +1113,7 @@ export async function handleRecordingChunk(
             }
           : {}),
         bytesReceived,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         mimeType,
         updatedAt: new Date().toISOString(),
       });
@@ -1105,7 +1138,7 @@ export async function handleRecordingChunk(
             }
           : {}),
         bytesReceived,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         mimeType,
         updatedAt: new Date().toISOString(),
       });
@@ -1119,7 +1152,7 @@ export async function handleRecordingChunk(
         recordingId,
         uploadGenerationId,
       );
-      if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
+      if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
       const finalLease = await rejectIfLeaseLost();
@@ -1439,6 +1472,14 @@ async function handleResumableChunk(
   uploadGenerationId: string | null,
   recordingPlatform: string | null,
   browserSessionId?: string,
+  maxUploadBytes = MAX_RECORDING_UPLOAD_BYTES,
+  storageMode: "own" | "hosted" | null = null,
+  authUserId?: string,
+  failCurrentUpload?: (
+    failureCode: "storage_setup_required" | "recording_too_large",
+    failureReason: string,
+  ) => Promise<boolean>,
+  uploadStateAttribution?: Record<string, unknown> | null,
 ) {
   const uploadProvider = await resolveResumableUploadProvider(
     session.providerId,
@@ -1505,6 +1546,111 @@ async function handleResumableChunk(
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
   let finalizedSourceSizeBytes = session.bytesUploaded;
+  const isCommittedReplay = index <= (session.lastCommittedIndex ?? -1);
+  const nextBytesUploaded = isCommittedReplay
+    ? session.bytesUploaded
+    : session.bytesUploaded + bytes.byteLength;
+
+  if (nextBytesUploaded > maxUploadBytes) {
+    const lease = await renewUploadLease(recordingId, {
+      attemptId,
+      generationId: uploadGenerationId,
+    });
+    if (!lease.held) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error: lease.failureReason ?? "Recording upload has already failed.",
+      };
+    }
+    if (
+      !failCurrentUpload ||
+      !(await failCurrentUpload(
+        "recording_too_large",
+        recordingTooLargeReason(maxUploadBytes),
+      ))
+    ) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
+    const cleaned = await abortResumableUploadSession(session, {
+      provider: uploadProvider,
+      label: "resumable-chunk-" + recordingId,
+    });
+    if (cleaned) {
+      await deleteResumableSession(recordingId, uploadGenerationId).catch(
+        (error: unknown) => {
+          console.warn("[chunk] could not clear aborted hosted upload state", {
+            recordingId,
+            err: error instanceof Error ? error.message : String(error),
+          });
+        },
+      );
+      if (storageMode === "hosted") {
+        if (!authUserId) {
+          throw new Error(
+            "Hosted Clips reservation is missing its authenticated user id.",
+          );
+        }
+        await markHostedCleanupConfirmed(recordingId);
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+        });
+      }
+    } else if (storageMode === "hosted") {
+      console.error(
+        "[chunk] hosted oversized upload cleanup was not confirmed",
+        {
+          recordingId,
+        },
+      );
+    }
+
+    const failureReason = recordingTooLargeReason(maxUploadBytes);
+    const now = new Date().toISOString();
+    trackRecordingFailure({
+      recordingId,
+      userId: ownerEmail,
+      uploadAttemptId: attemptId,
+      platform: recordingPlatform,
+      failureCode: "recording_too_large",
+      browserSessionId,
+    });
+    await writeAppState("recording-upload-" + recordingId, {
+      ...(uploadStateAttribution ?? {}),
+      recordingId,
+      uploadAttemptId: attemptId,
+      uploadGenerationId,
+      status: "failed",
+      failureReason,
+      bytesReceived: session.bytesUploaded,
+      maxBytes: maxUploadBytes,
+      updatedAt: now,
+    });
+    await deleteRecordingChunks(
+      ownerEmail,
+      recordingId,
+      uploadGenerationId,
+    ).catch((error: unknown) => {
+      console.warn("[chunk] oversized resumable chunk cleanup failed:", {
+        recordingId,
+        err: error instanceof Error ? error.message : String(error),
+      });
+    });
+    setResponseStatus(event, 413);
+    return {
+      ok: false,
+      error: failureReason,
+      bytesReceived: session.bytesUploaded,
+      maxBytes: maxUploadBytes,
+    };
+  }
 
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });

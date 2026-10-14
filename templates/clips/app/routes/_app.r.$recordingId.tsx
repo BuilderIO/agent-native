@@ -954,6 +954,17 @@ export default function RecordingPage() {
       : Boolean(recording.videoUrl);
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
+    const failureCode =
+      (recording as any).failureCode === "global_storage_cap" ||
+      (recording as any).failureCode === "taken_down"
+        ? (recording as any).failureCode
+        : null;
+    const localizedHostedFailure =
+      failureCode === "global_storage_cap"
+        ? t("clipsFinalRaw.hostedStorageFull")
+        : failureCode === "taken_down"
+          ? t("clipsFinalRaw.hostedRecordingTakenDown")
+          : null;
     const waitingForStorage = isRecordingWaitingForStorage(
       recording,
       rawFailureReason,
@@ -1129,7 +1140,6 @@ export default function RecordingPage() {
         ...(transcriptFailureReason
           ? { description: transcriptFailureReason }
           : {}),
-        duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
     } else {
@@ -1386,7 +1396,6 @@ export default function RecordingPage() {
         ...(generatedWorkflow.error
           ? { description: generatedWorkflow.error }
           : {}),
-        duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
     } else {
@@ -1452,7 +1461,6 @@ export default function RecordingPage() {
               },
             }
           : {}),
-        duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
     }
@@ -1712,7 +1720,6 @@ export default function RecordingPage() {
                 },
               }
             : {}),
-        duration: Number.POSITIVE_INFINITY,
       },
     );
   };
@@ -1733,7 +1740,6 @@ export default function RecordingPage() {
         description: t("recordingPage.retryFailed", {
           message: actionErrorMessage(err) ?? t("recordingPage.networkError"),
         }),
-        duration: Number.POSITIVE_INFINITY,
       });
     },
   });
@@ -1896,7 +1902,6 @@ export default function RecordingPage() {
       failWorkflowToast(t("recordingPage.workflowFailed"), {
         description:
           actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
-        duration: Number.POSITIVE_INFINITY,
       });
     },
   });
@@ -2160,7 +2165,9 @@ export default function RecordingPage() {
     const displayReason = explicitFailure
       ? storedButUnservableFailure
         ? t("recordingPage.clipDataPreserved")
-        : (rawFailureReason ?? t("recordingPage.retryLibrary"))
+        : (localizedHostedFailure ??
+          rawFailureReason ??
+          t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
@@ -2184,7 +2191,9 @@ export default function RecordingPage() {
         ? t("recordingPage.loomSourcePreserved")
         : t("recordingPage.clipDataPreserved")
       : displayReason;
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     if (!showRecoveryState) {
       const processingView = (
         <div className="flex h-full min-h-0 w-full flex-col bg-background">

@@ -11,6 +11,20 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  getAppConfig: () => ({
+    clips: {
+      hostedStorage: {
+        enabled: false,
+        endpoint: "https://hosted-s3.example.com",
+        bucket: "hosted-clips",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    },
+  }),
+  resolveClipsHostedStorageConfig: (config: Record<string, unknown>) =>
+    config.enabled ? config : null,
 }));
 vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -432,6 +446,37 @@ describe("s3FileUploadProvider", () => {
           Authorization: expect.stringContaining("AWS4-HMAC-SHA256"),
         }),
       }),
+    );
+  });
+
+  it("requires hosted deletes to match the recording id in the object key", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
+      fetchMock(url, init),
+    );
+    const url =
+      "https://hosted-s3.example.com/hosted-clips/clips/rec_1/clip.mp4";
+
+    await expect(
+      deleteS3ObjectByUrl(url, { storageMode: "hosted" }),
+    ).resolves.toBe(false);
+    await expect(
+      deleteS3ObjectByUrl(url, {
+        storageMode: "hosted",
+        recordingId: "victim_1",
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      deleteS3ObjectByUrl(url, {
+        storageMode: "hosted",
+        recordingId: "rec_1",
+      }),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

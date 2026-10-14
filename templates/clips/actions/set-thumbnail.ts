@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";
 import { isImageRecording } from "@shared/recording-kind";
 import { and, eq, isNull } from "drizzle-orm";
@@ -9,6 +8,7 @@ import { z } from "zod";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { uploadRecordingMedia } from "../server/lib/upload-recording-media.js";
 import { requiresConfiguredVideoStorage } from "../server/lib/video-storage.js";
 import { decodeDataUrl } from "./lib/data-url.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
@@ -87,7 +87,8 @@ export default defineAction({
     if (args.kind === "upload") {
       if (!args.dataUrl) throw new Error("dataUrl is required for kind=upload");
       const { bytes, mime } = decodeDataUrl(args.dataUrl);
-      const uploaded = await uploadFile({
+      const uploaded = await uploadRecordingMedia({
+        recordingId: args.recordingId,
         data: bytes,
         mimeType: mime,
         filename:
@@ -111,7 +112,8 @@ export default defineAction({
     } else if (args.kind === "gif") {
       if (!args.dataUrl) throw new Error("dataUrl is required for kind=gif");
       const { bytes, mime } = decodeDataUrl(args.dataUrl);
-      const uploaded = await uploadFile({
+      const uploaded = await uploadRecordingMedia({
+        recordingId: args.recordingId,
         data: bytes,
         mimeType: mime || "image/gif",
         filename: args.filename ?? `thumb-${args.recordingId}.gif`,

@@ -268,6 +268,12 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
+  if (rec.failureCode === "taken_down") {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
   const viewerCanComment = Boolean(
     session?.email &&
     (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),

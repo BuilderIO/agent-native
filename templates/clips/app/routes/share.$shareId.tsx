@@ -858,6 +858,17 @@ export default function ShareRoute() {
       : Boolean(recording.videoUrl);
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
+    const failureCode =
+      (recording as any).failureCode === "global_storage_cap" ||
+      (recording as any).failureCode === "taken_down"
+        ? (recording as any).failureCode
+        : null;
+    const localizedHostedFailure =
+      failureCode === "global_storage_cap"
+        ? t("clipsFinalRaw.hostedStorageFull")
+        : failureCode === "taken_down"
+          ? t("clipsFinalRaw.hostedRecordingTakenDown")
+          : null;
     const storageSetupFailure = isRecordingWaitingForStorage(
       recording,
       rawFailureReason,
@@ -1503,7 +1514,9 @@ export default function ShareRoute() {
     const signInHref = buildSignInReturnHref({
       returnTo: appPath(`/r/${recording.id}`),
     });
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
       : stuckFailure
@@ -1524,7 +1537,9 @@ export default function ShareRoute() {
           ? t("sharePage.uploadNotCompleteSession")
           : t("sharePage.uploadNotCompleteSignIn")
         : explicitFailure
-          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+          ? (localizedHostedFailure ??
+            rawFailureReason ??
+            t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
     const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 

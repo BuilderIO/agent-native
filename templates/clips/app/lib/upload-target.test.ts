@@ -61,7 +61,13 @@ describe("openUploadTarget", () => {
       ownerEmail,
       newId: () => "srv-1",
       isStale: () => false,
-      fetchStatus: async () => ({ configured: true }),
+      fetchStatus: async () => ({
+        configured: true,
+        mode: "own",
+        hostedRemaining: 0,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      }),
       create,
       dropRow,
     });
@@ -99,7 +105,13 @@ describe("openUploadTarget", () => {
       ownerEmail: "me@example.com",
       newId: () => "srv-1",
       isStale: () => false,
-      fetchStatus: async () => ({ configured: true }),
+      fetchStatus: async () => ({
+        configured: true,
+        mode: "own",
+        hostedRemaining: 0,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      }),
       create: async () =>
         Response.json(
           { error: "Video storage is not connected yet." },
@@ -129,6 +141,71 @@ describe("openUploadTarget", () => {
   it("never opens a row for a take with no owner at capture", async () => {
     const create = vi.fn();
     const { result } = open(create, null);
+
+    await expect(result).resolves.toBeNull();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps hosted limits with the upload target, without limiting own storage", async () => {
+    const create = vi.fn(async () => Response.json({ result: target }));
+    const hosted = openUploadTarget({
+      intake: false,
+      ownerEmail: "me@example.com",
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => ({
+        configured: true,
+        mode: "hosted",
+        hostedRemaining: 3,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      }),
+      create,
+      dropRow: vi.fn(),
+    });
+    await expect(hosted).resolves.toMatchObject({
+      id: "srv-1",
+      clientLimits: {
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      },
+    });
+
+    const own = openUploadTarget({
+      intake: false,
+      ownerEmail: "me@example.com",
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => ({
+        configured: true,
+        mode: "own",
+        hostedRemaining: 0,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      }),
+      create,
+      dropRow: vi.fn(),
+    });
+    await expect(own).resolves.toEqual(target);
+  });
+
+  it("does not create an upload row after hosted trial clips are exhausted", async () => {
+    const create = vi.fn();
+    const result = openUploadTarget({
+      intake: false,
+      ownerEmail: "me@example.com",
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => ({
+        configured: false,
+        mode: "none",
+        hostedRemaining: 0,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      }),
+      create,
+      dropRow: vi.fn(),
+    });
 
     await expect(result).resolves.toBeNull();
     expect(create).not.toHaveBeenCalled();

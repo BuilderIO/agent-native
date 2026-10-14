@@ -23,6 +23,11 @@ import {
   screenshotLeftoverUrls,
   withDeleteClaim,
 } from "../server/lib/screenshot-edits.js";
+import {
+  adjustHostedClipRecordingBytes,
+  getHostedClipRecordingAllowance,
+  releaseHostedClipRecording,
+} from "../server/lib/video-storage.js";
 import { trashRecordingContextFootage } from "./remove-recording-context.js";
 
 export default defineAction({
@@ -45,6 +50,18 @@ export default defineAction({
         ),
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+
+    const hostedAllowance =
+      existing.storageMode === "hosted"
+        ? await getHostedClipRecordingAllowance({
+            recordingId: args.id,
+            ownerEmail,
+          })
+        : null;
+    if (existing.storageMode === "hosted" && !hostedAllowance) {
+      // guard:allow-bare-error — invariant: every hosted recording is created with a durable allowance row.
+      throw new Error(`Hosted recording allowance not found: ${args.id}`);
+    }
 
     const mediaUrls = recordingMediaUrls(existing);
     const protectedUrls = new Set<string>();
@@ -125,7 +142,10 @@ export default defineAction({
         if (protectedUrls.has(url)) continue;
         let gone = false;
         try {
-          gone = await deleteStoredMediaUrl(url);
+          gone = await deleteStoredMediaUrl(url, {
+            storageMode: existing.storageMode,
+            recordingId: existing.id,
+          });
         } catch (err) {
           console.warn(
             `[delete-recording-permanent] could not delete an unredacted file for ${args.id}:`,
@@ -258,6 +278,31 @@ export default defineAction({
     const mediaCleanup = await deleteRecordingMediaObjects(existing, {
       protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
     });
+
+    if (
+      hostedAllowance &&
+      mediaCleanup.skipped === 0 &&
+      mediaCleanup.errors.length === 0
+    ) {
+      if (hostedAllowance.status === "consumed") {
+        const adjustment = await adjustHostedClipRecordingBytes({
+          recordingId: args.id,
+          userId: hostedAllowance.userId,
+          retainedBytes: 0,
+        });
+        if (!adjustment.ok) {
+          // guard:allow-bare-error — invariant: media is already deleted, so returning success without freeing ledger bytes would corrupt the global cap.
+          throw new Error(
+            `Hosted recording retained-byte quota could not be released: ${args.id}`,
+          );
+        }
+      } else if (hostedAllowance.status === "reserved") {
+        await releaseHostedClipRecording({
+          recordingId: args.id,
+          userId: hostedAllowance.userId,
+        });
+      }
+    }
 
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);

@@ -28,6 +28,7 @@ const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockRenewUploadLease = vi.hoisted(() => vi.fn());
+const mockMarkHostedCleanupConfirmed = vi.hoisted(() => vi.fn());
 const mockSumRecordingChunkBytes = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
@@ -39,6 +40,10 @@ const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockIsStreamingUploadDisabled = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockShouldRejectVideoUploadWithoutStorage = vi.hoisted(() => vi.fn());
+const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
+const mockGetAppConfig = vi.hoisted(() =>
+  vi.fn(() => ({ clips: { hostedStorage: { maxClipBytes: 100_000_000 } } })),
+);
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockUpdateRows = vi.hoisted(() => ({
@@ -87,6 +92,7 @@ vi.mock("@agent-native/core/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => mockGetAppConfig(),
   readBrowserSessionIdHeader: (...args: unknown[]) =>
     mockReadBrowserSessionIdHeader(...args),
   runWithRequestContext: (...args: unknown[]) =>
@@ -140,6 +146,7 @@ vi.mock("../../../../db/index.js", () => ({
       uploadProgress: "recordings.uploadProgress",
       uploadGenerationId: "recordings.uploadGenerationId",
       uploadAttemptId: "recordings.uploadAttemptId",
+      storageMode: "recordings.storageMode",
       updatedAt: "recordings.updatedAt",
     },
   },
@@ -175,6 +182,8 @@ vi.mock("../../../../lib/resumable-session.js", () => ({
 }));
 
 vi.mock("../../../../lib/upload-lease.js", () => ({
+  markHostedCleanupConfirmed: (...args: unknown[]) =>
+    mockMarkHostedCleanupConfirmed(...args),
   renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
   uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
 }));
@@ -194,6 +203,8 @@ vi.mock("../../../../lib/video-storage.js", () => ({
     mockAllowsSqlRecordingChunkScratch(...args),
   shouldRejectVideoUploadWithoutStorage: (...args: unknown[]) =>
     mockShouldRejectVideoUploadWithoutStorage(...args),
+  releaseHostedClipRecording: (...args: unknown[]) =>
+    mockReleaseHostedClipRecording(...args),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
   VideoStorageStatusUnavailableError: MockVideoStorageStatusUnavailableError,
 }));
@@ -256,6 +267,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     mockGetEventOwnerContext.mockResolvedValue({
       userEmail: "owner@example.com",
       orgId: "org-1",
+      authUserId: "user-1",
     });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockGetResumableSession.mockResolvedValue(null);
@@ -264,6 +276,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     mockCompareAndSetResumableSession.mockResolvedValue(true);
     mockIsStreamingUploadDisabled.mockReturnValue(false);
     mockShouldRejectVideoUploadWithoutStorage.mockResolvedValue(false);
+    mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(true);
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockResolveResumableUploadProvider.mockResolvedValue({
@@ -2814,6 +2827,101 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockAbortSession).not.toHaveBeenCalled();
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("aborts an oversized hosted resumable upload before releasing its grant", async () => {
+    mockGetAppConfig.mockReturnValueOnce({
+      clips: { hostedStorage: { maxClipBytes: 1_000_000 } },
+    });
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      storageMode: "hosted",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "hosted-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 1_000_000,
+      lastCommittedIndex: 0,
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    const oversizedResult = await handler({} as any);
+    expect(oversizedResult).toMatchObject({
+      ok: false,
+      maxBytes: 1_000_000,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 413);
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "hosted-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+    });
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "user-1",
+    });
+    expect(mockRelayChunk).not.toHaveBeenCalled();
+  });
+
+  it("keeps the hosted grant reserved when oversized-upload cleanup fails", async () => {
+    mockGetAppConfig.mockReturnValueOnce({
+      clips: { hostedStorage: { maxClipBytes: 1_000_000 } },
+    });
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      storageMode: "hosted",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "hosted-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 1_000_000,
+      lastCommittedIndex: 0,
+    });
+    mockAbortSession.mockRejectedValueOnce(new Error("provider unavailable"));
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: false,
+      maxBytes: 1_000_000,
+    });
+
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
   it("acks a replayed resumable chunk without re-uploading to the provider", async () => {
