@@ -375,7 +375,7 @@ function shortEntryId(workbookId: string, elementId: string): string {
   return `sigma-${digest}`;
 }
 
-function latestReviewedWorkbookUpdatedAt(
+function oldestReviewedWorkbookUpdatedAt(
   selections: SigmaReviewManifest["items"],
   workbookById: ReadonlyMap<string, SigmaWorkbook>,
 ): string | undefined {
@@ -393,7 +393,7 @@ function latestReviewedWorkbookUpdatedAt(
     return Number.isFinite(timestamp) ? timestamp : undefined;
   });
   if (timestamps.some((timestamp) => timestamp === undefined)) return undefined;
-  return new Date(Math.max(...(timestamps as number[]))).toISOString();
+  return new Date(Math.min(...(timestamps as number[]))).toISOString();
 }
 
 export async function buildSigmaSourceIndex(args: {
@@ -529,7 +529,7 @@ export async function buildSigmaSourceIndex(args: {
   const contentFingerprint = createHash("sha256")
     .update(JSON.stringify(fingerprintRecords))
     .digest("hex");
-  const generatedAt = latestReviewedWorkbookUpdatedAt(
+  const generatedAt = oldestReviewedWorkbookUpdatedAt(
     manifest.items,
     workbookById,
   );

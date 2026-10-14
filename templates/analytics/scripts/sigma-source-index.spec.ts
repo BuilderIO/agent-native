@@ -178,7 +178,7 @@ describe("buildSigmaSourceIndex", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
-  it("uses the newest reviewed workbook update and leaves incomplete freshness unknown", async () => {
+  it("uses the oldest reviewed workbook update and leaves incomplete freshness unknown", async () => {
     const root = await temporaryDirectory();
     const manifestPath = path.join(root, "review.json");
     await writeFile(
@@ -236,7 +236,7 @@ describe("buildSigmaSourceIndex", () => {
     };
 
     const completeIndex = await buildSigmaSourceIndex(args);
-    expect(completeIndex.source.generatedAt).toBe("2026-10-09T00:00:00.000Z");
+    expect(completeIndex.source.generatedAt).toBe("2026-10-08T00:00:00.000Z");
 
     workbooks[1] = {
       workbookId: "workbook-2",

@@ -778,6 +778,8 @@ const SOURCE_FILES = [
   new URL("../../server/lib/data-dictionary-context.ts", import.meta.url),
   new URL("../../server/lib/source-index-store.ts", import.meta.url),
   new URL("../../server/lib/source-index-schema.ts", import.meta.url),
+  new URL("../../scripts/build-source-index.ts", import.meta.url),
+  new URL("../../scripts/sigma-source-index.ts", import.meta.url),
   new URL("../../server/plugins/agent-chat.ts", import.meta.url),
   new URL(
     "../../../../packages/core/src/agent/production-agent.ts",
