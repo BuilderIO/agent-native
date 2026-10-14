@@ -621,7 +621,7 @@ interface ImportTokensMenuProps {
 }
 
 const DTCG_ACCEPT = ".json,.tokens";
-const CSS_OR_TAILWIND_ACCEPT = ".css,.scss,.sass,.less,.js,.cjs,.mjs,.ts";
+const CSS_OR_TAILWIND_ACCEPT = ".css,.scss,.less,.js,.cjs,.mjs,.ts";
 
 function ImportTokensMenu({ onImport, isPending }: ImportTokensMenuProps) {
   const t = useT();
@@ -963,7 +963,8 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
           tokens.filter((token) => token.cssVar !== cssVar),
         );
         void refetch();
-        setTokenDraft(draft);
+        // A newer draft may be open by now; keep it rather than its edits.
+        if (!tokenDraftRef.current) setTokenDraft(draft);
         toast.error(
           t("designEditor.tokens.addFailed", { message: error.message }),
         );

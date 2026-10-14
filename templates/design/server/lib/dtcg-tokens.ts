@@ -257,7 +257,7 @@ function readDtcgDocument(content: string): Record<string, Json> | null {
  */
 export function parseDtcgFiles(
   files: { filename: string; content: string }[],
-): { tokens: DtcgToken[]; dtcgFiles: Set<string> } {
+): { tokens: DtcgToken[]; dtcgFiles: Set<string>; skippedCount: number } {
   const raw: RawToken[] = [];
   const dtcgFiles = new Set<string>();
   for (const file of files) {
@@ -361,9 +361,21 @@ export function parseDtcgFiles(
         break;
     }
   }
+  const kept = withoutDanglingReferences(tokens, (token) => token.references);
+  // Declarations that produced no token (unsupported type, unusable value or
+  // reference), so the import can report them as skipped.
+  const keptVars = new Set(kept.map((token) => token.cssVar));
+  const skippedCount = raw.filter((token) => {
+    const cssVar = cssVarForPath(token.path);
+    return (
+      !keptVars.has(cssVar) &&
+      !TYPOGRAPHY_PARTS.some((part) => keptVars.has(`${cssVar}-${part.type}`))
+    );
+  }).length;
   return {
-    tokens: withoutDanglingReferences(tokens, (token) => token.references),
+    tokens: kept,
     dtcgFiles,
+    skippedCount,
   };
 }
 

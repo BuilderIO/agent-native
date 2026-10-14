@@ -78,6 +78,33 @@ describe("parseDtcgTokens", () => {
     ]);
   });
 
+  it("counts declarations it could not import", () => {
+    const { tokens, skippedCount } = parseDtcgFiles([
+      {
+        filename: "tokens.json",
+        content: JSON.stringify({
+          brand: { $type: "color", $value: "#2563eb" },
+          fade: {
+            $type: "gradient",
+            $value: [{ color: "#000", position: 0 }],
+          },
+          line: { $type: "color", $value: "{fade}" },
+          heading: {
+            $type: "typography",
+            $value: { fontFamily: "Inter", fontSize: "24px" },
+          },
+        }),
+      },
+    ]);
+
+    expect(tokens.map((token) => token.cssVar)).toEqual([
+      "--brand",
+      "--heading-font-family",
+      "--heading-font-size",
+    ]);
+    expect(skippedCount).toBe(2);
+  });
+
   it("drops tokens that reference a token which was left out", () => {
     const tokens = parseDtcgTokens(
       JSON.stringify({

@@ -3374,6 +3374,7 @@ function tokensFromFiles(
   });
 
   const rejectedCount =
+    dtcg.skippedCount +
     malformedNamedLineCount +
     tokens.filter((token) => !isValidImportedToken(token)).length;
   const candidates = uniqueTokenList(tokens.filter(isValidImportedToken));
