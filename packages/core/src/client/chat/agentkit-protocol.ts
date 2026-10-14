@@ -2412,13 +2412,16 @@ export function createAgentKitProtocolAdapter(
         );
         if (invocation) run.actions.set(event.toolCall.id, invocation);
         const messageId = runtimeToolMessageId(run, event.toolCall.metadata);
-        const toolCall = runtimeToolToProtocolTool(
-          event.toolCall,
-          "running",
-          undefined,
-          undefined,
-          messageId,
-        );
+        const toolCall = {
+          ...runtimeToolToProtocolTool(
+            event.toolCall,
+            "running",
+            undefined,
+            undefined,
+            messageId,
+          ),
+          runId: run.runId,
+        };
         if (messageId) {
           run.pendingToolMessageAssociations.delete(toolCall.id);
         } else {
@@ -2475,17 +2478,31 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         const invocation = run.actions.get(event.toolCallId);
         const previousTool = run.activeTools.get(event.toolCallId);
-        const metadata = mergeProtocolMetadata(
-          previousTool?.metadata,
-          invocation?.metadata,
-          event.metadata,
-          base.metadata,
-          {
-            ...(event.completedSideEffect ? { completedSideEffect: true } : {}),
-            ...(event.chatUI ? { chatUI: event.chatUI } : {}),
-            ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
-          },
-        );
+        const metadata =
+          mergeProtocolMetadata(
+            previousTool?.metadata,
+            invocation?.metadata,
+            event.metadata,
+            base.metadata,
+            {
+              ...(event.completedSideEffect
+                ? { completedSideEffect: true }
+                : {}),
+              ...(event.chatUI ? { chatUI: event.chatUI } : {}),
+              ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
+            },
+          ) ?? {};
+        if (event.approvalPause === true) {
+          metadata.approvalPause = true;
+          if (event.approvalAskId) {
+            metadata.approvalAskId = event.approvalAskId;
+          }
+        } else {
+          delete metadata.approvalPause;
+          delete metadata.approvalAskId;
+        }
+        const protocolMetadata =
+          Object.keys(metadata).length > 0 ? metadata : undefined;
         const actionResult = invocation
           ? actionResultFromTool({
               invocation,
@@ -2493,7 +2510,7 @@ export function createAgentKitProtocolAdapter(
               result: event.result,
               resultText: event.resultText,
               error,
-              metadata,
+              metadata: protocolMetadata,
             })
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
@@ -2512,8 +2529,9 @@ export function createAgentKitProtocolAdapter(
           status,
           output: event.result !== undefined ? event.result : event.resultText,
           error,
+          runId: run.runId,
           ...(messageId ? { messageId } : {}),
-          ...(metadata ? { metadata } : {}),
+          ...(protocolMetadata ? { metadata: protocolMetadata } : {}),
         };
         if (messageId) {
           run.pendingToolMessageAssociations.delete(event.toolCallId);

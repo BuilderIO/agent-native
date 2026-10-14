@@ -13,6 +13,33 @@ export function toolInputsMatch(
   );
 }
 
+export function toolInputFingerprint(input: unknown): string | undefined {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(input, (_key, value: unknown) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, (value as Record<string, unknown>)[key]]),
+        );
+      }
+      return value;
+    });
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (serialized === undefined) return undefined;
+
+  let hash = 0xcbf29ce484222325n;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= BigInt(serialized.charCodeAt(index));
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return `fnv1a64:${hash.toString(16).padStart(16, "0")}`;
+}
+
 function toolInputValuesMatch(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {

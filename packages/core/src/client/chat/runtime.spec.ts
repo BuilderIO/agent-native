@@ -5005,6 +5005,14 @@ describe("createAgentNativeChatRuntime", () => {
         approvalId: approvalAskId,
       }),
     );
+    expect(firstEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool-done",
+        toolCallId: "call-1",
+        approvalPause: true,
+        approvalAskId,
+      }),
+    );
 
     const continuation = await session.continueTurn?.({
       turnId: first.id,
@@ -5015,6 +5023,14 @@ describe("createAgentNativeChatRuntime", () => {
     });
     expect(continuation).toBeDefined();
     const events = await drain(continuation!.events);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool-done",
+        toolCallId: "call-1",
+        completedSideEffect: true,
+        approvalPause: false,
+      }),
+    );
 
     expect(
       JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),

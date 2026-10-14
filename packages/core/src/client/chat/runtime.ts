@@ -431,6 +431,8 @@ export interface AgentChatRuntimeToolDoneEvent extends AgentChatRuntimeEventBase
   readonly resultText?: string;
   readonly error?: string;
   readonly completedSideEffect?: boolean;
+  readonly approvalPause?: boolean;
+  readonly approvalAskId?: string;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -4070,6 +4072,8 @@ function mapAgentNativeEvent(
         resultText: ev.result,
         error: ev.error,
         completedSideEffect: ev.completedSideEffect === true,
+        approvalPause: storedToolCall?.approvalPause === true,
+        approvalAskId: storedToolCall?.approval?.askId,
         mcpApp: ev.mcpApp,
         chatUI: ev.chatUI,
       },

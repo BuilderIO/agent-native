@@ -25,7 +25,10 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
-import { toolInputsMatch } from "../shared/tool-inputs.js";
+import {
+  toolInputFingerprint,
+  toolInputsMatch,
+} from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
@@ -1967,10 +1970,173 @@ function removeSupersededAgentKitMessagePrefixes(
       });
 }
 
+function isApprovalPauseToolCall(toolCall: any): boolean {
+  if (toolCall?.metadata?.approvalPause === true) return true;
+  return (
+    typeof toolCall?.output === "string" &&
+    toolCall.output.startsWith("Awaiting") &&
+    toolCall.output.includes("did NOT execute")
+  );
+}
+
+function toolCallHasCompletedSideEffect(toolCall: any): boolean {
+  return toolCall?.metadata?.completedSideEffect === true;
+}
+
+function toolCallInputValuesMatch(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) =>
+        toolCallInputValuesMatch(value, right[index]),
+      )
+    );
+  }
+  return toolInputsMatch(left, right);
+}
+
+function toolCallInputsMatch(existing: any, incoming: any): boolean {
+  const existingInput = existing?.input;
+  const incomingInput = incoming?.input;
+  if (existingInput !== undefined && incomingInput !== undefined) {
+    return toolCallInputValuesMatch(existingInput, incomingInput);
+  }
+  const existingSnapshot = existing?.metadata?.agentKitSnapshot;
+  const incomingSnapshot = incoming?.metadata?.agentKitSnapshot;
+  const existingFingerprint =
+    typeof existingSnapshot?.inputFingerprint === "string"
+      ? existingSnapshot.inputFingerprint
+      : existingInput === undefined
+        ? undefined
+        : toolInputFingerprint(existingInput);
+  const incomingFingerprint =
+    typeof incomingSnapshot?.inputFingerprint === "string"
+      ? incomingSnapshot.inputFingerprint
+      : incomingInput === undefined
+        ? undefined
+        : toolInputFingerprint(incomingInput);
+  if (existingFingerprint || incomingFingerprint) {
+    return (
+      typeof existingFingerprint === "string" &&
+      existingFingerprint === incomingFingerprint
+    );
+  }
+  return existingInput === undefined && incomingInput === undefined;
+}
+
+function toolCallIdentityMatches(existing: any, incoming: any): boolean {
+  return (
+    typeof existing?.id === "string" &&
+    existing.id === incoming?.id &&
+    typeof existing?.name === "string" &&
+    existing.name === incoming?.name &&
+    toolCallInputsMatch(existing, incoming)
+  );
+}
+
+function toolCallsMatch(existing: any, incoming: any): boolean {
+  return (
+    existing?.status === "completed" &&
+    incoming?.status === "completed" &&
+    toolCallIdentityMatches(existing, incoming)
+  );
+}
+
+function isIncomingToolCallRunNewer(
+  existing: any,
+  incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  const existingRunId = existing?.runId;
+  const incomingRunId = incoming?.runId;
+  if (typeof incomingRunId !== "string") return false;
+  if (typeof existingRunId !== "string") return true;
+
+  const findRun = (runs: unknown, runId: string): any =>
+    Array.isArray(runs) ? runs.find((run) => run?.id === runId) : undefined;
+  const existingRun = findRun(existingRuns, existingRunId);
+  const incomingRun = findRun(incomingRuns, incomingRunId);
+  if (existingRunId === incomingRunId) {
+    return (
+      Number.isSafeInteger(existingRun?.lastSequence) &&
+      Number.isSafeInteger(incomingRun?.lastSequence) &&
+      incomingRun.lastSequence > existingRun.lastSequence
+    );
+  }
+
+  const existingStartedAt = Date.parse(existingRun?.startedAt ?? "");
+  const incomingStartedAt = Date.parse(incomingRun?.startedAt ?? "");
+  return (
+    Number.isFinite(existingStartedAt) &&
+    Number.isFinite(incomingStartedAt) &&
+    incomingStartedAt > existingStartedAt
+  );
+}
+
+function prefersApprovalReplaySnapshot(
+  existing: any,
+  incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  if (!toolCallsMatch(existing, incoming)) return false;
+  const incomingIsNewer = isIncomingToolCallRunNewer(
+    existing,
+    incoming,
+    existingRuns,
+    incomingRuns,
+  );
+  return (
+    (isApprovalPauseToolCall(existing) &&
+      toolCallHasCompletedSideEffect(incoming) &&
+      incomingIsNewer) ||
+    (toolCallHasCompletedSideEffect(existing) &&
+      isApprovalPauseToolCall(incoming) &&
+      incomingIsNewer)
+  );
+}
+
+function incomingRunIsOlderOrUnchanged(
+  existing: any,
+  incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  const existingRunId = existing?.runId;
+  const incomingRunId = incoming?.runId;
+  if (typeof existingRunId !== "string" || typeof incomingRunId !== "string") {
+    return false;
+  }
+  const findRun = (runs: unknown, runId: string): any =>
+    Array.isArray(runs) ? runs.find((run) => run?.id === runId) : undefined;
+  const existingRun = findRun(existingRuns, existingRunId);
+  const incomingRun = findRun(incomingRuns, incomingRunId);
+  if (existingRunId === incomingRunId) {
+    return (
+      Number.isSafeInteger(existingRun?.lastSequence) &&
+      Number.isSafeInteger(incomingRun?.lastSequence) &&
+      incomingRun.lastSequence <= existingRun.lastSequence
+    );
+  }
+  const existingStartedAt = Date.parse(existingRun?.startedAt ?? "");
+  const incomingStartedAt = Date.parse(incomingRun?.startedAt ?? "");
+  return (
+    Number.isFinite(existingStartedAt) &&
+    Number.isFinite(incomingStartedAt) &&
+    incomingStartedAt <= existingStartedAt
+  );
+}
+
 function preferIncomingSnapshotEntry(
   kind: "message" | "toolCall" | "widget",
   existing: any,
   incoming: any,
+  existingRuns: unknown,
+  incomingRuns: unknown,
 ): boolean {
   if (kind === "message") {
     const rank = (message: any) =>
@@ -1991,6 +2157,18 @@ function preferIncomingSnapshotEntry(
     return textLength(incoming) > textLength(existing);
   }
   if (kind === "toolCall") {
+    if (
+      existing.status === "running" &&
+      incoming.status !== "running" &&
+      incomingRunIsOlderOrUnchanged(
+        existing,
+        incoming,
+        existingRuns,
+        incomingRuns,
+      )
+    ) {
+      return false;
+    }
     return existing.status === "running" && incoming.status !== "running";
   }
   return (
@@ -2023,6 +2201,8 @@ function mergeAgentKitHistoryArray(
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
   promptRunIds: Map<string, string>,
+  existingRuns: unknown,
+  incomingRuns: unknown,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
@@ -2066,12 +2246,28 @@ function mergeAgentKitHistoryArray(
         kind,
         merged[index],
         entry,
+        existingRuns,
+        incomingRuns,
       );
+      const preferApprovedReplay =
+        kind === "toolCall" &&
+        prefersApprovalReplaySnapshot(
+          merged[index],
+          entry,
+          existingRuns,
+          incomingRuns,
+        );
       const preferCurrentMessageId =
         kind === "message" &&
         textIndex !== undefined &&
-        !preferIncomingSnapshotEntry(kind, entry, merged[index]);
-      if (preferIncoming || preferCurrentMessageId) {
+        !preferIncomingSnapshotEntry(
+          kind,
+          entry,
+          merged[index],
+          incomingRuns,
+          existingRuns,
+        );
+      if (preferIncoming || preferApprovedReplay || preferCurrentMessageId) {
         merged[index] =
           kind === "toolCall"
             ? withToolCallMessageIdFallback(entry, merged[index])
@@ -3468,6 +3664,8 @@ function mergeAgentKitHistory(
       existingMessageRunIds,
       incomingMessageRunIds,
       promptRunIds,
+      previous.runs,
+      next.runs,
     );
     if (entries) merged[key] = entries;
   }

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+import { toolInputFingerprint } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
@@ -2679,6 +2680,330 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(merged.agentKit.toolCalls).toEqual([
       expect.objectContaining({ id: "call-1", messageId: "assistant-1" }),
+    ]);
+  });
+
+  it("replaces a persisted approval pause with its matching replay result", () => {
+    const input = { path: "skills/example.md" };
+    const pausedRun = {
+      id: "run-paused",
+      startedAt: "2026-10-13T10:00:00.000Z",
+      lastSequence: 4,
+    };
+    const replayRun = {
+      id: "run-replay",
+      startedAt: "2026-10-13T10:01:00.000Z",
+      lastSequence: 3,
+    };
+    const existing = {
+      id: "call-1",
+      name: "write",
+      input,
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-paused",
+      messageId: "assistant-paused",
+    };
+    const incoming = {
+      ...existing,
+      output: "saved",
+      runId: "run-replay",
+      messageId: "assistant-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: { runs: [pausedRun], toolCalls: [existing] },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [replayRun],
+          toolCalls: [incoming],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        status: "completed",
+        runId: "run-replay",
+        messageId: "assistant-replay",
+        metadata: { completedSideEffect: true },
+      }),
+    ]);
+  });
+
+  it("matches an oversized persisted approval input by its fingerprint", () => {
+    const input = { payload: "x".repeat(70_000) };
+    const existing = {
+      id: "call-1",
+      name: "write",
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-paused",
+      metadata: {
+        approvalPause: true,
+        agentKitSnapshot: {
+          toolCallResult: "omitted",
+          reason: "size_limit",
+          inputFingerprint: toolInputFingerprint(input),
+        },
+      },
+    };
+    const incoming = {
+      ...existing,
+      input,
+      output: "saved",
+      runId: "run-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [
+            {
+              id: "run-paused",
+              startedAt: "2026-10-13T10:00:00.000Z",
+              lastSequence: 4,
+            },
+          ],
+          toolCalls: [existing],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [
+            {
+              id: "run-replay",
+              startedAt: "2026-10-13T10:01:00.000Z",
+              lastSequence: 3,
+            },
+          ],
+          toolCalls: [incoming],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        runId: "run-replay",
+        metadata: { completedSideEffect: true },
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      label: "a different tool",
+      incomingName: "write-other",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "different input",
+      incomingName: "write",
+      incomingInput: { path: "other.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "no completed-side-effect proof",
+      incomingName: "write",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: undefined,
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "an older replay run",
+      incomingName: "write",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T09:59:00.000Z",
+    },
+  ])(
+    "preserves a persisted approval pause when the incoming call has $label",
+    (options) => {
+      const input = { path: "skills/example.md" };
+      const existing = {
+        id: "call-1",
+        name: "write",
+        input,
+        output: "Awaiting human approval. This action did NOT execute.",
+        status: "completed",
+        runId: "run-paused",
+        messageId: "assistant-paused",
+      };
+      const incoming = {
+        ...existing,
+        name: options.incomingName,
+        input: options.incomingInput,
+        output: "saved",
+        runId: options.incomingRunId,
+        messageId: "assistant-replay",
+        ...(options.incomingMetadata
+          ? { metadata: options.incomingMetadata }
+          : {}),
+      };
+      const runs = [
+        {
+          id: "run-replay",
+          startedAt: options.incomingRunStartedAt,
+          lastSequence: 3,
+        },
+      ];
+
+      const merged = mergeThreadDataForClientSave(
+        {
+          agentKit: {
+            runs: [
+              {
+                id: "run-paused",
+                startedAt: "2026-10-13T10:00:00.000Z",
+                lastSequence: 4,
+              },
+            ],
+            toolCalls: [existing],
+          },
+        },
+        {
+          agentKit: {
+            _snapshotDelta: true,
+            runs,
+            toolCalls: [incoming],
+          },
+        },
+      );
+
+      expect(merged.agentKit.toolCalls).toEqual([
+        expect.objectContaining({
+          id: "call-1",
+          output: existing.output,
+          status: "completed",
+          runId: "run-paused",
+          messageId: "assistant-paused",
+        }),
+      ]);
+    },
+  );
+
+  it("keeps a newer approval pause over a stale replay result", () => {
+    const input = { path: "skills/example.md" };
+    const currentPause = {
+      id: "call-1",
+      name: "write",
+      input,
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-reapproval",
+      messageId: "assistant-reapproval",
+      metadata: { approvalPause: true, approvalAskId: "approval-2" },
+    };
+    const staleReplay = {
+      ...currentPause,
+      output: "saved by the first replay",
+      runId: "run-replay",
+      messageId: "assistant-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [
+            {
+              id: "run-reapproval",
+              startedAt: "2026-10-13T10:02:00.000Z",
+              lastSequence: 4,
+            },
+          ],
+          toolCalls: [currentPause],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [
+            {
+              id: "run-replay",
+              startedAt: "2026-10-13T10:01:00.000Z",
+              lastSequence: 3,
+            },
+          ],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: currentPause.output,
+        status: "completed",
+        runId: "run-reapproval",
+        messageId: "assistant-reapproval",
+        metadata: { approvalPause: true, approvalAskId: "approval-2" },
+      }),
+    ]);
+  });
+
+  it("keeps a newer running tool call over an older completed replay", () => {
+    const currentRun = {
+      id: "run-current",
+      startedAt: "2026-10-13T10:02:00.000Z",
+      lastSequence: 2,
+    };
+    const staleRun = {
+      id: "run-stale",
+      startedAt: "2026-10-13T10:01:00.000Z",
+      lastSequence: 4,
+    };
+    const current = {
+      id: "call-1",
+      name: "write",
+      input: { path: "skills/example.md" },
+      status: "running",
+      runId: "run-current",
+    };
+    const staleReplay = {
+      ...current,
+      output: "saved by old replay",
+      status: "completed",
+      runId: "run-stale",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: { runs: [currentRun], toolCalls: [current] },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [staleRun],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        status: "running",
+        runId: "run-current",
+      }),
     ]);
   });
 

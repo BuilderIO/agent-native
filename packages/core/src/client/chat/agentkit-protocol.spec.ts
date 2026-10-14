@@ -1481,7 +1481,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(result[4]).toMatchObject({
       type: "tool.started",
-      toolCall: { id: "tool-1", messageId: "assistant-1" },
+      toolCall: { id: "tool-1", runId, messageId: "assistant-1" },
     });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
@@ -1580,6 +1580,7 @@ describe("createAgentKitProtocolAdapter", () => {
         toolName: "search",
         status: "completed",
         result: { found: true },
+        completedSideEffect: true,
       };
       yield {
         type: "message-start",
@@ -1612,6 +1613,8 @@ describe("createAgentKitProtocolAdapter", () => {
         input: { query: "agentkit" },
         output: { found: true },
         status: "completed",
+        runId,
+        metadata: { completedSideEffect: true },
         messageId: "assistant-1",
       },
     });
@@ -1619,6 +1622,54 @@ describe("createAgentKitProtocolAdapter", () => {
       (event) => event.type === "message.created",
     )?.sequence;
     expect(toolUpdates[1]!.sequence).toBeGreaterThan(messageCreatedSequence!);
+  });
+
+  it("persists approval pause metadata on a completed tool call", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "call-1",
+          name: "publish-release",
+          input: { releaseId: "release-1" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "call-1",
+        toolName: "publish-release",
+        status: "completed",
+        result: "Awaiting human approval. This action did NOT execute.",
+        approvalPause: true,
+        approvalAskId: "approval-1",
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "tool.updated")).toMatchObject(
+      {
+        type: "tool.updated",
+        toolCall: {
+          id: "call-1",
+          name: "publish-release",
+          status: "completed",
+          runId,
+          metadata: {
+            approvalPause: true,
+            approvalAskId: "approval-1",
+          },
+        },
+      },
+    );
   });
 
   it("keeps an explicit tool-first message association over later assistant messages", async () => {
