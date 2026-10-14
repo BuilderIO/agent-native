@@ -124,6 +124,15 @@ describe("stopReadSeconds", () => {
 });
 
 describe("parseRecorderReportResult", () => {
+  it("refuses an oversized report before parsing it, whatever the page claims", () => {
+    expect(
+      parseRecorderReportResult(
+        { status: "ok", json: " ".repeat(MAX_RECORDER_REPORT_CHARS + 1) },
+        0,
+      ),
+    ).toMatchObject({ status: "failed" });
+  });
+
   it("keeps a missing recorder distinct from an unreadable one", () => {
     expect(parseRecorderReportResult({ status: "absent" }, START)).toEqual({
       status: "absent",

@@ -96,12 +96,38 @@ describe("/api/agent-app-activity route", () => {
       events: [events[1]],
       matchedCount: 2,
       truncated: true,
-      nextFromMs: 900,
+      nextStart: 1,
       watched: { inbox: "shown" },
     });
     expect((result as { instructions: string[] }).instructions[0]).toMatch(
       /untrusted/,
     );
+  });
+
+  it("continues from start without repeating events that share a time", async () => {
+    mockLoadRecordingAppActivity.mockResolvedValue({
+      status: "ok",
+      summary,
+      activity: {
+        events: [events[2], { ...events[2], name: "second-at-900" }],
+        watched: {},
+        pending: [],
+      },
+    });
+    mockGetQuery.mockReturnValue({
+      id: "rec-1",
+      agent_access: "tok",
+      start: "1",
+      maxEvents: "1",
+    });
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({
+      events: [{ name: "second-at-900" }],
+      matchedCount: 2,
+      truncated: false,
+    });
   });
 
   it("reports missing storage as unavailable rather than as no activity", async () => {

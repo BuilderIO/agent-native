@@ -299,24 +299,26 @@ export function parseAppActivitySummary(
 
 export function filterAppActivityEvents(
   events: readonly AppActivityEvent[],
-  window: { fromMs?: number; toMs?: number; maxEvents: number },
+  window: { fromMs?: number; toMs?: number; start?: number; maxEvents: number },
 ): {
   events: AppActivityEvent[];
   matchedCount: number;
   truncated: boolean;
-  nextFromMs?: number;
+  nextStart?: number;
 } {
   const matched = events.filter(
     (event) =>
       (window.fromMs === undefined || event.elapsedMs >= window.fromMs) &&
       (window.toMs === undefined || event.elapsedMs <= window.toMs),
   );
-  const page = matched.slice(0, window.maxEvents);
-  const next = matched[page.length];
+  const start = window.start ?? 0;
+  const page = matched.slice(start, start + window.maxEvents);
+  const nextStart = start + page.length;
+  const truncated = nextStart < matched.length;
   return {
     events: page,
     matchedCount: matched.length,
-    truncated: Boolean(next),
-    ...(next ? { nextFromMs: next.elapsedMs } : {}),
+    truncated,
+    ...(truncated ? { nextStart } : {}),
   };
 }

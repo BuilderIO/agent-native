@@ -117,6 +117,12 @@ export function parseRecorderReportResult(
           : "the page returned an unknown result",
     };
   }
+  if (result.json.length > MAX_RECORDER_REPORT_CHARS) {
+    return {
+      status: "failed",
+      reason: `the report is ${result.json.length} characters, over the ${MAX_RECORDER_REPORT_CHARS} limit`,
+    };
+  }
   let report: unknown;
   try {
     report = JSON.parse(result.json);

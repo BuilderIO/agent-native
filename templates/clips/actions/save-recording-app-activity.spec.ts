@@ -229,4 +229,19 @@ describe("save-recording-app-activity", () => {
       "rec-1",
     );
   });
+
+  it("reports a replaced blob it could not delete", async () => {
+    mocks.existingRows = [{ blobJson: '{"id":"old"}' }];
+    mocks.deleteAppActivityBlob.mockResolvedValueOnce({
+      deleted: false,
+      error: "provider unavailable",
+    });
+
+    const result = await action.run(action.schema.parse(payload()));
+
+    expect(result).toMatchObject({
+      status: "saved",
+      replacedBlobCleanup: { deleted: false, error: "provider unavailable" },
+    });
+  });
 });

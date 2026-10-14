@@ -85,10 +85,17 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.recordingBrowserDiagnostics.recordingId, recordingId));
-    if (row.blobJson) await deleteAppActivityBlob(row.blobJson, recordingId);
+    const replacedBlobCleanup = row.blobJson
+      ? await deleteAppActivityBlob(row.blobJson, recordingId)
+      : null;
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { recordingId, status: "saved" as const, summary };
+    return {
+      recordingId,
+      status: "saved" as const,
+      summary,
+      replacedBlobCleanup,
+    };
   },
 });

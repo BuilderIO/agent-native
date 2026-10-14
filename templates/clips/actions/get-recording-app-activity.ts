@@ -21,6 +21,12 @@ export default defineAction({
       .number()
       .optional()
       .describe("Only events at or before this elapsedMs"),
+    start: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Matching events to skip; pass nextStart to continue"),
     maxEvents: z.coerce
       .number()
       .int()
@@ -28,12 +34,12 @@ export default defineAction({
       .max(MAX_APP_ACTIVITY_EVENTS)
       .default(200)
       .describe(
-        "Most events to return; when truncated, call again with fromMs=nextFromMs",
+        "Most events to return; when truncated, call again with the same filters and start=nextStart",
       ),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ recordingId, fromMs, toMs, maxEvents }) => {
+  run: async ({ recordingId, fromMs, toMs, start, maxEvents }) => {
     await assertAccess("recording", recordingId, "editor");
     const result = await loadRecordingAppActivity(recordingId);
     if (result.status === "none") {
@@ -62,6 +68,7 @@ export default defineAction({
       ...filterAppActivityEvents(activity.events, {
         fromMs,
         toMs,
+        start,
         maxEvents,
       }),
       watched: activity.watched,
