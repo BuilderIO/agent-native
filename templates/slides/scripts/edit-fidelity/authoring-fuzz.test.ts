@@ -1717,6 +1717,35 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
     ),
   ).toBe(true);
   expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [{ ...candidate, sameOrigin: false }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [{ ...candidate, sameOrigin: false }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "TypeError: Failed to fetch",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "NetworkError when attempting to fetch resource.",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
     isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
       { ...candidate, sameOrigin: false },
     ]),

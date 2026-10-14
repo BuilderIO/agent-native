@@ -1185,11 +1185,11 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
   const knownFailure =
     message ===
       "[Agent-Native browser session] poll failed: TypeError: Load failed" ||
-    message === "TypeError: Load failed" ||
-    message === "TypeError: Failed to fetch" ||
-    message === "NetworkError when attempting to fetch resource." ||
     corsUrl !== null;
   if (!knownFailure) return false;
+  const taggedPoll =
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
 
   return (
     candidates.filter(
@@ -1198,7 +1198,9 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
         /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
           candidate.pathname,
         ) &&
-        candidate.sameOrigin &&
+        (candidate.sameOrigin ||
+          taggedPoll ||
+          (corsUrl !== null && candidate.url === corsUrl)) &&
         !candidate.competingClaimStartedAfterFailure &&
         candidate.requestAgeMs >= 0 &&
         candidate.requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
@@ -4717,40 +4719,66 @@ export async function runAuthoringFuzz(
             const hoveredOption = document.querySelector<HTMLElement>(
               '[role="option"]:hover',
             );
+            const activeBackground = activeOption
+              ? getComputedStyle(activeOption).backgroundColor
+              : null;
+            const hoveredBackground = hoveredOption
+              ? getComputedStyle(hoveredOption).backgroundColor
+              : null;
+            const surfaceBackgrounds: string[] = [];
+            for (
+              let ancestor = hoveredOption?.parentElement ?? null;
+              ancestor;
+              ancestor = ancestor.parentElement
+            ) {
+              surfaceBackgrounds.push(
+                getComputedStyle(ancestor).backgroundColor,
+              );
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            const context = canvas.getContext("2d", {
+              willReadFrequently: true,
+            });
+            const renderOverSurface = (foreground: string | null) => {
+              if (
+                !context ||
+                !foreground ||
+                !CSS.supports("color", foreground) ||
+                surfaceBackgrounds.some(
+                  (background) => !CSS.supports("color", background),
+                )
+              ) {
+                return null;
+              }
+              context.clearRect(0, 0, 1, 1);
+              for (const background of [...surfaceBackgrounds].reverse()) {
+                context.fillStyle = background;
+                context.fillRect(0, 0, 1, 1);
+              }
+              context.fillStyle = foreground;
+              context.fillRect(0, 0, 1, 1);
+              const { data } = context.getImageData(0, 0, 1, 1);
+              return [data[0], data[1], data[2]] as [number, number, number];
+            };
+            const activeRendered = renderOverSurface(activeBackground);
+            const hoveredRendered = renderOverSurface(hoveredBackground);
             return {
               focused: document.activeElement === root,
               activeCommand: activeOption?.getAttribute("data-value") ?? null,
               hoveredCommand: hoveredOption?.getAttribute("data-value") ?? null,
-              activeBackground: activeOption
-                ? getComputedStyle(activeOption).backgroundColor
-                : null,
-              hoveredBackground: hoveredOption
-                ? getComputedStyle(hoveredOption).backgroundColor
-                : null,
-              backgroundDifference: (() => {
-                const channels = (value: string | null) =>
-                  value
-                    ?.match(/[\d.]+/g)
-                    ?.slice(0, 3)
-                    .map(Number) ?? null;
-                const active = channels(
-                  activeOption
-                    ? getComputedStyle(activeOption).backgroundColor
-                    : null,
-                );
-                const hovered = channels(
-                  hoveredOption
-                    ? getComputedStyle(hoveredOption).backgroundColor
-                    : null,
-                );
-                return active && hovered
+              activeBackground,
+              hoveredBackground,
+              surfaceBackgrounds,
+              backgroundDifference:
+                activeRendered && hoveredRendered
                   ? Math.max(
-                      ...active.map((channel, index) =>
-                        Math.abs(channel - hovered[index]),
+                      ...activeRendered.map((channel, index) =>
+                        Math.abs(channel - hoveredRendered[index]),
                       ),
                     )
-                  : null;
-              })(),
+                  : null,
             };
           });
           if (
