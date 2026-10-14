@@ -49,36 +49,77 @@ export async function withSql<T>(
   }
 }
 
-// The two credentials the check runs with. They belong to the check's own
-// process: one reaches the Netlify CLI, the other a SQL connection, and no
-// install, build, or app process the check starts ever needs either.
-const CHECK_CREDENTIALS = ["NETLIFY_AUTH_TOKEN", "DEPLOY_CHECK_DATABASE_URL"];
+// The only variables of the caller's environment a child process gets: what a
+// shell, a toolchain, a proxy, and the Docker CLI need to run. Everything else
+// is left out, so the check's contract holds by construction: the app under
+// test and the install and build scripts around it run with exactly what the
+// check sets, and nothing from the shell or the `pnpm` run that started it. A
+// list of names to remove cannot give that: each name it missed was a way
+// for the shell to redirect the check. The app reads `<APP>_DATABASE_URL`,
+// `DATABASE_URL`, `NETLIFY_DATABASE_URL` and their `_UNPOOLED` forms, and
+// migrations prefer the unpooled ones, so a stray one of any of them would
+// point `migrate:production` at someone else's database. Credentials, email
+// provider keys that change how sign-up behaves, and `NODE_OPTIONS` hooks are
+// out for the same reason.
+const ENV_ALLOWED_NAMES = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "TZ",
+  "TERM",
+  "LANG",
+  "LANGUAGE",
+  "CI",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "all_proxy",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+  "REQUESTS_CA_BUNDLE",
+  "CURL_CA_BUNDLE",
+  "DOCKER_HOST",
+  "DOCKER_CONTEXT",
+  "DOCKER_CONFIG",
+  "DOCKER_CERT_PATH",
+  "DOCKER_TLS_VERIFY",
+  "DOCKER_BUILDKIT",
+  "COREPACK_HOME",
+  "COREPACK_NPM_REGISTRY",
+]);
 
-// What a child process the check starts gets: exactly the settings the check
-// sets, never ones left in the shell or inherited from the `pnpm` run that
-// started it, and never the check's own credentials. Install and build scripts
-// run third-party code, and the app under test is the thing being judged, so
-// none of them may hold a token that can delete Netlify sites. A NETLIFY_SITE_ID
-// from the shell would also point the deploy at someone's real site, and a
-// NETLIFY_DATABASE_URL would win over the DATABASE_URL the check sets.
+// Locale and XDG directories, and the version managers that put node on PATH
+// through shims that look their own settings up.
+const ENV_ALLOWED_PREFIXES = [
+  "LC_",
+  "XDG_",
+  "VOLTA_",
+  "NVM_",
+  "FNM_",
+  "ASDF_",
+  "MISE_",
+];
+
 export function baseEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
-  for (const key of Object.keys(env)) {
-    if (/^(npm_|PNPM_)/i.test(key)) delete env[key];
-    if (key.startsWith("NETLIFY_")) delete env[key];
-  }
-  for (const key of [
-    ...CHECK_CREDENTIALS,
-    "INIT_CWD",
-    "NODE_ENV",
-    "NITRO_PRESET",
-    "DATABASE_URL",
-    "BETTER_AUTH_SECRET",
-    "BETTER_AUTH_URL",
-    "A2A_SECRET",
-    "AUTH_DISABLED",
-  ]) {
-    delete env[key];
+  const env: NodeJS.ProcessEnv = { NO_COLOR: "1" };
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    if (
+      ENV_ALLOWED_NAMES.has(key) ||
+      ENV_ALLOWED_PREFIXES.some((prefix) => key.startsWith(prefix))
+    ) {
+      env[key] = value;
+    }
   }
   return env;
 }
@@ -119,6 +160,20 @@ export function runQuiet(
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 5 * 60_000,
   });
+}
+
+export const REQUEST_TIMEOUT_MS = 20_000;
+
+// Every HTTP request the check makes to the app under test is bounded. A server
+// that accepts a connection and never answers would otherwise hold a request
+// past the deadline of the loop around it, and past the cleanup that follows,
+// until the job's own timeout kills the process and skips cleanup.
+export function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
 
 function runNetlifyApi(method: string, data: unknown): string {

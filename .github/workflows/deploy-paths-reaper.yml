@@ -93,4 +93,4 @@ jobs:
           token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
           payload: |
             channel: ${{ env.SLACK_CHANNEL }}
-            text: ":rotating_light: The deploy-path reaper failed, so leaked Netlify sites or Neon databases may not have been cleaned up. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url }}"
+            text: ":rotating_light: The deploy-path reaper failed, so leaked Netlify sites or Neon databases may not have been cleaned up. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"

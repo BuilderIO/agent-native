@@ -63,6 +63,20 @@ function assertReporter(job: Workflow, prefix: string): void {
     new RegExp(`steps\\.${String(report.id)}\\.outputs\\.artifact-url`),
   );
 
+  // The alert is the point of the job. It must not depend on the report steps
+  // before it succeeding (an implicit success() would skip it when the report
+  // write or upload failed), and it must still read sensibly with no report.
+  assert.match(
+    String(post.if),
+    /^\$\{\{ (!cancelled\(\)|always\(\)|failure\(\)) \}\}$/,
+    "the Slack post is gated on the outcome of earlier steps",
+  );
+  assert.match(
+    String(inputs.payload),
+    /artifact-url \|\| '[^']+'/,
+    "the message has no fallback for a missing report link",
+  );
+
   // A failed post must fail the run: an alert that did not send is visible.
   assert.equal(inputs.errors, undefined);
   assert.equal(post["continue-on-error"], undefined);
@@ -83,6 +97,14 @@ describe("deploy-path alerts go to #qa-agent-native", () => {
 
     it("keeps a complete report and links it from one Slack post", () => {
       assertReporter(report, "deploy-canary-report-");
+    });
+
+    it("keeps each leg's result files apart, because their names repeat across npm tags", () => {
+      const collect = steps(report).find((step) => step.id === "legs");
+      const inputs = collect!.with as Record<string, unknown>;
+      // merge-multiple flattens every artifact into one directory, so the
+      // `nightly` leg's node-npm.json would overwrite the `latest` leg's.
+      assert.notEqual(inputs["merge-multiple"], true);
     });
 
     it("records whether it could collect the legs' result files instead of hiding a failed download", () => {

@@ -71,7 +71,9 @@ jobs:
     steps:
       # Each leg uploads its step timings and result as an artifact of this run.
       # They are best-effort evidence, so a failed download does not stop the
-      # alert, but the report records that it failed.
+      # alert, but the report records that it failed. Every leg keeps its own
+      # directory: the legs' result files share names across npm tags, and
+      # merging them would let `nightly` overwrite `latest`.
       - name: Collect the legs' results
         id: legs
         continue-on-error: true
@@ -79,7 +81,6 @@ jobs:
         with:
           pattern: deploy-*
           path: report/legs
-          merge-multiple: true
 
       - name: Write the report
         env:
@@ -109,11 +110,14 @@ jobs:
           path: report/
           retention-days: 90
 
+      # Not gated on the report steps: this job runs only because a leg failed,
+      # and a failed report write or upload must not be what hides that.
       - name: Post the failure
+        if: ${{ !cancelled() }}
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           method: chat.postMessage
           token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
           payload: |
             channel: ${{ env.SLACK_CHANNEL }}
-            text: ":rotating_light: Deploy canary failed. A reader following a deploy guide against npm would hit this. Node.js and Docker paths: ${{ needs.paths.result }}. Netlify: ${{ needs.hosts.result }}. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url }}"
+            text: ":rotating_light: Deploy canary failed. A reader following a deploy guide against npm would hit this. Node.js and Docker paths: ${{ needs.paths.result }}. Netlify: ${{ needs.hosts.result }}. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Full report: ${{ steps.report-artifact.outputs.artifact-url || 'not available, the report could not be saved' }}"

@@ -39,6 +39,7 @@ import {
   baseEnv,
   deleteNetlifySite,
   dropDatabase,
+  fetchWithTimeout,
   makeNetlifySitePublic,
   netlifyCliArgs,
   netlifyEnv,
@@ -442,7 +443,9 @@ async function waitForReady(
     await waitFor(
       "the app to answer /_agent-native/ping",
       READY_TIMEOUT_MS,
-      async () => (await fetch(`${baseUrl}/_agent-native/ping`)).status === 200,
+      async () =>
+        (await fetchWithTimeout(`${baseUrl}/_agent-native/ping`)).status ===
+        200,
       exited,
     );
   } catch (error) {
@@ -613,7 +616,7 @@ async function authenticate(
   action: "sign-up" | "sign-in",
   email: string,
 ): Promise<Session> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${baseUrl}/_agent-native/auth/ba/${action}/email`,
     {
       method: "POST",
@@ -631,7 +634,7 @@ async function authenticate(
 }
 
 async function callHello(baseUrl: string, session: Session): Promise<void> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${baseUrl}/_agent-native/actions/hello?name=deploy-paths`,
     { headers: { cookie: session.cookie } },
   );
@@ -648,7 +651,7 @@ async function exerciseApp(
   const email = `deploy-paths-${randomBytes(4).toString("hex")}@example.com`;
 
   await step("the server reports no missing deploy settings", async () => {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${app.baseUrl}/_agent-native/ping?configuration=1`,
     );
     const text = await response.text();
@@ -966,7 +969,7 @@ function writeResult(failure: string | null, leaked: string[]): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, `${target}-${source}.json`),
-    `${JSON.stringify({ target, source, ok: !failure && leaked.length === 0, failure, leaked, steps }, null, 2)}\n`,
+    `${JSON.stringify({ target, source, npmTag: source === "npm" ? npmTag : null, ok: !failure && leaked.length === 0, failure, leaked, steps }, null, 2)}\n`,
   );
 }
 
