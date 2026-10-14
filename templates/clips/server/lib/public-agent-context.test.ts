@@ -208,7 +208,7 @@ describe("public agent context access", () => {
 
     vi.mocked(verifySharePassword).mockReturnValueOnce(true);
     const viaPassword = await loadPublicAgentAccess({} as any, "rec-1", {
-      password: "letmein",
+      password: "letmein", // ggignore: fake share password for a mocked check
     });
     expect(viaPassword).toMatchObject({
       ok: true,

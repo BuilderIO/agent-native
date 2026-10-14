@@ -132,7 +132,7 @@ describe("recorder redaction", () => {
       cvv: "123",
       nested: { session_id: "s1", Authorization: "Bearer abc.def" },
       note: "header was Bearer abcdefghijklmnop and key sk-ABCDEFGHIJKLMNOPQRST",
-      jwt: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+      jwt: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl", // ggignore: fake test JWT
       query: "token=abc123",
     });
 
@@ -152,7 +152,7 @@ describe("recorder redaction", () => {
   });
 
   it("redacts a token that the 200-character cut leaves half", () => {
-    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"; // ggignore: fake test JWT
     recorder.log("cut", { value: `${"x".repeat(180)} ${jwt}` });
 
     const [event] = recorder.report().events;
