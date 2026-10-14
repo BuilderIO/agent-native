@@ -2619,9 +2619,9 @@ describe("in-place text session: undo", () => {
     expect(session.historyStats().byteEvictions).toBe(0);
   });
 
-  it("keeps a 500-operation history for a large text block within the byte budget", () => {
+  it("keeps a 500-operation history for a two-byte text block within the budget", () => {
     const operationCount = 500;
-    const originalText = "x".repeat(500_000);
+    const originalText = "x".repeat(250_000) + ZWSP;
     const el = mount(`<p id="t">${originalText}</p>`);
     session = startInPlaceTextSession(el);
     caret(textOf(el, originalText.slice(0, 16)), 0);

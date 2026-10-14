@@ -437,25 +437,13 @@ function countZwsp(text: string) {
   return text.split(ZERO_WIDTH_SPACE).length - 1;
 }
 
-function utf8ByteLength(value: string) {
-  let bytes = 0;
+function retainedStringByteLength(value: string) {
   for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        index += 1;
-      } else {
-        bytes += 3;
-      }
-    } else {
-      bytes += 3;
-    }
+    // Browser engines store Latin-1 strings compactly; one wider code unit
+    // makes the whole retained snapshot use two bytes per UTF-16 code unit.
+    if (value.charCodeAt(index) > 0xff) return value.length * 2;
   }
-  return bytes;
+  return value.length;
 }
 
 function textNodesIn(root: Node): Text[] {
@@ -1848,11 +1836,13 @@ export function startInPlaceTextSession(
       attributes,
       html,
       byteSize:
-        utf8ByteLength(tag) +
-        utf8ByteLength(html) +
+        retainedStringByteLength(tag) +
+        retainedStringByteLength(html) +
         attributes.reduce(
           (size, [name, value]) =>
-            size + utf8ByteLength(name) + utf8ByteLength(value),
+            size +
+            retainedStringByteLength(name) +
+            retainedStringByteLength(value),
           0,
         ) +
         65,
