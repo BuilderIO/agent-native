@@ -4160,6 +4160,31 @@ describe("provider API runtime", () => {
     expect(result.guidance).not.toContain("Prefer this escape hatch");
   });
 
+  it("refuses to save a truncated response to a file as complete", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response("x".repeat(21 * 1024 * 1024), {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        saveToFile: "analysis/deals.txt",
+      }),
+    ).rejects.toThrow(/would persist an incomplete file/);
+  });
+
   it("fails fetchAllPages loudly when a page is cut at the size limit", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     const fetchMock = vi.mocked(globalThis.fetch);

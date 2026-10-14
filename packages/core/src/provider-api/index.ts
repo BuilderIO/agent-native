@@ -2152,6 +2152,11 @@ export async function executeProviderApiRequest(
   );
 
   if (args.saveToFile) {
+    if (response.truncated) {
+      throw new Error(
+        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+      );
+    }
     const rawText =
       response.text ??
       (response.json !== undefined ? JSON.stringify(response.json) : "");
@@ -3152,6 +3157,11 @@ async function executeCustomProviderApiRequest(
   });
 
   if (args.saveToFile) {
+    if (response.truncated) {
+      throw new Error(
+        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+      );
+    }
     const rawText =
       response.text ??
       (response.json !== undefined ? JSON.stringify(response.json) : "");
