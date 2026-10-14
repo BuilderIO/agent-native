@@ -359,6 +359,60 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("does not let dynamic style props on unrelated JSX block source reads or writes", () => {
+    const authored = [
+      "function Card(props: { style?: React.CSSProperties }) {",
+      "  return <main>",
+      '    <h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      "    <button style={props.style}>Unrelated</button>",
+      "  </main>;",
+      "}",
+    ].join("\n");
+
+    expect(readMotionReactSource(authored, "src/components/Card.tsx")).toEqual({
+      status: "absent",
+    });
+    const edit = apply(authored);
+    expect(
+      readMotionReactSource(edit.source, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it("rejects a dynamic style prop on a managed Motion target", () => {
+    const authored = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">',
+      '<h1 data-agent-native-node-id="hero-title" style={props.style}>',
+    );
+
+    expect(
+      readMotionReactSource(authored, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("does not adopt authored animation styles across component roots", () => {
+    const authored = [
+      "function MotionStyles() {",
+      '  return <style>{"#hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; }\\n@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }"}</style>;',
+      "}",
+      "function Card() {",
+      '  return <main><h1 id="hero">Hello</h1></main>;',
+      "}",
+    ].join("\n");
+
+    expect(
+      readMotionReactSource(authored, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("fails closed on dynamic style elements and unresolved style-prop aliases", () => {
     const dynamicStyleElement = `function Card({ motionCss }: { motionCss: string }) {
   return <main><style>{motionCss}</style><h1 id="hero">Hello</h1></main>;
@@ -384,11 +438,8 @@ function Card(style = { animationName: "fade" }) {
   return <main><button style={style}>Hello</button></main>;
 }`;
 
-    expect(
-      readMotionReactSource(authored, "src/components/Card.tsx"),
-    ).toMatchObject({
-      status: "invalid",
-      error: { code: "unsupported-authored-motion" },
+    expect(readMotionReactSource(authored, "src/components/Card.tsx")).toEqual({
+      status: "absent",
     });
   });
 

@@ -143,7 +143,10 @@ export function importAuthoredCssAnimations(
 
   const animationDeclarations: postcss.Declaration[] = [];
   root.walkDecls((declaration) => {
-    if (isAnimationProperty(declaration.prop)) {
+    if (
+      !isInsideKeyframes(declaration) &&
+      isAnimationProperty(declaration.prop)
+    ) {
       animationDeclarations.push(declaration);
     }
   });
@@ -218,7 +221,9 @@ export function importAuthoredCssAnimations(
     const values = new Map<string, string>();
     const seen = new Set<string>();
     for (const declaration of declarations) {
-      const property = declaration.prop.toLowerCase();
+      const property = decodeMotionCssIdentifier(
+        declaration.prop,
+      ).toLowerCase();
       if (!ANIMATION_DECLARATIONS.has(property)) {
         return unsupported(
           `The animation property "${declaration.prop}" is unsupported.`,
@@ -515,11 +520,52 @@ function unsupported(reason: string): MotionAuthoredCssImportResult {
 }
 
 function isAnimationProperty(property: string): boolean {
-  const normalized = property.toLowerCase();
+  const normalized = decodeMotionCssIdentifier(property).toLowerCase();
   return (
     normalized === "animation" ||
     normalized.startsWith("animation-") ||
     /^-[a-z]+-animation(?:-|$)/.test(normalized)
+  );
+}
+
+function isInsideKeyframes(declaration: postcss.Declaration): boolean {
+  for (
+    let parent: postcss.Node | undefined = declaration.parent;
+    parent;
+    parent = parent.parent ?? undefined
+  ) {
+    if (
+      parent.type === "atrule" &&
+      isKeyframesRule((parent as postcss.AtRule).name)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function decodeMotionCssIdentifier(value: string): string {
+  return value.replace(
+    /\\(?:([a-f\d]{1,6})(?:\r\n|[\t\n\f\r ])?|([\r\n\f])|([^\r\n\f]))/gi,
+    (
+      _match,
+      hex: string | undefined,
+      newline: string | undefined,
+      char: string | undefined,
+    ) => {
+      if (hex) {
+        const codePoint = Number.parseInt(hex, 16);
+        if (
+          codePoint === 0 ||
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return "\ufffd";
+        }
+        return String.fromCodePoint(codePoint);
+      }
+      return newline ? "" : (char ?? "");
+    },
   );
 }
 

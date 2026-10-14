@@ -8,6 +8,7 @@ import { parse, type ParserError } from "parse5";
 import postcss from "postcss";
 
 import {
+  decodeMotionCssIdentifier,
   importAuthoredCssAnimations,
   mergeAuthoredCssMotionDocument,
   parseMotionAuthoredCssSimpleSelector,
@@ -555,29 +556,38 @@ function assertTargetsExist(
     matches.push(node);
     targets.set(nodeId, matches);
   }
+  const generatedById = new Map(
+    sourceFilePath
+      ? generatedHtmlTargets(source, sourceFilePath).map((target) => [
+          target.nodeId,
+          target.node,
+        ])
+      : [],
+  );
 
   for (const nodeId of targetNodeIds) {
     assertSafeTargetId(nodeId);
     const matches = targets.get(nodeId) ?? [];
-    if (matches.length === 0) {
-      if (sourceFilePath) {
-        const generated = generatedHtmlTargets(source, sourceFilePath).filter(
-          (target) => target.nodeId === nodeId,
-        );
-        if (generated.length === 1) continue;
-      }
-      sourceError(
-        "missing-node",
-        `HTML source does not contain a static ${NODE_ID_ATTRIBUTE}="${nodeId}" target.`,
-      );
-    }
+    const generated = generatedById.get(nodeId);
     if (matches.length > 1) {
       sourceError(
         "ambiguous-node",
         `HTML source contains ${matches.length} elements with ${NODE_ID_ATTRIBUTE}="${nodeId}".`,
       );
     }
-    const target = matches[0]!;
+    if (matches.length === 1 && generated && generated !== matches[0]) {
+      sourceError(
+        "ambiguous-node",
+        `HTML source contains multiple elements represented by Motion target "${nodeId}".`,
+      );
+    }
+    const target = matches[0] ?? generated;
+    if (!target) {
+      sourceError(
+        "missing-node",
+        `HTML source does not contain a static ${NODE_ID_ATTRIBUTE}="${nodeId}" target.`,
+      );
+    }
     const tagName = target.tagName;
     if (target.insideTemplate) {
       sourceError(
@@ -624,7 +634,9 @@ function hasInlineMotionDeclarations(value: string): boolean {
     let found = false;
     declarations.walkDecls((declaration) => {
       if (
-        motionProperty.test(decodeCssIdentifier(declaration.prop).toLowerCase())
+        motionProperty.test(
+          decodeMotionCssIdentifier(declaration.prop).toLowerCase(),
+        )
       ) {
         found = true;
       }
@@ -633,34 +645,9 @@ function hasInlineMotionDeclarations(value: string): boolean {
   } catch {
     const withoutComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
     return /(?:^|;)\s*(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\s*:/i.test(
-      decodeCssIdentifier(withoutComments),
+      decodeMotionCssIdentifier(withoutComments),
     );
   }
-}
-
-function decodeCssIdentifier(value: string): string {
-  return value.replace(
-    /\\(?:([a-f\d]{1,6})(?:\r\n|[\t\n\f\r ])?|([\r\n\f])|([^\r\n\f]))/gi,
-    (
-      _match,
-      hex: string | undefined,
-      newline: string | undefined,
-      char: string | undefined,
-    ) => {
-      if (hex) {
-        const codePoint = Number.parseInt(hex, 16);
-        if (
-          codePoint === 0 ||
-          codePoint > 0x10ffff ||
-          (codePoint >= 0xd800 && codePoint <= 0xdfff)
-        ) {
-          return "\ufffd";
-        }
-        return String.fromCodePoint(codePoint);
-      }
-      return newline ? "" : (char ?? "");
-    },
-  );
 }
 
 export function assertMotionHtmlSourceTargets(args: {

@@ -220,6 +220,7 @@ export function applyMotionReactSourceEdit(
     originalSourceFile,
     args.modulePath,
     managedStyles,
+    targetNodeIds,
   );
   const sourceAfterAdoption = removeAuthoredCssSourceRanges(
     currentSource,
@@ -490,10 +491,17 @@ export function readMotionReactSource(
         );
       }
     }
+    const managedTargetNodeIds = [
+      ...(document?.tracks.map((track) => track.targetNodeId) ?? []),
+      ...(document?.nativeStyles?.map((style) => style.targetNodeId) ?? []),
+      ...(textDocument?.animations.map((animation) => animation.targetNodeId) ??
+        []),
+    ];
     const authoredMotion = readAuthoredReactMotion(
       sourceFile,
       modulePath,
       managedStyles,
+      managedTargetNodeIds,
     );
     if (authoredMotion.document) {
       try {
@@ -680,6 +688,7 @@ export function removeMotionReactSource(
     originalSourceFile,
     modulePath,
     findManagedStyles(originalSourceFile),
+    read.status === "valid" ? read.targetNodeIds : [],
   );
   const withoutAuthored = removeAuthoredCssSourceRanges(
     source,
@@ -746,8 +755,8 @@ function readAuthoredReactMotion(
   sourceFile: TypeScript.SourceFile,
   modulePath: string | undefined,
   managedStyles: readonly ManagedStyle[],
+  managedTargetNodeIds: readonly string[] = [],
 ): AuthoredReactMotion {
-  assertNoUnsupportedReactStylePropAnimations(sourceFile);
   const managedElements = new Set(managedStyles.map((style) => style.element));
   const authoredStyles: TypeScript.JsxElement[] = [];
   const visit = (node: TypeScript.Node): void => {
@@ -786,9 +795,27 @@ function readAuthoredReactMotion(
       continue;
     }
 
-    const result = importAuthoredCssAnimations(content.css, (selector) =>
-      resolveAuthoredReactTarget(selector, hosts, modulePath),
-    );
+    const result = importAuthoredCssAnimations(content.css, (selector) => {
+      let styleRoot: TypeScript.JsxElement | TypeScript.JsxFragment;
+      try {
+        styleRoot = findComponentRoot(sourceFile, style);
+      } catch (error) {
+        return {
+          status: "unsupported",
+          reason:
+            error instanceof Error
+              ? error.message
+              : "React inline style animations must belong to one static component root.",
+        };
+      }
+      return resolveAuthoredReactTarget(
+        selector,
+        hosts,
+        modulePath,
+        sourceFile,
+        styleRoot,
+      );
+    });
     if (result.status === "absent") {
       for (const name of result.definedKeyframeNames) {
         keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
@@ -828,6 +855,11 @@ function readAuthoredReactMotion(
     );
   }
 
+  assertNoUnsupportedReactStylePropAnimations(
+    sourceFile,
+    [...managedTargetNodeIds, ...importedTargetNodeIds],
+    modulePath,
+  );
   if (tracks.length === 0) return { document: null, rangesToRemove: [] };
   for (const name of usedKeyframeNames) {
     if ((keyframeNameCounts.get(name) ?? 0) > 1) {
@@ -858,7 +890,18 @@ function readAuthoredReactMotion(
 
 function assertNoUnsupportedReactStylePropAnimations(
   sourceFile: TypeScript.SourceFile,
+  targetNodeIds: readonly string[],
+  modulePath: string | undefined,
 ): void {
+  const targetElements = new Set(
+    targetNodeIds.length > 0
+      ? findStaticTargets(
+          sourceFile,
+          [...new Set(targetNodeIds)],
+          modulePath,
+        ).map((target) => target.element)
+      : [],
+  );
   const visit = (node: TypeScript.Node): void => {
     if (ts.isJsxAttribute(node) && node.name.getText(sourceFile) === "style") {
       const initializer = node.initializer;
@@ -869,16 +912,18 @@ function assertNoUnsupportedReactStylePropAnimations(
         sourceFile,
         new Set(),
       );
-      if (inspection === "motion") {
+      const attributes = node.parent;
+      const opening = attributes.parent;
+      const host = ts.isJsxOpeningElement(opening) ? opening.parent : opening;
+      if (
+        inspection === "motion" ||
+        (inspection === "unknown" && targetElements.has(host))
+      ) {
         throw new MotionReactSourceError(
           "unsupported-authored-motion",
-          "React inline style-prop animations and transitions cannot be imported losslessly; use a supported static JSX <style> animation rule.",
-        );
-      }
-      if (inspection === "unknown") {
-        throw new MotionReactSourceError(
-          "unsupported-authored-motion",
-          "A React dynamic style prop cannot be proven free of animation or transition declarations.",
+          inspection === "motion"
+            ? "React inline style-prop animations and transitions cannot be imported losslessly; use a supported static JSX <style> animation rule."
+            : "A React dynamic style prop on a Motion target cannot be proven free of animation or transition declarations.",
         );
       }
     }
@@ -1224,6 +1269,8 @@ function resolveAuthoredReactTarget(
   selector: string,
   hosts: readonly ReactAuthoredHost[],
   modulePath: string | undefined,
+  sourceFile: TypeScript.SourceFile,
+  styleRoot: TypeScript.JsxElement | TypeScript.JsxFragment,
 ): MotionAuthoredCssTargetResolution {
   const parsed = parseMotionAuthoredCssSimpleSelector(selector);
   if (!parsed) return { status: "unresolved" };
@@ -1259,6 +1306,22 @@ function resolveAuthoredReactTarget(
     }
     if (hasDynamicSelectorAttribute) return { status: "ambiguous" };
     if (!matchesSelector) continue;
+
+    try {
+      if (findComponentRoot(sourceFile, host.element) !== styleRoot) {
+        return {
+          status: "unsupported",
+          reason:
+            "React inline CSS animations can only be adopted when the matching target belongs to the same component as the style element.",
+        };
+      }
+    } catch {
+      return {
+        status: "unsupported",
+        reason:
+          "React inline CSS animations cannot be adopted when the matching target has no static component root.",
+      };
+    }
 
     const identity = readReactAuthoredNodeId(host, modulePath);
     if (identity.status !== "resolved") return identity;

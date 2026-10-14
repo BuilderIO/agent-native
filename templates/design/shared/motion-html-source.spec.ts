@@ -193,6 +193,22 @@ describe("HTML Motion source adapter", () => {
     }
   });
 
+  it.each([
+    ["x-transition.opacity"],
+    ['x-bind:style="style"'],
+    ['style="animation: pulse 1s infinite"'],
+  ])("validates generated Motion targets with %s during reads", (attribute) => {
+    const source = `<!doctype html><html><head><style>
+.hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+</style></head><body><h1 class="hero" ${attribute}>Hello</h1></body></html>`;
+
+    expect(readMotionHtmlSource(source, "pages/home.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
   it("allows a target when dynamic style bindings belong to another element", () => {
     const source = html.replace(
       "  </main>",

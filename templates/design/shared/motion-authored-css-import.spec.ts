@@ -33,6 +33,31 @@ describe("importAuthoredCssAnimations", () => {
     ).toEqual({ status: "absent", definedKeyframeNames: ["pulse"] });
   });
 
+  it("does not treat per-stop timing functions as authored animations", () => {
+    expect(
+      importAuthoredCssAnimations(
+        "@keyframes pulse { from { opacity: 0; animation-timing-function: ease-out; } to { opacity: 1; } }",
+        resolveHero,
+      ),
+    ).toEqual({ status: "absent", definedKeyframeNames: ["pulse"] });
+  });
+
+  it("decodes escaped animation property names before importing and removing them", () => {
+    const css =
+      ".hero { anim\\61 tion-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }";
+    const result = importAuthoredCssAnimations(css, resolveHero);
+
+    expect(result).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+    if (result.status !== "valid") return;
+
+    const remainder = removeAuthoredCssSourceRanges(css, result.rangesToRemove);
+    expect(remainder).not.toContain("anim\\61 tion-name");
+    expect(remainder).toContain("@keyframes pulse");
+  });
+
   it("preserves global keyframes and removes only adopted animation declarations", () => {
     const css = `/* before */
 .hero {
