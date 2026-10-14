@@ -201,6 +201,8 @@ export {
 } from "./auth-login-mode.js";
 
 const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
+// Signup delivery holds its transaction, connection, and per-address lock.
+const VERIFICATION_EMAIL_TIMEOUT_MS = 10_000;
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -2276,6 +2278,7 @@ async function createBetterAuthInstance(
         ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
         : CORE_VERIFY_SIGNUP_EMAIL_ID,
       authCritical: true,
+      timeoutMs: VERIFICATION_EMAIL_TIMEOUT_MS,
     });
   };
 

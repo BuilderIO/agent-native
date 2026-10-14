@@ -368,6 +368,9 @@ describe("password sign-up on a one-connection Neon pool", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(deliveredCallbackURL(1)).toBe(callbackURL);
     expect(advisoryLocksDuringDelivery).toEqual([0, 1]);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
     expect(
       (
         await pglite.query(
