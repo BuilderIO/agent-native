@@ -622,6 +622,11 @@ async function saveDashboard(
 
 const TILE_HIGHLIGHT_MS = 2000;
 
+// The tooltip trigger around each item replaces its `data-state`, so the
+// selected mode is styled from `aria-checked`, which the trigger leaves alone.
+const DASHBOARD_MODE_ITEM_CLASS =
+  "h-6 px-2 text-xs text-muted-foreground aria-checked:bg-accent aria-checked:text-foreground aria-checked:shadow-sm";
+
 export default function SqlDashboardPage() {
   const { session } = useSession();
 
@@ -2121,7 +2126,10 @@ function SqlDashboardPageContent({
           >
             <Tooltip>
               <TooltipTrigger asChild>
-                <ToggleGroupItem value="view" className="h-6 px-2 text-xs">
+                <ToggleGroupItem
+                  value="view"
+                  className={DASHBOARD_MODE_ITEM_CLASS}
+                >
                   <IconEye className="h-3.5 w-3.5" />
                   {t("dashboardMode.view")}
                 </ToggleGroupItem>
@@ -2130,7 +2138,10 @@ function SqlDashboardPageContent({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <ToggleGroupItem value="edit" className="h-6 px-2 text-xs">
+                <ToggleGroupItem
+                  value="edit"
+                  className={DASHBOARD_MODE_ITEM_CLASS}
+                >
                   <IconPencil className="h-3.5 w-3.5" />
                   {t("dashboardMode.edit")}
                 </ToggleGroupItem>
