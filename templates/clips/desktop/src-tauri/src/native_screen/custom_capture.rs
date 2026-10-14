@@ -3677,11 +3677,11 @@ fn spawn_capture_watchdog(
                         }
                         Ok(false) => continue,
                         Err(error) => {
-                            if shutdown.load(Ordering::SeqCst)
-                                || watch.is_paused()
-                                || watch.user_stopped()
-                            {
+                            if shutdown.load(Ordering::SeqCst) {
                                 return;
+                            }
+                            if watch.is_paused() || watch.user_stopped() {
+                                continue;
                             }
                             if geometry_error.as_ref() != Some(&error) {
                                 eprintln!(
