@@ -1865,7 +1865,7 @@ export default function DeckEditor() {
     designSystem,
     imageStyleReferenceUrls,
     rawData: designSystemRawData,
-  } = useDeckDesignSystem(deck?.designSystemId);
+  } = useDeckDesignSystem(deck?.designSystemId, deck?.id);
   useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
 

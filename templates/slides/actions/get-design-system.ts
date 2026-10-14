@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readDeckLinkedDesignSystem } from "./_linked-design-system.js";
 
 const MAX_AGENT_CONTEXT_CHARS = 14_000;
 const MAX_JSON_CONTEXT_CHARS = 2_500;
@@ -296,6 +297,12 @@ export default defineAction({
     "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. Use purpose='reference' only for a system linked to a style-reference deck; that guidance remains advisory to a separately selected target system. compact='true' returns only the bounded summary that deck and design reads already include.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
+    deckId: z
+      .string()
+      .optional()
+      .describe(
+        "Deck that links this design system. Lets anyone who can read the deck read its design system.",
+      ),
     purpose: z
       .enum(["selected", "reference"])
       .optional()
@@ -316,8 +323,13 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
-  run: async ({ id, compact, purpose = "selected" }, ctx) => {
-    const access = await resolveAccess("design-system", id);
+  run: async ({ id, deckId, compact, purpose = "selected" }, ctx) => {
+    const deckAccess = deckId ? await resolveAccess("deck", deckId) : null;
+    const access = deckAccess
+      ? await readDeckLinkedDesignSystem(deckAccess.resource, id)
+      : await resolveAccess("design-system", id).then(
+          (direct) => direct && { resource: direct.resource, viaDeck: false },
+        );
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
         statusCode: 404,
@@ -365,6 +377,8 @@ export default defineAction({
 
     if (
       ctx?.caller !== "mcp-widget" &&
+      // A deck reader may not edit the design system, even its cached count.
+      !access.viaDeck &&
       builder &&
       typeof builder.docCount === "number"
     ) {

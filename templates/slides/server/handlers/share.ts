@@ -1,11 +1,7 @@
 import crypto from "crypto";
 
 import { readBody } from "@agent-native/core/server";
-import {
-  assertAccess,
-  ForbiddenError,
-  resolveAccess,
-} from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { toSharedDeckSlide } from "@shared/api";
 import type {
   DesignSystemData,
@@ -16,6 +12,7 @@ import type {
 import { eq, lt } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
+import { readDeckLinkedDesignSystem } from "../../actions/_linked-design-system.js";
 import { getDb, schema } from "../db";
 import { slideRevealIssues } from "../lib/slide-reveal-issues.js";
 import { trackSlides } from "../lib/slides-tracking.js";
@@ -101,8 +98,8 @@ async function createShareLink(event: any, deckId: string, userEmail: string) {
   let designSystemData: string | null = null;
 
   if (typeof designSystemId === "string" && designSystemId.trim()) {
-    const designSystemAccess = await resolveAccess(
-      "design-system",
+    const designSystemAccess = await readDeckLinkedDesignSystem(
+      deckResource,
       designSystemId,
     );
     const rawData = designSystemAccess?.resource?.data;

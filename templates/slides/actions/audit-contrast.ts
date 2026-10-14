@@ -14,6 +14,7 @@ import {
   finalizeContrastAudit,
 } from "../shared/contrast-audit.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import { readDeckLinkedDesignSystem } from "./_linked-design-system.js";
 import { getCurrentRequestBrowserTabId } from "./_tab-state.js";
 
 const AUDIT_TIMEOUT_MS = 60_000;
@@ -61,7 +62,7 @@ export default defineAction({
     };
     const designSystemId = resolveDeckDesignSystemId(access.resource, data);
     const designSystemAccess = designSystemId
-      ? await resolveAccess("design-system", designSystemId)
+      ? await readDeckLinkedDesignSystem(access.resource, designSystemId)
       : null;
     const slides = Array.isArray(data.slides) ? data.slides : [];
     const requestedSlideIds = slideIds ? new Set(slideIds) : undefined;

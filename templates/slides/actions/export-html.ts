@@ -39,6 +39,7 @@ import {
   SLIDE_NUMBER_CSS,
   slideNumberInlineStyle,
 } from "../shared/slide-number.js";
+import { readDeckLinkedDesignSystem } from "./_linked-design-system.js";
 
 function safeCssToken(
   value: unknown,
@@ -674,8 +675,8 @@ export default defineAction({
     let designSystem: DesignSystemData | undefined;
     let builderTokenValues: Record<string, string> | undefined;
     if (typeof designSystemId === "string" && designSystemId.trim()) {
-      const designSystemAccess = await resolveAccess(
-        "design-system",
+      const designSystemAccess = await readDeckLinkedDesignSystem(
+        row,
         designSystemId,
       );
       const rawData = designSystemAccess?.resource?.data;
