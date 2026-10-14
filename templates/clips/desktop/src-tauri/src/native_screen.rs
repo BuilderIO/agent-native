@@ -1940,7 +1940,7 @@ fn refresh_selected_window_camera_capture(
         return Ok(false);
     }
     invalidate_camera_capture_restore_retry(&state);
-    let content = match align_camera_bubble_to_selected_window_inner(
+    if let Err(error) = align_camera_bubble_to_selected_window_inner(
         app,
         &state,
         target_window_id,
@@ -1949,14 +1949,17 @@ fn refresh_selected_window_camera_capture(
         false,
         content,
     ) {
-        Ok(content) => content,
-        Err(error) => {
-            if !can_refresh() {
-                return Ok(false);
-            }
-            return Err(error);
+        if !can_refresh() {
+            return Ok(false);
         }
-    };
+        return Err(error);
+    }
+    if !can_refresh() {
+        return Ok(false);
+    }
+
+    let content = SCShareableContent::get()
+        .map_err(|error| format!("shareable content lookup failed: {error:?}"))?;
     if !can_refresh() {
         return Ok(false);
     }
@@ -6472,6 +6475,12 @@ fn start_screencapturekit_recording(
             );
         }
     }
+    let prefetched_content = take_prefetched_shareable_content(target_display_id);
+    let prefetched_content = if include_camera_overlay && target_window_id.is_some() {
+        None
+    } else {
+        prefetched_content
+    };
     let (backend, width, height) = if use_custom_sck_pipeline {
         start_custom_screencapturekit_backend_at(
             app,
@@ -6491,7 +6500,7 @@ fn start_screencapturekit_recording(
             false,
             true,
             recording_flags.custom_sck_pipeline_live_upload_enabled,
-            take_prefetched_shareable_content(target_display_id),
+            prefetched_content,
         )?
     } else {
         start_screencapturekit_backend_at(
@@ -6509,7 +6518,7 @@ fn start_screencapturekit_recording(
             target_window_dimensions,
             capture_region,
             defer_recording_output,
-            take_prefetched_shareable_content(target_display_id),
+            prefetched_content,
         )?
     };
     let (fallback_width, fallback_height) = primary_monitor_size(app);
