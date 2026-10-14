@@ -454,7 +454,13 @@ function DictationCard({
   const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const cleanup = useActionMutation<
-    { cleanedText: string; cleanupVersion: number },
+    | { conflict: true; id: string }
+    | {
+        conflict: false;
+        id: string;
+        cleanedText: string;
+        cleanupVersion: number;
+      },
     { id: string }
   >("cleanup-dictation");
   const restoreCleanup = useActionMutation<
@@ -518,6 +524,13 @@ function DictationCard({
       { id: dictation.id },
       {
         onSuccess: (result) => {
+          if (result.conflict) {
+            toast.error(t("dictateRoute.cleanupFailed"));
+            void qc.invalidateQueries({
+              queryKey: ["action", "list-dictations"],
+            });
+            return;
+          }
           toast.success(t("dictateRoute.cleanupComplete"), {
             action: {
               label: t("dictateRoute.undoCleanup"),

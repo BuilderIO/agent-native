@@ -35,6 +35,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     kind: "sql",
@@ -75,6 +76,7 @@ describe("cleanup-dictation undo version", () => {
         id: "dictation_1",
         fullText: "Original text.",
         ownerEmail: "owner@example.com",
+        cleanupVersion: 3,
       },
     ]);
   });
@@ -84,6 +86,13 @@ describe("cleanup-dictation undo version", () => {
 
     const result = await cleanupDictation.run(args);
 
+    expect(mockUpdateWhere).toHaveBeenCalledWith({
+      kind: "and",
+      conditions: [
+        { kind: "eq", column: "dictations.id", value: "dictation_1" },
+        { kind: "eq", column: "dictations.cleanupVersion", value: 3 },
+      ],
+    });
     const update = mockUpdateSet.mock.calls[0]?.[0] as {
       cleanedText: string;
       cleanupVersion: unknown;
@@ -96,10 +105,31 @@ describe("cleanup-dictation undo version", () => {
     });
     expect(result).toMatchObject({
       id: "dictation_1",
+      conflict: false,
       cleanedText: "Cleaned text.",
       cleanupVersion: 4,
       provider: "test",
     });
     expect(mockWriteAppState).toHaveBeenCalledOnce();
+  });
+
+  it("reports a conflict when the dictation changed during cleanup", async () => {
+    mockUpdateReturning.mockResolvedValueOnce([]);
+    mockLimit
+      .mockResolvedValueOnce([
+        {
+          id: "dictation_1",
+          fullText: "Original text.",
+          ownerEmail: "owner@example.com",
+          cleanupVersion: 3,
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "dictation_1" }]);
+    const args = cleanupDictation.schema.parse({ id: "dictation_1" });
+
+    const result = await cleanupDictation.run(args);
+
+    expect(result).toEqual({ id: "dictation_1", conflict: true });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 });
