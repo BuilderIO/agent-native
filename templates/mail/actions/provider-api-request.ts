@@ -75,14 +75,49 @@ const PaginationSchema = z
 const GMAIL_LABEL_WRITE =
   /^users\/[^/]+\/(?:messages\/(?:batchModify|[^/]+\/(?:modify|trash|untrash))|threads\/[^/]+\/(?:modify|trash|untrash))$/;
 
-// Matched on the decoded, slash-collapsed path so `%6dodify`, `//users/...`
-// and `..` segments cannot slip past. A malformed encoding throws, and callers
-// treat a throwing gate as approval required.
+// The request URL parser turns `\` into `/` and resolves `..`, and the executor
+// sends encoded slashes literally. A segment is therefore matched only after it
+// is split and decoded on its own, and only if it is plain id characters, so
+// `%2f`, `%5c`, a backslash, or a dot segment can never reshape the path the
+// pattern below sees.
+const GMAIL_SAFE_SEGMENT = /^[A-Za-z0-9_.@+-]+$/;
+
+// An absolute URL counts only in the one form the executor reads as absolute
+// (`http(s)://`), on the Gmail REST host with no port or credentials. Any other
+// scheme-like prefix is not matched. A malformed encoding or URL throws, and
+// callers treat a throwing gate as approval required.
 function isReversibleGmailLabelWrite(method: string, path: string): boolean {
   if (method !== "POST") return false;
-  const [pathname = ""] = path.split(/[?#]/, 1);
-  const segments = decodeURIComponent(pathname).split("/").filter(Boolean);
-  if (segments.some((segment) => segment === "." || segment === "..")) {
+  let pathname: string;
+  if (/^https?:\/\//i.test(path)) {
+    const url = new URL(path);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "gmail.googleapis.com" ||
+      url.port !== "" ||
+      url.username !== "" ||
+      url.password !== ""
+    ) {
+      return false;
+    }
+    pathname = url.pathname;
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+    return false;
+  } else {
+    [pathname = ""] = path.split(/[?#]/, 1);
+  }
+  const segments = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeURIComponent(segment));
+  if (
+    segments.some(
+      (segment) =>
+        segment === "." ||
+        segment === ".." ||
+        !GMAIL_SAFE_SEGMENT.test(segment),
+    )
+  ) {
     return false;
   }
   if (segments[0] === "gmail" && segments[1] === "v1") segments.splice(0, 2);

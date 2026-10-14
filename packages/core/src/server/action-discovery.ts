@@ -1,12 +1,12 @@
 import nodePath from "node:path";
 
-import { ACTION_EXECUTION_KEY } from "../action.js";
 import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
+import { carryExecutionKey } from "./filesystem-action-entry.js";
 
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
@@ -164,15 +164,7 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.retrySafe = entry.retrySafe;
   }
-  // Without the key an app wrapper around `run` cannot be recognized as the
-  // same action, and every validation failure reads as an unknown write.
-  const executionKey = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
-  if (executionKey !== null && typeof executionKey === "object") {
-    Object.defineProperty(out, ACTION_EXECUTION_KEY, {
-      value: executionKey,
-      enumerable: true,
-    });
-  }
+  carryExecutionKey(entry, out);
   if (typeof entry.endsTurn === "boolean") {
     out.endsTurn = entry.endsTurn;
   }

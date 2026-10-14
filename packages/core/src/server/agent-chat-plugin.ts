@@ -271,6 +271,7 @@ import {
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
+import { filesystemActionEntry } from "./filesystem-action-entry.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -1552,23 +1553,7 @@ export function createAgentChatPlugin(
                     ? mod.default
                     : mod;
                 if (def?.tool && typeof def.run === "function") {
-                  discoveredActionsAll[name] = {
-                    tool: def.tool,
-                    run: def.run,
-                    ...(def.http !== undefined ? { http: def.http } : {}),
-                    ...(typeof def.agentTool === "boolean"
-                      ? { agentTool: def.agentTool }
-                      : {}),
-                    ...(typeof def.retrySafe === "boolean" ||
-                    typeof def.retrySafe === "function"
-                      ? { retrySafe: def.retrySafe }
-                      : {}),
-                    ...(def.chatUI &&
-                    typeof def.chatUI === "object" &&
-                    !Array.isArray(def.chatUI)
-                      ? { chatUI: def.chatUI }
-                      : {}),
-                  };
+                  discoveredActionsAll[name] = filesystemActionEntry(def);
                   continue;
                 }
               } catch {

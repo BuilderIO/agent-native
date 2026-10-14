@@ -231,6 +231,15 @@ export function createQueryStagedDatasetAction<
         );
       }
       const rows = await runtime.getRows({ id: datasetId, ...scope });
+      // Metadata and rows are separate reads. An eviction or re-stage between
+      // them would answer from this metadata with no rows, or another
+      // version's rows, and read as a valid result.
+      const current = await runtime.getMeta({ id: datasetId, ...scope });
+      if (!current || current.updatedAt !== meta.updatedAt) {
+        throw new Error(
+          `Dataset ${datasetId} was evicted or replaced while it was being read. Stage it again and rerun the query.`,
+        );
+      }
       const result = runtime.aggregate(rows, {
         where: args.where,
         groupBy: args.groupBy,

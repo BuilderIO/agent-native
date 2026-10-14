@@ -58,6 +58,18 @@ describe("provider-api-request approval gate", () => {
     ["POST", "/users/me/messages/abc123/untrash"],
     ["POST", "/users/me/threads/thread-1/trash"],
     ["POST", "/users/me/messages/abc123/modify?alt=json"],
+    [
+      "POST",
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/abc123/modify",
+    ],
+    [
+      "POST",
+      "https://gmail.googleapis.com/gmail/v1/users/me/threads/thread-1/trash?alt=json",
+    ],
+    [
+      "POST",
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify",
+    ],
     ["GET", "/users/me/messages/send"],
     ["HEAD", "/users/me/drafts/send"],
   ])(
@@ -84,6 +96,44 @@ describe("provider-api-request approval gate", () => {
     ["POST", "/users/me/messages/%73end"],
     ["POST", "/users/me/messages/abc123/%6dodify/../send"],
     ["POST", "/users/me/messages/abc123/modify/../../send"],
+    ["POST", "https://evil.example/gmail/v1/users/me/messages/abc123/modify"],
+    [
+      "POST",
+      "http://gmail.googleapis.com/gmail/v1/users/me/messages/abc123/modify",
+    ],
+    [
+      "POST",
+      "https://gmail.googleapis.com@evil.example/gmail/v1/users/me/messages/abc123/modify",
+    ],
+    [
+      "POST",
+      "https://www.googleapis.com/gmail/v1/users/me/messages/abc123/modify",
+    ],
+    [
+      "POST",
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/abc123/modify/../../send",
+    ],
+    [
+      "POST",
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/abc123/%2e%2e/send",
+    ],
+    ["POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/abc123"],
+    ["POST", "/users/me/messages/x\\..\\..\\..\\send/trash"],
+    ["POST", "/users/me/messages/x%5c..%5csend/trash"],
+    ["POST", "/users%2fme%2fmessages%2fx%2ftrash"],
+    [
+      "POST",
+      "https://gmail.googleapis.com:8443/gmail/v1/users/me/messages/abc123/modify",
+    ],
+    [
+      "POST",
+      "https://user:secret@gmail.googleapis.com/gmail/v1/users/me/messages/abc123/modify",
+    ],
+    ["POST", "https:gmail.googleapis.com/users/me/messages/abc123/trash"],
+    [
+      "POST",
+      "https:\\\\gmail.googleapis.com\\users\\me\\messages\\abc123\\trash",
+    ],
     ["POST", "/users/me/drafts/send"],
     ["POST", "/users/me/drafts"],
     ["PUT", "/users/me/drafts/draft-1"],
@@ -204,5 +254,14 @@ describe("provider-api-request approval gate", () => {
         "automation",
       ),
     ).rejects.toThrow(URIError);
+  });
+
+  it("throws on an unparseable absolute URL so callers fail closed", async () => {
+    await expect(
+      gate(
+        { provider: "gmail", method: "POST", path: "https://" },
+        "automation",
+      ),
+    ).rejects.toThrow(TypeError);
   });
 });
