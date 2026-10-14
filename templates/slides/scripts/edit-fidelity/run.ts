@@ -30,6 +30,7 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
+  isExpectedCleanupRecoveryPageBrowserSessionError,
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
@@ -5557,7 +5558,20 @@ async function runAuthoringFuzzQa(
       { page: Page; startedAt: number }
     >();
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
+    const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
+    const failedCleanupBrowserSessionClaims: Array<{
+      page: Page;
+      url: string;
+      pathname: string;
+      method: string;
+      startedAt: number;
+      failedAt: number;
+      sameOrigin: boolean;
+      sequence: number;
+    }> = [];
+    let cleanupClaimSequence = 0;
     let cleanupNavigationStarted = false;
+    let cleanupNavigationPage: Page | null = null;
     let cleanupNavigationCompetingClaimStarted = false;
     let cleanupNavigationCompetingRegistrationStarted = false;
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
@@ -5589,6 +5603,10 @@ async function runAuthoringFuzzQa(
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
+        if (isBrowserSessionClaimRequest(request)) {
+          cleanupClaimSequence += 1;
+          cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
+        }
         if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
           if (isBrowserSessionClaimRequest(request)) {
@@ -5613,6 +5631,20 @@ async function runAuthoringFuzzQa(
         cleanupRequestStartTimes.delete(request);
       };
       const onRequestFailed = (request: any) => {
+        const started = cleanupRequestStartTimes.get(request);
+        if (started && isBrowserSessionClaimRequest(request)) {
+          const requestUrl = new URL(request.url());
+          failedCleanupBrowserSessionClaims.push({
+            page: target,
+            url: request.url(),
+            pathname: requestUrl.pathname,
+            method: request.method(),
+            startedAt: started.startedAt,
+            failedAt: Date.now(),
+            sameOrigin: requestUrl.origin === new URL(base).origin,
+            sequence: cleanupClaimSequenceByRequest.get(request) ?? 0,
+          });
+        }
         recordCleanupRequestOutcome(
           cleanupRequestFinishedAt,
           request,
@@ -5630,6 +5662,7 @@ async function runAuthoringFuzzQa(
         onRequestFailed,
       });
     };
+    trackCleanupRequests(stableCleanupPage);
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5800,6 +5833,14 @@ async function runAuthoringFuzzQa(
       const cleanupErrors: string[] = [];
       const pendingCleanupConsoleInspections = new Set<Promise<void>>();
       const monitoredPages = new Set<Page>();
+      const cleanupPageListeners = new Map<
+        Page,
+        {
+          onConsole: (message: any) => void;
+          onPageError: (error: Error) => void;
+          onResponse: (response: { status(): number; url(): string }) => void;
+        }
+      >();
       const recoveryPages = new Set<Page>();
       let cleanupNavigationCandidates: Array<{
         request: any;
@@ -5855,15 +5896,48 @@ async function runAuthoringFuzzQa(
           },
         );
       };
+      const navigationCandidatesFor = (target: Page) =>
+        target === cleanupNavigationPage
+          ? getCleanupNavigationCandidates()
+          : [];
+      const recoveryPollCandidatesFor = (target: Page, now = Date.now()) => {
+        for (
+          let index = failedCleanupBrowserSessionClaims.length - 1;
+          index >= 0;
+          index -= 1
+        ) {
+          if (now - failedCleanupBrowserSessionClaims[index].failedAt > 250) {
+            failedCleanupBrowserSessionClaims.splice(index, 1);
+          }
+        }
+        return failedCleanupBrowserSessionClaims
+          .filter((candidate) => candidate.page === target)
+          .map((candidate) => ({
+            url: candidate.url,
+            pathname: candidate.pathname,
+            method: candidate.method,
+            requestAgeMs: now - candidate.startedAt,
+            failureAgeMs: now - candidate.failedAt,
+            sameOrigin: candidate.sameOrigin,
+            competingClaimStartedAfterFailure:
+              cleanupClaimSequence > candidate.sequence,
+          }));
+      };
       const isExpectedCleanupNavigationError = (
+        target: Page,
         message: string,
-        candidates = getCleanupNavigationCandidates(),
-        navigationStarted = cleanupNavigationStarted,
       ) => {
-        return isExpectedCleanupNavigationRequestError(
-          message,
-          candidates,
-          navigationStarted,
+        return (
+          isExpectedCleanupNavigationRequestError(
+            message,
+            navigationCandidatesFor(target),
+            cleanupNavigationStarted && target === cleanupNavigationPage,
+          ) ||
+          (target !== page &&
+            isExpectedCleanupRecoveryPageBrowserSessionError(
+              message,
+              recoveryPollCandidatesFor(target),
+            ))
         );
       };
       if (authoringSucceeded && page && !page.isClosed()) {
@@ -5878,58 +5952,47 @@ async function runAuthoringFuzzQa(
           );
         }
       }
-      const onConsole = (message: any) => {
-        if (message.type() === "error") {
+      const monitorCleanupPage = (target: Page) => {
+        if (!authoringSucceeded || monitoredPages.has(target)) return;
+        trackCleanupRequests(target);
+        const onConsole = (message: any) => {
+          if (message.type() !== "error") return;
           const text = message.text();
-          if (
-            !cleanupNavigationStarted ||
-            !isFirefoxBrowserSessionConsoleError(text)
-          ) {
-            if (isExpectedCleanupNavigationError(text)) return;
-            cleanupErrors.push(`console: ${text}`);
+          const shouldIgnore = (normalized: string) =>
+            isExpectedCleanupNavigationError(target, normalized);
+          if (!isFirefoxBrowserSessionConsoleError(text)) {
+            if (!shouldIgnore(text)) cleanupErrors.push(`console: ${text}`);
             return;
           }
-          const candidatesAtEvent = getCleanupNavigationCandidates();
-          const navigationStartedAtEvent = cleanupNavigationStarted;
           let inspection: Promise<void>;
           inspection = normalizeFirefoxBrowserSessionConsoleError(message)
             .then((normalized) => {
-              if (
-                isExpectedCleanupNavigationError(
-                  normalized,
-                  candidatesAtEvent,
-                  navigationStartedAtEvent,
-                )
-              ) {
-                return;
-              }
-              cleanupErrors.push(`console: ${normalized}`);
+              if (!shouldIgnore(normalized))
+                cleanupErrors.push(`console: ${normalized}`);
             })
             .catch((error: unknown) => {
               cleanupErrors.push(`console: ${text} (${String(error)})`);
             })
             .finally(() => pendingCleanupConsoleInspections.delete(inspection));
           pendingCleanupConsoleInspections.add(inspection);
-        }
-      };
-      const onPageError = (error: Error) => {
-        if (isExpectedCleanupNavigationError(error.message)) return;
-        cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
-      };
-      const onResponse = (response: { status(): number; url(): string }) => {
-        if (response.status() >= 400) {
-          cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
-        }
-      };
-      const monitorCleanupPage = (target: Page) => {
-        if (!authoringSucceeded || monitoredPages.has(target)) return;
-        trackCleanupRequests(target);
-        // The warm home page can have an unrelated host-session poll.
-        if (target === page) {
-          target.on("console", onConsole);
-          target.on("pageerror", onPageError);
-        }
+        };
+        const onPageError = (error: Error) => {
+          if (isExpectedCleanupNavigationError(target, error.message)) return;
+          cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
+        };
+        const onResponse = (response: { status(): number; url(): string }) => {
+          if (response.status() >= 400) {
+            cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
+          }
+        };
+        target.on("console", onConsole);
+        target.on("pageerror", onPageError);
         target.on("response", onResponse);
+        cleanupPageListeners.set(target, {
+          onConsole,
+          onPageError,
+          onResponse,
+        });
         monitoredPages.add(target);
       };
       const getCleanupPage = async (): Promise<Page> => {
@@ -6089,6 +6152,7 @@ async function runAuthoringFuzzQa(
               cleanupUrl.origin !== homeUrl.origin ||
               cleanupUrl.pathname !== homeUrl.pathname
             ) {
+              cleanupNavigationPage = cleanupPage;
               cleanupNavigationStarted = true;
               await cleanupPage.goto(`${base}/home`, {
                 waitUntil: "domcontentloaded",
@@ -6108,9 +6172,11 @@ async function runAuthoringFuzzQa(
       } finally {
         for (const monitoredPage of monitoredPages) {
           if (monitoredPage.isClosed()) continue;
-          monitoredPage.off("console", onConsole);
-          monitoredPage.off("pageerror", onPageError);
-          monitoredPage.off("response", onResponse);
+          const listeners = cleanupPageListeners.get(monitoredPage);
+          if (!listeners) continue;
+          monitoredPage.off("console", listeners.onConsole);
+          monitoredPage.off("pageerror", listeners.onPageError);
+          monitoredPage.off("response", listeners.onResponse);
         }
         for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
           if (trackedPage.isClosed()) continue;

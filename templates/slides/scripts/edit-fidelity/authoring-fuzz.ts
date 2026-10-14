@@ -1166,6 +1166,49 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   );
 }
 
+export function isExpectedCleanupRecoveryPageBrowserSessionError(
+  message: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    requestAgeMs: number;
+    failureAgeMs: number;
+    sameOrigin: boolean;
+    competingClaimStartedAfterFailure: boolean;
+  }>,
+) {
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  const knownFailure =
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" ||
+    message === "TypeError: Load failed" ||
+    message === "TypeError: Failed to fetch" ||
+    message === "NetworkError when attempting to fetch resource." ||
+    corsUrl !== null;
+  if (!knownFailure) return false;
+
+  return (
+    candidates.filter(
+      (candidate) =>
+        candidate.method === "POST" &&
+        /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+          candidate.pathname,
+        ) &&
+        candidate.sameOrigin &&
+        !candidate.competingClaimStartedAfterFailure &&
+        candidate.requestAgeMs >= 0 &&
+        candidate.requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
+        candidate.failureAgeMs >= 0 &&
+        candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
+        (corsUrl === null || candidate.url === corsUrl),
+    ).length === 1
+  );
+}
+
 export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
@@ -4684,6 +4727,30 @@ export async function runAuthoringFuzz(
               hoveredBackground: hoveredOption
                 ? getComputedStyle(hoveredOption).backgroundColor
                 : null,
+              backgroundDifference: (() => {
+                const channels = (value: string | null) =>
+                  value
+                    ?.match(/[\d.]+/g)
+                    ?.slice(0, 3)
+                    .map(Number) ?? null;
+                const active = channels(
+                  activeOption
+                    ? getComputedStyle(activeOption).backgroundColor
+                    : null,
+                );
+                const hovered = channels(
+                  hoveredOption
+                    ? getComputedStyle(hoveredOption).backgroundColor
+                    : null,
+                );
+                return active && hovered
+                  ? Math.max(
+                      ...active.map((channel, index) =>
+                        Math.abs(channel - hovered[index]),
+                      ),
+                    )
+                  : null;
+              })(),
             };
           });
           if (
@@ -4694,10 +4761,11 @@ export async function runAuthoringFuzz(
             hoverState.hoveredCommand === initialCommand ||
             !hoverState.activeBackground ||
             !hoverState.hoveredBackground ||
-            hoverState.activeBackground === hoverState.hoveredBackground
+            hoverState.backgroundDifference === null ||
+            hoverState.backgroundDifference < 24
           ) {
             throw new Error(
-              `slash menu hover changed or obscured keyboard selection in ${theme} theme (${JSON.stringify({ initialCommand, hoverState })})`,
+              `slash menu hover changed or lacks clear contrast from keyboard selection in ${theme} theme (${JSON.stringify({ initialCommand, hoverState })})`,
             );
           }
         }

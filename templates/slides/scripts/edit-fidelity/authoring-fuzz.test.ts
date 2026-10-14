@@ -43,6 +43,7 @@ import {
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
+  isExpectedCleanupRecoveryPageBrowserSessionError,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
@@ -1688,6 +1689,63 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError("another poll error", [
       candidate,
+    ]),
+  ).toBe(false);
+});
+
+it("filters only a correlated failed browser-session claim on a cleanup recovery page", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    requestAgeMs: 100,
+    failureAgeMs: 20,
+    sameOrigin: true,
+    competingClaimStartedAfterFailure: false,
+  };
+
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, competingClaimStartedAfterFailure: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, failureAgeMs: 251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, pathname: "/_agent-native/actions/delete-deck" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/delete-deck due to access control checks.",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+      { ...candidate, requestAgeMs: 110 },
     ]),
   ).toBe(false);
 });

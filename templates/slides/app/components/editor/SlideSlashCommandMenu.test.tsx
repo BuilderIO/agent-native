@@ -832,7 +832,7 @@ describe("slide slash command menu", () => {
     const heading1 = screen.getByRole("option", { name: /Heading 1/ });
     const heading3 = screen.getByRole("option", { name: /Heading 3/ });
 
-    expect(heading3.className).toContain("hover:bg-primary/10");
+    expect(heading3.className).toContain("hover:bg-foreground/20");
     expect(heading3.className).toContain("hover:text-foreground");
     expect(heading3.className).not.toContain("hover:bg-accent");
     expect(heading3.className).not.toContain("hover:text-accent-foreground");

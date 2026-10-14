@@ -658,7 +658,7 @@ export function SlideSlashCommandMenu({
                       value={item.kind}
                       onMouseDown={(event) => event.preventDefault()}
                       onPointerDown={(event) => event.preventDefault()}
-                      className="hover:bg-primary/10 hover:text-foreground"
+                      className="hover:bg-foreground/20 hover:text-foreground"
                       onSelect={() => {
                         applyAuthoringCommand(
                           item.kind,
