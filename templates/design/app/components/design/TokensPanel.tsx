@@ -576,7 +576,10 @@ function DraftTokenRow({
         LAYER_ROW_GEOMETRY_CLASS,
       )}
       onBlur={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        if (
+          !document.hasFocus() ||
+          event.currentTarget.contains(event.relatedTarget as Node | null)
+        ) {
           return;
         }
         onCommit();
@@ -621,7 +624,8 @@ interface ImportTokensMenuProps {
 }
 
 const DTCG_ACCEPT = ".json,.tokens";
-const CSS_OR_TAILWIND_ACCEPT = ".css,.scss,.less,.js,.cjs,.mjs,.ts";
+const CSS_OR_TAILWIND_ACCEPT =
+  ".css,.scss,.less,.js,.cjs,.mjs,.jsx,.ts,.tsx,.html,.htm,.md,.mdx,.txt";
 
 function ImportTokensMenu({ onImport, isPending }: ImportTokensMenuProps) {
   const t = useT();
