@@ -3688,7 +3688,7 @@ export async function compileSourceIndex(
       manifestPath: options.sigmaReviewedManifest,
       ...credentials,
     });
-    // Sigma freshness comes from the latest reviewed workbook update metadata.
+    // Sigma uses the oldest reviewed workbook update as its freshness marker.
     // The bundle timestamp stays pinned to dbt; Git-backed roots keep their
     // individual commit timestamps above.
     sources.push({ ...sigma.source, sourceKind: "sigma" });
