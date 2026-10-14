@@ -2327,13 +2327,18 @@ pub async fn native_fullscreen_recording_begin(
             crate::remote_flags::spawn_refresh(app.clone());
         }
 
+        let selected_window = crate::state::SelectedRecordingWindow::get(&app);
         let is_warmed = {
             let guard = state.inner.lock().map_err(|e| e.to_string())?;
             let generation = state.warm_generation.load(Ordering::SeqCst);
             guard.as_ref().is_some_and(|session| {
-                session.pending_recording_output
-                    && session.restart.alignment_generation == generation
-                    && session.restart.safe_id == sanitize_recording_id(&recording_id)
+                should_reuse_warmed_native_session(
+                    session,
+                    &sanitize_recording_id(&recording_id),
+                    generation,
+                    include_camera_overlay,
+                    selected_window.map(|selection| selection.window_id),
+                )
             })
         };
         if !is_warmed {
@@ -2341,6 +2346,25 @@ pub async fn native_fullscreen_recording_begin(
                 .warm_generation
                 .fetch_add(1, Ordering::SeqCst)
                 .wrapping_add(1);
+            let pending_warm_session = {
+                let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+                if guard
+                    .as_ref()
+                    .is_some_and(|session| session.pending_recording_output)
+                {
+                    guard.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(mut pending_warm_session) = pending_warm_session {
+                restore_camera_bubble_alignment(
+                    &app,
+                    &state,
+                    Some(pending_warm_session.restart.alignment_generation),
+                );
+                discard_session(&mut pending_warm_session);
+            }
             let info = start_native_session_locked(
                 &app,
                 &state,
@@ -3041,6 +3065,23 @@ fn should_discard_cancelled_native_session(
     session.pending_recording_output || session.restart.alignment_generation == cancelled_generation
 }
 
+fn should_reuse_warmed_native_session(
+    session: &NativeFullscreenSession,
+    recording_id: &str,
+    generation: u64,
+    include_camera_overlay: bool,
+    selected_window_id: Option<u32>,
+) -> bool {
+    let selected_window_camera_capture = include_camera_overlay
+        && (selected_window_id.is_some() || session.restart.target_window_id.is_some());
+    session.pending_recording_output
+        && session.restart.alignment_generation == generation
+        && session.restart.safe_id == recording_id
+        && session.restart.include_camera_overlay == include_camera_overlay
+        && session.restart.target_window_id == selected_window_id
+        && !selected_window_camera_capture
+}
+
 #[tauri::command]
 pub async fn native_fullscreen_recording_pause(
     app: AppHandle,
@@ -3669,6 +3710,24 @@ mod detached_discard_tests {
 
         assert!(!should_discard_cancelled_native_session(&session, 5));
         assert!(should_discard_cancelled_native_session(&session, 4));
+    }
+
+    #[test]
+    fn selected_window_camera_capture_refreshes_the_warmed_crop_after_countdown() {
+        let mut session = hardware_free_session(PathBuf::from("warmed.mp4"), Vec::new());
+        session.pending_recording_output = true;
+        session.restart.safe_id = "test".to_string();
+        session.restart.alignment_generation = 4;
+        session.restart.include_camera_overlay = true;
+        session.restart.target_window_id = Some(12);
+
+        assert!(!should_reuse_warmed_native_session(
+            &session,
+            "test",
+            4,
+            true,
+            Some(12)
+        ));
     }
 
     #[test]
