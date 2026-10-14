@@ -1,0 +1,43 @@
+slug: see-what-your-coding-agent-plans
+job_id: job-agent-plan-review
+app: plans
+audience: technical
+title: "See what your AI coding agent plans to build"
+subhead: "Review your agent's approach as diagrams, wireframes, and annotated code before it changes anything. Comment on the plan and ask the agent to revise it."
+meta_description: "Review your coding agent's plan with diagrams, wireframes, and comments before it writes code. Free, open-source Plans for Claude Code and Codex from Agent-Native."
+cta_label: "Plan visually"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://plan.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "A visual plan in Plans showing screen wireframes next to the written plan"
+screenshot_brief: "Frame from product video: a visual plan with a canvas of screens on the left and the written plan on the right, ideally with a comment pinned to one screen."
+old_way:
+  heading: "How most people do it today"
+  body: "Your agent writes a plan as a wall of text in a terminal. You skim it, say it looks fine, and find the misunderstanding later, in the diff."
+new_way:
+  heading: "How it works in Plans"
+  steps:
+    - "Add the planning skills to your coding agent with the install command from the Plans page, then complete the authentication step for your client. The guide covers Claude Code and Codex."
+    - "Ask your agent for a visual plan. Review the diagrams, wireframes, and annotated code."
+    - "Comment on the text or pin feedback to a visual, then ask the agent to read the comments and revise the plan."
+story: null
+faqs:
+  - q: "What is Agent-Native Plans?"
+    a: "Agent-Native Plans is a free and open-source visual planning tool for AI coding agents. Review implementation plans with diagrams, wireframes, annotated code, and comments, or generate visual recaps of completed changes."
+  - q: "Can my agent revise a plan based on my comments?"
+    a: "Yes. Leave comments on the text or pin them to a visual, then ask your agent to read and address the feedback. It can update the plan and reply to review threads. This supports your review process. It does not automatically stop the agent from changing code."
+  - q: "Where are plans saved, and can I share them?"
+    a: "The default installation connects your agent to the hosted Plans app. New hosted plans are private until you share them. Teammates can review shared plans in the browser, and commenting requires an account. Local workflows are also available through the setup guide."
+  - q: "Is Plans free?"
+    a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Review your next plan visually"
+cta_band_subhead: "Ask your agent for a plan, then work through the details together."
+updated: 2026-10-14
+internal:
+  job: "Review a coding agent's approach before it builds"
+  recurs_when: "Every feature or refactor"
+  first_session: "Install the skill, get one visual plan"
+  return_signal: "Second plan within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "technical design document (US 350/mo, KD 5); technical design document template (200); technical design document example (90); architecture diagram examples (200). About 900/mo, so this page is about the audience more than the keywords."
+  basis: "hypothesis (the clearest fit for technical builders)"
+  verify: "Install command and supported clients against the Plans page. Check what 'claude code plan' searchers mean before targeting it (its parent topic is Claude pricing)."

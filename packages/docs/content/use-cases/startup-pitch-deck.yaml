@@ -1,0 +1,46 @@
+slug: startup-pitch-deck
+job_id: job-pitch-deck
+app: slides
+audience: gtm-ops
+title: "A startup pitch deck, drafted from your brief"
+subhead: "Give Slides your brief and your numbers. It drafts an on-brand pitch deck, and you edit it slide by slide before you share it or export it to PowerPoint."
+meta_description: "Draft a startup pitch deck from your brief, apply your brand, edit slide by slide, then share a link or export to PowerPoint. Free, open-source Slides from Agent-Native."
+cta_label: "Create a deck"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://slides.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "A pitch deck draft in the Slides editor with brand applied and the agent chat open"
+screenshot_brief: "Frame from product video: the Slides editor with an investor deck draft, a brand applied, and the agent chat showing a prompt that turns a brief into a deck."
+old_way:
+  heading: "How most people do it today"
+  body: "You start from a template, paste in last round's slides, and restyle everything by hand. Then each investor conversation sends you back in to rework it."
+new_way:
+  heading: "How it works in Slides"
+  steps:
+    - "Attach your product brief, your notes, or an existing deck as reference material, and say who the deck is for."
+    - "Apply your brand with a design system. Edit text, layout, and styling on the slide, or select text and ask the agent to revise it."
+    - "Share a viewing link, present full-screen with speaker notes, or export a PowerPoint file."
+story: null
+faqs:
+  - q: "Can Slides make a pitch deck?"
+    a: "Yes. Slides can turn a product brief into a deck for prospects or investors."
+  - q: "Does it write the content for me?"
+    a: "Slides drafts from the material you give it. Check every claim and number before you send it."
+  - q: "Can I use my own brand colors, fonts, and logo?"
+    a: "Yes. Apply a design system with your brand's colors, typography, and logos, then reuse it across decks."
+  - q: "Can I use the deck in PowerPoint or Google Slides?"
+    a: "Export a PPTX file to open in PowerPoint. To use it in Google Slides, import that file there. Review fonts and layouts after export because they can render differently between editors."
+  - q: "Is Slides free?"
+    a: "Yes. Slides is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Draft your next pitch deck"
+cta_band_subhead: "Bring a brief and your brand. Edit the draft, then send it."
+updated: 2026-10-14
+internal:
+  job: "Startup pitch deck, iterated after each investor conversation"
+  recurs_when: "Per round, iterated"
+  first_session: "Prompt to deck, brand applied"
+  return_signal: "Second deck within 14 days (proposal, confirm with Alice and Michael)"
+  target_terms: "pitch deck template (US 3,400/mo, KD 16); startup pitch deck (500, KD 10); startup pitch deck template (300); seed round pitch deck (150); ai pitch deck maker (150, KD 51, converts on paid). About 4,600/mo."
+  basis: "search signal (ai pitch deck maker converts); hypothesis for recurrence"
+  note: "Side test, GTM. Steve ranks Slides lowest of the apps, so this is the one Slides page in Wave 1."
+  verify: "Pitch decks are episodic, not recurring. Treat as acquisition into Slides."

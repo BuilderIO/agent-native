@@ -1,0 +1,45 @@
+slug: design-brief-to-prototype
+job_id: job-design-brief
+app: design
+audience: technical
+title: "Turn a design brief into an interactive prototype"
+subhead: "Paste the brief. Design drafts an interactive HTML prototype, shows a few directions side by side, and lets you edit them yourself."
+meta_description: "Turn a design brief into an interactive prototype, compare directions side by side, and export the HTML. Free, open-source Design from Agent-Native."
+cta_label: "Design for free"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://design.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "Two design directions for the same brief side by side on the Design canvas"
+screenshot_brief: "Frame from product video: the Design canvas with two variants generated from one brief side by side, with the agent chat showing the brief."
+old_way:
+  heading: "How most people do it today"
+  body: "A design brief is a document. People agree with it, and then the first thing anyone can actually react to shows up after someone has interpreted it. Reacting to a brief isn't the same as clicking through something."
+new_way:
+  heading: "How it works in Design"
+  steps:
+    - "Paste the brief: the goal, the audience, the constraints, and any brand rules. Link a design system if you have one."
+    - "Ask for a few directions. Design shows them side by side on the canvas."
+    - "Refine the one you like with visual controls or by asking the agent. Pin comments to elements, then export HTML or a ZIP of the files."
+story: null
+faqs:
+  - q: "What is a design brief?"
+    a: "A design brief says what you're making, who it's for, and the limits it has to work within. Design starts from that and produces an interactive HTML prototype."
+  - q: "Can I use my own design system?"
+    a: "Yes. Link a design system to guide colors, typography, styling, and brand instructions. You can reuse it across designs."
+  - q: "Can I edit the prototype after AI generates it?"
+    a: "Yes. Adjust text, spacing, and styling with visual controls, or ask the AI agent to change the design. You can compare different directions and keep refining the one you choose."
+  - q: "Is the prototype a finished app or page?"
+    a: "No. It's a starting point. Application logic, integrations, testing, and deployment still need implementation and review. HTML exports may use external runtime resources."
+  - q: "Is Design free?"
+    a: "Yes. Design is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Turn your next brief into something clickable"
+cta_band_subhead: "Paste the brief. Compare a few directions. Export the one you pick."
+updated: 2026-10-14
+internal:
+  job: "Turn a design brief into an interactive prototype"
+  recurs_when: "Every project"
+  first_session: "Paste a brief, compare variants"
+  return_signal: "Second prototype within 14 days (proposal, confirm with Alice and Michael)"
+  target_terms: "what is a design brief (US 2,000/mo, KD 0); design brief example (900); design brief template (700); design brief definition (450); design brief generator (200). Cluster about 7,400/mo."
+  basis: "hypothesis (Design retains best of the apps; Design page example turns a brief into a prototype)"
+  verify: "Much of the 'design brief' demand is graphic design (logos, branding). Write for web and product briefs and watch bounce."

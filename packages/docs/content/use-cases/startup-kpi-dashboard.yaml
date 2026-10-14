@@ -1,0 +1,50 @@
+slug: startup-kpi-dashboard
+job_id: job-kpi-dashboard
+app: analytics
+audience: technical
+title: "A startup KPI dashboard you can ask questions of"
+subhead: "Connect your data, ask for the charts you need in plain English, and keep them in reusable dashboards. The agent writes the SQL."
+meta_description: "Connect your data, ask questions in plain English, and build reusable KPI dashboards while the agent writes the SQL. Free, open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "An Analytics dashboard with metric cards and a chart, and the agent chat open"
+screenshot_brief: "Frame from product video: an Analytics dashboard with metric cards and a trend chart, and the agent chat answering a question."
+old_way:
+  heading: "How most people do it today"
+  body: "The metrics live in a spreadsheet someone rebuilds every month, or in an analytics tool only a few people know how to query. Everyone else asks a question and waits."
+replaces:
+  - "Amplitude"
+  - "Mixpanel"
+  - "Looker"
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect a data source. Analytics has connectors for services like Stripe, HubSpot, and BigQuery."
+    - "Ask a question in plain English, like how many signups you got last week. The agent writes and validates the SQL and returns a chart, table, or metric."
+    - "Save it as a dashboard with filters and saved views, and share it with specific people or your whole organization."
+story: null
+faqs:
+  - q: "What is Agent-Native Analytics?"
+    a: "Agent-Native Analytics is an open-source app for asking analytics questions in plain English and getting charts, dashboards, and re-runnable investigations back. You own the code, the queries, and the data."
+  - q: "Which data sources can I connect?"
+    a: "Analytics includes connectors for services like BigQuery, GA4, Mixpanel, Amplitude, PostHog, HubSpot, Stripe, GitHub, Jira, and more, plus a built-in first-party event collector. The agent can write new connectors on request."
+  - q: "Do I need to write SQL?"
+    a: "No. The agent writes and validates the SQL for you. You can also use the SQL query explorer if you want to run queries directly."
+  - q: "Can I trust the numbers?"
+    a: "Check a few answers against a source you already trust before you rely on them. The agent works from your data and a data dictionary, so clear column names and definitions help."
+  - q: "Who can see my dashboards?"
+    a: "You can share dashboards per user or per organization with viewer, editor, or admin roles."
+cta_band_heading: "Build your first dashboard"
+cta_band_subhead: "Connect your data and ask a question."
+updated: 2026-10-14
+internal:
+  job: "A KPI dashboard for a SaaS or startup that you can ask questions of"
+  recurs_when: "Weekly"
+  first_session: "Connect one source, ask one question, save a dashboard"
+  return_signal: "Second dashboard or saved question within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "saas metrics dashboard (US 250/mo, KD 3); most important saas metrics (200); startup kpi dashboard (150); saas kpi dashboard (150); churn dashboard (140). About 1,900/mo."
+  basis: "hypothesis (fits the startup-raising persona Shawn described)"
+  replaces_source: "Analytics page: open-source alternative to Amplitude, Mixpanel and Looker. Analytics README: alternative to Amplitude and FullStory."
+  verify: "Which connectors work reliably today. Steve noted people still hit 'chat stopped' errors in the apps. 'Free' is stated on the apps index, not on the Analytics page itself."

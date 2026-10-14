@@ -1,0 +1,47 @@
+slug: bug-reports-with-console-logs
+job_id: job-bug-report
+app: clips
+audience: technical
+title: "Bug reports your engineers and coding agents can act on"
+subhead: "Record the bug once. With the Clips Chrome extension, the console errors and failed requests come along with the video, so nobody has to ask you to open DevTools."
+meta_description: "Record a bug with its console errors and failed requests, then share one link an engineer or coding agent can use. Free, open-source Clips from Agent-Native."
+cta_label: "Record a clip"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://clips.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "A Clips recording of a bug with the agent hand-off options shown on the clip page"
+screenshot_brief: "Frame from product video: a clip page for a bug recording, with Copy agent prompt / Open in Claude / Open in Claude Code / Open in Codex visible. Ideally with the console or network log in view, if the UI shows it."
+old_way:
+  heading: "How most people do it today"
+  body: "You hit the bug, take a screenshot, and write the steps from memory. Then the reply comes back: can you send the console output? So you reopen DevTools, hunt for the right error, and paste it into the ticket. If a coding agent picks it up, it sees only what you pasted. It never sees the moment things broke."
+new_way:
+  heading: "How it works in Clips"
+  steps:
+    - "Record the bug in your browser and say what you expected as you go. Connect Builder or your own storage so the recording uploads and gets a share link."
+    - "Stop. Clips transcribes the recording. With the Chrome extension, it also captures console errors and failed requests from the tab you recorded."
+    - "Share the link. People watch the video. Your agent gets the transcript and timestamped images, and you can open the clip in Claude, Claude Code, or Codex from the clip page."
+story: null
+faqs:
+  - q: "Do I need the Chrome extension to record a bug?"
+    a: "No. You can record in the Clips web app. Use the Chrome extension when you also want console messages and network diagnostics from the tab you're demonstrating."
+  - q: "What does the extension capture?"
+    a: "Console errors and failed network requests, redacted. It never captures headers, bodies, or cookies."
+  - q: "Do I need to connect storage?"
+    a: "Clips needs somewhere to store recordings. Connect Builder or your own storage so recordings upload and get a share link. Without one, Clips offers the recording as a download."
+  - q: "Can an AI agent use my recording?"
+    a: "Compatible AI agents understand a recording through its transcript and timestamped images. They use the text and images rather than playing the video. Your agent needs to be able to open the linked content and read images to use both."
+  - q: "Who can open a shared recording?"
+    a: "Recordings use public links by default unless your organization changes that setting, and anyone with the link can open them. Private and organization access options are available. Private clips can be shared with agents through temporary links without making the recording public."
+  - q: "Is Clips free?"
+    a: "Yes. Clips is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Record your next bug"
+cta_band_subhead: "Capture the video, the console errors, and the failed requests behind one link."
+updated: 2026-10-14
+internal:
+  job: "Bug report with console errors and failed requests, for an engineer or coding agent"
+  recurs_when: "Every bug"
+  first_session: "Record a bug in the browser, paste the link into an agent"
+  return_signal: "Second clip shared with an agent within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "bug report template (US 400/mo, KD 0); how to write a bug report (200, KD 2); bug report format (200); about 1,700/mo across 12 queries"
+  basis: "signal (Developer Recorder ad converts). The job phrase has no organic volume, so reach it through the article."
+  verify: "Redaction wording against the live Clips page. Whether storage-before-share is still required (Steve is testing a change)."

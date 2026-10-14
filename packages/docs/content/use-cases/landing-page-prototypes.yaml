@@ -1,0 +1,45 @@
+slug: landing-page-prototypes
+job_id: job-landing-page
+app: design
+audience: technical
+title: "Prototype a landing page for every launch"
+subhead: "Turn a campaign or product brief into an interactive landing page prototype. Compare a few versions side by side, then export the HTML."
+meta_description: "Turn a brief into an interactive landing page prototype, compare versions side by side, and export the HTML. Free, open-source Design from Agent-Native."
+cta_label: "Design for free"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://design.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "Two landing page variants side by side on the Design canvas"
+screenshot_brief: "Frame from product video: the Design canvas with two landing page variants side by side (Variant A and Variant B), with the export option visible."
+old_way:
+  heading: "How most people do it today"
+  body: "Every launch needs a page. You start from the last one, wait on a designer, or fight a page builder, and by the time there's something to react to, the launch date is close. Review happens on screenshots, so feedback arrives as a pile of comments about spacing."
+new_way:
+  heading: "How it works in Design"
+  steps:
+    - "Paste the brief: the offer, the audience, and the call to action. Link a design system so the page matches your brand."
+    - "Ask for a few versions. Design shows them side by side on the canvas. Pin comments to specific elements and send them to the agent."
+    - "Edit text and styling yourself, then export HTML or a ZIP of the files."
+story: null
+faqs:
+  - q: "Does Design publish the page?"
+    a: "No. Design creates interactive HTML prototypes you can share for feedback or export. Publishing and deploying the page is a separate step."
+  - q: "Can I edit a page after AI generates it?"
+    a: "Yes. Adjust text, spacing, and styling with visual controls, or ask the AI agent to change the design. You can compare different directions and keep refining the one you choose."
+  - q: "Can I use my own brand?"
+    a: "Yes. Link a design system to guide colors, typography, styling, and brand instructions. You can reuse it across designs."
+  - q: "Is the export a finished page?"
+    a: "The export is a starting point. Application logic, integrations, testing, and deployment still need implementation and review. HTML exports may use external runtime resources."
+  - q: "Is Design free?"
+    a: "Yes. Design is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Prototype your next launch page"
+cta_band_subhead: "Bring a brief. Compare a few versions. Export the one you pick."
+updated: 2026-10-14
+internal:
+  job: "Landing page for each launch or side project"
+  recurs_when: "Every launch"
+  first_session: "Brief to prototype, compare variants"
+  return_signal: "Second page or variant set within 14 days (proposal, confirm with Alice and Michael)"
+  target_terms: "ai landing page builder (US 2,200/mo, KD 50); ai landing page generator (600, KD 43); ai generated landing page (200, KD 0); landing page copywriting template (150). Cluster about 4,750/mo."
+  basis: "hypothesis (Design retains best of the apps; paid for Design launched Oct 13)"
+  verify: "Design does not publish pages. Keep that in every claim."

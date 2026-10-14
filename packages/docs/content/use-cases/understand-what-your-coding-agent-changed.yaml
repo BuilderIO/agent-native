@@ -1,0 +1,43 @@
+slug: understand-what-your-coding-agent-changed
+job_id: job-pr-recap
+app: plans
+audience: technical
+title: "Understand what your coding agent changed"
+subhead: "Turn a pull request, commit, branch, or diff into a visual walkthrough with diagrams and explanations of the changes."
+meta_description: "Get a visual walkthrough of a pull request, commit, branch, or diff, with diagrams and annotated code. Free, open-source Plans from Agent-Native."
+cta_label: "Plan visually"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://plan.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "A visual recap of a pull request in Plans with a file list and annotated code"
+screenshot_brief: "Frame from product video: a visual recap of a PR showing files changed, annotated code, and a resolved comment."
+old_way:
+  heading: "How most people do it today"
+  body: "Your agent hands you a diff the size of a feature. Reading it line by line is the review, and the part you most need to understand is buried in file nine."
+new_way:
+  heading: "How it works in Plans"
+  steps:
+    - "Add the planning skills to your coding agent with the install command from the Plans page, then complete the authentication step for your client."
+    - "Run the visual recap command on a pull request, commit, branch, or diff."
+    - "Read the walkthrough: the behavior that changed, the files it touched, and annotated code. Leave comments, or share it for teammates to review."
+story: null
+faqs:
+  - q: "Can I use Plans to review code that is already written?"
+    a: "Yes. Use the visual recap command with a pull request, commit, branch, or diff to get a visual explanation of the change. Use the recap to guide your review of the actual code and tests."
+  - q: "Does the recap replace reading the code?"
+    a: "No. It's a guide for your review. You still read the actual code and check the tests."
+  - q: "Where are recaps saved, and can I share them?"
+    a: "The default installation connects your agent to the hosted Plans app. New hosted plans are private until you share them. Teammates can review shared plans in the browser, and commenting requires an account."
+  - q: "Is Plans free?"
+    a: "Yes. Plans is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Review your next change visually"
+cta_band_subhead: "Turn a pull request into a walkthrough you can read in minutes."
+updated: 2026-10-14
+internal:
+  job: "Understand a PR or diff an agent wrote"
+  recurs_when: "Every PR"
+  first_session: "Install the skill, run one recap"
+  return_signal: "Second recap within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "claude code review (US 2,500/mo, KD 10) has unclear intent. Check the results page before writing for it. what is a pull request (1,700) is generic and low intent."
+  basis: "hypothesis (recurs on every PR)"
+  verify: "Command name and install steps against the Plans page. Search intent for 'claude code review'."

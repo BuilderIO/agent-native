@@ -1,0 +1,48 @@
+slug: dictate-instead-of-typing
+job_id: job-dictation
+app: clips
+audience: technical
+title: "Talk to your coding agent instead of typing every prompt"
+subhead: "Hold a key in the Clips desktop app and speak. Your words go into whatever app you're in, and every dictation is saved with a cleaned-up version you can search."
+meta_description: "Dictate prompts, tickets, and notes instead of typing them. Hold Fn in the Clips desktop app, and every dictation is saved and searchable. Free and open source."
+cta_label: "Get Clips"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://clips.agent-native.com"
+screenshot_url: TODO
+screenshot_alt: "The Dictate tab in Clips showing a history of dictations with raw and cleaned-up text"
+screenshot_brief: "Frame from product video: the Dictate tab in the Clips desktop app with a dictation history list, ideally with one dictation open to show the transcript and the cleaned-up text."
+old_way:
+  heading: "How most people do it today"
+  body: "You type the same long prompts all day: the context, the constraints, the exact behavior you want. Or you open a separate dictation app, fix what it got wrong, and paste the text across. Either way, you think faster than you type, and the detail is what gets cut."
+replaces:
+  - "Wispr Flow"
+new_way:
+  heading: "How it works in Clips"
+  steps:
+    - "Install the Clips desktop app."
+    - "Click into any text field, like your agent's prompt box, a ticket, or a message. Hold Fn and speak."
+    - "Release. Clips keeps the transcript and a cleaned-up version in your dictation history, which you can search later."
+story: null
+faqs:
+  - q: "What do I need to start dictating?"
+    a: "The Clips desktop app. Hold Fn to dictate into other apps."
+  - q: "Are my dictations saved?"
+    a: "Yes. Every dictation is kept in a searchable history, with the transcript and a cleaned-up version of the text."
+  - q: "Can it learn the words I use?"
+    a: "Clips supports a personal vocabulary that biases transcription toward your own terms, like product and library names."
+  - q: "Can I search old dictations?"
+    a: "Yes. Clips searches across recordings, meetings, and dictations in one library."
+  - q: "Is Clips free?"
+    a: "Yes. Clips is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Say it instead of typing it"
+cta_band_subhead: "Hold Fn, speak your prompt, and keep every dictation searchable."
+updated: 2026-10-14
+internal:
+  job: "Dictate prompts, tickets, and notes instead of typing"
+  recurs_when: "Daily"
+  first_session: "Install the desktop app, dictate one prompt"
+  return_signal: "Dictations on 3 or more days within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "dictation software (US 2,000/mo, KD 37); best dictation software (600); speech to text mac (650 combined); free dictation software (450 combined); wispr flow alternative (200). Brand terms to reach through alternative pages: wispr flow (39,000), wispr flow pricing (900)."
+  basis: "hypothesis (daily habit)"
+  replaces_source: "Clips README: alternative to Loom, Granola, and Wispr Flow."
+  verify: "Which operating systems the desktop app and Fn dictation support, and the download link. Do not mention lookback or always-on recording (Nightly only, heading behind Labs)."
