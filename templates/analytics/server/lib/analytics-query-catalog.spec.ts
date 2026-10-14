@@ -1062,6 +1062,28 @@ describe("analytics query catalog", () => {
     ).toEqual(["workspace-membership-bridge"]);
   });
 
+  it("continues excluding aggregate membership references when the query mentions grain", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace membership grain",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly workspace user count",
+          definition: "Month-end count of users by workspace.",
+          table: "workspace_user_monthly_rollup",
+          columnsUsed: "workspace_id, month, user_count",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it("does not present a monthly aggregate as a source for generic organization membership", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "Builder.io organization users and membership",

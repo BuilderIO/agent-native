@@ -346,6 +346,23 @@ function normalizedCandidateText(candidate: AnalyticsQueryCatalogCandidate) {
     .replace(/[_-]+/g, " ");
 }
 
+function hasDeclaredRowLevelMembershipGrain(
+  candidate: AnalyticsQueryCatalogCandidate,
+) {
+  if (candidate.kind !== "data-dictionary") return false;
+  const declaredShape = (candidate.grain || candidate.definition || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  return (
+    /\b(?:one|single)\s+row\s+per\b/.test(declaredShape) &&
+    /\b(?:users?|people|persons?|members?)\b/.test(declaredShape) &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(declaredShape) &&
+    !/\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
+      declaredShape,
+    )
+  );
+}
+
 function hasAggregateShape(candidate: AnalyticsQueryCatalogCandidate) {
   const fields =
     candidate.kind === "data-dictionary"
@@ -1309,8 +1326,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
     );
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
-  const aggregateMembershipIsNotRelevant =
-    plainMembershipRequest && !/\bgrain\b/i.test(rankingIntent);
+  const aggregateMembershipIsNotRelevant = plainMembershipRequest;
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
@@ -1338,7 +1354,11 @@ export function rankAnalyticsQueryCatalogPage(args: {
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
       ) &&
-      !(aggregateMembershipIsNotRelevant && hasAggregateShape(candidate)) &&
+      !(
+        aggregateMembershipIsNotRelevant &&
+        hasAggregateShape(candidate) &&
+        !hasDeclaredRowLevelMembershipGrain(candidate)
+      ) &&
       !(
         excludesMembershipForActivity &&
         ["membership", "membership_roster"].includes(

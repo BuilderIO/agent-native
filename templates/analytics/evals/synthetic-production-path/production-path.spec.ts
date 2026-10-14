@@ -967,6 +967,24 @@ function actionCounts(output: AgentRunOutput) {
   };
 }
 
+function hasCompleteEmptyDictionarySearch(
+  findDataCallCount: number,
+  result: Record<string, unknown> | null,
+): boolean {
+  if (findDataCallCount !== 1 || !result || !Array.isArray(result.results)) {
+    return false;
+  }
+  return (
+    result.results.length === 0 &&
+    result.sourceIndexStatus === "available" &&
+    result.searchedDictionaryEntryCount === 1 &&
+    result.truncated === false &&
+    result.nextPage === null &&
+    result.dictionarySearchTruncated === false &&
+    result.dictionarySearchStatus === "available"
+  );
+}
+
 function reasonForRun(
   testCase: SyntheticCase,
   output: AgentRunOutput,
@@ -1000,14 +1018,13 @@ function reasonForRun(
   if (testCase.expectedTable === null) {
     const result = getToolResult(output);
     const candidates = result?.results;
-    if (
-      !Array.isArray(candidates) ||
-      result?.sourceIndexStatus !== "available" ||
-      result.searchedDictionaryEntryCount !== 1
-    ) {
+    if (!Array.isArray(candidates)) {
       return "candidate_missing";
     }
-    return candidates.length === 0 ? "no_match_expected" : "unexpected_match";
+    if (candidates.length > 0) return "unexpected_match";
+    return hasCompleteEmptyDictionarySearch(counts.findDataCalls, result)
+      ? "no_match_expected"
+      : "candidate_missing";
   }
   if (rank === null) return "candidate_missing";
   return rank === 1 ? "rank_1" : "ranked_below_1";
@@ -1274,6 +1291,47 @@ describe("Analytics synthetic production-path retrieval harness", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("only scores abstention after one complete, unpaginated dictionary search", () => {
+    const completeEmptyResult = {
+      results: [],
+      sourceIndexStatus: "available",
+      searchedDictionaryEntryCount: 1,
+      truncated: false,
+      nextPage: null,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+    };
+
+    expect(hasCompleteEmptyDictionarySearch(1, completeEmptyResult)).toBe(true);
+    expect(hasCompleteEmptyDictionarySearch(2, completeEmptyResult)).toBe(
+      false,
+    );
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        truncated: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        nextPage: "next-page",
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        dictionarySearchTruncated: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        dictionarySearchStatus: "unavailable",
+      }),
+    ).toBe(false);
   });
 
   it("keeps harness cases synthetic and writes only the approved CSV schema", async () => {
