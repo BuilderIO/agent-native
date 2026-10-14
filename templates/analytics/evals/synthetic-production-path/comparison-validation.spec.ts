@@ -72,12 +72,18 @@ const V19_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V20_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v20-before-after.csv",
+    import.meta.url,
+  ),
+);
 function loadMeasuredComparisonCsv(): string {
-  return readFileSync(V19_COMPARISON_CSV, "utf8");
+  return readFileSync(V20_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("validates the measured v19 production-path comparison", () => {
+  it("validates the measured v20 production-path comparison", () => {
     const result = validateProductionPathComparisonCsv(
       loadMeasuredComparisonCsv(),
     );
@@ -92,9 +98,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 4,
         abortedRuns: 0,
         staleIndexMarked: 4,
-        revision: "4715962a57720a2ff5881cb8eea39c1535518cf8",
+        revision: "217b06fdb294e8efc5ac9f0dd9f079c65307c406",
         codeRevision:
-          "sha256:b8e72b194334b790ed13fefe85b4e18eb6e717176c7b337cf7f8c0e5317b7f27",
+          "sha256:79d4f2ca0be7955b94ab26ccb27d00ae8c6106751dcbca7d51ab2fe40fa94a70",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
@@ -105,14 +111,36 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 0,
         abortedRuns: 0,
         staleIndexMarked: 4,
-        revision: "051ebf123c26257be2058efbfb13468c9226d37a",
+        revision: "980792e5c277be349cf0198fa87d26bc41b7daac",
         codeRevision:
-          "sha256:5e69fc9b513d54f13fbd789d1f21863b2122e7d4a0669d79feaaac20d4940809",
+          "sha256:a2effa8c701d9be272d97700c00110bd7365fa09ba47ebd2cdb4373c87fe9cc9",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
+  });
+
+  it("still validates the preserved v19 comparison", () => {
+    const result = validateProductionPathComparisonCsv(
+      readFileSync(V19_COMPARISON_CSV, "utf8"),
+    );
+
+    expect(result).toMatchObject({
+      cases: 24,
+      before: {
+        rows: 48,
+        top1: 44,
+        hitAt5: 46,
+        revision: "4715962a57720a2ff5881cb8eea39c1535518cf8",
+      },
+      after: {
+        rows: 48,
+        top1: 48,
+        hitAt5: 48,
+        revision: "051ebf123c26257be2058efbfb13468c9226d37a",
+      },
+    });
   });
 
   it("still validates the preserved v18 comparison", () => {
