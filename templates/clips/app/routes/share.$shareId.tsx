@@ -122,6 +122,10 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  readRecoverableRecordingBackup,
+  recordingBackupFilename,
+} from "@/lib/recording-backup";
+import {
   isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
@@ -1211,6 +1215,37 @@ export default function ShareRoute() {
     }
   }
 
+  async function downloadLocalCopy() {
+    if (!recording) return;
+    setDownloading(true);
+    try {
+      const copy = await readRecoverableRecordingBackup(recording.id);
+      if (!copy) {
+        toast.error(t("recordRoute.noLocalRecordingData"));
+        return;
+      }
+      if (!copy.blob) {
+        toast.error(t("recordRoute.localCopyUnreadable"));
+        return;
+      }
+      const url = URL.createObjectURL(copy.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = recordingBackupFilename(copy.meta);
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast.success(t("recordRoute.recordingDownloadStarted"));
+    } catch (err) {
+      console.warn("[clips-share] reading the local copy failed:", err);
+      toast.error(t("recordRoute.localCopyUnreadable"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const shareNeedsSession =
     !needsPassword &&
     (!dataQ.data ||
@@ -1468,6 +1503,7 @@ export default function ShareRoute() {
         : explicitFailure
           ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
+    const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 
     return (
       <>
@@ -1516,6 +1552,20 @@ export default function ShareRoute() {
             </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-center gap-2">
+            {canDownloadLocalCopy ? (
+              <Button
+                onClick={() => void downloadLocalCopy()}
+                disabled={downloading}
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+              >
+                <IconDownload className="h-4 w-4" />
+                {downloading
+                  ? t("sharePage.downloading")
+                  : t("recordRoute.downloadCopy")}
+              </Button>
+            ) : null}
             {!session && isFailure ? (
               <Button asChild size="sm">
                 <a href={signInHref} className="gap-1.5">
