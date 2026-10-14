@@ -75,6 +75,9 @@ export default defineAction({
       title: recordingTitle,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
+      // Meeting recordings are captured by the desktop app's native macOS
+      // transcript stream; it is this action's only caller.
+      recordingPlatform: "desktop",
       status: "uploading",
       ownerEmail,
       orgId: orgId ?? null,
@@ -85,7 +88,7 @@ export default defineAction({
     trackRecordingCreated({
       recordingId,
       userId: ownerEmail,
-      platform: null,
+      platform: "desktop",
       source: "meeting",
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,

@@ -80,7 +80,7 @@ describe("start-meeting-recording recording_created", () => {
     };
   });
 
-  it("reports the new meeting recording once, as a meeting", async () => {
+  it("reports the new meeting recording once, as a desktop meeting, on the row and the event", async () => {
     await action.run({
       meetingId: "meeting-1",
       hasAudio: true,
@@ -88,10 +88,11 @@ describe("start-meeting-recording recording_created", () => {
     });
 
     expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]).toMatchObject({ recordingPlatform: "desktop" });
     expect(state.trackRecordingCreated).toHaveBeenCalledExactlyOnceWith({
       recordingId: "rec-meeting",
       userId: "owner@example.com",
-      platform: null,
+      platform: "desktop",
       source: "meeting",
       hasAudio: true,
       hasCamera: false,
