@@ -113,6 +113,19 @@ describe("provider-api-request approval gate", () => {
     },
   );
 
+  it("keeps reversible label writes gated for interactive callers", async () => {
+    await expect(
+      gate(
+        {
+          provider: "gmail",
+          method: "POST",
+          path: "/users/me/messages/abc123/modify",
+        },
+        "tool",
+      ),
+    ).resolves.toBe(true);
+  });
+
   it("keeps sends gated for interactive callers and lets an opted-in automation send", async () => {
     await expect(
       gate(

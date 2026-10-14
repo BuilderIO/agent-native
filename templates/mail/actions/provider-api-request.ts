@@ -238,9 +238,14 @@ export default createProviderApiRequestAction(
       ctx?: ActionRunContext,
     ) => {
       const method = String(args.method ?? "GET").toUpperCase();
+      // The label-move exemption is for unattended automations; an interactive
+      // caller keeps the approval every non-GET Gmail write already needed.
+      const exempt =
+        ctx?.caller === "automation" &&
+        isReversibleGmailLabelWrite(method, args.path);
       return args.provider === "gmail" &&
         !["GET", "HEAD"].includes(method) &&
-        !isReversibleGmailLabelWrite(method, args.path)
+        !exempt
         ? requiresEmailSendApproval(ctx)
         : false;
     },

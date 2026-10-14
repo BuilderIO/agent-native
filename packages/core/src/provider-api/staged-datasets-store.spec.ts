@@ -103,6 +103,35 @@ function makeExec(tx: number | null) {
         );
         return { rows, rowsAffected: 0 };
       }
+      if (
+        /SELECT app_id, owner_email FROM staged_datasets WHERE id/i.test(sql)
+      ) {
+        const entry = _metaStore.get(args[0] as string);
+        return {
+          rows: entry
+            ? [{ app_id: entry.app_id, owner_email: entry.owner_email }]
+            : [],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /AS total_rows, COALESCE\(SUM\(byte_size\), 0\) AS total_bytes/i.test(
+          sql,
+        )
+      ) {
+        const others = Array.from(_metaStore.values()).filter(
+          (e) => e.app_id === args[0] && e.id !== args[1],
+        );
+        return {
+          rows: [
+            {
+              total_rows: others.reduce((n, e) => n + e.row_count, 0),
+              total_bytes: others.reduce((n, e) => n + e.byte_size, 0),
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
       const sum = /SELECT COALESCE\(SUM\((row_count|byte_size)\)/i.exec(sql);
       if (sum) {
         const column = sum[1] as "row_count" | "byte_size";
@@ -356,24 +385,6 @@ describe("upsertStagedDataset eviction", () => {
     }
   });
 
-  it("leaves a dataset alone when it was refreshed after the eviction was planned", async () => {
-    seed("ds_victim", { byte_size: 45 * MB, updated_at: NOW - 3 * DAY });
-    const original = _metaStore.get("ds_victim")!;
-    // Another writer refreshes it between planning and the guarded delete.
-    const refreshed = { ...original, updated_at: NOW - 1000 };
-    const realGet = _metaStore.get.bind(_metaStore);
-    let reads = 0;
-    vi.spyOn(_metaStore, "get").mockImplementation((key: string) => {
-      if (key === "ds_victim" && ++reads > 0) return refreshed;
-      return realGet(key);
-    });
-
-    await write("ds_next", [{ blob: "x".repeat(10 * MB) }]);
-
-    expect(_rowStore.has("ds_victim")).toBe(true);
-    vi.restoreAllMocks();
-  });
-
   it("evicts to satisfy the row cap", async () => {
     seed("ds_rows_old", {
       row_count: MAX_ROWS_PER_APP - 10,
@@ -465,6 +476,37 @@ describe("upsertStagedDataset eviction", () => {
 
     expect(_metaStore.has("ds_a")).toBe(false);
     expect(_metaStore.has("ds_b")).toBe(true);
+  });
+
+  it("refuses to overwrite a dataset id that belongs to another owner", async () => {
+    seed("ds_shared", {
+      owner_email: "ada@example.com",
+      byte_size: 1 * MB,
+      updated_at: NOW - DAY,
+    });
+
+    await expect(write("ds_shared", [{ a: 1 }])).rejects.toThrow(
+      /belongs to another owner/,
+    );
+    expect(_metaStore.get("ds_shared")?.owner_email).toBe("ada@example.com");
+    expect(_rowStore.get("ds_shared")).toEqual(['{"seed":true}']);
+  });
+
+  it("aborts the write when the caps no longer hold after a guarded delete skipped a victim", async () => {
+    seed("ds_victim", { byte_size: 45 * MB, updated_at: NOW - 3 * DAY });
+    const original = _metaStore.get("ds_victim")!;
+    const refreshed = { ...original, updated_at: NOW - 1000 };
+    const realGet = _metaStore.get.bind(_metaStore);
+    vi.spyOn(_metaStore, "get").mockImplementation((key: string) =>
+      key === "ds_victim" ? refreshed : realGet(key),
+    );
+
+    await expect(
+      write("ds_next", [{ blob: "x".repeat(10 * MB) }]),
+    ).rejects.toThrow(/another write filled this app/);
+
+    expect(_metaStore.has("ds_next")).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it("names the single-dataset cause and evicts nothing when bytes cannot fit", async () => {

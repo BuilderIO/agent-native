@@ -114,6 +114,30 @@ describe("attemptContinuationDispatch — overload backoff", () => {
     expect(deps.updateRunHeartbeat).toHaveBeenCalledTimes(4);
   });
 
+  it("counts slow overload responses against the wait budget", async () => {
+    let clock = 0;
+    const { params, deps } = makeParams({
+      dispatchBudget: {
+        maxDispatchAttempts: 2,
+        dispatchResponseTimeoutMs: 1_000,
+        backoffCapMs: Infinity,
+        overloadWaitBudgetMs: 20_000,
+      },
+      random: () => 0.5,
+      now: () => clock,
+    });
+    // Each response takes 12s; sleeps are instant under the fake sleep.
+    deps.fireInternalDispatch.mockImplementation(async () => {
+      clock += 12_000;
+      throw overloaded();
+    });
+
+    const result = await attemptContinuationDispatch(params as any);
+
+    expect(result.dispatched).toBe(false);
+    expect(deps.fireInternalDispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("caps a single jittered wait at 30s", async () => {
     const { params, deps } = makeParams({
       dispatchBudget: {

@@ -58,6 +58,8 @@ export async function attemptContinuationDispatch(params: {
   maxNestedSelfDispatchDepth: number;
   deps: ContinuationDispatchRetryDeps;
   random?: () => number;
+  /** Wall clock for the overload budget; injectable so specs need no timers. */
+  now?: () => number;
 }): Promise<{
   dispatched: boolean;
   lastDispatchErr: unknown;
@@ -75,6 +77,7 @@ export async function attemptContinuationDispatch(params: {
     maxNestedSelfDispatchDepth,
     deps: d,
     random = Math.random,
+    now = Date.now,
   } = params;
   const maxDispatchAttempts = dispatchBudget.maxDispatchAttempts;
   const dispatchResponseTimeoutMs = dispatchBudget.dispatchResponseTimeoutMs;
@@ -89,6 +92,7 @@ export async function attemptContinuationDispatch(params: {
       `proactive nested-dispatch depth cap reached (backgroundContinuationCount=${backgroundContinuationCount} >= MAX_NESTED_SELF_DISPATCH_DEPTH=${maxNestedSelfDispatchDepth}) — deferring to the unclaimed-background-run sweep instead of risking Netlify loop protection`,
     );
   }
+  const startedAt = now();
   // Overload retries are paid for by the wait budget, not the attempt cap.
   let overloadRetries = 0;
   let overloadWaitedMs = 0;
@@ -146,7 +150,8 @@ export async function attemptContinuationDispatch(params: {
         const backoffMs = overloadBackoffMs(
           dispatchErr,
           overloadRetries,
-          overloadWaitedMs,
+          // Slow overload responses spend the same host time as the sleeps.
+          Math.max(overloadWaitedMs, now() - startedAt),
           overloadWaitBudgetMs,
           random,
         );

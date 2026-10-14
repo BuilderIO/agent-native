@@ -219,6 +219,23 @@ export async function upsertStagedDataset(
   const now = Date.now();
   const id = options.id || generateId();
 
+  // Ids come from sanitized owner emails, so two owners can share one. The
+  // owner-scoped reads below would count the other owner's dataset as absent
+  // and the id-keyed write would then replace its rows in place.
+  const { rows: idOwner } = await db.execute({
+    sql: `SELECT app_id, owner_email FROM staged_datasets WHERE id = ?`,
+    args: [id],
+  });
+  if (
+    idOwner[0] &&
+    (idOwner[0].app_id !== options.appId ||
+      idOwner[0].owner_email !== options.ownerEmail)
+  ) {
+    throw new Error(
+      `Staged dataset id ${id} belongs to another owner. Use a different name.`,
+    );
+  }
+
   let existingRows: Record<string, unknown>[] = [];
   if (options.append) {
     existingRows = await getStagedDatasetRows({
@@ -297,6 +314,24 @@ export async function upsertStagedDataset(
         sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND updated_at = ?`,
         args: [victim.id, options.appId, victim.updatedAt],
       });
+    }
+    // The plan was read outside this transaction, so a guarded delete may have
+    // skipped a dataset refreshed since, and a concurrent writer may have used
+    // the room. Re-check the caps here; throwing rolls the evictions back too.
+    if (evict.length > 0) {
+      const { rows: totals } = await tx.execute({
+        sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?`,
+        args: [options.appId, id],
+      });
+      if (
+        Number(totals[0]?.total_rows ?? 0) + allRows.length >
+          MAX_ROWS_PER_APP ||
+        Number(totals[0]?.total_bytes ?? 0) + byteSize > MAX_BYTES_PER_APP
+      ) {
+        throw new Error(
+          "Staged dataset cap exceeded: another write filled this app while older datasets were being evicted. Try again.",
+        );
+      }
     }
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
