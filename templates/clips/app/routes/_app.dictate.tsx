@@ -464,14 +464,15 @@ function DictationCard({
     { id: string }
   >("cleanup-dictation");
   const restoreCleanup = useActionMutation<
-    { updated: boolean },
+    | { conflict: true; id: string }
+    | { conflict: false; id: string; ok: true; updated: true },
     { id: string; cleanedText: null; expectedCleanupVersion: number }
   >("update-dictation", {
     onSuccess: (result) => {
-      if (result.updated) {
-        toast.success(t("dictateRoute.cleanupRestored"));
-      } else {
+      if (result.conflict) {
         toast.error(t("dictateRoute.cleanupRestoreFailed"));
+      } else {
+        toast.success(t("dictateRoute.cleanupRestored"));
       }
       void qc.invalidateQueries({
         queryKey: ["action", "list-dictations"],

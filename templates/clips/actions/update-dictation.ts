@@ -18,7 +18,7 @@ const DICTATION_NOT_FOUND = {
 
 export default defineAction({
   description:
-    "Update a dictation row. Patch `fullText`, `cleanedText`, `source`, or `targetApp`. Pass `expectedCleanupVersion` when clearing `cleanedText` to reject a stale undo. Editor access required.",
+    "Update a dictation row. Patch `fullText`, `cleanedText`, `source`, or `targetApp`. Pass `expectedCleanupVersion` when clearing `cleanedText`; the action returns a conflict if that version is stale and fails if the dictation no longer exists. Editor access required.",
   schema: z.object({
     id: z.string().describe("Dictation id"),
     fullText: z.string().optional(),
@@ -99,12 +99,19 @@ export default defineAction({
       .returning({ id: schema.dictations.id });
 
     if (!updated && args.expectedCleanupVersion !== undefined) {
-      return { id: args.id, ok: true, updated: false };
+      const [current] = await db
+        .select({ id: schema.dictations.id })
+        .from(schema.dictations)
+        .where(eq(schema.dictations.id, args.id))
+        .limit(1);
+      if (!current)
+        fail(`Dictation not found: ${args.id}`, DICTATION_NOT_FOUND);
+      return { id: args.id, conflict: true };
     }
     if (!updated) fail(`Dictation not found: ${args.id}`, DICTATION_NOT_FOUND);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id: args.id, ok: true, updated: true };
+    return { id: args.id, conflict: false, ok: true, updated: true };
   },
 });

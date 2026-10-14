@@ -4,12 +4,18 @@ const mockReturning = vi.hoisted(() => vi.fn());
 const mockWhere = vi.hoisted(() => vi.fn(() => ({ returning: mockReturning })));
 const mockSet = vi.hoisted(() => vi.fn(() => ({ where: mockWhere })));
 const mockUpdate = vi.hoisted(() => vi.fn(() => ({ set: mockSet })));
+const mockLimit = vi.hoisted(() => vi.fn());
+const mockSelectWhere = vi.hoisted(() => vi.fn(() => ({ limit: mockLimit })));
+const mockSelectFrom = vi.hoisted(() =>
+  vi.fn(() => ({ where: mockSelectWhere })),
+);
+const mockSelect = vi.hoisted(() => vi.fn(() => ({ from: mockSelectFrom })));
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
-  fail: (message: string) => {
-    throw new Error(message);
+  fail: (message: string, metadata: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), metadata);
   },
 }));
 
@@ -32,7 +38,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ update: mockUpdate }),
+  getDb: () => ({ update: mockUpdate, select: mockSelect }),
   schema: {
     dictations: {
       id: "dictations.id",
@@ -54,6 +60,7 @@ describe("update-dictation cleanup restore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReturning.mockResolvedValue([{ id: "dictation_1" }]);
+    mockLimit.mockResolvedValue([{ id: "dictation_1" }]);
   });
 
   it("only restores the cleanup version named by the caller", async () => {
@@ -85,7 +92,12 @@ describe("update-dictation cleanup restore", () => {
         },
       }),
     );
-    expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
+    expect(result).toEqual({
+      id: "dictation_1",
+      conflict: false,
+      ok: true,
+      updated: true,
+    });
     expect(mockWriteAppState).toHaveBeenCalledOnce();
   });
 
@@ -99,7 +111,28 @@ describe("update-dictation cleanup restore", () => {
 
     const result = await updateDictation.run(args);
 
-    expect(result).toEqual({ id: "dictation_1", ok: true, updated: false });
+    expect(result).toEqual({ id: "dictation_1", conflict: true });
+    expect(mockSelectWhere).toHaveBeenCalledWith({
+      kind: "eq",
+      column: "dictations.id",
+      value: "dictation_1",
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing dictation instead of a stale-version conflict", async () => {
+    mockReturning.mockResolvedValueOnce([]);
+    mockLimit.mockResolvedValueOnce([]);
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      cleanedText: null,
+      expectedCleanupVersion,
+    });
+
+    await expect(updateDictation.run(args)).rejects.toMatchObject({
+      errorCode: "dictation_not_found",
+      statusCode: 404,
+    });
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
@@ -126,7 +159,12 @@ describe("update-dictation cleanup restore", () => {
         },
       }),
     );
-    expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
+    expect(result).toEqual({
+      id: "dictation_1",
+      conflict: false,
+      ok: true,
+      updated: true,
+    });
   });
 
   it("advances the cleanup version when editing the raw transcript", async () => {
@@ -147,7 +185,12 @@ describe("update-dictation cleanup restore", () => {
         },
       }),
     );
-    expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
+    expect(result).toEqual({
+      id: "dictation_1",
+      conflict: false,
+      ok: true,
+      updated: true,
+    });
   });
 
   it("only accepts an expected version for a cleanup restore", async () => {
