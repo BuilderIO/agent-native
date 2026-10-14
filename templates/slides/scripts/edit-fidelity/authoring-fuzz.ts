@@ -6509,6 +6509,68 @@ export async function runAuthoringFuzz(
         );
         const listbox = controls ? document.getElementById(controls) : null;
         const listboxStyle = listbox ? getComputedStyle(listbox) : null;
+        const firstOption =
+          listbox?.querySelector<HTMLElement>('[role="option"]');
+        let firstOptionSnapshot: Record<string, unknown> | null = null;
+        if (firstOption) {
+          const style = getComputedStyle(firstOption);
+          const rect = firstOption.getBoundingClientRect();
+          const clientRectCount = firstOption.getClientRects().length;
+          const hiddenAncestorFlags = {
+            hiddenAttribute: false,
+            ariaHidden: false,
+            displayNone: false,
+            visibilityHidden: false,
+            opacityZero: false,
+            hiddenClass: false,
+            invisibleClass: false,
+            opacityZeroClass: false,
+          };
+          let ancestor = firstOption.parentElement;
+          let ancestorCount = 0;
+          while (ancestor && ancestorCount < 12) {
+            const ancestorStyle = getComputedStyle(ancestor);
+            hiddenAncestorFlags.hiddenAttribute ||=
+              ancestor.hasAttribute("hidden");
+            hiddenAncestorFlags.ariaHidden ||=
+              ancestor.getAttribute("aria-hidden") === "true";
+            hiddenAncestorFlags.displayNone ||=
+              ancestorStyle.display === "none";
+            hiddenAncestorFlags.visibilityHidden ||=
+              ancestorStyle.visibility === "hidden" ||
+              ancestorStyle.visibility === "collapse";
+            hiddenAncestorFlags.opacityZero ||= ancestorStyle.opacity === "0";
+            hiddenAncestorFlags.hiddenClass ||=
+              ancestor.classList.contains("hidden");
+            hiddenAncestorFlags.invisibleClass ||=
+              ancestor.classList.contains("invisible");
+            hiddenAncestorFlags.opacityZeroClass ||=
+              ancestor.classList.contains("opacity-0");
+            ancestor = ancestor.parentElement;
+            ancestorCount += 1;
+          }
+          firstOptionSnapshot = {
+            exists: true,
+            hasNonzeroBox: rect.width > 0 && rect.height > 0,
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            classFlags: {
+              hidden: firstOption.classList.contains("hidden"),
+              invisible: firstOption.classList.contains("invisible"),
+              opacityZero: firstOption.classList.contains("opacity-0"),
+            },
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            },
+            clientRectCount,
+            hiddenAncestorFlags,
+            ancestorScanTruncated: ancestor !== null,
+          };
+        }
         return {
           historyStats:
             root instanceof HTMLElement
@@ -6577,6 +6639,7 @@ export async function runAuthoringFuzz(
                 : null,
             controls,
           },
+          firstOption: firstOptionSnapshot,
           recentInputEvents:
             scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
         };
