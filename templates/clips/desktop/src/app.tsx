@@ -3814,8 +3814,6 @@ export function App({
         (event) => {
           const stopPayload = parseRecorderStopPayload(event.payload);
           if (stopPayload.kind === "invalid") return;
-          const sourceRecordingId =
-            stopPayload.kind === "tagged" ? stopPayload.recordingId : null;
           if (
             !recorderStopPayloadTargetsRecording(
               stopPayload,
