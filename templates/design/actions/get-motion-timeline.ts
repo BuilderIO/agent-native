@@ -16,6 +16,7 @@ import {
 import type { MotionAnimationStyleDefinition } from "../shared/motion-animation-styles.js";
 import {
   decodeMotionCodeMetadata,
+  reconcileMotionCodeDocument,
   type MotionCodeDocument,
   type MotionAudioClip,
 } from "../shared/motion-code.js";
@@ -247,26 +248,26 @@ async function readManagedCssFromFile(
     );
   }
 
-  const tracks =
-    metadata.status === "valid"
-      ? metadata.document.tracks
-      : parseLegacyMotionCss(css);
-  const animationStyles =
-    metadata.status === "valid"
-      ? (metadata.document.animationStyles ?? [])
-      : [];
-  const nativeStyles =
-    metadata.status === "valid" ? (metadata.document.nativeStyles ?? []) : [];
+  let document: MotionCodeDocument | null = null;
+  if (metadata.status === "valid") {
+    try {
+      document = reconcileMotionCodeDocument(css, metadata.document);
+    } catch (error) {
+      throw invalidManagedSource(
+        "motion_source_css_unreadable",
+        error instanceof Error ? error : "Managed Motion CSS is unreadable.",
+      );
+    }
+  }
+  const tracks = document?.tracks ?? parseLegacyMotionCss(css);
+  const animationStyles = document?.animationStyles ?? [];
+  const nativeStyles = document?.nativeStyles ?? [];
   const authoredTextDocument = motionTextDocumentWithoutNativeStyles(
     textDocument,
     nativeStyles,
   );
-  const easingVariables =
-    metadata.status === "valid"
-      ? (metadata.document.easingVariables ?? [])
-      : [];
-  const audioClips =
-    metadata.status === "valid" ? (metadata.document.audioClips ?? []) : [];
+  const easingVariables = document?.easingVariables ?? [];
+  const audioClips = document?.audioClips ?? [];
   if (
     tracks.length === 0 &&
     !authoredTextDocument &&
@@ -287,18 +288,15 @@ async function readManagedCssFromFile(
     easingVariables,
     audioClips,
     textDocument: authoredTextDocument,
-    durationMs:
-      metadata.status === "valid"
-        ? metadata.document.durationMs
-        : (parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css)),
-    playbackMode:
-      metadata.status === "valid"
-        ? (metadata.document.playbackMode ??
-          readTimelinePlaybackMode(metadata.document.tracks) ??
-          parsePlaybackMode(css))
-        : parsePlaybackMode(css),
-    defaultEase:
-      metadata.status === "valid" ? metadata.document.defaultEase : null,
+    durationMs: document
+      ? document.durationMs
+      : (parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css)),
+    playbackMode: document
+      ? (document.playbackMode ??
+        readTimelinePlaybackMode(document.tracks) ??
+        parsePlaybackMode(css))
+      : parsePlaybackMode(css),
+    defaultEase: document?.defaultEase ?? null,
   };
 }
 

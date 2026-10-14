@@ -9,6 +9,7 @@ import { parse, type ParserError } from "parse5";
 import {
   compileMotionCode,
   decodeMotionCodeMetadata,
+  reconcileMotionCodeDocument,
   type MotionAudioClip,
   type MotionCodeDocument,
 } from "./motion-code";
@@ -597,7 +598,22 @@ function readSource(
     sourceError("invalid-managed-style", metadata.error.message);
   }
 
-  const document = metadata.status === "valid" ? metadata.document : null;
+  let document: MotionCodeDocument | null = null;
+  if (metadata.status === "valid") {
+    try {
+      document = reconcileMotionCodeDocument(
+        managedStyle?.css ?? "",
+        metadata.document,
+      );
+    } catch (error) {
+      sourceError(
+        "invalid-managed-style",
+        error instanceof Error
+          ? error.message
+          : "Managed HTML Motion CSS could not be read safely.",
+      );
+    }
+  }
   const textDocument = readMotionText(source);
   const targetNodeIds = targetsFromDocuments(document, textDocument);
   assertTargetsExist(source, targetNodeIds);

@@ -23,6 +23,7 @@ const nodeId = "motion-target";
 let rootPath = "";
 let designId = "";
 let connectionId = "";
+let screenId = "";
 let reactDevServerUrl = "";
 let viteServer: ViteDevServer | null = null;
 let bridge: DesignConnectBridge | null = null;
@@ -224,7 +225,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       designId,
       paths: ["/"],
     });
-    const screenId = opened.screens?.[0]?.id;
+    screenId = opened.screens?.[0]?.id;
     if (!screenId) throw new Error("React Motion screen was not registered");
 
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
@@ -434,5 +435,65 @@ test.describe.serial("React Motion source browser writeback", () => {
       return getComputedStyle(element).translate;
     });
     expect(renderedAtQuarterTime).toBe("6px");
+  });
+
+  test("rehydrates the open Motion editor after a direct JSX source edit", async ({
+    page,
+    request,
+  }) => {
+    if (!screenId) throw new Error("React Motion screen is not registered");
+
+    await gotoEditor(page, designId);
+    await selectByText(page, "Motion target", { screenId });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const firstTextKeyframeValue = page.getByRole("textbox", {
+      name: "Keyframe value 1.1",
+      exact: true,
+    });
+    await expect(firstTextKeyframeValue).toHaveValue("0.25");
+
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    const before = fs.readFileSync(sourceFilePath, "utf8");
+    const after = before.replace('"value":"0.25"', '"value":"0.4"');
+    expect(after).not.toBe(before);
+    fs.writeFileSync(sourceFilePath, after);
+    const nextHash = createHash("sha256").update(after).digest("hex");
+    const iframe = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    );
+    const frame = iframe.contentFrame();
+    await expect(frame.locator(`#${nodeId}`)).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      nextHash,
+    );
+    await expect(firstTextKeyframeValue).toHaveValue("0.4", {
+      timeout: 20_000,
+    });
+
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            sourceVersionHash: nextHash,
+            textDocument: {
+              animations: [
+                {
+                  targetNodeId: nodeId,
+                  keyframes: [{ value: "0.4" }, { value: "1" }],
+                },
+              ],
+            },
+          },
+        ],
+      });
+    expect(fs.readFileSync(sourceFilePath, "utf8")).toContain('"value":"0.4"');
   });
 });

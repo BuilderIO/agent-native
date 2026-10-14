@@ -580,6 +580,10 @@ export default defineAction({
         connectionId: z.string().min(1),
         modulePath: z.string().min(1),
         moduleVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
+        timelineVersionHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/i)
+          .optional(),
         renderedNodeIds: z.array(z.string()).max(2048).optional(),
       })
       .strict()
@@ -905,6 +909,15 @@ export default defineAction({
         fail(
           "The localhost preview or source changed after the target identities were captured. Refresh the preview and retry.",
           { errorCode: "motion_local_source_stale_preview", statusCode: 409 },
+        );
+      }
+      if (
+        localSourceInput.timelineVersionHash !== undefined &&
+        localSourceInput.timelineVersionHash !== live.versionHash
+      ) {
+        fail(
+          "The React or HTML Motion source changed after the timeline was loaded. Refresh Motion before saving so code edits are not overwritten.",
+          { errorCode: "motion_local_source_stale_timeline", statusCode: 409 },
         );
       }
       currentContent = live.content;

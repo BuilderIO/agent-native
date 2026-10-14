@@ -259,6 +259,9 @@ export function useEditorLiveEditsAndPresence({
   const [motionHydrationFingerprint, setMotionHydrationFingerprint] = useState<
     string | null
   >(null);
+  const [motionSourceVersionHash, setMotionSourceVersionHash] = useState<
+    string | null
+  >(null);
   const motionAutosaveRevisionRef = useRef(0);
   const motionAutosaveFailedRevisionRef = useRef<number | null>(null);
   const lastScheduledMotionAutosaveFileVersionRef = useRef<string | null>(null);
@@ -981,6 +984,7 @@ export function useEditorLiveEditsAndPresence({
     setMotionTracksDirty(false);
     setMotionAutosaveRevision(0);
     setMotionHydrationFingerprint(null);
+    setMotionSourceVersionHash(null);
   }, [activeFile?.id, clearMotionAutosaveTimer]);
 
   useEffect(() => {
@@ -1008,6 +1012,7 @@ export function useEditorLiveEditsAndPresence({
     setMotionPlaybackMode(activeMotionTimeline?.playbackMode ?? "once");
     setMotionDefaultEase(activeMotionTimeline?.defaultEase ?? "ease");
     setMotionHydrationFingerprint(activeMotionHydrationFingerprint);
+    setMotionSourceVersionHash(activeMotionTimeline?.sourceVersionHash ?? null);
   }, [
     activeCodeLayerProjection,
     activeFile?.id,
@@ -1456,6 +1461,8 @@ export function useEditorLiveEditsAndPresence({
     setMotionAutosaveRevision,
     setMotionHydrationFingerprint,
     motionAutosaveRevisionRef,
+    motionSourceVersionHash,
+    setMotionSourceVersionHash,
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
     lastScheduledMotionAutosaveRevisionRef,

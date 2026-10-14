@@ -100,6 +100,7 @@ export interface MotionAutosaveArgs {
   motionTracks: MotionDockTrack[];
   motionTextDocument: MotionTextDocument | null;
   motionTracksDirty: boolean;
+  motionSourceVersionHash: string | null;
   previousMotionFileIdRef: RefObject<string | null>;
   queryClient: QueryClient;
   requestLocalhostWrite: (opts: {
@@ -116,6 +117,7 @@ export interface MotionAutosaveArgs {
     typeof useActionMutation<undefined, undefined, "remove-motion-timeline">
   >;
   setMotionHydrationFingerprint: Dispatch<SetStateAction<string | null>>;
+  setMotionSourceVersionHash: Dispatch<SetStateAction<string | null>>;
   setMotionTimelineId: Dispatch<SetStateAction<string | null>>;
   setMotionTracksDirty: Dispatch<SetStateAction<boolean>>;
   writeMotionAvailable: boolean;
@@ -155,12 +157,14 @@ export function runMotionAutosave({
   motionTracks,
   motionTextDocument,
   motionTracksDirty,
+  motionSourceVersionHash,
   previousMotionFileIdRef,
   queryClient,
   requestLocalhostWrite,
   removeMotionTimeline,
   removeMotionTimelineMutation,
   setMotionHydrationFingerprint,
+  setMotionSourceVersionHash,
   setMotionTimelineId,
   setMotionTracksDirty,
   writeMotionAvailable,
@@ -368,6 +372,9 @@ export function runMotionAutosave({
             connectionId,
             modulePath: localSourceProof.modulePath,
             moduleVersionHash: localSourceProof.moduleVersionHash,
+            ...(motionSourceVersionHash
+              ? { timelineVersionHash: motionSourceVersionHash }
+              : {}),
             renderedNodeIds: localSourceProof.renderedNodeIds,
           }
         : undefined;
@@ -404,9 +411,13 @@ export function runMotionAutosave({
             compiledHash?: unknown;
             contentPatched?: unknown;
             filePath?: unknown;
+            versionHash?: unknown;
           };
           const isStillActiveFile =
             previousMotionFileIdRef.current === fileIdAtSchedule;
+          if (typeof response.versionHash === "string" && isStillActiveFile) {
+            setMotionSourceVersionHash(response.versionHash);
+          }
           if (typeof response.timelineId === "string" && isStillActiveFile) {
             setMotionTimelineId(response.timelineId);
           }

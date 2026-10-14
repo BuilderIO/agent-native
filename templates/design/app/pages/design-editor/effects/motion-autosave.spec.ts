@@ -70,6 +70,7 @@ function createArgs(
     ],
     motionTextDocument: null,
     motionTracksDirty: true,
+    motionSourceVersionHash: null,
     queryClient: {
       invalidateQueries: vi.fn(),
     } as unknown as MotionAutosaveArgs["queryClient"],
@@ -82,6 +83,7 @@ function createArgs(
       isPending: false,
     } as MotionAutosaveArgs["removeMotionTimelineMutation"],
     setMotionHydrationFingerprint: vi.fn(),
+    setMotionSourceVersionHash: vi.fn(),
     setMotionTimelineId: vi.fn(),
     setMotionTracksDirty: vi.fn(),
     writeMotionAvailable: true,
@@ -254,6 +256,7 @@ describe("runMotionAutosave", () => {
     } as unknown as MotionAutosaveArgs["activeCodeLayerProjection"];
     args.motionTracks = [];
     args.motionTextDocument = textDocument;
+    args.motionSourceVersionHash = "a".repeat(64);
     args.applyMotionEdit = applyMotionEdit;
 
     runMotionAutosave(args);
@@ -265,6 +268,7 @@ describe("runMotionAutosave", () => {
         connectionId: "connection-1",
         modulePath: "src/Card.tsx",
         moduleVersionHash: "a".repeat(64),
+        timelineVersionHash: "a".repeat(64),
         renderedNodeIds: [targetNodeId],
       },
       tracks: [],

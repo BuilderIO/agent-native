@@ -525,6 +525,23 @@ describe("apply-motion-edit localhost React source", () => {
     expect(mocks.insertedRows).toHaveLength(0);
   });
 
+  it("rejects a stale source-backed timeline before writing newer code", async () => {
+    await expect(
+      action.run({
+        ...request,
+        localSource: {
+          ...request.localSource,
+          timelineVersionHash: "d".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "motion_local_source_stale_timeline",
+    });
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.insertedRows).toHaveLength(0);
+  });
+
   it("rejects missing bridge hashes and never treats helper hashes as authorization", async () => {
     mocks.readLocal.mockResolvedValueOnce({ content: source });
     await expect(action.run(request)).rejects.toMatchObject({

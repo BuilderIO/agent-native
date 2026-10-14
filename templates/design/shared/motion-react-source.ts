@@ -9,6 +9,7 @@ import type * as TypeScript from "typescript";
 import {
   compileMotionCode,
   decodeMotionCodeMetadata,
+  reconcileMotionCodeDocument,
   type MotionAudioClip,
   type MotionCodeDocument,
 } from "./motion-code";
@@ -424,7 +425,19 @@ export function readMotionReactSource(
             animations: managedText.flatMap((entry) => entry.animations),
           })
         : null;
-    const document = metadata.status === "valid" ? metadata.document : null;
+    let document: MotionCodeDocument | null = null;
+    if (metadata.status === "valid") {
+      try {
+        document = reconcileMotionCodeDocument(css, metadata.document);
+      } catch (error) {
+        throw new MotionReactSourceError(
+          "invalid-managed-style",
+          error instanceof Error
+            ? error.message
+            : "Managed React Motion CSS could not be read safely.",
+        );
+      }
+    }
     const documentPlaybackMode = document
       ? resolveMotionPlaybackMode(document)
       : null;
@@ -535,7 +548,39 @@ export function inspectMotionReactSourceWriteCapability(args: {
         findDefaultExportComponentRoot(sourceFile);
       }
     } else {
-      findTargets(sourceFile, targetNodeIds, args.modulePath);
+      const targets = findTargets(sourceFile, targetNodeIds, args.modulePath);
+      const targetRoots = new Set(
+        targets.map((target) => target.componentRoot),
+      );
+      if (targetRoots.size !== 1) {
+        throw new MotionReactSourceError(
+          "unsupported-root",
+          "React Motion source targets must belong to one component root.",
+        );
+      }
+
+      const managedStyles = findManagedStyles(sourceFile);
+      if (managedStyles.length > 1) {
+        throw new MotionReactSourceError(
+          "ambiguous-managed-style",
+          "React source contains more than one managed Motion style element.",
+        );
+      }
+      if (managedStyles.length === 1) {
+        const owningRoot = findComponentRoot(
+          sourceFile,
+          managedStyles[0]!.element,
+        );
+        assertSupportedRoot(owningRoot);
+        if (!targetRoots.has(owningRoot)) {
+          throw new MotionReactSourceError(
+            "ambiguous-managed-style",
+            "The managed Motion style element is outside the component that owns the target layers.",
+          );
+        }
+      } else {
+        assertSupportedRoot(targets[0]!.componentRoot);
+      }
     }
     return { status: "supported", ...capabilityIdentity };
   } catch (error) {

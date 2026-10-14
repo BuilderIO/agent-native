@@ -85,6 +85,20 @@ describe("hasMotionTimelineContent", () => {
 });
 
 describe("motionTimelineFingerprint", () => {
+  it("includes the verified source version so HMR edits rehydrate Motion", () => {
+    expect(
+      motionTimelineFingerprint("file-1", {
+        ...baseTimeline,
+        sourceVersionHash: "a".repeat(64),
+      }),
+    ).not.toBe(
+      motionTimelineFingerprint("file-1", {
+        ...baseTimeline,
+        sourceVersionHash: "b".repeat(64),
+      }),
+    );
+  });
+
   it("includes audio clips so edits rehydrate after save", () => {
     expect(
       motionTimelineFingerprint("file-1", {

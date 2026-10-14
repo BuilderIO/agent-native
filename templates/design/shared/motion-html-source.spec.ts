@@ -159,6 +159,61 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("reads source-authored CSS changes and preserves them on a later Motion write", () => {
+    const authored = apply(html);
+    const directEdit = authored.source
+      .replace("opacity: 0;", "opacity: 0.35;")
+      .replace(
+        "animation-timing-function: linear;",
+        "animation-timing-function: ease-in;",
+      )
+      .replace("animation-duration: 0.8s;", "animation-duration: 1.1s;");
+    const read = readMotionHtmlSource(directEdit);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        durationMs: 1100,
+        tracks: [
+          {
+            targetNodeId: "hero-title",
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0.35", ease: "ease-in" },
+              { t: 1, value: "1", ease: "ease-out" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("direct HTML Motion CSS edit was not readable");
+    }
+
+    const written = applyMotionHtmlSourceEdit({
+      currentSource: directEdit,
+      expectedSource: directEdit,
+      preview: previewFor(directEdit),
+      timeline: {
+        ...makeTimeline(),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+        playbackMode: read.document.playbackMode,
+      },
+    });
+
+    expect(readMotionHtmlSource(written.source)).toMatchObject({
+      status: "valid",
+      document: {
+        durationMs: 1100,
+        tracks: read.document.tracks,
+      },
+    });
+    expect(
+      written.source.match(/agent-native-motion-source:v3:/g),
+    ).toHaveLength(1);
+  });
+
   it("uses stable generated preview IDs and persists selected IDs on write", () => {
     const sourcePath = "pages/index.html";
     const source = html.replace(' data-agent-native-node-id="hero-title"', "");

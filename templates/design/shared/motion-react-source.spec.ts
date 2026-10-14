@@ -132,6 +132,81 @@ describe("React Motion source adapter", () => {
     expect(edit.css).toBe(compileMotionCode(makeTimeline()).css);
   });
 
+  it("reads direct CSS edits, then writes the reconciled timeline back cleanly", () => {
+    const authored = apply(source);
+    const directEdit = authored.source
+      .replace("opacity: 0;", "opacity: 0.25;")
+      .replace(
+        "animation-timing-function: linear;",
+        "animation-timing-function: ease-in;",
+      )
+      .replace("animation-duration: 0.8s;", "animation-duration: 1.2s;")
+      .replace(
+        "animation-fill-mode: both;",
+        "animation-fill-mode: both;\\n  animation-delay: 0.15s;\\n  animation-iteration-count: infinite;\\n  animation-direction: alternate;",
+      );
+    const read = readMotionReactSource(directEdit);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      document: {
+        durationMs: 1350,
+        playbackMode: "ping-pong",
+        tracks: [
+          {
+            targetNodeId: "hero-title",
+            property: "opacity",
+            delayMs: 150,
+            durationMs: 1200,
+            keyframes: [
+              { t: 0, value: "0.25", ease: "ease-in" },
+              { t: 1, value: "1", ease: "ease-out" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("direct React Motion CSS edit was not readable");
+    }
+
+    const written = applyMotionReactSourceEdit({
+      currentSource: directEdit,
+      expectedSource: directEdit,
+      preview: previewFor(directEdit),
+      timeline: {
+        ...makeTimeline(),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+        playbackMode: read.document.playbackMode,
+      },
+    });
+    const reread = readMotionReactSource(written.source);
+
+    expect(written.source.match(/data-agent-native-motion/g)).toHaveLength(1);
+    expect(reread).toMatchObject({
+      status: "valid",
+      document: {
+        durationMs: 1350,
+        playbackMode: "ping-pong",
+        tracks: read.document.tracks,
+      },
+    });
+  });
+
+  it("fails closed when managed CSS uses an unsupported animation duration", () => {
+    const authored = apply(source);
+    const invalidSource = authored.source.replace(
+      "animation-duration: 0.8s;",
+      "animation-duration: auto;",
+    );
+
+    expect(readMotionReactSource(invalidSource)).toMatchObject({
+      status: "invalid",
+      error: { code: "invalid-managed-style" },
+    });
+  });
+
   it("updates a saved style library after clearing all applied tracks", () => {
     const authored = apply(source, {
       timeline: { ...makeTimeline(), animationStyles },
@@ -857,6 +932,22 @@ function Card() {
         reason: expect.stringMatching(/one unconditional JSX return/),
       });
     }
+
+    const unsupportedRoot = `function Card() {
+  return <h1 data-agent-native-node-id="hero-title">Hello</h1>;
+}`;
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: unsupportedRoot,
+        targetNodeIds: ["hero-title"],
+        modulePath,
+        moduleVersionHash,
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-root",
+      reason: expect.stringMatching(/supported intrinsic HTML container/),
+    });
   });
 
   it("allows metadata-only React capability only for an existing source style library", () => {

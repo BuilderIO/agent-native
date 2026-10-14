@@ -37,7 +37,15 @@ export interface MotionTimelineRow {
   defaultEase: string;
   compiledHash: string | null;
   cssHash?: string | null;
-  source?: "stored" | "recovered-css" | "stored-css-drift";
+  sourceVersionHash?: string | null;
+  source?:
+    | "stored"
+    | "recovered-css"
+    | "stored-css-drift"
+    | "recovered-react"
+    | "stored-react-drift"
+    | "recovered-html"
+    | "stored-html-drift";
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -673,6 +681,7 @@ export function motionTimelineFingerprint(
     timeline.updatedAt ?? "no-updated-at",
     timeline.compiledHash ?? "no-compiled-hash",
     timeline.cssHash ?? "no-css-hash",
+    timeline.sourceVersionHash ?? "no-source-version-hash",
     timeline.playbackMode ?? "once",
     timeline.source ?? "stored",
     JSON.stringify(timeline.tracks),

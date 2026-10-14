@@ -266,10 +266,12 @@ export function useEditorContentAndComponents({
     motionPlayhead,
     motionAutoKeyframeEnabled,
     motionTracksDirty,
+    motionSourceVersionHash,
     setMotionTracksDirty,
     motionAutosaveRevision,
     setMotionAutosaveRevision,
     setMotionHydrationFingerprint,
+    setMotionSourceVersionHash,
     motionAutosaveRevisionRef,
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
@@ -311,6 +313,8 @@ export function useEditorContentAndComponents({
           motionProofTargetNodeIds,
         )
       : null;
+  const motionPreviewScreenId = activeFile?.id;
+  const motionPreviewModulePath = localhostMotionProof?.modulePath;
   const { data: motionSourceCapabilityResult } = useActionQuery<{
     sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
   }>(
@@ -339,6 +343,42 @@ export function useEditorContentAndComponents({
       refetchOnMount: "always",
     },
   );
+  const observedMotionSourceProofRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!localhostMotionProof) {
+      observedMotionSourceProofRef.current = null;
+      return;
+    }
+    const proofKey = `${localhostMotionProof.modulePath}\u0000${localhostMotionProof.moduleVersionHash}`;
+    if (observedMotionSourceProofRef.current === proofKey) return;
+    observedMotionSourceProofRef.current = proofKey;
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-motion-timeline"],
+    });
+  }, [
+    localhostMotionProof?.modulePath,
+    localhostMotionProof?.moduleVersionHash,
+    queryClient,
+  ]);
+  useEffect(() => {
+    if (!motionPreviewScreenId || activeCanvasSourceType !== "localhost") {
+      return;
+    }
+    const onPreviewFrameLoad = (event: Event) => {
+      const frame = event.target;
+      if (
+        !(frame instanceof HTMLIFrameElement) ||
+        frame.dataset.screenIframeId !== motionPreviewScreenId
+      ) {
+        return;
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-motion-timeline"],
+      });
+    };
+    document.addEventListener("load", onPreviewFrameLoad, true);
+    return () => document.removeEventListener("load", onPreviewFrameLoad, true);
+  }, [activeCanvasSourceType, motionPreviewScreenId, queryClient]);
   const motionSourceTargetsWritable =
     activeCanvasSourceType !== "localhost" ||
     motionSourceWriteCapabilityAllowsTargets(
@@ -1481,11 +1521,13 @@ export function useEditorContentAndComponents({
         motionProofTargetNodeIds,
         motionTextDocument,
         motionTracksDirty,
+        motionSourceVersionHash,
         previousMotionFileIdRef,
         queryClient,
         removeMotionTimeline,
         removeMotionTimelineMutation,
         setMotionHydrationFingerprint,
+        setMotionSourceVersionHash,
         setMotionTimelineId,
         setMotionTracksDirty,
         requestLocalhostWrite: (opts) =>
@@ -1521,6 +1563,8 @@ export function useEditorContentAndComponents({
       motionProofTargetNodeIds,
       motionTextDocument,
       motionTracksDirty,
+      motionSourceVersionHash,
+      setMotionSourceVersionHash,
       writeMotionAvailable,
       queryClient,
       t,
