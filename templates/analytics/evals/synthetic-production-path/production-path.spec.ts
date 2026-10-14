@@ -178,6 +178,22 @@ const syntheticData = vi.hoisted(() => {
           sourcePath: "fixtures/models/monthly_workspace_users_by_role.sql",
         },
         {
+          id: "fixture-approved-monthly-workspace-membership",
+          metric: "Monthly Workspace Membership",
+          definition:
+            "Monthly aggregate of workspace membership counts, with one row per month and workspace.",
+          source: "fixture_warehouse",
+          sourceKind: "dbt",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per month per workspace",
+          primaryEntity: "workspace membership aggregate",
+          table: "fixture_warehouse.monthly_workspace_memberships",
+          columnsUsed: "month, workspace_id, member_count",
+          sourcePath: "fixtures/models/monthly_workspace_memberships.sql",
+        },
+        {
           id: "fixture-product-activity-events",
           metric: "Product Activity Event Records",
           definition:
@@ -295,14 +311,6 @@ const storage = vi.hoisted(() => ({
       throw new Error("Synthetic fixture received an unexpected org scope.");
     }
     if (prefix !== "data-dict-") return {};
-    if (syntheticData.activeCaseId === "aggregate-only-membership-reference") {
-      return {
-        "data-dict-fixture-approved-monthly-workspace-membership":
-          syntheticData.dictionaryEntries[
-            "data-dict-fixture-approved-monthly-workspace-membership"
-          ],
-      };
-    }
     if (
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain"
@@ -524,7 +532,7 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
   {
     id: "aggregate-only-membership-reference",
     prompt:
-      "Find the catalog reference for workspace membership. Metadata only; do not report live counts or values.",
+      "Workspace membership. Metadata only; do not report live counts or values.",
     expectedTable: null,
   },
   {

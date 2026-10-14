@@ -1085,6 +1085,30 @@ describe("analytics query catalog", () => {
     expect(results).toEqual([]);
   });
 
+  it("does not promote an aggregate for a metadata-only membership search", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search:
+        "Find the catalog reference for workspace membership. Metadata only; do not report live counts or values.",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-membership",
+          metric: "Monthly Workspace Membership",
+          definition:
+            "Monthly aggregate of workspace membership counts, with one row per month and workspace.",
+          table: "monthly_workspace_memberships",
+          columnsUsed: "month, workspace_id, member_count",
+          grain: "One row per month per workspace",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it("keeps monthly aggregates available for an explicit count question", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly organization user count",
