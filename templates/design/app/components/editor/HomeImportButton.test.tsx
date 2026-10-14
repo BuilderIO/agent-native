@@ -236,7 +236,7 @@ describe("home Figma import", () => {
         "click",
       );
       await openMenu();
-      await click("home.figmaFile");
+      await click(FIG_MENU_ITEM);
       return fallback;
     }
 
