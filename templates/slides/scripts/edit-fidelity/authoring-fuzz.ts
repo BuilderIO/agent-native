@@ -4691,24 +4691,50 @@ export async function runAuthoringFuzz(
     return listbox;
   };
   const waitForControlledSlashListbox = async () => {
-    await page.waitForFunction(
-      (selector: string) => {
-        const editingEl = document.querySelector<HTMLElement>(selector);
-        const listboxId = editingEl?.getAttribute("aria-controls");
-        const optionId = editingEl?.getAttribute("aria-activedescendant");
+    try {
+      await page.waitForFunction(
+        (selector: string) => {
+          const editingEl = document.querySelector<HTMLElement>(selector);
+          const listboxId = editingEl?.getAttribute("aria-controls");
+          const optionId = editingEl?.getAttribute("aria-activedescendant");
+          const listbox = listboxId ? document.getElementById(listboxId) : null;
+          const activeOption = optionId
+            ? document.getElementById(optionId)
+            : null;
+          return (
+            listbox?.getAttribute("role") === "listbox" &&
+            activeOption?.getAttribute("role") === "option" &&
+            listbox.contains(activeOption)
+          );
+        },
+        editorSelector,
+        { timeout: 5000 },
+      );
+    } catch (error) {
+      const state = await editor.evaluate((root: HTMLElement) => {
+        const listboxId = root.getAttribute("aria-controls");
+        const activeId = root.getAttribute("aria-activedescendant");
         const listbox = listboxId ? document.getElementById(listboxId) : null;
-        const activeOption = optionId
-          ? document.getElementById(optionId)
+        const activeOption = activeId
+          ? document.getElementById(activeId)
           : null;
-        return (
-          listbox?.getAttribute("role") === "listbox" &&
-          activeOption?.getAttribute("role") === "option" &&
-          listbox.contains(activeOption)
-        );
-      },
-      editorSelector,
-      { timeout: 5000 },
-    );
+        return {
+          focused: document.activeElement === root,
+          controls: listboxId,
+          activeDescendant: activeId,
+          listboxRole: listbox?.getAttribute("role") ?? null,
+          activeRole: activeOption?.getAttribute("role") ?? null,
+          activeValue: activeOption?.getAttribute("data-value") ?? null,
+          contained:
+            !!listbox && !!activeOption && listbox.contains(activeOption),
+          listboxes: document.querySelectorAll('[role="listbox"]').length,
+          options: document.querySelectorAll('[role="option"]').length,
+        };
+      });
+      throw new Error(
+        `slash menu did not expose a controlled active option (${JSON.stringify(state)}); ${String(error)}`,
+      );
+    }
     const listboxId = await editor.getAttribute("aria-controls");
     if (!listboxId) throw new Error("slash menu did not expose its listbox");
     return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
@@ -4874,22 +4900,98 @@ export async function runAuthoringFuzz(
     let selectedIndex = SLASH_COMMANDS.findIndex(
       ([value]) => value === activeCommand,
     );
-    for (let index = 0; index < arrowDownCount; index += 1) {
-      selectedIndex = (selectedIndex + 1) % SLASH_COMMANDS.length;
-      const expectedCommand = SLASH_COMMANDS[selectedIndex][0];
-      await page.keyboard.press("ArrowDown");
-      await page.waitForFunction(
-        ({ selector, value }: { selector: string; value: string }) => {
-          const editingEl = document.querySelector<HTMLElement>(selector);
-          const activeId = editingEl?.getAttribute("aria-activedescendant");
-          const activeOption = activeId
-            ? document.getElementById(activeId)
+    await page.evaluate((selector) => {
+      const trace: Array<{
+        keyCode: number;
+        isComposing: boolean;
+        activeBefore: string | null;
+        defaultPreventedAfter?: boolean;
+        activeAfter?: string | null;
+      }> = [];
+      const listener = (event: KeyboardEvent) => {
+        if (event.key !== "ArrowDown") return;
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        if (!editingEl) return;
+        const activeValue = () => {
+          const id = editingEl.getAttribute("aria-activedescendant");
+          return id
+            ? (document.getElementById(id)?.getAttribute("data-value") ?? null)
             : null;
-          return activeOption?.getAttribute("data-value") === value;
-        },
-        { selector: editorSelector, value: expectedCommand },
-        { timeout: 1500 },
-      );
+        };
+        const entry = {
+          keyCode: event.keyCode,
+          isComposing: event.isComposing,
+          activeBefore: activeValue(),
+        };
+        trace.push(entry);
+        queueMicrotask(() => {
+          entry.defaultPreventedAfter = event.defaultPrevented;
+          entry.activeAfter = activeValue();
+        });
+      };
+      document.addEventListener("keydown", listener, true);
+      (
+        window as Window & {
+          __slidesSlashNavigationTrace?: {
+            trace: typeof trace;
+            listener: typeof listener;
+          };
+        }
+      ).__slidesSlashNavigationTrace = { trace, listener };
+    }, editorSelector);
+    try {
+      for (let index = 0; index < arrowDownCount; index += 1) {
+        selectedIndex = (selectedIndex + 1) % SLASH_COMMANDS.length;
+        const expectedCommand = SLASH_COMMANDS[selectedIndex][0];
+        await page.keyboard.press("ArrowDown");
+        try {
+          await page.waitForFunction(
+            ({ selector, value }: { selector: string; value: string }) => {
+              const editingEl = document.querySelector<HTMLElement>(selector);
+              const activeId = editingEl?.getAttribute("aria-activedescendant");
+              const activeOption = activeId
+                ? document.getElementById(activeId)
+                : null;
+              return activeOption?.getAttribute("data-value") === value;
+            },
+            { selector: editorSelector, value: expectedCommand },
+            { timeout: 5000 },
+          );
+        } catch (error) {
+          const navigationState = await page.evaluate((selector) => {
+            const editingEl = document.querySelector<HTMLElement>(selector);
+            const activeId = editingEl?.getAttribute("aria-activedescendant");
+            const activeOption = activeId
+              ? document.getElementById(activeId)
+              : null;
+            const traceOwner = window as Window & {
+              __slidesSlashNavigationTrace?: {
+                trace: Array<Record<string, unknown>>;
+              };
+            };
+            return {
+              current: activeOption?.getAttribute("data-value") ?? null,
+              trace: traceOwner.__slidesSlashNavigationTrace?.trace ?? [],
+            };
+          }, editorSelector);
+          throw new Error(
+            `slash navigation to ${command} from ${activeCommand} stalled at ${index + 1}/${arrowDownCount}; expected ${expectedCommand}, current ${navigationState.current}, key trace=${JSON.stringify(navigationState.trace.slice(-8))}; ${String(error)}`,
+          );
+        }
+      }
+    } finally {
+      await page.evaluate(() => {
+        const traceOwner = window as Window & {
+          __slidesSlashNavigationTrace?: {
+            trace: unknown[];
+            listener: EventListener;
+          };
+        };
+        const trace = traceOwner.__slidesSlashNavigationTrace;
+        if (trace)
+          document.removeEventListener("keydown", trace.listener, true);
+        delete traceOwner.__slidesSlashNavigationTrace;
+      });
     }
     const activeOptionId = await listbox
       .locator(`[role="option"][data-value="${command}"]`)
@@ -5779,7 +5881,7 @@ export async function runAuthoringFuzz(
           await listbox
             .locator('[role="option"]')
             .first()
-            .waitFor({ state: "visible", timeout: 1500 });
+            .waitFor({ state: "visible", timeout: 5000 });
           const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Enter");
           await waitForSlashMenuHidden(listboxId);

@@ -645,23 +645,20 @@ export function SlideSlashCommandMenu({
               const index = filtered.findIndex((item) => item.kind === value);
               if (index >= 0) setActiveIndex(index);
             }}
+            disablePointerSelection
             shouldFilter={false}
           >
             <CommandList label={t("slideSlashMenu.blocks")}>
               <CommandGroup heading={t("slideSlashMenu.blocks")}>
-                {filtered.map((item, index) => {
+                {filtered.map((item) => {
                   const Icon = item.icon;
                   return (
                     <CommandItem
                       key={item.kind}
                       value={item.kind}
-                      onPointerMove={(event) => {
-                        if (event.pointerType !== "touch") {
-                          setActiveIndex(index);
-                        }
-                      }}
                       onMouseDown={(event) => event.preventDefault()}
                       onPointerDown={(event) => event.preventDefault()}
+                      className="hover:bg-accent hover:text-accent-foreground"
                       onSelect={() => {
                         applyAuthoringCommand(
                           item.kind,

@@ -826,14 +826,35 @@ describe("slide slash command menu", () => {
     ).toBe("true");
   });
 
-  it("updates the active command when the pointer moves over an option", () => {
+  it("keeps keyboard selection independent from pointer hover", () => {
     const { editingEl } = renderWithTypedSlash("");
+    const paragraph = screen.getByRole("option", { name: /Plain paragraph/ });
+    const heading1 = screen.getByRole("option", { name: /Heading 1/ });
+    const heading3 = screen.getByRole("option", { name: /Heading 3/ });
+
+    fireEvent.pointerMove(heading3, { pointerType: "mouse" });
+    expect(paragraph.getAttribute("aria-selected")).toBe("true");
+
+    keyDown(editingEl, "ArrowDown");
+    expect(heading1.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.pointerMove(heading3, { pointerType: "mouse" });
+    expect(heading1.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading1);
+  });
+
+  it("applies a pointer-selected command without moving focus", () => {
+    const { editingEl, applyAuthoringCommand } = renderWithTypedSlash("");
     const heading2 = screen.getByRole("option", { name: /Heading 2/ });
 
-    fireEvent.pointerMove(heading2, { pointerType: "mouse" });
+    fireEvent.mouseDown(heading2);
+    fireEvent.click(heading2);
 
-    expect(heading2.getAttribute("aria-selected")).toBe("true");
-    expectActiveOption(editingEl, heading2);
+    expect(applyAuthoringCommand).toHaveBeenCalledWith(
+      "heading2" satisfies InPlaceTextAuthoringCommand,
+      expect.any(Range),
+    );
+    expect(document.activeElement).toBe(editingEl);
   });
 
   it("uses the translated Blocks label as the listbox accessible name", () => {
