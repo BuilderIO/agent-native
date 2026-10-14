@@ -339,17 +339,18 @@ const SCHEMA_DETAILS_ASK = `(?:\\b(?:could you|can you|would you(?! like)|do you
 // summary bullet that mentions a table is feedback, not a schema request.
 const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:could you|can you|would you(?! like)|please\\s+(?:provide|share|send)|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
+  `${SCHEMA_DETAILS_ASK}[^.?!:\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:(?:names?|identifiers?|details)|(?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?))\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
   `${SCHEMA_DETAILS_LIST_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
   "i",
 );
-// The interrogative must open the sentence: "Want me to show which table this
-// came from?" is an offer, not a request for an identifier.
+// The interrogative must open the sentence or a framing clause ("For this
+// metric, which table ...?"): "Want me to show which table this came from?" is
+// an offer, not a request for an identifier.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:]\\s+|\\n\\s*)(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}[^.?!\\n]*\\?`,
   "i",
 );
 

@@ -1253,6 +1253,7 @@ describe("realDataFinalGuard", () => {
     "There are 43 accounts. Would you like me to show which table this came from?",
     "There are 43 accounts. I need to know the table is current before I answer, so I re-ran it.",
     "I fixed both panels, so tell me what else is off:\n- the table now shows 43 rows\n- the column labels are swapped back",
+    "I fixed both panels. Tell me what else is off: the table shows 43 rows.",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1280,6 +1281,9 @@ describe("realDataFinalGuard", () => {
     "I need to know which table holds monthly usage before I can continue.",
     "I need to know the table name before I can continue.",
     "Do you know which table holds the monthly credit usage?",
+    "I need the schema before I can write this query.",
+    "I need the column that holds usage before I can continue.",
+    "For this metric, which table holds the monthly usage?",
     "To continue, please provide:\n- the dataset name\n- the column that holds usage",
     "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
     "Share the dataset name.",
