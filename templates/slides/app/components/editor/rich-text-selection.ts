@@ -421,8 +421,13 @@ function setInlineTextFormat(
   for (const text of texts) {
     const wasActive = isFormatActive(text, format, editable);
     const span = innermostStyleSpan(text);
-    if (wasActive !== on) {
-      span.style.setProperty(property, on ? onValue : offValue);
+    if (on && !wasActive) {
+      span.style.setProperty(property, onValue);
+    } else if (!on && wasActive) {
+      span.style.removeProperty(property);
+      if (isFormatActive(text, format, editable)) {
+        span.style.setProperty(property, offValue);
+      }
     }
     if (span.style.length === 0) span.removeAttribute("style");
   }
