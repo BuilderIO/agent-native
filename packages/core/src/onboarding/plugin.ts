@@ -28,7 +28,9 @@ import {
 import { classifyTrackingFailure, track } from "../tracking/index.js";
 import {
   getOnboardingRoleCategory,
+  getOnboardingRoleTextForAnalytics,
   onboardingRoleSchema,
+  type OnboardingRole,
 } from "../user-profile/shared.js";
 import {
   getUserProfile,
@@ -125,6 +127,17 @@ function withOnboardingRequestContext<T>(
     },
     fn,
   );
+}
+
+function roleTrackingProperties(role: OnboardingRole): {
+  role: string;
+  role_text?: string;
+} {
+  const roleText = getOnboardingRoleTextForAnalytics(role);
+  return {
+    role: getOnboardingRoleCategory(role),
+    ...(roleText === undefined ? {} : { role_text: roleText }),
+  };
 }
 
 function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
@@ -378,7 +391,9 @@ export function createOnboardingPlugin(
                 {
                   flow: "first_run",
                   source: "shared_cookie",
-                  role: decoded.role,
+                  ...(decoded.role
+                    ? roleTrackingProperties(decoded.role)
+                    : { role: null }),
                 },
                 { userId: userEmail },
               );
@@ -432,7 +447,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: roleCategory,
+                ...roleTrackingProperties(parsed.data),
                 outcome: "success",
               },
               trackingSource,
