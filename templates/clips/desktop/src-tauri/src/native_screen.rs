@@ -2005,6 +2005,25 @@ fn restore_camera_bubble_alignment(
 }
 
 #[cfg(target_os = "macos")]
+fn ensure_camera_bubble_capture_preference_restored(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    restore_camera_bubble_alignment(app, state, generation);
+    let capture_override = state
+        .camera_bubble_capture_override
+        .lock()
+        .map_err(|error| format!("camera capture state lock failed: {error}"))?;
+    if capture_override.is_some_and(|override_generation| {
+        generation.is_none_or(|generation| generation == override_generation)
+    }) {
+        return Err("Could not restore the Clips camera capture privacy setting.".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn restore_camera_bubble_after_restart_failure(
     app: &AppHandle,
     state: &NativeFullscreenRecordingState,
@@ -2031,6 +2050,7 @@ fn start_native_session_locked(
 ) -> Result<NativeFullscreenStartInfo, String> {
     let safe_id = sanitize_recording_id(recording_id);
     reset_native_upload_completion_state();
+    ensure_camera_bubble_capture_preference_restored(app, state, None)?;
     let window_selection = crate::state::SelectedRecordingWindow::get(app);
     let target_window_id = window_selection.map(|selection| selection.window_id);
     let target_window_dimensions =
@@ -2124,7 +2144,14 @@ fn start_native_session_locked(
     let height = session.height;
 
     let previous = {
-        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        let mut guard = match state.inner.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                discard_session(&mut session);
+                restore_camera_bubble_alignment(app, state, Some(alignment_generation));
+                return Err(format!("native recording state lock failed: {error}"));
+            }
+        };
         if let Some(expected) = expected_generation {
             if state.warm_generation.load(Ordering::SeqCst) != expected {
                 drop(guard);
@@ -2965,20 +2992,32 @@ pub async fn native_fullscreen_recording_cancel(
     preserve_window_override: Option<bool>,
 ) -> Result<(), String> {
     let cancelled_generation = state.warm_generation.fetch_add(1, Ordering::SeqCst);
+    let mut camera_restore_error = None;
     #[cfg(target_os = "macos")]
-    restore_camera_bubble_alignment(&app, &state, Some(cancelled_generation));
+    if let Err(error) =
+        ensure_camera_bubble_capture_preference_restored(&app, &state, Some(cancelled_generation))
+    {
+        camera_restore_error = Some(error);
+    }
     let session = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        if guard
-            .as_ref()
-            .is_some_and(|session| session.restart.alignment_generation == cancelled_generation)
-        {
+        if guard.as_ref().is_some_and(|session| {
+            should_discard_cancelled_native_session(session, cancelled_generation)
+        }) {
             guard.take()
         } else {
             None
         }
     };
     if let Some(mut session) = session {
+        #[cfg(target_os = "macos")]
+        if let Err(error) = ensure_camera_bubble_capture_preference_restored(
+            &app,
+            &state,
+            Some(session.restart.alignment_generation),
+        ) {
+            camera_restore_error.get_or_insert(error);
+        }
         eprintln!(
             "[clips-tray] cancel: detaching discard for {}",
             session.path.display()
@@ -2992,7 +3031,14 @@ pub async fn native_fullscreen_recording_cancel(
     if !preserve_window_override.unwrap_or(false) {
         crate::state::SelectedRecordingWindow::set(&app, None);
     }
-    Ok(())
+    camera_restore_error.map_or(Ok(()), Err)
+}
+
+fn should_discard_cancelled_native_session(
+    session: &NativeFullscreenSession,
+    cancelled_generation: u64,
+) -> bool {
+    session.pending_recording_output || session.restart.alignment_generation == cancelled_generation
 }
 
 #[tauri::command]
@@ -3036,6 +3082,17 @@ pub async fn native_fullscreen_recording_pause(
                 false
             };
         if soft_paused {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = ensure_camera_bubble_capture_preference_restored(
+                &app,
+                &state,
+                Some(session.restart.alignment_generation),
+            ) {
+                return Err(mark_pause_failure(
+                    session,
+                    format!("Unable to restore camera privacy after pausing: {error}"),
+                ));
+            }
             session.paused_at = Some(Instant::now());
             eprintln!(
                 "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
@@ -3063,7 +3120,19 @@ pub async fn native_fullscreen_recording_pause(
     }
     let stop_outcome = finalize_active_backend(session, true);
     #[cfg(target_os = "macos")]
-    restore_camera_bubble_after_restart_failure(&app, &state, &session.restart);
+    {
+        restore_camera_bubble_after_restart_failure(&app, &state, &session.restart);
+        if let Err(error) = ensure_camera_bubble_capture_preference_restored(
+            &app,
+            &state,
+            Some(session.restart.alignment_generation),
+        ) {
+            return Err(mark_pause_failure(
+                session,
+                format!("Unable to restore camera privacy after pausing: {error}"),
+            ));
+        }
+    }
     if let Err(err) = &stop_outcome {
         eprintln!("[clips-tray] pause finalize reported an error: {err}");
         return Err(mark_pause_failure(
@@ -3131,6 +3200,29 @@ pub async fn native_fullscreen_recording_resume(
             }) = session.backend.as_ref()
             {
                 if writer.segmented() && writer.is_started() {
+                    if session.restart.include_camera_overlay {
+                        if let Some(target_window_id) = session.restart.target_window_id {
+                            if let Err(error) = align_camera_bubble_to_selected_window(
+                                &app,
+                                &state,
+                                target_window_id,
+                                session.restart.alignment_generation,
+                            ) {
+                                restore_camera_bubble_after_restart_failure(
+                                    &app,
+                                    &state,
+                                    &session.restart,
+                                );
+                                return Err(error);
+                            }
+                        }
+                    } else if let Err(error) = ensure_camera_bubble_capture_preference_restored(
+                        &app,
+                        &state,
+                        Some(session.restart.alignment_generation),
+                    ) {
+                        return Err(error);
+                    }
                     if let Err(error) = resume.resume(paused_for) {
                         restore_camera_bubble_after_restart_failure(&app, &state, &session.restart);
                         return Err(error);
@@ -3558,6 +3650,25 @@ mod detached_discard_tests {
             had_live_upload: false,
             disk_monitor_stop: None,
         }
+    }
+
+    #[test]
+    fn cancel_discards_an_older_warmed_session_after_a_new_warm_advances_generation() {
+        let mut session = hardware_free_session(PathBuf::from("warmed.mp4"), Vec::new());
+        session.pending_recording_output = true;
+        session.restart.alignment_generation = 4;
+
+        assert!(should_discard_cancelled_native_session(&session, 5));
+    }
+
+    #[test]
+    fn cancel_preserves_an_older_active_session_when_a_new_warm_is_cancelled() {
+        let mut session = hardware_free_session(PathBuf::from("active.mp4"), Vec::new());
+        session.pending_recording_output = false;
+        session.restart.alignment_generation = 4;
+
+        assert!(!should_discard_cancelled_native_session(&session, 5));
+        assert!(should_discard_cancelled_native_session(&session, 4));
     }
 
     #[test]
