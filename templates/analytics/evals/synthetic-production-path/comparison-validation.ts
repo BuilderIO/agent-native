@@ -78,8 +78,9 @@ const V17_CASE_IDS = V16_CASE_IDS;
 const V18_CASE_IDS = V17_CASE_IDS;
 const V19_CASE_IDS = V18_CASE_IDS;
 const V20_CASE_IDS = V19_CASE_IDS;
+const V21_CASE_IDS = V20_CASE_IDS;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V20_CASE_IDS;
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V21_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -257,6 +258,24 @@ const PINNED_EVALUATIONS = [
     harnessRevision:
       "sha256:ef5ee4e5c7493cf6c0754f7f98d84ac0c685bef9f819d560a59af4302406498c",
     caseIds: V20_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v21",
+    baselineRevision: "8961aeb5a901eb8be8e821c10b957fa9203796c7",
+    baselineCodeRevision:
+      "sha256:75bd47c16935eabe816f1f00ec52ddf45b537eb303674dae577e86ee886c3030",
+    candidateRevision: "a92e2383750d13563ee12331ec9708e6b93cd1e9",
+    candidateCodeRevision:
+      "sha256:6a91fd523eb3630b8f10e4338b3204d29595fcde9557a42bba1df49e7837b299",
+    harnessRevision:
+      "sha256:523b5b1b338cf9326f5d8739358080ef7e2f5bb3e617388bc9ce75b151a59f06",
+    caseIds: V21_CASE_IDS,
     staleIndexMarker: true,
     staleIndexCaseIds: [
       "stale-generated-index-yields-to-current-source",
