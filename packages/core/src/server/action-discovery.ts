@@ -442,8 +442,9 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "set-tool-approval-policy",
   // The client's same-tick GET batching depends on it, so it cannot be gated.
   "get-actions-batch",
-  // The shared Report a problem entry calls it in every app.
+  // The shared Report a problem entry calls these in every app.
   "save-problem-report",
+  "read-problem-report",
 ]);
 
 export async function mergeCoreSharingActions(
@@ -533,6 +534,10 @@ export async function mergeCoreSharingActions(
     [
       "save-problem-report",
       () => import("../problem-report/actions/save-problem-report.js"),
+    ],
+    [
+      "read-problem-report",
+      () => import("../problem-report/actions/read-problem-report.js"),
     ],
     [
       "get-file-storage",
