@@ -205,6 +205,23 @@ const REQUIRED_CORE_COVERAGE = [
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R replaces a flow text root at its measured origin",
   },
+  {
+    shard: "inspector-1a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R uses rendered flow offsets for relative text",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R maps flow placement through rotated and skewed ancestors",
+  },
+  {
+    shard: "inspector-4a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R places a zero-size flow text root at its measured origin",
+  },
 ] as const;
 
 test("required core Design interaction coverage has explicit regression pins", () => {
@@ -226,7 +243,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 72);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 75);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

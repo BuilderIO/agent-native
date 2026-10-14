@@ -244,13 +244,9 @@ export function useEditorClipboard({
       const measured = withMeasuredGeometry(
         elementInfoFromCodeLayerNode(node),
         activeFile.id,
+        { measureAbsoluteSiblingVisualOrigin: true },
       );
-      return measured.positionContainingBlockOrigin &&
-        measured.positionContainingBlockTransform &&
-        measured.boundingRect.width > 0 &&
-        measured.boundingRect.height > 0
-        ? measured
-        : null;
+      return measured.absoluteSiblingVisualOrigin ? measured : null;
     },
     [activeFile, getFreshActiveContent],
   );

@@ -9,6 +9,7 @@ import type {
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
 import {
+  measureAbsoluteSiblingVisualOrigin,
   measurePositionCoordinateContext,
   positionCoordinateRenderOffsetForWindow,
 } from "@/pages/design-editor/position-coordinate-context";
@@ -174,6 +175,7 @@ export function reloadRunningAppPreviewFrames(): void {
 export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
+  options?: { measureAbsoluteSiblingVisualOrigin?: boolean },
 ): ElementInfo {
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
@@ -233,7 +235,13 @@ export function withMeasuredGeometry(
         };
       }
     }
-    if (box.width <= 0 && box.height <= 0) continue;
+    if (
+      !options?.measureAbsoluteSiblingVisualOrigin &&
+      box.width <= 0 &&
+      box.height <= 0
+    ) {
+      continue;
+    }
     const parent =
       node.getAttribute("data-an-primitive") === "boolean-operand"
         ? (node.closest('svg[data-an-primitive="boolean"]') ??
@@ -248,7 +256,11 @@ export function withMeasuredGeometry(
       view && renderOffset
         ? measurePositionCoordinateContext(node, view, renderOffset)
         : undefined;
-    if (!positionCoordinateContext) return info;
+    const absoluteSiblingVisualOrigin =
+      options?.measureAbsoluteSiblingVisualOrigin && view && renderOffset
+        ? measureAbsoluteSiblingVisualOrigin(node, view, renderOffset)
+        : undefined;
+    if (!positionCoordinateContext && !absoluteSiblingVisualOrigin) return info;
     const scrollX = view?.scrollX ?? 0;
     const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
@@ -269,6 +281,7 @@ export function withMeasuredGeometry(
           }
         : undefined,
       ...(positionCoordinateContext ?? {}),
+      ...(absoluteSiblingVisualOrigin ? { absoluteSiblingVisualOrigin } : {}),
       computedStyles: computed
         ? {
             color: computed.color,

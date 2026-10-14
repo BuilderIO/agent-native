@@ -163,8 +163,7 @@ describe("runPasteToReplace with pasted OS content", () => {
         classes: [],
         computedStyles: {},
         boundingRect: { x: 152, y: 302, width: 100, height: 40 },
-        positionContainingBlockOrigin: { x: 102, y: 82 },
-        positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
+        absoluteSiblingVisualOrigin: { x: 25, y: 110 },
         isFlexChild: false,
         isFlexContainer: false,
       }),
@@ -266,9 +265,100 @@ describe("runPasteToReplace with pasted OS content", () => {
     toastError.mockRestore();
   });
 
+  it.each(["static", "relative", "fixed"] as const)(
+    "does not reuse authored left/top for a %s target without live geometry",
+    (position) => {
+      const content = `<main><button data-agent-native-node-id="target" style="position:${position};left:20px;top:30px">Target</button></main>`;
+      const selected = buildCodeLayerProjection(content, {
+        source: { kind: "design-file", fileId: "screen-1" },
+      }).nodes.find((node) => node.tag === "button")!;
+      const applyLocalContentUpdate = vi.fn();
+      const toastError = vi.spyOn(toast, "error");
+
+      runPasteToReplace(
+        {
+          activeFile: { id: "screen-1", content } as DesignFile,
+          applyLocalContentUpdate,
+          canEditDesign: true,
+          getCanvasClipboardEntries: () => [],
+          getFreshActiveContent: () => content,
+          runtimeStructureInsertRevisionRef: { current: 0 },
+          selectInsertedLayers: vi.fn(),
+          selectedCanvasSelector: selected.selectors[0]!,
+          selectedElement: {
+            tagName: selected.tag,
+            selector: selected.selectors[0]!,
+            sourceId: selected.id,
+            classes: selected.classes,
+            computedStyles: {},
+            inlineStyles: {},
+            boundingRect: { x: 20, y: 30, width: 80, height: 32 },
+            isFlexChild: false,
+            isFlexContainer: false,
+          },
+          setRuntimeStructureInsertRequest: vi.fn(),
+          t: (key) => key,
+        },
+        '<button data-agent-native-layer-name="Replacement">Replacement</button>',
+      );
+
+      expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+      expect(toastError).toHaveBeenCalledWith(
+        "designEditor.toasts.pasteReplaceFailed",
+        { duration: 4000 },
+      );
+      toastError.mockRestore();
+    },
+  );
+
+  it("does not fall back to authored coordinates when live measurement fails", () => {
+    const content =
+      '<main><button data-agent-native-node-id="target" style="position:absolute;left:2px;top:3px">Target</button></main>';
+    const selected = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.tag === "button")!;
+    const applyLocalContentUpdate = vi.fn();
+    const toastError = vi.spyOn(toast, "error");
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content } as DesignFile,
+        applyLocalContentUpdate,
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => content,
+        getRenderedElementInfoForSelector: () => null,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: selected.selectors[0]!,
+        selectedElement: {
+          tagName: selected.tag,
+          selector: selected.selectors[0]!,
+          sourceId: selected.id,
+          classes: selected.classes,
+          computedStyles: {},
+          inlineStyles: {},
+          boundingRect: { x: 2, y: 3, width: 80, height: 32 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest: vi.fn(),
+        t: (key) => key,
+      },
+      '<button data-agent-native-layer-name="Replacement">Replacement</button>',
+    );
+
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteReplaceFailed",
+      { duration: 4000 },
+    );
+    toastError.mockRestore();
+  });
+
   it("uses fresh geometry for an ordinary replacement target", () => {
     const content =
-      '<main><button data-agent-native-node-id="target">Target</button><p>After</p></main>';
+      '<main><button data-agent-native-node-id="target" style="position:absolute;left:2px;top:3px">Target</button><p>After</p></main>';
     const projection = buildCodeLayerProjection(content, {
       source: { kind: "design-file", fileId: "screen-1" },
     });
@@ -293,8 +383,7 @@ describe("runPasteToReplace with pasted OS content", () => {
         classes: [],
         computedStyles: {},
         boundingRect: { x: 120, y: 230, width: 80, height: 32 },
-        positionContainingBlockOrigin: { x: 100, y: 200 },
-        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+        absoluteSiblingVisualOrigin: { x: 20, y: 30 },
         isFlexChild: false,
         isFlexContainer: false,
       }),
@@ -329,6 +418,82 @@ describe("runPasteToReplace with pasted OS content", () => {
     expect([replacement?.style.left, replacement?.style.top]).toEqual([
       "20px",
       "30px",
+    ]);
+  });
+
+  it("subtracts the clone's own transform offset from the measured visual origin", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 0;
+        readonly b = 1;
+        readonly c = -1;
+        readonly d = 0;
+        readonly e = 0;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const content =
+      '<main><button data-agent-native-node-id="target">Target</button></main>';
+    const selected = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.tag === "button")!;
+    const applyLocalContentUpdate = vi.fn();
+
+    runPasteToReplace({
+      activeFile: { id: "screen-1", content } as DesignFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      getCanvasClipboardEntries: () => [
+        {
+          html: '<button data-agent-native-layer-name="Target" style="width:40px;height:24px;transform:matrix(0, 1, -1, 0, 0, 0);transform-origin:20px 12px">Replacement</button>',
+          rootNodeId: "replacement",
+          sourceFileId: "screen-2",
+        },
+      ],
+      getFreshActiveContent: () => content,
+      getRenderedElementInfoForSelector: () => ({
+        tagName: "button",
+        selector: '[data-agent-native-node-id="target"]',
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 30, y: 40, width: 1, height: 1 },
+        absoluteSiblingVisualOrigin: { x: 30, y: 40 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectInsertedLayers: vi.fn(),
+      selectedCanvasSelector: selected.selectors[0]!,
+      selectedElement: {
+        tagName: selected.tag,
+        selector: selected.selectors[0]!,
+        sourceId: selected.id,
+        classes: selected.classes,
+        computedStyles: {},
+        inlineStyles: {},
+        hasOwnText: selected.paintsOwnText,
+        wholeTextStyleRoot: selected.wholeTextStyleRoot,
+        boundingRect: { x: 0, y: 0, width: 1, height: 1 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      setRuntimeStructureInsertRequest: vi.fn(),
+      t: (key) => key,
+    });
+
+    const next = applyLocalContentUpdate.mock.calls[0]?.[0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Target"]',
+    );
+
+    expect([replacement?.style.left, replacement?.style.top]).toEqual([
+      "22px",
+      "48px",
     ]);
   });
 

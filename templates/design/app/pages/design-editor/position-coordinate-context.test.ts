@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { embeddedContentOffsetStyle } from "@/components/design/design-canvas/embedded-frame";
 
 import {
+  measureAbsoluteSiblingVisualOrigin,
   measurePositionCoordinateContext,
   positionCoordinateRenderOffsetForWindow,
 } from "./position-coordinate-context";
@@ -14,6 +15,7 @@ const cleanup: Element[] = [];
 afterEach(() => {
   cleanup.splice(0).forEach((element) => element.remove());
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function append(element: Element): void {
@@ -39,6 +41,34 @@ function mockRect(
       right: rect.x + rect.width,
       bottom: rect.y + rect.height,
     }) as DOMRect;
+}
+
+function mockSingleClientRect(element: Element): void {
+  element.getClientRects = () =>
+    [{ x: 0, y: 0, width: 1, height: 1 }] as unknown as DOMRectList;
+}
+
+function stubMatrixReadOnly(): void {
+  vi.stubGlobal(
+    "DOMMatrixReadOnly",
+    class {
+      readonly is2D = true;
+      readonly a: number;
+      readonly b: number;
+      readonly c: number;
+      readonly d: number;
+      readonly e: number;
+      readonly f: number;
+
+      constructor(value: string) {
+        const parts = value
+          .slice(value.indexOf("(") + 1, value.lastIndexOf(")"))
+          .split(",")
+          .map(Number);
+        [this.a, this.b, this.c, this.d, this.e, this.f] = parts;
+      }
+    },
+  );
 }
 
 describe("measurePositionCoordinateContext board render offset", () => {
@@ -237,5 +267,136 @@ describe("measurePositionCoordinateContext board render offset", () => {
 
     expect(first.positionContainingBlockOrigin).toEqual({ x: 10, y: 20 });
     expect(second.positionContainingBlockOrigin).toEqual({ x: -30, y: 40 });
+  });
+});
+
+describe("measureAbsoluteSiblingVisualOrigin", () => {
+  it.each([
+    [
+      "throws",
+      () => {
+        throw new DOMException("Quad read denied", "SecurityError");
+      },
+    ],
+    ["returns no quads", () => []],
+  ] as const)(
+    "returns unknown when a target quad read %s",
+    (_result, readQuads) => {
+      const parent = document.createElement("div");
+      parent.style.cssText =
+        "position:relative;width:300px;height:200px;box-sizing:border-box";
+      mockRect(parent, { x: 100, y: 200, width: 300, height: 200 });
+      mockSingleClientRect(parent);
+      append(parent);
+
+      const target = document.createElement("div");
+      target.style.cssText =
+        "position:absolute;left:45px;top:57px;width:20px;height:10px;box-sizing:border-box";
+      mockRect(target, { x: 145, y: 257, width: 20, height: 10 });
+      mockSingleClientRect(target);
+      Object.defineProperty(target, "getBoxQuads", {
+        configurable: true,
+        value: readQuads,
+      });
+      parent.appendChild(target);
+
+      expect(
+        measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    [
+      "throws",
+      () => {
+        throw new DOMException("Quad read denied", "SecurityError");
+      },
+    ],
+    ["returns no quads", () => []],
+  ] as const)(
+    "returns unknown when a containing-block padding quad read %s",
+    (_result, readQuads) => {
+      const parent = document.createElement("div");
+      parent.style.cssText =
+        "position:relative;width:300px;height:200px;box-sizing:border-box";
+      mockRect(parent, { x: 100, y: 200, width: 300, height: 200 });
+      mockSingleClientRect(parent);
+      Object.defineProperty(parent, "getBoxQuads", {
+        configurable: true,
+        value: readQuads,
+      });
+      append(parent);
+
+      const target = document.createElement("div");
+      target.style.cssText =
+        "position:absolute;left:45px;top:57px;width:20px;height:10px;box-sizing:border-box";
+      mockRect(target, { x: 145, y: 257, width: 20, height: 10 });
+      mockSingleClientRect(target);
+      parent.appendChild(target);
+
+      expect(
+        measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+      ).toBeNull();
+    },
+  );
+
+  it("normalizes a board root against the injected board render offset", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-agent-native-node-id", "screen-root");
+    root.style.cssText =
+      "position:absolute;left:0;top:0;width:800px;height:600px;box-sizing:border-box";
+    mockRect(root, { x: 4096, y: 2048, width: 800, height: 600 });
+    mockSingleClientRect(root);
+    append(root);
+
+    expect(
+      measureAbsoluteSiblingVisualOrigin(root, window, {
+        x: 4096,
+        y: 2048,
+      }),
+    ).toEqual({ x: 0, y: 0 });
+  });
+
+  it("maps every target corner through a skewed parent and its own transform", () => {
+    stubMatrixReadOnly();
+    const parent = document.createElement("div");
+    parent.style.cssText =
+      "position:relative;width:300px;height:200px;box-sizing:border-box;transform:matrix(0, 1, -1, 1, 0, 0)";
+    mockRect(parent, { x: -100, y: 200, width: 200, height: 500 });
+    mockSingleClientRect(parent);
+    append(parent);
+
+    const target = document.createElement("div");
+    target.style.cssText =
+      "position:absolute;left:40px;top:100px;width:30px;height:20px;box-sizing:border-box;transform:matrix(0, 1, -1, 0, 0, 0)";
+    mockRect(target, { x: -30, y: 320, width: 30, height: 50 });
+    mockSingleClientRect(target);
+    parent.appendChild(target);
+
+    expect(
+      measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+    ).toEqual({ x: 20, y: 100 });
+  });
+
+  it("keeps a finite origin when the target has no rendered area", () => {
+    stubMatrixReadOnly();
+    const parent = document.createElement("div");
+    parent.style.cssText =
+      "position:relative;width:300px;height:200px;box-sizing:border-box";
+    mockRect(parent, { x: 100, y: 200, width: 300, height: 200 });
+    mockSingleClientRect(parent);
+    append(parent);
+
+    const target = document.createElement("div");
+    target.style.cssText =
+      "position:absolute;left:45px;top:57px;width:0;height:0;box-sizing:border-box";
+    mockRect(target, { x: 145, y: 257, width: 0, height: 0 });
+    mockSingleClientRect(target);
+    parent.appendChild(target);
+
+    expect(
+      measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+    ).toEqual({ x: 45, y: 57 });
   });
 });

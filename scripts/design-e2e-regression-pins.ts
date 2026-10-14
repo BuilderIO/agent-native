@@ -438,6 +438,23 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R replaces a flow text root at its measured origin",
   },
+  {
+    shard: "inspector-1a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R uses rendered flow offsets for relative text",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R maps flow placement through rotated and skewed ancestors",
+  },
+  {
+    shard: "inspector-4a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R places a zero-size flow text root at its measured origin",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {
