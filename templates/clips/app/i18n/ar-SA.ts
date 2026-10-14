@@ -1862,6 +1862,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
+    partialLocalCopyDownloadStarted:
+      "قد تكون النسخة المحلية غير مكتملة. يتم تنزيل بيانات التسجيل المتاحة.",
     backToLibrary: "Back to library (مترجم)",
     clipsRecorder: "Clips recorder (مترجم)",
     preparingSources: "Preparing sources… (مترجم)",

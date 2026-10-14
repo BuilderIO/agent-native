@@ -1905,6 +1905,8 @@ const messages = {
     copyLinkAction: "Copiar enlace",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
+    partialLocalCopyDownloadStarted:
+      "Es posible que la copia local esté incompleta. Se están descargando los datos de grabación disponibles.",
     backToLibrary: "Back to library",
     clipsRecorder: "Clips recorder",
     preparingSources: "Preparing sources…",

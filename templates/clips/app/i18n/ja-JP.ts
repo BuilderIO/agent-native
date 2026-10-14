@@ -1885,6 +1885,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
+    partialLocalCopyDownloadStarted:
+      "ローカルコピーは不完全な可能性があります。利用可能な録画データをダウンロードしています。",
     backToLibrary: "Back to library (ローカライズ済み)",
     clipsRecorder: "Clips recorder (ローカライズ済み)",
     preparingSources: "Preparing sources… (ローカライズ済み)",

@@ -1860,6 +1860,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
+    partialLocalCopyDownloadStarted:
+      "로컬 사본이 불완전할 수 있습니다. 사용 가능한 녹화 데이터를 다운로드하고 있습니다.",
     backToLibrary: "Back to library (현지화됨)",
     clipsRecorder: "Clips recorder (현지화됨)",
     preparingSources: "Preparing sources… (현지화됨)",

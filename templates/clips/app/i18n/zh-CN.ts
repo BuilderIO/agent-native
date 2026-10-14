@@ -1787,6 +1787,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (已本地化)",
     recordingDownloadStarted: "Recording download started (已本地化)",
+    partialLocalCopyDownloadStarted:
+      "本地副本可能不完整。正在下载当前可用的录制数据。",
     backToLibrary: "Back to library (已本地化)",
     clipsRecorder: "Clips recorder (已本地化)",
     preparingSources: "Preparing sources… (已本地化)",

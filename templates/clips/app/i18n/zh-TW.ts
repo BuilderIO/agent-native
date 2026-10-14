@@ -1779,6 +1779,8 @@ const messages = {
     copyLinkAction: "複製連結",
     noLocalRecordingData: "沒有可下載的本機錄製資料。",
     recordingDownloadStarted: "已開始下載錄製",
+    partialLocalCopyDownloadStarted:
+      "本機副本可能不完整。正在下載目前可用的錄影資料。",
     backToLibrary: "返回媒體庫",
     clipsRecorder: "Clips 錄製工具",
     preparingSources: "正在準備來源…",

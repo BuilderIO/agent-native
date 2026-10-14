@@ -1224,20 +1224,40 @@ export default function ShareRoute() {
         toast.error(t("recordRoute.noLocalRecordingData"));
         return;
       }
+      if (copy.meta.recordingId !== recording.id) {
+        toast.error(t("recordRoute.localCopyUnreadable"));
+        return;
+      }
+      const localOwnerEmail = copy.meta.ownerEmail?.trim().toLowerCase();
+      const viewerEmail = session?.email?.trim().toLowerCase();
+      if (localOwnerEmail && localOwnerEmail !== viewerEmail) {
+        toast.error(t("recordRoute.recordingOwnedByAnotherAccount"));
+        return;
+      }
       if (!copy.blob) {
         toast.error(t("recordRoute.localCopyUnreadable"));
         return;
       }
+      const partial = !copy.whole;
       const url = URL.createObjectURL(copy.blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = recordingBackupFilename(copy.meta);
+      const filename = recordingBackupFilename(copy.meta);
+      link.download = partial
+        ? filename.replace(/(\.[^.]+)$/, "-partial$1")
+        : filename;
       link.rel = "noopener";
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      toast.success(t("recordRoute.recordingDownloadStarted"));
+      if (partial) {
+        toast.warning(t("recordRoute.partialLocalCopyDownloadStarted"), {
+          duration: 12_000,
+        });
+      } else {
+        toast.success(t("recordRoute.recordingDownloadStarted"));
+      }
     } catch (err) {
       console.warn("[clips-share] reading the local copy failed:", err);
       toast.error(t("recordRoute.localCopyUnreadable"));

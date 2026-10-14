@@ -1911,6 +1911,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Localisé)",
     recordingDownloadStarted: "Recording download started (Localisé)",
+    partialLocalCopyDownloadStarted:
+      "La copie locale est peut-être incomplète. Les données d’enregistrement disponibles sont en cours de téléchargement.",
     backToLibrary: "Back to library (Localisé)",
     clipsRecorder: "Clips recorder (Localisé)",
     preparingSources: "Preparing sources… (Localisé)",

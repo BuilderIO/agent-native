@@ -1836,6 +1836,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
+    partialLocalCopyDownloadStarted:
+      "स्थानीय कॉपी अधूरी हो सकती है। उपलब्ध रिकॉर्डिंग डेटा डाउनलोड हो रहा है।",
     backToLibrary: "Back to library (स्थानीयकृत)",
     clipsRecorder: "Clips recorder (स्थानीयकृत)",
     preparingSources: "Preparing sources… (स्थानीयकृत)",
