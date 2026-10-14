@@ -19,8 +19,10 @@ vi.mock("@/lib/mse-video-loader", () => ({
     objectUrl = "blob:test";
     destroy = vi.fn();
     updateUrl = vi.fn();
+    url: string;
 
-    constructor() {
+    constructor({ url }: { url: string }) {
+      this.url = url;
       mocks.loaders.push(this);
     }
   },
@@ -84,5 +86,31 @@ describe("useMseVideoSource", () => {
     });
     expect(firstLoader.destroy).toHaveBeenCalledOnce();
     expect(mocks.loaders).toHaveLength(2);
+  });
+
+  it("constructs the loader with a renewed URL when it rotates during sniffing", async () => {
+    const oldPass = "/api/video/rec_1?t=old&password=old&media=7";
+    const renewedPass = "/api/video/rec_1?t=new&password=new&media=7";
+    let resolveSniff!: (isFragmented: boolean) => void;
+    const sniffPromise = new Promise<boolean>((resolve) => {
+      resolveSniff = resolve;
+    });
+    mocks.sniffFragmentedMp4.mockReturnValue(sniffPromise);
+
+    await act(async () => {
+      root.render(<Harness sourceUrl={oldPass} />);
+    });
+    expect(mocks.sniffFragmentedMp4).toHaveBeenCalledWith(oldPass);
+
+    await act(async () => {
+      root.render(<Harness sourceUrl={renewedPass} />);
+    });
+    resolveSniff(true);
+    await act(async () => {
+      await sniffPromise;
+    });
+
+    expect(mocks.loaders).toHaveLength(1);
+    expect(mocks.loaders[0]).toMatchObject({ url: renewedPass });
   });
 });

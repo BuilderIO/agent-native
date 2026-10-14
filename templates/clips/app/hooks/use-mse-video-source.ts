@@ -78,6 +78,8 @@ export function useMseVideoSource({
   );
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
   const loaderRef = useRef<MseVideoLoader | null>(null);
+  const sourceUrlRef = useRef(sourceUrl);
+  sourceUrlRef.current = sourceUrl;
 
   const durationMsRef = useRef(durationMs);
   durationMsRef.current = durationMs;
@@ -105,7 +107,7 @@ export function useMseVideoSource({
         }
         try {
           const loader = new MseVideoLoader({
-            url: sourceUrl,
+            url: sourceUrlRef.current ?? sourceUrl,
             durationMs: durationMsRef.current,
             video,
             onFatal: () => {

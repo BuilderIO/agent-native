@@ -391,6 +391,10 @@ describe("realtime voice inline preferences", () => {
       "fr",
     );
     expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("instant", "live")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("instant", "realtime")).toBe(
+      "minimal",
+    );
     expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
     expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
     expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
@@ -725,7 +729,9 @@ describe("realtime voice session route", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { handlers } = mount();
-    const event = sessionEvent();
+    const event = sessionEvent(undefined, {
+      "x-agent-native-realtime-intelligence": "instant",
+    });
     await expect(
       handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
     ).resolves.toBe("v=0\r\ns=live\r\n");
@@ -772,6 +778,7 @@ describe("realtime voice session route", () => {
     const { handlers } = mount();
     const event = sessionEvent(undefined, {
       [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+      "x-agent-native-realtime-intelligence": "instant",
     });
     await expect(
       handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
@@ -788,6 +795,7 @@ describe("realtime voice session route", () => {
     expect(JSON.parse(form.get("session") as string)).toMatchObject({
       type: "realtime",
       model: "gpt-realtime-2.1",
+      reasoning: { effort: "minimal" },
     });
   });
 

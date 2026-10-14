@@ -83,7 +83,6 @@ const REALTIME_VOICE_BUILT_INS = new Set([
   "cedar",
 ]);
 const REALTIME_VOICE_REASONING_EFFORT = {
-  instant: "low",
   balanced: "low",
   deep: "medium",
 } as const;
@@ -194,8 +193,12 @@ export function resolveRealtimeVoiceLanguagePreference(
 
 export function resolveRealtimeVoiceReasoningEffort(
   value: string | null | undefined,
-): "low" | "medium" {
+  protocol: "live" | "realtime" = "live",
+): "minimal" | "low" | "medium" {
   const normalized = value?.trim().toLowerCase();
+  if (normalized === "instant") {
+    return protocol === "realtime" ? "minimal" : "low";
+  }
   return normalized &&
     Object.prototype.hasOwnProperty.call(
       REALTIME_VOICE_REASONING_EFFORT,
@@ -608,8 +611,10 @@ function createSessionHandler(
           readSafeHeader(event, "x-agent-native-realtime-language"),
           readSafeHeader(event, "accept-language"),
         );
+        const protocol = readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER);
         const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
           readSafeHeader(event, "x-agent-native-realtime-intelligence"),
+          protocol === "realtime" ? "realtime" : "live",
         );
         const voice = resolveRealtimeVoicePreference(
           readSafeHeader(event, "x-agent-native-realtime-voice"),
@@ -620,8 +625,7 @@ function createSessionHandler(
           DEFAULT_MODEL,
         );
         const model =
-          readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER) ===
-            "realtime" && configuredModel === DEFAULT_MODEL
+          protocol === "realtime" && configuredModel === DEFAULT_MODEL
             ? LEGACY_MODEL
             : configuredModel;
         const sessionBase =
