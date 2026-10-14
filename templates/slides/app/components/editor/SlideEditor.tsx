@@ -5402,13 +5402,14 @@ export default function SlideEditor({
   }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
 
   const canvasZoomEnabled = !slide.excalidrawData;
+  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
+  const canZoomIn =
+    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
   useEffect(() => {
     if (!canvasCommandsRef) return;
     const commands: SlideCanvasCommands = {
-      canZoomIn:
-        canvasZoomEnabled &&
-        canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
-      canZoomOut: canvasZoomEnabled && canvasZoom > MIN_CANVAS_ZOOM,
+      canZoomIn: canvasZoomEnabled && canZoomIn,
+      canZoomOut: canvasZoomEnabled && canZoomOut,
       zoomIn: canvasZoomIn,
       zoomOut: canvasZoomOut,
       hasObjectSelection: () => getClipboardSelection() !== null,
@@ -5423,7 +5424,8 @@ export default function SlideEditor({
     };
   }, [
     canvasCommandsRef,
-    canvasZoom,
+    canZoomIn,
+    canZoomOut,
     canvasZoomEnabled,
     canvasZoomIn,
     canvasZoomOut,
@@ -10206,9 +10208,6 @@ export default function SlideEditor({
   const multiSelectionBounds = unionDomRects(
     Array.from(multiSelectionRects.values()).map((value) => value.rect),
   );
-  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
-  const canZoomIn =
-    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
   const zoomControls = !canvasZoomEnabled
     ? undefined
     : {
