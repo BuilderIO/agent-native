@@ -149,7 +149,7 @@ interface EditorToolbarProps {
   onGenerateImage: () => void;
   onOpenAssetLibrary: () => void;
   onShowHistory: () => void;
-  historyButtonRef: React.RefObject<HTMLButtonElement | null>;
+  panelAnchorRef: React.RefObject<HTMLDivElement | null>;
   currentSlide?: Slide;
   onWideContextToolbarSlotChange?: (element: HTMLDivElement | null) => void;
   activeUsers?: CollabUser[];
@@ -218,7 +218,7 @@ export default function EditorToolbar({
   onGenerateImage,
   onOpenAssetLibrary,
   onShowHistory,
-  historyButtonRef,
+  panelAnchorRef,
   currentSlide,
   onWideContextToolbarSlotChange,
   activeUsers,
@@ -967,7 +967,10 @@ export default function EditorToolbar({
       )}
 
       {/* Top-right editor actions */}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div
+        ref={panelAnchorRef}
+        className="ml-auto flex shrink-0 items-center gap-1"
+      >
         {/* Slide transition — the current slide's entry transition, speed,
             apply-to-all, and preview. */}
         {canEdit &&
@@ -1003,7 +1006,6 @@ export default function EditorToolbar({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    ref={historyButtonRef}
                     className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
                     aria-label={t("editorToolbar.more")}
                   >

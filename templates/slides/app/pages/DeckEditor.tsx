@@ -797,7 +797,7 @@ export default function DeckEditor() {
   const [imageGenOpen, setImageGenOpen] = useState(false);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const panelAnchorRef = useRef<HTMLDivElement>(null);
   const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
@@ -4499,7 +4499,7 @@ export default function DeckEditor() {
           }
           setHistoryOpen((open) => !open);
         }}
-        historyButtonRef={historyButtonRef}
+        panelAnchorRef={panelAnchorRef}
         onPresent={handlePresent}
         currentSlide={currentSlide}
         layersOpen={layersOpen}
@@ -5209,7 +5209,7 @@ export default function DeckEditor() {
       <ImageGenPanel
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
-        anchorRef={historyButtonRef}
+        anchorRef={panelAnchorRef}
         referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
@@ -5227,7 +5227,7 @@ export default function DeckEditor() {
       <AssetLibraryPanel
         open={assetLibraryOpen}
         onOpenChange={setAssetLibraryOpen}
-        anchorRef={historyButtonRef}
+        anchorRef={panelAnchorRef}
         onSelectAsset={
           replaceImageSrc
             ? (newUrl) => {
@@ -5248,7 +5248,7 @@ export default function DeckEditor() {
         open={historyOpen}
         onOpenChange={setHistoryOpen}
         canRestore={canEdit}
-        anchorRef={historyButtonRef}
+        anchorRef={panelAnchorRef}
       />
 
       <AlertDialog open={pendingDeckNavigationWarningOpen}>

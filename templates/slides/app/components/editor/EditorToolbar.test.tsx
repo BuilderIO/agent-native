@@ -272,7 +272,7 @@ describe("<EditorToolbar>", () => {
         onGenerateImage={vi.fn()}
         onOpenAssetLibrary={vi.fn()}
         onShowHistory={vi.fn()}
-        historyButtonRef={createRef<HTMLButtonElement>()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
       />
     </TooltipProvider>
   );
@@ -324,7 +324,7 @@ describe("<EditorToolbar>", () => {
         onGenerateImage={vi.fn()}
         onOpenAssetLibrary={vi.fn()}
         onShowHistory={vi.fn()}
-        historyButtonRef={createRef<HTMLButtonElement>()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
         onToggleComments={vi.fn()}
         onUndo={vi.fn()}
         onRedo={vi.fn()}
@@ -538,7 +538,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -585,7 +585,7 @@ describe("<EditorToolbar>", () => {
             onGenerateImage={vi.fn()}
             onOpenAssetLibrary={vi.fn()}
             onShowHistory={vi.fn()}
-            historyButtonRef={createRef<HTMLButtonElement>()}
+            panelAnchorRef={createRef<HTMLDivElement>()}
           />
         </TooltipProvider>,
       );
@@ -644,7 +644,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -698,7 +698,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={onShowHistory}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           currentSlide={slide}
           onAddEmptySlide={onAddEmptySlide}
           onToggleTextBoxMode={onToggleTextBoxMode}
@@ -777,7 +777,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onExportGoogleSlides={vi.fn()}
           onPresent={onPresent}
         />
@@ -822,7 +822,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onSelectShape={onSelectShape}
         />
       </TooltipProvider>,
@@ -855,7 +855,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
           onExportGoogleSlides={vi.fn()}
         />
@@ -889,7 +889,7 @@ describe("<EditorToolbar>", () => {
 
   it("surfaces version history from the app menu's File submenu", async () => {
     const onShowHistory = vi.fn();
-    const historyButtonRef = createRef<HTMLButtonElement>();
+    const panelAnchorRef = createRef<HTMLDivElement>();
 
     render(
       <TooltipProvider>
@@ -904,7 +904,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={onShowHistory}
-          historyButtonRef={historyButtonRef}
+          panelAnchorRef={panelAnchorRef}
         />
       </TooltipProvider>,
     );
@@ -946,7 +946,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           canvasCommandsRef={{ current: commands }}
           {...slideProps}
         />
@@ -1000,7 +1000,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           currentSlide={{
             id: "slide-1",
             content: "",
@@ -1059,7 +1059,7 @@ describe("<EditorToolbar>", () => {
             onGenerateImage={vi.fn()}
             onOpenAssetLibrary={vi.fn()}
             onShowHistory={vi.fn()}
-            historyButtonRef={createRef<HTMLButtonElement>()}
+            panelAnchorRef={createRef<HTMLDivElement>()}
           />
         </TooltipProvider>,
       );
@@ -1110,7 +1110,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -1140,7 +1140,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -1169,7 +1169,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -1214,7 +1214,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -1246,7 +1246,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
