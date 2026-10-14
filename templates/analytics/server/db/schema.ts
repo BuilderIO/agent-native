@@ -107,6 +107,7 @@ export const dashboardReportSubscriptions = table(
     dashboardId: text("dashboard_id").notNull(),
     name: text("name").notNull(),
     recipients: text("recipients").notNull().default("[]"),
+    slackWebhookUrl: text("slack_webhook_url"),
     filters: text("filters").notNull().default("{}"),
     frequency: text("frequency", { enum: ["daily"] })
       .notNull()

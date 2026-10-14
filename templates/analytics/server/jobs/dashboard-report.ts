@@ -142,7 +142,7 @@ export async function runDashboardReportsOnce(): Promise<{
           result.reportError ??
           `panels unavailable: ${result.degradedPanelIds.join(", ") || "unknown"}`;
 
-        if (!result.emailsSent) {
+        if (!result.delivered) {
           failed++;
           const retryMessage = retryAt
             ? `${degradedReason} (retry scheduled)`

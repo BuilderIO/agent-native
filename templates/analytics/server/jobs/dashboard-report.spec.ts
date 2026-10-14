@@ -45,6 +45,7 @@ function subscription(
     dashboardId: "agent-native",
     name: "Agent-Native daily email",
     recipients: ["steve@builder.io"],
+    slackWebhookUrl: null,
     filters: {},
     frequency: "daily",
     timeOfDay: "04:00",
@@ -73,7 +74,7 @@ function completeResult(
     recipientCount: 1,
     reportMode: "complete",
     degradedPanelIds: [],
-    emailsSent: true,
+    delivered: true,
     ...overrides,
   };
 }
@@ -122,7 +123,7 @@ describe("dashboard report sweep", () => {
       completeResult({
         reportMode: "degraded",
         degradedPanelIds: ["panel_revenue", "panel_signups"],
-        emailsSent: true,
+        delivered: true,
       }),
     );
 
@@ -154,7 +155,7 @@ describe("dashboard report sweep", () => {
         reportMode: "degraded",
         degradedPanelIds: ["panel_revenue"],
         reportError: "dashboard render timed out",
-        emailsSent: false,
+        delivered: false,
       }),
     );
 
@@ -185,7 +186,7 @@ describe("dashboard report sweep", () => {
       completeResult({
         reportMode: "degraded",
         degradedPanelIds: ["panel_revenue"],
-        emailsSent: false,
+        delivered: false,
       }),
     );
 
@@ -220,7 +221,7 @@ describe("dashboard report sweep", () => {
       completeResult({
         reportMode: "degraded",
         degradedPanelIds: ["panel_revenue"],
-        emailsSent: false,
+        delivered: false,
       }),
     );
 
