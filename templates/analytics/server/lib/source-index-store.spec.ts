@@ -445,6 +445,61 @@ describe("mergeSourceIndexBundles", () => {
     });
   });
 
+  it("keeps newly rebuilt sources with unknown timestamps unknown", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [
+        {
+          id: "dbt",
+          sourceKind: "dbt",
+          revision: "111111111111",
+          generatedAt: "2026-10-01T00:00:00.000Z",
+          contentFingerprint: "b".repeat(64),
+        },
+      ],
+      entries: [
+        {
+          id: "dbt-model",
+          metric: "model:users",
+          definition: "User rows.",
+          source: "dbt",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "sigma",
+          sourceKind: "sigma",
+          contentFingerprint: "a".repeat(64),
+        },
+      ],
+      entries: [
+        {
+          id: "sigma-example",
+          metric: "Members by workspace",
+          definition: "Reviewed example.",
+          source: "sigma",
+        },
+      ],
+    });
+
+    const merged = mergeSourceIndexBundles(current, update);
+
+    expect(merged.generatedAt).toBe("2026-10-12T00:00:00.000Z");
+    expect(merged.sources.find(({ id }) => id === "sigma")?.generatedAt).toBe(
+      undefined,
+    );
+    expect(sourceIndexSourcesFreshness(merged)).toMatchObject({
+      sourceCount: 2,
+      unknownTimestampCount: 1,
+      fresh: false,
+    });
+  });
+
   it("replaces matching sources while preserving other sources and entries", () => {
     const current = parseSourceIndexBundle({
       schemaVersion: 1,
@@ -493,7 +548,14 @@ describe("mergeSourceIndexBundles", () => {
     const update = parseSourceIndexBundle({
       schemaVersion: 1,
       generatedAt: "2026-10-12T00:00:00.000Z",
-      sources: [{ id: "dbt", sourceKind: "dbt", revision: "333333333333" }],
+      sources: [
+        {
+          id: "dbt",
+          sourceKind: "dbt",
+          revision: "333333333333",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+      ],
       entries: [
         {
           id: "new-users",

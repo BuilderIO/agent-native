@@ -3659,6 +3659,7 @@ export async function compileSourceIndex(
       sourceKind: kind,
       ...(context.revision ? { revision: context.revision } : {}),
       contentFingerprint: scan.contentFingerprint,
+      ...(context.committedAt ? { generatedAt: context.committedAt } : {}),
     });
     entries.push(
       ...scan.entries.map((entry) => ({ ...entry, sourceKind: kind })),
@@ -3698,17 +3699,13 @@ export async function compileSourceIndex(
       "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
     );
   }
-  const timestampedSources = sources.map((source) => ({
-    ...source,
-    generatedAt,
-  }));
   const indexedEntries = entries
     .map((entry) => ({ ...entry, status: entry.status ?? "active" }))
     .sort((a, b) => a.id.localeCompare(b.id));
   const bundle: SourceIndexBundle = {
     schemaVersion: SCHEMA_VERSION,
     generatedAt,
-    sources: timestampedSources,
+    sources,
     entries: indexedEntries,
     scanSummary,
   };

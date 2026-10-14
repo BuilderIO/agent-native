@@ -201,7 +201,6 @@ export function mergeSourceIndexBundles(
     ...source,
     id: sourceIdMap.get(source.id) ?? source.id,
     sourceKind: source.sourceKind ?? sourceKind(update, source.id),
-    generatedAt: source.generatedAt ?? update.generatedAt,
   }));
   const replacedSourceIds = new Set(updatedSources.map((source) => source.id));
   const preservedSources = current.sources.filter(
@@ -256,12 +255,15 @@ export function mergeSourceIndexBundles(
       return { ...entry, id, source };
     }),
   ];
-  const generatedAt = sources.reduce((latest, source) => {
-    const sourceGeneratedAt = source.generatedAt ?? update.generatedAt;
-    return Date.parse(sourceGeneratedAt) > Date.parse(latest)
-      ? sourceGeneratedAt
-      : latest;
-  }, current.generatedAt);
+  const generatedAt = [
+    current.generatedAt,
+    update.generatedAt,
+    ...sources.flatMap((source) =>
+      source.generatedAt ? [source.generatedAt] : [],
+    ),
+  ].reduce((latest, candidate) =>
+    Date.parse(candidate) > Date.parse(latest) ? candidate : latest,
+  );
   // Existing scan counts describe the entire old bundle, so they cannot be
   // combined accurately after replacing only one source.
   const merged: SourceIndexBundle = {

@@ -1225,9 +1225,7 @@ describe("compileSourceIndex", () => {
     expect(bundle.entries[0]).toMatchObject({ sourceKind: "sigma" });
     expect(
       bundle.sources.find((source) => source.id === "sigma"),
-    ).toMatchObject({
-      generatedAt: bundle.generatedAt,
-    });
+    ).not.toHaveProperty("generatedAt");
     expect(serialized).not.toContain("fake-sigma-client-id");
     expect(serialized).not.toContain("fake-sigma-client-secret");
     expect(serialized).not.toContain("fake-token");
@@ -1355,15 +1353,14 @@ describe("compileSourceIndex", () => {
         {
           id: "dbt",
           contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
-          generatedAt: "2026-10-09T12:00:00.000Z",
         },
         {
           id: "product-app",
           contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
-          generatedAt: "2026-10-09T12:00:00.000Z",
         },
       ],
     });
+    expect(bundle.sources.every((source) => !source.generatedAt)).toBe(true);
     expect(model).toMatchObject({
       table: "orders",
       sourceKind: "dbt",
@@ -1526,6 +1523,51 @@ describe("compileSourceIndex", () => {
     expect(edited.sources[0]?.contentFingerprint).not.toBe(
       bundle.sources[0]?.contentFingerprint,
     );
+  });
+
+  it("keeps each root timestamp independent from the bundle timestamp", async () => {
+    const root = await temporaryDirectory();
+    const makeDbtRoot = async (name: string, timestamp: string) => {
+      const dbtRoot = path.join(root, name);
+      await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+      await writeFile(
+        path.join(dbtRoot, "models", "accounts.sql"),
+        "SELECT account_id FROM source_accounts",
+      );
+      execFileSync("git", ["init", "-q"], { cwd: dbtRoot });
+      execFileSync("git", ["config", "user.name", "Source Index Test"], {
+        cwd: dbtRoot,
+      });
+      execFileSync(
+        "git",
+        ["config", "user.email", "source-index@example.test"],
+        {
+          cwd: dbtRoot,
+        },
+      );
+      execFileSync("git", ["add", "models/accounts.sql"], { cwd: dbtRoot });
+      execFileSync("git", ["commit", "-q", "-m", `Add ${name} model`], {
+        cwd: dbtRoot,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_DATE: timestamp,
+          GIT_COMMITTER_DATE: timestamp,
+        },
+      });
+      return dbtRoot;
+    };
+    const olderRoot = await makeDbtRoot("dbt-older", "2024-02-03T04:05:06Z");
+    const newerRoot = await makeDbtRoot("dbt-newer", "2024-03-04T05:06:07Z");
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [olderRoot, newerRoot],
+    });
+
+    expect(bundle.generatedAt).toBe("2024-03-04T05:06:07.000Z");
+    expect(bundle.sources.map(({ generatedAt }) => generatedAt)).toEqual([
+      "2024-02-03T04:05:06.000Z",
+      "2024-03-04T05:06:07.000Z",
+    ]);
   });
 
   it("requires dbt commit metadata instead of using a wall-clock timestamp", async () => {

@@ -321,6 +321,27 @@ function requestedTemporalUnit(search: string): string | null {
   return match?.[1]?.toLowerCase() ?? null;
 }
 
+function isExplicitMembershipSnapshotRequest(search: string): boolean {
+  return /\b(?:as of|snapshot|snapshots|historical|history|month[- ]end)\b/i.test(
+    search,
+  );
+}
+
+function requestedHistoricalTemporalUnit(search: string): string | null {
+  const unit = requestedTemporalUnit(search);
+  if (
+    !unit ||
+    !isExplicitMembershipSnapshotRequest(search) ||
+    !/\b(?:last|past|previous|prior)\b/i.test(search) ||
+    /\b(?:this|current|next)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?(?:day|week|month|quarter|year)s?\b/i.test(
+      search,
+    )
+  ) {
+    return null;
+  }
+  return unit;
+}
+
 function isAggregateRequest(search: string): boolean {
   const asksForAggregation =
     /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trends?|rate|percentage|share|distribution|breakdowns?|split\s+by|growth|grow(?:s|n|ing)?|grew|increases?|increased|decreases?|decreased|declines?|declined|changes?|changed|variance|delta)\b|\b(?:month|year)[- ]over[- ](?:month|year)\b|\bover time\b/i.test(
@@ -332,11 +353,11 @@ function isAggregateRequest(search: string): boolean {
     );
   const recurringCadence =
     /\b(?:daily|weekly|monthly|quarterly|yearly)\b/i.test(search);
-  const explicitTimeConstraint = requestedTemporalUnit(search) !== null;
+  const explicitSnapshot = isExplicitMembershipSnapshotRequest(search);
   return (
     asksForAggregation ||
-    asksForTemporalGrouping ||
-    (recurringCadence && !explicitTimeConstraint)
+    (!explicitSnapshot && asksForTemporalGrouping) ||
+    (!explicitSnapshot && recurringCadence)
   );
 }
 
@@ -398,7 +419,10 @@ function hasTemporalMembershipSnapshotShape(
     /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
       grain,
     ) ||
-    /\b(?:historical|history|month end|as of (?:the )?(?:day|week|month|quarter|year))\b/.test(
+    /\b(?:month end|as of (?:the )?(?:day|week|month|quarter|year))\b/.test(
+      descriptor,
+    ) ||
+    /\b(?:historical|history)\b[\s\S]{0,60}\bsnapshots?\b|\bsnapshots?\b[\s\S]{0,60}\b(?:historical|history)\b/.test(
       descriptor,
     ) ||
     /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b[\s\S]{0,40}\bsnapshots?\b/.test(
@@ -438,7 +462,7 @@ function hasMatchingHistoricalMembershipSnapshot(
   search: string,
 ) {
   const requestedScope = requestedSemanticScope(search);
-  const requestedUnit = requestedTemporalUnit(search);
+  const requestedUnit = requestedHistoricalTemporalUnit(search);
   if (
     candidate.kind !== "data-dictionary" ||
     !["membership", "membership_roster"].includes(requestedScope) ||
@@ -475,7 +499,7 @@ function hasMatchingHistoricalMembershipSnapshot(
 function isHistoricalMembershipRequest(search: string) {
   return (
     !isAggregateRequest(search) &&
-    requestedTemporalUnit(search) !== null &&
+    requestedHistoricalTemporalUnit(search) !== null &&
     ["membership", "membership_roster"].includes(requestedSemanticScope(search))
   );
 }
@@ -684,6 +708,244 @@ function dashboardQueryText(
         .replace(/[_-]+/g, " ");
 }
 
+function isSqlWordCharacter(value: string | undefined): boolean {
+  return value !== undefined && /[a-z0-9_$]/i.test(value);
+}
+
+function sqlKeywordEndAt(
+  sql: string,
+  index: number,
+  keyword: string,
+): number | null {
+  if (isSqlWordCharacter(sql[index - 1])) return null;
+  let cursor = index;
+  const words = keyword.toLowerCase().split(" ");
+  const normalized = sql.toLowerCase();
+  for (const [wordIndex, word] of words.entries()) {
+    if (!normalized.startsWith(word, cursor)) return null;
+    cursor += word.length;
+    if (isSqlWordCharacter(sql[cursor])) return null;
+    if (wordIndex < words.length - 1) {
+      const whitespaceStart = cursor;
+      while (/\s/.test(sql[cursor] ?? "")) cursor += 1;
+      if (cursor === whitespaceStart) return null;
+    }
+  }
+  return cursor;
+}
+
+function findTopLevelSqlKeyword(
+  sql: string,
+  keyword: string,
+  start = 0,
+): { start: number; end: number } | null {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth -= 1;
+      if (depth < 0) return null;
+      continue;
+    }
+    if (depth === 0 && index >= start) {
+      const end = sqlKeywordEndAt(sql, index, keyword);
+      if (end !== null) return { start: index, end };
+    }
+  }
+  return null;
+}
+
+function splitTopLevelSqlList(value: string): string[] | null {
+  const expressions: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let expressionStart = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (value[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+      if (depth < 0) return null;
+    } else if (character === "," && depth === 0) {
+      expressions.push(value.slice(expressionStart, index).trim());
+      expressionStart = index + 1;
+    }
+  }
+  if (quote || depth !== 0) return null;
+  expressions.push(value.slice(expressionStart).trim());
+  return expressions.some((expression) => !expression) ? null : expressions;
+}
+
+function parseSimpleDashboardMembershipQuery(
+  sql: string,
+): { selectExpressions: string[]; groupByExpressions: string[] | null } | null {
+  if (
+    /^\s*with\b/i.test(sql) ||
+    /\(\s*select\b/i.test(sql) ||
+    /\b(?:union|intersect|except)\b/i.test(sql) ||
+    /--|\/\*/.test(sql) ||
+    /;/.test(sql)
+  ) {
+    return null;
+  }
+  if (!splitTopLevelSqlList(sql)) return null;
+  const select = findTopLevelSqlKeyword(sql, "select");
+  const from = select ? findTopLevelSqlKeyword(sql, "from", select.end) : null;
+  if (!select || !from || findTopLevelSqlKeyword(sql, "select", select.end)) {
+    return null;
+  }
+  const selectExpressions = splitTopLevelSqlList(
+    sql.slice(select.end, from.start),
+  );
+  if (!selectExpressions) return null;
+
+  const groupBy = findTopLevelSqlKeyword(sql, "group by", from.end);
+  if (!groupBy) {
+    if (
+      findTopLevelSqlKeyword(sql, "having", from.end) ||
+      findTopLevelSqlKeyword(sql, "qualify", from.end)
+    ) {
+      return null;
+    }
+    return { selectExpressions, groupByExpressions: null };
+  }
+  const clauseEnd = ["order by", "having", "qualify", "limit", "fetch"]
+    .map((keyword) => findTopLevelSqlKeyword(sql, keyword, groupBy.end))
+    .filter((match): match is { start: number; end: number } => match !== null)
+    .reduce((end, match) => Math.min(end, match.start), sql.length);
+  const rawGroupByExpressions = splitTopLevelSqlList(
+    sql.slice(groupBy.end, clauseEnd),
+  );
+  if (!rawGroupByExpressions) return null;
+  const groupByExpressions = rawGroupByExpressions.map((expression) => {
+    const position = /^\d+$/.test(expression) ? Number(expression) : 0;
+    return position > 0 && position <= selectExpressions.length
+      ? selectExpressions[position - 1]!
+      : expression;
+  });
+  if (rawGroupByExpressions.some((expression) => /^\d+$/.test(expression))) {
+    if (
+      rawGroupByExpressions.some(
+        (expression) =>
+          /^\d+$/.test(expression) &&
+          (Number(expression) < 1 ||
+            Number(expression) > selectExpressions.length),
+      )
+    ) {
+      return null;
+    }
+  }
+  return { selectExpressions, groupByExpressions };
+}
+
+function hasDashboardProjectionEntity(
+  expressions: string[],
+  entity: "user" | "organization",
+  query: string,
+): boolean {
+  const normalizedExpressions = expressions
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const directMatch =
+    entity === "user"
+      ? hasMembershipIdentityKey(normalizedExpressions) ||
+        /\b(?:user|member|person)\s+(?:email|key|name)\b|\bemail\b/.test(
+          normalizedExpressions,
+        )
+      : hasOrganizationIdentityKey(normalizedExpressions) ||
+        /\b(?:organization|org|workspace|team)\s+(?:key|name)\b/.test(
+          normalizedExpressions,
+        );
+  if (directMatch) return true;
+
+  const aliases = new Map<string, string>();
+  const aliasKeywords = new Set([
+    "cross",
+    "fetch",
+    "full",
+    "group",
+    "having",
+    "inner",
+    "join",
+    "left",
+    "limit",
+    "on",
+    "order",
+    "outer",
+    "right",
+    "qualify",
+    "union",
+    "where",
+  ]);
+  for (const match of query.matchAll(
+    /\b(?:from|join)\s+([a-z0-9_."`]+)(?:\s+(?:as\s+)?([a-z][a-z0-9_]*))?/gi,
+  )) {
+    const table = match[1]!.replace(/["`]/g, "").split(".").pop()!;
+    const candidateAlias = match[2]?.toLowerCase();
+    const alias =
+      candidateAlias && !aliasKeywords.has(candidateAlias)
+        ? candidateAlias
+        : table;
+    aliases.set(alias.toLowerCase(), table.toLowerCase());
+  }
+  return expressions.some((expression) => {
+    for (const [alias, table] of aliases) {
+      const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!new RegExp(`\\b${escapedAlias}\\s*\\.`, "i").test(expression)) {
+        continue;
+      }
+      const normalizedTable = table.replace(/[_-]+/g, " ");
+      if (
+        entity === "user"
+          ? /\b(?:users?|members?|people|persons?)\b/.test(normalizedTable)
+          : /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
+              normalizedTable,
+            )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
 function hasRowLevelDashboardMembershipOutput(
   candidate: Extract<
     AnalyticsQueryCatalogCandidate,
@@ -691,24 +953,49 @@ function hasRowLevelDashboardMembershipOutput(
   >,
 ) {
   if (typeof candidate.query !== "string") return false;
-  const select = candidate.query.match(/\bselect\b([\s\S]*?)\bfrom\b/i)?.[1];
-  if (!select) return false;
-  const normalizedSelect = select.toLowerCase().replace(/[_-]+/g, " ");
+  const parsed = parseSimpleDashboardMembershipQuery(candidate.query);
+  if (!parsed) return false;
+  const queryText = candidate.query.toLowerCase().replace(/[_-]+/g, " ");
   if (
-    !hasMembershipIdentityKey(normalizedSelect) ||
-    !hasOrganizationIdentityKey(normalizedSelect)
+    !hasMembershipIdentityKey(queryText) ||
+    !hasOrganizationIdentityKey(queryText) ||
+    !hasMembershipRelationEvidence(queryText) ||
+    !hasDashboardProjectionEntity(
+      parsed.selectExpressions,
+      "user",
+      candidate.query,
+    ) ||
+    !hasDashboardProjectionEntity(
+      parsed.selectExpressions,
+      "organization",
+      candidate.query,
+    )
   ) {
     return false;
   }
-
-  const groupBy = candidate.query.match(
-    /\bgroup\s+by\b([\s\S]*?)(?:\border\s+by\b|\bhaving\b|\bqualify\b|\blimit\b|$)/i,
-  )?.[1];
-  if (!groupBy) return !hasAggregateShape(candidate);
-  const normalizedGroupBy = groupBy.toLowerCase().replace(/[_-]+/g, " ");
+  if (!parsed.groupByExpressions) return !hasAggregateShape(candidate);
+  const normalizedGroupBy = parsed.groupByExpressions
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  if (
+    /\b(?:date|day|week|month|quarter|year|period|snapshot)\b/.test(
+      normalizedGroupBy,
+    )
+  ) {
+    return false;
+  }
   return (
-    hasMembershipIdentityKey(normalizedGroupBy) &&
-    hasOrganizationIdentityKey(normalizedGroupBy)
+    hasDashboardProjectionEntity(
+      parsed.groupByExpressions,
+      "user",
+      candidate.query,
+    ) &&
+    hasDashboardProjectionEntity(
+      parsed.groupByExpressions,
+      "organization",
+      candidate.query,
+    )
   );
 }
 
