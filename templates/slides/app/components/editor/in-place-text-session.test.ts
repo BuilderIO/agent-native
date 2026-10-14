@@ -2621,7 +2621,7 @@ describe("in-place text session: undo", () => {
 
   it("keeps a 500-operation history for a two-byte text block within the budget", () => {
     const operationCount = 500;
-    const originalText = "x".repeat(250_000) + ZWSP;
+    const originalText = "x".repeat(380_000) + ZWSP;
     const el = mount(`<p id="t">${originalText}</p>`);
     session = startInPlaceTextSession(el);
     caret(textOf(el, originalText.slice(0, 16)), 0);
@@ -2633,7 +2633,7 @@ describe("in-place text session: undo", () => {
     }
 
     const history = session.historyStats();
-    expect(history.peakBytes).toBeGreaterThan(220 * 1024 * 1024);
+    expect(history.peakBytes).toBeGreaterThan(340 * 1024 * 1024);
     expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
     expect(history.retainedBytes).toBeLessThanOrEqual(
       IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
@@ -2661,8 +2661,8 @@ describe("in-place text session: undo", () => {
     expect(textOf(el, "OneX").data).toBe("OneX");
   });
 
-  it("keeps large snapshots within the serialized byte budget", () => {
-    const large = "x".repeat(Math.floor(IN_PLACE_TEXT_UNDO_BYTE_LIMIT * 0.6));
+  it("keeps oversized snapshots within the retained-string budget", () => {
+    const large = "x".repeat(Math.floor(IN_PLACE_TEXT_UNDO_BYTE_LIMIT * 0.55));
     const el = mount(`<p id="t">${large}</p>`);
     session = startInPlaceTextSession(el);
     const aligns = ["left", "right"] as const;
