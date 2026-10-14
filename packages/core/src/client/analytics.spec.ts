@@ -2435,7 +2435,7 @@ describe("browser analytics pageviews", () => {
         message: "screen.restored",
         level: "info",
         timestamp: expect.any(Number),
-        data: { data: { from: "s1", to: "s7" } },
+        data: {},
       },
       {
         category: "recorder.action",
@@ -2449,10 +2449,6 @@ describe("browser analytics pageviews", () => {
           status: 403,
           errorCode: "forbidden_scope",
           ms: expect.any(Number),
-          data: {
-            method: "GET",
-            error: "Action list-folders failed: Missing scope",
-          },
         },
       },
     ]);

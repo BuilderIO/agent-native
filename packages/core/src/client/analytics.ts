@@ -1135,7 +1135,7 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
 const SENTRY_RECORDER_BREADCRUMBS = 100;
 
 function recorderBreadcrumb(recorded: RecorderEvent): Sentry.Breadcrumb {
-  const { t: _t, at, type, name, data, ...outcome } = recorded;
+  const { t: _t, at, type, name, data: _data, ...outcome } = recorded;
   return {
     category: `recorder.${type}`,
     message: [
@@ -1154,7 +1154,7 @@ function recorderBreadcrumb(recorded: RecorderEvent): Sentry.Breadcrumb {
           ? "warning"
           : "info",
     timestamp: at / 1000,
-    data: { ...outcome, ...(data ? { data } : {}) },
+    data: outcome,
   };
 }
 
