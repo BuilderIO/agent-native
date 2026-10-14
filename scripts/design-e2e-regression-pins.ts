@@ -305,6 +305,134 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "position-alignment.spec.ts",
     title: "Align uses a Group's bounds while Position stays Frame-relative",
   },
+  {
+    shard: "inspector-1a",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "Layers-first editing preserves identity in the AI-generated Orbit source",
+  },
+  {
+    shard: "inspector-1b",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "duplicate authored IDs are repaired before Layers-first edits and persist after reload",
+  },
+  {
+    shard: "inspector-3a",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "edit-design rejects malformed AI CSS without changing the styled canvas",
+  },
+  {
+    shard: "drag-1a",
+    file: "ai-source-continuity.spec.ts",
+    title:
+      "dropping a layer from AI-generated source into a panel keeps its node ID and its drop position",
+  },
+  {
+    shard: "drag-1b",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step",
+  },
+  {
+    shard: "drag-2b",
+    file: "editor-keyboard-layers.spec.ts",
+    title: "keeps two responsive pastes distinct across settled undo and redo",
+  },
+  {
+    shard: "position-1a",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "pastes a nested selected layer on the same screen and another screen with fresh ids after reload",
+  },
+  {
+    shard: "position-1b",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "pastes a multi-selection across screens with each layer and child id regenerated",
+  },
+  {
+    shard: "position-2a",
+    file: "editor-keyboard-layers.spec.ts",
+    title:
+      "duplicates, deletes, cuts, undoes, and redoes selected layers from the keyboard",
+  },
+  {
+    shard: "inspector-3b",
+    file: "editor.spec.ts",
+    title:
+      "deeply nested layer rows keep a clickable hit target without scrolling the tree sideways",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title: "cmd+marquee over Card reaches into Kid A and Kid B",
+  },
+  {
+    shard: "inspector-4a",
+    file: "text-keyboard-workflow.spec.ts",
+    title:
+      "Cmd+Enter commits a text edit so Cmd+D duplicates the layer, and each copy keeps its own text and name",
+  },
+  {
+    shard: "inspector-4b",
+    file: "interaction-unique-paths.spec.ts",
+    title:
+      "paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size",
+  },
+  {
+    shard: "position-2b",
+    file: "auto-layout-keyboard.spec.ts",
+    title:
+      "pasting into a selected frame puts one copy of Alpha inside it at Alpha's size",
+  },
+  {
+    shard: "position-3",
+    file: "paste-svg-into-selected-frame.spec.ts",
+    title:
+      "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
+  },
+  {
+    shard: "inspector-3a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R drops the replacement where the old layer stood",
+  },
+  {
+    shard: "inspector-4a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "clicking an inline child on the board surface selects it and leaves its text alone",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R on an underlined text layer does not nest a copy inside it",
+  },
+  {
+    shard: "inspector-1b",
+    file: "pasted-svg-image-inspector.spec.ts",
+    title:
+      "pasted SVG is an editable sized layer and image scale mode writes object-fit",
+  },
+  {
+    shard: "drag-1a",
+    file: "drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts",
+    title: "dragging from empty canvas marquee-selects the elements it covers",
+  },
+  {
+    shard: "drag-2b",
+    file: "performance-bridge-baseline.spec.ts",
+    title:
+      "a Cmd-marquee across a large screen and a small one scans each crossed screen once and commits the selection once",
+  },
+  {
+    shard: "inspector-4b",
+    file: "structure-selection.spec.ts",
+    title:
+      "Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

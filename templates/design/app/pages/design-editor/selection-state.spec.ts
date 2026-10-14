@@ -566,6 +566,46 @@ describe("resolveMarqueeAdditive", () => {
       true,
     );
   });
+
+  it("treats Meta or Ctrl alone as deep-select replacement despite legacy additive flags", () => {
+    expect(
+      resolveMarqueeAdditive({
+        additive: true,
+        metaKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveMarqueeAdditive({
+        additive: true,
+        ctrlKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps Shift and range additive with deep modifiers", () => {
+    expect(
+      resolveMarqueeAdditive({
+        additive: false,
+        metaKey: true,
+        shiftKey: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveMarqueeAdditive({
+        additive: false,
+        ctrlKey: true,
+        range: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("honors an additive marquee intent when no deep modifier is held", () => {
+    expect(resolveMarqueeAdditive({ additive: true, source: "marquee" })).toBe(
+      true,
+    );
+  });
 });
 
 describe("selectionHistorySnapshotsEqual", () => {

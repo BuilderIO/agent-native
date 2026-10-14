@@ -460,7 +460,9 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
 export function resolveMarqueeAdditive(
   intent: ElementSelectionIntent | undefined,
 ): boolean {
-  return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
+  if (intent?.range || intent?.shiftKey) return true;
+  if (intent?.metaKey || intent?.ctrlKey) return false;
+  return Boolean(intent?.additive);
 }
 
 export function shouldClearSelectionForReviewThreadTarget(args: {

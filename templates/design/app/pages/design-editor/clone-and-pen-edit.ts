@@ -1139,7 +1139,11 @@ export function prepareClonedHtmlLayer(
     !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    if (sourceNode && sourceNode.layerNameSource !== "tag") {
+    if (
+      sourceNode &&
+      sourceNode.layerNameSource !== "tag" &&
+      sourceNode.layerNameSource !== "text"
+    ) {
       clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
     }
   }

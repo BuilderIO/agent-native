@@ -306,6 +306,51 @@ describe("node positioning source shape", () => {
       }),
   ];
 
+  it("preserves authored paint declarations when changing positioning", () => {
+    const content =
+      '<div data-agent-native-node-id="moving-node" style="background:#f97316;color:white;position:absolute;left:40px;top:50px"></div>';
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+
+    expect(next).toContain(
+      'style="background:#f97316;color:white;position: absolute;left: 100px;top: 90px"',
+    );
+  });
+
+  it("adds positioning declarations without a leading empty segment", () => {
+    const content = '<div data-agent-native-node-id="moving-node"></div>';
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+
+    expect(next).toContain('style="position: absolute;left: 100px;top: 90px"');
+    expect(next).not.toContain('style=";');
+  });
+
+  it("preserves escaped quotes, comments, and escaped semicolons in raw CSS", () => {
+    const content = String.raw`<div data-agent-native-node-id="moving-node" style='content: "quoted\"; left: 999px"; /* ; left: 888px */ left: 20px; --raw: token\; left: 777px; top: 30px'></div>`;
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+    const style = new DOMParser()
+      .parseFromString(next, "text/html")
+      .querySelector<HTMLElement>("[data-agent-native-node-id='moving-node']")!
+      .getAttribute("style")!;
+
+    expect(style).toContain(String.raw`content: "quoted\"; left: 999px"`);
+    expect(style).toContain(String.raw`/* ; left: 888px */ left: 100px`);
+    expect(style).toContain(String.raw`--raw: token\; left: 777px`);
+    expect(style).toContain("left: 100px");
+    expect(style).toContain("top: 90px");
+  });
+
   it("changes only the target style attribute in fragments and documents", () => {
     const fragment =
       '<main data-note="preserve > and spacing">\n<!-- keep -->\n<div data-agent-native-node-id="styled-sibling" style="color: purple; margin: 4px">Sibling</div>\n<div data-agent-native-node-id="moving-node" data-keep="yes" style="position:absolute;left:1px;top:2px">Text</div>\n</main>';

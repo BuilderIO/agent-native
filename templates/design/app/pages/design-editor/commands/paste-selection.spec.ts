@@ -97,6 +97,7 @@ function harness(
       { x: number; y: number; width: number; height: number }
     >;
     selectedScreenIds?: string[];
+    pasteCascade?: number;
   } = {},
 ): Harness {
   const files = overrides.files ?? [
@@ -173,7 +174,7 @@ function harness(
         height: 844,
       })),
     overviewSelectedScreenIds: overrides.selectedScreenIds ?? [],
-    pasteCascadeRef: ref(0),
+    pasteCascadeRef: ref(overrides.pasteCascade ?? 0),
     pasteCopiedScreens: () => {},
     pendingLocalFileContentsRef: ref(new Map()),
     publishAuthoritativeClipboardMutation: (publishArgs) => {
@@ -438,8 +439,8 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
       "group-1",
     );
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
     expect(copy.style.width).toBe("200px");
     expect(copy.style.height).toBe("100px");
     expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
@@ -479,8 +480,8 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
       "group-1",
     );
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
     expect(copy.style.width).toBe("200px");
     expect(copy.style.height).toBe("100px");
     expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
@@ -528,8 +529,8 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(request.placement).toBe("after");
     const copy = new DOMParser().parseFromString(request.html, "text/html").body
       .firstElementChild as HTMLElement;
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
     expect(copy.style.width).toBe("200px");
     expect(copy.style.height).toBe("100px");
     expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
@@ -563,8 +564,8 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(request.placement).toBe("inside");
     const copy = new DOMParser().parseFromString(request.html, "text/html").body
       .firstElementChild as HTMLElement;
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
     expect(copy.style.width).toBe("200px");
     expect(copy.style.height).toBe("100px");
     expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
@@ -937,8 +938,8 @@ describe("pasting copied layers while the original is off-screen", () => {
     expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
       "frame-1",
     );
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
   });
 
   it("centers in the view once the original's screen has moved off-screen", async () => {
@@ -977,8 +978,8 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     expect(writes.map((write) => write.fileId)).toEqual(["home"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
   });
 
   it("keeps pasting into a selected screen that is in view", async () => {
@@ -994,7 +995,7 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     expect(writes.map((write) => write.fileId)).toEqual(["other"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(pixels(copy.style.left)).toBe(120);
+    expect(pixels(copy.style.left)).toBe(40);
     expect(pixels(copy.style.top)).toBe(120);
   });
 
@@ -1074,7 +1075,158 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     expect(writes.map((write) => write.fileId)).toEqual(["home"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(pixels(copy.style.left)).toBe(50);
-    expect(pixels(copy.style.top)).toBe(130);
+    expect(pixels(copy.style.left)).toBe(40);
+    expect(pixels(copy.style.top)).toBe(120);
   });
+});
+
+describe("clipboard source placement", () => {
+  const card = `<section data-agent-native-node-id="card" style="position:absolute;left:40px;top:60px;width:260px"><button data-agent-native-node-id="child">Child</button></section>`;
+  const source = `<!doctype html><html><body><main data-agent-native-node-id="source-root">${card}<p data-agent-native-node-id="peer">Peer</p></main></body></html>`;
+  const selected = (id: string): ElementInfo => ({
+    ...selectedRect(),
+    sourceId: id,
+    selector: `[data-agent-native-node-id="${id}"]`,
+    tagName: "section",
+  });
+
+  it("pastes a copied container beside its original at its authored position", async () => {
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", source)],
+      activeFileId: "home",
+      entries: [{ html: card, rootNodeId: "card", sourceFileId: "home" }],
+      selectedElement: selected("card"),
+    });
+    await runPasteSelection(args);
+    const copy = pastedCopies(writes[0]!.content).find(
+      (node) => node.tagName === "SECTION",
+    )!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "source-root",
+    );
+    expect(
+      copy.previousElementSibling?.getAttribute("data-agent-native-node-id"),
+    ).toBe("card");
+    expect([copy.style.left, copy.style.top]).toEqual(["40px", "60px"]);
+  });
+
+  it("pastes beside the selected previous copy rather than nesting in it", async () => {
+    const previous = card.replace(
+      'data-agent-native-node-id="card"',
+      'data-agent-native-node-id="previous" data-agent-native-clone-root="true"',
+    );
+    const target = `<!doctype html><html><body data-agent-native-node-id="target-body">${previous}</body></html>`;
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", source),
+        designFile("target", "target.html", target),
+      ],
+      activeFileId: "target",
+      entries: [{ html: card, rootNodeId: "card", sourceFileId: "home" }],
+      selectedElement: selected("previous"),
+    });
+    await runPasteSelection(args);
+    const copy = pastedCopies(writes[0]!.content).find(
+      (node) => node.tagName === "SECTION",
+    )!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "target-body",
+    );
+    expect(
+      copy.previousElementSibling?.getAttribute("data-agent-native-node-id"),
+    ).toBe("previous");
+    expect([copy.style.left, copy.style.top]).toEqual(["40px", "60px"]);
+  });
+
+  it("preserves cross-screen positions and spacing of all copied layers", async () => {
+    const peer = `<button data-agent-native-node-id="copied-peer" style="position:absolute;left:340px;top:80px">Peer</button>`;
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", source),
+        designFile(
+          "target",
+          "target.html",
+          '<!doctype html><html><body data-agent-native-node-id="target-body"></body></html>',
+        ),
+      ],
+      activeFileId: "target",
+      entries: [
+        { html: card, rootNodeId: "card", sourceFileId: "home" },
+        { html: peer, rootNodeId: "copied-peer", sourceFileId: "home" },
+      ],
+    });
+    await runPasteSelection(args);
+    const copies = pastedCopies(writes[0]!.content).filter(
+      (node) =>
+        node.parentElement?.getAttribute("data-agent-native-node-id") ===
+        "target-body",
+    );
+    expect(copies.map((node) => [node.style.left, node.style.top])).toEqual([
+      ["40px", "60px"],
+      ["340px", "80px"],
+    ]);
+  });
+
+  it("applies the current cascade uniformly to source-positioned live roots", async () => {
+    const peer = `<button data-agent-native-node-id="runtime-peer" style="position:absolute;left:340px;top:80px">Peer</button>`;
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        {
+          html: GROUPED_TRANSFORMED_HTML,
+          rootNodeId: "runtime-group-child",
+          sourceFileId: "live",
+        },
+        { html: peer, rootNodeId: "runtime-peer", sourceFileId: "live" },
+      ],
+      selectedElement: selected("runtime-group-child"),
+      pasteCascade: 1,
+    });
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    const request = runtimeInsertRequests[0]!;
+    expect(request.anchor).toEqual({
+      selector: '[data-agent-native-node-id="runtime-group-child"]',
+      sourceId: "runtime-group-child",
+    });
+    expect(request.placement).toBe("after");
+    const positions = [request.html, ...(request.additionalHtml ?? [])].map(
+      (html) => {
+        const root = new DOMParser().parseFromString(html, "text/html").body
+          .firstElementChild as HTMLElement;
+        return [pixels(root.style.left), pixels(root.style.top)];
+      },
+    );
+    expect(positions).toEqual([
+      [56, 136],
+      [356, 96],
+    ]);
+  });
+});
+
+it("pastes an auto-sized flow child as a positioned child of a free frame", async () => {
+  const alpha =
+    '<div data-agent-native-node-id="alpha" style="padding:12px 16px">Alpha</div>';
+  const content = `<!doctype html><html><body><section data-agent-native-node-id="row" style="display:flex">${alpha}</section><div data-agent-native-node-id="free" style="position:relative;width:360px;height:200px"></div></body></html>`;
+  const { args, writes } = harness({
+    files: [designFile("home", "index.html", content)],
+    activeFileId: "home",
+    entries: [{ html: alpha, rootNodeId: "alpha", sourceFileId: "home" }],
+    selectedElement: {
+      ...selectedRect(),
+      sourceId: "free",
+      selector: '[data-agent-native-node-id="free"]',
+    },
+  });
+  await runPasteSelection(args);
+  const copy = pastedCopies(writes[0]!.content)[0]!;
+  expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+    "free",
+  );
+  expect(copy.style.position).toBe("absolute");
+  expect([copy.style.left, copy.style.top]).toEqual(["0px", "0px"]);
+  expect(copy.style.width).toBe("");
+  expect(copy.style.height).toBe("");
 });

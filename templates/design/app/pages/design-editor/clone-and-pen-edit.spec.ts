@@ -748,6 +748,25 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     ).toContain('data-agent-native-layer-name="Authored"');
   });
 
+  it("keeps a duplicated text-derived name dynamic and an authored name fixed", () => {
+    for (const authoredName of [null, "Headline"]) {
+      const heading = `<h1 data-agent-native-node-id="title"${authoredName ? ` data-agent-native-layer-name="${authoredName}"` : ""}>First title</h1>`;
+      const prepared = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+        heading,
+      ]);
+      expect(prepared).not.toBeNull();
+      const clone = parseFragment(prepared!.htmlFragments[0]!);
+      clone.textContent = "Second title";
+      expect(clone.getAttribute("data-agent-native-layer-name")).toBe(
+        authoredName,
+      );
+      const projection = buildCodeLayerProjection(clone.outerHTML);
+      expect(
+        projection.nodes.find((node) => node.tag === "h1")?.layerName,
+      ).toBe(authoredName ?? "Second title");
+    }
+  });
+
   it("clones a subtree with fresh node ids and remapped authored id references", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,

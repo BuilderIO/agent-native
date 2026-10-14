@@ -25,7 +25,10 @@ import {
   prepareClonedHtmlLayersForLiveInsert,
   portableStyleSnapshotForPasteTarget,
 } from "@/pages/design-editor/clone-and-pen-edit";
-import { codeLayerSelectorAliases } from "@/pages/design-editor/code-layer-state";
+import {
+  codeLayerSelectorAliases,
+  resolveCodeLayerNodeFromElementInfo,
+} from "@/pages/design-editor/code-layer-state";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
@@ -74,17 +77,17 @@ function isSelectedClipboardLayer(
   );
 }
 
-function offsetPositionsFromSource(
+function positionsFromSource(
   sourcePositions: Array<{ x: number; y: number } | null>,
-  cascadeOffset: number,
+  cascadeOffset = 0,
 ) {
   const positionedSources = sourcePositions.filter(
     (source): source is { x: number; y: number } => Boolean(source),
   );
   if (positionedSources.length !== sourcePositions.length) return undefined;
   return positionedSources.map((source) => ({
-    x: source.x + 10 + cascadeOffset,
-    y: source.y + 10 + cascadeOffset,
+    x: source.x + cascadeOffset,
+    y: source.y + cascadeOffset,
     space: "layout" as const,
   }));
 }
@@ -400,8 +403,8 @@ export async function runPasteSelection(
       !["body", "html"].includes(selectedElement.tagName?.toLowerCase() ?? "")
         ? {
             selector:
-              selectedElement.runtimeSelector ??
-              selectedCanvasSelector ??
+              selectedElement.runtimeSelector ||
+              selectedCanvasSelector ||
               selectedElement.selector,
             sourceId:
               selectedElement.runtimeSourceId ??
@@ -441,13 +444,10 @@ export async function runPasteSelection(
         }
       : { x: 120, y: 120 };
     const cascadeOffset = pasteCascadeRef.current * 16;
-    const pastingIntoSourceScreen = entries.every(
-      (entry) => entry.sourceFileId === targetFileId,
-    );
     const selectedSourcePositions =
       selectedAnchor &&
       isSelectedClipboardLayer(entries, targetFileId, selectedAnchor.sourceId)
-        ? offsetPositionsFromSource(sourcePositions, cascadeOffset)
+        ? positionsFromSource(sourcePositions, cascadeOffset)
         : undefined;
     const positions = selectedAnchor
       ? selectedSourcePositions
@@ -466,10 +466,10 @@ export async function runPasteSelection(
                   space: "visual" as const,
                 };
           }
-          return source && pastingIntoSourceScreen
+          return source
             ? {
-                x: source.x + 10 + cascadeOffset,
-                y: source.y + 10 + cascadeOffset,
+                x: source.x + cascadeOffset,
+                y: source.y + cascadeOffset,
                 space: "layout" as const,
               }
             : {
@@ -639,19 +639,18 @@ export async function runPasteSelection(
     targetFileId !== boardFileId &&
     selectedElement?.selector
   ) {
-    const selector = selectedCanvasSelector ?? selectedElement.selector;
+    const selector = selectedCanvasSelector || selectedElement.selector;
     const decision = resolvePastePlacementForSelection({
       content: baseContent,
       source: { kind: "design-file", fileId: targetFileId },
       selectedElement,
     });
-    const sourceParentSelectors =
-      sourceAnchor?.fileId === targetFileId
-        ? sourceAnchor.parentSelectors
-        : null;
-    const pasteBackIntoSourceParent =
-      decision?.placement === "after" &&
-      sourceParentSelectors !== null &&
+    const selectedNode = resolveCodeLayerNodeFromElementInfo(
+      buildCodeLayerProjection(baseContent),
+      selectedElement,
+    );
+    const selectedClipboardRoot =
+      selectedNode?.dataAttributes["data-agent-native-clone-root"] === "true" ||
       isSelectedClipboardLayer(
         entries,
         targetFileId,
@@ -659,21 +658,37 @@ export async function runPasteSelection(
           selectedElement.sourceId ??
           selectedElement.id,
       );
-    const selectedSourcePositions = pasteBackIntoSourceParent
-      ? offsetPositionsFromSource(
+    const placement = selectedClipboardRoot
+      ? "after"
+      : (decision?.placement ?? "after");
+    const insideFreeContainer =
+      placement === "inside" &&
+      selectedNode &&
+      !selectedElement.isFlexContainer &&
+      !selectedElement.isGridContainer &&
+      !selectedNode.layout.isFlexContainer &&
+      !selectedNode.layout.isGridContainer;
+    const cascadeOffset = pasteCascadeRef.current * 16;
+    const selectedSourcePositions = selectedClipboardRoot
+      ? positionsFromSource(
           entries.map((entry) => extractLayerPosition(entry.html)),
-          pasteCascadeRef.current * 16,
+          cascadeOffset,
         )
-      : undefined;
+      : insideFreeContainer
+        ? entries.map((entry, index) => {
+            const source = extractLayerPosition(entry.html);
+            return {
+              x: (source?.x ?? index * 16) + cascadeOffset,
+              y: (source?.y ?? index * 16) + cascadeOffset,
+              space: "layout" as const,
+            };
+          })
+        : undefined;
     const cloneOptions = {
       onUnsupportedStructure,
-      targetSelectors: pasteBackIntoSourceParent
-        ? (sourceParentSelectors ?? [selector])
-        : [selector],
-      placement: pasteBackIntoSourceParent
-        ? "inside"
-        : (decision?.placement ?? "after"),
-      stripRootPosition: true,
+      targetSelectors: [selector],
+      placement,
+      stripRootPosition: !selectedClipboardRoot,
       positions: selectedSourcePositions,
       styleSnapshots,
       managedStyleSnapshots,
@@ -717,9 +732,6 @@ export async function runPasteSelection(
     ? Math.min(...positionedSources.map((source) => source.y))
     : 0;
   const cascadeOffset = pasteCascadeRef.current * 16;
-  const pastingIntoSourceScreen = entries.every(
-    (entry) => entry.sourceFileId === targetFileId,
-  );
   const sourceParentSelectors =
     sourceAnchor?.fileId === targetFileId ? sourceAnchor.parentSelectors : null;
   const pasteAfterOriginalSelectors =
@@ -799,10 +811,10 @@ export async function runPasteSelection(
         space: "visual" as const,
       };
     }
-    return source && pastingIntoSourceScreen
+    return source
       ? {
-          x: source.x + 10 + cascadeOffset,
-          y: source.y + 10 + cascadeOffset,
+          x: source.x + cascadeOffset,
+          y: source.y + cascadeOffset,
           space: "layout" as const,
         }
       : {
