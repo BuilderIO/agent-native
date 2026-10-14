@@ -372,14 +372,14 @@ export function createProviderApiRequestAction<
       description:
         "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
     },
-    // A GET or HEAD only reads the provider; re-staging under the same name or
-    // re-saving the same file replaces the result. A cap or validation error
-    // from stageAs must not stop the run for every later provider call.
+    // A GET or HEAD only reads the provider, and re-staging under the same name
+    // replaces the result. A cap or validation error from stageAs must not stop
+    // the run for every later provider call. saveToFile writes a workspace file
+    // with no version fence, so a replay could overwrite an edit made since.
     retrySafe: (args) => {
-      const method = String(
-        (args as ProviderRequestActionArgs).method ?? "GET",
-      ).toUpperCase();
-      return method === "GET" || method === "HEAD";
+      const request = args as ProviderRequestActionArgs;
+      const method = String(request.method ?? "GET").toUpperCase();
+      return (method === "GET" || method === "HEAD") && !request.saveToFile;
     },
     audit: {
       recordInputs: false,

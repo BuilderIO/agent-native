@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
@@ -100,6 +102,35 @@ function generateId(): string {
   return `ds_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * The id a named staging request writes to. Readable prefix plus a hash of the
+ * unsanitized app, owner, and name: sanitizing and truncating alone let
+ * `a.b@x.com` and `a_b@x.com`, or two long names with a shared prefix, land on
+ * one id, where the second writer was refused or silently replaced the first.
+ */
+export function stagedDatasetId(scope: {
+  appId: string;
+  ownerEmail: string;
+  name: string;
+}): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify([scope.appId, scope.ownerEmail, scope.name]))
+    .digest("hex")
+    .slice(0, 16);
+  const label = scope.name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 48);
+  return `ds_${label}_${digest}`;
+}
+
+// The caps are app-wide, so one writer per app plans, evicts, and writes at a
+// time, and an explicit delete takes the same lock so it cannot land between a
+// writer's eviction plan and its deletes.
+async function lockStagedDatasetApp(tx: DbExec, appId: string): Promise<void> {
+  await tx.execute({
+    sql: `SELECT pg_advisory_xact_lock(hashtext(?))`,
+    args: [`staged-datasets:${appId}`],
+  });
+}
+
 export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   const seen = new Set<string>();
   for (const row of rows.slice(0, 20)) {
@@ -187,17 +218,13 @@ export async function upsertStagedDataset(
   const columnsJson = JSON.stringify(columns);
 
   await withDbTransaction(db, async (tx) => {
-    // The caps are app-wide, so one writer per app plans and writes at a time.
     // Totals, eviction and the write all happen under this lock in this
     // transaction: nothing is planned against a stale snapshot, and a failure
     // rolls the evictions back with the write.
-    await tx.execute({
-      sql: `SELECT pg_advisory_xact_lock(hashtext(?))`,
-      args: [`staged-datasets:${options.appId}`],
-    });
-    // Ids come from sanitized owner emails, so two owners can share one. The
-    // owner-scoped reads above would count the other owner's dataset as absent
-    // and the id-keyed write would then replace its rows in place.
+    await lockStagedDatasetApp(tx, options.appId);
+    // A caller-chosen or legacy id can still name another owner's dataset. The
+    // owner-scoped reads above would count it as absent and the id-keyed write
+    // would then replace its rows in place.
     const { rows: idOwner } = await tx.execute({
       sql: `SELECT app_id, owner_email FROM staged_datasets WHERE id = ?`,
       args: [id],
@@ -364,23 +391,19 @@ export async function deleteStagedDataset(options: {
 }): Promise<boolean> {
   await ensureTables();
   const db = getDbExec();
-  const { rows: meta } = await db.execute({
-    sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-    args: [options.id, options.appId, options.ownerEmail],
-  });
-  if (meta.length === 0) return false;
-
-  const result = await withDbTransaction(db, async (tx) => {
+  return withDbTransaction(db, async (tx) => {
+    await lockStagedDatasetApp(tx, options.appId);
+    const removed = await tx.execute({
+      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+      args: [options.id, options.appId, options.ownerEmail],
+    });
+    if (removed.rowsAffected === 0) return false;
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [options.id],
     });
-    return tx.execute({
-      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-      args: [options.id, options.appId, options.ownerEmail],
-    });
+    return true;
   });
-  return result.rowsAffected > 0;
 }
 
 function rowToMeta(row: Record<string, unknown>): StagedDatasetMeta {

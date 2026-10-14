@@ -40,6 +40,18 @@ function makeExec(tx: number | null) {
         return { rows: [], rowsAffected: 0 };
       }
       if (
+        /DELETE FROM staged_datasets WHERE id = \? AND app_id = \? AND owner_email = \?$/i.test(
+          sql,
+        )
+      ) {
+        const entry = _metaStore.get(args[0] as string);
+        if (entry?.app_id !== args[1] || entry.owner_email !== args[2]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        _metaStore.delete(args[0] as string);
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
         /DELETE FROM staged_datasets WHERE id = \? AND app_id = \?$/i.test(sql)
       ) {
         const entry = _metaStore.get(args[0] as string);
@@ -181,7 +193,9 @@ const {
   MAX_BYTES_PER_APP,
   MAX_ROWS_PER_APP,
   STAGED_DATASET_MAX_AGE_MS,
+  deleteStagedDataset,
   selectStagedDatasetsToEvict,
+  stagedDatasetId,
   upsertStagedDataset,
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
@@ -550,5 +564,100 @@ describe("upsertStagedDataset eviction", () => {
 
     expect(_metaStore.has("ds_peer")).toBe(true);
     expect(_metaStore.has("ds_many")).toBe(false);
+  });
+});
+
+describe("stagedDatasetId", () => {
+  const id = (appId: string, ownerEmail: string, name: string) =>
+    stagedDatasetId({ appId, ownerEmail, name });
+
+  it("is stable for the same app, owner, and name", () => {
+    expect(id("analytics", "ada@example.com", "gong_calls")).toBe(
+      id("analytics", "ada@example.com", "gong_calls"),
+    );
+  });
+
+  it("keeps owners whose emails sanitize alike on separate ids", () => {
+    expect(id("analytics", "a.b@example.com", "calls")).not.toBe(
+      id("analytics", "a_b@example.com", "calls"),
+    );
+  });
+
+  it("keeps apps and names that sanitize alike on separate ids", () => {
+    expect(id("analytics", "ada@example.com", "q1 calls")).not.toBe(
+      id("analytics", "ada@example.com", "q1_calls"),
+    );
+    expect(id("a_b", "ada@example.com", "calls")).not.toBe(
+      id("a.b", "ada@example.com", "calls"),
+    );
+  });
+
+  it("does not collapse long names that share a long prefix", () => {
+    const prefix = "x".repeat(120);
+    expect(id("analytics", "ada@example.com", `${prefix}_one`)).not.toBe(
+      id("analytics", "ada@example.com", `${prefix}_two`),
+    );
+  });
+
+  it("stays a short identifier of safe characters", () => {
+    const value = id("analytics", "ada@example.com", `${"n".repeat(200)} ✓/..`);
+    expect(value).toMatch(/^ds_[A-Za-z0-9_-]+$/);
+    expect(value.length).toBeLessThanOrEqual(80);
+  });
+});
+
+describe("deleteStagedDataset", () => {
+  beforeEach(() => {
+    _metaStore.clear();
+    _rowStore.clear();
+    _log.length = 0;
+    _txCounter = 0;
+    _resetInitPromiseForTests();
+  });
+
+  const remove = (ownerEmail = "ada@example.com") =>
+    deleteStagedDataset({ id: "ds_mine", appId: "analytics", ownerEmail });
+
+  it("takes the app lock before deleting, in the delete's own transaction", async () => {
+    seed("ds_mine", { byte_size: 1 * MB, updated_at: NOW });
+
+    await expect(remove()).resolves.toBe(true);
+
+    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
+    const dropMeta = _log.findIndex((e) =>
+      /DELETE FROM staged_datasets WHERE id/i.test(e.sql),
+    );
+    const dropRows = _log.findIndex((e) =>
+      /DELETE FROM staged_dataset_rows/i.test(e.sql),
+    );
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(lock).toBeLessThan(dropMeta);
+    expect(dropMeta).toBeLessThan(dropRows);
+    expect(_log[lock]?.args).toEqual(["staged-datasets:analytics"]);
+    expect(_log[lock]?.tx).toBeTypeOf("number");
+    expect(_log[lock]?.tx).toBe(_log[dropMeta]?.tx);
+    expect(_log[lock]?.tx).toBe(_log[dropRows]?.tx);
+    expect(_metaStore.has("ds_mine")).toBe(false);
+    expect(_rowStore.has("ds_mine")).toBe(false);
+  });
+
+  it("leaves another owner's dataset and its rows alone", async () => {
+    seed("ds_mine", {
+      owner_email: "linus@example.com",
+      byte_size: 1 * MB,
+      updated_at: NOW,
+    });
+
+    await expect(remove("ada@example.com")).resolves.toBe(false);
+
+    expect(_metaStore.has("ds_mine")).toBe(true);
+    expect(_rowStore.get("ds_mine")).toEqual(['{"seed":true}']);
+    expect(
+      _log.some((e) => /DELETE FROM staged_dataset_rows/i.test(e.sql)),
+    ).toBe(false);
+  });
+
+  it("reports false for a dataset that is already gone", async () => {
+    await expect(remove()).resolves.toBe(false);
   });
 });
