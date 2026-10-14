@@ -32,6 +32,7 @@ Apple Silicon
 AuthSession
 Azure Static Web Apps
 Azure Database for PostgreSQL
+AWS Amplify
 AWS Lambda
 Bearer access token
 Better Auth
@@ -41,8 +42,10 @@ claude · codex
 Claude Code
 Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
+Claude Sonnet
 Claude web
 CLI
+Cloudflare Workers
 Cloud SQL for PostgreSQL
 create-form · update-form
 createSession.resumeState
@@ -134,6 +137,7 @@ threads · application_state · settings · sessions · runs
 Tool-call journal
 UI
 Universal CLI
+UTC
 useActionQuery/Mutation
 Webhook URL
 WWW-Authenticate

@@ -12,7 +12,6 @@ vi.mock("@agent-native/core/client/changelog", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  LanguagePicker: () => null,
   useT: () => (key: string) => key,
 }));
 
@@ -20,7 +19,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   buildSettingsRoute: (section: string) => `/settings/${section}`,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -41,12 +40,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: mocks.useOrg,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
-  SettingsGroup: ({ children }: { children: ReactNode }) => (
-    <section>{children}</section>
-  ),
-  SettingsRow: () => null,
   SettingsTabsPage: ({
     extraTabs = [],
   }: {
@@ -84,7 +79,6 @@ vi.mock("@agent-native/creative-context", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextSettingsLink: () => null,
   createCreativeContextAgentTab: vi.fn(),
   useCreativeContextLab: () => false,
 }));
@@ -96,11 +90,7 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 vi.mock("@shared/labs", () => ({ SLIDES_LABS: [] }));
 vi.mock("@/components/settings/notification-settings", () => ({
   COMMENT_EMAILS_ROW_ID: "comments-and-replies",
-  LegacyEmailNotificationsRow: () => null,
   NotificationSettings: () => null,
-}));
-vi.mock("@/hooks/use-settings-redesign", () => ({
-  useSettingsRedesign: () => ({ status: "ready", enabled: false }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
@@ -138,9 +128,8 @@ describe("Slides settings observability tab", () => {
       const tab = container.querySelector<HTMLAnchorElement>(
         '[data-testid="settings-tab-observability"]',
       );
-      expect(tab?.getAttribute("href")).toBe(
-        "/settings/observability/overview",
-      );
+      // A Settings page, not a link out of Settings.
+      expect(tab?.hasAttribute("href")).toBe(false);
       expect(tab?.getAttribute("data-group")).toBe("agent");
       expect(
         container

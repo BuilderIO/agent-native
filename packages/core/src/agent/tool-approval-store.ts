@@ -42,6 +42,10 @@ export const agentToolApprovalsStore = defineStore({
   ],
 });
 
+export function ensureAgentToolApprovalTable(): Promise<void> {
+  return agentToolApprovalsStore.ready();
+}
+
 export const agentToolApprovalPoliciesStore = defineStore({
   id: "agent_tool_approval_policies",
   migrations: [
@@ -60,10 +64,6 @@ export const agentToolApprovalPoliciesStore = defineStore({
     },
   ],
 });
-
-export function ensureAgentToolApprovalTable(): Promise<void> {
-  return agentToolApprovalsStore.ready();
-}
 
 export function ensureAgentToolApprovalPolicyTable(): Promise<void> {
   return agentToolApprovalPoliciesStore.ready();

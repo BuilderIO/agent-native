@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
-
-import { type ToolRendererContext } from "@agent-native/core/client/agent-chat";
+import { type ToolRendererContext } from "@agent-native/toolkit/app/chat/chat";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

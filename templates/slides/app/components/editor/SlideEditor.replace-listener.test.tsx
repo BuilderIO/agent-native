@@ -1,8 +1,14 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getRenderedSlideSource,
@@ -10,6 +16,11 @@ import {
 } from "@/components/deck/SlideRenderer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
+import {
+  applyRemoteSlideUnderInlineEdit,
+  onInlineEditRemoteRetry,
+} from "@/lib/inline-edit-remote";
+import * as slideCommentAnchor from "@/lib/slide-comment-anchor";
 import {
   captureSlideImageUploadProvenance,
   registerSlideImageUploadProvenance,
@@ -37,10 +48,20 @@ vi.mock("@/components/deck/ExcalidrawSlide", () => ({
 }));
 vi.mock("@/root", () => ({ enterSelectionMode: vi.fn() }));
 
+// happy-dom has no layout: an empty stack makes the pointer resolver fall back
+// to the event target's ancestors.
+beforeEach(() => {
+  Object.defineProperty(document, "elementsFromPoint", {
+    configurable: true,
+    value: () => [],
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(document, "elementsFromPoint");
 });
 
 function Providers({ children }: { children: ReactNode }) {
@@ -52,6 +73,59 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("keeps the first image selected when Shift-clicking another image", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-image-multiselect",
+      content:
+        '<div class="fmd-slide"><img src="https://example.test/first.svg" alt="First"><img src="https://example.test/second.svg" alt="Second"></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const slideCanvas = container.querySelector<HTMLElement>(".fmd-slide")!;
+    vi.spyOn(slideCanvas, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 1200, 675),
+    );
+    Object.defineProperty(slideCanvas, "offsetWidth", {
+      configurable: true,
+      value: 1200,
+    });
+    Object.defineProperty(slideCanvas, "offsetHeight", {
+      configurable: true,
+      value: 675,
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    const [first, second] =
+      container.querySelectorAll<HTMLImageElement>(".slide-content img");
+    fireEvent.pointerDown(first, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(first, { button: 0, pointerId: 1 });
+    fireEvent.click(first);
+    fireEvent.pointerDown(second, {
+      button: 0,
+      pointerId: 2,
+      shiftKey: true,
+    });
+    fireEvent.pointerUp(second, { button: 0, pointerId: 2, shiftKey: true });
+    fireEvent.click(second, { shiftKey: true });
+
+    expect(
+      document.querySelector("[data-multi-select-chip] span")?.textContent,
+    ).toBe("2");
+  });
+
   it("saves a text edit when the page hides before the draft debounce fires", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const onUpdateSlide = vi.fn(
@@ -88,6 +162,497 @@ describe("SlideEditor with a newer version of the edited slide", () => {
       slide.id,
       { preserveLocalState: true },
     );
+  });
+
+  describe("another writer's saved edit during a text edit", () => {
+    const objects = (a: string, b: string) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a">${a}</div><div data-slide-object-id="b">${b}</div></div>`;
+
+    function openEdit(slideId: string, content: string) {
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const noop = () => {};
+      const slide = { id: slideId, content, layout: "blank" } as Slide;
+      render(
+        <SlideEditor
+          slide={slide}
+          deckId="deck-live"
+          onUpdateSlide={() => undefined}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />,
+        { wrapper: Providers },
+      );
+      const edited = document.querySelector<HTMLElement>(
+        '.slide-content [data-slide-object-id="a"]',
+      )!;
+      fireEvent.doubleClick(edited, { detail: 2 });
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      (edited.firstChild as Text).data = "Alpha typed";
+      return { edited, slide };
+    }
+
+    it("shows another object's change around the open edit", () => {
+      const base = objects("Alpha", "Beta");
+      const { edited } = openEdit("slide-live-editor", base);
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-editor",
+          base,
+          objects("Alpha", "Beta by remote"),
+        ),
+      ).toBe("applied");
+
+      expect(
+        document.querySelector('.slide-content [data-slide-object-id="b"]')
+          ?.textContent,
+      ).toBe("Beta by remote");
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      expect(edited.textContent).toBe("Alpha typed");
+    });
+
+    it("does not save the edit's start copy over the remote change when the typing nets out", () => {
+      const base = objects("Alpha", "Beta");
+      const onUpdateSlide = vi.fn(
+        (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+          undefined,
+      );
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const noop = () => {};
+      const slide = {
+        id: "slide-live-baseline",
+        content: base,
+        layout: "blank",
+      } as Slide;
+      render(
+        <SlideEditor
+          slide={slide}
+          deckId="deck-live"
+          onUpdateSlide={onUpdateSlide}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />,
+        { wrapper: Providers },
+      );
+      const edited = document.querySelector<HTMLElement>(
+        '.slide-content [data-slide-object-id="a"]',
+      )!;
+      fireEvent.doubleClick(edited, { detail: 2 });
+      (edited.firstChild as Text).data = "Alpha typed";
+      fireEvent.input(edited);
+      fireEvent(window, new Event("pagehide"));
+      // That draft is what the canvas last matched the server on.
+      const confirmed = objects("Alpha typed", "Beta");
+      expect(onUpdateSlide).toHaveBeenCalledTimes(1);
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-baseline",
+          confirmed,
+          objects("Alpha typed", "Beta by remote"),
+        ),
+      ).toBe("applied");
+      // The typing nets out to the text the edit started with.
+      (edited.firstChild as Text).data = "Alpha";
+      fireEvent(window, new Event("pagehide"));
+
+      expect(onUpdateSlide).toHaveBeenCalledTimes(2);
+      expect(
+        (onUpdateSlide.mock.calls[1]![0] as Partial<Slide>).content,
+      ).toContain("Beta by remote");
+    });
+
+    it("holds a change to the edited text and one that arrives after the edit ended", () => {
+      const base = objects("Alpha", "Beta");
+      openEdit("slide-live-held", base);
+      const remote = objects("Alpha by remote", "Beta");
+
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-held",
+          base,
+          remote,
+        ),
+      ).toBe("held");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-held",
+          base,
+          objects("Alpha", "Beta by remote"),
+        ),
+      ).toBe("held");
+    });
+
+    it("waits out an IME composition and asks for a retry when it ends", () => {
+      const base = objects("Alpha", "Beta");
+      const { edited } = openEdit("slide-live-ime", base);
+      const retry = vi.fn();
+      const stopListening = onInlineEditRemoteRetry(retry);
+      const remote = objects("Alpha", "Beta by remote");
+
+      fireEvent.compositionStart(edited);
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-ime",
+          base,
+          remote,
+        ),
+      ).toBe("later");
+      expect(retry).not.toHaveBeenCalled();
+
+      fireEvent.compositionEnd(edited);
+      expect(retry).toHaveBeenCalledWith("deck-live");
+      expect(
+        applyRemoteSlideUnderInlineEdit(
+          "deck-live",
+          "slide-live-ime",
+          base,
+          remote,
+        ),
+      ).toBe("applied");
+      stopListening();
+    });
+  });
+
+  it("refocuses the canvas after Escape and keeps the layer selected", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const onUpdateSlide = vi.fn(
+      (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+        undefined,
+    );
+    const noop = () => {};
+    const slide = {
+      id: "slide-escape-focus",
+      content: '<div class="fmd-slide"><h2>Title</h2><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={onUpdateSlide}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const edited = container.querySelector<HTMLElement>(".slide-content p")!;
+    fireEvent.doubleClick(edited, { detail: 2 });
+    expect(edited.getAttribute("contenteditable")).toBe("true");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    const canvas = container.querySelector<HTMLElement>(
+      "[data-slide-canvas-focus='true']",
+    )!;
+    expect(document.activeElement).toBe(canvas);
+    expect(
+      container
+        .querySelector<HTMLElement>(".slide-content p")
+        ?.getAttribute("contenteditable"),
+    ).not.toBe("true");
+    expect(
+      container.querySelector("[data-slide-element-selected='true']"),
+    ).not.toBeNull();
+
+    fireEvent.keyDown(canvas, { key: "Delete" });
+    expect(
+      onUpdateSlide.mock.calls.some(
+        ([updates]) =>
+          !String((updates as Partial<Slide>).content ?? "").includes(
+            "Caption",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("clears the selected layer on a second Escape", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-escape-clear",
+      content: '<div class="fmd-slide"><h2>Title</h2><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const edited = container.querySelector<HTMLElement>(".slide-content p")!;
+    fireEvent.doubleClick(edited, { detail: 2 });
+    const canvas = container.querySelector<HTMLElement>(
+      "[data-slide-canvas-focus='true']",
+    )!;
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(
+      container.querySelector("[data-slide-element-selected='true']"),
+    ).not.toBeNull();
+
+    fireEvent.keyDown(canvas, { key: "Escape" });
+    expect(
+      container.querySelector("[data-slide-element-selected='true']"),
+    ).toBeNull();
+  });
+
+  it("does not change nested slide text when dismissing its context menu", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const onUpdateSlide = vi.fn(
+      (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+        undefined,
+    );
+    const noop = () => {};
+    const paragraph =
+      "Teams are consolidating software and want fewer, better systems.";
+    const slide = {
+      id: "slide-context-menu-dismiss",
+      content: `<div class="fmd-slide"><div style="display:grid"><div><h3>Why now</h3><p>${paragraph}</p></div></div></div>`,
+      layout: "content",
+    } as Slide;
+    const { container, getByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={onUpdateSlide}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const edited = container.querySelector<HTMLElement>(".slide-content p")!;
+    fireEvent.doubleClick(edited, { detail: 2 });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(edited.getAttribute("contenteditable")).not.toBe("true");
+
+    edited.removeAttribute("data-builder-id");
+    fireEvent.contextMenu(edited, { button: 2 });
+    expect(getByRole("menu")).toBeTruthy();
+    expect(edited.getAttribute("data-builder-id")).toBeTruthy();
+    expect(
+      getByRole("menuitem", { name: /editorSidebar\.duplicate/ }).getAttribute(
+        "aria-disabled",
+      ),
+    ).not.toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(container.querySelector(".slide-content p")?.textContent).toBe(
+      paragraph,
+    );
+    expect(
+      onUpdateSlide.mock.calls.filter(([updates]) =>
+        Object.hasOwn(updates, "content"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("keeps the arrange context menu above positioned slide images", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-image-context-menu",
+      content:
+        '<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="image-1" style="position:absolute;z-index:2147483000"><img src="https://example.test/image.svg" alt="Image"></div></div>',
+      layout: "blank",
+    } as Slide;
+    const { container, getByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    fireEvent.contextMenu(container.querySelector(".slide-content img")!, {
+      button: 2,
+    });
+
+    const menu = getByRole("menu");
+    const arrangeItem = getByRole("menuitem", {
+      name: "styleInspector.order",
+    });
+    expect(menu.className).toContain("z-[2147483647]");
+    expect(arrangeItem.getAttribute("aria-disabled")).not.toBe("true");
+
+    fireEvent.pointerMove(arrangeItem, { pointerType: "mouse" });
+
+    await waitFor(() => {
+      const submenu = getByRole("menuitem", {
+        name: "styleInspector.bringToFront",
+      }).closest<HTMLElement>('[role="menu"]');
+      expect(submenu?.className).toContain("z-[2147483647]");
+      expect(submenu?.style.animation).toBe("none");
+      expect(submenu?.style.transition).toBe("none");
+    });
+  });
+
+  it("suppresses native context menus, prevents image dragging, and reopens instantly after Escape", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-context-menu-repeat",
+      content:
+        '<div class="fmd-slide"><img src="https://example.test/image.svg" alt="Image"></div>',
+      layout: "blank",
+    } as Slide;
+    const { container, getByRole, queryByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const image =
+      container.querySelector<HTMLImageElement>(".slide-content img")!;
+
+    const canvasWrapper = container.querySelector<HTMLElement>(
+      "[data-main-slide-canvas]",
+    )!;
+    const outsideTriggerEvent = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    act(() => canvasWrapper.dispatchEvent(outsideTriggerEvent));
+    expect(outsideTriggerEvent.defaultPrevented).toBe(true);
+
+    const rightClick = () => {
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+      });
+      act(() => image.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    };
+
+    rightClick();
+    const firstMenu = getByRole("menu");
+    expect(firstMenu.style.animation).toBe("none");
+    expect(firstMenu.style.transition).toBe("none");
+
+    const dragStart = new Event("dragstart", {
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => image.dispatchEvent(dragStart));
+    expect(dragStart.defaultPrevented).toBe(true);
+
+    fireEvent.keyDown(firstMenu, { key: "Escape" });
+    await waitFor(() => expect(queryByRole("menu")).toBeNull());
+
+    rightClick();
+    expect(getByRole("menu")).toBeTruthy();
+  });
+
+  it("keeps a comment-highlight click in the active text editor", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    vi.spyOn(slideCommentAnchor, "slideCommentThreadAtPoint").mockReturnValue(
+      "thread-1",
+    );
+    const onSelectCommentThread = vi.fn();
+    const noop = () => {};
+    const slide = {
+      id: "slide-comment-caret",
+      content: '<div class="fmd-slide"><h2>Title</h2><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+        onSelectCommentThread={onSelectCommentThread}
+      />,
+      { wrapper: Providers },
+    );
+    const text = container.querySelector<HTMLElement>(".slide-content p")!;
+
+    fireEvent.pointerDown(text, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.doubleClick(text, { detail: 2 });
+    expect(text.getAttribute("contenteditable")).toBe("true");
+
+    fireEvent.click(text, { clientX: 10, clientY: 10 });
+
+    expect(onSelectCommentThread).not.toHaveBeenCalled();
+    expect(text.getAttribute("contenteditable")).toBe("true");
+  });
+
+  it("lets a modifier-click on commented text toggle multi-selection instead of opening the thread", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    vi.spyOn(slideCommentAnchor, "slideCommentThreadAtPoint").mockReturnValue(
+      "thread-1",
+    );
+    const onSelectCommentThread = vi.fn();
+    const noop = () => {};
+    const slide = {
+      id: "slide-comment-modifier",
+      content: '<div class="fmd-slide"><h2>Title</h2><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    const { container } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+        onSelectCommentThread={onSelectCommentThread}
+      />,
+      { wrapper: Providers },
+    );
+    const text = container.querySelector<HTMLElement>(".slide-content p")!;
+
+    for (const modifier of ["shiftKey", "metaKey", "ctrlKey"] as const) {
+      const point = { button: 0, clientX: 10, clientY: 10, [modifier]: true };
+      fireEvent.pointerDown(text, point);
+      fireEvent.click(text, point);
+    }
+    expect(onSelectCommentThread).not.toHaveBeenCalled();
+
+    const plain = { button: 0, clientX: 10, clientY: 10 };
+    fireEvent.pointerDown(text, plain);
+    fireEvent.click(text, plain);
+    expect(onSelectCommentThread).toHaveBeenCalledWith("thread-1");
   });
 
   it("cancels a plain link drop without treating it as an image", () => {

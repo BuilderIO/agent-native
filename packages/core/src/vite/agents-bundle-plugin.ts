@@ -5,7 +5,7 @@ import { loadEnv, type Plugin } from "vite";
 
 import type { AgentNativeConfigInput } from "../config.js";
 import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
+import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
   readAgentsBundleFromFs,
   resolveAgentInstructionPaths,

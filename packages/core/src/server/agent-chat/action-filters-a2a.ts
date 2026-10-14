@@ -279,7 +279,10 @@ export function assembleA2AFinalResponse(
     const partialResult = finalText.trim()
       ? `\n\nPartial verified results before the failure:\n${finalText.trim()}`
       : "";
-    throw new Error(formatA2ATerminalError(terminalError) + partialResult);
+    throw new A2ATerminalResponseError(
+      formatA2ATerminalError(terminalError) + partialResult,
+      terminalError.errorCode,
+    );
   }
   if (!finalText.trim()) {
     throw new Error(
@@ -287,6 +290,35 @@ export function assembleA2AFinalResponse(
     );
   }
   return { responseText, finalText, mutationReceipts };
+}
+
+class A2ATerminalResponseError extends Error {
+  readonly agentNativeErrorCode?: string;
+
+  constructor(message: string, errorCode?: string) {
+    super(message);
+    this.name = "A2ATerminalResponseError";
+    if (errorCode) this.agentNativeErrorCode = errorCode;
+  }
+}
+
+/**
+ * A call with no verified user cannot succeed on retry: the secrets between the
+ * two apps have to be fixed by an admin. The wording follows the receiver's own
+ * verification result; caller-supplied metadata, such as a claimed email, is
+ * never read, echoed, or treated as identity.
+ */
+export function unverifiedA2AUserError(event?: unknown): Error {
+  const verifiedAsOrganization =
+    (event as { context?: { __a2aIdentityAssurance?: unknown } } | undefined)
+      ?.context?.__a2aIdentityAssurance === "organization";
+  return new A2ATerminalResponseError(
+    (verifiedAsOrganization
+      ? "This call was verified as an organization, not as a user. If the caller meant to act for a user, the A2A secrets are misaligned between the apps."
+      : "This call arrived without a verified user.") +
+      " This needs an admin fix: do not retry, and continue without this app.\ncode: permanent_precondition",
+    "permanent_precondition",
+  );
 }
 
 function terminalErrorFromOutcome(
@@ -505,7 +537,23 @@ async function runDelegatedAgentLoop(
   return execute();
 }
 
-export function runA2AAgentLoop(
+// The A2A task failure carries `agentNativeErrorCode`; an engine failure thrown
+// out of the loop only has `errorCode`. Without this the caller gets the prose
+// ("No LLM provider is connected") but not the typed cause, so it cannot tell a
+// peer that will never answer from one worth retrying.
+function withAgentNativeErrorCode(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  const typed = error as {
+    errorCode?: unknown;
+    agentNativeErrorCode?: unknown;
+  };
+  if (typed.agentNativeErrorCode) return error;
+  const code =
+    typeof typed.errorCode === "string" ? typed.errorCode.trim() : "";
+  return code ? Object.assign(error, { agentNativeErrorCode: code }) : error;
+}
+
+export async function runA2AAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
@@ -514,12 +562,16 @@ export function runA2AAgentLoop(
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   options: DelegatedAgentLoopOptions = {},
 ) {
-  return runDelegatedAgentLoop(
-    runOptions,
-    pluginOptions,
-    timeoutOptions,
-    options,
-  );
+  try {
+    return await runDelegatedAgentLoop(
+      runOptions,
+      pluginOptions,
+      timeoutOptions,
+      options,
+    );
+  } catch (error) {
+    throw withAgentNativeErrorCode(error);
+  }
 }
 
 export function runMCPAgentLoop(

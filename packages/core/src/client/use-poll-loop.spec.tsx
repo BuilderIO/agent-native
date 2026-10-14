@@ -59,6 +59,23 @@ describe("usePollLoop", () => {
     expect(attempt).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves a dynamic interval after each attempt", async () => {
+    let intervalMs = 1000;
+    const attempt = vi.fn(async () => {
+      intervalMs = 5000;
+    });
+    const root = mount();
+    await act(async () =>
+      root.render(<Probe attempt={attempt} intervalMs={() => intervalMs} />),
+    );
+    expect(attempt).toHaveBeenCalledOnce();
+
+    await act(async () => vi.advanceTimersByTimeAsync(4999));
+    expect(attempt).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
   it("relaxes cadence (does not stop) while hidden by default", async () => {
     const attempt = vi.fn().mockResolvedValue(undefined);
     const root = mount();

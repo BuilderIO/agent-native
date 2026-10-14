@@ -1,6 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import {
   useSetHeaderActions,
   useSetPageTitle,

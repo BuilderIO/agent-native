@@ -46,7 +46,7 @@ describe("fetchHubServersDetailed", () => {
         ],
       }),
     );
-    const result = await fetchHubServersDetailed();
+    const result = await fetchHubServersDetailed("ACME-Corp");
     expect(result.state).toBe("ok");
     if (result.state !== "ok") return;
     expect(Object.keys(result.servers)).toEqual(["hub_acme-corp_zapier"]);
@@ -63,10 +63,10 @@ describe("fetchHubServersDetailed", () => {
       .mockResolvedValueOnce(good)
       .mockResolvedValueOnce(bad);
 
-    const first = await fetchHubServersDetailed();
+    const first = await fetchHubServersDetailed("acme");
     expect(first.state).toBe("ok");
 
-    const second = await fetchHubServersDetailed();
+    const second = await fetchHubServersDetailed("acme");
     expect(second.state).toBe("unreachable");
     if (second.state !== "unreachable") return;
     expect(Object.keys(second.servers)).toEqual(["hub_acme_zapier"]);
@@ -82,10 +82,10 @@ describe("fetchHubServersDetailed", () => {
       .mockResolvedValueOnce(good)
       .mockResolvedValueOnce(errStatus(401));
 
-    const first = await fetchHubServersDetailed();
+    const first = await fetchHubServersDetailed("acme");
     expect(first.state).toBe("ok");
 
-    const second = await fetchHubServersDetailed();
+    const second = await fetchHubServersDetailed("acme");
     expect(second.state).toBe("unreachable");
     if (second.state !== "unreachable") return;
     expect(Object.keys(second.servers)).toEqual([]);
@@ -101,10 +101,37 @@ describe("fetchHubServersDetailed", () => {
       .mockResolvedValueOnce(good)
       .mockResolvedValueOnce(errStatus(403));
 
-    await fetchHubServersDetailed();
-    const second = await fetchHubServersDetailed();
+    await fetchHubServersDetailed("acme");
+    const second = await fetchHubServersDetailed("acme");
     expect(second.state).toBe("unreachable");
     if (second.state !== "unreachable") return;
     expect(Object.keys(second.servers)).toEqual([]);
+  });
+
+  it("requests and caches each organization's hub servers separately", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      ok({
+        servers: [
+          { orgId: "acme", name: "acme-tool", url: "https://acme.example" },
+          { orgId: "beta", name: "beta-tool", url: "https://beta.example" },
+        ],
+      }),
+    );
+
+    const acme = await fetchHubServersDetailed("acme");
+    const beta = await fetchHubServersDetailed("beta");
+
+    expect(Object.keys(acme.state === "ok" ? acme.servers : {})).toEqual([
+      "hub_acme_acme-tool",
+    ]);
+    expect(Object.keys(beta.state === "ok" ? beta.servers : {})).toEqual([
+      "hub_beta_beta-tool",
+    ]);
+    expect(
+      new URL(String(fetch.mock.calls[0]?.[0])).searchParams.get("orgId"),
+    ).toBe("acme");
+    expect(
+      new URL(String(fetch.mock.calls[1]?.[0])).searchParams.get("orgId"),
+    ).toBe("beta");
   });
 });

@@ -12,7 +12,12 @@
  * tokens or revoke others — the role lookup simply finds no membership.
  */
 import { getDbExec } from "../../db/client.js";
+import { isMissingOrganizationTableError } from "../../org/membership.js";
 import type { OrgRole } from "../../org/types.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../../server/credential-membership-unavailable.js";
+
+export const SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE =
+  "Only org owners or admins can create or revoke service tokens.";
 
 export class ServiceTokenError extends Error {
   statusCode: number;
@@ -23,39 +28,57 @@ export class ServiceTokenError extends Error {
   }
 }
 
+async function readOrgRole(
+  orgId: string,
+  email: string,
+): Promise<OrgRole | null> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
+    args: [orgId, email.toLowerCase()],
+  });
+  const role = rows[0]?.role;
+  return role === "owner" || role === "admin" || role === "member"
+    ? role
+    : null;
+}
+
 export async function getOrgRoleForEmail(
   orgId: string,
   email: string,
 ): Promise<OrgRole | null> {
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    const role = rows[0]?.role;
-    return role === "owner" || role === "admin" || role === "member"
-      ? role
-      : null;
+    return await readOrgRole(orgId, email);
   } catch {
     // org tables not provisioned (template without orgs) → no membership.
     return null;
   }
 }
 
-async function getOrgIdsForEmail(email: string): Promise<string[]> {
+async function readOrgIds(email: string): Promise<string[]> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT org_id FROM org_members
+          WHERE LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL`,
+    args: [email.toLowerCase()],
+  });
+  return rows.map((r) => String(r.org_id)).filter(Boolean);
+}
+
+/**
+ * A template without orgs has no org tables, which is no membership. Any
+ * other failure is an outage, and answering it with a 400/403 would tell an
+ * admin they lost a role they still hold.
+ */
+async function lookupMembership<T>(read: () => Promise<T>, absent: T) {
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT org_id FROM org_members
-            WHERE LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL`,
-      args: [email.toLowerCase()],
-    });
-    return rows.map((r) => String(r.org_id)).filter(Boolean);
-  } catch {
-    return [];
+    return await read();
+  } catch (error) {
+    if (isMissingOrganizationTableError(error)) return absent;
+    console.error("[service-tokens] Membership lookup failed:", error);
+    throw new ServiceTokenError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE, 503);
   }
 }
 
@@ -77,7 +100,7 @@ export async function requireServiceTokenCaller(params: {
 
   let orgId = params.orgId?.trim() || "";
   if (!orgId) {
-    const memberOrgs = await getOrgIdsForEmail(email);
+    const memberOrgs = await lookupMembership(() => readOrgIds(email), []);
     if (memberOrgs.length === 0) {
       throw new ServiceTokenError(
         "No active organization. Service tokens are org-scoped — join or create an organization first.",
@@ -94,7 +117,7 @@ export async function requireServiceTokenCaller(params: {
     orgId = memberOrgs[0];
   }
 
-  const role = await getOrgRoleForEmail(orgId, email);
+  const role = await lookupMembership(() => readOrgRole(orgId, email), null);
   if (!role) {
     throw new ServiceTokenError(
       "You are not a member of this organization.",
@@ -102,10 +125,7 @@ export async function requireServiceTokenCaller(params: {
     );
   }
   if (params.level === "manage" && role === "member") {
-    throw new ServiceTokenError(
-      "Only org owners or admins can create or revoke service tokens.",
-      403,
-    );
+    throw new ServiceTokenError(SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE, 403);
   }
   return { email, orgId, role };
 }

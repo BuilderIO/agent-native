@@ -11,6 +11,8 @@ import {
 import { isStandaloneHttpUrl } from "@shared/html-content";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 
+import { isKnownCanonical, rememberCanonical } from "./canonical-verdicts";
+
 export interface CanonicalSourceContentResult {
   content: string;
   changed: boolean;
@@ -18,10 +20,12 @@ export interface CanonicalSourceContentResult {
 }
 
 const CANONICAL_SOURCE_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+// Unchanged entries reference the caller's own string, so they are budgeted
+// apart: charging them to MAX_BYTES evicted an open design's own screens.
+const CANONICAL_SOURCE_CACHE_MAX_REFERENCED_BYTES = 64 * 1024 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_NODES = 32_768;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRIES = 4096;
-const canonicalSourceTextEncoder = new TextEncoder();
 const canonicalSourceCache = new Map<
   string,
   {
@@ -29,10 +33,12 @@ const canonicalSourceCache = new Map<
     result: CanonicalSourceContentResult;
     projection?: CodeLayerProjection;
     retainedBytes: number;
+    referencedBytes: number;
     retainedNodes: number;
   }
 >();
 let canonicalSourceCacheBytes = 0;
+let canonicalSourceCacheReferencedBytes = 0;
 let canonicalSourceCacheNodes = 0;
 
 function removeCanonicalSourceCacheEntry(fileId: string): void {
@@ -40,6 +46,7 @@ function removeCanonicalSourceCacheEntry(fileId: string): void {
   if (!cached) return;
   canonicalSourceCache.delete(fileId);
   canonicalSourceCacheBytes -= cached.retainedBytes;
+  canonicalSourceCacheReferencedBytes -= cached.referencedBytes;
   canonicalSourceCacheNodes -= cached.retainedNodes;
 }
 
@@ -136,7 +143,15 @@ export function prepareCanonicalSourceContent(
   if (source.fileId !== options.fileId) {
     throw new Error("Canonical source projection must name the same file.");
   }
-  if (hasCanonicalCodeLayerNodeIds(content)) {
+  // Only a screen's first preparation this session reads the stored verdict:
+  // later ones are edits, where hashing the whole screen would cost each keystroke.
+  const firstPreparation = !cached;
+  const knownCanonical =
+    firstPreparation && isKnownCanonical(options.fileId, content);
+  if (knownCanonical || hasCanonicalCodeLayerNodeIds(content, { source })) {
+    if (firstPreparation && !knownCanonical) {
+      rememberCanonical(options.fileId, content);
+    }
     let nodeIdMap: Map<string, string> | undefined;
     const result: CanonicalSourceContentResult = {
       content,
@@ -191,15 +206,15 @@ function cacheCanonicalSource(
   result: CanonicalSourceContentResult,
   projection?: CodeLayerProjection,
 ): void {
-  const contentBytes = canonicalSourceTextEncoder.encode(content).byteLength;
+  // Length, not UTF-8 size: encoding every screen just to measure it copies it.
+  const contentBytes = content.length;
   const changedBytes = result.changed
-    ? contentBytes +
-      canonicalSourceTextEncoder.encode(result.content).byteLength
+    ? contentBytes + result.content.length
     : 0;
+  const referencedBytes = result.changed ? 0 : contentBytes;
   const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
   if (
-    Math.max(contentBytes, changedBytes) <=
-      CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
+    changedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
     retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES
   ) {
     removeCanonicalSourceCacheEntry(fileId);
@@ -208,16 +223,17 @@ function cacheCanonicalSource(
       result,
       ...(projection ? { projection } : {}),
       retainedBytes: changedBytes,
+      referencedBytes,
       retainedNodes,
     });
     canonicalSourceCacheBytes += changedBytes;
+    canonicalSourceCacheReferencedBytes += referencedBytes;
     canonicalSourceCacheNodes += retainedNodes;
   }
-  // ponytail: a closed design's unchanged entries keep their strings until
-  // newer entries evict them by count; prune by live file ids if heap
-  // profiles show it.
   while (
     canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
+    canonicalSourceCacheReferencedBytes >
+      CANONICAL_SOURCE_CACHE_MAX_REFERENCED_BYTES ||
     canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES ||
     canonicalSourceCache.size > CANONICAL_SOURCE_CACHE_MAX_ENTRIES
   ) {
@@ -227,19 +243,32 @@ function cacheCanonicalSource(
   }
 }
 
+export function forgetPreparedSourcesExcept(
+  liveFileIds: ReadonlySet<string>,
+): void {
+  for (const fileId of [...canonicalSourceCache.keys()]) {
+    if (!liveFileIds.has(fileId)) removeCanonicalSourceCacheEntry(fileId);
+  }
+}
+
 export function resolveSourceBaseForPublication(args: {
   fileId: string;
   fileType?: string | null;
   pending?: {
     content: string;
     identityMigrationSourceContent?: string;
+    deferCollabReconcile?: boolean;
   };
   collabContent?: string | null;
   persistedContent?: string | null;
   beforeContent: string;
 }): string {
-  const pendingContent = args.pending?.content;
-  const migrationSource = args.pending?.identityMigrationSourceContent;
+  const pendingContent = args.pending?.deferCollabReconcile
+    ? undefined
+    : args.pending?.content;
+  const migrationSource = args.pending?.deferCollabReconcile
+    ? undefined
+    : args.pending?.identityMigrationSourceContent;
   if (
     pendingContent !== undefined &&
     migrationSource !== undefined &&

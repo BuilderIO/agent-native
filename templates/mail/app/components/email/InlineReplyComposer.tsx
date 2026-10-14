@@ -515,7 +515,10 @@ export const InlineReplyComposer = forwardRef<
               <span className="text-[13px] font-semibold text-green-400">
                 {t("mail.compose.reply")}
               </span>
-              <span className="text-[13px] text-muted-foreground/70 truncate">
+              <span
+                data-an-mask
+                className="text-[13px] text-muted-foreground/70 truncate"
+              >
                 {t("mail.compose.replyTo", { recipient: recipientDisplay })}
               </span>
             </div>
@@ -595,7 +598,10 @@ export const InlineReplyComposer = forwardRef<
               <IconDots className="h-4 w-4" />
             </button>
             {showQuoted && (
-              <pre className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed">
+              <pre
+                data-an-block
+                className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed"
+              >
                 {quotedContent.trim()}
               </pre>
             )}

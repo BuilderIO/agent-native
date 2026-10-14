@@ -1,19 +1,25 @@
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, type ResolvedAccess } from "@agent-native/core/sharing";
 
 import { schema } from "../server/db/index.js";
 import type {
   ContentDatabaseMutationContract,
   ContentDatabaseSetupContract,
 } from "../shared/api.js";
-import { ordinaryPropertyTypes } from "./_database-property-setup.js";
+import { setupPropertyTypes } from "./_database-property-setup.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 export async function getDatabaseSetupContract(
   database: typeof schema.contentDatabases.$inferSelect,
   mutationContract: ContentDatabaseMutationContract,
+  options: {
+    /** The caller's role on the database page, when this request resolved it. */
+    accessRole?: ResolvedAccess["role"] | null;
+  } = {},
 ): Promise<ContentDatabaseSetupContract> {
-  const access = await resolveAccess("document", database.documentId);
-  const role = access?.role;
+  const role =
+    options.accessRole !== undefined
+      ? (options.accessRole ?? undefined)
+      : (await resolveAccess("document", database.documentId))?.role;
   const canEdit = role === "editor" || role === "admin" || role === "owner";
   const target = {
     spaceId: mutationContract.target.spaceId,
@@ -30,14 +36,14 @@ export async function getDatabaseSetupContract(
       viewId: view.id,
       url: `${databaseUrl}?viewId=${encodeURIComponent(view.id)}`,
     })),
-    supportedPropertyTypes: [...ordinaryPropertyTypes],
+    supportedPropertyTypes: [...setupPropertyTypes],
     canEditSchema: canEdit,
     canEditViews: canEdit,
     canManageLifecycle:
       (role === "admin" || role === "owner") && !database.ownerDocumentId,
     sourceComposition: "unsupported",
     properties: mutationContract.properties.map((property) => {
-      const ordinary = ordinaryPropertyTypes.some(
+      const ordinary = setupPropertyTypes.some(
         (type) => type === property.type,
       );
       const reason = !canEdit
@@ -45,7 +51,7 @@ export async function getDatabaseSetupContract(
         : property.sourceManaged
           ? "Source-managed definition"
           : !ordinary
-            ? "Blocks, computed and relationship definitions use their own actions"
+            ? "Blocks and computed definitions use their own actions"
             : null;
       return { propertyId: property.id, editable: reason === null, reason };
     }),

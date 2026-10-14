@@ -2,7 +2,10 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { OVERLAY_EVENTS_BATCH_KEY } from "@/hooks/use-events";
+import {
+  OVERLAY_CALENDAR_STATUS_KEY,
+  OVERLAY_EVENTS_BATCH_KEY,
+} from "@/hooks/use-events";
 
 const OVERLAY_PEOPLE_KEY = ["action", "get-overlay-people", undefined] as const;
 
@@ -18,6 +21,9 @@ function invalidateOverlayStatusQueries(
   });
   void queryClient.invalidateQueries({
     queryKey: ["action", "get-overlay-reciprocity"],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: OVERLAY_CALENDAR_STATUS_KEY,
   });
 }
 

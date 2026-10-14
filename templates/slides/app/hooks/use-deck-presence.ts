@@ -32,6 +32,9 @@ export function useDeckPresence(options: {
 
   const { ydoc, awareness, agentPresent } = useCollaborativeDoc({
     docId: deckId ? `deck-${deckId}` : null,
+    activityResource: deckId
+      ? { resourceType: "deck", resourceId: deckId }
+      : undefined,
     user,
     requestSource: TAB_ID,
     pollInterval: 3000,

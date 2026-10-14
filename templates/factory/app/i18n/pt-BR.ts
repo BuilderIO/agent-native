@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -465,7 +460,10 @@ const messages = {
     automationSourceSentryHint: "Erros não resolvidos.",
     automationSlackChannel: "Id do canal Slack",
     automationSlackChannelDescription:
-      "Canal que este job consulta. Começa com C.",
+      "Canal do Slack que este job lê ou usa para publicar achados agrupados. Começa com C.",
+    automationFindingsSlackChannel: "Canal Slack para achados",
+    automationFindingsSlackChannelDescription:
+      "Os achados elegíveis do GitHub e Sentry são agrupados em uma mensagem neste canal.",
     automationRepository: "Repositório GitHub",
     automationRepositoryDescription: "owner/repo que este job consulta.",
     automationSentryOrg: "Organização Sentry",

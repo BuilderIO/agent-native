@@ -196,10 +196,15 @@ describe("buildRawEmail — attachments", () => {
     expect(decoded).toContain("multipart/alternative");
   });
 
-  it("resolveComposeAttachments returns empty array for non-array input", async () => {
+  it("resolveComposeAttachments treats absent attachments as empty", async () => {
     expect(await resolveComposeAttachments(null)).toEqual([]);
     expect(await resolveComposeAttachments(undefined)).toEqual([]);
-    expect(await resolveComposeAttachments("not an array")).toEqual([]);
+  });
+
+  it("resolveComposeAttachments rejects unreadable attachment metadata", async () => {
+    await expect(resolveComposeAttachments("not an array")).rejects.toThrow(
+      "Attachments must be an array",
+    );
   });
 
   it("resolveComposeAttachments throws instead of silently dropping entries without a filename", async () => {

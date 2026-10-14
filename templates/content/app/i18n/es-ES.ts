@@ -262,7 +262,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder no está conectado. Vuelve y usa Builder.io primero.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -274,7 +274,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Usa tu cuenta de Builder para explorar sus espacios y modelos.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -457,7 +457,6 @@ const editor = {
   pageBodySyncing: "El contenido de esta página aún se está sincronizando",
   pageBodySyncingDescription:
     "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
-  createCollection: "Crear colección",
   creatingDatabase: "Creando colección integrada...",
   databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
@@ -660,6 +659,34 @@ const editor = {
     pageCount_few: "Páginas {{count}}",
     pageCount_many: "Páginas {{count}}",
     pageCount_other: "Páginas {{count}}",
+    back: "Atrás",
+    relatedDatabase: "Base de datos relacionada",
+    searchDatabases: "Buscar bases de datos",
+    thisDatabase: "Esta base de datos",
+    noDatabases: "No se encontraron bases de datos",
+    searchPages: "Buscar páginas",
+    noMatchingPages: "No hay páginas coincidentes",
+    removeRelation: "Quitar {{name}}",
+    openPage: "Abrir {{name}}",
+    unavailablePage: "Página no disponible",
+    unavailablePageCount_zero: "{{count}} no disponibles",
+    unavailablePageCount_one: "{{count}} no disponibles",
+    unavailablePageCount_two: "{{count}} no disponibles",
+    unavailablePageCount_few: "{{count}} no disponibles",
+    unavailablePageCount_many: "{{count}} no disponibles",
+    unavailablePageCount_other: "{{count}} no disponibles",
+    noRelatedDatabase: "No hay ninguna base de datos relacionada",
+    linkAPage: "Vincular o crear una página…",
+    createPage: "Crear «{{name}}»",
+    reorderRelation: "Reordenar {{name}}",
+    selectMore: "Seleccionar más",
+    selectAPage: "Selecciona una página",
+    selectedCount_zero: "{{count}} seleccionadas",
+    selectedCount_one: "{{count}} seleccionadas",
+    selectedCount_two: "{{count}} seleccionadas",
+    selectedCount_few: "{{count}} seleccionadas",
+    selectedCount_many: "{{count}} seleccionadas",
+    selectedCount_other: "{{count}} seleccionadas",
     pasteFileOrMediaLink: "Pegar archivo o enlace multimedia",
     personOrEmail: "Persona o correo electrónico",
     propertyMenuFor: "Menú de propiedades para {{name}}",
@@ -790,6 +817,7 @@ const editor = {
     notifications: "Notificaciones",
     notionSync: "Sincronización de nociones",
     openInNotion: "Abierto en noción",
+    openInAgentNative: "Abrir en Agent-Native",
     orgCanFindAndView:
       "Cualquier persona de su organización puede buscar y ver",
     orgLinkCanView:
@@ -1199,8 +1227,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
-  requestedPageUnavailable:
-    "Esa página no está disponible para tu cuenta, así que abrimos la página de bienvenida.",
   saveFailed: "No se pudo guardar tu ubicación",
   workspaceWelcomeUnavailableTitle: "Todavía no hay nada abierto aquí",
   workspaceWelcomeUnavailableDescription:
@@ -1312,6 +1338,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Sigue esperando {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     iconPickerIcons: "Iconos",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Recientes",
@@ -1321,6 +1351,10 @@ const exactEnglish = {
     iconPickerUploading: "Subiendo…",
     suggestionAmendmentEmpty:
       "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+    suggestionUnplaceable:
+      "El texto alrededor de esta sugerencia cambió, así que no se puede aplicar. Sigue pendiente: recházala o vuelve a sugerir el cambio.",
+    proposalUnplaceable:
+      "Una de estas sugerencias no se puede aplicar porque el texto a su alrededor cambió, así que no se aplicó ninguna. Siguen pendientes: acéptalas o recházalas de una en una.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
     suggestionAmendmentResolved:
       "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
@@ -1354,6 +1388,8 @@ const exactEnglish = {
       openInClaude: "Abrir en Claude",
       openInClaudeCode: "Abrir en Claude Code",
       openInCodex: "Abrir en Codex",
+      connectContent: "Conectar Content",
+      otherAgents: "Otros agentes",
       agentCopyAccessNote:
         "Los agentes pueden usar Content MCP con tus permisos actuales",
       temporaryAgentLink: "Enlace temporal para agentes",
@@ -1447,7 +1483,9 @@ const history = {
 
 const overrides = {
   close: "Cerrar",
-  setup: { checkingProvider: "Comprobando la conexión de IA…" },
+  setup: {
+    providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
+  },
   onboarding: {
     fileStorage: {
       title: "Conecta almacenamiento para subir archivos",
@@ -1501,6 +1539,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Contenido",
+    loadingContent: "Cargando contenido",
     commandSearchDocuments: "Buscar documentos",
     searchSince: "Desde {{date}}",
     searchModifiedSince: "Modificado desde {{date}}",
@@ -1557,10 +1596,6 @@ const overrides = {
   },
   settings: {
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para Content.",
-    emailNotifications: "Notificaciones por correo",
-    emailNotificationsDescription:
-      "Recibe un correo cuando alguien comente, responda o te mencione en tu documento.",
     saveFailed: "No se pudo guardar",
     notificationsEmail: "Correo electrónico",
     commentsRepliesMentions: "Comentarios, respuestas y menciones",
@@ -1569,10 +1604,6 @@ const overrides = {
     retry: "Reintentar",
     mcpAbout:
       "Conecta Content con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Content por ti: buscar, escribir y editar documentos. Solo ve lo que tú puedes ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona colaboradores y acceso a documentos compartidos.",
@@ -1611,6 +1642,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Ninguna página seleccionada",
+    pageNoAccess: "No tienes acceso a esta página",
+    pageMissing: "Esta página no existe",
+    pageInTrash: "Esta página está en la papelera",
+    pageInTrashAskOwner: "Pide al propietario que la restaure.",
+    openTrash: "Abrir la papelera",
+    goToMyPages: "Ir a mis páginas",
     noPageDescription:
       "Selecciona una página en la barra lateral o crea una nueva para empezar.",
     newPage: "Nueva página",
@@ -1695,6 +1732,9 @@ const overrides = {
     aiUndo: "Deshacer",
     aiDone: "Listo",
     aiMoreChanges: "+{{count}} más",
+    suggestionReplaced: "Reemplazada",
+    suggestionWithdrawn: "Retirada",
+    suggestedChange: "Cambio sugerido",
     aiUndoUnavailable:
       "El texto eliminado no se puede restaurar automáticamente",
     aiUndoFailed: "No se pudo deshacer el cambio",
@@ -1737,6 +1777,11 @@ const overrides = {
     resize: "Cambiar ancho de la barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "No se pudo crear la página",
+    failedCreatePageDraftDescription:
+      "Tu borrador está guardado en este navegador. Puedes volver a intentar crear la página o descartar el borrador.",
+    discardFailedCreatePageQuestion: "¿Descartar la creación pendiente?",
+    discardFailedCreatePageDescription:
+      "Esto borra la creación pendiente y cualquier borrador sin guardar. Si la página ya se había guardado, seguirá en tu espacio de trabajo.",
     failedDeletePage: "No se pudo eliminar la página",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",

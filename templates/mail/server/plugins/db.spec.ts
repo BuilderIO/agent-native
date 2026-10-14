@@ -158,4 +158,10 @@ describe("mail db.ts wires ensureAdditiveColumns after runMigrations", () => {
       /CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active_idx[\s\S]*?ON mail_ai_filter_backfills\(owner_email, rule_set_key\)[\s\S]*?WHERE rule_set_key IS NOT NULL AND status IN \('queued', 'running', 'undoing'\)/,
     );
   });
+
+  it("widens quota-budget timestamps for millisecond values", () => {
+    expect(dbTsSource).toMatch(
+      /name: "mail-gmail-quota-budget-timestamps-bigint"[\s\S]*?ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT[\s\S]*?ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT/,
+    );
+  });
 });

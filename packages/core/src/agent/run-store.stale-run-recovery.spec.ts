@@ -66,6 +66,7 @@ const {
   tryClaimRunSlot,
   claimBackgroundRun,
   getRunByThread,
+  getCurrentTurnEventsForThread,
   isTurnAborted,
   markTurnAborted,
   reapIfStale,
@@ -76,6 +77,7 @@ const {
   STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
@@ -90,6 +92,70 @@ function ids(): { runId: string; thread: string; turn: string } {
     turn: `turn-recover-${seq}`,
   };
 }
+
+describe("recovery ledger integrity", () => {
+  it.each([
+    "{broken",
+    "null",
+    "[]",
+    "{}",
+    '{"type":"tool_start","input":{}}',
+    '{"type":"tool_start","tool":"send-email"}',
+    '{"type":"tool_done","tool":"send-email"}',
+    '{"type":"tool_start ","tool":"send-email","input":{}}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","isError":"true"}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","completedSideEffect":"false"}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","replayed":null}',
+  ])(
+    "rejects a malformed event instead of returning partial history: %s",
+    async (raw) => {
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn);
+      const insert = await pglite.prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      );
+      await insert.run(
+        runId,
+        0,
+        Date.now(),
+        JSON.stringify({ type: "text", text: "Checking" }),
+      );
+      await insert.run(runId, 1, Date.now(), raw);
+      await expect(
+        getCurrentTurnEventsForThread(thread, turn),
+      ).rejects.toThrow();
+    },
+  );
+  it.each(['{"body":', [], null, false, 42])(
+    "reads a recorded model input followed by its non-execution result: %j",
+    async (input) => {
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn);
+      const events = [
+        {
+          type: "tool_start",
+          tool: "send-email",
+          id: "truncated",
+          input,
+        },
+        {
+          type: "tool_done",
+          tool: "send-email",
+          id: "truncated",
+          result: "Invalid action parameters for send-email",
+          isError: true,
+          completedSideEffect: false,
+        },
+      ];
+      const insert = await pglite.prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      );
+      for (const [index, event] of events.entries())
+        await insert.run(runId, index, Date.now(), JSON.stringify(event));
+      expect(await getCurrentTurnEventsForThread(thread, turn)).toEqual(events);
+    },
+  );
+});
 
 async function setStaleLiveness(runId: string, atMs: number): Promise<void> {
   await pglite
@@ -312,11 +378,46 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       message: "original ingress",
       foo: "bar",
       internalContinuation: true,
+      __agentChatRecoveryOfRunId: runId,
     });
 
     const reapedAgain = await reapIfStale(runId);
     expect(reapedAgain).toBe(false);
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("does not copy a legacy payload's inline image bytes into the successor", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    // Seed a pre-guard row without using the current persistence boundary.
+    await pglite
+      .prepare("UPDATE agent_runs SET dispatch_payload = ? WHERE id = ?")
+      .run(
+        JSON.stringify({
+          message: "look",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              data: "data:image/png;base64,LEGACY_SENTINEL_NOT_IMAGE_BYTES",
+            },
+          ],
+        }),
+        runId,
+      );
+    expect(await claimBackgroundRun(runId)).toBe(true);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    const successor = (await rowsForTurn(turn)).find((r) => r.id !== runId);
+    const payload = (await readRow(successor!.id))?.dispatch_payload;
+    assertNoInlineImageBytes(payload, "dispatch_payload");
+    expect(JSON.parse(payload!).attachments[0]).toMatchObject({
+      name: "shot.png",
+      omitted: "inline-bytes",
+    });
   });
 
   it("stops recovering after 3 consecutive stale_run reaps that made near-zero progress (deterministic dead-on-arrival loop)", async () => {
@@ -571,7 +672,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
-  it("falls back to insert-then-update ordering when the DbExec has no transaction() primitive, and still recovers", async () => {
+  it("recovers after the stale status update when the DbExec has no transaction() primitive", async () => {
     currentClient = makeRawClient(false);
     const { runId, thread, turn } = ids();
     await insertRun(runId, thread, turn, {
@@ -586,6 +687,50 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect((await readRow(runId))?.status).toBe("errored");
     expect(await rowsForTurn(turn)).toHaveLength(2);
   });
+
+  it("does not expose a successor before winning a nontransactional stale update", async () => {
+    currentClient = makeRawClient(false);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    expect(await reapIfStale(runId)).toBe(false);
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(await rowsForTurn(turn)).toHaveLength(1);
+  });
+
+  it.each([true, false])(
+    "surfaces failed recovery instead of confirming a successful reap (transaction: %s)",
+    async (withTransaction) => {
+      currentClient = makeRawClient(withTransaction);
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn, {
+        dispatchMode: "background",
+        dispatchPayload: JSON.stringify({ ok: true }),
+      });
+      await claimBackgroundRun(runId);
+      await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+      const execute = currentClient.execute.getMockImplementation()!;
+      currentClient.execute.mockImplementation(async (input) => {
+        if (
+          typeof input !== "string" &&
+          input.sql.includes("INSERT INTO agent_runs") &&
+          input.sql.includes("'background'")
+        )
+          throw new Error("fixture successor preparation failed");
+        return execute(input);
+      });
+      await expect(reapIfStale(runId)).rejects.toThrow(
+        "fixture successor preparation failed",
+      );
+      expect((await readRow(runId))?.status).toBe(
+        withTransaction ? "running" : "errored",
+      );
+      expect(await rowsForTurn(turn)).toHaveLength(1);
+    },
+  );
 
   it("serializes two concurrent reapers for the same turn so the cap is never exceeded", async () => {
     // Two stale rows of the SAME turn reaped at the same moment — e.g. a

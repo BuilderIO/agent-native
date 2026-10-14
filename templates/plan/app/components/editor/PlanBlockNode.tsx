@@ -1,4 +1,4 @@
-import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
+import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import {
   createRegistryBlockNode,
   type RegistryBlockDataValue,
@@ -17,7 +17,7 @@ export function PlanBlockDataProvider({
   children: ReactNode;
 }) {
   return (
-    <RegistryBlockDataProvider<PlanBlock> value={value}>
+    <RegistryBlockDataProvider<PlanBlock> value={value} interactive>
       {children}
     </RegistryBlockDataProvider>
   );

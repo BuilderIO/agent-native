@@ -2,7 +2,7 @@ import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -23,7 +23,8 @@ import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
 import { assertCanApprove } from "../lib/library-access.js";
 import { getObject } from "../lib/storage.js";
 import {
-  filterDuplicateAssetUploads,
+  ASSET_DEDUPE_BATCH_SIZE,
+  filterDuplicateAssetUploadsAcrossBatches,
   hashAssetBuffer,
 } from "../lib/upload-dedupe.js";
 import {
@@ -226,27 +227,75 @@ export const uploadAssets = defineEventHandler(async (event) =>
       });
     }
 
-    const existingReferenceAssets = await getDb()
-      .select({
-        id: schema.assets.id,
-        title: schema.assets.title,
-        mediaType: schema.assets.mediaType,
-        mimeType: schema.assets.mimeType,
-        sizeBytes: schema.assets.sizeBytes,
-        metadata: schema.assets.metadata,
-        objectKey: schema.assets.objectKey,
-      })
-      .from(schema.assets)
-      .where(
-        and(
-          eq(schema.assets.libraryId, libraryId),
-          eq(schema.assets.status, "reference"),
-          eq(schema.assets.role, role),
-        ),
-      );
-    const deduped = await filterDuplicateAssetUploads({
+    const existingContentHash = sql<
+      string | null
+    >`CASE WHEN ${schema.assets.metadata} IS JSON THEN CASE WHEN jsonb_typeof(${schema.assets.metadata}::jsonb -> 'contentHash') = 'string' THEN NULLIF(${schema.assets.metadata}::jsonb ->> 'contentHash', '') END END`;
+    const db = getDb();
+    const dedupeScope = [
+      eq(schema.assets.libraryId, libraryId),
+      eq(schema.assets.status, "reference"),
+      eq(schema.assets.role, role),
+    ];
+    const duplicateAssetColumns = {
+      id: schema.assets.id,
+      title: schema.assets.title,
+      mediaType: schema.assets.mediaType,
+      mimeType: schema.assets.mimeType,
+      sizeBytes: schema.assets.sizeBytes,
+      metadata: schema.assets.metadata,
+      objectKey: schema.assets.objectKey,
+    };
+    const deduped = await filterDuplicateAssetUploadsAcrossBatches({
       files: preparedFiles,
-      existingAssets: existingReferenceAssets,
+      existingAssets: [],
+      readExistingAssetHashes: async (files) =>
+        (
+          await Promise.all(
+            files.map(async (file) => {
+              const [asset] = await db
+                .select(duplicateAssetColumns)
+                .from(schema.assets)
+                .where(
+                  and(
+                    ...dedupeScope,
+                    eq(schema.assets.mediaType, file.mediaType),
+                    eq(existingContentHash, file.contentHash),
+                  ),
+                )
+                .limit(1);
+              return asset ? [asset] : [];
+            }),
+          )
+        ).flat(),
+      readExistingAssetBatch: (afterId, files, limit) => {
+        const duplicateCandidateConditions = [
+          ...new Map(
+            files.map((file) => [
+              `${file.mediaType}:${file.mimeType}:${file.buffer.byteLength}`,
+              file,
+            ]),
+          ).values(),
+        ].map((file) =>
+          and(
+            eq(schema.assets.mediaType, file.mediaType),
+            eq(schema.assets.mimeType, file.mimeType),
+            eq(schema.assets.sizeBytes, file.buffer.byteLength),
+            isNull(existingContentHash),
+          ),
+        );
+        return db
+          .select(duplicateAssetColumns)
+          .from(schema.assets)
+          .where(
+            and(
+              ...dedupeScope,
+              or(...duplicateCandidateConditions),
+              ...(afterId ? [gt(schema.assets.id, afterId)] : []),
+            ),
+          )
+          .orderBy(asc(schema.assets.id))
+          .limit(Math.min(ASSET_DEDUPE_BATCH_SIZE, limit));
+      },
       readExistingAssetBuffer: (asset) => getObject(asset.objectKey),
     });
 

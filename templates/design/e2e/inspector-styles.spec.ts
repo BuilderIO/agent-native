@@ -5,6 +5,7 @@ import {
   cdpScreenshot,
   createFixtureDesign,
   designFrame,
+  expandAllLayers,
   gotoEditor,
   installBridge,
   readSeedDesignId,
@@ -20,7 +21,6 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 function inspectorSection(page: Page, title: RegExp | string): Locator {
@@ -31,19 +31,11 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
-function pagePropertiesSection(page: Page): Locator {
-  return inspectorSection(page, /^Screen$/);
-}
-
 async function selectLayerFromTree(page: Page, name: string): Promise<void> {
   await page
     .getByRole("tree", { name: "Layers" })
     .getByRole("button", { name, exact: true })
     .click();
-}
-
-function bodyElement(page: Page): Locator {
-  return designFrame(page).locator("body");
 }
 
 async function readInlineStyle(
@@ -181,66 +173,6 @@ async function resolvedColorChannels(
   }, value);
 }
 
-// Unreachable standalone, not broken: the page-background section renders only
-// at `scope === "document"`, which resolveBackgroundPanelScope grants for
-// viewMode "single" + mode "edit" — and standalone, "single" is the Interact
-// view, so only a host-embedded editor gets there. Belongs with the
-// host-embedded shell specs, not here. The infinite render loop this used to
-// hit was a real bug and is fixed (DesignColorPicker.gradient-loop.test.tsx).
-test.fixme("page background supports gradient edits", async ({ page }) => {
-  await page.keyboard.press("Escape");
-  const pageSection = pagePropertiesSection(page);
-  await expect(pageSection).toBeVisible();
-
-  await openColorPicker(pageSection);
-  await choosePaintType(page, "Linear");
-  await setScrubInput(page, "Gradient angle", "135");
-  await setScrubInput(page, "Stop position", "25");
-
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("linear-gradient(135deg");
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("25%");
-});
-
-// Same document-scope gate as the gradient test above.
-test.fixme("page background exposes image controls and accepts a tiled image URL", async ({
-  page,
-}) => {
-  await page.keyboard.press("Escape");
-  const pageSection = pagePropertiesSection(page);
-  await expect(pageSection).toBeVisible();
-
-  await openColorPicker(pageSection);
-  await choosePaintType(page, "Image");
-  await setScrubInput(page, "Image URL", "/icon-180.svg");
-  await page.getByRole("combobox", { name: "Fill", exact: true }).click();
-  await page.getByRole("option", { name: "Tile", exact: true }).click();
-
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("/icon-180.svg");
-  await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("linear-gradient");
-  await expect
-    .poll(async () =>
-      (await readInlineStyle(page, bodyElement(page), "background-repeat"))
-        .split(",")[0]
-        ?.trim(),
-    )
-    .toBe("repeat");
-  await expect
-    .poll(async () =>
-      (await readInlineStyle(page, bodyElement(page), "background-position"))
-        .split(",")[0]
-        ?.trim(),
-    )
-    .toBe("left top");
-});
-
 test("text fills hide and restore without losing the original color", async ({
   page,
 }) => {
@@ -294,6 +226,7 @@ test("text fills hide and restore without losing the original color", async ({
   await expect(showFillButton).toBeVisible();
 
   await page.reload();
+  await expandAllLayers(page);
   await selectLayerFromTree(page, "E2E Hero Heading");
   await expect(showFillButton).toBeVisible();
   await showFillButton.click();
@@ -379,6 +312,7 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
     .toBe(false);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
   page,
 }) => {
@@ -397,7 +331,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   );
   const textFillSection = inspectorSection(page, /^Fill$/i);
   await openColorPicker(textFillSection);
-  await choosePaintType(page, "Linear");
+  await choosePaintType(page, "Gradient");
 
   await expect
     .poll(() => selectedElementStyle(page, headingText, "background-image"))
@@ -439,11 +373,9 @@ test("text gradient apply and removal survive reselection; box gradient editor p
     .poll(() => selectedElementStyle(page, headingText, "background-image"))
     .toContain("linear-gradient(");
   await expect(
-    textFillSection.getByRole("button", { name: "Linear gradient 1" }),
+    textFillSection.getByRole("button", { name: /^Linear/ }),
   ).toBeVisible();
-  await textFillSection
-    .getByRole("button", { name: "Linear gradient 1" })
-    .click();
+  await textFillSection.getByRole("button", { name: /^Linear/ }).click();
   await expect(
     page.locator('input[aria-label="Gradient angle"]'),
   ).toBeVisible();
@@ -466,7 +398,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   await selectByText(page, boxText);
   const boxFillSection = inspectorSection(page, /^Fill$/i);
   await openColorPicker(boxFillSection);
-  await choosePaintType(page, "Linear");
+  await choosePaintType(page, "Gradient");
 
   await expect
     .poll(() => selectedElementStyle(page, boxText, "background-image"))
@@ -481,11 +413,9 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   );
   await selectLayerFromTree(page, boxText);
   await expect(
-    boxFillSection.getByRole("button", { name: "Linear gradient 1" }),
+    boxFillSection.getByRole("button", { name: /^Linear/ }),
   ).toBeVisible();
-  await boxFillSection
-    .getByRole("button", { name: "Linear gradient 1" })
-    .click();
+  await boxFillSection.getByRole("button", { name: /^Linear/ }).click();
   await expect(
     page.locator('input[aria-label="Gradient angle"]'),
   ).toBeVisible();
@@ -732,7 +662,7 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect(horizontalConstraints).toBeHidden();
 });
 
-test("numeric input applies Figma math and starts an Option scrub drag", async ({
+test("numeric input applies arithmetic expressions and starts an Option scrub drag", async ({
   page,
 }) => {
   await selectByText(page, "Alpha Button");
@@ -812,7 +742,9 @@ test("appearance controls use droplet blend menu and inline independent corners"
     appearanceSection.getByRole("combobox", { name: /Normal|Blend/i }),
   ).toHaveCount(0);
 
-  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
+  await appearanceSection
+    .getByRole("button", { name: "Blend mode", exact: true })
+    .click();
   await expect(
     page.getByRole("menuitem", { name: /Pass through/i }),
   ).toBeVisible();
@@ -821,11 +753,22 @@ test("appearance controls use droplet blend menu and inline independent corners"
     .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
     .toBe("isolate");
 
-  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
-  await page.getByRole("menuitem", { name: /Pass through/i }).click();
+  await expect(
+    appearanceSection.getByRole("button", {
+      name: "Blend mode: Normal",
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  await appearanceSection
+    .getByRole("button", { name: "Remove blend mode", exact: true })
+    .click();
   await expect
     .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
     .toBe("auto");
+  await expect(
+    appearanceSection.getByRole("button", { name: "Remove blend mode" }),
+  ).toHaveCount(0);
 
   const radiusInput = appearanceSection.locator(
     'input[aria-label="Corner radius" i]',
@@ -895,14 +838,38 @@ test("resizing a selected element emits a visual-style-change payload", async ({
     (window as any).__bridge = [];
   });
 
+  const originalPaddingRight = await selectedElementStyle(
+    page,
+    "Alpha Button",
+    "padding-right",
+  );
+  const southeastHandle = designFrame(page).locator(
+    '[data-agent-native-edit-handle="se"]',
+  );
+  await expect(southeastHandle).toBeVisible();
+  expect(
+    await southeastHandle.evaluate((handle) => {
+      const rect = handle.getBoundingClientRect();
+      return document
+        .elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+        ?.getAttribute("data-agent-native-edit-handle");
+    }),
+  ).toBe("se");
+
   await resizeSelectedElement(page, "se", 32, 18);
-  const message = await waitForBridge(page, "visual-style-change");
+  const message = await waitForBridge(page, "visual-style-change", 15_000, {
+    phase: "commit",
+  });
   const styles = message?.styles ?? {};
 
+  expect(message.phase).toBe("commit");
   expect(message.selector ?? "").toContain("data-agent-native-node-id");
   expect(styles.width ?? "").not.toBe("");
   expect(styles.height ?? "").not.toBe("");
   expect(styles.position ?? "").not.toBe("");
+  expect(
+    await selectedElementStyle(page, "Alpha Button", "padding-right"),
+  ).toBe(originalPaddingRight);
   expect((message.payload?.tagName ?? "").toUpperCase()).toBe("BUTTON");
   expect(String(message.payload?.textContent ?? "")).toContain("Alpha Button");
 });

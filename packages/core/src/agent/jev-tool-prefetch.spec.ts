@@ -228,7 +228,7 @@ describe("preloadJevTools", () => {
     expect(sentRequest).not.toContain("Private account details");
   });
 
-  it("distinguishes an explicit Jev no-match from an unavailable ranking", async () => {
+  describe("ranking status", () => {
     const options = {
       personalApiKey: "jev-test-key",
       request: "A metric lookup",
@@ -238,25 +238,74 @@ describe("preloadJevTools", () => {
       question: "Which reference applies?",
     };
 
-    systemOne.mockResolvedValueOnce({
-      answers: {
-        best_context: {
-          choice: "__no_match__",
-          probabilities: { __no_match__: 1, "analytics-1": 0 },
-        },
-      },
-    });
-    await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
-      status: "no-match",
-      ids: [],
+    beforeEach(() => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
     });
 
-    systemOne.mockResolvedValueOnce({
-      answers: { best_context: { probabilities: { "analytics-1": 0.9 } } },
+    it("distinguishes an explicit Jev no-match from a ranking that lost", async () => {
+      systemOne.mockResolvedValueOnce({
+        answers: {
+          best_context: {
+            choice: "__no_match__",
+            probabilities: { __no_match__: 1, "analytics-1": 0 },
+          },
+        },
+      });
+      await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
+        status: "no-match",
+        ids: [],
+      });
+
+      systemOne.mockResolvedValueOnce({
+        answers: { best_context: { probabilities: { "analytics-1": 0.9 } } },
+      });
+      await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
+        status: "failed",
+        ids: [],
+      });
     });
-    await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
-      status: "unavailable",
-      ids: [],
+
+    it("is unavailable, not failed, when there is nothing to rank against", async () => {
+      await expect(
+        rankJevCandidatesWithStatus({ ...options, personalApiKey: undefined }),
+      ).resolves.toEqual({ status: "unavailable", ids: [] });
+      await expect(
+        rankJevCandidatesWithStatus({ ...options, candidates: [] }),
+      ).resolves.toEqual({ status: "unavailable", ids: [] });
+      expect(systemOne).not.toHaveBeenCalled();
+    });
+
+    it("is failed when the request throws", async () => {
+      systemOne.mockRejectedValueOnce(new Error("HTTP 500"));
+
+      await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
+        status: "failed",
+        ids: [],
+      });
+    });
+
+    it("is timed_out when the request is aborted by its timeout", async () => {
+      systemOne.mockRejectedValueOnce(
+        new DOMException("The operation was aborted", "AbortError"),
+      );
+
+      await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
+        status: "timed_out",
+        ids: [],
+      });
+    });
+
+    it("is timed_out when no time was left to ask", async () => {
+      await expect(
+        rankJevCandidatesWithStatus({ ...options, timeoutMs: 0 }),
+      ).resolves.toEqual({ status: "timed_out", ids: [] });
+      await expect(
+        rankJevCandidatesWithStatus({
+          ...options,
+          signal: AbortSignal.abort(),
+        }),
+      ).resolves.toEqual({ status: "timed_out", ids: [] });
+      expect(systemOne).not.toHaveBeenCalled();
     });
   });
 
@@ -377,6 +426,54 @@ describe("preloadJevTools", () => {
 
     expect(result.map((item) => item.name)).toEqual([
       "search-customers",
+      "tool-search",
+    ]);
+  });
+
+  it("lets Jev consider relevant tools beyond the bounded alphabetical menu", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_tool: {
+          choice: "z-search-customers",
+          probabilities: {
+            "z-search-customers": 0.9,
+            __no_match__: 0.1,
+          },
+        },
+      },
+    });
+    const initialTools = [tool("tool-search", "Find tools")];
+    const names = [
+      ...Array.from({ length: 8 }, (_, index) => `a-tool-${index}`),
+      "z-search-customers",
+    ];
+    const registry = Object.fromEntries(
+      names.map((name) => [
+        name,
+        action(
+          name === "z-search-customers" ? "Search customer records" : name,
+        ),
+      ]),
+    );
+
+    const result = await preloadJevTools({
+      personalApiKey: "jev-test-key",
+      request: "Search customer records",
+      registry,
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        ...names.map((name) => tool(name, registry[name]!.tool.description)),
+      ],
+    });
+
+    expect(
+      systemOne.mock.calls[0][0].state.candidate_tools.map(
+        (candidate: { id: string }) => candidate.id,
+      ),
+    ).toContain("z-search-customers");
+    expect(result.map((item) => item.name)).toEqual([
+      "z-search-customers",
       "tool-search",
     ]);
   });

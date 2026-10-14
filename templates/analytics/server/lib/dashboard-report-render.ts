@@ -5,7 +5,6 @@ import {
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
-import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import {
   pivotRows,
   timeRangeDays,
@@ -18,15 +17,18 @@ import type {
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import { formatDollars } from "../../shared/format-dollars";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
-  normalizeDashboardPanelQuery,
-  type DashboardPanelSource,
-} from "./dashboard-panel-query";
-import { resolveAnalyticsPanelSource } from "./dashboard-panel-source-resolver";
+  buildPanelQuery,
+  describeError,
+  runResolvedPanel,
+  type ReportPanelData,
+} from "./dashboard-panel-runner";
 import {
   renderReportChartSvg,
   renderFunnelChartSvg,
@@ -49,16 +51,7 @@ export type ReportSnapshot = {
   variables?: Record<string, string>;
 };
 
-export type ReportPanelData =
-  | {
-      status: "rows";
-      rows: Array<Record<string, unknown>>;
-      schema: Array<{ name: string; type: string }>;
-      truncated?: boolean;
-    }
-  | { status: "query-failed"; message: string }
-  | { status: "missing-credential"; message: string }
-  | { status: "not-emailable"; message: string };
+export type { ReportPanelData };
 
 export type RenderedReportEmail = {
   html: string;
@@ -110,52 +103,6 @@ export function reportPanelVariables(
   return vars;
 }
 
-const SECRET_PATTERNS: RegExp[] = [
-  /\b(?:bearer|token|api[_-]?key|secret|password|authorization)\b["'\s:=]+\S+/gi,
-  /\b[A-Za-z0-9_-]{32,}\b/g,
-];
-
-function redactSecrets(message: string): string {
-  const redacted = SECRET_PATTERNS.reduce(
-    (acc, pattern) => acc.replace(pattern, "[redacted]"),
-    message,
-  );
-  return redacted.length > 500 ? `${redacted.slice(0, 500)}…` : redacted;
-}
-
-function describeError(error: unknown): string {
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
-  return redactSecrets(raw || "Unknown error");
-}
-
-function panelFailureError(result: object): string | null {
-  const error = (result as { error?: unknown }).error;
-  return typeof error === "string" && error ? error : null;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      timer.unref?.();
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-    void promise.catch(() => undefined);
-  });
-}
-
 async function fetchOnePanel(
   panel: SqlPanel,
   vars: Record<string, string>,
@@ -165,65 +112,11 @@ async function fetchOnePanel(
   const source = panel.source as DashboardPanelSource;
   let query: string;
   try {
-    query = normalizeDashboardPanelQuery(
-      source,
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
-    );
+    query = buildPanelQuery(panel, vars);
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };
   }
-
-  try {
-    const result = await withTimeout(
-      resolveAnalyticsPanelSource({ source, query, timeoutMs }, ctx),
-      timeoutMs,
-      `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,
-    );
-    const failure = panelFailureError(result);
-    if (failure === "missing_api_key") {
-      const message = (result as { message?: unknown }).message;
-      return {
-        status: "missing-credential",
-        message: redactSecrets(
-          typeof message === "string" && message
-            ? message
-            : "This panel's data source is not connected",
-        ),
-      };
-    }
-    if (failure) {
-      const message = (result as { message?: unknown }).message;
-      return {
-        status: "query-failed",
-        message: redactSecrets(
-          typeof message === "string" && message ? message : failure,
-        ),
-      };
-    }
-
-    const rows = (result as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) {
-      return {
-        status: "query-failed",
-        message: "Panel source returned no row set",
-      };
-    }
-    const schema = (result as { schema?: unknown }).schema;
-    return {
-      status: "rows",
-      rows: rows as Array<Record<string, unknown>>,
-      schema: Array.isArray(schema)
-        ? (schema as Array<{ name: string; type: string }>)
-        : [],
-      ...((result as { truncated?: unknown }).truncated
-        ? { truncated: true }
-        : {}),
-    };
-  } catch (error) {
-    return { status: "query-failed", message: describeError(error) };
-  }
+  return runResolvedPanel({ source, query, ctx, timeoutMs });
 }
 
 export async function fetchReportPanelData(args: {
@@ -359,7 +252,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -386,7 +279,7 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   if (value == null) return "";
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
-    if (format === "currency") return `$${value.toLocaleString()}`;
+    if (format === "currency") return formatDollars(value);
     if (format === "percent") {
       const pct = value <= 1 && value >= -1 ? value * 100 : value;
       return `${pct.toFixed(2)}%`;

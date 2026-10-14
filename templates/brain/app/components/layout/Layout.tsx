@@ -1,14 +1,11 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -21,6 +18,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { brainAskThreadPath, isBrainAskPath } from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SIDEBAR_COLLAPSE_KEY = "brain.sidebar.collapsed";
@@ -41,15 +39,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
-  const isAskRoute = location.pathname === "/home";
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  // The redesigned Settings brings its own navigation and agent toggle, so
-  // Brain's sidebar and mobile bar would double them. While the flag loads,
-  // Settings shows the shell's skeleton, which is full-width too.
+  const isAskRoute = isBrainAskPath(location.pathname);
+  // Settings brings its own navigation and agent toggle, so Brain's sidebar
+  // and mobile bar would double them.
   const isFullWidthSettings =
-    (location.pathname === "/settings" ||
-      location.pathname.startsWith("/settings/")) &&
-    (settingsRedesign.status === "loading" || settingsRedesign.enabled);
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "brain",
     activePath: location.pathname,
@@ -58,7 +53,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("brain");
   useAgentChatHomeHandoffLinks({
     storageKey: "brain",
-    chatPath: "/home",
+    isChatPath: isBrainAskPath,
     requireActiveHandoff: true,
   });
 
@@ -132,9 +127,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  function openAskAgentFullscreen() {
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/home");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      brainAskThreadPath(threadId ?? null),
+    );
   }
 
   return (

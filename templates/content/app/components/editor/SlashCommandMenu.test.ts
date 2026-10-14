@@ -32,6 +32,7 @@ import {
   parseInlineGeneratePrompt,
   runGeneratePromptIfAllowed,
   slashCommandAllowedInMode,
+  slashCommandsForDirectoryWidget,
   slashCommandsForMode,
   SlashCommandMenu,
   setCodeBlockFromSlashCommand,
@@ -155,7 +156,9 @@ describe("generate command affordances", () => {
   it("uses slash commands and the shared composer instead of a space shortcut", () => {
     const source = readSlashCommandMenuSource();
 
-    expect(source).toContain('import("@agent-native/core/client/composer")');
+    expect(source).toContain(
+      'import("@agent-native/toolkit/app/chat/composer/index")',
+    );
     expect(source).toMatch(
       /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
     );
@@ -190,6 +193,18 @@ describe("slash command menu trigger", () => {
         (item) => item.suggestionSafe === true,
       ),
     ).toBe(true);
+  });
+
+  it("limits a writable directory widget to local document-formatting commands", () => {
+    const commands = [
+      { title: "Bulleted list", directoryWidgetSafe: true },
+      { title: "Create database", directoryWidgetSafe: false },
+    ];
+
+    expect(slashCommandsForDirectoryWidget(commands, true)).toEqual([
+      commands[0],
+    ]);
+    expect(slashCommandsForDirectoryWidget(commands, false)).toEqual(commands);
   });
 
   it("repositions after an ancestor scroll moves the caret", () => {

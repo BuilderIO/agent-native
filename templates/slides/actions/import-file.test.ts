@@ -35,6 +35,8 @@ const mockCanvasFactory = vi.hoisted(() => ({
   destroy: vi.fn(),
 }));
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
+const mockParseDocx = vi.hoisted(() => vi.fn());
 const mockEq = vi.hoisted(() => vi.fn(() => "where"));
 
 vi.mock("pdf-parse/worker", () => ({
@@ -112,6 +114,14 @@ vi.mock("drizzle-orm", async (importOriginal) => {
   };
 });
 
+vi.mock("../server/handlers/import/docx-parser.js", () => ({
+  parseDocx: (...args: unknown[]) => mockParseDocx(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: vi.fn(),
 }));
@@ -147,6 +157,10 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
 }));
 
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import action from "./import-file";
 
 beforeEach(() => {
@@ -231,6 +245,23 @@ describe("import-file PDF source extraction", () => {
         },
       ],
     });
+  });
+
+  it("opens the file through the shared reader with the run's attachments and does not rewrap its typed error", async () => {
+    const typedError = Object.assign(new Error("storage down"), {
+      errorCode: "attachment_storage_unavailable",
+      statusCode: 503,
+    });
+    mockReadUserUploadedFile.mockRejectedValue(typedError);
+    const ctx = {
+      caller: "tool" as const,
+      attachments: [{ type: "file" as const, name: "deck.pdf" }],
+    };
+
+    await expect(
+      action.run({ filePath: "deck.pdf", format: "pdf" }, ctx),
+    ).rejects.toBe(typedError);
+    expect(mockReadUserUploadedFile).toHaveBeenCalledWith("deck.pdf", ctx);
   });
 
   it("fails clearly when a private raster exceeds the vision tool limit", async () => {
@@ -424,7 +455,139 @@ describe("import-file PDF source extraction", () => {
       "https://files.example/source-page.png",
     ]);
     expect(updatedDeck.sourceImport.slides[0].editableText).toBe(true);
+    // The shell this PDF fills was already counted by add-deck.
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "deck_created"),
+    ).toHaveLength(0);
+    const edited = mockTrack.mock.calls.filter(
+      ([name]) => name === "deck_edited",
+    );
+    expect(edited).toHaveLength(1);
+    expect(edited[0]?.[1]).toMatchObject({
+      output_id: "deck-1",
+      edit_mode: "import_pdf",
+      change_kinds: ["add_slide"],
+      slides_changed: 1,
+    });
   });
+
+  it("does not count a PDF imported into a deck that already has slides as a creation", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Source title\nSource body" }],
+    });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: "#000000",
+        elements: [{ kind: "text", content: "Source title" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    mockGetDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Existing deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({
+                  slides: [{ id: "slide-old", content: "<p>Old</p>" }],
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    });
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("%PDF-1.7\n"),
+      filename: "Appendix.pdf",
+    });
+
+    const result = (await action.run({
+      filePath: "source.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({ imported: true });
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "deck_created"),
+    ).toHaveLength(0);
+  });
+
+  it.each([
+    { existingSlides: [] },
+    { existingSlides: [{ id: "slide-old", content: "<p>Old</p>" }] },
+  ])(
+    "never counts a DOCX import as a creation ($existingSlides.length existing slides)",
+    async ({ existingSlides }) => {
+      mockParseDocx.mockResolvedValue({
+        title: "Notes",
+        text: "Notes body",
+        sections: [{ heading: "Notes", body: "Notes body" }],
+      });
+      mockConvertSectionsToSlides.mockReturnValue(["<p>Notes body</p>"]);
+      mockGetDb.mockReturnValue({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([
+                {
+                  id: "deck-1",
+                  title: "Deck",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  data: JSON.stringify({ slides: existingSlides }),
+                },
+              ]),
+            })),
+          })),
+        })),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({
+            where: vi.fn().mockResolvedValue({ rowsAffected: 1 }),
+          })),
+        })),
+      });
+      mockReadUserUploadedFile.mockResolvedValue({
+        data: Buffer.from("PK"),
+        filename: "Notes.docx",
+      });
+
+      await action.run({
+        filePath: "notes.docx",
+        format: "docx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      });
+
+      const created = mockTrack.mock.calls.filter(
+        ([name]) => name === "deck_created",
+      );
+      expect(created).toHaveLength(0);
+      expect(
+        mockTrack.mock.calls.filter(([name]) => name === "deck_edited"),
+      ).toEqual([
+        [
+          "deck_edited",
+          expect.objectContaining({
+            edit_mode: "import_docx",
+            change_kinds: ["add_slide"],
+            slides_changed: 1,
+          }),
+          { userId: "owner@example.com" },
+        ],
+      ]);
+    },
+  );
 
   it("uses the uploaded filename when the extracted PDF title is corrupted", async () => {
     mockPdfText.mockResolvedValue({
@@ -637,6 +800,64 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
+  it("returns a typed no-write failure when a source PPTX cannot be parsed", async () => {
+    mockParsePptx.mockRejectedValue(
+      new InvalidPptxSourceError(new Error("Invalid PPTX: broken archive")),
+    );
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+      message: expect.stringContaining("No slides were written"),
+    });
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("preserves an already typed PPTX parse failure", async () => {
+    const typedError = Object.assign(new Error("Parser unavailable"), {
+      errorCode: "pptx_parser_unavailable",
+      statusCode: 503,
+    });
+    mockParsePptx.mockRejectedValue(typedError);
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toBe(typedError);
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("preserves unexpected PPTX parser failures", async () => {
+    const parserError = new Error("Unexpected parser failure");
+    mockParsePptx.mockRejectedValue(parserError);
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toBe(parserError);
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
   it("retains source provenance when appending to a nonempty deck", async () => {
     mockPdfText.mockResolvedValue({
       pages: [{ num: 1, text: "Appended source page" }],
@@ -757,6 +978,28 @@ describe("import-file PDF source extraction", () => {
       colorsByName: { accent1: "#FFAB40", accent5: "#0097A7" },
       fonts: ["Arial"],
     });
+  });
+
+  it("returns a typed no-write failure when source images cannot be preserved", async () => {
+    const db = pptxDeckHarness([]);
+    mockUploadPptxSlideImages.mockResolvedValue({
+      urls: {},
+      imageSkippedCount: 1,
+    });
+
+    await expect(
+      action.run({
+        filePath: "themed.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "source_import_no_write",
+      message: expect.stringContaining("No slides were written"),
+    });
+
+    expect(db.update).not.toHaveBeenCalled();
   });
 
   it("does not restyle an existing deck's theme when appending slides onto it", async () => {

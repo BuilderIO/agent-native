@@ -71,6 +71,14 @@ describe("mobile chat-first navigation", () => {
       "https://chat.example/settings#uploads",
     );
     expect(
+      getMobileAppUrl(
+        "https://chat.example",
+        "/settings/integrations/builder?builderConnect=1",
+      ),
+    ).toBe(
+      "https://chat.example/settings/integrations/builder?builderConnect=1",
+    );
+    expect(
       getMobileAppUrl("https://chat.example", "https://other.example/"),
     ).toBe("https://chat.example");
   });

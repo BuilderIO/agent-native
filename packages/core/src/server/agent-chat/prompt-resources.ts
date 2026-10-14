@@ -27,6 +27,7 @@ import {
   WORKSPACE_OWNER,
   workspaceResourceOwner,
 } from "../../resources/store.js";
+import type { ContextStatus } from "../../shared/context-status.js";
 import type {
   ContextGovernanceTier,
   ContextManifestSourceRef,
@@ -34,10 +35,16 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
-import { getRequestOrgId, getRequestRunContext } from "../request-context.js";
+import {
+  getRequestOrgId,
+  getRequestContext,
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../request-context.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
+  sortResourceSkills,
 } from "./skill-frontmatter.js";
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
@@ -416,6 +423,29 @@ function ensureSentence(value: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+/** The compact prompt's skills index. `skillReadTool` is the tool the request
+ *  registry actually has for reading a skill; with none, the index is dropped
+ *  because it would send the model to a tool it cannot call. */
+export function buildCompactSkillsSummary(
+  skills: ReadonlyArray<{ meta: { name: string; description?: string } }>,
+  skillReadTool: string | null,
+): string | null {
+  if (skills.length === 0 || !skillReadTool) return null;
+  const listedSkills = skills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+  const lines = listedSkills.map((s) => {
+    const description = s.meta.description?.trim()
+      ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
+      : "";
+    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for the rest of the conversation.`;
+  });
+  if (skills.length > listedSkills.length) {
+    lines.push(
+      `- ...${skills.length - listedSkills.length} more codebase skills. Use \`${skillReadTool} --query "<topic>"\` to discover the relevant one.`,
+    );
+  }
+  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per conversation and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
+}
+
 function escapeXmlAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -707,6 +737,13 @@ interface ResourceSkillPromptEntry {
   scope: string;
 }
 
+class RequiredSkillLabsReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RequiredSkillLabsReadError";
+  }
+}
+
 async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
@@ -716,7 +753,6 @@ async function loadResourceSkillPromptEntries(
   metadataRead: number;
 }> {
   try {
-    const organizationOwner = sharedResourceOwner(orgId);
     const resources =
       owner === SHARED_OWNER
         ? [
@@ -724,29 +760,7 @@ async function loadResourceSkillPromptEntries(
             ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
           ]
         : await resourceListAccessible(owner, "skills/", { orgId });
-    const sorted = resources.sort((a, b) => {
-      const ownerOrder =
-        (a.owner === owner
-          ? 0
-          : a.owner === organizationOwner
-            ? 1
-            : a.owner === SHARED_OWNER
-              ? 2
-              : isWorkspaceResourceOwner(a.owner)
-                ? 3
-                : 4) -
-        (b.owner === owner
-          ? 0
-          : b.owner === organizationOwner
-            ? 1
-            : b.owner === SHARED_OWNER
-              ? 2
-              : isWorkspaceResourceOwner(b.owner)
-                ? 3
-                : 4);
-      if (ownerOrder !== 0) return ownerOrder;
-      return a.path.localeCompare(b.path);
-    });
+    const sorted = sortResourceSkills(resources, { owner, orgId });
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({
@@ -755,13 +769,35 @@ async function loadResourceSkillPromptEntries(
         full: await resourceGet(resource.id, { orgId }).catch(() => null),
       })),
     );
+    const parsed = loaded.map(({ resource, full }) => ({
+      resource,
+      full,
+      meta: full?.content ? parseSkillFrontmatter(full.content) : null,
+    }));
+    const requiredLabs = parsed.flatMap(({ meta }) =>
+      meta?.requiresLab ? [meta.requiresLab] : [],
+    );
+    const enabledLabs = requiredLabs.length
+      ? await import("../agents-bundle.js")
+          .then(({ getEnabledSkillLabsForUser }) =>
+            getEnabledSkillLabsForUser(
+              requiredLabs,
+              owner === SHARED_OWNER
+                ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+                : owner,
+            ),
+          )
+          .catch((error) => {
+            throw new RequiredSkillLabsReadError(error);
+          })
+      : new Set<string>();
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
-    for (const { resource, full } of loaded) {
-      if (!full?.content) continue;
-      const meta = parseSkillFrontmatter(full.content);
+    for (const { resource, full, meta } of parsed) {
+      if (!full?.content || !meta) continue;
       if (meta.userInvocable === false) continue;
       if (!isRuntimeVisibleScope(meta.scope)) continue;
+      if (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -773,7 +809,8 @@ async function loadResourceSkillPromptEntries(
       entries.push({ resource, full, name, description, scope });
     }
     return { entries, total: sorted.length, metadataRead: loaded.length };
-  } catch {
+  } catch (error) {
+    if (error instanceof RequiredSkillLabsReadError) throw error;
     return { entries: [], total: 0, metadataRead: 0 };
   }
 }
@@ -852,6 +889,7 @@ async function loadResourceIndexForPrompt(
 
 async function collectJevPromptCandidates(
   signal: AbortSignal,
+  userEmail?: string,
 ): Promise<JevPromptCandidate[]> {
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
@@ -878,11 +916,11 @@ async function collectJevPromptCandidates(
   };
 
   try {
-    const { getRuntimeSkills, loadAgentsBundle } =
+    const { getRuntimeSkillsForUser, loadAgentsBundle } =
       await import("../agents-bundle.js");
     signal.throwIfAborted();
     const bundle = await loadAgentsBundle();
-    for (const skill of getRuntimeSkills(bundle)) {
+    for (const skill of await getRuntimeSkillsForUser(bundle, userEmail)) {
       signal.throwIfAborted();
       add({
         kind: "skill",
@@ -1192,7 +1230,18 @@ function recordAnalyticsPreloadedReferenceCount(input: {
   };
 }
 
-export async function preloadJevContextForPrompt(options: {
+export interface JevPreloadResult {
+  context: string;
+  status: ContextStatus;
+}
+
+export async function preloadJevContextForPrompt(
+  options: Parameters<typeof preloadJevContextWithStatus>[0],
+): Promise<string> {
+  return (await preloadJevContextWithStatus(options)).context;
+}
+
+export async function preloadJevContextWithStatus(options: {
   request: string;
   appId?: string;
   owner?: string;
@@ -1207,12 +1256,12 @@ export async function preloadJevContextForPrompt(options: {
   contextPrefetchDeadlineAt?: number;
   dispatchToBackground?: boolean;
   internalContinuation?: boolean;
-}): Promise<string> {
+}): Promise<JevPreloadResult> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
   const personalApiKey = options.personalApiKey?.trim();
   if (!request || options.maxChars === 0 || options.dispatchToBackground) {
-    return "";
+    return { context: "", status: "empty" };
   }
 
   const deadlineAt =
@@ -1223,11 +1272,25 @@ export async function preloadJevContextForPrompt(options: {
     candidates: JevPromptCandidate[];
     fallbackIds: string[];
   } = { candidates: [], fallbackIds: [] };
+  // A stage that timed out or threw only matters when nothing was injected: an
+  // empty result is then a loss, not an answer, and the model has to be told.
+  let degraded: "timed_out" | "failed" | undefined;
+  const finish = (context: string, injected: number): JevPreloadResult => ({
+    context,
+    status: injected > 0 ? "ok" : (degraded ?? "empty"),
+  });
   try {
     const collection = await withinPromptBudget(
       (signal) =>
         Promise.all([
-          hasJev ? collectJevPromptCandidates(signal) : Promise.resolve([]),
+          hasJev
+            ? collectJevPromptCandidates(
+                signal,
+                options.owner ??
+                  getRequestUserEmail() ??
+                  getRequestRunContext()?.owner,
+              )
+            : Promise.resolve([]),
           collectJevMemoryPromptCandidates({
             owner: options.owner,
             orgId: options.orgId,
@@ -1241,11 +1304,13 @@ export async function preloadJevContextForPrompt(options: {
       runtimeCandidates = collection.value[0];
       memoryContext = collection.value[1];
     } else {
+      degraded = "timed_out";
       console.warn(
         "[agent] Prompt context candidates exceeded the preload budget; keeping Analytics retrieval fallback.",
       );
     }
   } catch (error) {
+    degraded = "failed";
     console.warn(
       "[agent] Prompt context candidates unavailable; keeping Analytics retrieval fallback.",
       error instanceof Error ? error.message : "unknown error",
@@ -1265,7 +1330,7 @@ export async function preloadJevContextForPrompt(options: {
       candidates,
       selectedIds: [],
     });
-    return "";
+    return finish("", 0);
   }
 
   const categoryFor = (candidate: JevPromptCandidate) => {
@@ -1327,17 +1392,27 @@ export async function preloadJevContextForPrompt(options: {
           if (result) rankings.set(category, result);
         }
       } else {
+        degraded ??= "timed_out";
         console.warn(
           "[agent] Jev ranking exceeded the preload budget; using bounded retrieval fallbacks.",
         );
       }
     } catch (error) {
+      degraded ??= "failed";
       console.warn(
         "[agent] Jev ranking unavailable; using bounded retrieval fallbacks.",
         error instanceof Error ? error.message : "unknown error",
       );
     }
   }
+  // A ranking that was attempted and lost is a degraded turn, not an empty
+  // answer; the fallbacks below still run for it.
+  for (const result of rankings.values()) {
+    if (result.status === "failed") degraded = "failed";
+    else if (result.status === "timed_out") degraded ??= "timed_out";
+  }
+  const isRanked = (result: { status: string } | undefined) =>
+    result?.status === "selected" || result?.status === "no-match";
   const jevSelectedIds = [...rankings.values()]
     .filter((result) => result.status === "selected")
     .flatMap((result) => result.ids);
@@ -1363,13 +1438,13 @@ export async function preloadJevContextForPrompt(options: {
       for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
     } else if (highSimilarityReferenceIds.length > 0) {
       for (const id of highSimilarityReferenceIds) selected.add(id);
-    } else if (!referenceRanking || referenceRanking.status === "unavailable") {
+    } else if (!isRanked(referenceRanking)) {
       for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
     }
   }
   const memoryRanking = rankings.get("memory");
   if (
-    (!hasJev || !memoryRanking || memoryRanking.status === "unavailable") &&
+    (!hasJev || !isRanked(memoryRanking)) &&
     memoryContext.fallbackIds.length > 0
   ) {
     for (const id of memoryContext.fallbackIds) selected.add(id);
@@ -1427,7 +1502,7 @@ export async function preloadJevContextForPrompt(options: {
       candidates,
       injectedIds: new Set(),
     });
-    return "";
+    return finish("", 0);
   }
 
   const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
@@ -1477,8 +1552,11 @@ export async function preloadJevContextForPrompt(options: {
     candidates,
     injectedIds,
   });
-  if (blocks.length === 0) return "";
-  return `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`;
+  if (blocks.length === 0) return finish("", 0);
+  return finish(
+    `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`,
+    blocks.length,
+  );
 }
 
 /**
@@ -1509,9 +1587,17 @@ export async function loadResourcesForPrompt(
   compact = false,
   selfAppId?: string,
   orgId: string | null = getRequestOrgId() ?? null,
-  opts?: { disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup> },
+  opts?: {
+    disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+    /** The tool the compact skills summary sends the model to for skill text,
+     *  or `null` when the request registry has none. Omitted means
+     *  `docs-search`, the framework default. */
+    skillReadTool?: string | null;
+  },
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
+  const skillReadTool =
+    opts?.skillReadTool === undefined ? "docs-search" : opts.skillReadTool;
 
   const sections: PromptSection[] = [];
   const addSection = (
@@ -1530,60 +1616,52 @@ export async function loadResourcesForPrompt(
     ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
     : SHARED_PROMPT_RESOURCE_MAX_CHARS;
 
-  try {
-    const { loadAgentsBundle, generateSkillsPromptBlock, getRuntimeSkills } =
-      await import("../agents-bundle.js");
-    const bundle = await loadAgentsBundle();
+  const {
+    loadAgentsBundle,
+    generateSkillsPromptBlock,
+    getRuntimeSkillsForUser,
+  } = await import("../agents-bundle.js");
+  const bundle = await loadAgentsBundle();
 
-    if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "workspace",
-        path: "AGENTS.md",
-        content: bundle.workspaceAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
-      });
-      addSection(block, "required");
-    }
+  if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
+    const block = promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "workspace",
+      path: "AGENTS.md",
+      content: bundle.workspaceAgentsMd,
+      maxChars: promptResourceMaxChars,
+      readHint:
+        'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
+    });
+    addSection(block, "required");
+  }
 
-    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
-    if (runtimeAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "template",
-        path: "AGENTS.md",
-        content: runtimeAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
-      });
-      addSection(block);
-    }
+  const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+  if (runtimeAgentsMd.trim()) {
+    const block = promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "template",
+      path: "AGENTS.md",
+      content: runtimeAgentsMd,
+      maxChars: promptResourceMaxChars,
+      readHint:
+        'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
+    });
+    addSection(block);
+  }
 
-    const runtimeSkills = getRuntimeSkills(bundle);
-    if (!compact) {
-      const skillsBlock = generateSkillsPromptBlock(bundle);
-      addSection(skillsBlock);
-    } else if (runtimeSkills.length > 0) {
-      const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
-      const lines = listedSkills.map((s) => {
-        const description = s.meta.description?.trim()
-          ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
-          : "";
-        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
-      });
-      if (runtimeSkills.length > listedSkills.length) {
-        lines.push(
-          `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
-        );
-      }
-      addSection(
-        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
-      );
-    }
-  } catch {}
+  const runtimeSkills = await getRuntimeSkillsForUser(
+    bundle,
+    owner === SHARED_OWNER
+      ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+      : owner,
+  );
+  if (!compact) {
+    const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
+    addSection(skillsBlock);
+  } else {
+    addSection(buildCompactSkillsSummary(runtimeSkills, skillReadTool));
+  }
 
   const workspaceOwner = workspaceResourceOwner(orgId);
   const workspaceAgents = await loadAgentsResourceForPrompt(
@@ -1717,7 +1795,7 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
     addSection(
-      `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
+      `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
       "required",
     );
   } else {
@@ -1787,7 +1865,13 @@ export async function loadResourcesForPrompt(
       opts?.disabledFrameworkGroups,
       "workspaceApps",
     )
-      ? (await discoverAgents(selfAppId)).slice(0, 30)
+      ? (
+          await discoverAgents(selfAppId, {
+            includePersonalAgents:
+              owner !== SHARED_OWNER &&
+              getRequestContext()?.userEmail === owner,
+          })
+        ).slice(0, 30)
       : [];
     if (agents.length > 0) {
       const lines = agents.map(
@@ -1795,7 +1879,7 @@ export async function loadResourcesForPrompt(
           `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
       );
       addSection(
-        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nWhen another app owns the work or data, use \`call-agent\` with the app id and a natural-language message. The receiving specialist owns source selection, schema interpretation, queries, joins, and use of its local tools. Direct action invocation is only for an explicitly read-only bounded action with a fully known schema. Never put creates, updates, deletes, sends, saves, publishes, or other side effects in direct action mode; put those objectives in the natural-language message.\n\nThese one-liners are the only cross-app detail in this prompt. Before building a capability another app may already own, before telling the user what is or is not possible across apps, and whenever the user asks which app to use, call \`describe-workspace-apps\` - it reads each peer's live agent card for current purpose and optional capability details. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
+        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nThis list is a directory, not a request to involve another app. Use \`call-agent\` only when the user's requested outcome depends on data or a capability only that app can provide, or the user explicitly asks you to involve it. A peer's availability or ability to enrich the result is not enough; use supplied or current-app data when sufficient. The receiving specialist owns source selection, schema interpretation, queries, joins, and use of its local tools. Direct action invocation is only for an explicitly read-only bounded action with a fully known schema. Never put creates, updates, deletes, sends, saves, publishes, or other side effects in direct action mode; put those objectives in the natural-language message.\n\nUse \`describe-workspace-apps\` only when that relevant cross-app need exists but you cannot tell which peer owns it or whether a known peer can provide it, or when the user asks which app can do the job. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
         "required",
       );
     }

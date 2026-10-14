@@ -9,16 +9,17 @@ export const threadMappingsStore = defineStore({
       name: "baseline",
       run: async () => {
         const createSql = `
-        CREATE TABLE IF NOT EXISTS integration_thread_mappings (
-          platform TEXT NOT NULL,
-          external_thread_id TEXT NOT NULL,
-          internal_thread_id TEXT NOT NULL,
-          platform_context TEXT NOT NULL DEFAULT '{}',
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL,
-          PRIMARY KEY (platform, external_thread_id)
-        )
-      `;
+          CREATE TABLE IF NOT EXISTS integration_thread_mappings (
+            platform TEXT NOT NULL,
+            external_thread_id TEXT NOT NULL,
+            internal_thread_id TEXT NOT NULL,
+            platform_context TEXT NOT NULL DEFAULT '{}',
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            PRIMARY KEY (platform, external_thread_id)
+          )
+        `;
+
         await ensureTableExists("integration_thread_mappings", createSql);
       },
     },

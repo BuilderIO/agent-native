@@ -18,7 +18,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import {
@@ -31,12 +30,13 @@ import {
   type H3Event,
 } from "h3";
 
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { isRetryableUploadInterruption } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   listRecordingChunkKeys,
   recordingChunkIndexFromKey,
+  recordingUploadStateMatchesAttempt,
   sumRecordingChunkBytes,
 } from "../../../../lib/recording-upload-state.js";
 import {
@@ -49,6 +49,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import {
+  isParkedForStorage,
   UPLOAD_LEASE_MS,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
@@ -101,11 +102,11 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
 
-  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-    userEmail: ownerEmail,
-    userKey: ownerEmail,
+  const recoveryEnabled = await getUploadRecoveryPolicy(
+    ownerEmail,
     orgId,
-  });
+    recordingId,
+  );
   if (!recoveryEnabled) {
     return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       const [recording] = await getDb()
@@ -195,8 +196,11 @@ export default defineEventHandler(async (event: H3Event) => {
     ).toISOString();
     const claimLeaseExpiryMs = Date.parse(recording.uploadLeaseExpiresAt ?? "");
     const claimHeartbeatMs = claimLeaseExpiryMs - UPLOAD_LEASE_MS;
+    // A row parked for storage holds a days-long lease but no live upload,
+    // so its lease is never a competing claim's heartbeat.
     const differentRetryClaim =
       recording.status === "uploading" &&
+      !isParkedForStorage(recording) &&
       existingAttemptId !== null &&
       existingAttemptId !== requestedAttemptId;
     if (differentRetryClaim && !Number.isFinite(claimHeartbeatMs)) {
@@ -308,21 +312,30 @@ export default defineEventHandler(async (event: H3Event) => {
     }
     generationId = claimedGenerationId;
 
+    const claimedAttempt = {
+      recordingId,
+      uploadAttemptId: attemptId,
+      uploadGenerationId: generationId,
+    };
+    const claimedUploadState: Record<string, unknown> = {
+      ...uploadState,
+      recordingId,
+      status: "uploading",
+      failureReason: null,
+      retryableInterruption: false,
+      progress: recording.uploadProgress,
+      uploadAttemptId: attemptId,
+      uploadGenerationId: generationId,
+      ...(session ? { bytesReceived: session.bytesUploaded } : {}),
+      updatedAt: now,
+    };
+    if (!recordingUploadStateMatchesAttempt(uploadState, claimedAttempt)) {
+      delete claimedUploadState.browserSessionId;
+    }
     const uploadStateUpdated = await compareAndSetAppState(
       uploadStateKey,
       uploadStateRaw,
-      {
-        ...uploadState,
-        recordingId,
-        status: "uploading",
-        failureReason: null,
-        retryableInterruption: false,
-        progress: recording.uploadProgress,
-        uploadAttemptId: attemptId,
-        uploadGenerationId: generationId,
-        ...(session ? { bytesReceived: session.bytesUploaded } : {}),
-        updatedAt: now,
-      },
+      claimedUploadState,
     );
     if (!uploadStateUpdated) {
       const [current] = await getDb()

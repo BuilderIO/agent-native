@@ -1,7 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,

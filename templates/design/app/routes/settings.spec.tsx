@@ -17,7 +17,7 @@ type CapturedProps = {
   extraTabs?: CapturedTab[];
   general?: ReactNode;
   team?: ReactNode;
-  labs?: Array<{ key: string }>;
+  labs?: Array<{ key: string; displayName?: string; description?: string }>;
   labsIntro?: string;
   mcpAbout?: string;
   generalSearchEntries?: unknown[];
@@ -25,7 +25,6 @@ type CapturedProps = {
 
 const mocks = vi.hoisted(() => ({
   useOrg: vi.fn(),
-  redesign: false,
   creativeContext: false,
   props: null as CapturedProps | null,
 }));
@@ -34,20 +33,11 @@ vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogSettingsCard: () => null,
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlagState: () => ({ status: "ready", enabled: mocks.redesign }),
-}));
-
-vi.mock("@agent-native/core/feature-flags/registry", () => ({
-  SETTINGS_REDESIGN_FLAG: { key: "settings-redesign" },
-}));
-
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  LanguagePicker: () => <div data-testid="language-picker" />,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -67,14 +57,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: mocks.useOrg,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
-  SettingsGroup: ({ children }: { children: ReactNode }) => (
-    <section>{children}</section>
-  ),
-  SettingsRow: ({ id, control }: { id: string; control: ReactNode }) => (
-    <div data-testid={`settings-row-${id}`}>{control}</div>
-  ),
   SettingsTabsPage: (props: CapturedProps) => {
     mocks.props = props;
     const extraTabs = props.extraTabs ?? [];
@@ -114,7 +98,12 @@ vi.mock("@agent-native/creative-context/client", () => ({
   useCreativeContextLab: () => mocks.creativeContext,
 }));
 
-vi.mock("@shared/labs", () => ({ DESIGN_LABS: [{ key: "design-tweaks" }] }));
+vi.mock("@shared/labs", () => ({
+  ANNOTATE_LAB: { key: "design.annotate" },
+  FULL_APP_BUILDING_LAB: { key: "full-app-building" },
+  DESIGN_REVIEW_TOOLS_LAB: { key: "design-review-panel" },
+  DESIGN_MOTION_LAB: { key: "design-motion" },
+}));
 
 import SettingsRoute from "./settings";
 
@@ -138,7 +127,6 @@ describe("Design settings", () => {
     act(() => root.unmount());
     container.remove();
     mocks.useOrg.mockReset();
-    mocks.redesign = false;
     mocks.creativeContext = false;
     mocks.props = null;
     vi.unstubAllGlobals();
@@ -155,14 +143,7 @@ describe("Design settings", () => {
   const dashboard = () =>
     container.querySelector("[data-testid='observability-dashboard']");
 
-  describe.each([
-    ["today's tabs", false],
-    ["the redesigned Settings", true],
-  ] as const)("observability in %s", (_surface, redesign) => {
-    beforeEach(() => {
-      mocks.redesign = redesign;
-    });
-
+  describe("observability", () => {
     it.each(["owner", "admin"] as const)(
       "shows the org observability dashboard to an %s",
       (role) => {
@@ -205,44 +186,7 @@ describe("Design settings", () => {
     });
   });
 
-  describe("today's tabs", () => {
-    it("links the observability tab to the dashboard's first tab", () => {
-      mocks.useOrg.mockReturnValue({
-        data: { orgId: "org-1", role: "owner" },
-        isLoading: false,
-        isError: false,
-      });
-
-      renderSettings();
-
-      expect(observabilityTab()?.getAttribute("href")).toBe(
-        "/settings/observability/overview",
-      );
-      expect(observabilityTab()?.getAttribute("data-group")).toBe("agent");
-    });
-
-    it("keeps the language row and the creative-context link on General", () => {
-      mocks.creativeContext = true;
-
-      renderSettings();
-
-      expect(
-        container.querySelector('[data-testid="settings-row-language"]'),
-      ).not.toBeNull();
-      expect(
-        container.querySelector(
-          '[data-testid="creative-context-settings-link"]',
-        ),
-      ).not.toBeNull();
-      expect(mocks.props?.team).toBeUndefined();
-    });
-  });
-
-  describe("the redesigned Settings", () => {
-    beforeEach(() => {
-      mocks.redesign = true;
-    });
-
+  describe("the Settings shell", () => {
     it("makes observability a page inside Settings, not a link out", () => {
       mocks.useOrg.mockReturnValue({
         data: { orgId: "org-1", role: "admin" },
@@ -278,9 +222,36 @@ describe("Design settings", () => {
       renderSettings();
 
       expect(mocks.props?.labs?.map((lab) => lab.key)).toEqual([
-        "design-tweaks",
+        "full-app-building",
+        "design-review-panel",
+        "design-motion",
+        "design.annotate",
         "creative-context",
       ]);
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "full-app-building"),
+      ).toMatchObject({
+        displayName: "settings.labFullAppBuilding",
+        description: "settings.labFullAppBuildingDescription",
+      });
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "design-review-panel"),
+      ).toMatchObject({
+        displayName: "settings.labDesignReviewTools",
+        description: "settings.labDesignReviewToolsDescription",
+      });
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "design-motion"),
+      ).toMatchObject({
+        displayName: "settings.labMotion",
+        description: "settings.labMotionDescription",
+      });
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "design.annotate"),
+      ).toMatchObject({
+        displayName: "settings.labAnnotate",
+        description: "settings.labAnnotateDescription",
+      });
       expect(mocks.props?.labsIntro).toBeUndefined();
       expect(mocks.props?.mcpAbout).toBe("settings.mcpAbout");
     });

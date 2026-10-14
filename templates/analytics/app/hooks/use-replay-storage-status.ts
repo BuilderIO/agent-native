@@ -1,11 +1,12 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { fetchFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 export interface ReplayStorageStatus {
   configured: boolean;
   activeProvider?: { id: string; name: string } | null;
-  builderConfigured?: boolean;
+  builderConfigured?: boolean | null;
+  builderUploadConfigured?: boolean | null;
 }
 
 export const REPLAY_STORAGE_STATUS_KEY = [
@@ -14,35 +15,24 @@ export const REPLAY_STORAGE_STATUS_KEY = [
 ] as const;
 
 export async function fetchReplayStorageStatus(): Promise<ReplayStorageStatus> {
-  let uploadStatus: ReplayStorageStatus | null = null;
-  try {
-    const r = await fetch(agentNativePath("/_agent-native/file-upload/status"));
-    uploadStatus = r.ok ? ((await r.json()) as ReplayStorageStatus) : null;
-    if (uploadStatus?.configured) return uploadStatus;
-  } catch {
-    // Fall through to the Builder status check.
+  const result = await fetchFileUploadStatus<Partial<ReplayStorageStatus>>();
+  if (result.state !== "available") {
+    throw new Error("Replay storage status is unavailable");
   }
-
-  try {
-    const r = await fetch(agentNativePath("/_agent-native/builder/status"));
-    const builderStatus = r.ok
-      ? ((await r.json()) as { configured?: boolean })
-      : null;
-    if (builderStatus?.configured) {
-      return {
-        configured: true,
-        activeProvider: { id: "builder", name: "Builder.io" },
-        builderConfigured: true,
-      };
-    }
-  } catch {
-    // Treat an unreachable status route as not configured.
+  if (typeof result.value?.configured !== "boolean") {
+    throw new Error("Replay storage status response is invalid");
   }
-
   return {
-    configured: false,
-    activeProvider: uploadStatus?.activeProvider ?? null,
-    builderConfigured: uploadStatus?.builderConfigured ?? false,
+    configured: result.value.configured,
+    activeProvider: result.value.activeProvider ?? null,
+    builderConfigured:
+      typeof result.value.builderConfigured === "boolean"
+        ? result.value.builderConfigured
+        : null,
+    builderUploadConfigured:
+      typeof result.value.builderUploadConfigured === "boolean"
+        ? result.value.builderUploadConfigured
+        : null,
   };
 }
 

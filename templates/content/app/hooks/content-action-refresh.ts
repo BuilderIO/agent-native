@@ -33,6 +33,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "migrate-content-database-rows",
   "move-document",
   "mutate-content-database-block",
+  "patch-database-items",
   "process-builder-body-hydration",
   "pull-builder-doc",
   "pull-document",
@@ -51,6 +52,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-local-folder-source",
   "sync-manifest-local-folder-source",
   "transcribe-media",
+  "undo-content-import",
   "update-document",
 ]);
 
@@ -69,6 +71,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "import-content-source",
   "migrate-content-database-rows",
   "move-database-item",
+  "patch-database-items",
   "remove-database-items",
   "reorder-document-property",
   "restore-content-database",
@@ -94,7 +97,15 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "restore-document",
 ]);
 
-const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
+  "create-document",
+  "import-content",
+]);
+
+const PREVIEW_DRAFT_MUTATIONS = new Set([
+  "resolve-preview-document-draft",
+  "update-preview-document-draft",
+]);
 
 const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-content-databases",
@@ -209,6 +220,20 @@ function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
   return CONTENT_MUTATIONS.has(eventKey);
 }
 
+// A read started for a page open has no observer until the page mounts, so
+// the active-query rules below never reach it. Any change that could alter
+// what it read spoils it, whichever page the change touched.
+function eventSpoilsPageOpenRead(eventKey: string, queryName: unknown) {
+  if (queryName === "get-preview-document-draft") {
+    return PREVIEW_DRAFT_MUTATIONS.has(eventKey);
+  }
+  return (
+    queryName === "get-document" &&
+    (PREVIEW_DRAFT_MUTATIONS.has(eventKey) ||
+      eventRefreshesDocumentQuery(eventKey, queryName))
+  );
+}
+
 function isDatabaseQuery(query: ActionQuery): boolean {
   if (
     query.queryKey[0] !== "action" ||
@@ -232,12 +257,15 @@ function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
   );
 }
 
+// The Files tree is ordered by the stored personal view but not keyed by it,
+// so it reads again with that view.
 function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
-  return (
-    query.queryKey[0] === "action" &&
-    query.queryKey[1] === "get-content-database-personal-view" &&
-    query.isActive?.() === true
-  );
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (query.queryKey[1] === "get-content-database-personal-view") return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
 }
 
 function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
@@ -284,9 +312,24 @@ export function contentDocumentIdFromPathname(
 
 export function contentActionInvalidatePredicate(
   pathname: string,
+  isPageOpenRead: (query: ActionQuery) => boolean = () => false,
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    if (
+      query.queryKey[0] === "action" &&
+      (query.queryKey[1] === "get-document" ||
+        query.queryKey[1] === "get-preview-document-draft") &&
+      isPageOpenRead(query) &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          eventSpoilsPageOpenRead(event.key, query.queryKey[1]),
+      )
+    ) {
+      return true;
+    }
     if (
       query.queryKey[0] === "action" &&
       query.queryKey[1] === "get-content-notification-prefs"
@@ -375,20 +418,18 @@ export function contentActionInvalidatePredicate(
           eventRefreshesDocumentQuery(event.key, query.queryKey[1]),
       );
     }
+    if (
+      queryTargetsActiveDatabasePresentation(query) &&
+      eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
+    }
     if (queryTargetsDatabase(query, documentId)) {
       return events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
           DATABASE_RESULT_MUTATIONS.has(event.key),
-      );
-    }
-    if (queryTargetsActiveDatabasePresentation(query)) {
-      return events.some(
-        (event) =>
-          event.source === "action" &&
-          typeof event.key === "string" &&
-          DATABASE_PRESENTATION_MUTATIONS.has(event.key),
       );
     }
     return false;

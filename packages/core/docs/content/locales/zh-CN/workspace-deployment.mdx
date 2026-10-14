@@ -332,6 +332,30 @@ agents.example.com {
 
 </Callout>
 
+## 为自托管工作区配置 Dispatch {#dispatch-workspace-apps}
+
+生产环境中的 Dispatch 镜像通常只包含 `.output/`，因此服务器无法在运行时扫描应用目录。请在 Dispatch 服务上配置此清单。两个变量使用相同的 JSON：Vite 变量在构建 Dispatch 时读取，另一个在服务器运行时读取。只列出此工作区中的应用，并确保每个 `path` 与 `APP_BASE_PATH` 和代理路由一致。 同时将 APP_URL 设置为反向代理提供的公开源站。
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## 在新工作区中启用邀请 {#workspace-invites}
+
+如果工作区采用邀请制，请在每个共享数据库和认证配置的应用容器上设置以下访问变量：
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+将示例地址替换为每个工作区首位管理员的已验证邮箱。在空数据库上，该管理员先登录并成为初始组织的所有者，然后可在 Settings → Organization → Members 中邀请团队成员。完整的初始化流程请参阅[受管理的部署](/docs/administered-deployments)。
+
 ## 下一步
 
 - [**Deployment**](/docs/deployment) — 在部署工作区之前选择一个持久数据库、一个 Nitro 预设和一个平台

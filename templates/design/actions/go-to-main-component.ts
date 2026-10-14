@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -40,9 +40,9 @@ async function liveContent(
 
 export default defineAction({
   description:
-    "Resolve the 'main' instance of a component (Figma's Go to main " +
-    "component). Canonical linked components resolve by their persisted " +
-    "component id; legacy name-only annotations fall back to the earliest " +
+    "Find the main instance of a component. Canonical linked components " +
+    "resolve by their persisted component id; legacy name-only annotations " +
+    "fall back to the earliest " +
     "same-name instance across the design's files. Returns isMain=true when " +
     "the selected instance is already the main; otherwise navigates the " +
     "editor to it.",
@@ -60,7 +60,8 @@ export default defineAction({
   }),
   run: async ({ designId, nodeId, fileId }) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
@@ -205,15 +206,33 @@ export default defineAction({
       };
     }
 
+    // The editor selects layers by projection id, not by the node id attribute
+    // the component library indexes.
+    const mainFile = filesForScan.find((row) => row.id === main.fileId);
+    const mainProjection =
+      main.fileId === file.id
+        ? currentProjection
+        : mainFile
+          ? buildCodeLayerProjection(mainFile.content ?? "", {
+              source: {
+                kind: "design-file",
+                designId: mainFile.designId,
+                fileId: mainFile.id,
+                filename: mainFile.filename,
+              },
+            })
+          : null;
+    const mainLayerId =
+      mainProjection?.nodes.find((n) => componentNodeIdMatches(n, main.nodeId))
+        ?.id ?? main.nodeId;
+
     await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
-      editorView: "single",
+      editorView: "overview",
       fileId: main.fileId,
-      filename: main.filename,
-      selectedNodeId: main.nodeId,
+      selection: mainLayerId,
       inspectorTab: "design",
-      inspectorSection: "component",
     });
 
     return {
@@ -228,6 +247,7 @@ export default defineAction({
         fileId: main.fileId,
         filename: main.filename,
         nodeId: main.nodeId,
+        layerId: mainLayerId,
         selector: main.selector,
       },
       navigated: true,

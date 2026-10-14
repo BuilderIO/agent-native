@@ -12,7 +12,8 @@ function hubMergedKey(orgId: string, name: string): string {
   return `hub_${normalizeOrgId(orgId)}_${name}`;
 }
 
-let lastGoodServers: Record<string, McpServerConfig> | null = null;
+const MAX_CACHED_ORGS = 32;
+const lastGoodServers = new Map<string, Record<string, McpServerConfig>>();
 
 export type HubFetchResult =
   | { state: "disabled" }
@@ -23,13 +24,23 @@ export type HubFetchResult =
       error: string;
     };
 
-export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
+export async function fetchHubServersDetailed(
+  orgId: string,
+): Promise<HubFetchResult> {
   if (!isHubConsumeEnabled()) return { state: "disabled" };
+  if (!orgId.trim()) {
+    return {
+      state: "unreachable",
+      servers: {},
+      error: "organization required",
+    };
+  }
   const base = process.env.AGENT_NATIVE_MCP_HUB_URL!.trim();
   const token = process.env.AGENT_NATIVE_MCP_HUB_TOKEN!.trim();
-  const url = joinUrl(base, "/_agent-native/mcp/hub/servers");
+  const url = new URL(joinUrl(base, "/_agent-native/mcp/hub/servers"));
+  url.searchParams.set("orgId", orgId);
 
-  const fallbackServers = lastGoodServers ?? {};
+  const fallbackServers = lastGoodServers.get(orgId) ?? {};
 
   let res: Response;
   try {
@@ -73,7 +84,7 @@ export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
       console.warn(
         `[mcp-client] hub fetch returned ${res.status} from ${url} — clearing cached servers`,
       );
-      lastGoodServers = null;
+      lastGoodServers.delete(orgId);
       return { state: "unreachable", servers: {}, error: msg };
     }
     console.warn(
@@ -100,7 +111,8 @@ export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
 
   const out: Record<string, McpServerConfig> = {};
   for (const s of body.servers) {
-    if (!s || typeof s.url !== "string" || !s.name || !s.orgId) continue;
+    if (!s || typeof s.url !== "string" || !s.name || s.orgId !== orgId)
+      continue;
     const cfg: McpHttpServerConfig = {
       type: "http",
       url: s.url,
@@ -110,20 +122,26 @@ export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
     };
     out[hubMergedKey(s.orgId, s.name)] = cfg;
   }
-  lastGoodServers = out;
+  lastGoodServers.delete(orgId);
+  lastGoodServers.set(orgId, out);
+  while (lastGoodServers.size > MAX_CACHED_ORGS) {
+    const oldest = lastGoodServers.keys().next().value;
+    if (!oldest) break;
+    lastGoodServers.delete(oldest);
+  }
   return { state: "ok", servers: out };
 }
 
-export async function fetchHubServers(): Promise<
-  Record<string, McpServerConfig>
-> {
-  const result = await fetchHubServersDetailed();
+export async function fetchHubServers(
+  orgId: string,
+): Promise<Record<string, McpServerConfig>> {
+  const result = await fetchHubServersDetailed(orgId);
   if (result.state === "disabled") return {};
   return result.servers;
 }
 
 export function _resetHubCacheForTests(): void {
-  lastGoodServers = null;
+  lastGoodServers.clear();
 }
 
 function joinUrl(base: string, path: string): string {

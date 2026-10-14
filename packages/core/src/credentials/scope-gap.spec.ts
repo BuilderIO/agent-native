@@ -24,7 +24,8 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: async () => resolveOrgIdForEmailResult,
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: vi.fn(async () => null),
   putSetting: vi.fn(async () => {}),
   deleteSetting: vi.fn(async () => {}),

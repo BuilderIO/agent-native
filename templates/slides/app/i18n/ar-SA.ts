@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "التكاملات" } },
   templatesPage: {
     actions: "إجراءات القالب {{title}}",
     previewAction: "معاينة",
@@ -19,6 +20,9 @@ const messages = {
     slidePosition: "الشريحة {{current}} من {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ar-SA"],
+  common: {
+    loading: "جارٍ التحميل...",
+  },
   root: {
     commandPresentations: "العروض التقديمية",
     searchDecks: "البحث في العروض",
@@ -42,25 +46,19 @@ const messages = {
     designSystems: "أنظمة التصميم",
   },
   settings: {
-    agentObservability: "مراقبة الوكيل",
+    agentObservability: "قابلية المراقبة",
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
     labs: "المختبرات",
     labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
     labLayoutOverflowWarningDescription: "إظهار تحذير تجاوز التخطيط في المحرر.",
-    emailNotifications: "إشعارات البريد الإلكتروني",
-    emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
     saveFailed: "فشل الحفظ",
     notificationsEmail: "البريد الإلكتروني",
     commentsAndReplies: "التعليقات والردود",
     commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
     retry: "إعادة المحاولة",
+    reload: "إعادة تحميل",
     mcpAbout:
       "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -126,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "لم يتم إعداد تصفح ملفات Google Drive. لا يزال بإمكانك استيراد المستند بلصق رابطه.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
@@ -172,6 +170,14 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "توجد أحدث تعديلاتك على هذا الجهاز فقط. نزّل نسخة احتياطية قبل المغادرة.",
+    slideConflictReview: "مراجعة",
+    slideConflictTitle: "تم تغيير هذه الشريحة في مكان آخر",
+    slideConflictDescription:
+      "حفظ محرر آخر نسخة أحدث. سيؤدي الاحتفاظ بمسودتك إلى استبدال محتوى الشريحة المحفوظ، أو يمكنك استخدام أحدث نسخة.",
+    slideConflictUseLatest: "استخدام الأحدث",
+    slideConflictKeepDraft: "الاحتفاظ بمسودتي",
+    slideConflictKeepEditing: "متابعة التحرير",
+    slideConflictResolutionFailed: "تعذر حل التعارض. لا تزال مسودتك هنا.",
     offline: "غير متصل",
     selected: "محدد",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -235,6 +241,7 @@ const messages = {
     importCompleteFile: "تم استيراد الملف من {{fileName}}.",
     backToDecks: "العودة إلى العروض",
     toggleSlideList: "تبديل قائمة الشرائح",
+    openInAgentNative: "فتح في Agent-Native",
     designSystem: "نظام التصميم",
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",
@@ -248,6 +255,19 @@ const messages = {
     media: "الوسائط",
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
+    imageOptions: "خيارات الصورة",
+    videoPlayback: "تشغيل الفيديو",
+    autoplayVideo: "تشغيل تلقائي",
+    loopVideo: "تكرار الفيديو",
+    videoUploading: "جارٍ رفع الفيديو…",
+    videoAdded: "تمت إضافة الفيديو",
+    videoUploadFailed: "تعذّر رفع الفيديو",
+    videoUploadError: "تعذّر رفع هذا الفيديو.",
+    videoFormatUnsupported: "تتوافق المنصة مع فيديوهات MP4 وWebM فقط.",
+    videoTooLarge: "يجب ألا يتجاوز حجم الفيديو 50 ميغابايت.",
+    videoUploadNeedsBuilder: "لم يتم إعداد تخزين الفيديو.",
+    cropImage: "اقتصاص الصورة",
+    cropHandle: "اقتصاص الصورة {{position}}",
     diagrams: "المخططات",
     insertMermaidDiagram: "إدراج مخطط Mermaid",
     insertMermaidFailed: "فشل إدراج المخطط",
@@ -256,10 +276,21 @@ const messages = {
     convertMermaidFailed: "فشل تحويل المخطط",
     removeExcalidrawCanvas: "إزالة لوحة Excalidraw",
     transition: "الانتقال",
-    transition_instant: "فوري",
+    transition_none: "بدون",
+    transition_dissolve: "تلاشٍ متداخل",
     transition_fade: "تلاشي",
-    transition_slide: "انزلاق",
-    transition_zoom: "تكبير",
+    transition_slide_from_right: "انزلاق من اليمين",
+    transition_slide_from_left: "انزلاق من اليسار",
+    transition_flip: "قلب",
+    transition_cube: "مكعب",
+    transition_gallery: "معرض",
+    transition_panel: "انتقال الشرائح",
+    transition_speed: "السرعة",
+    transition_slow: "بطيء",
+    transition_fast: "سريع",
+    transition_seconds: "{{seconds}} ث",
+    transition_apply_all: "تطبيق على كل الشرائح",
+    transition_play: "تشغيل الانتقال",
     aspectRatio: "نسبة العرض إلى الارتفاع",
     setAspectRatio: "تعيين العرض إلى {{ratio}}",
     slideTools: "أدوات الشريحة",
@@ -295,6 +326,22 @@ const messages = {
     importing: "جارٍ الاستيراد...",
     importFile: "استيراد ملف",
     downloadBackup: "تنزيل نسخة احتياطية",
+    conflictStatus: "تعارض في النص",
+    conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    accessLost: "فُقد الوصول",
+    accessLostDescription:
+      "تغيّر وصولك إلى هذا العرض. تبقى تعديلاتك على الشاشة؛ أعد المحاولة عند استعادة الوصول أو نزّل نسخة احتياطية.",
+    reviewConflict: "مراجعة التعارض",
+    conflictTitle: "تعارض نصي في الشريحة {{number}}",
+    conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
+    conflictChoicesDescription:
+      "سيحفظ الاحتفاظ بنصك فوق أحدث إصدار. أما استخدام النص المحفوظ فيستبدل المسودة المحلية لهذه الشريحة فقط.",
+    conflictBackupDescription:
+      "لا يمكن حل مسودة العرض الكامل هذه شريحةً واحدةً في كل مرة. نزّل نسخة احتياطية للاحتفاظ بها.",
+    conflictResolveFailed:
+      "تعذّر حل التعارض. ما زالت مسودتك متاحة على هذا الجهاز.",
+    conflictKeepMine: "الاحتفاظ بنصي",
+    conflictUseLatest: "استخدام النص المحفوظ",
     importBackup: "استيراد نسخة احتياطية",
     backupDownloaded: "تم تنزيل النسخة الاحتياطية",
     backupDownloadFailed: "تعذر تنزيل النسخة الاحتياطية",
@@ -330,6 +377,7 @@ const messages = {
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
+    googleSlidesGoTo: "الانتقال إلى Google Slides",
     duplicateDeck: "تكرار العرض",
   },
   share: {
@@ -392,6 +440,8 @@ const messages = {
     orderedList: "قائمة مرتبة",
     quote: "اقتباس",
     blockquote: "اقتباس كتلي",
+    divider: "فاصل",
+    horizontalRule: "خط أفقي",
   },
   comments: {
     deleteComment: "حذف التعليق",
@@ -414,7 +464,12 @@ const messages = {
     resolveThread: "حل المحادثة",
     reopenThread: "إعادة فتح المحادثة",
     hideReplies: "إخفاء الردود",
-    replyCount: "{{count}} ردود",
+    replyCount_zero: "{{count}} ردود",
+    replyCount_one: "{{count}} رد",
+    replyCount_two: "{{count}} ردان",
+    replyCount_few: "{{count}} ردود",
+    replyCount_many: "{{count}} ردًا",
+    replyCount_other: "{{count}} رد",
     title: "التعليقات",
     addComment: "إضافة تعليق",
     close: "إغلاق",
@@ -425,6 +480,7 @@ const messages = {
     retry: "إعادة المحاولة",
     clickToAddComment: "انقر لإضافة تعليق",
     selectSlideToAdd: "حدد شريحة لإضافة تعليق",
+    filters: "عوامل تصفية التعليقات",
     scope: "نطاق التعليقات",
     thisSlide: "هذه الشريحة",
     allComments: "كل الشرائح",
@@ -551,7 +607,6 @@ const messages = {
     selectObject: "حدد كائنًا لتحريكه",
     addTransition: "إضافة انتقال",
     effect: "التأثير",
-    trigger: "المشغل",
     onClick: "عند النقر",
     byParagraph: "حسب الفقرة",
     expand: "توسيع الانتقال",
@@ -562,6 +617,11 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "لم يعد هذا العنصر موجودًا في الشريحة.",
+    issueMissingElement: "تعذّر العثور على هذا العنصر في الشريحة.",
+    issueDuplicate: "يتداخل هذا التأثير مع تأثير آخر في الشريحة.",
+    blocked: "أزل التأثير غير المحلول أو أصلحه للحفظ أو التشغيل.",
+    changeNotApplied: "لم يتم تطبيق هذا التغيير.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -617,9 +677,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "إعادة المحاولة",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "تعذر تحميل الإصدارات المحفوظة.",
+    snapshotLoadFailed: "تعذر تحميل هذا الإصدار المحفوظ.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
@@ -743,6 +806,17 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "فشل تشغيل الوكيل قبل إنشاء أي شرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationFailed:
+      "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationOutcomeUnresolved:
+      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض قبل المحاولة مرة أخرى.",
+    partialGenerationFailed:
+      "تعذّر علينا إكمال إنشاء الشرائح. راجع الشرائح الموجودة وطلبك الأصلي قبل المتابعة.",
+    originalPrompt: "ما طلبته",
+    backToHome: "العودة إلى الصفحة الرئيسية",
+    checkedDeckTryAgain: "تحققت من العرض. حاول مرة أخرى",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -780,7 +854,7 @@ const messages = {
     sourceMixed: "مصادر متعددة",
     sourceBuilder: "ذكاء أنظمة التصميم من Builder",
     sourceIndexingDescription:
-      "لا يزال Builder يعالج هذا المصدر. ستظهر النتائج هنا عند جاهزيتها.",
+      "لا يزال إعداد أسلوب علامتك التجارية جاريًا. انتظر حتى يكتمل، ثم حاول مرة أخرى.",
     sourceIndexedDescription: "تمت فهرسة {{docs}} مستندات · {{tokens}} رموز",
     sourceIndexedDocsOnly: "تمت فهرسة {{docs}} مستندات",
     sourceIndexedTokensOnly: "تمت فهرسة {{tokens}} رموز",
@@ -865,12 +939,13 @@ const messages = {
       networkFailed:
         "انتهت مهلة طلب الاستيراد أو انقطع اتصال الشبكة. تحقّق من اتصالك وحاول مرة أخرى.",
       notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+      unsupportedFileType: "نوع الملف هذا غير مدعوم. اختر ملفًا مدعومًا.",
       uploadLimitExceeded:
         "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
     },
     importDeck: "استيراد عرض",
     context: {
-      websiteReference: "إرفاق موقع ويب",
+      websiteReference: "إضافة موقع ويب",
       websiteUrlLabel: "عنوان URL لموقع الويب",
       websiteUrl: "الصق عنوان URL لموقع ويب",
       figmaUrlLabel: "رابط Figma",
@@ -884,7 +959,7 @@ const messages = {
       searchPresentations: "البحث في العروض التقديمية…",
       menu: {
         system: "استخدام نظام تصميم",
-        figma: "إرفاق Figma",
+        figma: "إضافة Figma",
         design: "الاستعانة بتصميم",
         deck: "الاستعانة بعرض تقديمي",
         searchDesign: "البحث في التصميم…",
@@ -905,6 +980,8 @@ const messages = {
       notReady:
         "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
       emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      websiteReadFailed:
+        "تعذّرت قراءة هذا الموقع تلقائيًا. انسخ النص ذي الصلة والصقه بدلًا من ذلك.",
       figmaReadFailed:
         "تعذّر على Design قراءة مرجع Figma هذا. تحقّق من رمز الوصول المحفوظ إلى Figma في Design ومن أن حسابه يمكنه فتح الملف، ثم حاول مرة أخرى.",
       tooMany: "اختر حتى 20 مرجعًا.",
@@ -945,8 +1022,8 @@ const messages = {
           "اقرأ موقع الشركة المقدم وأنشئ عرضًا عن الشركة. أبلغ عن تعذر الوصول بدلًا من اختلاق الحقائق.",
       },
     },
-    connectBuilderIo: "ربط Builder.io",
-    connectingBuilder: "جارٍ ربط Builder.io…",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     recent: "الأخيرة",
     starters: {
       pitch: {
@@ -980,13 +1057,19 @@ const messages = {
     generationStartFailed: "تعذر بدء إنشاء العرض",
     generationStartFailedDescription:
       "لم يكتمل حفظ العرض الجديد، لذلك لم يبدأ الوكيل على عرض مفقود. تم حفظ مطالبتك لتتمكن من المحاولة مرة أخرى.",
+    generationContextUnavailableDescription:
+      "تعذر تحميل أسلوب العلامة التجارية أو العرض التقديمي المرجعي الذي اخترته. تأكد من إمكانية فتحه ومن عمل اتصال الإنترنت، ثم حاول مرة أخرى.",
     showAllDecks: "إظهار كل العروض",
     all: "الكل",
     showMineDecks: "إظهار العروض التي أنشأتها",
     mine: "عروضي",
+    ownedByAnyone: "مملوك لأي شخص",
+    ownedByMe: "مملوك لي",
+    sharedWithMe: "تمت مشاركته معي",
     createDeckOrVisual: "إنشاء عرض تقديمي",
     noMineDecks: "لم تنشئ أي عروض بعد.",
     noDecksMatchSearch: "لا تتطابق أي عروض مع بحثك.",
+    noDecksMatchFilter: "لا تتطابق أي عروض مع عامل التصفية الحالي.",
     deleteDeckTitle: "حذف العرض؟",
     deleteDeckDescription:
       "سيؤدي هذا إلى حذف هذا العرض وكل شرائحه نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
@@ -1058,6 +1141,11 @@ const messages = {
     createFirstDeck: "أنشئ أول عرض لك",
     emptyDescription:
       "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
+    },
   },
 };
 

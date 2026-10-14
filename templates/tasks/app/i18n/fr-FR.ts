@@ -30,12 +30,6 @@ const messages = {
     pageExtension: "Extension",
     pageExtensions: "Extensions",
   },
-  settings: {
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
-  },
   agent: {
     emptyState:
       "Demandez à l'agent d'inspecter ou de modifier cette application.",
@@ -164,6 +158,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Suggérer une file",
+    noQueueMatch: "Aucune file correspondante",
+    urgentProbability: "Probabilité d'urgence : {{percent}} %",
+    applyRoute: "Appliquer la file",
+    routingError: "Impossible de suggérer une file.",
     panelTitle: "Champs",
     panelSubtitle: "Détails de la tâche",
     closeLabel: "Fermer le panneau des champs",

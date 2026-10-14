@@ -90,6 +90,21 @@ describe("buildSlidesDeckGenerationContext", () => {
     expect(context).toContain("Re-open visual references before editing");
   });
 
+  it("never truncates an uploaded file reference in follow-up context", () => {
+    // A reference is opaque: cutting it makes every later import fail as an
+    // "invalid reference". Refs minted before the compact format were 2,653
+    // characters, past the 2,000-character cap that used to apply to paths.
+    const reference = `slides-upload:v1:${"a1b2c3d4".repeat(330)}`;
+    expect(reference.length).toBeGreaterThan(2_000);
+
+    const context = buildSlidesDeckGenerationContext({
+      originalPrompt: "Restyle the attached deck",
+      files: [{ originalName: "deck.pdf", path: reference }],
+    });
+
+    expect(context?.includes(`path: ${reference})`)).toBe(true);
+  });
+
   it("does not manufacture continuation context without an original brief", () => {
     expect(buildSlidesDeckGenerationContext({ files: [] })).toBeNull();
   });
@@ -133,7 +148,7 @@ describe("prepareSlidesChatAttachments", () => {
           type: "image",
           name: "editor-ai.jpeg",
           contentType: "image/jpeg",
-          data: "data:image/jpeg;base64,/9j/AA==",
+          data: "data:image/jpeg;charset=binary;base64,/9j/AA==",
         },
       ],
     });
@@ -152,7 +167,7 @@ describe("prepareSlidesChatAttachments", () => {
     );
     expect(result?.message).toContain("PDF/PPTX/DOCX/FIG/image");
     expect(result?.attachments?.[0]?.data).toBe(
-      "data:image/jpeg;base64,/9j/AA==",
+      "data:image/jpeg;charset=binary;base64,/9j/AA==",
     );
     expect((result?.attachments?.[0] as any)?.url).toBe(
       "https://cdn.example.com/editor-ai.jpeg",

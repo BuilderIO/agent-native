@@ -9,7 +9,6 @@ import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
-  buildMergedConfig,
   setBuiltinMcpCapabilityEnabled,
   type BuiltinMcpCapabilityId,
 } from "../../mcp-client/index.js";
@@ -18,7 +17,7 @@ import {
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
 import { getRequestUserEmail } from "../request-context.js";
-import { getGlobalMcpManager } from "./mcp-glue.js";
+import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
 const MAX_AGENT_TEAM_PROGRESS_TASKS = 3;
@@ -177,10 +176,7 @@ export function createBuilderBrowserTool(deps: {
       id,
       enabled,
     );
-    const manager = getGlobalMcpManager();
-    if (manager) {
-      await manager.reconfigure(await buildMergedConfig());
-    }
+    await getMcpManagerForCurrentRequest(true);
     return { ok: true, enabledIds: enabledIds ?? [] };
   };
 
@@ -188,7 +184,7 @@ export function createBuilderBrowserTool(deps: {
     "connect-file-storage": {
       tool: {
         description:
-          "Render the inline file-storage setup card when an image or file attachment could not be durably uploaded. The card lets the user connect Builder for managed object storage or open the same custom-key setup used by onboarding. Call it immediately when the attachment context says storage is missing; do not ask the user to upload the file again.",
+          "Render the inline file-storage setup card when an image or file attachment could not be durably uploaded. The card lets the user use Builder.io for managed object storage or open the same custom-key setup used by onboarding. Call it immediately when the attachment context says storage is missing; do not ask the user to upload the file again.",
         parameters: {
           type: "object",
           properties: {},
@@ -217,7 +213,7 @@ export function createBuilderBrowserTool(deps: {
             prompt: {
               type: "string",
               description:
-                "The user's feature / change request, verbatim. Forwarded to Builder's cloud agent when the user clicks Send. Omit only for generic 'connect Builder' requests that aren't tied to a specific code change.",
+                "The user's feature / change request, verbatim. Forwarded to Builder's cloud agent when the user clicks Send. Omit only for generic 'use Builder.io' requests that aren't tied to a specific code change.",
             },
             extensionId: {
               type: "string",
@@ -397,7 +393,7 @@ export function createBuilderBrowserTool(deps: {
     "activate-browser": {
       tool: {
         description:
-          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires a Builder.io connection (free tier available).",
+          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires Builder.io to be set up (free tier available).",
         parameters: {
           type: "object",
           properties: {
@@ -417,7 +413,7 @@ export function createBuilderBrowserTool(deps: {
           return JSON.stringify({
             error: "builder-not-connected",
             message:
-              "Builder.io is not connected. Call `connect-builder` first to enable browser automation.",
+              "Builder.io is not connected. Call `connect-builder` first so the user can use browser automation.",
           });
         }
 
@@ -445,13 +441,7 @@ export function createBuilderBrowserTool(deps: {
           });
         }
 
-        const manager = getGlobalMcpManager();
-        if (!manager) {
-          return JSON.stringify({
-            error: "no-mcp-manager",
-            message: "MCP manager is not available.",
-          });
-        }
+        const manager = await getMcpManagerForCurrentRequest();
 
         const currentConfig = manager.getConfig();
         const servers = { ...(currentConfig?.servers ?? {}) };

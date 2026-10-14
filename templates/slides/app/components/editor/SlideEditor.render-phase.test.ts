@@ -133,8 +133,45 @@ describe("SlideEditor render-phase safety", () => {
     expect(
       serializeBody.slice(serializeBody.lastIndexOf("if (", domAt), domAt),
     ).toContain('hasAttribute("data-slide-autofit-root")');
+    const markdownBranchStart = serializeBody.indexOf(
+      'if (slideContent.hasAttribute("data-slide-autofit-root"))',
+    );
+    const markdownBranchEnd = serializeBody.indexOf(
+      "return stripBuilderIds(clone.innerHTML)",
+      markdownBranchStart,
+    );
+    expect(
+      serializeBody.slice(markdownBranchStart, markdownBranchEnd),
+    ).toContain("prepareSerializationRoot(clone)");
     expect(serializeBody).toContain("return null;");
     expect(source).toContain("stampSource\n");
+  });
+
+  it("restores crop preview styles before saving the committed crop", () => {
+    const finishStart = source.indexOf("const finishImageCrop = useCallback");
+    const finishEnd = source.indexOf("const onCropKeyDown", finishStart);
+    const finishBody = source.slice(finishStart, finishEnd);
+
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("writeImageCropPercentGeometry"),
+    );
+    expect(finishBody.indexOf("const cropChanged =")).toBeLessThan(
+      finishBody.indexOf("crop.restorePreviewStyles();"),
+    );
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("readCurrentSlideContentHtmlRef.current()"),
+    );
+  });
+
+  it("keeps crop handles outside the original image mask visible", () => {
+    const previewStart = source.indexOf("const previewStyles = (");
+    const previewEnd = source.indexOf("const activeCrop:", previewStart);
+    const previewSetup = source.slice(previewStart, previewEnd);
+
+    expect(previewSetup).toContain('[frame, "clip-path"]');
+    expect(previewSetup).toContain('[frame, "border-radius"]');
+    expect(previewSetup).toContain('frame.style.clipPath = "none";');
+    expect(previewSetup).toContain('frame.style.borderRadius = "0";');
   });
 
   it("writes nothing for a click in and out", () => {
@@ -226,7 +263,7 @@ describe("SlideEditor render-phase safety", () => {
     const enterBody = source.slice(enterStart, enterEnd);
     expect(enterBody).toContain("findEnclosingList(block, slideContent)");
     expect(enterBody).toMatch(
-      /const el =\s+list &&\s+isRichTextBlock\(list\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
+      /const el =\s+list &&\s+\(isRichTextBlock\(list\) \|\| bulletRowCount\(list\) >= 2\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
     );
   });
 
@@ -264,7 +301,7 @@ describe("SlideEditor render-phase safety", () => {
     const clickStart = source.indexOf("const handleSlideClick");
     const clickEnd = source.indexOf("const handleSlideDoubleClick", clickStart);
     const clickBody = source.slice(clickStart, clickEnd);
-    expect(clickBody).toContain("includeTextBoxes: false");
+    expect(clickBody).toContain("hit.textRoot");
     expect(clickBody).toContain("setSelectedImg(null);");
     expect(clickBody).toContain("setImageOverlay(null);");
     expect(clickBody).not.toContain("showImageOverlay");
@@ -275,40 +312,50 @@ describe("SlideEditor render-phase safety", () => {
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
     expect(doubleClickBody).toContain(
-      "findPersistedImageObject(resolvedTarget, slideContent)",
+      "findPersistedImageObject(hit.object, slideContent)",
     );
     expect(doubleClickBody).toContain(
       'imageOwner?.querySelector<HTMLElement>("img")',
     );
-    expect(doubleClickBody).not.toContain(
-      'resolvedTarget.querySelector<HTMLElement>("img")',
-    );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
-    expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
+    expect(doubleClickBody).toContain("showImageOverlay(imagePlaceholder);");
+    expect(doubleClickBody.indexOf("const hit =")).toBeLessThan(
       doubleClickBody.indexOf("const imageTarget"),
     );
-    expect(source).toContain(
-      "const block = findSmartBlock(resolvedTarget, slideContent);",
-    );
   });
 
-  it("keeps standalone transparent text boxes as canvas hit targets", () => {
-    const helperStart = source.indexOf("function resolveSlideCanvasHitTarget");
-    const helperEnd = source.indexOf(
-      "const PASTED_TEXT_STYLE_PROPERTIES",
-      helperStart,
-    );
-    const helperBody = source.slice(helperStart, helperEnd);
-
-    expect(helperBody).toContain("candidate instanceof HTMLElement");
-    expect(helperBody).toContain("candidate = candidate.parentElement;");
-    expect(helperBody).toContain("element !== slideContent");
-    expect(helperBody).toContain("return underlying ?? target;");
+  it("asks the one pointer resolver from every canvas pointer entry point", () => {
+    const body = (start: string, end: string) => {
+      const from = source.indexOf(start);
+      return source.slice(from, source.indexOf(end, from));
+    };
+    const entryPoints = [
+      body("const handleSlidePointerMove", "const handleSlidePointerDown"),
+      body("const handleSlidePointerDown", "// Keep these listeners stable"),
+      body("const handleSlideClick", "const handleCanvasBackgroundPointerDown"),
+      body("const handleSlideContextMenu", "const preserveRichTextSelection"),
+      body("const handleSlideDoubleClick", "const slideElementSelected ="),
+    ];
+    for (const entryPoint of entryPoints) {
+      expect(entryPoint).toContain("resolvePointerTarget(");
+    }
+    expect(entryPoints[4]).toContain("intoGroups: true");
+    for (const retired of [
+      "resolveSlideCanvasHitTarget",
+      "findGrabbedSlideShape",
+      "shapePressRef",
+      "findSelectableElement",
+      "isSlideWhitespaceTarget",
+      "resolveSlidesCanvasPointerIntent",
+      "resolveSlidesCanvasDragTarget",
+    ]) {
+      expect(source).not.toContain(retired);
+    }
   });
 
-  it("preserves wrapped images for double-click overlays", () => {
+  it("enters crop mode for wrapped images on double-click", () => {
     const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
     const doubleClickEnd = source.indexOf(
       "const slideElementSelected =",
@@ -317,13 +364,10 @@ describe("SlideEditor render-phase safety", () => {
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
 
     expect(doubleClickBody).toContain(
-      "findPersistedImageObject(resolvedTarget, slideContent)",
-    );
-    expect(doubleClickBody).not.toContain(
-      'resolvedTarget.querySelector<HTMLElement>("img")',
+      "findPersistedImageObject(hit.object, slideContent)",
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
   });
 
@@ -469,6 +513,43 @@ describe("SlideEditor render-phase safety", () => {
       "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
     );
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("gives inline text editing priority over comment-highlight clicks", () => {
+    const pointerStart = source.indexOf("const handleSlidePointerDown");
+    const pointerEnd = source.indexOf(
+      "// Keep these listeners stable while React re-renders the marquee overlay.",
+      pointerStart,
+    );
+    const pointerBody = source.slice(pointerStart, pointerEnd);
+    expect(pointerBody.indexOf("const targetIsEditingBlock")).toBeLessThan(
+      pointerBody.indexOf("slideCommentThreadAtPoint("),
+    );
+    expect(pointerBody).toContain(
+      "if (!editingEl && !pinMode && !drawMode && !additive)",
+    );
+
+    const clickStart = source.indexOf("const handleSlideClick");
+    const clickEnd = source.indexOf(
+      "const handleCanvasBackgroundPointerDown",
+      clickStart,
+    );
+    const clickBody = source.slice(clickStart, clickEnd);
+    expect(
+      clickBody.indexOf("if (editingEl?.contains(e.target as Node))"),
+    ).toBeLessThan(clickBody.indexOf("commentPress &&"));
+  });
+
+  it("keeps group dragging available with additive modifiers", () => {
+    const pointerStart = source.indexOf(
+      "// Pointer-down on a member of the current multi-selection",
+    );
+    const selectedStart = source.indexOf("const selected =", pointerStart);
+    const groupDragPath = source.slice(pointerStart, selectedStart);
+
+    expect(groupDragPath).toContain("if (multiSelection.size > 0)");
+    expect(groupDragPath).toContain("if (id && multiSelection.has(id))");
+    expect(groupDragPath).not.toContain("!targetIsEditableText");
   });
 
   it("does not let selection rerenders clear a newly selected object set", () => {

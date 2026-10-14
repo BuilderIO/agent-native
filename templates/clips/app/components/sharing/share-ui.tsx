@@ -1,11 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconCheck,
   IconChevronDown,

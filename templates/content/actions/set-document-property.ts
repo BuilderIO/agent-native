@@ -6,12 +6,15 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
   isComputedPropertyType,
   normalizePropertyValue,
   parsePropertyOptions,
+  parsePropertyValue,
+  serializePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
@@ -28,6 +31,7 @@ import {
   nanoid,
   normalizedValueJson,
 } from "./_property-utils.js";
+import { validateRelationWrite } from "./_relation-values.js";
 
 async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
@@ -87,6 +91,7 @@ export default defineAction({
     value: z.unknown().describe("Value for the property type"),
     expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async ({
     documentId,
     databaseId,
@@ -264,19 +269,23 @@ export default defineAction({
         databaseId: database.id,
         properties:
           (
-            await listPropertiesForDatabaseDocuments(database.id, [
-              {
-                ...document,
-                content:
-                  target === "document_body" ? content : document.content,
-                updatedAt: now,
-              },
-            ])
+            await listPropertiesForDatabaseDocuments(
+              database.id,
+              [
+                {
+                  ...document,
+                  content:
+                    target === "document_body" ? content : document.content,
+                  updatedAt: now,
+                },
+              ],
+              { includeBlocksFieldIdentity: true },
+            )
           ).get(documentId) ?? [],
       };
     }
 
-    const valueJson = normalizedValueJson(type, value);
+    let valueJson = normalizedValueJson(type, value);
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
@@ -337,6 +346,23 @@ export default defineAction({
         database.id,
         lockedDefinition,
       );
+      if (lockedType === "relation") {
+        const [stored] = await tx
+          .select({ valueJson: schema.documentPropertyValues.valueJson })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              eq(schema.documentPropertyValues.documentId, documentId),
+              eq(schema.documentPropertyValues.propertyId, propertyId),
+            ),
+          );
+        const ids = await validateRelationWrite(tx, {
+          definition: lockedDefinition,
+          nextValue: value,
+          previousValue: parsePropertyValue(stored?.valueJson),
+        });
+        valueJson = serializePropertyValue(ids);
+      }
       const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
       if (isNaturalKey) {
         let parsed: unknown;
@@ -471,9 +497,11 @@ export default defineAction({
       documentId,
       databaseId: database.id,
       properties:
-        (await listPropertiesForDatabaseDocuments(database.id, [document])).get(
-          documentId,
-        ) ?? [],
+        (
+          await listPropertiesForDatabaseDocuments(database.id, [document], {
+            includeBlocksFieldIdentity: true,
+          })
+        ).get(documentId) ?? [],
     };
   },
 });

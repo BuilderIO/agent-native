@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -75,7 +75,7 @@ export default defineAction({
   description:
     "Trigger a preview deploy for a fusion-backed design branch. " +
     "Requires the design's source to advertise the 'deployPreview' capability " +
-    "(fusion tier) AND Builder.io to be connected. " +
+    "(fusion tier) AND use Builder.io. " +
     "For inline/localhost designs, returns ctaRequired=true with a Make-it-real " +
     "CTA — never fakes a deploy call. " +
     "A branch must already exist (created via create-design-branch). " +
@@ -96,7 +96,8 @@ export default defineAction({
   run: async ({ designId, branchName }) => {
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const resource = access.resource as {
       title?: string;
@@ -125,7 +126,7 @@ export default defineAction({
           ? ("connect-builder" as const)
           : ("make-it-real" as const),
         ctaMessage: isFusion
-          ? "Builder is not yet connected. Connect Builder.io (free tier available) to trigger preview deploys."
+          ? "Builder is not yet connected. Use Builder.io (free tier available) to trigger preview deploys."
           : "Preview deploys require a Builder-hosted app. Use 'Make it real' to upgrade " +
             "this inline design to a real-app source, then deploy previews.",
         previewUrl: null,

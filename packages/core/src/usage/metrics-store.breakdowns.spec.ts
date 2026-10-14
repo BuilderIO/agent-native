@@ -2,6 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
+const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(),
+);
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: readDefaultAgentEngineSettingMock,
+}));
+
 // Real in-memory PGlite behind getDbExec so the day grouping, feature CASE,
 // folding into "other", and the trace-span scoping run the genuine SQL.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -71,6 +82,12 @@ const ORG_MEMBERS_SQL = `CREATE TABLE IF NOT EXISTS org_members (
   federation_removal_pending_at BIGINT
 )`;
 
+const SETTINGS_SQL = `CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at BIGINT NOT NULL
+)`;
+
 const THREADS_SQL = `CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   owner_email TEXT NOT NULL,
@@ -99,6 +116,7 @@ async function insertUsage(row: {
   owner: string;
   app?: string;
   costX100?: number;
+  engine?: string | null;
   label?: string;
   model?: string;
   sourcePlatform?: string | null;
@@ -109,14 +127,15 @@ async function insertUsage(row: {
   await pglite
     .prepare(
       `INSERT INTO token_usage
-        (id, owner_email, input_tokens, output_tokens, cost_cents_x100, model,
+        (id, owner_email, input_tokens, output_tokens, cost_cents_x100, engine_name, model,
          label, app, org_id, run_id, thread_id, source_platform, created_at)
-       VALUES (?, ?, 100, 10, ?, ?, ?, ?, 'org-1', ?, ?, ?, ?)`,
+       VALUES (?, ?, 100, 10, ?, ?, ?, ?, ?, 'org-1', ?, ?, ?, ?)`,
     )
     .run(
       nextId++,
       row.owner,
       row.costX100 ?? 1_000,
+      row.engine ?? null,
       row.model ?? "claude-sonnet-4-5",
       row.label ?? "chat",
       row.app ?? "clips",
@@ -164,9 +183,17 @@ const workspace = {
 
 beforeEach(async () => {
   nextId = 1;
+  readDefaultAgentEngineSettingMock.mockReset();
+  readDefaultAgentEngineSettingMock.mockResolvedValue(null);
   pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
+  await pglite.exec(SETTINGS_SQL);
   for (const [email, role] of [
     ["owner@example.com", "owner"],
     ["member@example.com", "member"],
@@ -279,7 +306,11 @@ describe("listAppUsageMetrics daily breakdowns", () => {
   });
 
   it("carries Builder credit amounts on breakdown rows when reporting is on", async () => {
-    await insertUsage({ owner: "owner@example.com", costX100: 10_000 });
+    await insertUsage({
+      owner: "owner@example.com",
+      costX100: 10_000,
+      engine: "anthropic",
+    });
 
     const metrics = await listAppUsageMetrics(
       { sinceDays: 30, scope: "me", builderCreditsEnabled: true },

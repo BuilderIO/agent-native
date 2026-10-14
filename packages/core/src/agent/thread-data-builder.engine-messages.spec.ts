@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   recoverThreadHistoryForRequest,
+  resumeThreadHistoryForRequest,
   threadDataToEngineMessages,
 } from "./thread-data-builder.js";
 
@@ -359,7 +360,7 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
     ]);
   });
 
-  it("pairs an interrupted tool call with the stored interrupted marker", () => {
+  it("pairs an interrupted tool call with an explicit unknown outcome and marker", () => {
     const messages = threadDataToEngineMessages(
       {
         messages: [
@@ -392,7 +393,12 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
       expect.objectContaining({
         type: "tool-result",
         toolCallId: "interrupted_call",
-        content: "Interrupted before this tool returned a result.",
+        content: JSON.stringify({
+          outcome: "unknown",
+          result: "Interrupted before this tool returned a result.",
+        }),
+        isError: true,
+        outcome: "unknown",
       }),
     ]);
   });
@@ -443,5 +449,55 @@ describe("recoverThreadHistoryForRequest", () => {
     });
     expect(recovered).toHaveLength(1);
     expect(recovered[0].content[0].text).toContain("5");
+  });
+});
+
+describe("resumeThreadHistoryForRequest", () => {
+  const prompt = {
+    message: {
+      id: "user-1",
+      role: "user",
+      content: [{ type: "text", text: "How many signups last week?" }],
+    },
+  };
+  const toolTurn = {
+    message: {
+      id: "assistant-1",
+      role: "assistant",
+      content: [
+        { type: "text", text: "Checking." },
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "list-signups",
+          args: {},
+          result: "412 rows",
+        },
+      ],
+    },
+  };
+
+  it("finds the turn's prompt and keeps the turn whole", () => {
+    const resumed = resumeThreadHistoryForRequest(
+      JSON.stringify({ messages: [prompt, toolTurn] }),
+    );
+    expect(resumed.foundTurnPrompt).toBe(true);
+    expect(resumed.messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+    ]);
+  });
+
+  it("reports a thread without a user prompt, tool results alone not counting", () => {
+    const toolOnly = JSON.stringify({ messages: [toolTurn] });
+    const resumed = resumeThreadHistoryForRequest(toolOnly);
+    expect(resumed.foundTurnPrompt).toBe(false);
+    expect(resumed.messages).toEqual(
+      threadDataToEngineMessages(toolOnly, { includeToolCalls: true }),
+    );
+    expect(
+      resumeThreadHistoryForRequest(JSON.stringify({ messages: [] })),
+    ).toEqual({ messages: [], foundTurnPrompt: false });
   });
 });

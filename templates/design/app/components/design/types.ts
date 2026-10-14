@@ -87,6 +87,13 @@ export interface RuntimeStructureInsertRequest {
     pendingNodeId?: string | null;
   };
   placement: "before" | "after" | "inside";
+  dropMode?: "flow-insert" | "absolute-container";
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
 }
 
 export interface RuntimeStructureDeleteRequest {
@@ -157,12 +164,26 @@ export interface ElementInfo {
   vectorStrokeCanAlign?: boolean;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
+  styleSnapshotReadOnDemand?: boolean;
   boundingRect: { x: number; y: number; width: number; height: number };
   parentBoundingRect?: {
     x: number;
     y: number;
     width: number;
     height: number;
+  };
+  positionReferenceRect?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  positionContainingBlockOrigin?: { x: number; y: number };
+  positionContainingBlockTransform?: {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
   };
   textContent?: string;
   textContentTruncated?: boolean;
@@ -226,6 +247,11 @@ export interface ElementSelectionIntent {
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;
+  baseSelectedScreenIds?: string[];
+  marqueeHitScreenIds?: string[];
+  screenSelectionToggle?: { screenId: string; selected: boolean };
+  selectedScreenIds?: string[];
+  marqueeSelectedScreenIds?: string[];
 }
 
 export interface CanvasLayerHitCandidate {

@@ -17,6 +17,7 @@ import type {
   PlatformAdapter,
 } from "@agent-native/core/server";
 
+import { getDispatchDefaultOwnerEmail } from "./admin-config.js";
 import { handleRemoteCodeCommand } from "./dispatch-remote-commands.js";
 import {
   dispatchIntegrationRoutingHint,
@@ -85,7 +86,7 @@ function configuredDefaultOwnerForIncoming(
   incoming: IncomingMessage,
 ): string | null {
   if (incoming.platform !== "slack") return null;
-  const email = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  const email = getDispatchDefaultOwnerEmail();
   if (!email) return null;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }

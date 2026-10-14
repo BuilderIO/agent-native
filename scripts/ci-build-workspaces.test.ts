@@ -32,6 +32,8 @@ test("builds prerendering apps last and one at a time", () => {
         "!@agent-native/docs",
         "--filter",
         "!clips",
+        "--filter",
+        "!./community-templates/**",
         "run",
         "build",
       ],

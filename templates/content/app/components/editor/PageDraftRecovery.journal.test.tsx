@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { Document } from "@shared/api";
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
       editGeneration: number;
       saveAttemptId?: string;
       priorSaveAttemptIds?: string[];
+      equivalentSaveAttemptIds?: string[];
     };
     writtenAt: number;
     recoveryStatus?: "retained_in_history";
@@ -35,15 +36,16 @@ const state = vi.hoisted(() => ({
   upsert: vi.fn(),
   resolve: vi.fn(),
   refetch: vi.fn(),
-  retained: vi.fn(),
-  retainedNotice: false,
+  cleared: vi.fn(),
+  sweep: vi.fn(),
+  draft: null as null | Record<string, unknown>,
   read: vi.fn(),
+  verify: vi.fn(),
+  session: null as null | { email: string; orgId: string },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: state.receipt,
-  useSession: () => ({
-    session: { email: "writer@example.test", orgId: "org" },
-  }),
+  useSession: () => ({ session: state.session }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -53,8 +55,10 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+import { toast } from "sonner";
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: (...args: unknown[]) => state.verify(...args),
   isDocumentUpdateConflict: (result: { conflict?: boolean }) =>
     result.conflict === true,
   isDocumentUpdatePreservationRequired: (result: {
@@ -63,7 +67,7 @@ vi.mock("@/hooks/use-documents", () => ({
   isDocumentUpdateSuperseded: (result: { superseded?: boolean }) =>
     result.superseded === true,
   usePreviewDocumentDraft: () => ({
-    data: { draft: null },
+    data: { draft: state.draft },
     refetch: state.refetch,
   }),
   useUpdateDocument: () => ({ mutateAsync: state.update }),
@@ -72,7 +76,7 @@ vi.mock("@/hooks/use-documents", () => ({
 }));
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: state.read,
-  hasRetainedPageDraftNotice: () => state.retainedNotice,
+  sweepLegacyRetainedPageDraftMarkers: state.sweep,
   writePageDraftJournal: (input: {
     scope: { writerId: string };
     snapshot: (typeof state.entries)[number]["snapshot"];
@@ -83,22 +87,24 @@ vi.mock("./page-draft-journal", () => ({
     if (current) current.snapshot = input.snapshot;
     return { snapshot: input.snapshot };
   },
-  clearPageDraftJournal: (scope: { writerId: string }) => {
+  clearPageDraftJournal: (
+    scope: { writerId: string },
+    acknowledged: { editGeneration: number; title: string; content: string },
+  ) => {
+    const current = state.entries.find(
+      (entry) => entry.scope.writerId === scope.writerId,
+    );
+    if (
+      !current ||
+      current.snapshot.editGeneration !== acknowledged.editGeneration ||
+      current.snapshot.title !== acknowledged.title ||
+      current.snapshot.content !== acknowledged.content
+    )
+      return false;
     state.entries = state.entries.filter(
       (entry) => entry.scope.writerId !== scope.writerId,
     );
-    return true;
-  },
-  markPageDraftJournalRetained: (scope: { writerId: string }) => {
-    const entry = state.entries.find(
-      (item) => item.scope.writerId === scope.writerId,
-    );
-    if (!entry) return false;
-    state.entries = state.entries.filter(
-      (item) => item.scope.writerId !== scope.writerId,
-    );
-    state.retainedNotice = true;
-    state.retained(scope.writerId);
+    state.cleared(scope.writerId);
     return true;
   },
 }));
@@ -109,12 +115,14 @@ vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
 
+import { useRegisterLiveEditorSession } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 const page = {
   id: "page",
   title: "Saved",
   content: "Saved body",
+  canEdit: true,
   updatedAt: "v2",
 } as Document;
 
@@ -141,9 +149,9 @@ function entry(writerId: string, content: string, baseUpdatedAt = "v2") {
 describe("Page browser journal recovery", () => {
   let root: Root;
   let container: HTMLDivElement;
-  const render = () =>
+  const render = (currentPage: Document = page) =>
     root.render(
-      <PageDraftRecovery document={page}>
+      <PageDraftRecovery document={currentPage}>
         <textarea defaultValue="Live editor" />
       </PageDraftRecovery>,
     );
@@ -153,12 +161,14 @@ describe("Page browser journal recovery", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     state.entries = [];
-    state.retainedNotice = false;
+    state.draft = null;
+    state.session = { email: "writer@example.test", orgId: "org" };
     state.read.mockImplementation(
       () => state.entries.find((entry) => !entry.recoveryStatus) ?? null,
     );
     state.receipt.mockResolvedValue({ found: false });
     state.refetch.mockResolvedValue(undefined);
+    state.verify.mockResolvedValue(undefined);
     state.rebase.mockResolvedValue({ status: "saved", document: page });
     state.upsert.mockResolvedValue({
       status: "saved",
@@ -198,11 +208,190 @@ describe("Page browser journal recovery", () => {
     expect(state.rebase).toHaveBeenCalledTimes(1);
     expect(state.update).not.toHaveBeenCalled();
     expect(state.entries).toEqual([]);
-    expect(state.retained).not.toHaveBeenCalled();
-    expect(state.retainedNotice).toBe(false);
+    expect(toast.success).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("editor.previewDraftConflict");
     expect(container.querySelector("textarea")).not.toBeNull();
   });
+
+  it("adopts a newer SQL title for the exact matching journal generation", async () => {
+    const staleJournal = entry("first", "Local");
+    staleJournal.snapshot = {
+      ...staleJournal.snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    state.entries = [staleJournal];
+    state.draft = {
+      documentId: "page",
+      title: "Newer SQL title",
+      content: "Local",
+      baseDocumentUpdatedAt: "v2",
+      loadedContentWasEmpty: 0,
+      deferredReason: "conflict",
+      editorSessionId: "first",
+      editGeneration: 1,
+      version: 2,
+      updatedAt: "2026-10-07T00:00:00.000Z",
+    };
+    state.update.mockResolvedValue({
+      ...page,
+      title: "Newer SQL title",
+      content: "Local",
+      updatedAt: "v3",
+    });
+
+    await act(async () => render({ ...page, revision: "body:v2" } as Document));
+
+    expect(state.cleared).toHaveBeenCalledWith("first");
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Newer SQL title",
+        content: "Local",
+        editorSessionId: "first",
+        editorEditGeneration: 2,
+      }),
+    );
+    expect(state.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Earlier title" }),
+    );
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.upsert).not.toHaveBeenCalled();
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.draft).toMatchObject({
+      title: "Newer SQL title",
+      content: "Local",
+      editorSessionId: "first",
+      editGeneration: 1,
+    });
+  });
+
+  it("clears the stored journal snapshot after promoting its SQL title", async () => {
+    const staleJournal = entry("first", "Local");
+    staleJournal.snapshot = {
+      ...staleJournal.snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+      baseUpdatedAt: "",
+    };
+    state.entries = [staleJournal];
+    state.draft = {
+      documentId: "page",
+      title: "Newer SQL title",
+      content: "Local",
+      baseDocumentUpdatedAt: "stale-version",
+      loadedContentWasEmpty: 0,
+      deferredReason: "conflict",
+      editorSessionId: "first",
+      editGeneration: 1,
+      version: 2,
+      updatedAt: "2026-10-07T00:00:00.000Z",
+    };
+
+    await act(async () => render());
+
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedDraftTitle: "Newer SQL title",
+        expectedDraftContent: "Local",
+      }),
+    );
+    expect(state.cleared).toHaveBeenCalledWith("first");
+    expect(state.entries).toEqual([]);
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedToHistory",
+    );
+  });
+
+  it("preserves a local journal title when a matching SQL draft has a peer title", async () => {
+    const localRename = "Local rename";
+    const staleJournal = entry("first", "Local");
+    staleJournal.snapshot = {
+      ...staleJournal.snapshot,
+      title: localRename,
+    };
+    state.entries = [staleJournal];
+    state.draft = {
+      documentId: "page",
+      title: "Peer rename",
+      content: "Local",
+      baseDocumentUpdatedAt: "v2",
+      loadedContentWasEmpty: 0,
+      deferredReason: "conflict",
+      editorSessionId: "first",
+      editGeneration: 1,
+      version: 2,
+      updatedAt: "2026-10-07T00:00:00.000Z",
+    };
+    state.upsert.mockResolvedValue({
+      status: "saved",
+      draft: { title: localRename, content: "Local", version: 3 },
+    });
+
+    await act(async () =>
+      render({ ...page, title: "Peer rename" } as Document),
+    );
+
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedVersion: 2,
+        draft: expect.objectContaining({
+          title: localRename,
+          content: "Local",
+          deferredReason: "conflict",
+        }),
+      }),
+    );
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choice: "use_saved",
+        expectedDraftTitle: localRename,
+        expectedDraftContent: "Local",
+      }),
+    );
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.cleared).toHaveBeenCalledWith("first");
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedToHistory",
+    );
+  });
+
+  it.each([
+    ["writer", { editorSessionId: "other-writer" }],
+    ["generation", { editGeneration: 2 }],
+    ["content", { content: "Different body" }],
+  ])(
+    "does not adopt a SQL title when the journal %s does not match",
+    async (_mismatch, mismatch) => {
+      const staleJournal = entry("first", "Local");
+      staleJournal.snapshot = {
+        ...staleJournal.snapshot,
+        title: "Earlier title",
+      };
+      state.entries = [staleJournal];
+      state.draft = {
+        documentId: "page",
+        title: "Newer SQL title",
+        content: "Local",
+        baseDocumentUpdatedAt: "v2",
+        loadedContentWasEmpty: 0,
+        deferredReason: "conflict",
+        editorSessionId: "first",
+        editGeneration: 1,
+        version: 2,
+        updatedAt: "2026-10-07T00:00:00.000Z",
+        ...mismatch,
+      };
+
+      await act(async () => render());
+
+      expect(state.entries).toHaveLength(1);
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.rebase).not.toHaveBeenCalled();
+      expect(state.upsert).not.toHaveBeenCalled();
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.draft).toMatchObject({ title: "Newer SQL title" });
+    },
+  );
 
   it("replays a stale same-passage journal with its authored revision and accepts the server merge", async () => {
     state.entries = [
@@ -296,8 +485,10 @@ describe("Page browser journal recovery", () => {
       "authoredCandidateContent",
     );
     expect(state.entries).toEqual([]);
-    expect(state.retained).toHaveBeenCalledWith("first");
-    expect(state.retainedNotice).toBe(true);
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedToHistory",
+    );
   });
 
   it("does not clear a newer journal for an older attempt's receipt", async () => {
@@ -350,13 +541,73 @@ describe("Page browser journal recovery", () => {
     );
   });
 
+  it("clears a journal confirmed by an attempt that sent the same draft", async () => {
+    // A hidden tab's keepalive copy can land while the flush that replaced its
+    // attempt ID never sends. Replaying would reapply a rename that another
+    // writer has since reverted.
+    state.entries = [
+      {
+        ...entry("first", "Local"),
+        snapshot: {
+          ...entry("first", "Local").snapshot,
+          saveAttemptId: "flush-attempt",
+          equivalentSaveAttemptIds: ["keepalive-attempt"],
+        },
+      },
+    ];
+    state.receipt.mockImplementation(
+      async (
+        _action: string,
+        args: {
+          browserSaveAttemptId: string;
+        },
+      ) => ({ found: args.browserSaveAttemptId === "keepalive-attempt" }),
+    );
+
+    await act(async () => render());
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "flush-attempt" },
+      { method: "GET" },
+    );
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "keepalive-attempt" },
+      { method: "GET" },
+    );
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.entries).toEqual([]);
+  });
+
   it("does not inspect local drafts before the current session passes access", async () => {
     state.entries = [entry("first", "Local")];
-    state.receipt.mockRejectedValue(new Error("access denied"));
+    state.verify.mockRejectedValue(new Error("access denied"));
     await act(async () => render());
     expect(state.read).not.toHaveBeenCalled();
     expect(state.rebase).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("holds the editor until the session is known, then replays the journal", async () => {
+    // The session cache expires, so a page opened later can mount before its
+    // session read returns. The editor must not show the saved body over a
+    // journal it has not replayed.
+    state.session = null;
+    state.entries = [entry("first", "Local")];
+    state.rebase.mockResolvedValue({
+      status: "saved",
+      document: { ...page, content: "Local" },
+    });
+    await act(async () => render());
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(state.read).not.toHaveBeenCalled();
+
+    state.session = { email: "writer@example.test", orgId: "org" };
+    await act(async () => render());
+    expect(state.rebase).toHaveBeenCalledTimes(1);
+    expect(state.entries).toEqual([]);
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 
   it("checks a confirmed save receipt before replaying a pending attempt", async () => {
@@ -380,7 +631,7 @@ describe("Page browser journal recovery", () => {
     expect(state.entries).toEqual([]);
   });
 
-  it("keeps a preservation receipt pending without replaying or clearing its History notice", async () => {
+  it("toasts once for a preservation receipt without replaying it or leaving a banner", async () => {
     state.entries = [
       {
         ...entry("first", "Local"),
@@ -400,10 +651,11 @@ describe("Page browser journal recovery", () => {
     await act(async () => render());
     expect(state.rebase).not.toHaveBeenCalled();
     expect(state.entries).toEqual([]);
-    expect(state.retainedNotice).toBe(true);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith(
       "editor.previewDraftSavedToHistory",
     );
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("keeps an ambiguous edit locally after preserving it in History", async () => {
@@ -413,12 +665,126 @@ describe("Page browser journal recovery", () => {
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({ choice: "use_saved", documentId: "page" }),
     );
-    expect(state.retained).toHaveBeenCalledWith("first");
+    expect(state.cleared).toHaveBeenCalledWith("first");
     expect(state.entries).toEqual([]);
-    expect(state.retainedNotice).toBe(true);
+    expect(toast.success).toHaveBeenCalledOnce();
     expect(container.querySelector("textarea")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "editor.previewDraftSavedToHistory",
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("leaves the mounted editor's journal to its save queue when a save lands", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const renderLive = (document: Document) =>
+      root.render(
+        <PageDraftRecovery document={document}>
+          <LiveEditor onMount={onMount} />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive(page));
+    state.entries = [entry("live-writer", "Saved body\n\nPending")];
+
+    await act(async () =>
+      renderLive({ ...page, content: "Saved body\n\nSaved", updatedAt: "v3" }),
+    );
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.entries).toHaveLength(1);
+    expect(mounts).toBe(1);
+  });
+
+  it("sweeps legacy History markers and never shows a History banner", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+
+    await act(async () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor onMount={onMount} />
+        </PageDraftRecovery>,
+      ),
+    );
+
+    expect(state.sweep).toHaveBeenCalled();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(mounts).toBe(1);
+  });
+
+  it("keeps the editor mounted over a recovery draft its own session wrote", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const renderLive = () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor onMount={onMount} sessionId="live-session" />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive());
+    for (let version = 1; version <= 3; version++) {
+      state.draft = {
+        version,
+        title: "Saved",
+        content: `Saved body ${version}`,
+        baseDocumentUpdatedAt: "v1",
+        editorSessionId: "live-session",
+        editGeneration: version,
+      };
+      await act(async () => renderLive());
+      expect(
+        container.querySelector('[data-testid="editor-skeleton"]'),
+      ).toBeNull();
+    }
+
+    expect(mounts).toBe(1);
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it("still recovers a draft another editor session wrote", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const renderLive = () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor onMount={onMount} sessionId="live-session" />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive());
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Other tab body",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "other-session",
+      editGeneration: 4,
+    };
+    await act(async () => renderLive());
+
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
     );
   });
 });
+
+function LiveEditor({
+  onMount,
+  sessionId = "live-writer",
+}: {
+  onMount: () => void;
+  sessionId?: string;
+}) {
+  useRegisterLiveEditorSession(sessionId);
+  useEffect(() => {
+    onMount();
+  }, [onMount]);
+  return <textarea defaultValue="Live editor" />;
+}

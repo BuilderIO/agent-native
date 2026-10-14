@@ -1,7 +1,13 @@
 import { ActionContractError } from "@agent-native/core/action";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 
 type ContentDb = ReturnType<typeof getDb>;
 export type PageSubtreeDocument = typeof schema.documents.$inferSelect;
@@ -19,32 +25,87 @@ function groups<T>(values: T[], size = 90): T[][] {
 export async function loadPageSubtree(
   db: ContentDb,
   root: PageSubtreeDocument,
-  { includeTrashed }: { includeTrashed: boolean },
+  {
+    includeTrashed,
+    requireComplete = true,
+  }: { includeTrashed: boolean; requireComplete?: boolean },
 ): Promise<PageSubtreeDocument[]> {
   const documents: PageSubtreeDocument[] = [root];
   const seen = new Set([root.id]);
   let frontier = [root.id];
+  const userEmail = getRequestUserEmail();
+  const memberships = userEmail
+    ? await listContentOrganizationMemberships(userEmail)
+    : [];
+  const orgIds = new Set([
+    ...memberships.map((membership) => membership.orgId),
+    ...(getRequestOrgId() ? [getRequestOrgId()!] : []),
+  ]);
+  const accessContexts = [
+    { userEmail: userEmail ?? undefined },
+    ...[...orgIds].map((orgId) => ({
+      userEmail: userEmail ?? undefined,
+      orgId,
+    })),
+  ];
   while (frontier.length > 0) {
     const next: PageSubtreeDocument[] = [];
+    const nextFrontier: string[] = [];
     for (const idGroup of groups(frontier)) {
+      const relationshipFilter = includeTrashed
+        ? or(
+            inArray(schema.documents.parentId, idGroup),
+            inArray(schema.documents.trashParentId, idGroup),
+          )
+        : and(
+            inArray(schema.documents.parentId, idGroup),
+            isNull(schema.documents.trashedAt),
+          );
+      // guard:allow-unscoped — read descendant ids only to reject an incomplete move or duplicate; document bodies are fetched below only after accessFilter succeeds.
+      const childIds = await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(relationshipFilter);
+      if (childIds.length === 0) continue;
+
       const children: PageSubtreeDocument[] = await db
         .select()
         .from(schema.documents)
         .where(
-          includeTrashed
-            ? or(
-                inArray(schema.documents.parentId, idGroup),
-                inArray(schema.documents.trashParentId, idGroup),
-              )
-            : and(
-                inArray(schema.documents.parentId, idGroup),
-                isNull(schema.documents.trashedAt),
+          and(
+            relationshipFilter,
+            inArray(
+              schema.documents.id,
+              childIds.map((child) => child.id),
+            ),
+            or(
+              ...accessContexts.map((context) =>
+                accessFilter(
+                  schema.documents,
+                  schema.documentShares,
+                  context,
+                  "viewer",
+                  { includePublic: true },
+                ),
               ),
+            ),
+          ),
         );
-      for (const child of children) {
-        if (seen.has(child.id)) continue;
-        seen.add(child.id);
-        next.push(child);
+      if (requireComplete && children.length !== childIds.length) {
+        throw new ActionContractError(
+          "This page has sub-pages you can't open, so it can't be moved or duplicated completely.",
+          { errorCode: "PAGE_SUBTREE_INACCESSIBLE", statusCode: 403 },
+        );
+      }
+      const accessibleChildren = new Map(
+        children.map((child) => [child.id, child]),
+      );
+      for (const { id } of childIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        nextFrontier.push(id);
+        const child = accessibleChildren.get(id);
+        if (child) next.push(child);
       }
     }
     next.sort(
@@ -60,7 +121,7 @@ export async function loadPageSubtree(
         { errorCode: "PAGE_SUBTREE_TOO_LARGE", statusCode: 409 },
       );
     }
-    frontier = next.map((document) => document.id);
+    frontier = nextFrontier;
   }
   return documents;
 }

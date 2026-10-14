@@ -22,14 +22,17 @@ function embeddedWheelEditModeBridgeScript(): string {
   return embeddedWheelBridgeScript
     .replace("__EMBEDDED_WHEEL_FORWARDING_ENABLED__", "false")
     .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-    .replace("__EDITING_SAFETY_ENABLED__", "true");
+    .replace("__EDITING_SAFETY_ENABLED__", "true")
+    .replace("__INTERACTION_MODE__", "false");
 }
 
-function embeddedWheelInteractModeBridgeScript(): string {
+// An overview frame in Design: Space is relayed to the host, which pans.
+function embeddedWheelOverviewFrameBridgeScript(): string {
   return embeddedWheelBridgeScript
     .replace("__EMBEDDED_WHEEL_FORWARDING_ENABLED__", "false")
     .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "true")
-    .replace("__EDITING_SAFETY_ENABLED__", "false");
+    .replace("__EDITING_SAFETY_ENABLED__", "true")
+    .replace("__INTERACTION_MODE__", "false");
 }
 
 const FIXTURE = `<!doctype html><html><body style="margin:0">
@@ -49,8 +52,8 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
   </main>
 </body></html>`;
 
-describe("holding Space mid-drag suppresses reparenting", () => {
-  it("keeps the dragged element in its original parent instead of nesting it into the section under the pointer", async () => {
+describe("Space modifier state during drag", () => {
+  it("resumes normal reparenting when Space is released before the drop", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
@@ -84,13 +87,15 @@ describe("holding Space mid-drag suppresses reparenting", () => {
         );
         return {
           exists: !!node,
+          parentId:
+            node?.parentElement?.getAttribute("data-agent-native-node-id") ??
+            null,
           insideSection: !!node?.closest("section"),
-          insideMain: !!node?.closest("main"),
         };
       });
       expect(dropped.exists).toBe(true);
-      expect(dropped.insideSection).toBe(false);
-      expect(dropped.insideMain).toBe(false);
+      expect(dropped.parentId).toBe("section");
+      expect(dropped.insideSection).toBe(true);
     } finally {
       await browser.close();
     }
@@ -175,15 +180,12 @@ describe("holding Space mid-drag suppresses reparenting", () => {
     }
   });
 
-  it("forwards Space keyup if the frame changes from Interact to Edit while Space is held", async () => {
+  it("releases a forwarded Space when the frame changes from Design to Interact while it is held", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
       await page.setContent(FIXTURE);
       await page.evaluate(() => {
-        const chromeHost = document.createElement("div");
-        chromeHost.setAttribute("data-agent-native-editor-chrome-host", "");
-        document.body.append(chromeHost);
         (window as any).__spaceEvents = [];
         window.addEventListener("message", (event) => {
           if (
@@ -195,7 +197,7 @@ describe("holding Space mid-drag suppresses reparenting", () => {
         });
       });
       await page.addScriptTag({
-        content: embeddedWheelInteractModeBridgeScript(),
+        content: embeddedWheelOverviewFrameBridgeScript(),
       });
 
       await page.keyboard.down("Space");
@@ -204,21 +206,21 @@ describe("holding Space mid-drag suppresses reparenting", () => {
       );
       await page.evaluate(() =>
         window.postMessage(
-          {
-            type: "embedded-canvas-gesture-mode",
-            wheelEnabled: false,
-            spaceKeyForwardingEnabled: false,
-            editingSafetyEnabled: true,
-          },
+          { type: "set-interaction-mode", interact: true },
           "*",
         ),
       );
-      await page.waitForTimeout(20);
-      await page.keyboard.up("Space");
-
+      // The host must not be left panning for a key the page now owns.
       await expect
         .poll(() => page.evaluate(() => (window as any).__spaceEvents))
         .toEqual(["design-hotkey", "design-hotkey-up"]);
+      await page.keyboard.up("Space");
+      await page.waitForTimeout(20);
+
+      expect(await page.evaluate(() => (window as any).__spaceEvents)).toEqual([
+        "design-hotkey",
+        "design-hotkey-up",
+      ]);
     } finally {
       await browser.close();
     }

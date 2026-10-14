@@ -19,6 +19,7 @@ import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-c
 import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
+import { hasGmailScope } from "./gmail-scope.js";
 import {
   createOAuth2Client,
   GmailQuotaCooldownError,
@@ -31,11 +32,14 @@ import {
   gmailBatchGetThreads,
   gmailListHistory,
   gmailListLabels,
+  gmailModifyThread,
   gmailWatch,
   gmailStopWatch,
   googleFetch,
   peopleGetProfile,
+  registerGmailAccountToken,
 } from "./google-api.js";
+import { clearSyncAccountReauth } from "./inbox-store.js";
 import { getMailProviderApiRuntime } from "./provider-api.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 import { invalidateThreadCache } from "./thread-cache.js";
@@ -52,22 +56,12 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-const GMAIL_SCOPE_PREFIX = "https://www.googleapis.com/auth/gmail.";
-
 interface GoogleTokens {
   access_token: string;
   refresh_token?: string;
   expiry_date?: number;
   token_type?: string;
   scope?: string;
-}
-
-function hasGmailScope(tokens: Record<string, unknown>): boolean {
-  const scope = tokens.scope;
-  if (typeof scope !== "string" || !scope.trim()) return true;
-  return scope
-    .split(/[\s,]+/)
-    .some((value) => value.startsWith(GMAIL_SCOPE_PREFIX));
 }
 
 type ManagedGmailClient = {
@@ -117,11 +111,20 @@ async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
 async function resolveManagedGmailClientForOwner(
   ownerEmail?: string,
 ): Promise<ManagedGmailClient | null> {
-  if (!ownerEmail) return resolveManagedGmailClient();
-  return await runWithRequestContext(
-    { ...(getRequestContext() ?? {}), userEmail: ownerEmail },
-    () => resolveManagedGmailClient(),
-  );
+  const client = ownerEmail
+    ? await runWithRequestContext(
+        { ...(getRequestContext() ?? {}), userEmail: ownerEmail },
+        () => resolveManagedGmailClient(),
+      )
+    : await resolveManagedGmailClient();
+  if (client) {
+    await registerGmailAccountToken(
+      client.accessToken,
+      ownerEmail ?? client.email,
+      client.email,
+    );
+  }
+  return client;
 }
 
 async function resolveManagedGmailClientWithError(
@@ -214,13 +217,18 @@ function isRetryableRefreshError(error: any): boolean {
 // existing row when omitted), and some callers (getAuthStatus) don't pass an
 // owner — keying on owner too would split the exact concurrent callers this
 // exists to coalesce.
-const refreshInflight = new Map<string, Promise<string>>();
+const refreshInflight = new Map<
+  string,
+  Promise<{ accessToken: string; expiresAt: number }>
+>();
 
 async function refreshAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
-): Promise<string> {
+  /** Google just rejected the stored token, so it is no fallback. */
+  storedTokenRejected = false,
+): Promise<{ accessToken: string; expiresAt: number }> {
   if (!tokens.refresh_token) {
     await deleteOAuthTokens("google", accountId);
     throw new Error(
@@ -244,11 +252,15 @@ async function refreshAccessToken(
     // because we're inside the 5-minute pre-expiry buffer — fall back to
     // it so a flaky moment doesn't 502 the inbox.
     if (
+      !storedTokenRejected &&
       tokens.access_token &&
       tokens.expiry_date &&
       Date.now() < tokens.expiry_date
     ) {
-      return tokens.access_token;
+      return {
+        accessToken: tokens.access_token,
+        expiresAt: tokens.expiry_date,
+      };
     }
     const retryableError = err instanceof Error ? err : new Error(String(err));
     Object.assign(retryableError, { retryable: true });
@@ -270,13 +282,17 @@ async function refreshAccessToken(
     owner,
   );
 
-  return refreshed.access_token;
+  return {
+    accessToken: refreshed.access_token,
+    expiresAt: updatedTokens.expiry_date!,
+  };
 }
 
 async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
+  forceRefresh = false,
 ): Promise<string> {
   if (!tokens.access_token && !tokens.refresh_token) {
     throw new Error(
@@ -284,22 +300,42 @@ async function getValidAccessToken(
     );
   }
 
+  let accessToken: string;
+  let expiresAt = tokens.expiry_date ?? Date.now() + 60 * 60_000;
   if (
+    !forceRefresh &&
     tokens.expiry_date &&
     tokens.access_token &&
     Date.now() < tokens.expiry_date - 5 * 60 * 1000
   ) {
-    return tokens.access_token;
+    accessToken = tokens.access_token;
+  } else {
+    const existing = refreshInflight.get(accountId);
+    if (existing) {
+      const refreshed = await existing;
+      accessToken = refreshed.accessToken;
+      expiresAt = refreshed.expiresAt;
+    } else {
+      const promise = refreshAccessToken(
+        accountId,
+        tokens,
+        owner,
+        forceRefresh,
+      ).finally(() => refreshInflight.delete(accountId));
+      refreshInflight.set(accountId, promise);
+      const refreshed = await promise;
+      accessToken = refreshed.accessToken;
+      expiresAt = refreshed.expiresAt;
+    }
   }
 
-  const existing = refreshInflight.get(accountId);
-  if (existing) return existing;
-
-  const promise = refreshAccessToken(accountId, tokens, owner).finally(() => {
-    refreshInflight.delete(accountId);
-  });
-  refreshInflight.set(accountId, promise);
-  return promise;
+  await registerGmailAccountToken(
+    accessToken,
+    owner ?? accountId,
+    accountId,
+    expiresAt,
+  );
+  return accessToken;
 }
 
 export async function getAuthUrl(
@@ -328,6 +364,7 @@ function getWatchTopic(): string | null {
 
 export async function startWatch(
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<{ historyId: string; expiration: string } | null> {
   const topic = getWatchTopic();
   if (!topic) return null;
@@ -335,9 +372,12 @@ export async function startWatch(
     const res = await gmailWatch(accessToken, topic, {
       labelIds: ["INBOX"],
       labelFilterBehavior: "include",
+      signal,
     });
     return res;
   } catch (err: any) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
     console.warn(`[gmail-watch] start failed: ${err.message}`);
     return null;
   }
@@ -374,7 +414,11 @@ export async function exchangeCode(
     scope: tokenResponse.scope,
   };
 
-  const profile = await gmailGetProfile(tokens.access_token);
+  const profile = await gmailGetProfile(
+    tokens.access_token,
+    "interactive",
+    true,
+  );
   const email = profile.emailAddress;
   if (!email) throw new Error("Google returned no email address");
 
@@ -384,6 +428,13 @@ export async function exchangeCode(
     tokens as unknown as Record<string, unknown>,
     owner ?? email,
   );
+  await registerGmailAccountToken(
+    tokens.access_token,
+    owner ?? email,
+    email,
+    tokens.expiry_date,
+  );
+  await clearSyncAccountReauth(owner ?? email, email);
 
   try {
     await startWatch(tokens.access_token);
@@ -428,11 +479,14 @@ export async function getClientForAccount(
   });
 }
 
-export async function getClientFromAccount(account: {
-  accountId: string;
-  owner?: string;
-  tokens: Record<string, unknown>;
-}): Promise<{ accessToken: string; email: string } | null> {
+export async function getClientFromAccount(
+  account: {
+    accountId: string;
+    owner?: string;
+    tokens: Record<string, unknown>;
+  },
+  options: { forceRefresh?: boolean } = {},
+): Promise<{ accessToken: string; email: string } | null> {
   if (!hasGmailScope(account.tokens)) return null;
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
@@ -442,13 +496,21 @@ export async function getClientFromAccount(account: {
     account.accountId,
     tokens,
     ownerForRefresh,
+    options.forceRefresh,
   );
   return { accessToken, email: account.accountId };
 }
 
+/**
+ * `forceRefresh` exchanges the refresh token even though the stored access
+ * token looks unexpired: Google just answered 401 to it. A refresh Google
+ * refuses for good (`invalid_grant`) throws; so does a transient refresh
+ * failure, instead of handing back the rejected token.
+ */
 export async function getClientForConnectedAccount(
   ownerEmail: string,
   accountEmail: string,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<{ accessToken: string; email: string } | null> {
   const oauthAccount = (await listOAuthAccountsByOwner("google", ownerEmail))
     .filter((account) => hasGmailScope(account.tokens))
@@ -457,10 +519,10 @@ export async function getClientForConnectedAccount(
         account.accountId.toLowerCase() === accountEmail.toLowerCase(),
     );
   if (oauthAccount) {
-    return getClientFromAccount({
-      ...oauthAccount,
-      owner: ownerEmail,
-    });
+    return getClientFromAccount(
+      { ...oauthAccount, owner: ownerEmail },
+      options,
+    );
   }
   const managed = await resolveManagedGmailClientForOwner(ownerEmail);
   if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
@@ -669,7 +731,7 @@ export async function getAuthStatus(
       accountDisplayName ?? getAccountDisplayName(account.accountId);
     let accessToken: string;
     try {
-      accessToken = await getValidAccessToken(email, tokens);
+      accessToken = await getValidAccessToken(email, tokens, forEmail ?? email);
     } catch (err) {
       errors.push({
         email,
@@ -2043,10 +2105,15 @@ export async function fetchGmailLabelMap(
 }
 
 const GMAIL_BATCH_MODIFY_MAX_IDS = 1000;
+const GMAIL_BATCH_MODIFY_MAX_REQUESTS = 10;
+const GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS = 100;
+const GMAIL_ARCHIVE_MAX_THREAD_MODIFIES = 25;
 
 interface GmailBatchModifyResult {
   succeeded: string[];
   failed: Array<{ id: string; error: string }>;
+  remaining: string[];
+  retryAfterSeconds?: number;
   batchCount: number;
 }
 
@@ -2055,14 +2122,20 @@ async function gmailBatchModify(
   ids: string[],
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  maxBatchCount = GMAIL_BATCH_MODIFY_MAX_REQUESTS,
 ): Promise<GmailBatchModifyResult> {
   const result: GmailBatchModifyResult = {
     succeeded: [],
     failed: [],
+    remaining: [],
     batchCount: 0,
   };
   if (ids.length === 0) return result;
   for (let i = 0; i < ids.length; i += GMAIL_BATCH_MODIFY_MAX_IDS) {
+    if (result.batchCount >= maxBatchCount) {
+      result.remaining.push(...ids.slice(i));
+      break;
+    }
     const chunk = ids.slice(i, i + GMAIL_BATCH_MODIFY_MAX_IDS);
     result.batchCount += 1;
     try {
@@ -2077,6 +2150,11 @@ async function gmailBatchModify(
       );
       result.succeeded.push(...chunk);
     } catch (err: any) {
+      if (err instanceof GmailQuotaCooldownError) {
+        result.remaining.push(...ids.slice(i));
+        result.retryAfterSeconds = err.details.retryAfterSeconds;
+        break;
+      }
       const error = err?.message ?? "batchModify failed";
       result.failed.push(...chunk.map((id) => ({ id, error })));
     }
@@ -2093,6 +2171,463 @@ export interface BatchModifyTarget {
 export interface BatchModifyByAccountResult {
   succeeded: string[];
   failed: Array<{ id: string; error: string }>;
+  remaining: string[];
+  retryAfterSeconds?: number;
+}
+
+export interface GmailBatchModifyThreadsByAccountResult extends BatchModifyByAccountResult {
+  threadIdsByTarget: Record<string, string>;
+  removeLabelIdsByAccount: Record<string, string[]>;
+}
+
+export type GmailBatchArchiveByAccountResult =
+  GmailBatchModifyThreadsByAccountResult;
+
+type GmailLabelList = {
+  labels?: Array<{ id?: string; name?: string }>;
+};
+
+function getArchiveLabelIds(
+  labels: GmailLabelList,
+  removeLabel?: string,
+): string[] {
+  const ids = ["INBOX"];
+  if (!removeLabel || removeLabel.toUpperCase() === "INBOX") return ids;
+  const match = labels.labels?.find(
+    (label) =>
+      label.id === removeLabel ||
+      label.name?.toLowerCase() === removeLabel.toLowerCase(),
+  );
+  if (!match?.id) throw new Error(`Gmail label "${removeLabel}" was not found`);
+  if (!ids.includes(match.id)) ids.push(match.id);
+  return ids;
+}
+
+/**
+ * Mutate thread contents from Gmail's current message IDs, never the inbox cache.
+ */
+async function gmailBatchModifyThreadsByAccountInternal(
+  ownerEmail: string,
+  targets: BatchModifyTarget[],
+  addLabelIds: string[] | undefined,
+  resolveRemoveLabelIds: (
+    accessToken: string,
+    accountEmail: string,
+  ) => Promise<string[]>,
+  useThreadModifyForSmallTargets = false,
+): Promise<GmailBatchModifyThreadsByAccountResult> {
+  const byAccount = new Map<string, BatchModifyTarget[]>();
+  for (const target of targets) {
+    const key = target.accountEmail?.toLowerCase() ?? "";
+    const list = byAccount.get(key);
+    if (list) list.push(target);
+    else byAccount.set(key, [target]);
+  }
+
+  const succeeded: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+  const remaining: string[] = [];
+  const threadIdsByTarget: Record<string, string> = {};
+  const removeLabelIdsByAccount: Record<string, string[]> = {};
+  const accountEntries = [...byAccount.entries()];
+  let batchRequestsRemaining = GMAIL_BATCH_MODIFY_MAX_REQUESTS;
+  let threadLookupsUsed = 0;
+  let threadModifiesUsed = 0;
+  let retryAfterSeconds: number | undefined;
+  const targetThreadCount = new Set(
+    targets.map(
+      (target) =>
+        `${target.accountEmail?.toLowerCase() ?? ""}:${target.threadId ?? target.id}`,
+    ),
+  ).size;
+  const useThreadModifyForSmallSelection =
+    useThreadModifyForSmallTargets &&
+    targetThreadCount <= GMAIL_ARCHIVE_MAX_THREAD_MODIFIES;
+
+  for (const [
+    accountIndex,
+    [accountEmail, accountTargets],
+  ] of accountEntries.entries()) {
+    let accessToken: string;
+    try {
+      accessToken = accountEmail
+        ? await getOwnedAccountAccessToken(ownerEmail, accountEmail)
+        : await getDefaultOwnedAccountAccessToken(ownerEmail);
+    } catch (error: any) {
+      if (error instanceof GmailQuotaCooldownError) {
+        remaining.push(
+          ...accountEntries
+            .slice(accountIndex)
+            .flatMap(([, targetsForAccount]) =>
+              targetsForAccount.map((target) => target.id),
+            ),
+        );
+        retryAfterSeconds = error.details.retryAfterSeconds;
+        break;
+      }
+      const message = error?.message ?? "batchModify failed";
+      failed.push(
+        ...accountTargets.map((target) => ({ id: target.id, error: message })),
+      );
+      continue;
+    }
+
+    let removeLabelIds: string[];
+    try {
+      removeLabelIds = await resolveRemoveLabelIds(accessToken, accountEmail);
+    } catch (error: any) {
+      if (error instanceof GmailQuotaCooldownError) {
+        remaining.push(
+          ...accountEntries
+            .slice(accountIndex)
+            .flatMap(([, targetsForAccount]) =>
+              targetsForAccount.map((target) => target.id),
+            ),
+        );
+        retryAfterSeconds = error.details.retryAfterSeconds;
+        break;
+      }
+      const message = error?.message ?? "Could not resolve Gmail label";
+      failed.push(
+        ...accountTargets.map((target) => ({ id: target.id, error: message })),
+      );
+      continue;
+    }
+    removeLabelIdsByAccount[accountEmail] = removeLabelIds;
+
+    let knownTargets: Array<{
+      target: BatchModifyTarget;
+      threadId: string;
+    }> = [];
+    const threadModifyTargets: Array<{
+      target: BatchModifyTarget;
+      threadId: string;
+    }> = [];
+    let quotaDeferred = false;
+    for (const [targetIndex, target] of accountTargets.entries()) {
+      let threadId = target.threadId;
+      if (!threadId) {
+        const pendingThreadRefreshes = new Set(
+          knownTargets.map(({ threadId: knownThreadId }) => knownThreadId),
+        ).size;
+        const requiredLookups = useThreadModifyForSmallSelection ? 1 : 2;
+        if (
+          threadLookupsUsed + pendingThreadRefreshes + requiredLookups >
+          GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS
+        ) {
+          remaining.push(
+            ...accountTargets.slice(targetIndex).map(({ id }) => id),
+          );
+          break;
+        }
+        threadLookupsUsed += 1;
+        try {
+          const message = await gmailGetMessage(
+            accessToken,
+            target.id,
+            "minimal",
+          );
+          threadId = message.threadId;
+        } catch (error: any) {
+          if (error instanceof GmailQuotaCooldownError) {
+            remaining.push(
+              ...accountTargets.slice(targetIndex).map(({ id }) => id),
+            );
+            retryAfterSeconds = error.details.retryAfterSeconds;
+            quotaDeferred = true;
+            break;
+          }
+          failed.push({
+            id: target.id,
+            error: error?.message ?? "Could not resolve Gmail thread",
+          });
+          continue;
+        }
+      }
+      if (!threadId) {
+        failed.push({ id: target.id, error: "Thread not found" });
+        continue;
+      }
+      threadIdsByTarget[target.id] = threadId;
+
+      if (useThreadModifyForSmallSelection) {
+        threadModifyTargets.push({ target, threadId });
+        continue;
+      }
+
+      knownTargets.push({ target, threadId });
+    }
+
+    const threadIdsToRefresh = [
+      ...new Set(knownTargets.map(({ threadId }) => threadId)),
+    ];
+    const refreshLimit = Math.max(
+      0,
+      GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS - threadLookupsUsed,
+    );
+    const refreshedThreadIds = threadIdsToRefresh.slice(0, refreshLimit);
+    const deferredThreadIds = new Set(
+      threadIdsToRefresh.slice(refreshedThreadIds.length),
+    );
+    const threadLookupsDeferred = deferredThreadIds.size > 0;
+    if (threadLookupsDeferred) {
+      remaining.push(
+        ...knownTargets
+          .filter(({ threadId }) => deferredThreadIds.has(threadId))
+          .map(({ target }) => target.id),
+      );
+      knownTargets = knownTargets.filter(
+        ({ threadId }) => !deferredThreadIds.has(threadId),
+      );
+    }
+
+    const messageIdsByThread = new Map<string, string[]>();
+    if (refreshedThreadIds.length > 0) {
+      threadLookupsUsed += refreshedThreadIds.length;
+      let refreshedThreads: Array<{
+        id: string;
+        data: any;
+        error?: string;
+      }>;
+      try {
+        refreshedThreads = await gmailBatchGetThreads(
+          accessToken,
+          refreshedThreadIds,
+          "minimal",
+        );
+      } catch (error: any) {
+        if (error instanceof GmailQuotaCooldownError) {
+          remaining.push(
+            ...knownTargets.map(({ target }) => target.id),
+            ...accountEntries
+              .slice(accountIndex + 1)
+              .flatMap(([, targetsForAccount]) =>
+                targetsForAccount.map((target) => target.id),
+              ),
+          );
+          retryAfterSeconds = error.details.retryAfterSeconds;
+          break;
+        }
+        const message = error?.message ?? "Could not refresh Gmail threads";
+        failed.push(
+          ...knownTargets.map(({ target }) => ({
+            id: target.id,
+            error: message,
+          })),
+        );
+        knownTargets = [];
+        refreshedThreads = [];
+      }
+
+      const refreshErrors = new Map<string, string>();
+      const returnedThreadIds = new Set(refreshedThreads.map(({ id }) => id));
+      for (const thread of refreshedThreads) {
+        const messageIds = (thread.data?.messages ?? [])
+          .map((message: any) => message.id)
+          .filter(
+            (id: unknown): id is string =>
+              typeof id === "string" && id.length > 0,
+          );
+        if (messageIds.length > 0) {
+          messageIdsByThread.set(thread.id, [...new Set<string>(messageIds)]);
+        } else {
+          refreshErrors.set(
+            thread.id,
+            thread.error ?? "Gmail thread contains no current messages",
+          );
+        }
+      }
+      for (const threadId of refreshedThreadIds) {
+        if (!returnedThreadIds.has(threadId)) {
+          refreshErrors.set(threadId, "Gmail thread refresh returned no data");
+        }
+      }
+      knownTargets = knownTargets.filter(({ target, threadId }) => {
+        const message =
+          refreshErrors.get(threadId) ??
+          (messageIdsByThread.has(threadId)
+            ? undefined
+            : "Gmail thread refresh returned no data");
+        if (message) {
+          failed.push({ id: target.id, error: message });
+          return false;
+        }
+        return true;
+      });
+    }
+
+    const targetIdsByMessageId = new Map<string, Set<string>>();
+    for (const { target, threadId } of knownTargets) {
+      const messageIds = messageIdsByThread.get(threadId) ?? [];
+      for (const messageId of messageIds) {
+        const owners = targetIdsByMessageId.get(messageId) ?? new Set<string>();
+        owners.add(target.id);
+        targetIdsByMessageId.set(messageId, owners);
+      }
+    }
+
+    if (targetIdsByMessageId.size > 0) {
+      const result = await gmailBatchModify(
+        accessToken,
+        [...targetIdsByMessageId.keys()],
+        addLabelIds,
+        removeLabelIds,
+        batchRequestsRemaining,
+      );
+      batchRequestsRemaining -= result.batchCount;
+      const failedMessage = new Map(
+        result.failed.map(({ id, error }) => [id, error]),
+      );
+      const succeededMessages = new Set(result.succeeded);
+      const remainingMessages = new Set(result.remaining);
+      for (const { target, threadId } of knownTargets) {
+        const messageIds = messageIdsByThread.get(threadId) ?? [];
+        const failedId = messageIds.find((id) => failedMessage.has(id));
+        if (failedId) {
+          failed.push({ id: target.id, error: failedMessage.get(failedId)! });
+        } else if (messageIds.some((id) => remainingMessages.has(id))) {
+          remaining.push(target.id);
+        } else if (messageIds.every((id) => succeededMessages.has(id))) {
+          succeeded.push(target.id);
+        } else {
+          failed.push({ id: target.id, error: "batchModify did not complete" });
+        }
+      }
+
+      if (result.remaining.length > 0) {
+        remaining.push(...threadModifyTargets.map(({ target }) => target.id));
+        remaining.push(
+          ...accountEntries
+            .slice(accountIndex + 1)
+            .flatMap(([, targetsForAccount]) =>
+              targetsForAccount.map((target) => target.id),
+            ),
+        );
+        retryAfterSeconds = result.retryAfterSeconds;
+        break;
+      }
+    }
+
+    const targetsByThread = new Map<string, BatchModifyTarget[]>();
+    for (const { target, threadId } of threadModifyTargets) {
+      const threadTargets = targetsByThread.get(threadId) ?? [];
+      threadTargets.push(target);
+      targetsByThread.set(threadId, threadTargets);
+    }
+    const threadEntries = [...targetsByThread.entries()];
+    let unknownWorkDeferred = false;
+    for (const [
+      threadIndex,
+      [threadId, targetsForThread],
+    ] of threadEntries.entries()) {
+      if (threadModifiesUsed >= GMAIL_ARCHIVE_MAX_THREAD_MODIFIES) {
+        remaining.push(
+          ...threadEntries
+            .slice(threadIndex)
+            .flatMap(([, threadTargets]) =>
+              threadTargets.map((target) => target.id),
+            ),
+        );
+        remaining.push(
+          ...accountEntries
+            .slice(accountIndex + 1)
+            .flatMap(([, targetsForAccount]) =>
+              targetsForAccount.map((target) => target.id),
+            ),
+        );
+        unknownWorkDeferred = true;
+        break;
+      }
+      threadModifiesUsed += 1;
+      try {
+        await gmailModifyThread(
+          accessToken,
+          threadId,
+          addLabelIds,
+          removeLabelIds,
+        );
+        succeeded.push(...targetsForThread.map((target) => target.id));
+      } catch (error: any) {
+        if (error instanceof GmailQuotaCooldownError) {
+          remaining.push(
+            ...threadEntries
+              .slice(threadIndex)
+              .flatMap(([, threadTargets]) =>
+                threadTargets.map((target) => target.id),
+              ),
+          );
+          remaining.push(
+            ...accountEntries
+              .slice(accountIndex + 1)
+              .flatMap(([, targetsForAccount]) =>
+                targetsForAccount.map((target) => target.id),
+              ),
+          );
+          retryAfterSeconds = error.details.retryAfterSeconds;
+          unknownWorkDeferred = true;
+          break;
+        }
+        failed.push(
+          ...targetsForThread.map((target) => ({
+            id: target.id,
+            error: error?.message ?? "threads.modify failed",
+          })),
+        );
+      }
+    }
+    if (quotaDeferred || unknownWorkDeferred || threadLookupsDeferred) {
+      remaining.push(
+        ...accountEntries
+          .slice(accountIndex + 1)
+          .flatMap(([, targetsForAccount]) =>
+            targetsForAccount.map((target) => target.id),
+          ),
+      );
+      break;
+    }
+  }
+
+  return {
+    succeeded: [...new Set(succeeded)],
+    failed,
+    threadIdsByTarget,
+    removeLabelIdsByAccount,
+    remaining: [...new Set(remaining)],
+    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+  };
+}
+
+export function gmailBatchModifyThreadsByAccount(
+  ownerEmail: string,
+  targets: BatchModifyTarget[],
+  addLabelIds: string[] | undefined,
+  removeLabelIds: string[] | undefined,
+): Promise<GmailBatchModifyThreadsByAccountResult> {
+  return gmailBatchModifyThreadsByAccountInternal(
+    ownerEmail,
+    targets,
+    addLabelIds,
+    async () => removeLabelIds ?? [],
+  );
+}
+
+export function gmailBatchArchiveByAccount(
+  ownerEmail: string,
+  targets: BatchModifyTarget[],
+  removeLabel?: string,
+): Promise<GmailBatchArchiveByAccountResult> {
+  return gmailBatchModifyThreadsByAccountInternal(
+    ownerEmail,
+    targets,
+    undefined,
+    async (accessToken) => {
+      const labels = removeLabel
+        ? await gmailListLabels(accessToken)
+        : { labels: [] };
+      return getArchiveLabelIds(labels, removeLabel);
+    },
+    true,
+  );
 }
 
 export async function gmailBatchModifyByAccount(
@@ -2111,6 +2646,8 @@ export async function gmailBatchModifyByAccount(
 
   const succeeded: string[] = [];
   const failed: Array<{ id: string; error: string }> = [];
+  const remaining: string[] = [];
+  let retryAfterSeconds: number | undefined;
 
   for (const [accountEmail, accountTargets] of byAccount) {
     try {
@@ -2125,13 +2662,25 @@ export async function gmailBatchModifyByAccount(
       );
       succeeded.push(...result.succeeded);
       failed.push(...result.failed);
+      remaining.push(...result.remaining);
+      if (result.retryAfterSeconds !== undefined) {
+        retryAfterSeconds = Math.max(
+          retryAfterSeconds ?? 0,
+          result.retryAfterSeconds,
+        );
+      }
     } catch (err: any) {
       const message = err?.message ?? "batchModify failed";
       for (const t of accountTargets) failed.push({ id: t.id, error: message });
     }
   }
 
-  return { succeeded, failed };
+  return {
+    succeeded,
+    failed,
+    remaining,
+    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+  };
 }
 
 interface GmailMessageReference {
@@ -2252,10 +2801,19 @@ export async function markAllUnreadReadForAccount(input: {
     undefined,
     ["UNREAD"],
   );
+  const mutationFailures = [
+    ...mutation.failed,
+    ...mutation.remaining.map((id) => ({
+      id,
+      error: mutation.retryAfterSeconds
+        ? `Gmail quota cooldown; retry after ${mutation.retryAfterSeconds}s`
+        : "Gmail batch request budget reached; retry the remaining IDs",
+    })),
+  ];
   invalidateHistoryCacheForAccount(accountEmail);
   invalidateListCacheForOwner(ownerEmail);
   for (const threadId of new Set(selected.map((message) => message.threadId))) {
-    invalidateThreadCache(ownerEmail, threadId);
+    invalidateThreadCache(ownerEmail, threadId, accountEmail);
   }
 
   let remaining: GmailMessageReference[];
@@ -2272,7 +2830,7 @@ export async function markAllUnreadReadForAccount(input: {
         .size,
       changedMessages: mutation.succeeded.length,
       batchCount: mutation.batchCount,
-      failures: mutation.failed,
+      failures: mutationFailures,
       remainingUnreadMessages: null,
       remainingUnreadThreads: null,
       remainingProtectedMessages: null,
@@ -2304,7 +2862,7 @@ export async function markAllUnreadReadForAccount(input: {
     excludedThreads: new Set(excluded.map((message) => message.threadId)).size,
     changedMessages: mutation.succeeded.length,
     batchCount: mutation.batchCount,
-    failures: mutation.failed,
+    failures: mutationFailures,
     remainingUnreadMessages: remaining.length,
     remainingUnreadThreads: new Set(
       remaining.map((message) => message.threadId),
@@ -2321,7 +2879,7 @@ export async function markAllUnreadReadForAccount(input: {
     newUnreadThreads: new Set(newUnread.map((message) => message.threadId))
       .size,
     verificationComplete:
-      mutation.failed.length === 0 && unexpectedRemaining.length === 0,
+      mutationFailures.length === 0 && unexpectedRemaining.length === 0,
   };
 }
 

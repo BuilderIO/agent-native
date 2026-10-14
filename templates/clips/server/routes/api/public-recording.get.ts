@@ -1,5 +1,7 @@
 import {
   getSession,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   signScopedAgentAccessToken,
   signShortLivedToken,
   verifyScopedAgentAccessToken,
@@ -10,7 +12,6 @@ import {
   defineEventHandler,
   getHeader,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   setCookie,
@@ -22,6 +23,10 @@ import {
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../../shared/agent-context.js";
 import { displayCommentMentions } from "../../../shared/comment-mentions.js";
+import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "../../../shared/recording-kind.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -48,6 +53,7 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { viewerScreenshotEditsJson } from "../../lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import {
   getRecordingAccessTokenResourceId,
@@ -85,7 +91,7 @@ function isHttpsRequest(event: H3Event): boolean {
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
       return true;
     }
-    const requestUrl = getRequestURL(event);
+    const requestUrl = getForwardedRequestURL(event);
     if (requestUrl.protocol === "https:") return true;
     const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
     if (appUrl.startsWith("https://")) return true;
@@ -437,7 +443,7 @@ export default defineEventHandler(async (event) => {
         : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {
-        origin: getRequestURL(event).origin,
+        origin: getForwardedRequestOrigin(event),
         basePath: appBasePath(),
         token: agentToken,
       }).contextUrl
@@ -488,11 +494,18 @@ export default defineEventHandler(async (event) => {
       id: rec.id,
       title: rec.title,
       description: rec.description,
+      kind: resolveRecordingKind(rec.kind),
+      // A screenshot's picture is served by the thumbnail route, which is the
+      // full stored image and carries the same short-lived token as the video
+      // URL — so the share password gates the image bytes too.
+      imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
-      editsJson: rec.editsJson,
+      editsJson: isImageRecording(rec)
+        ? viewerScreenshotEditsJson(rec.editsJson)
+        : rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,

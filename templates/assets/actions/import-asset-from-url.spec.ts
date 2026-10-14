@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const createAssetFromBufferMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
+const getObjectMock = vi.hoisted(() => vi.fn());
 const serializeAssetMock = vi.hoisted(() => vi.fn((row: unknown) => row));
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 const libraryAccessMock = vi.hoisted(() =>
@@ -51,7 +52,12 @@ vi.mock("../server/lib/library-access.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
+  asc: vi.fn((column) => ({ op: "asc", column })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
+  gt: vi.fn((column, value) => ({ op: "gt", column, value })),
+  isNull: vi.fn((column) => ({ op: "isNull", column })),
+  or: vi.fn((...conditions) => ({ op: "or", conditions })),
+  sql: vi.fn((strings, ...values) => ({ op: "sql", strings, values })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -85,7 +91,7 @@ vi.mock("../server/lib/assets.js", () => ({
 }));
 
 vi.mock("../server/lib/storage.js", () => ({
-  getObject: vi.fn(),
+  getObject: getObjectMock,
 }));
 
 vi.mock("../server/lib/json.js", () => ({
@@ -103,6 +109,7 @@ vi.mock("./_helpers.js", () => ({
   serializeAsset: serializeAssetMock,
 }));
 
+import { AssetDedupeSearchLimitError } from "../server/lib/upload-dedupe.js";
 import action from "./import-asset-from-url.js";
 
 const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -116,18 +123,28 @@ function response(
 }
 
 function createDb(rows: unknown[][]) {
+  const whereConditions: unknown[] = [];
   return {
+    whereConditions,
     select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => {
-          const result = rows.shift() ?? [];
-          const query = Promise.resolve(result) as Promise<unknown[]> & {
-            limit: (n: number) => Promise<unknown[]>;
-          };
-          query.limit = vi.fn(async () => result);
-          return query;
-        }),
-      })),
+      from: vi.fn(() => {
+        let result: unknown[] | undefined;
+        const load = () => (result ??= rows.shift() ?? []);
+        const query: any = {
+          where: vi.fn((condition: unknown) => {
+            whereConditions.push(condition);
+            load();
+            return query;
+          }),
+          orderBy: vi.fn(() => query),
+          limit: vi.fn(async (count: number) => load().slice(0, count)),
+          then: (
+            resolve: (value: unknown[]) => unknown,
+            reject: (error: unknown) => unknown,
+          ) => Promise.resolve(load()).then(resolve, reject),
+        };
+        return query;
+      }),
     })),
   };
 }
@@ -140,6 +157,7 @@ describe("import-asset-from-url", () => {
     vi.clearAllMocks();
     libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
+    getObjectMock.mockImplementation(async (key: string) => Buffer.from(key));
     ssrfSafeFetchMock.mockImplementation(async () =>
       response(pngBytes, {
         "content-type": "image/png; charset=utf-8",
@@ -369,6 +387,111 @@ describe("import-asset-from-url", () => {
     });
   });
 
+  it("aborts the import when duplicate checking reaches its byte limit", async () => {
+    const legacyAsset = {
+      id: "asset-legacy",
+      title: "Legacy reference",
+      mediaType: "image",
+      mimeType: "image/png",
+      sizeBytes: pngBytes.byteLength,
+      metadata: "{}",
+      objectKey: "local:legacy.png",
+    };
+    getDbMock.mockReturnValue(createDb([[], [legacyAsset]]));
+    getObjectMock.mockRejectedValueOnce(new AssetDedupeSearchLimitError());
+
+    await expect(
+      action.run({
+        libraryId: "lib-1",
+        url: "https://cdn.example.test/legacy-image.png",
+        role: "style_reference",
+      }),
+    ).rejects.toBeInstanceOf(AssetDedupeSearchLimitError);
+
+    expect(getObjectMock).toHaveBeenCalledOnce();
+    expect(createAssetFromBufferMock).not.toHaveBeenCalled();
+  });
+
+  it("uses guarded top-level string hashes in duplicate candidate queries", async () => {
+    const db = createDb([[], []]);
+    getDbMock.mockReturnValue(db);
+
+    await action.run({
+      libraryId: "lib-1",
+      url: "https://cdn.example.test/top-level-hash.png",
+      role: "style_reference",
+    });
+
+    const sqlExpressions: any[] = [];
+    const visit = (value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      if ((value as any).op === "sql") sqlExpressions.push(value);
+      for (const child of Object.values(value)) {
+        if (Array.isArray(child)) child.forEach(visit);
+        else visit(child);
+      }
+    };
+    db.whereConditions.forEach(visit);
+    const hashExpressions = sqlExpressions.filter((expression) =>
+      expression.strings.join("").includes("contentHash"),
+    );
+
+    expect(hashExpressions.length).toBeGreaterThan(0);
+    expect(
+      hashExpressions.every((expression) => {
+        const source = expression.strings.join("");
+        return (
+          source.includes("IS JSON") &&
+          source.includes("jsonb_typeof") &&
+          source.includes("NULLIF") &&
+          !source.includes("substring")
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("finds a hashless legacy duplicate after the first 100 matching candidates", async () => {
+    const candidate = (id: string) => ({
+      id,
+      title: "Legacy image",
+      mediaType: "image",
+      mimeType: "image/png",
+      sizeBytes: pngBytes.byteLength,
+      metadata: "{}",
+      objectKey: id,
+    });
+    const firstBatch = Array.from({ length: 100 }, (_, index) =>
+      candidate(`legacy-${String(index).padStart(3, "0")}`),
+    );
+    const laterDuplicate = candidate("legacy-100");
+    const fullRow = {
+      ...laterDuplicate,
+      role: "style_reference",
+      status: "reference",
+    };
+    getDbMock.mockReturnValue(
+      createDb([[], firstBatch, [laterDuplicate], [fullRow]]),
+    );
+    getObjectMock.mockImplementation(async (key: string) =>
+      key === laterDuplicate.objectKey
+        ? pngBytes
+        : Buffer.alloc(pngBytes.byteLength),
+    );
+
+    const result = await action.run({
+      libraryId: "lib-1",
+      url: "https://cdn.example.test/legacy.png",
+      role: "style_reference",
+    });
+
+    expect(createAssetFromBufferMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: "legacy-100",
+      deduplicated: true,
+    });
+    expect(getObjectMock).toHaveBeenCalledTimes(101);
+  });
+
   it("treats empty-string collection and folder ids as unassigned", async () => {
     const db = createDb([]);
     getDbMock.mockReturnValue(db);
@@ -380,7 +503,7 @@ describe("import-asset-from-url", () => {
       folderId: "",
     });
 
-    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(db.select).toHaveBeenCalledTimes(2);
     expect(createAssetFromBufferMock).toHaveBeenCalledWith(
       expect.objectContaining({ collectionId: null, folderId: null }),
     );

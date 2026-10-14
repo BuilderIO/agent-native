@@ -1,0 +1,140 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
+import type { AppRolesDescriptor } from "@agent-native/core/org/app-roles";
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
+import type { ReactNode } from "react";
+
+import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
+import {
+  WorkspaceAppPrivacySettingsSection,
+  WorkspaceApplicationsSection,
+} from "./AppsAccessSection.js";
+import {
+  DomainSettingsSection,
+  A2ASecretSection,
+} from "./AuthenticationSection.js";
+import { useWorkspaceGroupEditor, GroupsSection } from "./GroupsSection.js";
+import { MembersSection } from "./MembersSection.js";
+import {
+  WorkspaceUrlSettingsSection,
+  DangerZoneCard,
+  OrgProfileGroup,
+} from "./OrgGeneralSection.js";
+import { OrgIdentitySettings } from "./OrgIdentitySettings.js";
+import {
+  PendingInvitationsCard,
+  JoinByDomainCard,
+  NoOrgCard,
+} from "./TeamOnboardingCards.js";
+
+export { DomainSettingsSection } from "./AuthenticationSection.js";
+export { WorkspaceGroupsCard } from "./GroupsSection.js";
+export { MemberRow, MembersTableCard } from "./MembersSection.js";
+export { OrgIdentitySettings } from "./OrgIdentitySettings.js";
+
+export interface TeamPageProps {
+  layout?: (children: ReactNode) => ReactNode;
+  title?: string;
+  showTitle?: boolean;
+  createOrgDescription?: string;
+  className?: string;
+  appRoles?: AppRolesDescriptor;
+}
+
+// The Team page's "Organization" group interleaves rows that
+// AuthenticationSection, AppsAccessSection, and OrgGeneralSection each own, so
+// it composes their parts directly to keep today's row order.
+function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
+  const { data: org } = useOrg();
+  const groupEditor = useWorkspaceGroupEditor();
+
+  if (!org?.orgId) return null;
+
+  const isOwnerOrAdmin = org.role === "owner" || org.role === "admin";
+  const isOwner = org.role === "owner";
+
+  return (
+    <div className="space-y-6">
+      <OrgProfileGroup>
+        {isOwnerOrAdmin && (
+          <>
+            <DomainSettingsSection
+              domain={org.allowedDomain}
+              ownerEmail={org.email}
+            />
+            <WorkspaceAppPrivacySettingsSection
+              visibility={org.workspaceAppDefaultVisibility ?? "org"}
+            />
+            <WorkspaceApplicationsSection />
+            <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
+            <OrgIdentitySettings
+              org={org}
+              requiredAuthProvider={org.requiredAuthProvider}
+            />
+            {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
+          </>
+        )}
+      </OrgProfileGroup>
+
+      <MembersSection appRoles={appRoles} groupEditor={groupEditor} />
+
+      <GroupsSection groupEditor={groupEditor} />
+
+      {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
+    </div>
+  );
+}
+
+export function TeamPage({
+  layout,
+  title,
+  showTitle = true,
+  createOrgDescription,
+  className,
+  appRoles,
+}: TeamPageProps) {
+  const t = useT();
+  const { data: org, isLoading } = useOrg();
+
+  const content = (
+    <div className={`w-full space-y-6 ${className ?? ""}`}>
+      {showTitle ? (
+        <h2 className="text-2xl font-bold tracking-tight">
+          {title ?? t("org.team")}
+        </h2>
+      ) : null}
+
+      {isLoading && (
+        <section className="rounded-lg border border-border bg-card p-6">
+          <SettingsSkeleton lines={3} />
+        </section>
+      )}
+
+      {!isLoading && (
+        <>
+          <PendingInvitationsCard />
+          {/* Sitting in a personal workspace still counts as having an org, so
+              gating this on `!org?.orgId` hid the only in-page way to reach the
+              company workspace from the people who most needed it. */}
+          {org?.domainMatches && org.domainMatches.length > 0 && (
+            <JoinByDomainCard matches={org.domainMatches} />
+          )}
+          {!org?.orgId ? (
+            <NoOrgCard
+              description={createOrgDescription}
+              orgCreation={org?.access?.orgCreation}
+            />
+          ) : (
+            <MembersCard key={org.orgId} appRoles={appRoles} />
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  const wrapped = (
+    <TooltipProvider delayDuration={200}>{content}</TooltipProvider>
+  );
+
+  return layout ? <>{layout(wrapped)}</> : wrapped;
+}

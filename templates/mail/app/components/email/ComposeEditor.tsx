@@ -211,6 +211,7 @@ export const ComposeEditor = forwardRef<
     editorProps: {
       attributes: {
         class: "compose-editor",
+        "data-an-block": "",
       },
       handleKeyDown: (_view, event) => {
         if (

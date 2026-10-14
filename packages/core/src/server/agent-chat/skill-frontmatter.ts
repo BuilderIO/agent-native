@@ -2,6 +2,36 @@ import {
   getFrontmatterValue,
   parseFrontmatter,
 } from "../../resources/metadata.js";
+import {
+  isWorkspaceResourceOwner,
+  sharedResourceOwner,
+  SHARED_OWNER,
+  type ResourceMeta,
+} from "../../resources/store.js";
+
+export function sortResourceSkills<
+  T extends Pick<ResourceMeta, "owner" | "path" | "updatedAt">,
+>(resources: T[], options: { owner?: string; orgId?: string | null }): T[] {
+  const organizationOwner = sharedResourceOwner(options.orgId);
+  const ownerOrder = (owner: string) =>
+    owner === options.owner
+      ? 0
+      : owner === organizationOwner
+        ? 1
+        : owner === SHARED_OWNER
+          ? 2
+          : isWorkspaceResourceOwner(owner)
+            ? 3
+            : 4;
+
+  return [...resources].sort((a, b) => {
+    const scopeOrder = ownerOrder(a.owner) - ownerOrder(b.owner);
+    if (scopeOrder !== 0) return scopeOrder;
+    const updatedOrder = b.updatedAt - a.updatedAt;
+    if (updatedOrder !== 0) return updatedOrder;
+    return a.path.localeCompare(b.path);
+  });
+}
 
 /**
  * Where a skill is meant to be used:
@@ -49,11 +79,13 @@ export function parseSkillFrontmatter(
   description?: string;
   userInvocable?: boolean;
   scope?: SkillScope;
+  requiresLab?: string;
 } {
   const frontmatter = parseFrontmatter(content);
   const userInvocable = getFrontmatterValue(frontmatter, "user-invocable");
   const rawScope = getFrontmatterValue(frontmatter, "scope");
   const name = getFrontmatterValue(frontmatter, "name");
+  const requiresLab = getFrontmatterValue(frontmatter, "requires-lab")?.trim();
   return {
     name,
     description: getFrontmatterValue(frontmatter, "description"),
@@ -64,5 +96,6 @@ export function parseSkillFrontmatter(
       userInvocable === undefined
         ? undefined
         : userInvocable.toLowerCase() === "true",
+    requiresLab: requiresLab || undefined,
   };
 }

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { parseArgs } from "../utils.js";
 
 interface DocMeta {
@@ -136,57 +137,82 @@ function slugifyDocId(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-async function loadAgentBundleDocs(): Promise<DocFull[]> {
-  try {
-    const { loadAgentsBundle, getRuntimeSkills, skillSubfileDocsSlug } =
-      await import("../../server/agents-bundle.js");
-    const bundle = await loadAgentsBundle();
-    const docs: DocFull[] = [];
-    if (bundle.workspaceAgentsMd?.trim()) {
-      docs.push({
-        slug: "agents-workspace",
-        title: "Workspace AGENTS.md",
-        description: "Full bundled workspace-level agent instructions.",
-        body: bundle.workspaceAgentsMd,
-      });
-    }
-    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
-    if (runtimeAgentsMd?.trim()) {
-      docs.push({
-        slug: "agents-template",
-        title: "Template AGENTS.md",
-        description: "Full bundled template/app agent instructions.",
-        body: runtimeAgentsMd,
-      });
-    }
-    // Only runtime-visible skills are searchable/readable here — `scope: dev`
-    // skills are meant for the human's coding agent (Claude Code), not the
-    // in-app runtime agent, so they must not appear in docs-search results.
-    for (const skill of getRuntimeSkills(bundle)) {
-      const slug = `skill-${slugifyDocId(skill.meta.name)}`;
-      docs.push({
-        slug,
-        title: `Skill: ${skill.meta.name}`,
-        description: skill.meta.description,
-        body: skill.content,
-      });
-      for (const [relPath, content] of Object.entries(skill.files)) {
-        docs.push({
-          slug: skillSubfileDocsSlug(skill.meta.name, relPath),
-          title: `Skill: ${skill.meta.name} — ${relPath}`,
-          description: `Reference file from the "${skill.meta.name}" skill (${relPath}).`,
-          body: content,
-        });
-      }
-    }
-    return docs;
-  } catch {
-    return [];
+async function loadAgentBundleDocs(
+  userEmail?: string | null,
+): Promise<DocFull[]> {
+  const agentsBundleModule = await import("../../server/agents-bundle.js");
+  const bundle = await agentsBundleModule.loadAgentsBundle();
+
+  const docs: DocFull[] = [];
+  if (bundle.workspaceAgentsMd?.trim()) {
+    docs.push({
+      slug: "agents-workspace",
+      title: "Workspace AGENTS.md",
+      description: "Full bundled workspace-level agent instructions.",
+      body: bundle.workspaceAgentsMd,
+    });
   }
+  const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+  if (runtimeAgentsMd?.trim()) {
+    docs.push({
+      slug: "agents-template",
+      title: "Template AGENTS.md",
+      description: "Full bundled template/app agent instructions.",
+      body: runtimeAgentsMd,
+    });
+  }
+  // Only runtime-visible skills are searchable/readable here — `scope: dev`
+  // skills are meant for the human's coding agent (Claude Code), not the
+  // in-app runtime agent, so they must not appear in docs-search results.
+  const runtimeSkills = await agentsBundleModule.getRuntimeSkillsForUser(
+    bundle,
+    userEmail,
+  );
+  for (const skill of runtimeSkills) {
+    const slug = `skill-${slugifyDocId(skill.meta.name)}`;
+    docs.push({
+      slug,
+      title: `Skill: ${skill.meta.name}`,
+      description: skill.meta.description,
+      body: skill.content,
+    });
+    for (const [relPath, content] of Object.entries(skill.files)) {
+      docs.push({
+        slug: agentsBundleModule.skillSubfileDocsSlug(skill.meta.name, relPath),
+        title: `Skill: ${skill.meta.name} — ${relPath}`,
+        description: `Reference file from the "${skill.meta.name}" skill (${relPath}).`,
+        body: content,
+      });
+    }
+  }
+  return docs;
 }
 
-export async function loadAllDocs(): Promise<DocFull[]> {
-  return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs())];
+function formatDocPage(doc: DocFull): string {
+  return `# ${doc.title}\n\n${doc.description ? `${doc.description}\n\n` : ""}${doc.body}`;
+}
+
+// Slugs come from the client, so only skills visible to this user resolve.
+export async function loadSkillDocPages(
+  slugs: readonly string[],
+  userEmail: string | null | undefined,
+): Promise<Map<string, string>> {
+  const pages = new Map<string, string>();
+  if (slugs.length === 0) return pages;
+  const docs = new Map(
+    (await loadAgentBundleDocs(userEmail)).map((doc) => [doc.slug, doc]),
+  );
+  for (const slug of slugs) {
+    const doc = slug.startsWith("skill-") ? docs.get(slug) : undefined;
+    if (doc) pages.set(slug, formatDocPage(doc));
+  }
+  return pages;
+}
+
+export async function loadAllDocs(
+  userEmail = getRequestUserEmail(),
+): Promise<DocFull[]> {
+  return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs(userEmail))];
 }
 
 async function searchDocs(query: string): Promise<DocMeta[]> {
@@ -251,9 +277,7 @@ Options:
       logMissingFrameworkDocsNote();
       return;
     }
-    console.log(`# ${doc.title}\n`);
-    if (doc.description) console.log(`${doc.description}\n`);
-    console.log(doc.body);
+    console.log(formatDocPage(doc));
     return;
   }
 
@@ -275,5 +299,12 @@ Options:
     return;
   }
 
-  console.log("Provide --query, --slug, or --list. Use --help for details.");
+  console.log(
+    [
+      "Usage:",
+      '  pnpm action docs-search --query "<feature>"',
+      "  pnpm action docs-search --slug <slug>",
+      "  pnpm action docs-search --list",
+    ].join("\n"),
+  );
 }

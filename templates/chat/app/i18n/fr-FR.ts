@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "Supprimer {{name}}",
+    removeReference: "Supprimer la référence {{name}}",
+  },
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour cette app.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
@@ -36,6 +35,10 @@ const messages = {
     recents: "Récents",
     retryPreviousRequest:
       "Réessaie ma demande précédente maintenant que le fournisseur du modèle est connecté.",
+    invalidHandoffOptions:
+      "Le prompt a été enregistré comme brouillon, mais ses paramètres de chat n'ont pas pu être restaurés. Vérifiez le prompt, le contexte et le modèle avant de le renvoyer.",
+    recoveryDraftUnsaved:
+      "Ces modifications du brouillon ne sont pas enregistrées. Si vous rechargez cette conversation, vous risquez de les perdre.",
     retryAttachmentUnavailable:
       "Chat ne peut pas rouvrir cette pièce jointe pour réessayer. Ajoutez une URL de fichier accessible, puis réessayez.",
     renameChat: "Renommer le chat",
@@ -47,12 +50,29 @@ const messages = {
     unpinChat: "Désépingler le chat",
     untitledChat: "Chat sans titre",
   },
+  home: {
+    communityDescription: "Rejoignez la communauté Agent-Native",
+    composerPlaceholder: "Appelle l’action hello pour Alex",
+    communityTitle: "Rejoignez-nous",
+    docsAddAction: "Ajouter une action",
+    docsAddPage: "Ajouter une page",
+    docsDescription: "Guides sur les actions, les pages et les agents",
+    docsGettingStarted: "Premiers pas",
+    docsKeyConcepts: "Concepts clés",
+    docsTitle: "Documentation",
+    editHint:
+      "Modifiez {{file}}, enregistrez, puis redemandez pour voir le nouveau message.",
+    lead: "L’interface de votre app et son agent partagent les mêmes actions.",
+    leadTry: "Demandez à l’agent d’appeler l’action hello.",
+    title: "Commencer",
+  },
   navigation: {
     chat: "Chat",
     collapseSidebar: "Réduire la barre latérale",
     database: "Base de données",
     expandSidebar: "Développer la barre latérale",
     extensions: "Rallonges",
+    home: "Accueil",
     navigation: "Navigation",
     navigationDescription: "Navigation principale",
     observability: "Observabilité",

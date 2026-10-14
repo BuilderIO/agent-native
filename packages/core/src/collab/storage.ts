@@ -10,14 +10,14 @@ export const collabDocsStore = defineStore({
       run: async () => {
         const nowDefault = "NOW()::text";
         const createSql = `
-        CREATE TABLE IF NOT EXISTS _collab_docs (
-          doc_id TEXT PRIMARY KEY,
-          yjs_state TEXT NOT NULL,
-          text_snapshot TEXT NOT NULL DEFAULT '',
-          version INTEGER NOT NULL DEFAULT 0,
-          updated_at TEXT NOT NULL DEFAULT (${nowDefault})
-        )
-      `;
+          CREATE TABLE IF NOT EXISTS _collab_docs (
+            doc_id TEXT PRIMARY KEY,
+            yjs_state TEXT NOT NULL,
+            text_snapshot TEXT NOT NULL DEFAULT '',
+            version INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (${nowDefault})
+          )
+        `;
 
         await ensureTableExists("_collab_docs", createSql);
         await ensureColumnExists(

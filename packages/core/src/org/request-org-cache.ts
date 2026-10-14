@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { getRequestContext } from "../server/request-context.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 
@@ -60,6 +62,7 @@ const processMemberships = createTtlCache<unknown[]>({
   ttlMs: MEMBER_ORGS_TTL_MS,
   maxEntries: 2_048,
 });
+let membershipGeneration = 0;
 
 export async function cachedMemberships<T>(
   email: string,
@@ -68,16 +71,132 @@ export async function cachedMemberships<T>(
   const key = email.trim().toLowerCase();
   const hit = processMemberships.get(key);
   if (hit) return hit as T[];
+  const generation = membershipGeneration;
   const rows = await load();
-  if (rows !== null) processMemberships.set(key, rows as unknown[]);
+  if (generation === membershipGeneration && rows !== null && rows.length > 0) {
+    processMemberships.set(key, rows as unknown[]);
+  }
   return rows;
+}
+
+/**
+ * Workspace-app access facts re-read by every guarded `/_agent-native/*` and
+ * `/api/*` request: the `workspace_apps` row, the caller's org member row, the
+ * org's allowed domain, the local app-enabled flag, and the dispatch registry
+ * answer. They share the membership TTL and `invalidateMemberOrgCaches`, so a
+ * change on this instance clears them. A change made on another instance, or
+ * by the dispatch service, is honored within the TTL.
+ *
+ * Store only successful reads, and take the generation before the load: a read
+ * that raced an invalidation must not re-cache the answer it was replacing.
+ */
+const processWorkspaceAccess = createTtlCache<unknown>({
+  ttlMs: MEMBER_ORGS_TTL_MS,
+  maxEntries: 4_096,
+});
+let workspaceAccessGeneration = 0;
+
+export function workspaceAccessGenerationNow(): number {
+  return workspaceAccessGeneration;
+}
+
+export function getCachedWorkspaceAccess<T>(key: string): T | undefined {
+  return processWorkspaceAccess.get(key) as T | undefined;
+}
+
+export function rememberWorkspaceAccess(
+  key: string,
+  value: unknown,
+  generation: number,
+): void {
+  if (generation === workspaceAccessGeneration) {
+    processWorkspaceAccess.set(key, value);
+  }
 }
 
 export function invalidateMemberOrgCaches(): void {
   cacheForRequest(false)?.clear();
+  membershipGeneration += 1;
   processMemberships.clear();
+  workspaceAccessGeneration += 1;
+  processWorkspaceAccess.clear();
+}
+
+export const ACTIVE_ORG_SETTING_KEY = "active-org-id";
+
+export type ActiveOrgSetting = { orgId: string | null } | null;
+
+/**
+ * Rotated by every request that changes its caller's `active-org-id` and by
+ * every new session, and part of the cache key below. A browser that switched
+ * organizations or signed in carries the new value on its next request, so
+ * every instance misses and reads the current selection, while an instance
+ * that still holds the previous answer serves it only to requests that never
+ * saw the change. The value selects a cache entry and nothing else: a forged
+ * one can only cause a miss.
+ */
+export const ORG_SELECTION_COOKIE = "an_org_selection";
+const ORG_SELECTION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+export function newOrgSelection(): string {
+  return randomBytes(18).toString("base64url");
+}
+
+/**
+ * Every well-formed copy, joined: a partitioned and an unpartitioned copy can
+ * both arrive, and a rotation of either must change the key.
+ */
+export function orgSelectionFromCookieHeader(
+  header: string | null | undefined,
+): string {
+  const values: string[] = [];
+  for (const part of header?.split(";") ?? []) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    if (part.slice(0, separator).trim() !== ORG_SELECTION_COOKIE) continue;
+    const value = part.slice(separator + 1).trim();
+    if (ORG_SELECTION_PATTERN.test(value)) values.push(value);
+  }
+  return values.join(".");
+}
+
+/**
+ * The `active-org-id` preference, held across requests for the same TTL as
+ * the memberships it selects from, keyed by email and org selection. It only
+ * chooses among memberships, so a stale value can never select an org the
+ * caller no longer belongs to. `user-settings` invalidates this instance's
+ * entries on every write to the key, and the generation check stops a read
+ * that raced a write from caching the old value here.
+ */
+const processActiveOrgSettings = createTtlCache<ActiveOrgSetting>({
+  ttlMs: MEMBER_ORGS_TTL_MS,
+  maxEntries: 2_048,
+});
+let activeOrgSettingGeneration = 0;
+
+export async function cachedActiveOrgSetting(
+  email: string,
+  orgSelection: string,
+  load: () => Promise<ActiveOrgSetting>,
+): Promise<ActiveOrgSetting> {
+  const key = `${orgSelection}:${email.trim().toLowerCase()}`;
+  const hit = processActiveOrgSettings.get(key);
+  if (hit !== undefined) return hit;
+  const generation = activeOrgSettingGeneration;
+  const setting = await load();
+  if (generation === activeOrgSettingGeneration) {
+    processActiveOrgSettings.set(key, setting);
+  }
+  return setting;
+}
+
+export function invalidateActiveOrgSettingCache(): void {
+  activeOrgSettingGeneration += 1;
+  processActiveOrgSettings.clear();
 }
 
 export function __resetProcessMemberOrgCacheForTests(): void {
   processMemberships.clear();
+  processActiveOrgSettings.clear();
+  processWorkspaceAccess.clear();
 }

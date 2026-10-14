@@ -1,26 +1,24 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   createContext,
@@ -42,11 +40,12 @@ import {
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { cn } from "@/lib/utils";
 
+import { DesignComposerContextProvider } from "../editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "../editor/FigmaLinkComposerBubble";
-import { Header, MobileHeaderActions } from "./Header";
+import { Header, isDesignHomeRoute, MobileHeaderActions } from "./Header";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
@@ -71,9 +70,13 @@ function resolveDesignLayoutMode(input: {
   embedded: boolean;
   hasSession: boolean;
   isDesignEditor: boolean;
+  mcpAppWidgetEmbed: boolean;
 }): DesignLayoutMode {
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route or session state.
   if (
     input.builderHostEmbed ||
+    input.mcpAppWidgetEmbed ||
     (input.isDesignEditor && !input.hasSession && !input.embedded)
   ) {
     return "host-bare";
@@ -94,6 +97,7 @@ export function Layout({ children }: LayoutProps) {
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const builderHostEmbed = isBuilderHostEmbed();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell canvas is embedded without a session, so this cannot be the token
   // check alone or it renders Design's own nav inside Builder.
@@ -108,17 +112,14 @@ export function Layout({ children }: LayoutProps) {
     embedded,
     hasSession,
     isDesignEditor,
+    mcpAppWidgetEmbed,
   });
   const standaloneEditor = layoutMode === "standalone-editor";
-  // The redesigned Settings brings its own navigation, header, and agent
-  // toggle, so it renders full width. While the flag loads it shows the
-  // shell's skeleton, which needs the same frame.
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const isRedesignedSettingsRoute =
-    isSettingsPathname(location.pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
-  const showAppNav = !standaloneEditor && !isRedesignedSettingsRoute;
-  const showMobileTopBar = showAppNav;
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
+  const showAppNav = !standaloneEditor && !isSettingsRoute;
+  const showMobileTopBar = showAppNav && !isDesignHomeRoute(location.pathname);
   const browserTabId = getBrowserTabId();
   const {
     link: detectedFigmaComposerLink,
@@ -160,7 +161,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -192,7 +193,6 @@ export function Layout({ children }: LayoutProps) {
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
     enabled: hasSession,
-    providerStatusChecksEnabled: false,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -216,15 +216,18 @@ export function Layout({ children }: LayoutProps) {
 
   const hideHeader =
     isChatRoute ||
-    isRedesignedSettingsRoute ||
+    isSettingsRoute ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const designQuery = designScope
       ? `?designId=${encodeURIComponent(designScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${designQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${designQuery}`);
   }
 
   if (layoutMode === "host-bare") {
@@ -232,14 +235,18 @@ export function Layout({ children }: LayoutProps) {
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
           <div className="flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-            <main
-              className={cn(
-                "min-w-0 flex-1",
-                isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
-              )}
-            >
-              {children}
-            </main>
+            {/* Matches the standalone editor's depth: a resolving session
+                switches modes, and a different tree remounts the editor. */}
+            <div className="contents">
+              <main
+                className={cn(
+                  "min-w-0 flex-1",
+                  isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
+                )}
+              >
+                {children}
+              </main>
+            </div>
           </div>
         </MobileSidebarContext.Provider>
       </HeaderActionsProvider>
@@ -300,14 +307,16 @@ export function Layout({ children }: LayoutProps) {
         )}
         {!hideHeader && (
           <>
-            <MobileHeaderActions />
-            <Header />
+            {!isDesignHomeRoute(location.pathname) ? (
+              <MobileHeaderActions />
+            ) : null}
+            <Header onOpenNavigation={openMobileSidebar} />
           </>
         )}
         <main
           className={cn(
             "agent-native-app-main min-h-0 flex-1",
-            isDesignEditor || isChatRoute || isRedesignedSettingsRoute
+            isDesignEditor || isChatRoute || isSettingsRoute
               ? "overflow-hidden"
               : "overflow-y-auto",
           )}
@@ -327,6 +336,7 @@ export function Layout({ children }: LayoutProps) {
           shell
         ) : (
           <AgentSidebar
+            composerContextProvider={DesignComposerContextProvider}
             position="right"
             chatViewTransition
             chatViewTransitionHandoff={chatHomeHandoffPending}
@@ -343,6 +353,9 @@ export function Layout({ children }: LayoutProps) {
             scope={designScope}
             chatHistory={designChatHistory}
             showScopeBadge={false}
+            setupCardOwner={
+              isDesignHomeRoute(location.pathname) ? "host" : "chat"
+            }
             browserTabId={browserTabId}
             threadFooterSlot={designQuestionsWaitingSlot}
             onComposerTextChange={handleComposerTextChange}

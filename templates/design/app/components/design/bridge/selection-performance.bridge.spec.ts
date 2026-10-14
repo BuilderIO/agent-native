@@ -31,6 +31,20 @@ ${marker}`,
   return withFactory;
 }
 
+function hydratedBridgeWithSelectableCount(): string {
+  const script = hydratedBridge();
+  const marker = "  function collectSelectableElementInfos(";
+  const instrumented = script.replace(
+    marker,
+    "  window.__testCollectSelectableCount = function () { return collectSelectableElements(true).length; };\n" +
+      marker,
+  );
+  if (instrumented === script) {
+    throw new Error("selectable collection test hook insertion point changed");
+  }
+  return instrumented;
+}
+
 const CARDS = 60;
 const LARGE_CANDIDATES = 849;
 const LARGE_DOM_ELEMENTS = 883;
@@ -50,6 +64,14 @@ function fixture(): string {
     </div>`;
   }
   return `${html}</body></html>`;
+}
+
+function tenThousandSiblingFixture(): string {
+  let html = '<!doctype html><html><body style="margin:0"><main id="root">';
+  for (let index = 0; index < 10_000; index += 1) {
+    html += `<div data-agent-native-node-id="sibling-${index}" style="position:absolute;left:${index * 13}px;top:0;width:12px;height:12px"></div>`;
+  }
+  return `${html}</main></body></html>`;
 }
 
 function largeFixture(): string {
@@ -544,6 +566,60 @@ describe("overview marquee selectable-rects collection", () => {
           (info) => (info.portableStyleSnapshot?.nodes?.length ?? 0) > 0,
         ),
       ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+});
+
+describe("large sibling marquee collection", () => {
+  it("checks template ownership in work proportional to ten thousand siblings", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(tenThousandSiblingFixture());
+      await page.evaluate(() => {
+        const root = document.querySelector<HTMLElement>("#root")!;
+        const children = root.children;
+        const windowWithCount = window as typeof window & {
+          __siblingReads?: number;
+        };
+        windowWithCount.__siblingReads = 0;
+        Object.defineProperty(root, "children", {
+          configurable: true,
+          get: () =>
+            new Proxy(children, {
+              get(target, property, receiver) {
+                if (property === "length") {
+                  return (windowWithCount.__siblingReads ?? 0) >= 100_000
+                    ? 0
+                    : Reflect.get(target, property, target);
+                }
+                if (
+                  typeof property === "string" &&
+                  /^(0|[1-9]\d*)$/.test(property)
+                ) {
+                  windowWithCount.__siblingReads =
+                    (windowWithCount.__siblingReads ?? 0) + 1;
+                }
+                return Reflect.get(target, property, target);
+              },
+            }),
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridgeWithSelectableCount() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const { selectedCount, siblingReads } = await page.evaluate(() => ({
+        selectedCount: (window as any).__testCollectSelectableCount(),
+        siblingReads: (window as typeof window & { __siblingReads?: number })
+          .__siblingReads,
+      }));
+
+      expect(selectedCount).toBe(10_001);
+      expect(siblingReads).toBeLessThan(50_000);
     } finally {
       await browser.close();
     }
@@ -1475,6 +1551,70 @@ describe("large concurrent selectable-rects requests", () => {
 });
 
 describe("a marquee drag does not rebuild element info every frame", () => {
+  it("repositions a retained passive overlay when its target moves as selection changes", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 900 },
+      });
+      await openBridgePage(page);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-elements",
+            selectorGroups: [
+              '[data-agent-native-node-id="card-0"]',
+              '[data-agent-native-node-id="card-1"]',
+              '[data-agent-native-node-id="card-2"]',
+            ].map((selector) => [selector]),
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll(
+            '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+          ).length === 3,
+      );
+
+      const positions = await page.evaluate(
+        () =>
+          new Promise<{ overlayTop: number; targetTop: number }>((resolve) => {
+            const target = document.querySelector(
+              '[data-agent-native-node-id="card-2"]',
+            ) as HTMLElement;
+            target.style.top = "250px";
+            window.postMessage(
+              {
+                type: "select-elements",
+                selectorGroups: [
+                  '[data-agent-native-node-id="card-0"]',
+                  '[data-agent-native-node-id="card-3"]',
+                  '[data-agent-native-node-id="card-2"]',
+                ].map((selector) => [selector]),
+              },
+              "*",
+            );
+            window.setTimeout(() => {
+              const overlay = document.querySelectorAll<HTMLElement>(
+                '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+              )[2];
+              resolve({
+                overlayTop: Number.parseFloat(overlay.style.top),
+                targetTop: target.getBoundingClientRect().top,
+              });
+            }, 0);
+          }),
+      );
+
+      expect(positions.overlayTop).toBe(positions.targetTop);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("keeps computed-style reads proportional to elements, not to frames", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

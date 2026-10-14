@@ -15,10 +15,12 @@ describe("feature flag registry across module instances", () => {
     const actionCopy = await import("./registry.js");
     expect(actionCopy).not.toBe(pluginCopy);
 
-    pluginCopy.registerFeatureFlags([pluginCopy.SETTINGS_REDESIGN_FLAG]);
+    const flag = pluginCopy.defineFeatureFlag({
+      key: "example-flag",
+      displayName: "Example flag",
+    });
+    pluginCopy.registerFeatureFlags([flag]);
 
-    expect(actionCopy.getFeatureFlagDefinition("settings-redesign")).toEqual(
-      pluginCopy.SETTINGS_REDESIGN_FLAG,
-    );
+    expect(actionCopy.getFeatureFlagDefinition("example-flag")).toEqual(flag);
   });
 });

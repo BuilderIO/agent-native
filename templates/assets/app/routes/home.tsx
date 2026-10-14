@@ -1,5 +1,4 @@
 import {
-  AgentChatHome,
   markAgentChatHomeHandoff,
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
@@ -9,6 +8,7 @@ import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
 } from "@agent-native/toolkit/agentkit";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -54,13 +54,11 @@ export default function CreatePage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: chatThreadPath,
-        navigate,
-      }
-    : undefined;
+  const threadUrlSync = {
+    routeThreadId: threadId ?? null,
+    getPath: chatThreadPath,
+    navigate,
+  };
   const imageModelMenu = useImageModelMenu(threadId);
 
   useEffect(() => {

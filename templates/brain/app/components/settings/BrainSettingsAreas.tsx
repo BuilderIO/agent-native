@@ -7,7 +7,7 @@ import {
   SettingsGroup,
   SettingsRow,
   type SettingsAppArea,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustments,
   IconLock,
@@ -587,15 +587,6 @@ function PublishingArea({
                 />
               }
             />
-            <SwitchRow
-              id="require-approval"
-              label={t("settings.requireApproval")}
-              description={t("settings.requireApprovalDescription")}
-              checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
-              onChange={(checked) =>
-                void save({ requireApprovalForCompanyKnowledge: checked })
-              }
-            />
           </SettingsGroup>
           <SettingsGroup
             id="brain-review-queue"
@@ -969,17 +960,12 @@ export function useBrainSettingsAreas(): SettingsAppArea[] {
         id: "publishing",
         label: t("settings.area.tabPublishing"),
         icon: IconAdjustments,
-        keywords: "publishing review publish tier approval connector poll",
+        keywords: "publishing review publish tier connector poll",
         searchEntries: [
           searchEntry(
             "publish-tier",
             t("settings.defaultPublishTier"),
             "private team company visibility",
-          ),
-          searchEntry(
-            "require-approval",
-            t("settings.requireApproval"),
-            "approval review",
           ),
           searchEntry(
             "auto-archive-resolved",

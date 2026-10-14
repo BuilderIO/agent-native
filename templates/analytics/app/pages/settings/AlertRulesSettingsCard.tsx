@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconBell,
   IconChevronDown,
   IconLoader2,
   IconPencil,
@@ -28,13 +27,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
@@ -276,15 +268,7 @@ function parseFilters(filtersJson: string): AnalyticsAlertFilter[] {
   return parsed as AnalyticsAlertFilter[];
 }
 
-export function AlertRulesSettingsCard({
-  embedded = false,
-}: {
-  /**
-   * Drop the card and its title for a surface that already names the rules,
-   * like the Alerts tab on the redesigned Analytics General page.
-   */
-  embedded?: boolean;
-} = {}) {
+export function AlertRulesSettingsCard() {
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<AlertRuleFormState | null>(null);
@@ -689,33 +673,10 @@ export function AlertRulesSettingsCard({
 
   return (
     <>
-      {embedded ? (
-        <div id="alert-rules" className="flex scroll-mt-16 flex-col gap-4">
-          <div className="flex justify-end">{actions}</div>
-          {body}
-        </div>
-      ) : (
-        <Card
-          id="alert-rules"
-          className="bg-card border-border/50 scroll-mt-16"
-        >
-          <CardHeader>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <IconBell className="size-4 text-primary" />
-                  {t("settings.alertsTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.alertsDescription")}
-                </CardDescription>
-              </div>
-              {actions}
-            </div>
-          </CardHeader>
-          <CardContent>{body}</CardContent>
-        </Card>
-      )}
+      <div id="alert-rules" className="flex scroll-mt-16 flex-col gap-4">
+        <div className="flex justify-end">{actions}</div>
+        {body}
+      </div>
 
       <AlertRuleDialog
         form={editing}

@@ -34,6 +34,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  dedupe: false,
   run: async (args): Promise<HostOverlayStatusResult[]> => {
     const callerEmail = getRequestUserEmail();
     if (!callerEmail) throw new Error("no authenticated user");

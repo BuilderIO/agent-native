@@ -1,5 +1,5 @@
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import type { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { useEffect } from "react";
 
 type FileUploadStatus = ReturnType<typeof useFileUploadStatus>;

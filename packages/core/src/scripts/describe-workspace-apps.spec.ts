@@ -75,6 +75,21 @@ describe("describe-workspace-apps", () => {
     expect(tool.description).toContain("never hand-maintain");
   });
 
+  it("limits peer discovery to relevant cross-app needs", () => {
+    expect(tool.description).toContain(
+      "Use only when the current request needs another app's data or capability",
+    );
+    expect(tool.description).toContain(
+      "cannot tell which peer owns it or whether a known peer can provide it",
+    );
+    expect(tool.description).toContain(
+      "Do not use it as a preflight for ordinary local work",
+    );
+    expect(tool.description).not.toContain(
+      "Use this before building a capability locally",
+    );
+  });
+
   it("makes the receiving specialist agent the default cross-app path", () => {
     expect(tool.description).toContain("natural-language call-agent message");
     expect(tool.description).toContain(

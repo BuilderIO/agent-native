@@ -7,7 +7,6 @@ export default {
     connecting: "Verbinden...",
     clipboardUnavailable: "Zugriff auf die Zwischenablage ist nicht verfügbar",
     disconnect: "Trennen",
-    notConnected: "Nicht verbunden",
     loadFailed: "Diese Daten konnten nicht geladen werden.",
     retry: "Erneut versuchen",
     saving: "Speichern...",
@@ -205,10 +204,6 @@ export default {
   },
   settings: {
     title: "Einstellungen",
-    description: "Kalender und Integrationen konfigurieren.",
-    languageTitle: "Sprache",
-    languageDescription: "Wähle die Oberflächensprache für Calendar.",
-    languageLabel: "Oberflächensprache",
     agentTitle: "Agent verwalten",
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
@@ -223,13 +218,8 @@ export default {
     zoomConnectFailed: "Zoom konnte nicht verbunden werden",
     zoomDisconnected: "Zoom getrennt",
     zoomDisconnectFailed: "Zoom konnte nicht getrennt werden",
-    general: "Allgemein",
-    generalDescription: "Kalender-Standards und Buchungstexte.",
-    timezone: "Zeitzone",
-    saveSettings: "Einstellungen speichern",
     saved: "Einstellungen gespeichert",
     saveFailed: "Einstellungen konnten nicht gespeichert werden",
-    appearance: "Darstellung",
     appearanceDescription:
       "Wähle ein Farbtheme für deinen Workspace oder frage den Agenten.",
     desktopNotifications: "Desktop-Benachrichtigungen",
@@ -244,20 +234,10 @@ export default {
       "Synchronisiere Termine und verwalte alles an einem Ort.",
     zoomDescription:
       "Verbinde Zoom, um Meeting-Links für Kalenderereignisse und Buchungen zu erstellen.",
-    zoomNotConfigured: "Nicht konfiguriert",
     zoomCredentialsPrompt:
       "Füge Zoom-OAuth-Anmeldedaten hinzu, um die Verbindung zu aktivieren.",
-    bookingTitleLabel: "Fallback-Titel der Buchungsseite",
     bookingTitlePlaceholder: "Meeting buchen",
-    bookingTitleHelp:
-      "Wird nur verwendet, wenn ein Buchungslink keinen Titel hat. Erstelle, öffne und kopiere öffentliche URLs über Buchungslinks.",
-    bookingDescriptionLabel: "Fallback-Beschreibung der Buchungsseite",
     bookingDescriptionPlaceholder: "Wähle eine passende Zeit.",
-    bookingDescriptionHelp:
-      "Wird nur verwendet, wenn ein Buchungslink keine eigene Beschreibung hat.",
-    defaultDurationLabel: "Standarddauer für Ereignisse (Minuten)",
-    defaultDurationHelp:
-      "Standardlänge für neue Kalenderereignisse und Buchungsslots. Buchungslinks können sie pro Link überschreiben.",
     weekStartLabel: "Wochenbeginn",
     weekStartSunday: "Sonntag - Samstag",
     weekStartMonday: "Montag - Sonntag",
@@ -267,7 +247,7 @@ export default {
     eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
     eventRulesFreeBuilderOrApiKey:
       "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
-    eventRulesConnectBuilder: "Builder.io verbinden",
+    eventRulesConnectBuilder: "Builder.io verwenden",
     eventRulesAddJevApiKey: "API-Schlüssel hinzufügen",
     eventRulesTabRules: "Regeln",
     eventRulesHelpLabel: "Hinweise zu Einladungsregeln",
@@ -642,6 +622,7 @@ export default {
     fieldRequired: "{{label}} ist erforderlich",
     linkDisabled: "{{title}} deaktiviert",
     linkEnabled: "{{title}} aktiviert",
+    advanced: "Erweitert",
     linkVisibility: "Link-Sichtbarkeit",
     linkVisibilityDescription:
       "Deaktivieren Sie diese Option, um die öffentliche Seite zu deaktivieren.",
@@ -825,6 +806,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "Höhe des Ganztagsbereichs ändern",
     addWorkingLocation: "Arbeitsort hinzufügen",
     addTitleBeforeCreate:
       "Fügen Sie einen Titel hinzu, bevor Sie das Ereignis erstellen",
@@ -1021,6 +1003,8 @@ export default {
     occurrences: "Vorkommen",
     reviewInvite: "Bewertungseinladung",
     reviewProposedTime: "Vorgeschlagene Zeit prüfen",
+    newTimeProposedBy: "Neuer Zeitpunkt vorgeschlagen von {{name}}",
+    reviewTimeProposals: "Zeitvorschläge prüfen",
     responseAwaitingCount: "{{count}} ausstehend",
     responseMaybeCount: "{{count}} vielleicht",
     responseNoCount: "{{count}} nein",

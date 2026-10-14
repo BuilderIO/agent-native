@@ -8,7 +8,11 @@ import {
   type PrivateBlobProvider,
 } from "@agent-native/core/private-blob";
 import { readAppSecret } from "@agent-native/core/secrets";
-import { getRequestOrgId, resolveSecret } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  prefetchSecrets,
+  resolveSecret,
+} from "@agent-native/core/server";
 
 import {
   legacyOrganizationLogoObjectKey,
@@ -272,7 +276,23 @@ async function resolveS3Secret(primary: string, fallback: string) {
   );
 }
 
+const S3_SECRET_KEYS = [
+  "S3_BUCKET",
+  "R2_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "R2_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "R2_SECRET_ACCESS_KEY",
+  "S3_ENDPOINT",
+  "R2_ENDPOINT",
+  "S3_REGION",
+  "R2_REGION",
+  "S3_PUBLIC_BASE_URL",
+  "R2_PUBLIC_BASE_URL",
+] as const;
+
 async function readS3Config(): Promise<S3Config | null> {
+  await prefetchSecrets(S3_SECRET_KEYS);
   return buildS3Config({
     bucket: await resolveS3Secret("S3_BUCKET", "R2_BUCKET"),
     accessKeyId: await resolveS3Secret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),

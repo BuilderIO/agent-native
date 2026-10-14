@@ -39,6 +39,32 @@ The Netlify specifics live in the workflow and each template's `netlify.toml`.
 Only sites returned by `previewEligibleSiteNames()` in
 `scripts/netlify-pr-preview-targets.ts` can receive an artifact-only PR alias.
 
+## Functions region
+
+Netlify Functions run in a single AWS region per site (`functions_region`).
+When a site's functions run in a different region than its Neon database, every
+request pays cross-region round-trip latency on top of query time, even when
+the query itself is fast. `deploy-netlify-prebuilt.yml` closes that gap for
+every beta and production deploy that has a `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>`
+secret:
+
+- **Place Functions near the database** (before upload) reads that secret and
+  derives its AWS region with `scripts/netlify-database-region.ts`, which
+  parses Neon's pooler and direct endpoint hostnames (for example
+  `ep-x-pooler.us-east-1.aws.neon.tech`). If the secret is empty or the host
+  isn't a Neon region Netlify Functions supports, the step logs a notice and
+  leaves the site's region unchanged instead of guessing. Otherwise it PATCHes
+  the site's `functions_region` to match and re-reads the site to confirm the
+  change persisted. It never logs the database URL itself, only the derived
+  region.
+- **Verify Functions deployed near the database** (after the publish wait)
+  reads the same published deploy back from the Netlify API and fails the
+  workflow if any function named `server` or ending in `-background` is not
+  reported in that region.
+
+`@agent-native/docs` and any target without a matching database secret are
+skipped; their Functions region is left as configured in Netlify.
+
 ## Preview access requirements
 
 The GitHub workflow restricts who can create previews; it does not restrict

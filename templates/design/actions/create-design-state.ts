@@ -7,8 +7,9 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeCaptureData,
@@ -89,7 +90,6 @@ export default defineAction({
   }) => {
     await assertAccess("design", designId, "editor");
 
-    const db = getDb();
     const id = nanoid();
     const now = new Date().toISOString();
     const ownerEmail = getRequestUserEmail();
@@ -130,21 +130,24 @@ export default defineAction({
       );
     }
 
-    await db.insert(schema.designState).values({
-      id,
-      designId,
-      sourceRef: sourceRef ?? null,
-      name,
-      kind,
-      breakpoint,
-      route: route ?? null,
-      fixtureData: fixtureDataJson,
-      captureData: captureDataJson,
-      previewRef: previewRef ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designState).values({
+        id,
+        designId,
+        sourceRef: sourceRef ?? null,
+        name,
+        kind,
+        breakpoint,
+        route: route ?? null,
+        fixtureData: fixtureDataJson,
+        captureData: captureDataJson,
+        previewRef: previewRef ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     return {

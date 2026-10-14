@@ -4,15 +4,18 @@ import {
   IconDeviceFloppy,
   IconFilterOff,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { MenuSearchInput } from "@/components/ui/command";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
@@ -23,6 +26,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -31,12 +39,17 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { resolveDefault, resolveFilterVars } from "./filter-vars";
+import { DateRangeInput } from "../_shared/components/DateRangeInput";
+import {
+  FILTER_PARAM_PREFIX,
+  isDateRangePresetFilter,
+  MULTI_SELECT_EMPTY,
+  resolveDefault,
+  resolveFilterVars,
+} from "./filter-vars";
 import type { DashboardFilter } from "./types";
 
-export { resolveFilterVars } from "./filter-vars";
-
-export const FILTER_PARAM_PREFIX = "f_";
+export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
 /** Check if any filter param in the URL differs from the defaults */
 function hasActiveFilters(
@@ -48,6 +61,13 @@ function hasActiveFilters(
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
     } else {
+      if (
+        isDateRangePresetFilter(f) &&
+        (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start") ||
+          searchParams.has(FILTER_PARAM_PREFIX + f.id + "End"))
+      ) {
+        return true;
+      }
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
     }
   }
@@ -70,6 +90,12 @@ export function extractFilterParams(
     } else {
       const v = searchParams.get(FILTER_PARAM_PREFIX + f.id);
       if (v) result[FILTER_PARAM_PREFIX + f.id] = v;
+      if (isDateRangePresetFilter(f)) {
+        for (const key of [f.id + "Start", f.id + "End"]) {
+          const value = searchParams.get(FILTER_PARAM_PREFIX + key);
+          if (value) result[FILTER_PARAM_PREFIX + key] = value;
+        }
+      }
     }
   }
   return result;
@@ -77,7 +103,11 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  onSaveView?: (name: string, filters: Record<string, string>) => void;
+  onSaveView?: (
+    name: string,
+    filters: Record<string, string>,
+    isDefault: boolean,
+  ) => void | Promise<void>;
 }
 
 export function DashboardFilterBar({
@@ -88,6 +118,9 @@ export function DashboardFilterBar({
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
+  const [setAsDefault, setSetAsDefault] = useState(false);
+  const [savingView, setSavingView] = useState(false);
+  const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
@@ -142,13 +175,36 @@ export function DashboardFilterBar({
     });
   }, [setSearchParams]);
 
-  const handleSaveView = useCallback(() => {
-    if (!viewName.trim() || !onSaveView) return;
-    const currentFilters = extractFilterParams(uniqueFilters, searchParams);
-    onSaveView(viewName.trim(), currentFilters);
-    setViewName("");
-    setSaveDialogOpen(false);
-  }, [viewName, onSaveView, uniqueFilters, searchParams]);
+  const handleSaveView = useCallback(async () => {
+    if (!viewName.trim() || !onSaveView || savingView) return;
+    setSavingView(true);
+    try {
+      const currentFilters = extractFilterParams(uniqueFilters, searchParams);
+      await onSaveView(viewName.trim(), currentFilters, setAsDefault);
+      setViewName("");
+      setSetAsDefault(false);
+      setSaveDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.saveViewFailedWithMessage", {
+          message:
+            error instanceof Error
+              ? error.message
+              : t("sqlDashboard.saveViewFailed"),
+        }),
+      );
+    } finally {
+      setSavingView(false);
+    }
+  }, [
+    viewName,
+    onSaveView,
+    savingView,
+    uniqueFilters,
+    searchParams,
+    setAsDefault,
+    t,
+  ]);
 
   const vars = useMemo(
     () => resolveFilterVars(uniqueFilters, getParam),
@@ -230,7 +286,16 @@ export function DashboardFilterBar({
         </div>
       </Collapsible>
 
-      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setViewName("");
+            setSetAsDefault(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
@@ -240,29 +305,252 @@ export function DashboardFilterBar({
               placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveView()}
+              onKeyDown={(e) => e.key === "Enter" && void handleSaveView()}
               autoFocus
             />
+            <label
+              htmlFor={defaultCheckboxId}
+              className="mt-3 flex cursor-pointer items-center gap-2 text-sm"
+            >
+              <Checkbox
+                id={defaultCheckboxId}
+                checked={setAsDefault}
+                onCheckedChange={(checked) => setSetAsDefault(checked === true)}
+              />
+              <span>{t("sqlDashboard.setAsDefault")}</span>
+            </label>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveDialogOpen(false)}
+              onClick={() => {
+                setSaveDialogOpen(false);
+                setViewName("");
+                setSetAsDefault(false);
+              }}
+              disabled={savingView}
             >
               {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
-              onClick={handleSaveView}
-              disabled={!viewName.trim()}
+              onClick={() => void handleSaveView()}
+              disabled={!viewName.trim() || savingView}
             >
-              {t("explorer.save")}
+              {savingView ? t("sqlDashboard.saving") : t("explorer.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function MultiSelectOption({
+  label,
+  checked,
+  onCheckedChange,
+  onOnly,
+  onlyLabel,
+  onlyAriaLabel,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  onOnly: () => void;
+  onlyLabel: string;
+  onlyAriaLabel: string;
+}) {
+  const id = useId();
+  return (
+    <li className="group/option flex min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent">
+      <Checkbox
+        id={id}
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(next === true)}
+      />
+      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer truncate">
+        {label}
+      </label>
+      <span className="inline-flex">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={onOnly}
+          aria-label={onlyAriaLabel}
+        >
+          {onlyLabel}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+function MultiSelectFilter({
+  filter,
+  value,
+  setValue,
+}: {
+  filter: DashboardFilter;
+  value: string;
+  setValue: (updates: Record<string, string>) => void;
+}) {
+  const t = useT();
+  const labelId = useId();
+  const triggerId = useId();
+  const optionsListId = useId();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const seenOptionValues = new Set<string>();
+  const options = (filter.options ?? []).filter((option) => {
+    if (seenOptionValues.has(option.value)) return false;
+    seenOptionValues.add(option.value);
+    return true;
+  });
+  // Values are comma-joined in the URL, so option values must not contain ",".
+  const selected = value.split(",").filter(Boolean);
+  const selectedSet = new Set(selected);
+  const allOptionsSelected =
+    options.length > 0 &&
+    selectedSet.size === options.length &&
+    options.every((option) => selectedSet.has(option.value));
+  // Keep URL values with no matching option visible so the trigger never says "All" over a filtered query.
+  const selectedLabels = selected.map(
+    (selectedValue) =>
+      options.find((option) => option.value === selectedValue)?.label ??
+      selectedValue,
+  );
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredOptions = normalizedQuery
+    ? options.filter(
+        (option) =>
+          option.label.toLocaleLowerCase().includes(normalizedQuery) ||
+          option.value.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    : options;
+  const noFilteredOptions = filteredOptions.length === 0;
+  const allFilteredOptionsSelected =
+    !noFilteredOptions &&
+    filteredOptions.every((option) => selectedSet.has(option.value));
+
+  const setSelected = (next: string[]) =>
+    setValue({
+      [filter.id]: next.length > 0 ? next.join(",") : MULTI_SELECT_EMPTY,
+    });
+  const selectAllFiltered = () =>
+    setSelected(
+      Array.from(
+        new Set([
+          ...selected,
+          ...filteredOptions.map((option) => option.value),
+        ]),
+      ),
+    );
+  const toggle = (optionValue: string, checked: boolean) =>
+    setSelected(
+      checked
+        ? Array.from(new Set([...selected, optionValue]))
+        : selected.filter((value) => value !== optionValue),
+    );
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label id={labelId} className="text-xs text-muted-foreground font-medium">
+        {filter.label}
+      </label>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setQuery("");
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            id={triggerId}
+            aria-labelledby={`${labelId} ${triggerId}`}
+            variant="outline"
+            size="sm"
+            className="w-40 justify-start"
+          >
+            <span className="min-w-0 truncate">
+              {allOptionsSelected
+                ? t("sqlDashboard.allValues")
+                : selectedLabels.length > 0
+                  ? selectedLabels.join(", ")
+                  : t("sqlDashboard.allValues")}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-64">
+          <MenuSearchInput
+            aria-controls={optionsListId}
+            aria-label={t("sqlDashboard.searchValues")}
+            placeholder={t("sqlDashboard.searchValues")}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={noFilteredOptions || allFilteredOptionsSelected}
+              onClick={selectAllFiltered}
+            >
+              {t("sqlDashboard.selectAll")}
+            </Button>
+            {selected.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="w-full justify-start"
+                onClick={() => setSelected([])}
+              >
+                {t("sqlDashboard.clearAll")}
+              </Button>
+            )}
+          </div>
+          <div id={optionsListId}>
+            {!noFilteredOptions && (
+              <ul
+                aria-label={filter.label}
+                className="max-h-60 list-none overflow-y-auto p-1"
+              >
+                {filteredOptions.map((option) => (
+                  <MultiSelectOption
+                    key={option.value}
+                    label={option.label}
+                    checked={selectedSet.has(option.value)}
+                    onCheckedChange={(checked) => toggle(option.value, checked)}
+                    onOnly={() => setSelected([option.value])}
+                    onlyLabel={t("sqlDashboard.selectOnly")}
+                    onlyAriaLabel={t("sqlDashboard.selectOnlyValue", {
+                      value: option.label,
+                    })}
+                  />
+                ))}
+              </ul>
+            )}
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className={
+                noFilteredOptions
+                  ? "px-2 py-4 text-center text-xs text-muted-foreground"
+                  : "sr-only"
+              }
+            >
+              {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -284,24 +572,13 @@ function FilterControl({
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
     return (
-      <div className="flex flex-col gap-1">
-        <label className="text-xs text-muted-foreground font-medium">
-          {filter.label}
-        </label>
-        <div className="flex items-center gap-2">
-          <DatePicker
-            value={vars[startKey] || ""}
-            onChange={(v) => setValue({ [startKey]: v })}
-          />
-          <span className="text-xs text-muted-foreground">
-            {t("sqlDashboard.to")}
-          </span>
-          <DatePicker
-            value={vars[endKey] || ""}
-            onChange={(v) => setValue({ [endKey]: v })}
-          />
-        </div>
-      </div>
+      <DateRangeInput
+        label={filter.label}
+        startDate={vars[startKey] || ""}
+        endDate={vars[endKey] || ""}
+        onStartChange={(v) => setValue({ [startKey]: v })}
+        onEndChange={(v) => setValue({ [endKey]: v })}
+      />
     );
   }
 
@@ -322,14 +599,27 @@ function FilterControl({
   if (filter.type === "select") {
     const current =
       vars[filter.id] || resolveDefault(filter.default, filter.type);
-    return (
+    const supportsCustomRange = isDateRangePresetFilter(filter);
+    const startKey = filter.id + "Start";
+    const endKey = filter.id + "End";
+    const selectControl = (
       <div className="flex flex-col gap-1">
         <label className="text-xs text-muted-foreground font-medium">
           {filter.label}
         </label>
         <Select
           value={current}
-          onValueChange={(v) => setValue({ [filter.id]: v })}
+          onValueChange={(v) =>
+            setValue({
+              [filter.id]: v,
+              ...(supportsCustomRange
+                ? {
+                    [startKey]: v === "custom" ? vars[startKey] || "" : "",
+                    [endKey]: v === "custom" ? vars[endKey] || "" : "",
+                  }
+                : {}),
+            })
+          }
         >
           <SelectTrigger
             size="sm"
@@ -343,9 +633,41 @@ function FilterControl({
                 {opt.label}
               </SelectItem>
             ))}
+            {supportsCustomRange &&
+              !filter.options?.some((option) => option.value === "custom") && (
+                <SelectItem value="custom" className="text-xs">
+                  {t("sqlDashboard.customRange")}
+                </SelectItem>
+              )}
           </SelectContent>
         </Select>
       </div>
+    );
+    if (supportsCustomRange && current === "custom") {
+      return (
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
+          {selectControl}
+          <DateRangeInput
+            label={t("sqlDashboard.customRange")}
+            startDate={vars[startKey] || ""}
+            endDate={vars[endKey] || ""}
+            onStartChange={(v) => setValue({ [startKey]: v })}
+            onEndChange={(v) => setValue({ [endKey]: v })}
+            className="shrink-0"
+          />
+        </div>
+      );
+    }
+    return selectControl;
+  }
+
+  if (filter.type === "multi-select") {
+    return (
+      <MultiSelectFilter
+        filter={filter}
+        value={vars[filter.id] || ""}
+        setValue={setValue}
+      />
     );
   }
 

@@ -9,6 +9,8 @@ import {
   handleUpdateResource,
   handleDeleteResource,
   handleUploadResource,
+  handleExportResourcePack,
+  handleImportResourcePack,
 } from "../resources/handlers.js";
 import {
   getH3App,
@@ -55,6 +57,28 @@ export function createResourcesPlugin(): NitroPluginDef {
     );
 
     getH3App(nitroApp).use(
+      "/_agent-native/resources/export-pack",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return handleExportResourcePack(event);
+      }),
+    );
+
+    getH3App(nitroApp).use(
+      "/_agent-native/resources/import-pack",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return handleImportResourcePack(event);
+      }),
+    );
+
+    getH3App(nitroApp).use(
       "/_agent-native/resources",
       defineEventHandler(async (event) => {
         const method = getMethod(event);
@@ -71,7 +95,9 @@ export function createResourcesPlugin(): NitroPluginDef {
         if (
           subPath === "effective" ||
           subPath === "tree" ||
-          subPath === "upload"
+          subPath === "upload" ||
+          subPath === "export-pack" ||
+          subPath === "import-pack"
         )
           return;
 

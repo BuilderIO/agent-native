@@ -6,24 +6,56 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   agentSidebarMock,
+  navigateChatMock,
   flushDeckSaveMock,
+  toastErrorMock,
   useDecksMock,
   creativeContextLabEnabled,
-  settingsRedesign,
+  mcpAppWidgetEmbed,
 } = vi.hoisted(() => ({
+  mcpAppWidgetEmbed: { value: false },
   agentSidebarMock: vi.fn(),
+  navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
+  toastErrorMock: vi.fn(),
   useDecksMock: vi.fn(),
   creativeContextLabEnabled: { value: false },
-  settingsRedesign: {
-    value: { status: "ready", enabled: false } as {
-      status: "ready";
-      enabled: boolean;
-    },
-  },
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: navigateChatMock,
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => mcpAppWidgetEmbed.value,
+}));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
   AgentSidebar: ({
     children,
     ...props
@@ -41,16 +73,15 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     );
   },
   focusAgentChat: vi.fn(),
-  isAgentChatHomeHandoffActive: vi.fn(() => false),
-  navigateWithAgentChatViewTransition: vi.fn(),
-  useAgentChatHomeHandoff: vi.fn(() => false),
-  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
+vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -65,13 +96,12 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 vi.mock("@shared/google-docs", () => ({
   extractGoogleSlidesUrls: () => [],
 }));
-vi.mock("@tabler/icons-react", () => ({
+vi.mock("@tabler/icons-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tabler/icons-react")>()),
+  IconBulb: () => <span data-testid="bulb-icon" />,
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));
-vi.mock("@/hooks/use-settings-redesign", () => ({
-  useSettingsRedesign: () => settingsRedesign.value,
-}));
 vi.mock("@/hooks/use-sidebar-collapsed", () => ({
   useSidebarCollapsed: () => ({ collapsed: false, setCollapsed: vi.fn() }),
 }));
@@ -82,6 +112,9 @@ vi.mock("@/lib/utils", () => ({
 vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
 }));
+vi.mock("../editor/SlidesComposerContextProvider", () => ({
+  SlidesComposerContextProvider: () => null,
+}));
 vi.mock("./AgentWorkIndicator", () => ({
   AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
 }));
@@ -90,7 +123,10 @@ vi.mock("./Sidebar", () => ({
   Sidebar: () => <aside data-testid="app-sidebar" />,
 }));
 
-import { publishSlidesSelection } from "@/lib/slide-agent-context";
+import {
+  publishSlidesSelection,
+  readPublishedSlidesSelection,
+} from "@/lib/slide-agent-context";
 
 import { Layout } from "./Layout";
 
@@ -123,14 +159,36 @@ function NavigateAway() {
 describe("Slides Layout", () => {
   beforeEach(() => {
     agentSidebarMock.mockClear();
+    navigateChatMock.mockClear();
     flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
+    toastErrorMock.mockReset();
     useDecksMock.mockReturnValue({
       decks: [],
       loading: false,
       flushDeckSave: flushDeckSaveMock,
     });
     creativeContextLabEnabled.value = false;
-    settingsRedesign.value = { status: "ready", enabled: false };
+    mcpAppWidgetEmbed.value = false;
+  });
+
+  it("renders only the page inside an MCP App widget, with no app chrome", () => {
+    mcpAppWidgetEmbed.value = true;
+    renderLayout("/deck/deck-1");
+
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+    expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(screen.queryByTestId("menu-icon")).toBeNull();
+    expect(screen.queryByTestId("agent-work-indicator")).toBeNull();
+    expect(agentSidebarMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the app chrome outside an MCP App widget", () => {
+    renderLayout("/home");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
   });
 
   it("hides the Creative Context composer chip until its lab is enabled", () => {
@@ -142,6 +200,20 @@ describe("Slides Layout", () => {
     renderLayout("/");
     expect(screen.getByTestId("creative-context-composer-chip")).toBeTruthy();
   });
+
+  it.each([
+    ["thread/one", "/chat/thread%2Fone?deckId=deck-1"],
+    [undefined, "/chat?deckId=deck-1"],
+  ])(
+    "opens fullscreen with thread %s while retaining deck context",
+    (threadId, path) => {
+      renderLayout("/deck/deck-1");
+      const props = agentSidebarMock.mock.lastCall![0];
+      expect(props.storageKey).toBeUndefined();
+      act(() => props.onFullscreenRequest(threadId));
+      expect(navigateChatMock).toHaveBeenCalledWith(expect.any(Function), path);
+    },
+  );
 
   it("enables agent-panel auto-open only during a run", () => {
     renderLayout("/");
@@ -231,6 +303,44 @@ describe("Slides Layout", () => {
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
     expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("lets deck chat proceed when flushing the save fails", async () => {
+    flushDeckSaveMock.mockRejectedValueOnce(new Error("save failed"));
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      beforeStart: () => Promise<void>;
+    };
+    await expect(history.beforeStart()).resolves.toBeUndefined();
+    expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
+  });
+
+  it("lets deck chat proceed after a terminal typed save failure", async () => {
+    flushDeckSaveMock.mockRejectedValueOnce(
+      Object.assign(new Error("Failed to save deck deck-1"), {
+        status: 400,
+        errorCode: "slide_content_hash_required",
+      }),
+    );
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      beforeStart: () => Promise<void>;
+    };
+    await expect(history.beforeStart()).resolves.toBeUndefined();
+    expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
+  });
+
+  it("keeps malformed chat history distinct from an empty version list", () => {
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      list: { getVersions: (result: unknown) => unknown };
+    };
+
+    expect(history.list.getVersions({ versions: [] })).toEqual([]);
+    expect(history.list.getVersions({ versions: null })).toBeNull();
   });
 
   it("acknowledges a mobile flush only after the matching deck is saved", async () => {
@@ -353,8 +463,50 @@ describe("Slides Layout", () => {
     );
   });
 
-  it("gives the redesigned Settings the full width", () => {
-    settingsRedesign.value = { status: "ready", enabled: true };
+  it("keeps chat scope renders stable while the caret moves within a target", () => {
+    renderLayout("/deck/deck-1");
+
+    const selection = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideNumber: 1,
+      items: [{ objectId: "text-1", textPreview: "first" }],
+    };
+    act(() => publishSlidesSelection(selection));
+    const callsAfterTargetSelection = agentSidebarMock.mock.calls.length;
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-1", textPreview: "second" }],
+      }),
+    );
+
+    expect(agentSidebarMock).toHaveBeenCalledTimes(callsAfterTargetSelection);
+    expect(readPublishedSlidesSelection()?.items).toEqual([
+      { objectId: "text-1", textPreview: "second" },
+    ]);
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-2", textPreview: "second" }],
+      }),
+    );
+
+    expect(agentSidebarMock.mock.calls.length).toBeGreaterThan(
+      callsAfterTargetSelection,
+    );
+    expect(agentSidebarMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          context: expect.stringContaining("Selected element targets: text-2."),
+        }),
+      }),
+    );
+  });
+
+  it("gives Settings the full width", () => {
     renderLayout("/settings/notifications");
 
     expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
@@ -364,14 +516,6 @@ describe("Slides Layout", () => {
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
     expect(screen.getByTestId("page-content")).toBeTruthy();
-  });
-
-  it("keeps the app shell around Settings with the redesign off", () => {
-    settingsRedesign.value = { status: "ready", enabled: false };
-    renderLayout("/settings");
-
-    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
-    expect(screen.getByTestId("header")).toBeTruthy();
   });
 
   it("renders full-page chat without the sidebar wrapper", () => {

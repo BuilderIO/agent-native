@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   delegateImageGenerationToAssets: vi.fn(),
+  getDeck: vi.fn(),
   getProvider: vi.fn(),
+  updateSlide: vi.fn(),
   uploadFile: vi.fn(),
 }));
 
@@ -29,8 +31,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: vi.fn(() => "user@example.com"),
 }));
 
-vi.mock("./get-deck.js", () => ({ default: { run: vi.fn() } }));
-vi.mock("./update-slide.js", () => ({ default: { run: vi.fn() } }));
+vi.mock("./get-deck.js", () => ({ default: { run: mocks.getDeck } }));
+vi.mock("./update-slide.js", () => ({ default: { run: mocks.updateSlide } }));
 
 import generateImageApi from "./generate-image-api.js";
 
@@ -107,6 +109,56 @@ describe("generate-image-api reference image SSRF safety", () => {
     expect(mockProvider.generate).toHaveBeenCalledWith(
       "A beautiful sunset",
       [],
+    );
+  });
+
+  it("passes the read content hash when inserting a generated image", async () => {
+    mocks.delegateImageGenerationToAssets.mockResolvedValue({
+      status: "unreachable",
+      reason: "Assets service offline",
+    });
+    const mockProvider = {
+      generate: vi.fn().mockResolvedValue({
+        imageData: "fake-image-bytes",
+        mimeType: "image/png",
+        model: "mock-model",
+      }),
+    };
+    mocks.getProvider.mockResolvedValue(mockProvider);
+    mocks.uploadFile.mockResolvedValue({
+      url: "https://storage.example.com/generated.png",
+    });
+    mocks.getDeck
+      .mockResolvedValueOnce({
+        slides: [
+          {
+            id: "slide-1",
+            content: '<div class="fmd-slide"></div>',
+            contentHash: "source-hash",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><img src="https://storage.example.com/generated.png"></div>',
+          },
+        ],
+      });
+    mocks.updateSlide.mockResolvedValue({ ok: true, applied: true });
+
+    const result = await generateImageApi.run({
+      prompt: "A beautiful sunset",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      insertIntoSlide: true,
+    });
+
+    expect(result).toMatchObject({ inserted: true });
+    expect(mocks.updateSlide).toHaveBeenCalledWith(
+      expect.objectContaining({ baseContentHash: "source-hash" }),
     );
   });
 });

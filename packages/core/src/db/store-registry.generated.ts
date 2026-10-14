@@ -49,6 +49,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "app_resource_changes",
+    () =>
+      import("../resource-changes/store.js").then(
+        (m) => m.resourceChangesStore,
+      ),
+  ],
+  [
     "app_secrets",
     () => import("../secrets/storage.js").then((m) => m.appSecretsStore),
   ],
@@ -157,6 +164,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () =>
       import("../integrations/identity-links-store.js").then(
         (m) => m.identityLinksStore,
+      ),
+  ],
+  [
+    "identity_retired_emails",
+    () =>
+      import("../identity/retired-emails.js").then(
+        (m) => m.identityRetiredEmailsStore,
       ),
   ],
   [
@@ -282,6 +296,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "resource_access_requests",
+    () =>
+      import("../sharing/access-request-store.js").then(
+        (m) => m.resourceAccessRequestsStore,
+      ),
+  ],
+  [
     "resource_versions",
     () => import("../history/store.js").then((m) => m.resourceVersionsStore),
   ],
@@ -310,6 +331,17 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
   ],
   [
+    "search_resources",
+    () => import("../search/index-store.js").then((m) => m.searchIndexStore),
+  ],
+  [
+    "service_principal_policies",
+    () =>
+      import("../org/service-principal-policy.js").then(
+        (m) => m.servicePrincipalPoliciesStore,
+      ),
+  ],
+  [
     "settings",
     () => import("../settings/store.js").then((m) => m.settingsStore),
   ],
@@ -323,6 +355,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   [
     "sync_events",
     () => import("../server/poll.js").then((m) => m.syncEventsStore),
+  ],
+  [
+    "sync_events_prune_state",
+    () => import("../server/poll.js").then((m) => m.syncEventsPruneStateStore),
   ],
   [
     "thread_mappings",

@@ -5,8 +5,28 @@ const cleanupQueue = vi.hoisted(() => {
   const rows = new Map<string, { blobHandle: string }>();
   const table = { blobHandle: "cleanup.blobHandle" };
   const selectQuery = {
-    from: vi.fn(() => selectQuery),
-    limit: vi.fn(async () => [...rows.values()]),
+    filter: null as string[] | null,
+    excluded: null as string[] | null,
+    from: vi.fn(() => {
+      selectQuery.filter = null;
+      selectQuery.excluded = null;
+      return selectQuery;
+    }),
+    where: vi.fn((condition: { values?: string[]; excluded?: string[] }) => {
+      selectQuery.filter = condition.values ?? null;
+      selectQuery.excluded = condition.excluded ?? null;
+      return selectQuery;
+    }),
+    limit: vi.fn(async (limit = 50) =>
+      [...rows.values()]
+        .filter(
+          ({ blobHandle }) =>
+            (!selectQuery.filter || selectQuery.filter.includes(blobHandle)) &&
+            (!selectQuery.excluded ||
+              !selectQuery.excluded.includes(blobHandle)),
+        )
+        .slice(0, limit),
+    ),
   };
   const insertQuery = {
     values: vi.fn((values: { blobHandle: string }[]) => ({
@@ -33,6 +53,8 @@ vi.mock("@agent-native/core/private-blob", () => ({
 }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_column, value) => ({ value })),
+  inArray: vi.fn((_column, values) => ({ values })),
+  notInArray: vi.fn((_column, values) => ({ excluded: values })),
 }));
 vi.mock("../db/index.js", () => ({
   getDb: () => cleanupQueue.db,
@@ -44,6 +66,7 @@ vi.mock("../db/index.js", () => ({
 import {
   deleteVisualEditSnapshotBlobs,
   parseVisualEditSnapshotBlobHandle,
+  queueVisualEditSnapshotBlobCleanup,
 } from "./visual-edit-snapshot-blobs.js";
 
 const handle = {
@@ -82,21 +105,67 @@ describe("visual-edit snapshot blob cleanup", () => {
       reason: "unsupported",
     });
 
-    await deleteVisualEditSnapshotBlobs([
-      JSON.stringify(handle),
-      JSON.stringify(handle),
-      null,
-    ]);
+    await expect(
+      deleteVisualEditSnapshotBlobs([
+        JSON.stringify(handle),
+        JSON.stringify(handle),
+        null,
+      ]),
+    ).resolves.toBe(true);
 
     expect(deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(deletePrivateBlob).toHaveBeenCalledWith(handle);
     expect(cleanupQueue.rows.has(JSON.stringify(handle))).toBe(true);
     expect(warn).toHaveBeenCalledOnce();
 
-    await deleteVisualEditSnapshotBlobs([]);
+    await expect(deleteVisualEditSnapshotBlobs([])).resolves.toBe(false);
 
     expect(deletePrivateBlob).toHaveBeenCalledTimes(2);
     expect(cleanupQueue.rows.has(JSON.stringify(handle))).toBe(false);
     warn.mockRestore();
+  });
+
+  it("queues cleanup handles durably without requiring a drain", async () => {
+    const serialized = JSON.stringify(handle);
+
+    await queueVisualEditSnapshotBlobCleanup([serialized, serialized, null]);
+
+    expect(cleanupQueue.rows.has(serialized)).toBe(true);
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("prioritizes newly queued handles before older failed deletions", async () => {
+    const oldHandles = Array.from({ length: 50 }, (_, index) =>
+      JSON.stringify({ ...handle, id: `old-snapshot-${index}` }),
+    );
+    for (const blobHandle of oldHandles) {
+      cleanupQueue.rows.set(blobHandle, { blobHandle });
+    }
+    const newHandle = JSON.stringify({ ...handle, id: "new-screenshot" });
+    const attempted: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    deletePrivateBlob.mockImplementation(async (value: typeof handle) => {
+      attempted.push(value.id);
+      return value.id === "new-screenshot"
+        ? { deleted: true }
+        : {
+            deleted: false,
+            provider: "private-provider",
+            reason: "provider unavailable",
+          };
+    });
+
+    try {
+      await expect(deleteVisualEditSnapshotBlobs([newHandle])).resolves.toBe(
+        false,
+      );
+
+      expect(attempted[0]).toBe("new-screenshot");
+      expect(attempted).toHaveLength(50);
+      expect(cleanupQueue.rows.has(newHandle)).toBe(false);
+      expect(cleanupQueue.rows.size).toBe(50);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

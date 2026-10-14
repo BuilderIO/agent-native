@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -466,7 +461,10 @@ const messages = {
     automationSourceSentryHint: "Offene Fehler.",
     automationSlackChannel: "Slack-Kanal-ID",
     automationSlackChannelDescription:
-      "Kanal, den dieser Job abfragt. Beginnt mit C.",
+      "Slack-Kanal, den dieser Job liest oder für gebündelte Befunde nutzt. Beginnt mit C.",
+    automationFindingsSlackChannel: "Slack-Kanal für Befunde",
+    automationFindingsSlackChannelDescription:
+      "Zulässige GitHub- und Sentry-Befunde werden in diesem Kanal in einer Nachricht gebündelt.",
     automationRepository: "GitHub-Repository",
     automationRepositoryDescription: "owner/repo, das dieser Job abfragt.",
     automationSentryOrg: "Sentry-Organisation",

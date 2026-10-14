@@ -12,6 +12,7 @@ import {
 import {
   ensurePendingTasksTable,
   MAX_PENDING_TASK_ATTEMPTS,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
 } from "./pending-tasks-store.js";
 
 const RETRY_INTERVAL_MS = 60_000;
@@ -123,6 +124,7 @@ export async function retryStuckPendingTasks(
   const processingCutoff = now - getProcessingStuckAfterMs();
   const durableProcessingCutoff =
     now - DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS;
+  const recoverableSince = now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS;
 
   let stuckRows: StuckTaskRow[];
   try {
@@ -138,6 +140,7 @@ export async function retryStuckPendingTasks(
                     OR last_dispatch_outcome <> 'background-acknowledged')
                 AND updated_at <= ?)
             )))
+           AND created_at >= ?
          ${scopeSql.clause}
          ORDER BY updated_at ASC
          LIMIT ?
@@ -147,6 +150,7 @@ export async function retryStuckPendingTasks(
         pendingCutoff,
         durableProcessingCutoff,
         processingCutoff,
+        recoverableSince,
         ...scopeSql.args,
         limit,
       ],
@@ -209,6 +213,7 @@ export async function retryStuckPendingTasks(
              WHERE id = ?
                AND status = ?
                AND updated_at = ?
+               AND created_at >= ?
           `,
           args: [
             Date.now(),
@@ -216,6 +221,7 @@ export async function retryStuckPendingTasks(
             row.id,
             row.status,
             row.updatedAt,
+            Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
           ],
         });
         if (affectedRows(update) === 0) {
@@ -237,8 +243,16 @@ export async function retryStuckPendingTasks(
            WHERE id = ?
              AND status = ?
              AND updated_at = ?
+             AND created_at >= ?
         `,
-        args: [newStatus, Date.now(), row.id, row.status, row.updatedAt],
+        args: [
+          newStatus,
+          Date.now(),
+          row.id,
+          row.status,
+          row.updatedAt,
+          Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+        ],
       });
       if (affectedRows(update) === 0) {
         result.skipped += 1;

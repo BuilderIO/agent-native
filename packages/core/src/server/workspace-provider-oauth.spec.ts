@@ -59,7 +59,7 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => {
 
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
 import { OAuthAccountOwnedByOtherUserError } from "../oauth-tokens/store.js";
-import { encryptSecretValue } from "../secrets/crypto.js";
+import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
@@ -72,6 +72,7 @@ import {
   workspaceProviderOAuthFlowInvalidReason,
   mergeWorkspaceOAuthValues,
   oauthFlowFailure,
+  handleWorkspaceProviderOAuthStart,
   handleWorkspaceProviderOAuthCallback,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
@@ -90,6 +91,52 @@ afterEach(() => {
 });
 
 describe("workspace provider OAuth", () => {
+  it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
+    const email = "requester@example.com";
+    const returnUrl = "/dispatch/chat/thread-1?private=value#selected";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/notion/start",
+    );
+    requestUrl.searchParams.set("appId", "dispatch");
+    requestUrl.searchParams.set("scope", "user");
+    requestUrl.searchParams.set("return", returnUrl);
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "notion");
+
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    const authorizationUrl = new URL(response.headers.get("Location")!);
+    const encodedState = authorizationUrl.searchParams.get("state")!;
+    const statePayload = JSON.parse(
+      Buffer.from(encodedState.split(".")[0]!, "base64url").toString("utf8"),
+    );
+    expect(statePayload).not.toHaveProperty("r2");
+    expect(encodedState).not.toContain("private=value");
+
+    const flowCookie = response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("an_workspace_oauth_notion="));
+    expect(flowCookie).toBeDefined();
+    const encryptedFlow = decodeURIComponent(
+      flowCookie!.split(";", 1)[0]!.split("=", 2)[1]!,
+    );
+    expect(JSON.parse(decryptSecretValue(encryptedFlow))).toMatchObject({
+      returnUrl,
+    });
+  });
+
   it("allows organization owners and admins to connect shared OAuth accounts", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "owner")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);
@@ -105,6 +152,7 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthScope("workspace")).toBe(false);
     expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("bigquery")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
   });
 
@@ -119,6 +167,7 @@ describe("workspace provider OAuth", () => {
     for (const provider of [
       "gmail",
       "google_calendar",
+      "bigquery",
       "google_docs",
       "google_drive",
       "google_sheets",
@@ -459,6 +508,46 @@ describe("workspace provider OAuth", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+  });
+
+  it("isolates Google Sheets consent and requests only file-level access", async () => {
+    const email = "requester@example.com";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/google_sheets/start",
+    );
+    requestUrl.searchParams.set("appId", "analytics");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(
+      event,
+      "google_sheets",
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    const authorizationUrl = new URL(
+      (result as Response).headers.get("Location")!,
+    );
+    expect(authorizationUrl.searchParams.get("include_granted_scopes")).toBe(
+      "false",
+    );
+    expect(authorizationUrl.searchParams.get("scope")?.split(" ")).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
   });
 
   it("keeps the Google account chooser and preselects the signed-in identity", () => {
@@ -1054,6 +1143,108 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
       },
     }),
   );
+});
+
+it("uses current Jira OAuth scopes and includes token-level scopes", async () => {
+  const email = "requester@example.com";
+  const redirectUri =
+    "https://example.test/_agent-native/connections/oauth/jira/callback";
+  const flow = {
+    provider: "jira",
+    flowId: "jira-flow-1",
+    verifier: "jira-verifier-1",
+    redirectUri,
+    owner: email,
+    orgId: "org-1",
+    appId: "brain",
+    scope: "user",
+    expiresAt: Date.now() + 60_000,
+  } as const;
+  vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+  resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+  callbackMocks.getSession.mockResolvedValue({ email });
+  callbackMocks.getOrgContext.mockResolvedValue({
+    orgId: "org-1",
+    email,
+    role: "owner",
+  });
+  callbackMocks.listWorkspaceConnections.mockResolvedValue([
+    {
+      id: "jira-connection-1",
+      accountId: scopedOAuthAccountId("jira", email, "cloud-1"),
+      allowedUsers: [email],
+      scopes: ["read:jira-work", "read:jira-user", "old:revoked-scope"],
+    },
+  ]);
+  callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+    id: "jira-connection-1",
+  } as never);
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "jira-access-token",
+          refresh_token: "jira-refresh-token",
+          expires_in: 3600,
+          scope: "read:jira-work read:jira-user offline_access",
+        }),
+        { status: 200 },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            id: "cloud-1",
+            name: "Example site",
+            url: "https://example.atlassian.net",
+            scopes: ["read:jira-work", "read:jira-user"],
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const state = encodeOAuthState({
+    redirectUri,
+    owner: email,
+    orgId: "org-1",
+    app: "brain",
+    scope: "user",
+    provider: "jira",
+    flowId: flow.flowId,
+  });
+  const callbackUrl = new URL(redirectUri);
+  callbackUrl.searchParams.set("code", "jira-code");
+  callbackUrl.searchParams.set("state", state);
+  const event = {
+    req: new Request(callbackUrl, {
+      headers: {
+        cookie: `an_workspace_oauth_jira=${encodeURIComponent(
+          encryptSecretValue(JSON.stringify(flow)),
+        )}`,
+      },
+    }),
+    res: { status: 200, headers: new Headers() },
+  } as never;
+
+  await handleWorkspaceProviderOAuthCallback(event, "jira");
+
+  expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: "jira" }),
+  );
+  const [upsertedConnection] =
+    callbackMocks.upsertWorkspaceConnection.mock.calls[0] ?? [];
+  expect(upsertedConnection.scopes).toEqual(
+    expect.arrayContaining([
+      "read:jira-work",
+      "read:jira-user",
+      "offline_access",
+    ]),
+  );
+  expect(upsertedConnection.scopes).not.toContain("old:revoked-scope");
 });
 
 describe("oauthFlowFailure", () => {

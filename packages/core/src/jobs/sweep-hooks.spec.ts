@@ -14,7 +14,7 @@ describe("recurring sweep hooks", () => {
   });
 
   it("runs registered handlers and reports failures without skipping peers", async () => {
-    const good = vi.fn(async () => {});
+    const good = vi.fn(async (_context: { signal?: AbortSignal }) => {});
     const bad = vi.fn(async () => {
       throw new Error("failed");
     });
@@ -28,6 +28,7 @@ describe("recurring sweep hooks", () => {
       failed: ["calendar"],
     });
     expect(good).toHaveBeenCalledOnce();
+    expect(good.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
   });
 
   it("replaces a repeated registration and unregisters only its own callback", async () => {
@@ -59,8 +60,12 @@ describe("recurring sweep hooks", () => {
 
     const running = runRecurringSweepHandlers(context);
     await vi.waitFor(() => {
-      expect(first).toHaveBeenCalledWith(context);
-      expect(second).toHaveBeenCalledWith(context);
+      expect(first).toHaveBeenCalledWith(
+        expect.objectContaining({ deadlineAt: context.deadlineAt }),
+      );
+      expect(second).toHaveBeenCalledWith(
+        expect.objectContaining({ deadlineAt: context.deadlineAt }),
+      );
     });
     finishFirst();
     await expect(running).resolves.toEqual({ registered: 2, failed: [] });
@@ -75,5 +80,20 @@ describe("recurring sweep hooks", () => {
       runRecurringSweepHandlers({ deadlineAt: Date.now() - 1 }),
     ).resolves.toEqual({ registered: 1, failed: ["expired"] });
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("aborts and returns when a handler outlives the shared deadline", async () => {
+    let signal: AbortSignal | undefined;
+    const handler = vi.fn(async (context: { signal?: AbortSignal }) => {
+      signal = context.signal;
+      return new Promise<void>(() => {});
+    });
+    disposers.push(registerRecurringSweepHandler("stalled", handler));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      runRecurringSweepHandlers({ deadlineAt: Date.now() + 20 }),
+    ).resolves.toEqual({ registered: 1, failed: ["stalled"] });
+    expect(signal?.aborted).toBe(true);
   });
 });

@@ -5,7 +5,7 @@ import type {
 } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
 import {
   useSortable,
@@ -279,6 +279,7 @@ function PresenceAvatarTip({
 function SortableSlideThumb({
   slide,
   index,
+  slideCount,
   isActive,
   isSelected,
   selectedSlideIds = [],
@@ -306,6 +307,7 @@ function SortableSlideThumb({
 }: {
   slide: Slide;
   index: number;
+  slideCount: number;
   isActive: boolean;
   isSelected: boolean;
   selectedSlideIds?: string[];
@@ -456,21 +458,31 @@ function SortableSlideThumb({
                * lets it skip everything below the fold; `aspect-ratio` keeps the row
                * the right height while its contents are skipped. */}
               <div
+                data-slide-thumbnail-frame
                 className={`relative w-full overflow-hidden rounded border ${
                   slide.skipped ? "opacity-40" : ""
                 }`}
                 style={{
                   borderColor:
-                    humanPresenceUsers.length > 0
-                      ? humanPresenceUsers[0].color + "66"
-                      : // guard:allow-raw-color — thumbnail border sits on an arbitrary-colored slide render, not app chrome
-                        "rgba(255,255,255,0.06)",
+                    isSelected || isActive
+                      ? // guard:allow-raw-color — match the existing slide selection outline.
+                        "#609FF8"
+                      : humanPresenceUsers.length > 0
+                        ? humanPresenceUsers[0].color + "66"
+                        : // guard:allow-raw-color — thumbnail border sits on an arbitrary-colored slide render, not app chrome
+                          "rgba(255,255,255,0.06)",
+                  boxShadow:
+                    isSelected || isActive
+                      ? // guard:allow-raw-color — keep the selected thumbnail outline visible without changing layout.
+                        "0 0 0 2px #609FF8"
+                      : undefined,
                   aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
                   contentVisibility: "auto",
                 }}
               >
                 <SlideRenderer
                   slide={slide}
+                  slidePosition={{ number: index + 1, count: slideCount }}
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
@@ -921,6 +933,7 @@ export default function EditorSidebar({
                 key={slide.id}
                 slide={slide}
                 index={index}
+                slideCount={slides.length}
                 isActive={slide.id === activeSlideId}
                 isSelected={selectedSlideIds.includes(slide.id)}
                 selectedSlideIds={selectedSlideIds}

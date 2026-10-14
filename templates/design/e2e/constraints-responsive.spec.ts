@@ -123,7 +123,7 @@ function expectClose(actual: number, expected: number, tolerance = 0.75) {
   expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tolerance);
 }
 
-test("constraints preserve Figma geometry through real nested and auto-layout parent resizes", async ({
+test("constraints preserve child geometry through nested and auto-layout parent resizes", async ({
   page,
   request,
 }) => {
@@ -143,7 +143,6 @@ test("constraints preserve Figma geometry through real nested and auto-layout pa
     });
     await gotoEditor(page, designId);
     await enterDirectMode(page);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await expandAllLayers(page);
 
     await selectFixtureLayer(page, "right-bottom");

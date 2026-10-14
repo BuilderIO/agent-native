@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -71,8 +72,8 @@ async function configureResponsiveDesign(
       value: {
         id: "qa-breakpoints",
         breakpoints: [
-          { id: "mobile", label: "Mobile", widthPx: 390 },
-          { id: "tablet", label: "Tablet", widthPx: 768 },
+          { id: "mobile", label: "Mobile", widthPx: 390, prefix: "base" },
+          { id: "tablet", label: "Tablet", widthPx: 768, prefix: "md" },
         ],
       },
     },
@@ -108,6 +109,16 @@ async function configureResponsiveDesign(
   await action(request, "update-design", { id: designId, dataOperations });
 }
 
+async function designData(request: APIRequestContext, designId: string) {
+  const params = new URLSearchParams({ id: designId });
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design?${params}`,
+  );
+  if (!response.ok()) throw new Error(await response.text());
+  const result = await response.json();
+  return JSON.parse(result.data || "{}") as Record<string, any>;
+}
+
 async function designFileContent(
   request: APIRequestContext,
   designId: string,
@@ -123,14 +134,18 @@ async function designFileContent(
     ?.content as string;
 }
 
-async function designData(request: APIRequestContext, designId: string) {
-  const params = new URLSearchParams({ id: designId });
+async function activeBreakpointState(
+  request: APIRequestContext,
+  designId: string,
+) {
   const response = await request.get(
-    `${BASE_URL}/_agent-native/actions/get-design?${params}`,
+    `${BASE_URL}/_agent-native/application-state/design-active-breakpoint:${designId}`,
   );
   if (!response.ok()) throw new Error(await response.text());
-  const result = await response.json();
-  return JSON.parse(result.data || "{}") as Record<string, any>;
+  return response.json() as Promise<{
+    activeBreakpointId?: string;
+    responsiveEditScope?: string;
+  } | null>;
 }
 
 async function designFileIds(
@@ -146,24 +161,141 @@ async function designFileIds(
   return result.files.map((file: { id: string }) => file.id);
 }
 
+async function panTargetIntoUnobscuredCanvas(
+  page: Page,
+  target: Locator,
+  targetName: string,
+) {
+  const edgeInset = 24;
+  const maxPanStep = 200;
+
+  for (let step = 0; step < 16; step += 1) {
+    const box = await target.boundingBox();
+    expect(box, `${targetName} should have rendered bounds`).not.toBeNull();
+    const geometry = await page.evaluate(
+      ({ target, inset, panStep }) => {
+        const surface = document.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-surface]",
+        );
+        if (!surface) return null;
+        const bounds = (selector: string) => {
+          const element = document.querySelector<HTMLElement>(selector);
+          if (!element || getComputedStyle(element).display === "none") {
+            return null;
+          }
+          const rect = element.getBoundingClientRect();
+          return rect.width && rect.height
+            ? {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+              }
+            : null;
+        };
+        const surfaceRect = surface.getBoundingClientRect();
+        const leftShell = bounds('[data-design-chrome-region="left-shell"]');
+        const rightPanel = bounds('[data-design-chrome-region="right-panel"]');
+        const topBar = bounds('[data-design-chrome-region="top-bar"]');
+        const visible = {
+          left: Math.max(0, surfaceRect.left, leftShell?.right ?? 0) + inset,
+          top: Math.max(0, surfaceRect.top, topBar?.bottom ?? 0) + inset,
+          right:
+            Math.min(
+              innerWidth,
+              surfaceRect.right,
+              rightPanel?.left ?? innerWidth,
+            ) - inset,
+          bottom: Math.min(innerHeight, surfaceRect.bottom) - inset,
+        };
+        const inside =
+          target.x >= visible.left &&
+          target.x + target.width <= visible.right &&
+          target.y >= visible.top &&
+          target.y + target.height <= visible.bottom;
+        const delta = {
+          x:
+            target.x + target.width > visible.right
+              ? panStep
+              : target.x < visible.left
+                ? -panStep
+                : 0,
+          y:
+            target.y + target.height > visible.bottom
+              ? panStep
+              : target.y < visible.top
+                ? -panStep
+                : 0,
+        };
+        const wheelPoint = [
+          { x: visible.left + 16, y: visible.top + 64 },
+          { x: visible.left + 32, y: visible.top + 112 },
+          { x: visible.left + 64, y: visible.top + 64 },
+          { x: visible.left + 16, y: (visible.top + visible.bottom) / 2 },
+          { x: (visible.left + visible.right) / 2, y: visible.top + 64 },
+        ].find((point) => {
+          const hit = document.elementFromPoint(point.x, point.y);
+          return Boolean(
+            hit && surface.contains(hit) && !hit.closest("iframe"),
+          );
+        });
+        return { visible, inside, delta, wheelPoint: wheelPoint ?? null };
+      },
+      { target: box!, inset: edgeInset, panStep: maxPanStep },
+    );
+    expect(
+      geometry,
+      "the overview canvas surface should be mounted",
+    ).not.toBeNull();
+    expect(
+      geometry!.visible.right - geometry!.visible.left,
+    ).toBeGreaterThanOrEqual(box!.width);
+    expect(
+      geometry!.visible.bottom - geometry!.visible.top,
+    ).toBeGreaterThanOrEqual(box!.height);
+    if (geometry!.inside) return;
+    expect(
+      Math.abs(geometry!.delta.x) + Math.abs(geometry!.delta.y),
+      `${targetName} should be reachable by panning inside the canvas`,
+    ).toBeGreaterThan(0);
+    expect(
+      geometry!.wheelPoint,
+      "a clear point on the overview canvas should be available for panning",
+    ).not.toBeNull();
+
+    await page.mouse.move(geometry!.wheelPoint!.x, geometry!.wheelPoint!.y);
+    await page.mouse.wheel(geometry!.delta.x, geometry!.delta.y);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
+
+  throw new Error(
+    `${targetName} did not move inside the unobscured canvas after 16 wheel pans`,
+  );
+}
+
 test.use({ viewport: { width: 1500, height: 1000 } });
 
-test("responsive frames select and edit directly with explicit scope persistence", async ({
+test("responsive frame previews preserve content fit and scope selection", async ({
   page,
   request,
 }) => {
   const { designId, fileIds } = await createDesign(request);
   const [fileId] = fileIds;
   try {
+    await page.setViewportSize({ width: 2200, height: 1000 });
     await configureResponsiveDesign(request, designId, fileIds);
     await gotoEditor(page, designId);
     await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
 
     // Content-fit height: the 390px mobile frame must render at its own
     // content height (the fixture is 900px tall), NOT the desktop primary's
-    // aspect ratio (which produced a ~274px landscape sliver that clipped the
-    // content — the reported mobile-vs-tablet screenshot). A correctly-sized
-    // mobile frame is portrait (taller than wide).
+    // aspect ratio, which would clip the content. A correctly-sized mobile
+    // frame is portrait (taller than wide).
     const mobileIframe = page.locator(
       `iframe[data-screen-iframe-id="${fileId}::bp-390"]`,
     );
@@ -175,12 +307,10 @@ test("responsive frames select and edit directly with explicit scope persistence
       })
       .toBeGreaterThan(1.5);
 
-    const mobileFrame = page
+    const mobileHero = page
       .locator(`iframe[data-screen-iframe-id="${fileId}::bp-390"]`)
-      .contentFrame();
-    const mobileHero = mobileFrame.locator(
-      '[data-agent-native-node-id="hero"]',
-    );
+      .contentFrame()
+      .locator('[data-agent-native-node-id="hero"]');
     await expect(mobileHero).toBeVisible();
     await expect
       .poll(() =>
@@ -190,13 +320,36 @@ test("responsive frames select and edit directly with explicit scope persistence
         }),
       )
       .toEqual(["0s", "0s"]);
-    await mobileHero.click({ force: true });
-
+    await page
+      .locator("[data-breakpoint-frame]")
+      .filter({
+        has: page.locator(`[data-screen-iframe-id="${fileId}::bp-390"]`),
+      })
+      .locator("[data-frame-title]")
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("mobile");
     const scope = page.getByRole("combobox", {
       name: "Responsive edit scope",
     });
     await expect(scope).toBeVisible();
     await expect(scope).toHaveText("This breakpoint and smaller");
+    const mobileHeroBox = await mobileHero.boundingBox();
+    expect(mobileHeroBox).not.toBeNull();
+    await page.mouse.click(
+      mobileHeroBox!.x + mobileHeroBox!.width / 2,
+      mobileHeroBox!.y + mobileHeroBox!.height / 2,
+    );
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("mobile");
     const xInput = page.getByRole("textbox", { name: "X-position" });
     await expect(xInput).toBeVisible();
     await xInput.fill("137");
@@ -205,41 +358,172 @@ test("responsive frames select and edit directly with explicit scope persistence
       .poll(() => designFileContent(request, designId, fileId!))
       .toContain("@media (max-width: 767px)");
 
-    const tabletFrame = page
+    const tabletHero = page
       .locator(`iframe[data-screen-iframe-id="${fileId}::bp-768"]`)
-      .contentFrame();
-    await tabletFrame
-      .locator('[data-agent-native-node-id="hero"]')
-      .click({ force: true });
+      .contentFrame()
+      .locator('[data-agent-native-node-id="hero"]');
+    const tabletTitle = page
+      .locator("[data-breakpoint-frame]")
+      .filter({
+        has: page.locator(`[data-screen-iframe-id="${fileId}::bp-768"]`),
+      })
+      .locator("[data-frame-title]");
+    await panTargetIntoUnobscuredCanvas(page, tabletTitle, "tablet title");
+    await tabletTitle.click();
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("tablet");
+    await expect(scope).toBeVisible();
+    await expect(scope).toHaveText("This breakpoint and smaller");
     await scope.click();
     await page.getByRole("option", { name: "This breakpoint only" }).click();
     await expect(scope).toHaveText("This breakpoint only");
+    await panTargetIntoUnobscuredCanvas(page, tabletHero, "tablet hero");
+    const tabletHeroBox = await tabletHero.boundingBox();
+    expect(tabletHeroBox).not.toBeNull();
+    await page.mouse.click(
+      tabletHeroBox!.x + tabletHeroBox!.width / 2,
+      tabletHeroBox!.y + tabletHeroBox!.height / 2,
+    );
+    await expect(xInput).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("tablet");
     await xInput.fill("155");
     await xInput.press("Enter");
     await expect
       .poll(() => designFileContent(request, designId, fileId!))
       .toContain("@media (min-width: 768px) and (max-width: 1279px)");
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
 
-    await page
-      .locator("[data-breakpoint-frame]")
-      .filter({
-        has: page.locator(`[data-screen-iframe-id="${fileId}::bp-768"]`),
-      })
-      .locator("[data-frame-full-view]")
-      .click();
+test("exact-size generation preserves its canvas dimensions without mobile frames", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request);
+  const [fileId] = fileIds;
+  try {
+    await configureResponsiveDesign(request, designId, fileIds);
+    await action(request, "generate-design", {
+      designId,
+      prompt: "Create an email ad at exactly 300x250 pixels",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Email ad</main></body></html>',
+        },
+      ],
+      canvasFrames: [
+        { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+
+    const data = await designData(request, designId);
+    expect(data.canvasFrames[fileId!]).toMatchObject({
+      width: 300,
+      height: 250,
+    });
+    expect(data.screenMetadata[fileId!]).toMatchObject({
+      width: 300,
+      height: 250,
+      breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(data.breakpointSet.breakpoints).toHaveLength(2);
+
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
     await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
-    const focusedHero = page
-      .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
-      .contentFrame()
-      .locator('[data-agent-native-node-id="hero"]');
-    await expect
-      .poll(() =>
-        focusedHero.evaluate((element) => {
-          const style = getComputedStyle(element);
-          return [style.animationDuration, style.transitionDuration];
-        }),
-      )
-      .toEqual(["5s", "3s"]);
+    await expect(
+      page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
+    ).toBeVisible();
+    const card = page.locator(`[data-frame-id="${fileId}"] [data-screen-card]`);
+    await expect(card).toBeVisible();
+    const bounds = await card.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width / bounds!.height).toBeCloseTo(300 / 250, 2);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("fixed-artwork variants preserve the original brief size without mobile frames", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request, 0);
+  try {
+    await action(request, "present-design-variants", {
+      designId,
+      prompt: "Pick a direction",
+      brief: "Create an ad for LinkedIn, promoting our product launch",
+      responsive: true,
+      variants: [
+        {
+          id: "editorial",
+          label: "Editorial",
+          width: 1440,
+          height: 900,
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Editorial ad</main></body></html>',
+        },
+        {
+          id: "bold",
+          label: "Bold",
+          width: 1440,
+          height: 900,
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Bold ad</main></body></html>',
+        },
+      ],
+    });
+
+    const data = await designData(request, designId);
+    const variantSet = Object.values(
+      data.designVariantSets as Record<
+        string,
+        { screens: Array<{ id: string; width: number; height: number }> }
+      >,
+    )[0];
+    expect(variantSet?.screens).toHaveLength(2);
+    for (const screen of variantSet?.screens ?? []) {
+      expect(screen).toMatchObject({ width: 1200, height: 627 });
+      expect(data.canvasFrames[screen.id]).toMatchObject({
+        width: 1200,
+        height: 627,
+      });
+      expect(data.screenMetadata[screen.id]).toMatchObject({
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+      });
+    }
+    expect(data.breakpointSet).toBeUndefined();
+
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    for (const screen of variantSet!.screens) {
+      const card = page.locator(
+        `[data-frame-id="${screen.id}"] [data-screen-card]`,
+      );
+      await expect(card).toBeVisible();
+      const bounds = await card.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.width / bounds!.height).toBeCloseTo(1200 / 627, 2);
+    }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -289,17 +573,25 @@ test("screen deletion explicitly includes and removes responsive variants", asyn
   page,
   request,
 }) => {
-  const { designId, fileIds } = await createDesign(request);
+  const { designId, fileIds } = await createDesign(request, 2);
+  const deletedFileId = fileIds[0]!;
   try {
     await configureResponsiveDesign(request, designId, fileIds);
     await gotoEditor(page, designId);
     await page
-      .locator("[data-screen-shell] [data-frame-title]")
+      .locator("[data-screen-shell]")
+      .filter({
+        has: page.locator(`[data-screen-iframe-id="${deletedFileId}"]`),
+      })
+      .locator("[data-frame-title]")
       .first()
       .click();
     await page.keyboard.press("Delete");
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+    await expect(
+      page.locator(`[data-screen-iframe-id^="${deletedFileId}::bp-"]`),
+    ).toHaveCount(0);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -419,6 +711,10 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
     });
     await gotoEditor(page, designId);
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    await page
+      .locator("[data-screen-shell] [data-frame-title]")
+      .first()
+      .click();
     expect(
       (await designData(request, designId)).canvasFrames?.[secondFileId!]?.x,
     ).toBe(1776);
@@ -486,21 +782,7 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
   }
 });
 
-// Redo does not restore the screen undo removed: after Cmd+Shift+Z the
-// overview still shows 2 shells instead of 3. The frame-draw half of this
-// test now passes; this is the remaining defect, same family as
-// canvas-tools' "overview undo skips deleted screen content history".
-//
-// Lead: only redoFileCreation (commands/redo.ts) can recreate a screen, and
-// it pops fileCreationRedoStackRef — which only undoFileCreation fills.
-// undoFileCreation resolves the created file by FILENAME
-// (files.find(f => f.filename === entry.filename)) and bails when that misses,
-// so a duplicate — whose filename differs from the recorded entry — can be
-// removed by another undo path that never fills the redo stack, leaving redo
-// with nothing to pop. The skipFileCreationRedoPrune comment right there
-// documents an earlier bug in the same stack, so filename-keyed history is
-// the fragile part worth fixing rather than the symptom.
-test.fixme("add duplicate undo and redo keep the created screen selected and visible", async ({
+test("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
   page,
   request,
 }) => {
@@ -574,7 +856,29 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
     const assertCreatedScreenSelectedVisibleWithSingleCameraCommit = async (
       screenId: string,
     ) => {
-      await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
+      const selectionBoxes = page.locator("[data-frame-selection-box]");
+      await expect(selectionBoxes).toHaveCount(1);
+      await expect
+        .poll(() =>
+          page.evaluate((targetId) => {
+            const selection = document
+              .querySelector("[data-frame-selection-box]")
+              ?.getBoundingClientRect();
+            const target = document
+              .querySelector(
+                `[data-frame-id="${CSS.escape(targetId)}"] [data-screen-card]`,
+              )
+              ?.getBoundingClientRect();
+            if (!selection || !target) return false;
+            return [
+              Math.abs(selection.left - target.left),
+              Math.abs(selection.top - target.top),
+              Math.abs(selection.width - target.width),
+              Math.abs(selection.height - target.height),
+            ].every((difference) => difference < 1);
+          }, screenId),
+        )
+        .toBe(true);
       try {
         await expect
           .poll(() =>
@@ -622,27 +926,41 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
       ).toBeLessThanOrEqual(1);
     };
 
-    let beforeIds = await designFileIds(request, designId);
-    resetCameraProbe();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+D" : "Control+D",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    const duplicatedId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
-      duplicatedId,
-    );
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
-    resetCameraProbe();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    const redoneId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
+    const assertDuplicateRespectsBoardGap = async (
+      sourceId: string,
+      duplicateId: string,
+    ) => {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ sourceId, duplicateId }) => {
+                const card = (screenId: string) =>
+                  document
+                    .querySelector(
+                      `[data-frame-id="${CSS.escape(screenId)}"] [data-screen-card]`,
+                    )
+                    ?.getBoundingClientRect();
+                const source = card(sourceId);
+                const duplicate = card(duplicateId);
+                const world = document.querySelector<HTMLElement>(
+                  "[data-multi-screen-canvas-world]",
+                );
+                if (!source || !duplicate || !world) return false;
+                const transform = getComputedStyle(world).transform;
+                const scale =
+                  transform === "none" ? 1 : new DOMMatrixReadOnly(transform).a;
+                return duplicate.left - source.right >= 56 * scale - 1;
+              },
+              { sourceId, duplicateId },
+            ),
+          {
+            message:
+              "Cmd+D should leave at least the 56-unit board gap to the right of its source",
+          },
+        )
+        .toBe(true);
+    };
 
     const findEmptyCanvasPoint = async () => {
       await expect(surface).toBeVisible();
@@ -682,6 +1000,21 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
       }
       throw new Error("no empty canvas point");
     };
+    let beforeIds = await designFileIds(request, designId);
+    resetCameraProbe();
+    await frameToolButton(page).click();
+    const phoneGroup = page
+      .locator(".design-inspector-scroll > section")
+      .nth(1);
+    await phoneGroup.locator(":scope > button").click();
+    await phoneGroup
+      .getByRole("button", { name: /iPhone 17/ })
+      .first()
+      .click();
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
+    const presetId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
+
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
     await pickFrameMode(page, "Screen");
@@ -696,14 +1029,35 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
 
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
-    await frameToolButton(page).click();
-    await page
-      .getByRole("button", { name: /iPhone 17/ })
-      .first()
-      .click();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+D" : "Control+D",
+    );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
-    const presetId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
+    const duplicatedId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
+      duplicatedId,
+    );
+    await assertDuplicateRespectsBoardGap(drawnId, duplicatedId);
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
+    await expect
+      .poll(async () => (await designFileIds(request, designId)).sort())
+      .toEqual([...beforeIds].sort());
+    expect(await designFileIds(request, designId)).not.toContain(duplicatedId);
+    resetCameraProbe();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
+    const redoneId = await createdScreenId(beforeIds);
+    expect(redoneId).not.toBe(duplicatedId);
+    await expect
+      .poll(async () => (await designFileIds(request, designId)).sort())
+      .toEqual([...beforeIds, redoneId].sort());
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
+    await assertDuplicateRespectsBoardGap(drawnId, redoneId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -717,6 +1071,10 @@ test("breakpoint width menus preserve invalid drafts for correction", async ({
   try {
     await configureResponsiveDesign(request, designId, fileIds);
     await gotoEditor(page, designId);
+    await page
+      .locator("[data-screen-shell] [data-frame-title]")
+      .first()
+      .click();
     const control = page.locator("[data-breakpoint-device-control]");
     await control.getByRole("button", { name: "390", exact: true }).click();
     await control.getByRole("button", { name: "Breakpoint options" }).click();
@@ -733,9 +1091,6 @@ test("breakpoint width menus preserve invalid drafts for correction", async ({
     await width.fill("420");
     await width.press("Enter");
     await expect(width).toBeHidden();
-    await expect(
-      control.getByRole("button", { name: "420", exact: true }),
-    ).toBeVisible();
     await expect
       .poll(async () => {
         const data = await designData(request, designId);
@@ -744,6 +1099,9 @@ test("breakpoint width menus preserve invalid drafts for correction", async ({
           .sort((a: number, b: number) => a - b);
       })
       .toEqual([420, 768]);
+    await expect(
+      control.getByRole("button", { name: "420", exact: true }),
+    ).toBeVisible();
 
     await control
       .getByRole("button", { name: "Add breakpoint", exact: true })

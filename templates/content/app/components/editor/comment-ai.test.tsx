@@ -31,14 +31,18 @@ const api = vi.hoisted(() => ({
   toastError: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: (...args: unknown[]) => api.callAction(...args),
   useActionQuery: () => ({
     data: { requests: api.requests },
     refetch: api.refetch,
   }),
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   startBackgroundAgentSession: (...args: unknown[]) =>
     api.startBackgroundAgentSession(...args),
   getBackgroundAgentSessionStatus: (...args: unknown[]) =>
@@ -46,7 +50,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   cancelBackgroundAgentSession: (...args: unknown[]) =>
     api.cancelBackgroundAgentSession(...args),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
 vi.mock("@/lib/comment-ai-client", () => ({

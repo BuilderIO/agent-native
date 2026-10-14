@@ -83,8 +83,6 @@ export const LESSON_DECK = bDeck(
           <div style="position:absolute;left:20px;top:110px;width:250px;height:220px;border-radius:0 100% 0 100%;background:${C.teal};"></div>
           <div style="position:absolute;left:44px;top:130px;width:290px;height:4px;border-radius:2px;background:${tint(C.white, 45)};transform:rotate(41deg);transform-origin:left center;"></div>
           <div style="position:absolute;left:36px;top:300px;width:58px;height:58px;border-radius:50% 0 50% 50%;background:${C.blue};transform:rotate(-45deg);"></div>
-          <div style="position:absolute;left:0;top:40px;width:36px;height:36px;border-radius:50%;border:4px solid ${C.coral};"></div>
-          <div style="position:absolute;left:52px;top:10px;width:18px;height:18px;border-radius:50%;background:${C.coral};"></div>
         </div>`,
       ),
       "Open with a question before showing this slide: where does a tree's mass come from? Let a few students guess. The topic is an example; replace the title, module number, and timings with your own lesson.",

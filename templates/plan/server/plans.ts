@@ -19,6 +19,7 @@ import {
   parsePlanCommentAnchor,
   type PlanCommentMention,
 } from "../shared/comment-context.js";
+import { isPlanKind, planPathForKind } from "../shared/plan-routes.js";
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,
@@ -37,6 +38,7 @@ import {
   type PlanSummary,
 } from "../shared/types.js";
 import { getDb, schema } from "./db/index.js";
+import { assertEditionsLabEnabled } from "./lib/editions-lab.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 import {
   buildPlanContentHtml,
@@ -112,7 +114,9 @@ export const commentInputSchema = z.object({
 export type PlanCommentInput = z.infer<typeof commentInputSchema>;
 
 export function newId(prefix: string): string {
-  const separator = prefix === "plan" || prefix === "recap" ? "-" : "_";
+  // Plan kinds use a `-` separator (plan-…, recap-…, edition-…) so the id reads
+  // cleanly in the URL; other prefixes keep the legacy `_` separator.
+  const separator = isPlanKind(prefix) ? "-" : "_";
   return `${prefix}${separator}${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
 
@@ -460,8 +464,7 @@ export async function insertInitialPlanComments(input: {
 }
 
 export function planPath(id: string, kind: PlanKind = "plan"): string {
-  const base = kind === "recap" ? "recaps" : "plans";
-  return `/${base}/${encodeURIComponent(id)}`;
+  return planPathForKind(id, kind);
 }
 
 export function planDeepLink(id: string, kind: PlanKind = "plan"): string {
@@ -800,6 +803,11 @@ async function loadPlanBundleForAuthorizedPlan(
   plan: typeof schema.plans.$inferSelect,
   role: PlanBundle["access"]["role"],
 ): Promise<PlanBundle> {
+  // Editions are ordinary `plans` rows, so every generic action that reads or
+  // writes one arrives here. Gating only the edition actions would leave the
+  // whole surface — export, source patches, versions, comments, mutations —
+  // open to a caller who has the lab turned off.
+  if (plan.kind === "edition") await assertEditionsLabEnabled();
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([
     db

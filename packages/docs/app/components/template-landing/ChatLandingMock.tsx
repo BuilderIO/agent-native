@@ -1,5 +1,5 @@
 // i18n-raw-literal-disable-file -- source-shaped Chat artwork; example data is fabricated.
-import { AgentNativeIcon } from "@agent-native/core/client/agent-native-icon";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
   IconArrowUpRight,
   IconArrowUp,

@@ -7,6 +7,7 @@ export async function finalizeEndedMeetingsForRecording(
   db: ReturnType<typeof getDb>,
   recordingId: string,
 ): Promise<void> {
+  // guard:allow-unscoped — callers already authorize the recording, this reads meeting ids only, and finalizeMeeting checks editor access on each meeting before reading its body.
   const meetings = await db
     .select({ id: schema.meetings.id })
     .from(schema.meetings)

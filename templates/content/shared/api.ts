@@ -43,6 +43,9 @@ export interface Document {
   canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
+  mcpDirectoryWidgetReadOnly?: true;
+  mcpDirectoryWidgetCanEditDocument?: true;
+  mcpDirectoryWidgetCanEditDatabaseRows?: true;
   source?: DocumentSourceInfo;
   properties?: DocumentProperty[];
   database?: ContentDatabase;
@@ -122,6 +125,7 @@ export interface ResolveDocumentSyncConflictRequest {
 
 export interface DocumentCreateResult extends Document {
   spaceId: string;
+  creativeContextProjectionStatus?: "pending";
 }
 
 export interface DocumentCreateRequest {
@@ -192,6 +196,17 @@ export interface ContentNavigationContext {
   workspaceFilesDatabaseId: string | null;
 }
 
+export interface ContentLinkTarget {
+  documentId: string;
+  title: string;
+  icon: string | null;
+}
+
+export interface ContentLinkTargetsResponse {
+  links: Array<ContentLinkTarget & { id: string }>;
+  sources: Array<ContentLinkTarget & { sourcePath: string }>;
+}
+
 export interface DocumentDiscoveryPagination {
   offset: number;
   limit: number;
@@ -258,11 +273,27 @@ export type DocumentPropertySystemRole =
   | "files_parent"
   | "files_source";
 
+/** A linked row of a relation property, resolved for the current viewer. */
+export interface DocumentPropertyRelationTarget {
+  documentId: string;
+  title: string;
+  icon: string | null;
+  /** Set only when the viewer can read the target database. */
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+}
+
 export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
   blocksField?: BlocksFieldIdentity;
+  /**
+   * Relation properties only: the linked rows this viewer may see, in value
+   * order. IDs in `value` without a target here are unavailable (restricted or
+   * trashed — deliberately indistinguishable).
+   */
+  relationTargets?: DocumentPropertyRelationTarget[];
 }
 
 export interface DocumentPropertiesResponse {
@@ -292,6 +323,11 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  /**
+   * Client-only hint: titles for relation IDs, shown until the server's
+   * resolved targets arrive. The action ignores it.
+   */
+  relationTargets?: DocumentPropertyRelationTarget[];
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -602,6 +638,34 @@ export interface ContentDatabaseRowMutationReceipt {
 export interface ContentDatabaseRowMutationResult {
   receipt: ContentDatabaseRowMutationReceipt;
   createdItem?: ContentDatabaseItem;
+}
+
+export interface ContentDatabaseRowPatchReceipt {
+  itemId: string;
+  documentId: string;
+  outcome: "updated" | "unchanged";
+  affected: { title: boolean; propertyIds: string[] };
+  revisions: { before: string; after: string };
+  readback: {
+    verified: true;
+    title?: string;
+    propertyValues: Record<string, DocumentPropertyValue>;
+  };
+}
+
+export interface ContentDatabaseRowPatchBatchResult {
+  receipt: {
+    receiptId: string;
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+    idempotency: {
+      key: string;
+      result: "applied" | "replayed";
+      payloadDigest: string;
+    };
+    counts: { requested: number; updated: number; unchanged: number };
+    rows: ContentDatabaseRowPatchReceipt[];
+  };
 }
 
 export interface ContentDatabaseSourceOverlay {
@@ -1017,7 +1081,24 @@ export interface ContentDatabaseNavigationPageResponse {
     hasMore: boolean;
     nextCursor: string | null;
   };
+  /**
+   * First pages of the requested expanded folders, by parent document ID. A
+   * folder with no children the caller can see is left out.
+   */
+  branches?: Record<string, ContentDatabaseNavigationPage>;
+  /**
+   * Present when the read asked for expanded folders: true when the cap on
+   * branches per read left out folders it could have opened, which then read
+   * their own pages.
+   */
+  branchesTruncated?: boolean;
 }
+
+/** One Files navigation page on its own, without expanded folders. */
+export type ContentDatabaseNavigationPage = Omit<
+  ContentDatabaseNavigationPageResponse,
+  "branches" | "branchesTruncated"
+>;
 
 export interface BuilderActionTiming {
   name: string;

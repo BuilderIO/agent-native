@@ -1,9 +1,9 @@
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   isBuilderCreditsExhaustedMessage,
@@ -602,7 +602,8 @@ function isTranscriptionSetupNeeded(
     r.includes("credits exhausted") ||
     r.includes("rate limit") ||
     r.includes("rejected the api key") ||
-    r.includes("connect builder")
+    r.includes("connect builder") ||
+    r.includes("use builder")
   );
 }
 
@@ -614,6 +615,7 @@ function isConnectedBuilderRetryable(
   return (
     r.includes("no transcription provider configured") ||
     r.includes("connect builder") ||
+    r.includes("use builder") ||
     r.includes("no transcription provider")
   );
 }
@@ -649,7 +651,8 @@ function friendlyTranscriptFailure(
   if (
     normalized.includes("api key") ||
     normalized.includes("not configured") ||
-    normalized.includes("connect builder")
+    normalized.includes("connect builder") ||
+    normalized.includes("use builder")
   ) {
     return t("transcriptPanel.backupNotSetup");
   }

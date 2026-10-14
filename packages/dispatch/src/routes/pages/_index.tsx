@@ -1,5 +1,4 @@
 import { appPath } from "@agent-native/core/client/api-path";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
@@ -40,7 +39,7 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return null;
 }
 
 export default function IndexPage() {

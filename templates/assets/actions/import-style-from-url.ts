@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   extractRenderedDesignSystemFromUrl,
   styleBriefFromRenderedDesign,
 } from "@agent-native/creative-context/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -29,10 +30,16 @@ export default defineAction({
   run: async ({ libraryId, collectionId, url }) => {
     await assertCanApprove(libraryId, "Importing a style");
     const db = getDb();
+    const libraryEditorAccess = accessFilter(
+      schema.assetLibraries,
+      schema.assetLibraryShares,
+      undefined,
+      "editor",
+    );
     const [library] = await db
       .select()
       .from(schema.assetLibraries)
-      .where(eq(schema.assetLibraries.id, libraryId))
+      .where(and(eq(schema.assetLibraries.id, libraryId), libraryEditorAccess))
       .limit(1);
     if (!library) throw new Error("Asset library not found.");
 
@@ -91,7 +98,9 @@ export default defineAction({
           settings: stringifyJson(settings),
           updatedAt,
         })
-        .where(eq(schema.assetLibraries.id, libraryId));
+        .where(
+          and(eq(schema.assetLibraries.id, libraryId), libraryEditorAccess),
+        );
     }
 
     return {

@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -10,8 +9,9 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import "../server/db/index.js";
-import { FULL_APP_BUILDING } from "../shared/full-app.js";
 
 const targetSchema = z.object({
   selector: z
@@ -54,7 +54,7 @@ export default defineAction({
       .describe("Optional target context for the element/screen being edited."),
   }),
   run: async ({ designId, instruction, screenFileId, target }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 
@@ -67,20 +67,23 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    await db.insert(schema.designFusionEdits).values({
-      id,
-      designId,
-      screenFileId: screenFileId ?? null,
-      instruction,
-      target: target ? JSON.stringify(target) : null,
-      status: "pending",
-      batchId: null,
-      error: null,
-      sentAt: null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designFusionEdits).values({
+        id,
+        designId,
+        screenFileId: screenFileId ?? null,
+        instruction,
+        target: target ? JSON.stringify(target) : null,
+        status: "pending",
+        batchId: null,
+        error: null,
+        sentAt: null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     const [row] = await db

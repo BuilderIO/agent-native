@@ -18,12 +18,13 @@ const messages = {
     disconnecting: "Déconnexion…",
   },
   settings: {
+    backHome: "Retour à l’accueil",
     title: "Paramètres",
-    description: "Préférences de langue et d'espace de travail pour cette app.",
-    languageTitle: "Langue",
+    description: "Gérez les paramètres de l’application et de la langue.",
+    languageTitle: "Langue de l’interface",
     languageDescription:
-      "Choisissez la langue de l'interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l'interface",
+      "Choisissez la langue utilisée dans cette application.",
+    languageLabel: "Langue",
     agentTitle: "Paramètres de l'agent",
     agentDescription:
       "Ouvrez les paramètres de l'agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
@@ -33,7 +34,6 @@ const messages = {
       "Gérez l’accès des équipes et les ressources de l’espace de travail partagé.",
     openTeamSettings: "Ouvrir les paramètres d’équipe",
     openResourceSettings: "Ouvrir les paramètres des ressources",
-    backHome: "Retour à l'accueil",
     emailChange: "Changer l’e-mail",
     emailChangeSent: "Consultez votre e-mail pour confirmer ce changement.",
     emailChangeError: "Impossible d’envoyer la confirmation.",
@@ -373,9 +373,9 @@ const messages = {
       "Laissez notre agent cloud effectuer les modifications pour vous. Vous recevrez un lien pour prévisualiser et déployer.",
     codeChangeTitle: "Cela nécessite un changement de code",
     codeChangeBadge: "Changement de code",
-    connectBuilderTitle: "Connecter Builder.io",
+    connectBuilderTitle: "Utiliser Builder.io",
     connectBuilderDescription:
-      "Connectez Builder (offre gratuite disponible) pour activer les modifications de code basées sur le cloud à partir de cette application.",
+      "Utilisez Builder.io (offre gratuite disponible) pour activer les modifications de code basées sur le cloud à partir de cette application.",
     setupRequired: "Configuration requise",
     branchCreated: "Branche créée",
     close: "Fermer",
@@ -630,7 +630,7 @@ const messages = {
     back: "Retour",
     agentEngineRequired: "Moteur d'agent requis",
     agentEngineDescription:
-      "Connect Builder.io (offre gratuite disponible) or an LLM key before {{platform}} can answer.",
+      "Utilisez Builder.io (offre gratuite disponible) ou une clé LLM avant que {{platform}} puisse répondre.",
     openLlm: "Ouvrir LLM",
     setup: "Setup",
     shareDocumentsWith: "Partager des documents avec",
@@ -670,6 +670,15 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Retour à la liste",
+    promoteMustContain: "La réponse doit contenir…",
+    promoteMustContainOptional:
+      "Texte facultatif à rechercher dans la réponse…",
+    promoteMustContainLabel:
+      "Texte à vérifier dans la réponse de l’évaluation promue",
+    promoteReviewedPromptLabel:
+      "Prompt vérifié manuellement (jamais copié depuis la production)",
+    promoteNeedsContains:
+      "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de la promouvoir en évaluation.",
     spans: "Spans",
     type: "Taper",
     name: "Nom",

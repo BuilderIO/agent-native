@@ -1,7 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
@@ -9,17 +8,14 @@ import {
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
+  getEmbedAuthToken,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import {
-  getThemeInitScript,
-  RequireSession,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -41,7 +37,7 @@ import {
 } from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { DeckProvider } from "@/context/DeckContext";
+import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
@@ -63,10 +59,6 @@ configureTracking({
 const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];
 
-export function isShareableContentPath(pathname: string): boolean {
-  return isBareContentPath(pathname) || pathname.startsWith("/deck/");
-}
-
 export function isBareContentPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
   return (
@@ -79,6 +71,17 @@ export function isBareContentPath(pathname: string): boolean {
 export function isDeckEditorPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
   return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
+}
+
+export function computeSessionBypass(pathname: string): boolean {
+  return (
+    isBareContentPath(pathname) ||
+    (isDeckEditorPath(pathname) && Boolean(getEmbedAuthToken()))
+  );
+}
+
+function isPrivateDeckEditorPath(pathname: string): boolean {
+  return isDeckEditorPath(pathname) && !isBareContentPath(pathname);
 }
 
 export const links: LinksFunction = () => [
@@ -198,6 +201,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
+  const location = useLocation();
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
@@ -209,18 +213,26 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
+    realtime: isPrivateDeckEditorPath(location.pathname)
+      ? { reason: "other collaborators can edit this deck while it is open" }
+      : undefined,
+    pauseWhenHidden: true,
   });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  const location = useLocation();
   const handleCommandMenuShortcut = useCallback(() => {
     setCmdkOpen(true);
   }, []);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
-    () => location.pathname !== "/home",
+    (event: KeyboardEvent) =>
+      location.pathname !== "/home" &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest('[data-editing-block="true"]')
+      ),
     [location.pathname],
   );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
@@ -243,7 +255,7 @@ function AppContent() {
   const isBare = isBareContentPath(location.pathname);
 
   const content = isBare ? (
-    <DeckProvider key={DECK_KEY}>
+    <DeckProvider key={DECK_KEY} realtimeEnabled={false}>
       <Outlet />
     </DeckProvider>
   ) : (
@@ -326,7 +338,11 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <DeckProvider key={DECK_KEY}>
+      <DeckProvider
+        key={DECK_KEY}
+        realtimeEnabled={isDeckEditor}
+        openDeckId={deckIdFromPathname(location.pathname)}
+      >
         <AppLayout>
           <Outlet />
         </AppLayout>
@@ -334,7 +350,7 @@ function AppContent() {
     </>
   );
 
-  return isDeckEditor ? <RequireSession>{content}</RequireSession> : content;
+  return content;
 }
 
 export default function Root() {
@@ -352,7 +368,8 @@ export default function Root() {
         skeletonLayout="prompt-library"
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
-        sessionBypass={isShareableContentPath(location.pathname)}
+        sessionBypass={computeSessionBypass(location.pathname)}
+        skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
       >
         <AppContent />
       </AppProviders>
@@ -360,4 +377,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

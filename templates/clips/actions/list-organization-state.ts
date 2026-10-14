@@ -13,7 +13,7 @@ import {
   eq,
   isNotNull,
   isNull,
-  notInArray,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -56,7 +56,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args, ctx) => {
-    const db = getDb();
+    const db = await Promise.resolve(getDb());
     const ownerEmail = getCurrentOwnerEmail();
 
     const activeOrganizationId =
@@ -65,12 +65,6 @@ export default defineAction({
 
     const { organizationId } =
       await requireOrganizationAccess(activeOrganizationId);
-
-    const resolvedDb = await Promise.resolve(db);
-    const meetingRecordingIds = resolvedDb
-      .select({ id: schema.meetings.recordingId })
-      .from(schema.meetings)
-      .where(isNotNull(schema.meetings.recordingId));
 
     const memberRowsPromise = Promise.resolve(
       db
@@ -84,9 +78,9 @@ export default defineAction({
         .where(eq(orgMembers.orgId, organizationId))
         .orderBy(asc(orgMembers.joinedAt)),
     );
+
     const [
       [org],
-      settingsRows,
       memberRows,
       profiles,
       inviteRows,
@@ -99,18 +93,16 @@ export default defineAction({
           id: organizations.id,
           name: organizations.name,
           createdAt: organizations.createdAt,
-        })
-        .from(organizations)
-        .where(eq(organizations.id, organizationId))
-        .limit(1),
-      db
-        .select({
           brandColor: schema.organizationSettings.brandColor,
           brandLogoUrl: schema.organizationSettings.brandLogoUrl,
           defaultVisibility: schema.organizationSettings.defaultVisibility,
         })
-        .from(schema.organizationSettings)
-        .where(eq(schema.organizationSettings.organizationId, organizationId))
+        .from(organizations)
+        .leftJoin(
+          schema.organizationSettings,
+          eq(schema.organizationSettings.organizationId, organizations.id),
+        )
+        .where(eq(organizations.id, organizationId))
         .limit(1),
       memberRowsPromise,
       memberRowsPromise.then((rows) =>
@@ -133,12 +125,25 @@ export default defineAction({
         )
         .orderBy(desc(orgInvitations.createdAt)),
       db
-        .select()
+        .select({
+          id: schema.spaces.id,
+          name: schema.spaces.name,
+          color: schema.spaces.color,
+          iconEmoji: schema.spaces.iconEmoji,
+          isAllCompany: schema.spaces.isAllCompany,
+        })
         .from(schema.spaces)
         .where(eq(schema.spaces.organizationId, organizationId))
         .orderBy(asc(schema.spaces.name)),
       db
-        .select()
+        .select({
+          id: schema.folders.id,
+          name: schema.folders.name,
+          parentId: schema.folders.parentId,
+          spaceId: schema.folders.spaceId,
+          ownerEmail: schema.folders.ownerEmail,
+          position: schema.folders.position,
+        })
         .from(schema.folders)
         .where(
           and(
@@ -150,7 +155,7 @@ export default defineAction({
           ),
         )
         .orderBy(asc(schema.folders.position)),
-      resolvedDb
+      db
         .select({
           folderId: schema.recordings.folderId,
           recordingCount: sql<number>`COUNT(1)`,
@@ -171,14 +176,18 @@ export default defineAction({
             isNotNull(schema.recordings.folderId),
             isNull(schema.recordings.archivedAt),
             isNull(schema.recordings.trashedAt),
-            notInArray(schema.recordings.id, meetingRecordingIds),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(schema.meetings)
+                .where(eq(schema.meetings.recordingId, schema.recordings.id)),
+            ),
           ),
         )
         .groupBy(schema.recordings.folderId),
     ]);
     if (!org) return emptyOrganizationState(ownerEmail);
 
-    const settings = settingsRows[0];
     const membersWithProfiles = memberRows.map((m) => {
       const name = profiles.get(m.email.toLowerCase())?.name;
       return {
@@ -211,9 +220,10 @@ export default defineAction({
       organization: {
         id: org.id,
         name: org.name,
-        brandColor: settings?.brandColor ?? "#18181B",
-        brandLogoUrl: settings?.brandLogoUrl ?? null,
-        defaultVisibility: settings?.defaultVisibility ?? "public",
+        // guard:allow-raw-color — stored brand data; mirrors the brand_color column default.
+        brandColor: org.brandColor ?? "#18181B",
+        brandLogoUrl: org.brandLogoUrl ?? null,
+        defaultVisibility: org.defaultVisibility ?? "public",
         createdAt: Number(org.createdAt),
       },
       members: membersWithProfiles,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
 import type { RenderedFigImport } from "../../shared/fig-to-frames.js";
 
 const mocks = vi.hoisted(() => ({
@@ -63,6 +64,12 @@ function rendered(
     imageCount: images.length,
     approximatedNodeCount: 0,
     unresolvedImageRefCount: 0,
+    skipCounts: {
+      unresolvedOverrideCount: 0,
+      unresolvedVariableAliasCount: 0,
+      missingComponentCount: 0,
+      skippedNodeTypeCount: 0,
+    },
     imagePlaceholderPrefix: PLACEHOLDER_PREFIX,
     images,
     frames: frames.map((frame, index) => {
@@ -141,7 +148,7 @@ describe("importFigInBrowser", () => {
 
     await expect(
       importFigInBrowser({ designId: "design-1", file: oversizedFile }),
-    ).rejects.toThrow(/512 MB/);
+    ).rejects.toThrow(/max 2 GB/);
     expect(arrayBuffer).not.toHaveBeenCalled();
     expect(mocks.decodeFig).not.toHaveBeenCalled();
   });
@@ -156,7 +163,10 @@ describe("importFigInBrowser", () => {
     await expect(
       importFigInBrowser({ designId: "design-1", file }),
     ).rejects.toThrow(/too much embedded image data/);
-    expect(mocks.assertEmbeddedImageBudget).toHaveBeenCalledWith(images);
+    expect(mocks.assertEmbeddedImageBudget).toHaveBeenCalledWith(
+      images,
+      BROWSER_FIG_LIMITS,
+    );
     expect(mocks.renderFigImport).not.toHaveBeenCalled();
   });
 

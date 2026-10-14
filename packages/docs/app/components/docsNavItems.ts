@@ -21,6 +21,7 @@ type NavItemConfig = {
   id: string;
   labelKey: keyof typeof enUS.nav;
   slug?: string;
+  anchor?: string;
   draft?: boolean;
   children?: NavItemConfig[];
 };
@@ -98,9 +99,14 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "cloudflare",
           },
           {
-            id: "aws-lambda",
-            labelKey: "deploymentAwsLambda",
-            slug: "aws-lambda",
+            id: "render",
+            labelKey: "deploymentRender",
+            slug: "render",
+          },
+          {
+            id: "koyeb",
+            labelKey: "deploymentKoyeb",
+            slug: "koyeb",
           },
           {
             id: "deno-deploy",
@@ -113,14 +119,14 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "azure-static-web-apps",
           },
           {
-            id: "koyeb",
-            labelKey: "deploymentKoyeb",
-            slug: "koyeb",
+            id: "aws-lambda",
+            labelKey: "deploymentAwsLambda",
+            slug: "aws-lambda",
           },
           {
-            id: "render",
-            labelKey: "deploymentRender",
-            slug: "render",
+            id: "aws-amplify",
+            labelKey: "deploymentAwsAmplify",
+            slug: "aws-amplify",
           },
         ],
       },
@@ -843,6 +849,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
+        id: "turn-into-app",
+        labelKey: "turnIntoApp",
+        slug: "turn-into-app",
+      },
+      {
         id: "agent-teams",
         labelKey: "customAgentsTeams",
         slug: "agent-teams",
@@ -948,21 +959,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-native-toolkit",
       },
       {
-        id: "toolkit-ui",
-        labelKey: "toolkitUiPrimitives",
-        slug: "toolkit-ui",
-      },
-      {
-        id: "toolkit-editors-canvases",
-        labelKey: "toolkitEditorsCanvases",
-        slug: "toolkit-editors-canvases",
-      },
-      {
-        id: "toolkit-context-knowledge",
-        labelKey: "toolkitContextKnowledge",
-        slug: "toolkit-context-knowledge",
-      },
-      {
         id: "toolkit-feature-kits",
         labelKey: "featureKits",
         children: [
@@ -990,6 +986,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-observability",
             labelKey: "toolkitObservability",
             slug: "toolkit-observability",
+          },
+          {
+            id: "toolkit-dashboard",
+            labelKey: "toolkitDashboard",
+            slug: "agent-native-toolkit",
+            anchor: "dashboard-kit",
           },
         ],
       },
@@ -1027,6 +1029,23 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
           },
+          {
+            id: "toolkit-chat-history",
+            labelKey: "toolkitChatHistory",
+            slug: "toolkit-agent-ux",
+            anchor: "chat-history",
+          },
+          {
+            id: "toolkit-agent-page",
+            labelKey: "toolkitAgentPage",
+            slug: "agent-surfaces",
+            anchor: "agent-page",
+          },
+          {
+            id: "toolkit-notifications",
+            labelKey: "toolkitNotifications",
+            slug: "notifications",
+          },
         ],
       },
       {
@@ -1047,6 +1066,27 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "versioning-and-stability",
             labelKey: "versioningAndStability",
             slug: "versioning-and-stability",
+          },
+        ],
+      },
+      {
+        id: "toolkit-foundations",
+        labelKey: "toolkitFoundations",
+        children: [
+          {
+            id: "toolkit-ui",
+            labelKey: "toolkitUiPrimitives",
+            slug: "toolkit-ui",
+          },
+          {
+            id: "toolkit-editors-canvases",
+            labelKey: "toolkitEditorsCanvases",
+            slug: "toolkit-editors-canvases",
+          },
+          {
+            id: "toolkit-context-knowledge",
+            labelKey: "toolkitContextKnowledge",
+            slug: "toolkit-context-knowledge",
           },
         ],
       },
@@ -1144,7 +1184,10 @@ function toNavItem(
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
-    to: slug ? docsPathForSlug(slug, locale) : undefined,
+    to: slug
+      ? docsPathForSlug(slug, locale) +
+        (config.anchor ? "#" + config.anchor : "")
+      : undefined,
     draft: config.draft || undefined,
     children,
   };

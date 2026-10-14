@@ -266,7 +266,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder ist nicht verbunden. Gehe zurück und verwende zuerst Builder.io.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -278,7 +278,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Verwende dein Builder-Konto, um die Spaces und Modelle zu durchsuchen.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -462,7 +462,6 @@ const editor = {
   pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
   pageBodySyncingDescription:
     "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
-  createCollection: "Sammlung erstellen",
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
@@ -667,6 +666,34 @@ const editor = {
     pageCount_few: "{{count}}-Seiten",
     pageCount_many: "{{count}}-Seiten",
     pageCount_other: "{{count}}-Seiten",
+    back: "Zurück",
+    relatedDatabase: "Verknüpfte Datenbank",
+    searchDatabases: "Datenbanken durchsuchen",
+    thisDatabase: "Diese Datenbank",
+    noDatabases: "Keine Datenbanken gefunden",
+    searchPages: "Seiten durchsuchen",
+    noMatchingPages: "Keine passenden Seiten",
+    removeRelation: "{{name}} entfernen",
+    openPage: "{{name}} öffnen",
+    unavailablePage: "Nicht verfügbare Seite",
+    unavailablePageCount_zero: "{{count}} nicht verfügbar",
+    unavailablePageCount_one: "{{count}} nicht verfügbar",
+    unavailablePageCount_two: "{{count}} nicht verfügbar",
+    unavailablePageCount_few: "{{count}} nicht verfügbar",
+    unavailablePageCount_many: "{{count}} nicht verfügbar",
+    unavailablePageCount_other: "{{count}} nicht verfügbar",
+    noRelatedDatabase: "Keine verknüpfte Datenbank festgelegt",
+    linkAPage: "Seite verknüpfen oder erstellen…",
+    createPage: "„{{name}}“ erstellen",
+    reorderRelation: "{{name}} verschieben",
+    selectMore: "Weitere auswählen",
+    selectAPage: "Seite auswählen",
+    selectedCount_zero: "{{count}} ausgewählt",
+    selectedCount_one: "{{count}} ausgewählt",
+    selectedCount_two: "{{count}} ausgewählt",
+    selectedCount_few: "{{count}} ausgewählt",
+    selectedCount_many: "{{count}} ausgewählt",
+    selectedCount_other: "{{count}} ausgewählt",
     pasteFileOrMediaLink: "Datei- oder Medienlink einfügen",
     personOrEmail: "Person oder E-Mail",
     propertyMenuFor: "Eigenschaftenmenü für {{name}}",
@@ -799,6 +826,7 @@ const editor = {
     notifications: "Benachrichtigungen",
     notionSync: "Begriffssynchronisierung",
     openInNotion: "In Notion öffnen",
+    openInAgentNative: "In Agent-Native öffnen",
     orgCanFindAndView:
       "Jeder in Ihrer Organisation kann sie finden und anzeigen",
     orgLinkCanView:
@@ -952,8 +980,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
-  requestedPageUnavailable:
-    "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
   saveFailed: "Deine Position konnte nicht gespeichert werden",
   workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
   workspaceWelcomeUnavailableDescription:
@@ -1064,6 +1090,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Warte weiterhin auf {{stage}}. Anfrage: {{action}}.",
+    widgetDocumentLoadStage: "den Inhalt der gespeicherten Seite",
+    widgetDraftCheckStage: "die Wiederherstellung des Seitenentwurfs",
+    widgetEditorInitStage: "die Initialisierung des Rich-Text-Editors",
     iconPickerIcons: "Symbole",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Zuletzt verwendet",
@@ -1073,6 +1103,10 @@ const exactEnglish = {
     iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+    suggestionUnplaceable:
+      "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
+    proposalUnplaceable:
+      "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
@@ -1108,6 +1142,8 @@ const exactEnglish = {
       openInClaude: "In Claude öffnen",
       openInClaudeCode: "In Claude Code öffnen",
       openInCodex: "In Codex öffnen",
+      connectContent: "Content verbinden",
+      otherAgents: "Andere Agenten",
       agentCopyAccessNote:
         "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
       temporaryAgentLink: "Temporärer Agentenlink",
@@ -1200,7 +1236,10 @@ const history = {
 
 const overrides = {
   close: "Schließen",
-  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  setup: {
+    providerStatusUnavailable:
+      "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
+  },
   onboarding: {
     fileStorage: {
       title: "Speicher verbinden, um Dateien hochzuladen",
@@ -1252,6 +1291,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Inhalt",
+    loadingContent: "Inhalt wird geladen",
     commandSearchDocuments: "Dokumente suchen",
     searchSince: "Seit {{date}}",
     searchModifiedSince: "Geändert seit {{date}}",
@@ -1309,10 +1349,6 @@ const overrides = {
   },
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für Content.",
-    emailNotifications: "E-Mail-Benachrichtigungen",
-    emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand dein Dokument kommentiert, antwortet oder dich erwähnt.",
     saveFailed: "Speichern fehlgeschlagen",
     notificationsEmail: "E-Mail",
     commentsRepliesMentions: "Kommentare, Antworten und Erwähnungen",
@@ -1321,10 +1357,6 @@ const overrides = {
     retry: "Erneut versuchen",
     mcpAbout:
       "Verbinde Content mit Claude, ChatGPT, Cursor oder jeder KI-App, die MCP unterstützt. Diese App kann dann in Content für dich arbeiten: Dokumente durchsuchen, schreiben und bearbeiten. Sie sieht nur, was du sehen kannst.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Mitwirkende und gemeinsamen Dokumentzugriff.",
@@ -1364,6 +1396,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Keine Seite ausgewählt",
+    pageNoAccess: "Du hast keinen Zugriff auf diese Seite",
+    pageMissing: "Diese Seite gibt es nicht",
+    pageInTrash: "Diese Seite liegt im Papierkorb",
+    pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
+    openTrash: "Papierkorb öffnen",
+    goToMyPages: "Zu meinen Seiten",
     noPageDescription:
       "Wähle eine Seite in der Seitenleiste oder erstelle eine neue.",
     newPage: "Neue Seite",
@@ -1449,6 +1487,9 @@ const overrides = {
     aiUndo: "Rückgängig",
     aiDone: "Fertig",
     aiMoreChanges: "+{{count}} weitere",
+    suggestionReplaced: "Ersetzt",
+    suggestionWithdrawn: "Zurückgezogen",
+    suggestedChange: "Vorgeschlagene Änderung",
     aiUndoUnavailable:
       "Entfernter Text lässt sich nicht automatisch wiederherstellen",
     aiUndoFailed: "Änderung konnte nicht rückgängig gemacht werden",
@@ -1493,6 +1534,11 @@ const overrides = {
     resize: "Seitenleiste skalieren",
     expand: "Seitenleiste ausklappen",
     failedCreatePage: "Seite konnte nicht erstellt werden",
+    failedCreatePageDraftDescription:
+      "Ihr Entwurf ist in diesem Browser gespeichert. Sie können die Seite erneut erstellen oder den Entwurf verwerfen.",
+    discardFailedCreatePageQuestion: "Ausstehende Erstellung verwerfen?",
+    discardFailedCreatePageDescription:
+      "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",

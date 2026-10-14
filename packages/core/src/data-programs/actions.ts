@@ -256,7 +256,10 @@ export function createDataProgramActions(
     http: { method: "GET" },
     readOnly: true,
     run: async (args, ctx) => {
-      const program = await getDataProgram(args.programId, appId);
+      const program = await getDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       if (!program) throw new Error("Data program not found.");
 
       const { resolveAccess } = await import("../sharing/access.js");
@@ -321,7 +324,10 @@ export function createDataProgramActions(
         userEmail: ctx?.userEmail,
         orgId: ctx?.orgId ?? undefined,
       });
-      const archived = await archiveDataProgram(args.programId, appId);
+      const archived = await archiveDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       return { archived };
     },
   });

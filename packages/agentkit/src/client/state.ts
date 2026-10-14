@@ -26,7 +26,10 @@ import type {
   RunId,
   ThreadId,
 } from "../protocol/index.js";
-import { AgentProtocolValidationError } from "../protocol/index.js";
+import {
+  AgentProtocolValidationError,
+  agentEventSequenceEnd,
+} from "../protocol/index.js";
 
 export type AgentConnectionStatus =
   | "idle"
@@ -71,6 +74,9 @@ export interface AgentThreadState {
   annotations: Record<string, AgentAnnotation>;
   annotationMessageIds: Record<string, string>;
   suggestions: AgentSuggestion[];
+  /** A submitted user turn has not acquired its run identity yet. */
+  suggestionsPendingTurn?: boolean;
+  suggestionsUserMessageId?: string;
   actions: Record<
     string,
     {
@@ -157,6 +163,57 @@ export function hasActiveAgentRuns(
       [...requestIds].some((approvalId) => !resolvedApprovalIds.has(approvalId))
     );
   });
+}
+
+export function selectLatestAgentRun(
+  thread: AgentThreadState,
+): AgentRunState | undefined {
+  return Object.values(thread.runs).reduce<AgentRunState | undefined>(
+    (latest, run) => {
+      if (!latest) return run;
+      const latestTime = latest.startedAt ?? latest.completedAt;
+      const runTime = run.startedAt ?? run.completedAt;
+      return latestTime && runTime && runTime < latestTime ? latest : run;
+    },
+    undefined,
+  );
+}
+
+/** Only model-authored follow-ups belonging to the latest successful turn. */
+export function selectAgentSuggestions(
+  thread: AgentThreadState,
+): AgentSuggestion[] {
+  const run = selectLatestAgentRun(thread);
+  if (
+    !run ||
+    run.status !== "completed" ||
+    thread.suggestionsPendingTurn ||
+    hasActiveAgentRuns(thread) ||
+    Object.keys(thread.approvals).length > 0
+  )
+    return [];
+  const latestUser = thread.messages.findLast(
+    (message) => message.role === "user",
+  );
+  if (
+    latestUser?.status === "error" ||
+    thread.suggestionsUserMessageId !== latestUser?.id
+  )
+    return [];
+  return thread.suggestions.filter((suggestion) => suggestion.runId === run.id);
+}
+
+export function isCurrentAgentSuggestion(
+  thread: AgentThreadState,
+  suggestion: AgentSuggestion,
+): boolean {
+  return selectAgentSuggestions(thread).some(
+    (item) =>
+      item.id === suggestion.id &&
+      item.runId === suggestion.runId &&
+      item.prompt === suggestion.prompt &&
+      item.label === suggestion.label,
+  );
 }
 
 export function selectActiveAgentRoster(
@@ -289,7 +346,78 @@ function isExpectedTerminalFollowup(
   );
 }
 
+/** Drops requests still waiting on the user whose run `retire` selects. */
+function retireConnectionRequests(
+  thread: AgentThreadState,
+  retire: (runId: RunId) => boolean,
+): AgentThreadState {
+  const retired = Object.entries(thread.connectionRequests).filter(
+    ([id, request]) => {
+      const runId = thread.connectionRequestRunIds[id];
+      return (
+        runId !== undefined &&
+        (request.status === "requested" || request.status === "connecting") &&
+        retire(runId)
+      );
+    },
+  );
+  if (retired.length === 0) return thread;
+  const connectionRequests = { ...thread.connectionRequests };
+  const connectionRequestRunIds = { ...thread.connectionRequestRunIds };
+  for (const [id] of retired) {
+    delete connectionRequests[id];
+    delete connectionRequestRunIds[id];
+  }
+  return { ...thread, connectionRequests, connectionRequestRunIds };
+}
+
 export function settleRunProjection(
+  thread: AgentThreadState,
+  runId: RunId,
+  status: AgentTerminalRunStatus,
+  completedAt: string,
+  activeMessageId?: string,
+  // The run's own outcome when `status` is only how its unconfirmed items are
+  // settled.
+  runStatus: AgentTerminalRunStatus = status,
+): AgentThreadState {
+  const settled = settleRunItems(
+    thread,
+    runId,
+    status,
+    completedAt,
+    activeMessageId,
+  );
+  // A completed run that yielded to a request legitimately waits for the user;
+  // a failed or cancelled one can no longer use the answer.
+  return runStatus === "completed"
+    ? settled
+    : retireConnectionRequests(settled, (id) => id === runId);
+}
+
+/**
+ * Event order retires a request when a newer run starts; a loaded snapshot has
+ * no order left to replay, so its runs' start times stand in for it.
+ */
+export function retireSupersededConnectionRequests(
+  thread: AgentThreadState,
+): AgentThreadState {
+  // An unreadable start time is NaN: it never ranks as latest and is never
+  // older than the latest, so its requests stay.
+  const startedAt = (runId: RunId) =>
+    Date.parse(thread.runs[runId]?.startedAt ?? "");
+  const latestStartedAt = Math.max(
+    ...Object.keys(thread.runs)
+      .map(startedAt)
+      .filter((time) => !Number.isNaN(time)),
+  );
+  return retireConnectionRequests(
+    thread,
+    (runId) => startedAt(runId) < latestStartedAt,
+  );
+}
+
+function settleRunItems(
   thread: AgentThreadState,
   runId: RunId,
   status: AgentTerminalRunStatus,
@@ -454,7 +582,8 @@ export function classifyAgentEvent(
 ): AgentEventAdmission {
   if (event.threadId !== thread.id) return { status: "foreign" };
   const lastSequence = thread.runs[event.runId]?.lastSequence ?? 0;
-  if (lastSequence >= event.sequence) {
+  const sequenceEnd = agentEventSequenceEnd(event);
+  if (lastSequence >= sequenceEnd) {
     return { status: "duplicate", lastSequence };
   }
   const expectedSequence = lastSequence + 1;
@@ -465,7 +594,7 @@ export function classifyAgentEvent(
       receivedSequence: event.sequence,
     };
   }
-  return { status: "accepted", sequence: event.sequence };
+  return { status: "accepted", sequence: sequenceEnd };
 }
 
 export function reduceAgentEvent(
@@ -497,18 +626,23 @@ export function reduceAgentEvent(
   }
 
   let next = updateRun(thread, event.runId, {
-    lastSequence: event.sequence,
+    lastSequence: admission.sequence,
   });
   next = { ...next, events: [...next.events, event] };
   switch (event.type) {
     case "run.started":
-      return {
-        ...updateRun(next, event.runId, {
-          status: "running",
-          startedAt: event.occurredAt,
-        }),
-        ...updateActiveRuns(next, event.runId, true),
-      };
+      return retireConnectionRequests(
+        {
+          ...updateRun(next, event.runId, {
+            status: "running",
+            startedAt: event.occurredAt,
+          }),
+          ...updateActiveRuns(next, event.runId, true),
+          suggestions: [],
+          suggestionsPendingTurn: false,
+        },
+        (id) => id !== event.runId,
+      );
     case "run.status": {
       const terminal = isTerminalRunStatus(event.status);
       const updated = {
@@ -668,7 +802,7 @@ export function reduceAgentEvent(
         ),
       };
     case "tool.started":
-    case "tool.updated":
+    case "tool.updated": {
       if (
         wouldReopenTerminalItem(
           next.tools[event.toolCall.id]?.status,
@@ -677,10 +811,30 @@ export function reduceAgentEvent(
       ) {
         return next;
       }
+      const currentToolCall = next.tools[event.toolCall.id];
+      const toolCall =
+        event.type === "tool.updated"
+          ? {
+              ...event.toolCall,
+              ...(event.toolCall.messageId === undefined &&
+              currentToolCall?.messageId !== undefined
+                ? { messageId: currentToolCall.messageId }
+                : {}),
+              ...(event.toolCall.input === undefined &&
+              currentToolCall?.input !== undefined
+                ? { input: currentToolCall.input }
+                : {}),
+              ...(event.toolCall.output === undefined &&
+              currentToolCall?.output !== undefined
+                ? { output: currentToolCall.output }
+                : {}),
+            }
+          : event.toolCall;
       return {
         ...next,
-        tools: { ...next.tools, [event.toolCall.id]: event.toolCall },
+        tools: { ...next.tools, [event.toolCall.id]: toolCall },
       };
+    }
     case "tool.delta": {
       const current =
         next.tools[event.toolCallId] ??
@@ -772,6 +926,7 @@ export function reduceAgentEvent(
     case "approval.requested":
       return {
         ...updateRun(next, event.runId, { status: "awaiting_approval" }),
+        ...updateActiveRuns(next, event.runId, true),
         approvals: { ...next.approvals, [event.request.id]: event.request },
         approvalRunIds: {
           ...next.approvalRunIds,
@@ -846,7 +1001,21 @@ export function reduceAgentEvent(
       return { ...next, annotations, annotationMessageIds };
     }
     case "suggestions.updated":
-      return { ...next, suggestions: event.suggestions };
+      if (
+        next.suggestionsPendingTurn ||
+        selectLatestAgentRun(next)?.id !== event.runId
+      )
+        return next;
+      return {
+        ...next,
+        suggestionsUserMessageId: next.messages.findLast(
+          (message) => message.role === "user",
+        )?.id,
+        suggestions: event.suggestions.map((suggestion) => ({
+          ...suggestion,
+          runId: event.runId,
+        })),
+      };
     case "action.started":
       if (next.actions[event.invocation.id]?.result) return next;
       return {

@@ -90,6 +90,36 @@ describe("signOut", () => {
     expect(replace.mock.calls[0][0]).toContain("/sign-in?c=");
   });
 
+  it("drops cached action results before navigating away", async () => {
+    const { signOut } = await loadSignOut();
+    const cache = await import("./action-query-cache.js");
+    const records = new Map<string, unknown>([["alice", {}]]);
+    cache.setActionQueryCacheStorage({
+      get: async () => undefined,
+      set: async () => {},
+      del: async () => {},
+      keys: async () => [...records.keys()],
+      clear: async () => {
+        records.clear();
+      },
+    } as never);
+    let recordsAtNavigation: number | undefined;
+    replace.mockImplementation(() => {
+      recordsAtNavigation = records.size;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      ),
+    );
+
+    await signOut();
+
+    expect(recordsAtNavigation).toBe(0);
+    cache.setActionQueryCacheStorage(undefined);
+  });
+
   it("signals the early redirect before revocation and clears it before leaving", async () => {
     const { signOut } = await loadSignOut();
     const originalSessionStorage = Object.getOwnPropertyDescriptor(
@@ -182,10 +212,21 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) =>
+      values.set(key, value),
+    );
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: {
+        setItem,
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        key: (index: number) => [...values.keys()][index] ?? null,
+        get length() {
+          return values.size;
+        },
+      },
     });
     try {
       let settleRevoke: ((response: Response) => void) | undefined;
@@ -206,7 +247,11 @@ describe("signOut", () => {
       );
       await pending;
 
-      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(
+        setItem.mock.calls.filter(
+          ([key]) => key === "agent-native:session-invalidated",
+        ),
+      ).toHaveLength(1);
     } finally {
       if (originalLocalStorage) {
         Object.defineProperty(window, "localStorage", originalLocalStorage);

@@ -24,6 +24,10 @@ vi.mock("../server/db/index.js", () => ({}));
 import action from "./get-design-system.js";
 
 describe("get-design-system", () => {
+  it("marks Builder hydration as open-world access", () => {
+    expect(action.mcpAnnotations?.openWorldHint).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolveAccess.mockResolvedValue({

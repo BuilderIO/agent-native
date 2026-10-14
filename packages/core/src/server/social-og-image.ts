@@ -11,11 +11,10 @@ import {
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-import { getAppStatus } from "../shared/app-status.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
-  resolveBuiltInAuthMarketingPresentation,
 } from "./auth-marketing.js";
 import { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 import {
@@ -153,7 +152,6 @@ interface AgentNativeOgImageBrand {
   appName: string;
   logoUrl?: string;
   mode: "agent-native" | "custom";
-  presentation?: AgentNativeOgImagePresentation;
 }
 
 interface WrappedText {
@@ -403,17 +401,7 @@ function resolveAgentNativeOgImageBrand(
       (trustedFirstPartyHost
         ? "Agent-Native"
         : resolveAgentNativeOgImageAppName(event));
-    return {
-      appName,
-      mode,
-      presentation:
-        configuredFirstParty || trustedFirstPartyHost
-          ? resolveAgentNativeOgImagePresentation(appName, {
-              requestHost,
-              requestPath,
-            })
-          : undefined,
-    };
+    return { appName, mode };
   }
 
   const customAppName =
@@ -422,25 +410,6 @@ function resolveAgentNativeOgImageBrand(
     appName: customAppName || resolveAgentNativeOgImageAppName(event),
     logoUrl: sanitizeLogoUrl(app.logoUrl),
     mode,
-  };
-}
-
-function resolveAgentNativeOgImagePresentation(
-  appName: string,
-  opts: { requestHost?: string; requestPath?: string },
-): AgentNativeOgImagePresentation | undefined {
-  const appLabel = appName.replace(/^Agent-Native\s+/i, "").trim();
-  if (!appLabel || appLabel.toLowerCase() === "agent-native") return undefined;
-  const presentation = resolveBuiltInAuthMarketingPresentation(
-    { appName, tagline: "" },
-    opts,
-  );
-  if (!presentation) return undefined;
-  return {
-    appLabel,
-    status: getAppStatus(appLabel),
-    headline: presentation.headline,
-    description: presentation.description,
   };
 }
 
@@ -743,12 +712,7 @@ export function renderAgentNativeOgImageSvg(
   const configuredBrand = resolveAgentNativeOgImageBrand();
   const appName = cleanText(input.appName) || configuredBrand.appName;
   const mode = input.brand ?? configuredBrand.mode;
-  const presentation =
-    input.presentation !== undefined
-      ? input.presentation
-      : cleanText(input.appName)
-        ? undefined
-        : configuredBrand.presentation;
+  const presentation = input.presentation;
   if (
     mode === "agent-native" &&
     presentation &&
@@ -825,7 +789,10 @@ export async function renderAgentNativeOgImagePng(
       ? process.env.AGENT_NATIVE_RESVG_PACKAGE
       : undefined;
   const resvgPackage = overridePackage || "@resvg/resvg-js";
-  const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
+  const { Resvg } = await loadOptionalPeer(
+    resvgPackage,
+    () => import(/* @vite-ignore */ resvgPackage),
+  );
   const configuredLogoUrl =
     input.logoUrl !== undefined
       ? input.logoUrl
@@ -909,11 +876,7 @@ export function createAgentNativeOgImageHandler(
       brand: options.brand ?? brand.mode,
       logoUrl: options.logoUrl !== undefined ? options.logoUrl : brand.logoUrl,
       presentation:
-        options.presentation !== undefined
-          ? options.presentation
-          : cleanText(options.appName)
-            ? null
-            : (brand.presentation ?? null),
+        options.presentation !== undefined ? options.presentation : null,
       title: cleanText(options.title) || queryStringValue(query.title, 140),
       accentText:
         cleanText(options.accentText) || queryStringValue(query.accentText, 80),

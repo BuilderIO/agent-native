@@ -27,6 +27,29 @@ const mocks = vi.hoisted(() => {
   updateChain.where.mockReturnValue(updateChain);
   updateChain.returning.mockResolvedValue([]);
 
+  const state = {
+    inMutation: false,
+    mutationEvents: [] as string[],
+  };
+  const transaction = {
+    insert: vi.fn(() => insertChain),
+    select: vi.fn(() => selectChain),
+  };
+  const withDesignSourceMutationTransaction = vi.fn(
+    async (
+      _designId: string,
+      callback: (tx: typeof transaction) => Promise<unknown>,
+    ) => {
+      state.mutationEvents.push("lock");
+      state.inMutation = true;
+      try {
+        return await callback(transaction);
+      } finally {
+        state.inMutation = false;
+      }
+    },
+  );
+
   return {
     designVisualEditPending: {
       designId: "pending.designId",
@@ -49,6 +72,8 @@ const mocks = vi.hoisted(() => {
     isSameOrigin: vi.fn(),
     assertAccess: vi.fn(),
     selectChain,
+    state,
+    withDesignSourceMutationTransaction,
   };
 });
 
@@ -81,6 +106,11 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction:
+    mocks.withDesignSourceMutationTransaction,
+}));
+
 vi.mock("./visual-edit-browser-request.js", () => ({
   isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
 }));
@@ -103,7 +133,15 @@ describe("visual-edit pending handoff", () => {
   beforeEach(() => {
     mocks.isSameOrigin.mockReset();
     mocks.assertAccess.mockReset();
-    mocks.assertAccess.mockResolvedValue({ role: "editor", resource: design });
+    mocks.assertAccess.mockImplementation(async () => {
+      mocks.state.mutationEvents.push(
+        mocks.state.inMutation ? "access-inside" : "access-outside",
+      );
+      return { role: "editor", resource: design };
+    });
+    mocks.state.inMutation = false;
+    mocks.state.mutationEvents.length = 0;
+    mocks.withDesignSourceMutationTransaction.mockClear();
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit.mockResolvedValue([]);
@@ -419,7 +457,6 @@ describe("visual-edit pending handoff", () => {
     const authCapability = `capability:visual-edit:design:${encodeURIComponent(design.id)}`;
     const role = publicDesignAccessRole(design, { authCapability });
     expect(role).toBe("editor");
-    mocks.assertAccess.mockResolvedValueOnce({ role, resource: design });
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
 
     const result = await publishPendingAction.run(
@@ -467,6 +504,11 @@ describe("visual-edit pending handoff", () => {
         set: expect.objectContaining({ prompt, pendingEditCount: 2 }),
       }),
     );
+    expect(mocks.state.mutationEvents).toEqual(["lock", "access-inside"]);
+    expect(mocks.withDesignSourceMutationTransaction).toHaveBeenCalledWith(
+      "design_public",
+      expect.any(Function),
+    );
   });
 
   it("returns an empty result until the page publishes a ready handoff", async () => {
@@ -478,6 +520,8 @@ describe("visual-edit pending handoff", () => {
       pendingEditCount: 0,
       status: "empty",
       prompt: "",
+      clientRevision: null,
+      publisherId: null,
     });
 
     mocks.selectChain.limit.mockResolvedValueOnce([
@@ -486,6 +530,8 @@ describe("visual-edit pending handoff", () => {
         status: "ready",
         prompt: "Move the CTA to the right.",
         revision: 1,
+        clientRevision: 1,
+        publisherId,
         updatedAt: "2026-09-23T12:00:00.000Z",
       },
     ]);
@@ -496,6 +542,8 @@ describe("visual-edit pending handoff", () => {
       pendingEditCount: 1,
       status: "ready",
       prompt: "Move the CTA to the right.",
+      clientRevision: 1,
+      publisherId,
     });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",

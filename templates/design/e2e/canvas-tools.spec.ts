@@ -7,16 +7,21 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { ANNOTATE_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import {
   dragCanvasByText,
   designFrame,
+  enableLab,
   enterDirectMode,
   gotoEditor,
   installBridge,
   pickFrameMode,
   selectByText,
+  openAppMenuSubmenu,
+  selectTool,
+  type ToolbarTool,
 } from "./helpers";
 
 let designId: string;
@@ -127,7 +132,11 @@ test.beforeEach(async ({ page }, workerInfo) => {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
+let restoreAnnotateLab: (() => Promise<void>) | undefined;
+
 test.afterEach(async ({ page }) => {
+  await restoreAnnotateLab?.();
+  restoreAnnotateLab = undefined;
   if (!designId) return;
   await postAction(page.request, "delete-design", { id: designId }).catch(
     () => {},
@@ -137,6 +146,13 @@ test.afterEach(async ({ page }) => {
 
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
+}
+
+function modeButton(
+  page: Page,
+  mode: "annotate" | "edit" | "interact",
+): Locator {
+  return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
 }
 
 function selectedLayerRow(page: Page): Locator {
@@ -416,7 +432,7 @@ async function expectIframePaintStable(
 
 async function createDraftPrimitive(
   page: Page,
-  toolName: string,
+  toolName: ToolbarTool,
   selectionLabel: string,
   drag: {
     start: { x: number; y: number };
@@ -424,7 +440,7 @@ async function createDraftPrimitive(
   },
 ): Promise<void> {
   const before = await primitiveNodeIdsInDesign(page);
-  await toolButton(page, toolName).click();
+  await selectTool(page, toolName);
   await expect(toolButton(page, toolName)).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -889,22 +905,41 @@ async function replaceActiveText(page: Page, text: string): Promise<void> {
   await page.waitForTimeout(150);
 }
 
+// Typing a long string once the editing surface is up commits it while the host
+// is still probing the new node, and a slow host then deletes the node as
+// untouched. Keys typed straight after the click are held by the host's pending
+// text capture instead, so wait for them to reach the surface before committing.
+async function typeAheadText(page: Page, text: string): Promise<void> {
+  await page.keyboard.type(text);
+  await expect
+    .poll(async () => (await textEditingChromeSummary(page))?.text ?? "", {
+      timeout: 20_000,
+    })
+    .toBe(text);
+  await page.keyboard.press("Escape");
+}
+
 async function insertTextByClick(
   page: Page,
   shell: Locator,
   text: string,
   xRatio = 0.32,
+  options?: { typeAhead?: boolean },
 ): Promise<void> {
   const card = shell.locator("[data-screen-card]");
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no screen card box");
 
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await page.mouse.click(cardBox.x + cardBox.width * xRatio, cardBox.y + 120);
+  if (options?.typeAhead) {
+    await typeAheadText(page, text);
+    return;
+  }
   await replaceActiveText(page, text);
 }
 
@@ -917,7 +952,7 @@ async function insertTextByDrag(
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no screen card box");
 
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -1114,6 +1149,32 @@ async function boardPrimitiveViewportBox(
   return box;
 }
 
+// The camera glides after Zoom to fit, so wait for the primitive to be on
+// screen and to stop moving before aiming a pointer at it.
+async function settledBoardPrimitiveViewportBox(
+  page: Page,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("no viewport size");
+  let previous: { x: number; y: number } | null = null;
+  await expect
+    .poll(async () => {
+      const box = await boardPrimitiveViewportBox(page, nodeId);
+      const onScreen =
+        box.x >= 0 &&
+        box.y >= 0 &&
+        box.x + box.width <= viewport.width &&
+        box.y + box.height <= viewport.height;
+      const stable =
+        previous !== null && previous.x === box.x && previous.y === box.y;
+      previous = { x: box.x, y: box.y };
+      return onScreen && stable;
+    })
+    .toBe(true);
+  return boardPrimitiveViewportBox(page, nodeId);
+}
+
 function expectCloseToFrameSize(
   viewport: { width: number; height: number },
   frame: { width: number; height: number },
@@ -1122,50 +1183,41 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
-test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+test("top bar modes toggle the editor mode buttons", async ({ page }) => {
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
+  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
+  await expect(modeButton(page, "annotate")).toHaveCount(0);
 
-  await toolButton(page, "Interact").click();
-  const exitInteract = page.getByRole("button", {
-    name: "Exit responsive preview",
-  });
-  await expect(exitInteract).toBeVisible();
+  await modeButton(page, "interact").click();
+  await expect(
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
+  ).toBeVisible();
+  // Interact has no bottom toolbar; the canvas tools return with Design.
+  const toolbarGroups = () =>
+    page
+      .locator("[data-design-bottom-toolbar] [data-design-toolbar-group]")
+      .evaluateAll((groups) =>
+        groups.map((group) => group.getAttribute("data-design-toolbar-group")),
+      );
   await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
-  await exitInteract.click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await modeButton(page, "edit").click();
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-
-  await toolButton(page, "Edit").click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect
+    .poll(toolbarGroups)
+    .toEqual(["move", "frame", "shapes", "text", "pen", "comment"]);
 });
 
-test("keyboard shortcuts dock opens without remounting the overview iframe", async ({
+test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
   const railBox = await page
@@ -1174,11 +1226,13 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
   const layersBox = await page
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
-  expect(railBox?.width).toBe(64);
+  // The rail is 7 baseline units (`--design-chrome-rail-width`); the Layers
+  // panel opens at its 240px default width beside it.
+  expect(railBox?.width).toBe(56);
   expect(layersBox).not.toBeNull();
-  expect(Math.abs(layersBox!.x + layersBox!.width - 344)).toBeLessThanOrEqual(
-    1,
-  );
+  expect(
+    Math.abs(layersBox!.x + layersBox!.width - (railBox!.width + 240)),
+  ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
     .locator("iframe[data-design-preview-iframe]")
@@ -1193,6 +1247,14 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
     });
   });
 
+  // A tool other than the default, so a stray Escape or hotkey that resets it
+  // to Move is observable.
+  await selectTool(page, "Text");
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
   await page.evaluate(() => {
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -1206,70 +1268,107 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
     );
   });
 
-  const panel = page.locator("[data-keyboard-shortcuts-panel]");
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("tab", { name: "Essential" })).toBeFocused();
-  const panelBox = await panel.boundingBox();
-  expect(panelBox?.height).toBeGreaterThanOrEqual(240);
-  expect(panelBox?.height).toBeLessThanOrEqual(242);
-  expect(panelBox?.x).toBe(0);
-  const essentialTabBox = await panel
-    .getByRole("tab", { name: "Essential" })
-    .boundingBox();
-  expect(essentialTabBox?.x).toBeGreaterThanOrEqual(124);
-  expect(essentialTabBox?.x).toBeLessThanOrEqual(126);
-  const tabRowBox = await panel
-    .locator("[data-shortcuts-tab-row]")
-    .boundingBox();
-  expect(tabRowBox?.height).toBe(38);
-  expect(tabRowBox?.y).toBe(panelBox!.y + 1);
-  const essentialPanelBox = await panel
-    .locator('[data-shortcuts-tabpanel="essential"]')
-    .boundingBox();
-  expect(essentialPanelBox?.y).toBe(tabRowBox!.y + 38);
-  const essentialColumnBox = await panel
-    .locator(
-      '[data-shortcuts-tabpanel="essential"] [data-shortcuts-content-column]',
-    )
-    .boundingBox();
-  expect(essentialColumnBox?.width).toBe(400);
+  const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(dialog).toBeVisible();
+  const search = dialog.getByRole("searchbox", {
+    name: "Search keyboard shortcuts",
+  });
+  await expect(search).toBeFocused();
+  const dialogBox = await dialog.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(dialogBox?.width).toBeLessThanOrEqual(760);
+  expect(dialogBox?.width).toBeGreaterThanOrEqual(700);
   expect(
-    Math.abs(
-      essentialColumnBox!.x +
-        essentialColumnBox!.width / 2 -
-        (panelBox!.x + panelBox!.width / 2),
-    ),
+    Math.abs(dialogBox!.x + dialogBox!.width / 2 - viewport.width / 2),
   ).toBeLessThanOrEqual(1);
-  await expect(panel.getByRole("tab")).toHaveCount(13);
-  await expect(panel.locator("[data-essential-shortcuts-heading]")).toHaveText(
-    "Essential keyboard shortcuts",
-  );
-  await expect(panel.locator("[data-essential-shortcut-card]")).toHaveCount(3);
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
+  await expect(
+    dialog.locator('[data-shortcut-section="essential"] [data-shortcut-id]'),
+  ).toHaveCount(3);
+  await expect(dialog.locator("[data-essential-shortcut-card]")).toHaveCount(0);
 
-  expect(panelBox).not.toBeNull();
+  // The drawer pushed the toolbar up by 241px; the dialog must not.
+  const toolbarBox = await page
+    .locator("[data-design-bottom-toolbar]")
+    .boundingBox();
+  expect(
+    Math.abs(toolbarBox!.y + toolbarBox!.height - (viewport.height - 16)),
+  ).toBeLessThanOrEqual(1);
+
+  // Typing in the search field must not reach the editor hotkeys: "rect"
+  // would otherwise arm the Rectangle tool via "r".
+  await search.pressSequentially("rect");
+  await expect(search).toHaveValue("rect");
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    dialog.locator('[data-shortcut-section="shape"] [data-shortcut-id]'),
+  ).not.toHaveCount(0);
+  await expect(dialog.locator('[data-shortcut-id="move-tool"]')).toHaveCount(0);
+  await expect(
+    dialog.locator('[data-shortcuts-category="essential"]'),
+  ).toHaveCount(0);
+
+  await search.fill("zzzzzz");
+  await expect(dialog.locator("[data-shortcuts-empty]")).toHaveText(
+    "No shortcuts match “zzzzzz”",
+  );
+  await search.fill("");
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
+
+  // A category click scrolls the one list to that section.
+  const list = dialog.locator("[data-shortcuts-list]");
+  expect(await list.evaluate((el) => el.scrollTop)).toBe(0);
+  const zoomCategory = dialog.locator('[data-shortcuts-category="zoom"]');
+  await zoomCategory.click();
+  await expect(zoomCategory).toHaveAttribute("aria-current", "true");
   await expect
     .poll(async () => {
-      const toolbarBox = await page
-        .locator("[data-design-bottom-toolbar]")
-        .boundingBox();
-      return toolbarBox
-        ? toolbarBox.y + toolbarBox.height
-        : Number.POSITIVE_INFINITY;
+      const [sectionBox, listBox] = await Promise.all([
+        dialog.locator('[data-shortcut-section="zoom"]').boundingBox(),
+        list.boundingBox(),
+      ]);
+      return sectionBox && listBox ? sectionBox.y - listBox.y : null;
     })
-    .toBeLessThanOrEqual(panelBox!.y);
+    .toBeLessThanOrEqual(16);
+  expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 
-  await panel.getByRole("tab", { name: "Edit" }).click();
+  // Focus on a button inside the dialog is still modal: "v" would switch the
+  // Text tool to Move if the editor hotkeys saw it.
+  await zoomCategory.focus();
+  await page.keyboard.press("v");
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await dialog.locator('[data-shortcuts-category="edit"]').click();
   await expect(
-    panel.locator('[data-code-shortcut-id="workbench.save"]'),
+    dialog.locator('[data-code-shortcut-id="workbench.save"]'),
   ).toBeVisible();
-  await panel.getByRole("tab", { name: "Tools" }).click();
-  const toolsTable = panel.locator('[data-shortcut-grid="tools"]');
-  const toolsTableBox = await toolsTable.boundingBox();
-  expect(toolsTableBox?.width).toBeLessThanOrEqual(400);
-  expect(toolsTableBox?.x).toBeGreaterThan(panelBox!.x + 200);
+  await dialog.locator('[data-shortcuts-category="cursor"]').click();
+  const bigNudge = dialog.locator('[data-nudge-amount="big"]');
+  await expect(bigNudge).toBeVisible();
+  await bigNudge.fill("25");
+  await expect(bigNudge).toHaveValue("25");
 
   await page.keyboard.press("Escape");
-  await expect(panel).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  // Escape from the dialog closes it only: the editor's own Escape handler
+  // would have reset the Text tool to Move.
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // Positive partner for the checks above: with the dialog closed the same
+  // key does reach the editor.
+  await page.keyboard.press("v");
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect
     .poll(() =>
       iframe.evaluate((element) => {
@@ -1284,18 +1383,56 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
     )
     .toEqual({ identity: "stable-shortcut-frame", loads: 0 });
 
-  await page.getByRole("button", { name: "More" }).click();
+  await openAppMenuSubmenu(page, "Preferences");
   await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).click();
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("tab", { name: "Essential" })).toBeFocused();
-  await page.locator("[data-keyboard-shortcuts-close]").click();
-  await expect(panel).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(search).toBeFocused();
+  // The nudge size set above survived the close and reopen.
+  await expect(dialog.locator('[data-nudge-amount="big"]')).toHaveValue("25");
+  await dialog.locator("[data-keyboard-shortcuts-close]").click();
+  await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
+});
+
+test("keyboard shortcuts dialog fits a narrow window and stacks its categories", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 420, height: 720 });
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "?",
+        code: "Slash",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(dialog).toBeVisible();
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(420);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(720);
+  const [categoriesBox, listBox] = await Promise.all([
+    dialog.locator("[data-shortcuts-categories]").boundingBox(),
+    dialog.locator("[data-shortcuts-list]").boundingBox(),
+  ]);
+  expect(categoriesBox!.y + categoriesBox!.height).toBeLessThanOrEqual(
+    listBox!.y + 1,
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
 });
 
 test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
   page,
 }) => {
+  // Annotate is behind a lab; the lab is read when the editor loads.
+  restoreAnnotateLab = await enableLab(page, ANNOTATE_LAB.key);
+  await gotoEditor(page, designId);
   const shell = screenShell(page, "Home");
   const iframe = shell.locator("iframe[data-design-preview-iframe]").first();
   await expect(iframe).toBeVisible();
@@ -1319,8 +1456,8 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
       };
     });
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1364,7 +1501,7 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
     "true",
   );
   await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
@@ -1386,9 +1523,8 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   await installIframePaintProbe(iframe, "overview-navigation-stable");
 
   const world = page.locator("[data-multi-screen-canvas-world]");
-  const surface = world.locator("..");
-  const surfaceBox = await surface.boundingBox();
-  if (!surfaceBox) throw new Error("missing overview canvas surface");
+  const initialIframeBox = await iframe.boundingBox();
+  if (!initialIframeBox) throw new Error("missing overview iframe bounds");
   const initialTransform = await world.evaluate(
     (element) => (element as HTMLElement).style.transform,
   );
@@ -1399,8 +1535,8 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
     "true",
   );
   const start = {
-    x: surfaceBox.x + Math.min(40, surfaceBox.width / 4),
-    y: surfaceBox.y + Math.min(40, surfaceBox.height / 4),
+    x: initialIframeBox.x + initialIframeBox.width / 2,
+    y: initialIframeBox.y + initialIframeBox.height / 2,
   };
   await dragBetween(page, start, { x: start.x + 80, y: start.y + 56 });
   await expect
@@ -1413,9 +1549,11 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   const beforeZoom = await world.evaluate(
     (element) => (element as HTMLElement).style.transform,
   );
+  const zoomIframeBox = await iframe.boundingBox();
+  if (!zoomIframeBox) throw new Error("missing overview iframe after pan");
   await page.mouse.move(
-    surfaceBox.x + surfaceBox.width / 2,
-    surfaceBox.y + surfaceBox.height / 2,
+    zoomIframeBox.x + zoomIframeBox.width / 2,
+    zoomIframeBox.y + zoomIframeBox.height / 2,
   );
   await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
   await page.mouse.wheel(0, -240);
@@ -1475,19 +1613,20 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
     designFrame(page).getByText("Flash-free heading", { exact: true }),
   ).toBeVisible();
 
-  await selectByText(page, "Alpha Button");
-  await expect(selectedLayerRow(page)).toContainText("Alpha Button");
   const beta = designFrame(page).getByText("Beta Button", { exact: true });
   const alpha = designFrame(page).getByText("Alpha Button", { exact: true });
   const alphaBox = await alpha.boundingBox();
   const betaBox = await beta.boundingBox();
   if (!alphaBox || !betaBox) throw new Error("missing auto-layout buttons");
+  // dragCanvasByText selects its own target with a Cmd/Ctrl+click, and that
+  // click on an already selected layer cycles to the layer beneath it.
   await dragCanvasByText(
     page,
     "Alpha Button",
     betaBox.x + betaBox.width - (alphaBox.x + alphaBox.width / 2) + 12,
     0,
   );
+  await expect(selectedLayerRow(page)).toContainText("Alpha Button");
   await page.waitForTimeout(900);
   await expectIframePaintStable(page, "focused-edit-stable");
 
@@ -1503,6 +1642,7 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
   await expectIframePaintStable(page, "focused-edit-stable");
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Hand and Scale shortcuts project the active move-group tool", async ({
   page,
 }) => {
@@ -1519,7 +1659,7 @@ test("Hand and Scale shortcuts project the active move-group tool", async ({
     "true",
   );
 
-  await page.getByRole("button", { name: "Hand options" }).click();
+  await page.getByRole("button", { name: "Move options" }).click();
   await expect(
     page.getByRole("menuitem").filter({ hasText: "Hand" }),
   ).toHaveText(/HandH$/);
@@ -1666,7 +1806,9 @@ test("click text creates auto-width text and survives reload", async ({
   const text =
     "A long responsive card title that needs more horizontal room than the final quarter of this screen provides";
 
-  await insertTextByClick(page, screenShell(page), text, 0.76);
+  await insertTextByClick(page, screenShell(page), text, 0.76, {
+    typeAhead: true,
+  });
 
   const primitive = await waitForTextPrimitive(page, "index.html", text);
   expect(primitive.display).toBe("inline-block");
@@ -1680,10 +1822,13 @@ test("click text creates auto-width text and survives reload", async ({
   const renderedGeometry = await renderedText.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const body = element.ownerDocument.body;
+    // Editing scrolls the screen to keep the caret in view, so measure from the
+    // text's own position on the screen rather than from the scrolled viewport.
+    const left = rect.left + (element.ownerDocument.defaultView?.scrollX ?? 0);
     return {
       width: rect.width,
       height: rect.height,
-      remainingWidth: body.clientWidth - rect.left,
+      remainingWidth: body.clientWidth - left,
       lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
     };
   });
@@ -1708,6 +1853,7 @@ test("click text creates auto-width text and survives reload", async ({
   ).toHaveCount(1);
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("typing into a new text layer and clicking out renders it once, in order", async ({
   page,
 }) => {
@@ -1715,7 +1861,7 @@ test("typing into a new text layer and clicking out renders it once, in order", 
   const box = await card.boundingBox();
   if (!box) throw new Error("no home screen card box");
 
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -2597,7 +2743,10 @@ test("same-board rectangle nesting into a finite-origin frame persists without p
   });
   await gotoEditor(page, designId);
 
-  let movedBox = await boardPrimitiveViewportBox(page, movedId);
+  // The opening camera frames the Home screen, which leaves this board content
+  // above the viewport. Zoom to fit brings it into view.
+  await page.keyboard.press("Shift+1");
+  let movedBox = await settledBoardPrimitiveViewportBox(page, movedId);
   await page.mouse.click(
     movedBox.x + movedBox.width / 2,
     movedBox.y + movedBox.height / 2,
@@ -2753,6 +2902,7 @@ test("frame drawn left of the first screen creates a new screen", async ({
     .toBeLessThan(0);
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("rectangle drawn left of the first screen persists on the board", async ({
   page,
 }) => {
@@ -2773,7 +2923,7 @@ test("rectangle drawn left of the first screen persists on the board", async ({
     "rectangle",
   );
 
-  await toolButton(page, "Rectangle").click();
+  await selectTool(page, "Rectangle");
   await expect(toolButton(page, "Rectangle")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -3280,7 +3430,11 @@ test("single-screen undo does not consume overview history", async ({
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
+  // A row only selects and fits its Screen in the overview; Interact is what
+  // switches to the single-screen view.
   await homeScreen.click();
+  await expect(selectedLayerRow(page)).toContainText("Home");
+  await modeButton(page, "interact").click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
 
   await pressPrimaryShortcut(page, "z");
@@ -3424,6 +3578,10 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
     content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
     fileType: "html",
   });
+  // The 48px top bar shortens the canvas, which lowers the fit zoom until
+  // Home's bottom hit area overlaps About's title strip, where this test
+  // grabs it. Add the bar's height back so the canvas keeps its original size.
+  await page.setViewportSize({ width: 1440, height: 1000 + 48 });
   await gotoEditor(page, designId);
   await expect(screenShell(page, "About")).toBeVisible();
 

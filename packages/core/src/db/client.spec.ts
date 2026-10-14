@@ -1,26 +1,55 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+async function resetAppConfig(): Promise<void> {
+  const { resetAppConfigForTests } = await import("../app-config/store.js");
+  resetAppConfigForTests();
+}
+
 describe("PGlite dev reloads", () => {
   const processState = process as NodeJS.Process & {
     __agentNativePgliteClients?: Map<string, Promise<unknown>>;
+    __agentNativePgliteClientsPendingClose?: Map<string, { client: unknown }>;
     __agentNativePgliteProcessLocks?: Map<string, unknown>;
     __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   };
   let dataDir = "";
 
   afterEach(async () => {
-    const { closePgliteClients } = await import("./client.js");
+    const { closePgliteClients, resumePgliteClientAccess } =
+      await import("./client.js");
     await closePgliteClients();
+    resumePgliteClientAccess();
+    vi.unstubAllEnvs();
     delete processState.__agentNativePgliteClients;
+    delete processState.__agentNativePgliteClientsPendingClose;
     delete processState.__agentNativePgliteProcessLocks;
     delete processState.__agentNativePgliteProcessExitCleanupRegistered;
     vi.doUnmock("@electric-sql/pglite");
     vi.resetModules();
     if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("reports the missing PGlite peer with a typed install error", async () => {
+    const missingPeer = Object.assign(
+      new Error(
+        "Cannot find package '@electric-sql/pglite' imported from client.ts",
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
+    vi.doMock("@electric-sql/pglite", () => {
+      throw missingPeer;
+    });
+    const { loadPglitePackage } = await import("./client.js");
+
+    await expect(loadPglitePackage()).rejects.toMatchObject({
+      code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
+      name: "OptionalPeerDependencyError",
+      packageName: "@electric-sql/pglite",
+    });
   });
 
   it("reuses one client when a Vite reload gets a fresh global realm", async () => {
@@ -48,17 +77,139 @@ describe("PGlite dev reloads", () => {
     expect(reloaded).toBe(first);
     expect(create).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the process lock until an interrupted PGlite client closes", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-stale-client-"));
+    let resolveCreate: ((client: unknown) => void) | undefined;
+    const create = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const client = {
+      close: vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("close still draining"))
+        .mockResolvedValue(undefined),
+    };
+    vi.doMock("@electric-sql/pglite", () => ({ PGlite: { create } }));
+
+    const {
+      beginPgliteClientShutdown,
+      closePgliteClients,
+      getPgliteClient,
+      resumePgliteClientAccess,
+    } = await import("./client.js");
+    const lockPath = `${dataDir}.agent-native-pglite.lock`;
+    const opening = getPgliteClient(`pglite:${dataDir}`);
+    try {
+      await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+      expect(existsSync(lockPath)).toBe(true);
+
+      beginPgliteClientShutdown();
+      resolveCreate?.(client);
+      await expect(opening).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "could not close after its initialization was interrupted",
+        ),
+        statusCode: 503,
+        statusMessage: "Service Unavailable",
+      });
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(existsSync(lockPath)).toBe(true);
+
+      resumePgliteClientAccess();
+      await expect(getPgliteClient(`pglite:${dataDir}`)).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "could not close during the previous database lifecycle",
+        ),
+        statusCode: 503,
+        statusMessage: "Service Unavailable",
+      });
+      await closePgliteClients();
+
+      expect(client.close).toHaveBeenCalledTimes(2);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      resolveCreate?.(client);
+      await Promise.allSettled([opening]);
+      resumePgliteClientAccess();
+      await closePgliteClients();
+    }
+  });
+
+  it.each(["execute", "transaction", "atomicBatch"] as const)(
+    "rejects a retained database proxy during %s when shutdown wins its initialization continuation",
+    async (method) => {
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+      const client = {
+        query: vi.fn(async () => ({ rows: [] })),
+        close: vi.fn(async () => {}),
+      };
+      vi.doMock("@electric-sql/pglite", () => ({
+        PGlite: { create: vi.fn(async () => client) },
+      }));
+
+      const {
+        beginPgliteClientShutdown,
+        closeDbExec,
+        getDbExec,
+        resumePgliteClientAccess,
+        waitForPgliteClientOperations,
+      } = await import("./client.js");
+      const retainedProxy = getDbExec();
+
+      try {
+        await getDbExec().execute("SELECT 1");
+
+        const closing = Promise.resolve().then(async () => {
+          beginPgliteClientShutdown();
+          await waitForPgliteClientOperations();
+          await closeDbExec();
+        });
+        const staleOperation = Promise.resolve().then(() => {
+          if (method === "execute") return retainedProxy.execute("SELECT 2");
+          if (method === "transaction") {
+            return retainedProxy.transaction!(async () => undefined);
+          }
+          return retainedProxy.atomicBatch!(["SELECT 2"]);
+        });
+
+        await expect(staleOperation).rejects.toMatchObject({
+          message:
+            "PGlite access is paused while the development server restarts.",
+          statusCode: 503,
+          statusMessage: "Service Unavailable",
+        });
+        await expect(closing).resolves.toBeUndefined();
+        expect(client.query).toHaveBeenCalledTimes(1);
+        expect(client.close).toHaveBeenCalledOnce();
+      } finally {
+        resumePgliteClientAccess();
+        await closeDbExec();
+      }
+    },
+  );
 });
 
 describe("db/client Postgres URL handling", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalEnv = { ...process.env };
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    await resetAppConfig();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.env = originalEnv;
+    await resetAppConfig();
     Reflect.deleteProperty(
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
@@ -77,6 +228,10 @@ describe("db/client Postgres URL handling", () => {
     );
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+    );
     vi.resetModules();
   });
 
@@ -122,11 +277,9 @@ describe("db/client Postgres URL handling", () => {
 
     expect(getDatabaseUrl()).toBe("postgres://account-expert.example/db");
     expect(getRuntimeDatabaseUrl()).toBe(
-      "postgres://account-expert-direct.example/db",
+      "postgres://account-expert.example/db",
     );
-    expect(getRuntimeDatabaseSource()).toBe(
-      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
-    );
+    expect(getRuntimeDatabaseSource()).toBe("ACCOUNT_EXPERT_DATABASE_URL");
   });
 
   it.each([
@@ -185,12 +338,12 @@ describe("db/client Postgres URL handling", () => {
     } = await import("./client.js");
 
     expect(getDatabaseUrl()).toBe("postgres://app.example/db");
-    expect(getRuntimeDatabaseUrl()).toBe("postgres://app-direct.example/db");
-    expect(getRuntimeDatabaseSource()).toBe("CONTENT_DATABASE_URL_UNPOOLED");
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://app.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("CONTENT_DATABASE_URL");
     expect(getMigrationDatabaseUrl()).toBe("postgres://app-direct.example/db");
   });
 
-  it("keeps the Neon foreground pool small on serverless", async () => {
+  it("uses a single Neon foreground connection on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
     const {
       neonPoolMax,
@@ -200,11 +353,11 @@ describe("db/client Postgres URL handling", () => {
     } = await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBe(1);
     expect(neonPoolMax()).toBeLessThan(4);
-    expect(pgPoolOptions("postgres://example.test/db").max).toBe(2);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
     expect(neonPoolOptions()).toMatchObject({
-      max: 2,
+      max: 1,
       idle_in_transaction_session_timeout: 30_000,
     });
     expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
@@ -219,9 +372,9 @@ describe("db/client Postgres URL handling", () => {
     const { neonPoolMax, neonPoolOptions, pgPoolOptions } =
       await import("./client.js");
 
-    expect(pgPoolOptions("postgres://example.test/db").max).toBe(3);
-    expect(neonPoolMax()).toBe(3);
-    expect(neonPoolOptions().max).toBe(3);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
+    expect(neonPoolMax()).toBe(1);
+    expect(neonPoolOptions().max).toBe(1);
 
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
@@ -263,6 +416,18 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it("treats Cloudflare Pages as a serverless runtime", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "1");
+    const { isServerlessRuntime } = await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+  });
+
   it("keeps the pool bounded when Netlify exposes only the function marker", async () => {
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "slides");
@@ -271,24 +436,144 @@ describe("db/client Postgres URL handling", () => {
 
     expect(isServerlessRuntime()).toBe(true);
     expect(neonPoolOptions()).toMatchObject({
+      max: 1,
       idle_in_transaction_session_timeout: 30_000,
     });
-    expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
-      application_name: "agent-native:app",
-      idle_in_transaction_session_timeout: 30_000,
+    expect(pgPoolOptions("postgres://example.test/db")).toMatchObject({
+      max: 1,
+      connection: {
+        application_name: "agent-native:app",
+        idle_in_transaction_session_timeout: 30_000,
+      },
     });
   });
 
-  it("recognizes production serverless execution and honors local emulation", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    const { isProductionServerlessFunctionRuntime } =
-      await import("./client.js");
+  it("recognizes hosted function markers without NODE_ENV and honors local emulation", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
 
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NETLIFY_LOCAL", "true");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
   });
+
+  it("does not classify local Vercel development as a hosted production function", async () => {
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    const vercelDevEnv = {
+      NODE_ENV: "production",
+      VERCEL: "1",
+      VERCEL_ENV: "development",
+      VERCEL_REGION: "local",
+      VERCEL_FUNCTION_ID: "local-function",
+    };
+
+    expect(isHostedFunctionInvocationRuntime(vercelDevEnv)).toBe(false);
+    expect(isProductionServerlessFunctionRuntime(vercelDevEnv)).toBe(false);
+  });
+
+  it.each([
+    ["Netlify CLI", { NODE_ENV: "development", NETLIFY_DEV: "true" }],
+    ["AWS SAM", { NODE_ENV: "development", AWS_SAM_LOCAL: "true" }],
+  ])("keeps %s emulation on the local schema path", async (_name, env) => {
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime(env)).toBe(false);
+    expect(isProductionServerlessFunctionRuntime(env)).toBe(false);
+  });
+
+  it("recognizes production Cloudflare Workers but excludes unmarked Wrangler dev", async () => {
+    vi.stubGlobal("__env__", {});
+    vi.stubEnv("NODE_ENV", "");
+    const {
+      isServerlessRuntime,
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it("uses the compiled Cloudflare deployment marker when runtime NODE_ENV is absent", async () => {
+    vi.stubGlobal("__env__", {});
+    vi.stubEnv("NODE_ENV", "");
+    const {
+      assertSchemaMutationAllowed,
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", true);
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE worker_guard (id TEXT)"),
+    ).toThrow(/release job/);
+
+    vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", false);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE worker_guard_test (id TEXT)"),
+    ).toThrow(/release job/);
+
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it.each([
+    ["Netlify", { NETLIFY: "true" }],
+    ["Vercel", { VERCEL: "1" }],
+  ])(
+    "recognizes the %s deployment marker without NODE_ENV but not as an invocation",
+    async (_provider, markers) => {
+      const {
+        isHostedFunctionInvocationRuntime,
+        isProductionServerlessFunctionRuntime,
+      } = await import("./client.js");
+      const env = { NODE_ENV: "", ...markers };
+
+      expect(isProductionServerlessFunctionRuntime(env)).toBe(true);
+      expect(isHostedFunctionInvocationRuntime(env)).toBe(false);
+    },
+  );
 
   it("rejects request-time schema mutations but permits release migrations", async () => {
     vi.stubEnv("NODE_ENV", "production");
@@ -308,10 +593,87 @@ describe("db/client Postgres URL handling", () => {
       assertSchemaMutationAllowed(
         "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
       ),
-    ).not.toThrow();
+    ).toThrow(/release job/);
+
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("NETLIFY", "true");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    await expect(
+      withMigrationRuntime(async () => {
+        expect(() =>
+          assertSchemaMutationAllowed(
+            "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+          ),
+        ).not.toThrow();
+      }),
+    ).resolves.toBeUndefined();
   });
 
-  it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
+  it("rejects request-time schema mutations when NODE_ENV=test has a hosted marker", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "analytics");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_guard (id TEXT)"),
+    ).toThrow(/release job/);
+  });
+
+  it("allows DDL only while a hosted runtime migration is executing", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    await withMigrationExecutionRuntime(async () => {
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+    });
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+  });
+
+  it("does not grant concurrent requests a runtime migration's DDL permission", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    let migrationEntered!: () => void;
+    let finishMigration!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      migrationEntered = resolve;
+    });
+    const waitForFinish = new Promise<void>((resolve) => {
+      finishMigration = resolve;
+    });
+
+    const migration = withMigrationExecutionRuntime(async () => {
+      migrationEntered();
+      await waitForFinish;
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+    });
+    await entered;
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    finishMigration();
+    await migration;
+  });
+
+  it("uses one foreground connection when only the dispatch marker is set", async () => {
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -321,10 +683,10 @@ describe("db/client Postgres URL handling", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBe(1);
   });
 
-  it("keeps the background Neon pool bounded when the worker proves its runtime", async () => {
+  it("uses one connection when the worker proves its runtime", async () => {
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -334,7 +696,7 @@ describe("db/client Postgres URL handling", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(true);
-    expect(neonPoolMax()).toBe(4);
+    expect(neonPoolMax()).toBe(1);
   });
 
   it("uses one connection for scheduled background workers", async () => {
@@ -351,8 +713,9 @@ describe("db/client Postgres URL handling", () => {
 });
 
 describe("pgliteDataDirFromUrl", () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    await resetAppConfig();
     vi.resetModules();
   });
 
@@ -362,6 +725,8 @@ describe("pgliteDataDirFromUrl", () => {
     expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
     expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
     expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:memory:")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:/memory:")).toBe("memory://");
     expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
   });
 
@@ -383,38 +748,52 @@ describe("pgliteDataDirFromUrl", () => {
 });
 
 describe("getRuntimeDatabaseUrl", () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    await resetAppConfig();
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     vi.resetModules();
   });
 
-  it("uses the direct Neon endpoint in serverless runtimes", async () => {
+  it("uses pooled Neon runtime URLs and direct migration URLs", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv(
       "DATABASE_URL",
-      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+      "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
     );
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv(
+      "DATABASE_URL_UNPOOLED",
+      "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
     vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
 
-    const { getRuntimeDatabaseUrl } = await import("./client.js");
+    const {
+      getLocalDatabaseUrl,
+      getMigrationDatabaseUrl,
+      getRuntimeDatabaseUrl,
+    } = await import("./client.js");
 
     expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+    expect(getLocalDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+    expect(getMigrationDatabaseUrl()).toBe(
       "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
     );
   });
 
-  it("prefers an explicit unpooled URL", async () => {
+  it("reserves an explicit unpooled URL for migrations", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
 
     const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
       await import("./client.js");
 
-    expect(getRuntimeDatabaseUrl()).toBe("postgres://direct.example/db");
-    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL_UNPOOLED");
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://pooled.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
   });
 
   it("ignores a malformed unpooled alias and falls back to DATABASE_URL", async () => {
@@ -475,11 +854,11 @@ describe("getRuntimeDatabaseUrl", () => {
     const { getRuntimeDatabaseUrl } = await import("./client.js");
 
     expect(getRuntimeDatabaseUrl()).toBe(
-      "postgresql://user:pass@ep-plan.c-7.us-east-1.aws.neon.tech/neondb",
+      "postgresql://user:pass@ep-plan-pooler.c-7.us-east-1.aws.neon.tech/neondb",
     );
   });
 
-  it("uses direct endpoints in Cloudflare binding-based runtimes", async () => {
+  it("uses the pooled endpoint in Cloudflare binding-based runtimes", async () => {
     vi.stubEnv("APP_NAME", "");
     vi.stubEnv(
       "DATABASE_URL",
@@ -494,14 +873,15 @@ describe("getRuntimeDatabaseUrl", () => {
 
     expect(isServerlessRuntime()).toBe(true);
     expect(getRuntimeDatabaseUrl()).toBe(
-      "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb",
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb",
     );
   });
 });
 
 describe("getMigrationDatabaseUrl", () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    await resetAppConfig();
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     vi.resetModules();
@@ -509,10 +889,13 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("strips the -pooler suffix from a real Neon pooler host", async () => {
     vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
     vi.stubEnv(
       "DATABASE_URL",
       "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
     );
+    vi.resetModules();
     const { getMigrationDatabaseUrl } = await import("./client.js");
     expect(getMigrationDatabaseUrl()).toBe(
       "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
@@ -521,6 +904,8 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("leaves an already-direct Neon host unchanged", async () => {
     vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
     const direct =
       "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require";
     vi.stubEnv("DATABASE_URL", direct);
@@ -530,6 +915,8 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("leaves a non-Neon Postgres URL unchanged", async () => {
     vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
     const other = "postgresql://user:pass@db.example.com:5432/app";
     vi.stubEnv("DATABASE_URL", other);
     const { getMigrationDatabaseUrl } = await import("./client.js");
@@ -608,6 +995,29 @@ describe("initClient hosted-runtime local database guard", () => {
     );
   });
 
+  function clearDatabaseUrls() {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+  }
+
+  // Cleared explicitly, never assumed absent: an earlier describe block here
+  // restores env with `process.env = snapshot`, which can leave a marker from
+  // a prior `vi.stubEnv` live. NODE_ENV is cleared too, the way a deploy that
+  // never set it runs.
+  function clearPlatformMarkers() {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("NETLIFY_LOCAL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+  }
+
   it("throws instead of silently serving a hosted function invocation without a database URL", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
@@ -625,7 +1035,8 @@ describe("initClient hosted-runtime local database guard", () => {
     );
   });
 
-  it("throws on a Cloudflare Worker/Pages invocation without a database URL, even without NODE_ENV=production", async () => {
+  it("throws on a Cloudflare Worker invocation without a database URL, even without NODE_ENV=production", async () => {
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("APP_NAME", "");
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
@@ -651,23 +1062,20 @@ describe("initClient hosted-runtime local database guard", () => {
     vi.stubEnv("VERCEL_FUNCTION_ID", "");
     vi.stubEnv("VERCEL_REGION", "");
 
-    const { isHostedFunctionInvocationRuntime } = await import("./client.js");
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
 
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
   });
 
-  it("throws on a production Node/Docker server (server-runtime marker, no invocation env var) with no database URL", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("APP_NAME", "");
-    vi.stubEnv("DATABASE_URL", "");
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
-    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
-    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
-    vi.stubEnv("LAMBDA_TASK_ROOT", "");
-    vi.stubEnv("VERCEL_FUNCTION_ID", "");
-    vi.stubEnv("VERCEL_REGION", "");
+  it("throws on a production Node/Docker server bundle that is serving with no database URL, without NODE_ENV", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
 
     const { getDbExec, HostedRuntimeLocalDatabaseError } =
       await import("./client.js");
@@ -679,17 +1087,25 @@ describe("initClient hosted-runtime local database guard", () => {
     );
   });
 
-  it("does not throw for the server-runtime marker outside NODE_ENV=production (pnpm dev, test suites, embedded hosts)", async () => {
-    vi.stubEnv("NODE_ENV", "test");
-    vi.stubEnv("APP_NAME", "");
-    vi.stubEnv("DATABASE_URL", "");
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+  it("does not treat NODE_ENV=production plus a running server as deployed without the build marker (pnpm dev, test suites)", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "");
 
     const { assertHostedRuntimeDatabase } = await import("./client.js");
     const { markServerRuntimeStarted } = await import("./server-runtime.js");
     markServerRuntimeStarted();
+
+    expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+  });
+
+  it("does not treat the production build marker as deployed before the server is serving", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
 
     expect(() => assertHostedRuntimeDatabase()).not.toThrow();
   });
@@ -730,6 +1146,152 @@ describe("initClient hosted-runtime local database guard", () => {
     expect(() => assertHostedRuntimeDatabase()).toThrow(
       HostedRuntimeLocalDatabaseError,
     );
+  });
+
+  // ENG-13951: Netlify does not set NODE_ENV for functions, so a fresh site
+  // with no env vars used to skip the refusal and fail sign-up with a PGlite
+  // install error. Every host marker must count on its own.
+  it.each([
+    ["Netlify", { NETLIFY_FUNCTION_NAME: "server" }],
+    ["Vercel", { VERCEL_REGION: "iad1" }],
+    ["Vercel function id", { VERCEL_FUNCTION_ID: "fn_123" }],
+    ["Lambda", { AWS_LAMBDA_FUNCTION_NAME: "app-server" }],
+    ["Lambda task root", { LAMBDA_TASK_ROOT: "/var/task" }],
+    ["Lambda execution env", { AWS_EXECUTION_ENV: "AWS_Lambda_nodejs22.x" }],
+  ])(
+    "refuses a %s invocation with no database URL and NODE_ENV unset",
+    async (_host, markers) => {
+      clearDatabaseUrls();
+      clearPlatformMarkers();
+      vi.stubEnv("NODE_ENV", "");
+      for (const [key, value] of Object.entries(markers)) {
+        vi.stubEnv(key, value);
+      }
+
+      const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+      expect(getRefusedLocalDatabaseSource()).toBe("default");
+    },
+  );
+
+  it.each([
+    ["netlify dev", { NETLIFY_FUNCTION_NAME: "server", NETLIFY_LOCAL: "true" }],
+    ["vercel dev", { VERCEL_REGION: "dev1" }],
+    ["VERCEL=1 alone (Vercel build)", { VERCEL: "1" }],
+    ["NETLIFY=true alone (netlify build)", { NETLIFY: "true" }],
+  ])("allows local PGlite under %s", async (_context, markers) => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "production");
+    for (const [key, value] of Object.entries(markers)) {
+      vi.stubEnv(key, value);
+    }
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  // A marker proves a real invocation, and a host set to NODE_ENV=test still
+  // loses every PGlite write, so NODE_ENV never outranks it.
+  it.each([
+    ["Lambda", () => vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server")],
+    ["Netlify", () => vi.stubEnv("NETLIFY_FUNCTION_NAME", "server")],
+    ["Cloudflare Worker", () => vi.stubGlobal("__cf_env", {})],
+  ])(
+    "refuses a %s invocation deployed with NODE_ENV=test",
+    async (_host, setMarker) => {
+      clearDatabaseUrls();
+      clearPlatformMarkers();
+      vi.stubEnv("NODE_ENV", "test");
+      setMarker();
+
+      const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+      expect(getRefusedLocalDatabaseSource()).toBe("default");
+    },
+  );
+
+  it("refuses a production Node/Docker server bundle serving with NODE_ENV=test", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(getRefusedLocalDatabaseSource()).toBe("default");
+  });
+
+  it("lets a local platform emulator running the production bundle keep local PGlite (netlify serve)", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NETLIFY_LOCAL", "true");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("lets an embedded host keep its deliberate PGlite in a production server bundle", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    const { markEmbeddedRuntimeAuthorized } =
+      await import("./embedded-runtime.js");
+    markServerRuntimeStarted();
+    markEmbeddedRuntimeAuthorized();
+    vi.stubEnv("DATABASE_URL", "pglite:./data/embedded");
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("refuses an unpooled-only Postgres URL on a hosted invocation, since requests use the pooled URL", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgres://user:pass@db.example.test:5432/app",
+    );
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBe("default");
+  });
+
+  it("names the variable that resolved to PGlite and carries the stable code", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+
+    const {
+      assertHostedRuntimeDatabase,
+      getRefusedLocalDatabaseSource,
+      HostedRuntimeLocalDatabaseError,
+    } = await import("./client.js");
+    const { DEPLOY_SETTINGS_REQUIRED_CODE } =
+      await import("../shared/runtime-config.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBe("DATABASE_URL");
+    let thrown: unknown;
+    try {
+      assertHostedRuntimeDatabase();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(HostedRuntimeLocalDatabaseError);
+    expect(thrown).toMatchObject({ code: DEPLOY_SETTINGS_REQUIRED_CODE });
+    expect(String((thrown as Error).message)).toContain("DATABASE_URL");
   });
 });
 
@@ -1362,6 +1924,7 @@ describe("Neon foreground statement budgets", () => {
   });
 
   it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.stubEnv("NETLIFY", "true");
     const query = vi.fn(async (sql: string, args?: unknown[]) => {
       if (sql.includes(";") && args !== undefined) {
@@ -1776,5 +2339,192 @@ describe("db/client shared connection pools", () => {
       end: async () => {},
     });
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+  });
+});
+
+describe("db/client postgres-js request pool recovery", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.doUnmock("postgres");
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    vi.resetModules();
+  });
+
+  it("keeps the shared facade stable after a request pool times out", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+    vi.stubGlobal("__env__", {});
+
+    const pools: any[] = [];
+    const postgres = vi.fn(() => {
+      const pool: any = Object.assign(() => undefined, { closed: false });
+      pool.unsafe = vi.fn((query: string) => {
+        if (pools.length === 1 && query === "SELECT 1") {
+          return new Promise(() => {});
+        }
+        if (pool.closed) {
+          return Promise.reject(
+            Object.assign(new Error("pool is closed"), {
+              code: "CONNECTION_CLOSED",
+            }),
+          );
+        }
+        return Promise.resolve(Object.assign([{ query }], { count: 1 }));
+      });
+      pool.end = vi.fn(async () => {
+        pool.closed = true;
+      });
+      pools.push(pool);
+      return pool;
+    });
+    vi.doMock("postgres", () => ({ default: postgres }));
+
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    await expect(
+      runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().execute({ sql: "SELECT 1", timeoutMs: 25, maxAttempts: 1 }),
+      ),
+    ).rejects.toMatchObject({ code: "CONNECT_TIMEOUT" });
+
+    expect(pools).toHaveLength(2);
+    expect(pools[0].end).toHaveBeenCalledOnce();
+    expect(pools[1].end).toHaveBeenCalledOnce();
+
+    await expect(
+      runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().execute({ sql: "SELECT 2", maxAttempts: 1 }),
+      ),
+    ).resolves.toMatchObject({ rows: [{ query: "SELECT 2" }] });
+
+    expect(pools).toHaveLength(3);
+    expect(pools[1].unsafe).not.toHaveBeenCalled();
+    expect(pools[2].unsafe).toHaveBeenCalledOnce();
+  });
+});
+
+describe("retryOnConnectionError budget", () => {
+  const connectTimeout = () =>
+    Object.assign(new Error("DB connect timed out"), {
+      code: "CONNECT_TIMEOUT",
+    });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function runUntilSettled<T>(run: () => Promise<T>) {
+    const startedAt = Date.now();
+    let elapsedMs = -1;
+    const settled = run().then(
+      (value) => {
+        elapsedMs = Date.now() - startedAt;
+        return { value, error: undefined as unknown };
+      },
+      (error: unknown) => {
+        elapsedMs = Date.now() - startedAt;
+        return { value: undefined, error };
+      },
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    return { ...(await settled), elapsedMs };
+  }
+
+  it("does not start a second attempt that could outlast the gateway", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "retry-budget-test");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      throw connectTimeout();
+    });
+
+    const { error, elapsedMs } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("stays under 20s with the serverless default timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "retry-budget-test");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 8_000));
+      throw connectTimeout();
+    });
+
+    const { error, elapsedMs } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(2);
+    expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("keeps the full retry count outside serverless runtimes", async () => {
+    vi.useFakeTimers();
+    for (const marker of [
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "VERCEL",
+      "AWS_LAMBDA_FUNCTION_NAME",
+      "LAMBDA_TASK_ROOT",
+      "CF_PAGES",
+    ]) {
+      vi.stubEnv(marker, "");
+    }
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      throw connectTimeout();
+    });
+
+    const { error } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(3);
+  });
+
+  it("still retries quick connection errors", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      )
+      .mockResolvedValue("ok");
+
+    const { value } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(value).toBe("ok");
+    expect(attempt).toHaveBeenCalledTimes(3);
   });
 });

@@ -27,6 +27,8 @@
  *                              `metadata.emailRecipients`.
  */
 
+import { createHash } from "node:crypto";
+
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { escapeSlackMrkdwn } from "../integrations/webhook-delivery.js";
 import {
@@ -61,7 +63,7 @@ function createWebhookChannel(
   const authTemplate = process.env.NOTIFICATIONS_WEBHOOK_AUTH;
   return {
     name: "webhook",
-    async deliver(input, meta) {
+    async deliver(input, meta, { signal } = {}) {
       const overrideUrlTemplate = deliveryMetadataString(
         input.metadata,
         "webhookUrl",
@@ -77,11 +79,13 @@ function createWebhookChannel(
         meta.owner,
         "webhook",
       );
+      signal?.throwIfAborted();
       const res = await ssrfSafeFetch(
         url,
         {
           method: "POST",
           headers,
+          signal,
           body: JSON.stringify({
             severity: input.severity,
             title: input.title,
@@ -117,7 +121,7 @@ function createSlackWebhookChannel(
   const authTemplate = process.env.NOTIFICATIONS_SLACK_WEBHOOK_AUTH;
   return {
     name: "slack",
-    async deliver(input, meta) {
+    async deliver(input, meta, { signal } = {}) {
       const overrideUrlTemplate = deliveryMetadataString(
         input.metadata,
         "slackWebhookUrl",
@@ -133,12 +137,18 @@ function createSlackWebhookChannel(
         meta.owner,
         "Slack webhook",
       );
+      signal?.throwIfAborted();
       const res = await ssrfSafeFetch(
         url,
         {
           method: "POST",
           headers,
-          signal: AbortSignal.timeout(SLACK_DELIVERY_TIMEOUT_MS),
+          signal: signal
+            ? AbortSignal.any([
+                signal,
+                AbortSignal.timeout(SLACK_DELIVERY_TIMEOUT_MS),
+              ])
+            : AbortSignal.timeout(SLACK_DELIVERY_TIMEOUT_MS),
           body: JSON.stringify({
             text: slackText(input.severity, input.title, input.body),
             blocks: [
@@ -188,7 +198,8 @@ function createSlackWebhookChannel(
 function createEmailChannel(): NotificationChannel {
   return {
     name: "email",
-    async deliver(input) {
+    async deliver(input, _meta, { signal } = {}) {
+      signal?.throwIfAborted();
       const recipients = notificationEmailRecipients(input.metadata);
       if (recipients.length === 0) return false;
       const subject =
@@ -209,9 +220,18 @@ function createEmailChannel(): NotificationChannel {
             subject,
             text,
             html,
+            ...(input.idempotencyKey
+              ? {
+                  idempotencyKey: createHash("sha256")
+                    .update(`${input.idempotencyKey}\0${to}`)
+                    .digest("hex"),
+                }
+              : {}),
+            signal,
           }),
         ),
       );
+      signal?.throwIfAborted();
     },
   };
 }

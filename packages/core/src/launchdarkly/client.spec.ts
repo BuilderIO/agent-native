@@ -1,20 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAppConfigMock = vi.fn();
+const loadSdkMock = vi.fn();
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => getAppConfigMock(),
 }));
 
 const initMock = vi.fn();
-vi.mock("@launchdarkly/node-server-sdk", () => ({
-  init: (...args: unknown[]) => initMock(...args),
-}));
+vi.mock("@launchdarkly/node-server-sdk", () => {
+  loadSdkMock();
+  return { init: (...args: unknown[]) => initMock(...args) };
+});
 
 const { getLaunchDarklyClient, closeLaunchDarklyClient } =
   await import("./client.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  loadSdkMock.mockReset();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -28,6 +31,23 @@ describe("getLaunchDarklyClient", () => {
 
     await expect(getLaunchDarklyClient()).resolves.toBeNull();
     expect(initMock).not.toHaveBeenCalled();
+    expect(loadSdkMock).not.toHaveBeenCalled();
+  });
+
+  it("throws a typed install error when configured without the optional SDK", async () => {
+    getAppConfigMock.mockReturnValue({ launchDarkly: { sdkKey: "sdk-key" } });
+    loadSdkMock.mockImplementationOnce(() => {
+      throw Object.assign(
+        new Error("Cannot find package '@launchdarkly/node-server-sdk'"),
+        { code: "ERR_MODULE_NOT_FOUND" },
+      );
+    });
+
+    await expect(getLaunchDarklyClient()).rejects.toMatchObject({
+      name: "OptionalPeerDependencyError",
+      code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
+      packageName: "@launchdarkly/node-server-sdk",
+    });
   });
 
   it("initializes once and caches the client across calls", async () => {

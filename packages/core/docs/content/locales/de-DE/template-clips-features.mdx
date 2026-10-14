@@ -19,7 +19,7 @@ Ihre Bibliothek zeigt zuerst Ordner, dann Aufnahmen, als Raster von Vorschaubild
 Drei Wege, einen Clip zu Ihrer Bibliothek hinzuzufügen, alle über die Schaltfläche **Aufnehmen** und das **Importieren**-Menü daneben. Ein Rechtsklick auf einen leeren Bereich der Bibliothek bietet dieselben drei Optionen, plus **Neuer Ordner**.
 
 - **Aufnehmen.** Der integrierte Bildschirmrekorder von Clips, mit Webcam-Overlay, Audioaufnahme und Pause-/Zuschneide-Steuerung.
-- **Eine Videodatei hochladen.** Fügen Sie ein vorhandenes Video direkt von Ihrem Computer hinzu, ohne aufnehmen zu müssen.
+- **Eine Videodatei hochladen.** Fügen Sie ein vorhandenes Video direkt von Ihrem Computer hinzu, oder legen Sie es im Bibliotheks- oder Bereiche-Raster ab. Eine Aufnahme ist nicht nötig.
 - **Loom importieren.** Holen Sie ein öffentliches Loom-Video, ohne es neu aufzunehmen. Öffnen Sie neben **Aufnehmen** das Menü **Importieren**, wählen Sie **Loom importieren** und fügen Sie dann eine Loom-Freigabe- oder Einbettungs-URL ein. Clips speichert eine Kopie in Ihrer Bibliothek und importiert das öffentliche Transkript, wenn Loom eines bereitstellt.
 
 ### Einen Clip verwalten
@@ -86,11 +86,13 @@ Archivieren und in den Papierkorb verschieben blenden einen Clip beide aus der H
 
 ### Clips ansehen {#shared-view-clips}
 
-Diese Ansicht listet jede Aufnahme auf, die jemand direkt mit Ihnen oder Ihrer Organisation geteilt hat, per Name oder über eine organisationsweite Sichtbarkeitseinstellung. Ein öffentlicher Link, den jemand zufällig hat, zählt nicht zu dieser Liste. Sie können hier ansehen und kommentieren, aber es gibt kein Drei-Punkte-Menü: Die Verwaltung eines Clips (verschieben, archivieren, weiter teilen) bleibt die Entscheidung des Eigentümers.
+Diese Ansicht listet jede Aufnahme auf, die jemand direkt mit Ihnen oder Ihrer Organisation geteilt hat, per Name oder über eine organisationsweite Sichtbarkeitseinstellung. Ein öffentlicher Link, den jemand zufällig hat, zählt nicht zu dieser Liste.
+
+Sie können freigegebene Clips ansehen und darin vor- und zurückspulen und die Seitenleiste einklappen, um dem Video mehr Platz zu geben. Sie können hier kommentieren, aber es gibt kein Drei-Punkte-Menü: Die Verwaltung eines Clips (verschieben, archivieren, weiter teilen) bleibt die Entscheidung des Eigentümers.
 
 ### Clips kommentieren
 
-Fügen Sie einen Kommentar genau an der Stelle im Video hinzu, die Sie sich ansehen, nicht nur zur Aufnahme als Ganzes. Kommentare verzweigen sich zu Antworten, unterstützen Fett, Kursiv, Inline-Code und Links (Überschriften werden zu einfachem Text reduziert) und können einen Teamkollegen per @-Erwähnung benachrichtigen.
+Fügen Sie einen Kommentar genau an der Stelle im Video hinzu, die Sie sich ansehen, nicht nur zur Aufnahme als Ganzes. Kommentare verzweigen sich zu Antworten, unterstützen Fett, Kursiv, Inline-Code und Links (Überschriften werden zu einfachem Text reduziert) und können einen Teamkollegen per @-Erwähnung benachrichtigen. Kommentarfelder wachsen mit der Eingabe, und der Feed erweitert sich, um längere Kommentare anzuzeigen.
 
 ## Bereiche
 
@@ -132,23 +134,56 @@ Rewind ist standardmäßig deaktiviert. Nichts wird erfasst, bis Sie es in den E
 
 Aktivieren Sie Rewind über den Rewind-Tab in den Einstellungen. Sobald es aktiv ist, können Sie den Agenten Dinge fragen wie „was habe ich mir vor 20 Minuten angesehen?“, und er liest Textausschnitte aus dem lokalen Puffer mit Bildschirmtext, App- und Fensterkontext sowie Transkriptausschnitten. Der Agent erhält niemals die Aufnahmen selbst, mit einer Ausnahme: eine Anfrage, die Sie prüfen und genehmigen und die einen genauen Zeitbereich in einen privaten Clip verwandelt.
 
-#### Vorgeschichte hinzufügen
+### Frühere Bildschirmzeit {#earlier-screen-time}
 
-Im Editor eines Clips holt **Vorgeschichte hinzufügen** die vorherigen 30 Sekunden oder 5 Minuten aus Ihrem lokalen Rewind-Verlauf und fügt sie an den Anfang des Clips an. Der Clip muss auf diesem Gerät aufgenommen worden sein, während Rewind aktiv war, und die Momente müssen noch innerhalb des von Rewind aufbewahrten Verlaufs liegen.
+Frühere Bildschirmzeit fügt bis zu fünf Minuten lokalen Bildschirmverlauf von vor einer Aufnahme als eigenen Kontext hinzu. Sie wird niemals Teil des Videos.
 
-- Der Clip muss privat sein, ohne dass jemand anderem direkter Zugriff gewährt wurde. Der Rewind-Verlauf kann Kontext von vor Ihrer Aufnahmeentscheidung enthalten, daher macht Clips den Clip zuerst privat und bricht ab, wenn jemand anderes noch Zugriff hat.
-- Die Mediendatei des Clips wird durch die kombinierte Aufnahme ersetzt. Transkript, Kapitel, Kommentare und Reaktionen verschieben sich, sodass ihre Zeitstempel weiterhin passen, und die Timeline markiert, wo der ursprüngliche Clip begann.
-- Es läuft einmal pro Clip und nur, wenn Sie danach fragen. Nichts wird automatisch aus Rewind hinzugefügt.
+<WireframeBlock id="clips-earlier-screen-time-popover">
+  <Screen
+    surface="popover"
+    frame="show"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:8px'><span>Letzte einbeziehen</span><div style='flex:1'></div><span>Aus</span><span data-icon='chevronDown'></span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><strong>Rewind aktivieren</strong><small class='wf-muted'>Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.</small><button class='primary'>Rewind aktivieren</button><button style='width:100%;display:flex;justify-content:center;background:transparent;border:0'>Was ist das?</button></div></div>"
+    }
+  />
+</WireframeBlock>
+
+**Mit einer Aufnahme erfassen**
+
+- Frühere Bildschirmzeit ist ein optionales Lab, das standardmäßig aktiviert ist. Sie können es in der Clips-Web-App oder Desktop-App unter **Einstellungen > Labs** deaktivieren. Im Desktop-Tray wählen Sie **Aus** (Standard), **30 s**, **5 min** oder **Benutzerdefiniert…** für bis zu fünf Minuten. Rewind muss eingeschaltet sein und laufen; wenn es ausgeschaltet ist, öffnet die Auswahl einer Dauer eine kurze Erklärung mit der Schaltfläche **Rewind aktivieren**.
+- Beim Start einer Aufnahme fordert Clips das gewählte Zeitfenster von diesem Gerät an und lädt es hoch. Bei **Aus** erfolgt keine Anfrage.
+
+**Vor dem Hochladen prüfen**
+
+- Sobald es bereit ist, wählen Sie in der Clips-Desktop-App **Bearbeiten**, um eine Vorschau auf dem Gerät mit bis zu fünf Minuten lokalem Verlauf zu öffnen. Sie wird nie hochgeladen, beginnt am gewählten Zeitfenster und endet mit Aufnahmebeginn. Ziehen Sie die Griffe zum Kürzen oder verwenden Sie **Auswahl abspielen**, um diesen Bereich abzuspielen.
+- **Speichern** lädt nur die Auswahl hoch. Mit **Abbrechen** oder durch Schließen des Editors wird die Vorschau verworfen. Die Anzeigen zeigen Startversatz, Länge und Aufnahmebeginn; beginnt der Zeitraum mit der Aufnahme, lautet der Versatz **Ab Aufnahmebeginn**.
+
+**Datenschutz und Entfernen**
+
+- Solange frühere Bildschirmzeit angehängt ist, bleibt sie privat. Wenn Sie sie anfordern, wird der Clip privat; die Anfrage wird abgelehnt, solange der Clip direkt mit anderen geteilt ist. Das Teilen, die öffentliche oder organisationsweite Sichtbarkeit und neue Zugriffsrechte bleiben gesperrt, bis Sie sie entfernen.
+- Der Tab **Transkript** des Clips zeigt das angehängte Zeitfenster oberhalb des Transkripts mit einem eingebetteten Player. Entfernen Sie es über die Desktop-Bearbeitungsansicht oder den Bereich **Transkript** des Clips und bestätigen Sie. Das Videomaterial wird in den Papierkorb verschoben und ist dann nicht mehr Teil des Clips. Wenn Sie die Aufnahme verwerfen, wird es ebenfalls entfernt. Der Agent kann Zeitfenster und Status lesen und es entfernen.
+- Wenn ein anderes Gerät die Aufnahme erfasst hat, wartet die frühere Bildschirmzeit, bis dieses Gerät das Videomaterial speichert. Nur dieses Gerät kann es exportieren; andere Geräte überspringen es. Wenn kein Aufnahmegerät hinterlegt ist, verarbeitet die Desktop-App, die die Aufnahme erfasst hat, das Material.
+- Die Grenze liegt bei fünf Minuten; verfügbar ist nur der Verlauf, den Rewind auf diesem Gerät noch aufbewahrt.
 
 ### Browserprotokolle über die Chrome-Erweiterung
 
 Installieren Sie die Clips-Chrome-Erweiterung für eine Aufnahme plus die Browserprotokolle und Netzwerkaktivität aus dem Tab, den Sie debuggen, nützlich zum Melden von Produktfehlern und reinen Browser-Repros.
 
-Sie beobachtet nur den Tab, den Sie aktiv aufnehmen, und nur während die Aufnahme läuft. Sie speichert Konsolenmeldungen und grundlegende Informationen pro Anfrage (Methode, eine geschwärzte URL, Status, Dauer und ob eine Anfrage fehlgeschlagen ist), niemals Anfrage- oder Antworttexte, Header oder Cookies. Verwenden Sie die Desktop-App für die alltägliche Aufnahme, und greifen Sie gezielt zur Chrome-Erweiterung, wenn Sie diese Browserprotokolle angehängt brauchen.
+| Thema           | Verhalten                                                                                                                                                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs            | Bis zu fünf: der Tab, mit dem Sie die Aufnahme gestartet haben, dann Tabs, die Sie in den letzten 10 Minuten verwendet haben, neueste zuerst.                                                                                                              |
+| Tab-Wechsel     | Ein Tab, zu dem Sie während der Aufnahme wechseln, wird ebenfalls erfasst. Sind mehr als fünf Tabs angehängt, wird der am wenigsten kürzlich genutzte Tab außer dem gerade fokussierten getrennt, und seine bisherigen Protokolle bleiben in der Aufnahme. |
+| Rückblick       | Bis zu 30 Sekunden vor Beginn der Aufnahme, soweit die Seite ihren Konsolenverlauf und ihre Resource-Timing-Daten noch vorhält. Diese Einträge haben negative Zeitversätze.                                                                                |
+| Gespeichert     | Konsolenmeldungen sowie Informationen zu fetch/XHR-Anfragen: Methode, eine geschwärzte URL, Status, Dauer und ob die Anfrage fehlgeschlagen ist. Jeder Eintrag vermerkt den Tab, aus dem er stammt.                                                        |
+| Nie gespeichert | Anfrage- oder Antworttexte, Header oder Cookies.                                                                                                                                                                                                           |
+
+Netzwerkeinträge aus dem Rückblick haben keine HTTP-Methode, daher wird ihre Methode als `UNKNOWN` erfasst. Anfragen, die während der Aufnahme gestellt wurden, enthalten die Methode. Tabs werden nur erfasst, solange die Erweiterung läuft. Daher können in den ersten 10 Minuten nach dem Start weniger als fünf Tabs infrage kommen.
+
+Verwenden Sie die Desktop-App für die alltägliche Aufnahme, und greifen Sie gezielt zur Chrome-Erweiterung, wenn Sie diese Browserprotokolle angehängt brauchen.
 
 ## Transkription und KI-Metadaten {#transcription-and-ai-metadata}
 
-Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht nur bei Bedarf auf eine kostenpflichtige aus:
+Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht nur bei Bedarf auf eine kostenpflichtige aus. Der Diktat-Verlauf zeigt Transkript-Vorschauen, die sich zu vollständigen Transkripten und abgeglichenen Aktionen erweitern lassen:
 
 | Reihenfolge | Anbieter                        | Hinweise                                                                                                                                                                      |
 | ----------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +191,7 @@ Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht n
 | 2           | Builder.io verwaltet (Gemini)   | Cloud-Fallback, wenn nativer Text fehlt. Kein zusätzlicher Schlüssel nötig, sobald Builder verbunden ist. Der kostenlose Tarif von Builder.io enthält verwaltete KI-Guthaben. |
 | 3           | Groq (`whisper-large-v3-turbo`) | Optionales Backup, wenn Sie lieber Ihren eigenen Schlüssel mitbringen.                                                                                                        |
 
-Sobald ein Transkript fertig ist, füllt der Agent automatisch Titel, Zusammenfassung und Kapitelmarkierungen aus und hält sie aktuell, während Sie bearbeiten. Sie können auch direkt fragen:
+Sobald ein Transkript fertig ist, füllt der Agent automatisch Titel, Zusammenfassung und Kapitelmarkierungen aus und hält sie aktuell, während Sie bearbeiten. Während der Wiedergabe folgt das Transkript der aktuellen Position. Sie können auch direkt fragen:
 
 - „Titel und Zusammenfassung neu generieren.“
 - „Füge Kapitel hinzu. Der ist lang.“
@@ -169,7 +204,9 @@ Backup-Transkription, Transkriptbereinigung und KI-Titel und -Zusammenfassungen 
 
 ## Zerstörungsfreie Bearbeitung {#non-destructive-editing}
 
-Zuschneiden, Teilen, Pausen oder Füllwörter entfernen oder Clips kombinieren, alles ohne die Originaldatei je zu berühren. Jede Bearbeitung wird als Anweisung über Ihre ursprüngliche Aufnahme gelegt, ist rückgängig zu machen, und nichts wird fest in eine neue Datei eingebrannt, bis Sie exportieren.
+Verwenden Sie die Timeline, um Clips zuzuschneiden und zu teilen, Pausen oder Füllwörter zu entfernen, und Clips zu kombinieren. Ziehen Sie Schnittgrenzen, um sie anzupassen, und nutzen Sie Rückgängig oder Wiederholen, um Bearbeitungen zu überprüfen. Diese Änderungen bleiben über der ursprünglichen Aufnahme gelagert, und nichts wird fest in eine neue Datei eingebrannt, bis Sie exportieren.
+
+Schwärzungen funktionieren anders. Das Zeichnen einer Schwärzung deckt den Bereich nur im Editor ab — die ursprünglichen Pixel bleiben in der Datei erhalten. Nichts ist wirklich verborgen, bis Sie die Schwärzungen **einbrennen**: Dabei wird das Video neu kodiert, die abgedeckten Pixel werden dauerhaft zerstört, und die Originaldatei wird gelöscht. Nach dem Einbrennen gibt es kein Rückgängig mehr — behandeln Sie diesen Schritt als den einzigen wirklich unumkehrbaren hier.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"

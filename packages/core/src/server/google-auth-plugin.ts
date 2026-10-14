@@ -1,18 +1,22 @@
 import { createAuthPlugin } from "./auth-plugin.js";
-import { type GoogleAuthMode } from "./google-auth-mode.js";
+import type { AuthOptions } from "./auth.js";
 import { getOnboardingHtml } from "./onboarding-html.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-export interface GoogleAuthPluginOptions {
-  publicPaths?: string[];
-  googleAuthMode?: GoogleAuthMode;
-}
+export interface GoogleAuthPluginOptions extends Pick<
+  AuthOptions,
+  | "publicPaths"
+  | "googleAuthMode"
+  | "renderSignInPage"
+  | "renderResetPasswordPage"
+> {}
 
 export function createGoogleAuthPlugin(
   options?: GoogleAuthPluginOptions,
 ): NitroPluginDef {
   return createAuthPlugin({
+    ...options,
     publicPaths: [
       "/_agent-native/google/callback",
       "/_agent-native/google/auth-url",
@@ -22,6 +26,7 @@ export function createGoogleAuthPlugin(
     loginHtml: getOnboardingHtml({
       googleOnly: true,
       googleAuthMode: options?.googleAuthMode,
+      renderSignInPage: options?.renderSignInPage,
     }),
   });
 }

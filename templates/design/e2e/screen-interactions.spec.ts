@@ -12,6 +12,7 @@ import {
   frameToolButton,
   gotoEditor,
   pickFrameMode,
+  openAppMenuSubmenu,
 } from "./helpers";
 
 const PRESET_HTML = `<!doctype html>
@@ -458,6 +459,104 @@ test("editing a screen fill changes its body without changing child fills", asyn
     await expect(
       screenFrame.locator('[data-agent-native-node-id="child"]'),
     ).toHaveCSS("background-color", "rgb(218, 218, 218)");
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
+
+test("keeps hidden Code source reads quiet during canvas commits", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request, "Hidden Code source reads");
+  try {
+    const fileId = await createScreen(request, designId, {
+      content: FILL_HTML,
+      metadata: { sourceType: "inline", width: 1280, height: 900 },
+      geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+    });
+    const screenShell = page.locator(
+      `[data-screen-shell][data-frame-id="${fileId}"]`,
+    );
+
+    let sourceReads = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
+        url.searchParams.has("path")
+      ) {
+        sourceReads += 1;
+      }
+    });
+    const codeWorkbench = page.getByTestId("design-code-workbench");
+    // The dev server can reload the page once to recover optimized deps, which
+    // strands the first navigation on "Loading application"; navigate again.
+    const openCodeWorkbench = async () => {
+      await expect(async () => {
+        await page.goto(appPath(`/design/${designId}?panel=code`), {
+          waitUntil: "domcontentloaded",
+        });
+        const loadError = page.getByTestId("design-code-workbench-load-error");
+        if (await loadError.isVisible().catch(() => false)) {
+          await page.getByRole("button", { name: "Retry code editor" }).click();
+        }
+        await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
+      }).toPass({ timeout: 60_000 });
+    };
+    await openCodeWorkbench();
+    await expect(screenShell).toBeVisible();
+    await page.evaluate(async (id) => {
+      const workbench = (window as any).__designCodeWorkbench;
+      const providerKey = "inline:" + id;
+      if (!workbench) throw new Error("Code workbench handle is missing");
+      await workbench.api.openFile(providerKey, "screen.html", {
+        preview: false,
+      });
+    }, designId);
+    await expect.poll(() => sourceReads).toBeGreaterThan(0);
+    const sourceReadsBeforeEdits = sourceReads;
+
+    await page.getByRole("button", { name: "Layers", exact: true }).click();
+    await expect(page.getByTestId("design-code-workbench")).toBeHidden();
+    const frameLabel = screenShell.locator("[data-frame-label]");
+    await expect(frameLabel).toBeVisible();
+    const readFrameX = async () =>
+      designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
+    const initialX = await readFrameX();
+    expect(initialX).toBe(0);
+    // Retry only readiness: the key press is a non-idempotent mutation and must
+    // be sent once per nudge.
+    await expect(async () => {
+      await frameLabel.click();
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .getByRole("treeitem", { selected: true }),
+      ).toHaveCount(1, { timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    for (let index = 0; index < 20; index += 1) {
+      const writeResponse = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname;
+        return (
+          pathname.endsWith("/_agent-native/actions/update-design") &&
+          response.request().method() === "POST"
+        );
+      });
+      await page.keyboard.press("ArrowRight");
+      const response = await writeResponse;
+      expect(
+        response.ok(),
+        `canvas commit failed: ${response.status()} ${await response.text()}`,
+      ).toBe(true);
+      await expect.poll(readFrameX).toBe(initialX + index + 1);
+    }
+    expect(sourceReads).toBe(sourceReadsBeforeEdits);
+
+    await openCodeWorkbench();
+    await expect
+      .poll(() => sourceReads)
+      .toBeGreaterThan(sourceReadsBeforeEdits);
   } finally {
     await action(request, "delete-design", { id: designId });
   }
@@ -1061,7 +1160,7 @@ test("Screen Appearance styles reveal the board and keep pinned versus Hug heigh
     const [svgDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         await page
           .getByRole("menuitem", { name: "Download for Figma (SVG)" })
@@ -1132,7 +1231,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
     const [pdfDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         await page
           .getByRole("menuitem", { name: "Download PDF (all screens)" })
@@ -1200,7 +1299,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
       `[data-screen-shell][data-frame-id="${imageScreenId}"]`,
     );
     const exportPdf = async () => {
-      await page.getByRole("button", { name: "More" }).click();
+      await openAppMenuSubmenu(page, "File");
       await page.getByRole("menuitem", { name: "Export" }).hover();
       await page
         .getByRole("menuitem", { name: "Download PDF (all screens)" })
@@ -1678,8 +1777,7 @@ test("K scales Screen contents and history as one root Frame edit", async ({
       throw new Error("Missing persisted Screen width for K scale");
     const scale = afterFrameWidth / beforeFrameWidth;
     const frameLabelChromeHeight =
-      (beforeShellBounds.height - beforeCardBounds.height) /
-      cameraBeforeGesture.scaleY;
+      beforeShellBounds.height - beforeCardBounds.height;
     const cardWidthBeforeInWorld =
       beforeCardBounds.width / cameraBeforeGesture.scaleX;
     const cardHeightBeforeInWorld =
@@ -1734,8 +1832,8 @@ test("K scales Screen contents and history as one root Frame edit", async ({
         `${phase} Screen card height in design coordinates`,
       ).toBeCloseTo(cardHeightBeforeInWorld * scale, 1);
       expect(
-        (outer.height - cardBounds.height) / currentCamera.scaleY,
-        `${phase} frame label chrome height in design coordinates`,
+        outer.height - cardBounds.height,
+        `${phase} frame label chrome height in viewport pixels`,
       ).toBeCloseTo(frameLabelChromeHeight, 1);
       const actual = await layout.evaluate((element) => {
         const layoutStyle = getComputedStyle(element);

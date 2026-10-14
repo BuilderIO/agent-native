@@ -104,7 +104,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 El chat de página completa más sencillo:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -117,12 +117,11 @@ asistentes de transferencia chat-home en el diseño. Los enlaces normales dentro
 de chat pueden entonces transformar el chat completo en la barra lateral mientras mantienen el hilo activo:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -155,7 +154,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 El chat embebido más sencillo con tu propio chrome:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -271,7 +270,7 @@ Toda aplicación Agent-Native eventualmente necesita un lugar donde los usuarios
 Las plantillas oficiales no la montan: Configuración cubre lo mismo (Agent › Model, Instructions, Memory, Skills, Files y Sub-agents, además de las páginas Automations y MCP server de la aplicación), `/agent` redirige a Configuración y `agentPageHref="/settings/agent"` en `AgentSidebar` abre Settings › Agent › Model. Monta `AgentTabsPage` en su propia ruta cuando una aplicación quiera toda la superficie del agente en una sola página.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -571,10 +570,8 @@ límite: tu runtime transmite eventos normalizados, y Agent-Native renderiza el
 compositor, la transcripción, las llamadas a herramientas, las aprobaciones, los widgets nativos y el diseño de la aplicación.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

@@ -15,8 +15,7 @@ metadata:
 
 The microphone inside the sidebar composer offers two distinct paths:
 editable dictation and an opt-in realtime speech-to-speech agent session.
-Users configure dictation separately from AI cleanup in Settings → Voice
-Transcription. With the `settings-redesign` flag on, the source picker (Mac
+Users configure dictation separately from AI cleanup. The source picker (Mac
 Native, Google Realtime, Batch) is the Voice transcription row on Settings ›
 Account › Preferences (`VoiceTranscriptionSection compact`, anchor `voice`);
 cleanup and batch provider keys stay in the agent sidebar's Voice
@@ -51,7 +50,7 @@ from the dictation providers below. It prefers the authenticated user's
 complete Builder connection and the Builder-managed metered gateway. A scoped
 `OPENAI_API_KEY` is the fallback when Builder is not connected. The server owns
 the `gpt-realtime-2.1` session configuration and keeps credentials out of
-browser code. If neither provider is configured, show **Connect Builder** as
+browser code. If neither provider is configured, show **Use Builder.io** as
 the primary microphone-popover action and OpenAI key setup as the secondary
 action before requesting microphone permission.
 

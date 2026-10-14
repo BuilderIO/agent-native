@@ -28,8 +28,8 @@ for (const site of sites) {
     }) => {
       // Landing on the app root after signing in — instead of the page you
       // asked for — is the return-path regression this catches. A nested
-      // Settings route (`/settings/:page/:sub`) is the deepest shape the
-      // redesign links to, so both segments have to survive the round trip.
+      // Settings route (`/settings/:page/:sub`) is the deepest shape Settings
+      // links to, so both segments have to survive the round trip.
       const target = SETTINGS_NESTED_ROUTE;
       await page.goto(`${origin}${target}`, {
         waitUntil: "domcontentloaded",

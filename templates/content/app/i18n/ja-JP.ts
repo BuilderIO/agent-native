@@ -255,7 +255,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder は未接続です。戻ってから Builder.io をご利用ください。",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -267,7 +267,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "Builder アカウントを使ってスペースとモデルを閲覧できます。",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -449,7 +449,6 @@ const editor = {
   pageBodySyncing: "このページのコンテンツはまだ同期中です",
   pageBodySyncingDescription:
     "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
-  createCollection: "コレクションを作成",
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
@@ -650,6 +649,34 @@ const editor = {
     pageCount_few: "{{count}} ページ",
     pageCount_many: "{{count}} ページ",
     pageCount_other: "{{count}} ページ",
+    back: "戻る",
+    relatedDatabase: "関連データベース",
+    searchDatabases: "データベースを検索",
+    thisDatabase: "このデータベース",
+    noDatabases: "データベースが見つかりません",
+    searchPages: "ページを検索",
+    noMatchingPages: "一致するページはありません",
+    removeRelation: "{{name}} を削除",
+    openPage: "{{name}} を開く",
+    unavailablePage: "利用できないページ",
+    unavailablePageCount_zero: "{{count}} 件は利用できません",
+    unavailablePageCount_one: "{{count}} 件は利用できません",
+    unavailablePageCount_two: "{{count}} 件は利用できません",
+    unavailablePageCount_few: "{{count}} 件は利用できません",
+    unavailablePageCount_many: "{{count}} 件は利用できません",
+    unavailablePageCount_other: "{{count}} 件は利用できません",
+    noRelatedDatabase: "関連データベースが設定されていません",
+    linkAPage: "ページをリンクまたは作成…",
+    createPage: "「{{name}}」を作成",
+    reorderRelation: "{{name}} を並べ替え",
+    selectMore: "さらに選択",
+    selectAPage: "ページを選択",
+    selectedCount_zero: "{{count}} 件選択中",
+    selectedCount_one: "{{count}} 件選択中",
+    selectedCount_two: "{{count}} 件選択中",
+    selectedCount_few: "{{count}} 件選択中",
+    selectedCount_many: "{{count}} 件選択中",
+    selectedCount_other: "{{count}} 件選択中",
     pasteFileOrMediaLink: "ファイルまたはメディアのリンクを貼り付けます",
     personOrEmail: "個人または電子メール",
     propertyMenuFor: "{{name}}のプロパティメニュー",
@@ -778,6 +805,7 @@ const editor = {
     notifications: "通知",
     notionSync: "Notionの同期",
     openInNotion: "概念で開く",
+    openInAgentNative: "Agent-Native で開く",
     orgCanFindAndView: "組織内の誰でも検索して表示できます",
     orgLinkCanView: "組織内のリンクを知っている人は誰でも閲覧できます",
     pin: "固定",
@@ -924,8 +952,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "前回のページを利用できないため、ようこそページを開きました。",
-  requestedPageUnavailable:
-    "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
   saveFailed: "現在位置を保存できませんでした",
   workspaceWelcomeUnavailableTitle: "まだ何も開かれていません",
   workspaceWelcomeUnavailableDescription:
@@ -1033,6 +1059,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}を待機しています。リクエスト: {{action}}。",
+    widgetDocumentLoadStage: "保存済みページの本文",
+    widgetDraftCheckStage: "ページ下書きの復元",
+    widgetEditorInitStage: "リッチテキストエディターの初期化",
     iconPickerIcons: "アイコン",
     iconPickerEmoji: "絵文字",
     iconPickerRecent: "最近",
@@ -1042,6 +1072,10 @@ const exactEnglish = {
     iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
+    suggestionUnplaceable:
+      "この提案の周囲のテキストが変更されたため、適用できません。提案は保留中のままです。却下するか、もう一度編集を提案してください。",
+    proposalUnplaceable:
+      "周囲のテキストが変更されたため適用できない提案があり、どの提案も適用されませんでした。すべて保留中のままです。1 件ずつ承認または却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
@@ -1076,6 +1110,8 @@ const exactEnglish = {
       openInClaude: "Claude で開く",
       openInClaudeCode: "Claude Code で開く",
       openInCodex: "Codex で開く",
+      connectContent: "Content を接続",
+      otherAgents: "その他のエージェント",
       agentCopyAccessNote:
         "エージェントは既存の権限で Content MCP を利用できます",
       temporaryAgentLink: "一時的なエージェントリンク",
@@ -1166,7 +1202,9 @@ const history = {
 
 const overrides = {
   close: "閉じる",
-  setup: { checkingProvider: "AI 接続を確認しています…" },
+  setup: {
+    providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+  },
   onboarding: {
     fileStorage: {
       title: "ファイルをアップロードするストレージを接続",
@@ -1217,6 +1255,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "コンテンツ",
+    loadingContent: "コンテンツを読み込み中",
     commandSearchDocuments: "ドキュメントを検索",
     searchSince: "{{date}}以降",
     searchModifiedSince: "{{date}}以降に更新",
@@ -1273,10 +1312,6 @@ const overrides = {
   },
   settings: {
     title: "設定",
-    description: "Content の言語とワークスペース設定。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのドキュメントにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
     notificationsEmail: "メール",
     commentsRepliesMentions: "コメント、返信、メンション",
@@ -1285,10 +1320,6 @@ const overrides = {
     retry: "再試行",
     mcpAbout:
       "Content を Claude、ChatGPT、Cursor など MCP に対応した AI アプリに接続します。接続したアプリは、ドキュメントの検索、作成、編集など、Content での作業を代わりに行えます。アプリが見られるのは、あなたが見られるものだけです。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "共同編集者と共有ドキュメントのアクセスを管理します。",
@@ -1327,6 +1358,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
+    pageNoAccess: "このページへのアクセス権がありません",
+    pageMissing: "このページは存在しません",
+    pageInTrash: "このページはゴミ箱にあります",
+    pageInTrashAskOwner: "所有者に復元を依頼してください。",
+    openTrash: "ゴミ箱を開く",
+    goToMyPages: "自分のページへ",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",
@@ -1411,6 +1448,9 @@ const overrides = {
     aiUndo: "元に戻す",
     aiDone: "完了",
     aiMoreChanges: "ほか {{count}} 件",
+    suggestionReplaced: "置き換え済み",
+    suggestionWithdrawn: "取り下げ済み",
+    suggestedChange: "提案された変更",
     aiUndoUnavailable: "削除されたテキストは自動で元に戻せません",
     aiUndoFailed: "変更を元に戻せませんでした",
     aiResolvedByAi: "AI が解決",
@@ -1452,6 +1492,11 @@ const overrides = {
     resize: "サイドバーの幅を変更",
     expand: "サイドバーを展開",
     failedCreatePage: "ページを作成できませんでした",
+    failedCreatePageDraftDescription:
+      "下書きはこのブラウザーに保存されています。ページの作成を再試行するか、下書きを破棄できます。",
+    discardFailedCreatePageQuestion: "作成待ちを破棄しますか？",
+    discardFailedCreatePageDescription:
+      "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",

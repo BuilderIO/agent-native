@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS = 15_000;
+const CONNECT_TOKEN_JTI = "jti-action-route-e2e";
 
 vi.mock("./framework-request-handler.js", () => ({
   getH3App: (app: any) => app,
@@ -14,6 +15,7 @@ vi.mock("./action-change.js", () => ({
     fallback: boolean,
   ) => entry.readOnly ?? fallback,
   notifyActionChange: vi.fn(),
+  notifyActionChangeForResponse: vi.fn(async () => true),
 }));
 
 function makePostEvent(opts: {
@@ -53,8 +55,61 @@ async function buildOwnerResolver() {
   return { getOwnerFromEvent, resolveOrgId };
 }
 
-function mockEmptyDb() {
-  const execute = vi.fn().mockResolvedValue({ rows: [] });
+/**
+ * `memberOf` lists the orgs the token owner still belongs to.
+ * `storedTokenOrgId` is the org on the connect token's stored row; leave it
+ * undefined for a token this app has no row for.
+ */
+function mockDb(
+  opts: {
+    memberOf?: string[];
+    storedToken?: {
+      jti: string;
+      orgId: string | null;
+      ownerEmail?: string;
+      kind?: "personal" | "service";
+    };
+  } = {},
+) {
+  const execute = vi.fn(
+    async (query: string | { sql: string; args?: unknown[] }) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : (query.args ?? []);
+      if (/to_regclass\('identity_retired_emails'\)/.test(sql)) {
+        return { rows: [{ present: false }] };
+      }
+      if (
+        /FROM org_members/.test(sql) &&
+        opts.memberOf?.includes(String(args[0]))
+      ) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (
+        /FROM organizations/.test(sql) &&
+        opts.memberOf?.includes(String(args[0]))
+      ) {
+        return { rows: [{ identity_authority: null, identity_id: null }] };
+      }
+      if (
+        /SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens/.test(
+          sql,
+        ) &&
+        opts.storedToken?.jti === String(args[0])
+      ) {
+        return {
+          rows: [
+            {
+              org_id: opts.storedToken.orgId,
+              owner_email: opts.storedToken.ownerEmail ?? "owner@plans.test",
+              kind: opts.storedToken.kind ?? "personal",
+              revoked_at: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  );
   vi.doMock("../db/client.js", () => ({
     getDbExec: () => ({ execute }),
     isProductionServerlessFunctionRuntime: () => false,
@@ -82,7 +137,7 @@ async function mintConnectToken(opts: {
     scope: MCP_OAUTH_DEFAULT_SCOPE,
     resource: opts.resource,
     issuer: opts.issuer,
-    jti: "jti-action-route-e2e",
+    jti: CONNECT_TOKEN_JTI,
     expiresIn: "30d",
   });
 }
@@ -104,7 +159,10 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockEmptyDb();
+      mockDb({
+        memberOf: ["org-123"],
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: "org-123" },
+      });
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         getBetterAuthSync: () => null,
@@ -164,7 +222,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
   );
 
   it(
-    "recovers the owner org when a Bearer token has no org claim",
+    "refuses a Bearer connect token for an org its owner has left",
     async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
@@ -172,7 +230,61 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockEmptyDb();
+      mockDb({
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: "org-123" },
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const { getOwnerFromEvent, resolveOrgId } = await buildOwnerResolver();
+
+      const run = vi.fn(async () => ({ planId: "should-not-run" }));
+      const actions: Record<string, ActionEntry> = {
+        "import-visual-plan-source": { run } as any,
+      };
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: (path: string, handler: any) => mounted.push({ path, handler }),
+      };
+      mountActionRoutes(nitroApp, actions, { getOwnerFromEvent, resolveOrgId });
+
+      const token = await mintConnectToken({
+        ownerEmail: "owner@plans.test",
+        orgId: "org-123",
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+      });
+
+      await expect(
+        mounted[0].handler(
+          makePostEvent({
+            path: "/_agent-native/actions/import-visual-plan-source",
+            headers: { authorization: `Bearer ${token}` },
+            body: { title: "My plan", mdx: { "plan.mdx": "# Plan" } },
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(run).not.toHaveBeenCalled();
+    },
+    ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
+  );
+
+  it(
+    "takes the org from the stored token row when a Bearer token has no org claim",
+    async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      mockDb({
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: "org-from-row" },
+        memberOf: ["org-from-row"],
+      });
       const resolveOrgIdForEmail = vi
         .fn()
         .mockResolvedValue("org-from-membership");
@@ -227,9 +339,9 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       expect(result).toEqual({ planId: "plan_123", url: "/plans/plan_123" });
       expect(seen).toEqual({
         userEmail: "owner@plans.test",
-        orgId: "org-from-membership",
+        orgId: "org-from-row",
       });
-      expect(resolveOrgIdForEmail).toHaveBeenCalledWith("owner@plans.test");
+      expect(resolveOrgIdForEmail).not.toHaveBeenCalled();
     },
     ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
   );
@@ -243,7 +355,9 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockEmptyDb();
+      mockDb({
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: null },
+      });
       const resolveOrgIdForEmail = vi
         .fn()
         .mockResolvedValue("org-from-membership");
@@ -307,6 +421,97 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
     ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
   );
 
+  it(
+    "preserves verified service-token provenance in the action request context",
+    async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      const serviceEmail = "svc-pr-recap@service.org-123";
+      mockDb({
+        memberOf: ["org-123"],
+        storedToken: {
+          jti: CONNECT_TOKEN_JTI,
+          orgId: "org-123",
+          ownerEmail: serviceEmail,
+          kind: "service",
+        },
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const { getRequestContext, getVerifiedServiceIdentityFromEvent } =
+        await import("./request-context.js");
+      const { getOwnerFromEvent, resolveOrgId } = await buildOwnerResolver();
+      let requestIdentity:
+        | {
+            userEmail?: string;
+            orgId?: string;
+            verifiedServiceIdentity?: { userEmail: string; orgId: string };
+          }
+        | undefined;
+      let verifiedServiceIdentity:
+        | { userEmail: string; orgId: string }
+        | undefined;
+      const actions: Record<string, ActionEntry> = {
+        "get-visual-plan": {
+          run: vi.fn(async () => {
+            const context = getRequestContext();
+            requestIdentity = {
+              userEmail: context?.userEmail,
+              orgId: context?.orgId,
+              verifiedServiceIdentity: context?.verifiedServiceIdentity,
+            };
+            verifiedServiceIdentity = context?.verifiedServiceIdentity;
+            return { planId: "plan_123" };
+          }),
+        } as any,
+      };
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: (path: string, handler: any) => mounted.push({ path, handler }),
+      };
+      mountActionRoutes(nitroApp, actions, {
+        getOwnerFromEvent,
+        resolveOrgId,
+      });
+
+      const token = await mintConnectToken({
+        ownerEmail: serviceEmail,
+        orgId: "org-123",
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+      });
+      const event = makePostEvent({
+        path: "/_agent-native/actions/get-visual-plan",
+        headers: { authorization: `Bearer ${token}` },
+        body: { planId: "plan_123" },
+      });
+      const result = await mounted[0].handler(event);
+
+      expect(result).toEqual({ planId: "plan_123" });
+      expect(getVerifiedServiceIdentityFromEvent(event)).toEqual({
+        userEmail: serviceEmail,
+        orgId: "org-123",
+      });
+      expect(requestIdentity).toMatchObject({
+        userEmail: serviceEmail,
+        orgId: "org-123",
+      });
+      expect(verifiedServiceIdentity).toEqual({
+        userEmail: serviceEmail,
+        orgId: "org-123",
+      });
+    },
+    ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
+  );
+
   it("rejects an unauthenticated action call with a 401", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
@@ -314,7 +519,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
 
-    mockEmptyDb();
+    mockDb();
     vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
       ...(await importOriginal<object>()),
       getBetterAuthSync: () => null,

@@ -1,12 +1,25 @@
+import { fail } from "@agent-native/core/action";
 import {
   classifyAgentFailure,
   type AgentFailureRegime,
 } from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { getAppConfig } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
+import {
+  isThreadDebugNoiseEventType,
+  THREAD_DEBUG_NOISE_EVENT_TYPES,
+} from "../../shared/thread-debug-noise.js";
+import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
+const NOISE_EVENT_SQL_FILTER = THREAD_DEBUG_NOISE_EVENT_TYPES.map(
+  () => "AND event_data NOT LIKE ?",
+).join("\n                ");
+const NOISE_EVENT_SQL_PARAMS = THREAD_DEBUG_NOISE_EVENT_TYPES.map(
+  (type) => `{"type":"${type}"%`,
+);
 const CONFIG_ENV_KEY = "AGENT_NATIVE_THREAD_DEBUG_DATABASES";
 const MAX_RAW_PREVIEW_CHARS = 1_500;
 const DEFAULT_SEARCH_LIMIT = 25;
@@ -38,6 +51,7 @@ export interface DebugAccess {
   orgId: string | null;
   role: string | null;
   envAdmin: boolean;
+  superOrg: boolean;
   canInspectAll: boolean;
   memberEmails: string[];
 }
@@ -108,24 +122,8 @@ class UnsupportedThreadDebugSchemaError extends Error {
   }
 }
 
-function envEmails(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 function escapeLike(value: string): string {
   return value.replace(/([\\%_])/g, "\\$1");
-}
-
-function isEnvAdmin(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return [
-    ...envEmails("DISPATCH_ADMIN_EMAILS"),
-    ...envEmails("WORKSPACE_OWNER_EMAIL"),
-    ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
-  ].includes(normalized);
 }
 
 function missingTableName(error: unknown): string | null {
@@ -380,6 +378,8 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const direct = sourceConfigs().find((source) => source.id === normalized);
   if (direct) {
     if (direct.kind !== "current" && !direct.databaseUrl) {
+      // A configured source whose URL env var is unset is a deploy
+      // misconfiguration: untyped on purpose, so the boundary captures it.
       throw new Error(
         `Thread debug source "${normalized}" is configured but disconnected.`,
       );
@@ -391,7 +391,10 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const databaseUrlEnv = `${prefix}_DATABASE_URL`;
   const databaseUrl = process.env[databaseUrlEnv];
   if (!databaseUrl) {
-    throw new Error(`Thread debug source "${normalized}" is not configured.`);
+    fail(`Thread debug source "${normalized}" is not configured.`, {
+      errorCode: "thread_debug_source_not_configured",
+      statusCode: 404,
+    });
   }
   return {
     id: normalized,
@@ -457,8 +460,13 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
   const viewerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
   const role = await viewerOrgRole(orgId, viewerEmail);
-  const envAdmin = isEnvAdmin(viewerEmail);
-  const canInspectAll = envAdmin || role === "owner" || role === "admin";
+  const envAdmin = isDispatchEnvironmentAdmin(viewerEmail);
+  const orgAdmin = role === "owner" || role === "admin";
+  const canInspectAll = envAdmin || orgAdmin;
+  // Remote sources keep their own org rosters, so Dispatch membership cannot
+  // scope them; the observability super org is the one cross-org review grant.
+  const superOrgId = getAppConfig().observability.superOrgId;
+  const superOrg = Boolean(orgId && orgAdmin && superOrgId === orgId);
   const memberEmails = canInspectAll
     ? await currentOrgMembers(orgId)
     : [viewerEmail];
@@ -467,6 +475,7 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
     orgId,
     role,
     envAdmin,
+    superOrg,
     canInspectAll,
     memberEmails: memberEmails.length > 0 ? memberEmails : [viewerEmail],
   };
@@ -501,13 +510,15 @@ function ownerScope(
   if (requested && requested !== "*") {
     if (
       access.orgId &&
+      !access.superOrg &&
       !access.memberEmails.some(
         (email) => email.toLowerCase() === requested.toLowerCase(),
       )
     ) {
-      throw new Error(
-        "The requested owner is not a member of the current organization.",
-      );
+      fail("The requested owner is not a member of the current organization.", {
+        errorCode: "forbidden",
+        statusCode: 403,
+      });
     }
     return {
       sql: `${column} = ?`,
@@ -516,6 +527,9 @@ function ownerScope(
     };
   }
 
+  if (access.superOrg) {
+    return { sql: "1 = 1", args: [], label: "all organizations" };
+  }
   if (access.envAdmin && !access.orgId) {
     return { sql: "1 = 1", args: [], label: "all users" };
   }
@@ -587,6 +601,7 @@ function parseRunEvent(row: Record<string, unknown>) {
         ? String(row.run_id)
         : "",
     seq: numberField(row.seq),
+    eventAt: nullableNumberField(row.event_at),
     event: safeJsonParse(raw, { type: "unparseable", raw }),
     rawEventData: raw,
   };
@@ -606,6 +621,7 @@ export async function listThreadDebugSources(): Promise<{
       orgId: access.orgId,
       role: access.role,
       envAdmin: access.envAdmin,
+      superOrg: access.superOrg,
       canInspectAll: access.canInspectAll,
       memberCount: access.memberEmails.length,
     },
@@ -899,11 +915,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\' OR LOWER(source_url) LIKE ? ESCAPE '\\' OR id = ? OR scope_id = ?" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern, pattern, q, q);
     args.push(...runThreadIds);
   }
   args.push(limit);
@@ -951,7 +967,10 @@ export async function getAgentThreadDebug(input: {
   const scope = ownerScope(access, input.ownerEmail);
   const requestedId = input.runId?.trim() || input.threadId?.trim() || "";
   if (!requestedId) {
-    throw new Error("A thread ID or request/run ID is required.");
+    fail("A thread ID or request/run ID is required.", {
+      errorCode: "thread_id_required",
+      statusCode: 400,
+    });
   }
 
   let rows = await queryRows<ChatThreadRow>(
@@ -991,7 +1010,10 @@ export async function getAgentThreadDebug(input: {
 
   const row = rows[0];
   if (!row) {
-    throw new Error(`Thread or request/run ID "${requestedId}" was not found.`);
+    fail(`Thread or request/run ID "${requestedId}" was not found.`, {
+      errorCode: "not_found",
+      statusCode: 404,
+    });
   }
 
   const threadData = safeJsonParse<Record<string, unknown>>(
@@ -1008,7 +1030,7 @@ export async function getAgentThreadDebug(input: {
     Math.min(2_000, input.maxTraceSpans ?? DEFAULT_TRACE_SPAN_LIMIT),
   );
 
-  const runRows = await optionalRows<AgentRunRow>(
+  let runRows = await optionalRows<AgentRunRow>(
     exec,
     `SELECT r.*
        FROM agent_runs r
@@ -1018,18 +1040,60 @@ export async function getAgentThreadDebug(input: {
     [row.id, maxRuns],
   );
 
+  // A deep-linked run can be older than the most recent `maxRuns` runs; fetch
+  // it explicitly so the inspector opens the run someone was sent to debug
+  // instead of silently falling back to the latest one.
+  if (resolvedRunId && !runRows.some((run) => run.id === resolvedRunId)) {
+    const lookupRunRows = await optionalRows<AgentRunRow>(
+      exec,
+      `SELECT r.*
+         FROM agent_runs r
+        WHERE r.thread_id = ? AND r.id = ?
+        LIMIT 1`,
+      [row.id, resolvedRunId],
+    );
+    if (lookupRunRows[0]) {
+      runRows = [...runRows, lookupRunRows[0]].sort(
+        (a, b) => Number(b.started_at) - Number(a.started_at),
+      );
+    }
+  }
+
   const runs = [];
   for (const run of runRows) {
     const eventRows = await optionalRows<Record<string, unknown>>(
       exec,
-      `SELECT run_id, seq, event_data
+      `SELECT run_id, seq, event_at, event_data
          FROM agent_run_events
         WHERE run_id = ?
         ORDER BY seq ASC
         LIMIT ?`,
       [run.id, maxEvents],
     );
-    runs.push(serializeRun(run, eventRows.map(parseRunEvent)));
+    // Streamed tool input deltas can fill the window long before the run ends,
+    // hiding every later tool call; keep fetching the non-stream events past it.
+    const lastSeq = eventRows.at(-1)?.seq;
+    const laterRows =
+      eventRows.length === maxEvents && lastSeq != null
+        ? await optionalRows<Record<string, unknown>>(
+            exec,
+            `SELECT run_id, seq, event_at, event_data
+               FROM agent_run_events
+              WHERE run_id = ?
+                AND seq > ?
+                ${NOISE_EVENT_SQL_FILTER}
+              ORDER BY seq ASC
+              LIMIT ?`,
+            [run.id, lastSeq, ...NOISE_EVENT_SQL_PARAMS, maxEvents],
+          )
+        : [];
+    // The SQL prefix match is only a fast path; drop any noise event whose
+    // serialized keys did not start with "type".
+    const events = eventRows.map(parseRunEvent);
+    for (const entry of laterRows.map(parseRunEvent)) {
+      if (!isThreadDebugNoiseEventType(entry.event?.type)) events.push(entry);
+    }
+    runs.push(serializeRun(run, events));
   }
 
   const runIds = runRows.map((run) => run.id);

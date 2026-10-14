@@ -8,6 +8,7 @@ import {
   vi,
 } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { closeDbExec, getDbExec } from "./client.js";
 import { withMigrationRuntime } from "./migration-runtime.js";
 import {
@@ -33,6 +34,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.unstubAllEnvs();
+  resetAppConfigForTests();
   __resetStoreLedgerSnapshotForTests();
 });
 
@@ -60,9 +62,13 @@ async function tableExists(table: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-function simulateHostedFunction(): void {
+function simulateHostedFunction(
+  { releaseMigrations } = { releaseMigrations: true },
+): void {
   vi.stubEnv("NODE_ENV", "production");
   vi.stubEnv("NETLIFY", "true");
+  if (releaseMigrations) vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+  resetAppConfigForTests();
 }
 
 describe("defineStore", () => {
@@ -189,6 +195,47 @@ describe("verify (hosted request runtime)", () => {
     await expect(
       getDbExec().execute("CREATE TABLE IF NOT EXISTS sneaky (id TEXT)"),
     ).rejects.toThrow(/Schema mutation attempted/);
+  });
+});
+
+describe("hosted runtime without release migrations", () => {
+  it("provisions once and records the ledger", async () => {
+    const { table, store } = widgetStore();
+    simulateHostedFunction({ releaseMigrations: false });
+
+    await store.ready();
+
+    expect(await tableExists(table)).toBe(true);
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      args: [table],
+    });
+    expect(rows.map((row) => row.name)).toEqual(["baseline"]);
+  });
+
+  it("answers a provisioned store from the shared ledger read", async () => {
+    const a = widgetStore();
+    const b = widgetStore();
+    await withMigrationRuntime(async () => {
+      await a.store.ready();
+      await b.store.ready();
+    });
+
+    simulateHostedFunction({ releaseMigrations: false });
+    const execute = vi.fn(getDbExec().execute);
+    const { withDbExec } = await import("./client.js");
+    await withDbExec({ execute }, async () => {
+      await defineStore({
+        id: a.table,
+        migrations: a.store.migrations,
+      }).ready();
+      await defineStore({
+        id: b.table,
+        migrations: b.store.migrations,
+      }).ready();
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });
 

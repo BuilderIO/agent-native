@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { AgentKitActionWidget } from "@agent-native/core/client/agentkit-chat";
+import { AgentKitActionWidget } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,11 +21,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       new Intl.NumberFormat("en-US", options).format(value),
   }),
 }));
-
-import {
-  resolveToolRenderer,
-  type ToolRendererContext,
-} from "@agent-native/core/client/chat";
+import { resolveToolRenderer } from "@agent-native/toolkit/app/chat";
+import { type ToolRendererContext } from "@agent-native/toolkit/app/chat/chat";
 import { ANALYTICS_ANALYSIS_RESULT_RENDERER } from "@shared/analysis-result";
 
 import "./register-analysis-result-renderer";

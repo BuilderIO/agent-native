@@ -36,9 +36,11 @@ import {
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
   mountApplicationStateRoutes,
+  mountMcpConnectRoutes,
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
   createPublicRemoteAgentsHandler,
+  createOpenAiAppsChallengeHandler,
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
 import { signEmbedSessionToken } from "./embed-session.js";
@@ -64,6 +66,87 @@ describe("mountApplicationStateRoutes", () => {
   });
 });
 
+describe("mountMcpConnectRoutes", () => {
+  const request = (path: string) =>
+    new Request(`https://mail.example.test${path}`, {
+      headers: { host: "mail.example.test", "x-forwarded-proto": "https" },
+    });
+
+  it("still serves the identity route when the connect flows are off", async () => {
+    const app = createApp();
+    mountMcpConnectRoutes(app, {
+      connect: false,
+      serverName: undefined,
+      appId: "mail",
+      appName: "Mail",
+    });
+
+    for (const prefix of ["/_agent-native/mcp", "/mcp"]) {
+      const identity = await app.fetch(request(`${prefix}/connect/identity`));
+      expect(identity.status).toBe(200);
+      expect(await identity.json()).toMatchObject({
+        serverName: expect.stringMatching(/agent-native-mail$/),
+        mcpUrl: "https://mail.example.test/mcp",
+        connect: false,
+      });
+      expect((await app.fetch(request(`${prefix}/connect`))).status).toBe(404);
+    }
+  });
+});
+
+describe("OpenAI plugin domain challenge", () => {
+  const path = "/.well-known/openai-apps-challenge";
+
+  it("returns the configured token as uncached plain text", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("challenge-token");
+  });
+
+  it("does not expose a challenge until a token is configured", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => undefined),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).not.toContain("challenge");
+  });
+
+  it("rejects methods other than GET", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`, { method: "POST" }),
+    );
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
 describe("OAuth popup waiting route", () => {
   it("serves an inert public HTML document with restrictive framing policy", async () => {
     const app = createApp();
@@ -82,6 +165,48 @@ describe("OAuth popup waiting route", () => {
       "unsafe-none",
     );
     expect(await response.text()).not.toContain("script");
+  });
+
+  it("notifies the same-origin opener after a workspace OAuth return", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request(
+        "http://example.test/_agent-native/oauth/popup?complete=workspace-connection",
+      ),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'",
+    );
+    expect(await response.text()).toContain(
+      'postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin)',
+    );
+  });
+
+  it("persists a popup completion before notifying the opener", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+
+    const response = await app.fetch(
+      new Request(
+        `http://example.test/_agent-native/oauth/popup?complete=workspace-connection&resume=${completionId}`,
+      ),
+    );
+    const html = await response.text();
+
+    expect(html).toContain(
+      `localStorage.setItem("agent-native:mcp-connection-completion:${completionId}","1")`,
+    );
+    expect(html).toContain(
+      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin)`,
+    );
+    expect(html.indexOf("localStorage.setItem")).toBeLessThan(
+      html.indexOf("postMessage"),
+    );
   });
 
   it("stays reachable from the framework pages that open it", async () => {
@@ -351,6 +476,12 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
         NETLIFY: "true",
       }),
     ).toBe(false);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "",
+        NETLIFY_FUNCTION_NAME: "docs",
+      }),
+    ).toBe(false);
   });
 
   it("keeps boot database work for local production and development", () => {
@@ -365,6 +496,13 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
       shouldRunCoreRouteBootDatabaseWork({
         NODE_ENV: "development",
         NETLIFY: "true",
+        NETLIFY_DEV: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "development",
+        VERCEL: "1",
       }),
     ).toBe(true);
   });
@@ -814,7 +952,7 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
-  it("preserves the design make-real waitlist use case", () => {
+  it("maps the design make-real waitlist to a supported Design category", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
     );
@@ -829,11 +967,59 @@ describe("buildBuilderWaitlistFormPayload", () => {
       data: {
         email: "reader@example.com",
         source: "design_make_real_dialog",
-        useCase: "design_make_real_waitlist",
+        useCase: "design_publish_app",
       },
       _meta: {
         source: "design_make_real_dialog",
-        useCase: "design_make_real_waitlist",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems page waitlist to a supported Design category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems empty-state waitlist to a supported category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
       },
     });
   });

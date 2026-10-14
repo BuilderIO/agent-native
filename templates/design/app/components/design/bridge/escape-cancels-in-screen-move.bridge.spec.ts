@@ -136,9 +136,26 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
       await page.mouse.down();
       await page.mouse.move(290, 420, { steps: 8 });
       await page.waitForTimeout(30);
-      await page.evaluate(() => {
-        window.postMessage({ type: "agent-native:cancel-active-drag" }, "*");
-      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                (event.data as { type?: string })?.type !==
+                "agent-native:cancel-active-drag"
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              { type: "agent-native:cancel-active-drag" },
+              "*",
+            );
+          }),
+      );
       await page.mouse.up();
       await page.waitForTimeout(30);
 

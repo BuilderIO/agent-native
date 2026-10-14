@@ -15,6 +15,7 @@ import {
   callAction,
   callAgent,
   clearA2ACardCache,
+  signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
 
@@ -760,6 +761,50 @@ describe("A2AClient", () => {
     },
   );
 
+  it("reads a structured agent error code from failed task message metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-coded-failure",
+              status: {
+                state: "failed",
+                message: {
+                  role: "agent",
+                  parts: [
+                    {
+                      type: "text",
+                      text: "The provider connection is missing.",
+                    },
+                  ],
+                  metadata: { agentNativeErrorCode: "missing_credentials" },
+                },
+              },
+              history: [],
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "read the provider data"),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      taskId: "task-coded-failure",
+      state: "failed",
+      errorCode: "missing_credentials",
+      responseText: "The provider connection is missing.",
+    });
+  });
+
   it("rejects completed tasks with neither text nor a verified artifact", async () => {
     vi.stubGlobal(
       "fetch",
@@ -959,12 +1004,10 @@ describe("A2AClient", () => {
     expect(methods).not.toContain("message/send");
   });
 
-  it("sends exact approved actions as top-level authenticated request data", async () => {
+  it("does not forward caller-supplied approvals to the receiver", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
-      expect(body.params.approvedActions).toEqual([
-        { tool: "send-email", input: { to: "alice@example.test" } },
-      ]);
+      expect(body.params).not.toHaveProperty("approvedActions");
       return completedResponse(body, "sent");
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -976,7 +1019,7 @@ describe("A2AClient", () => {
         approvedActions: [
           { tool: "send-email", input: { to: "alice@example.test" } },
         ],
-      },
+      } as any,
     );
   });
 
@@ -1362,7 +1405,7 @@ describe("A2AClient", () => {
     );
   });
 
-  it("retries direct action with the audience-bound token after receiver rejection", async () => {
+  it("uses the audience-bound user token before explicit caller credentials", async () => {
     process.env.A2A_SECRET = "shared-direct-secret";
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const authorization = new Headers(init?.headers).get("authorization");
@@ -1414,7 +1457,7 @@ describe("A2AClient", () => {
     ).resolves.toMatchObject({ status: "completed", output: '{"total":2}' });
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("returns receiver-verified recoverable artifact text when callAgent times out", async () => {
@@ -1481,6 +1524,9 @@ describe("A2AClient", () => {
     await expect(
       callAgent("https://slides.agent.test", "make a deck", {
         timeoutMs: 3,
+        // A 3 ms budget shared with submission can expire before the task
+        // exists, which fails with a request deadline instead of the timeout.
+        submissionTimeoutMs: 1_000,
         pollIntervalMs: 1,
         returnRecoverableArtifactsOnTimeout: false,
       }),
@@ -1589,6 +1635,72 @@ describe("A2AClient", () => {
     ).rejects.toThrow();
   });
 
+  it("mints organization tokens without asserting a user subject", async () => {
+    delete process.env.A2A_SECRET;
+
+    const token = await signA2AOrganizationToken(
+      " Builder.IO ",
+      "org-a2a-secret",
+      "org-1",
+      {
+        audience: "https://peer.example.test",
+        extraClaims: {
+          sub: "victim@example.test",
+          email: "victim@example.test",
+          userEmail: "victim@example.test",
+          org_domain: "victim.example.test",
+          org_id: "org-victim",
+        },
+      },
+    );
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode("org-a2a-secret"),
+    );
+
+    expect(payload).toMatchObject({
+      org_domain: "builder.io",
+      org_id: "org-1",
+      aud: "https://peer.example.test",
+    });
+    expect(payload).not.toHaveProperty("sub");
+    expect(payload).not.toHaveProperty("email");
+    expect(payload).not.toHaveProperty("userEmail");
+  });
+
+  it("signs an organization-id-only token with the shared A2A secret", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+
+    const token = await signA2AOrganizationToken(
+      undefined,
+      "org-a2a-secret",
+      "org-1",
+      {
+        audience: "https://peer.example.test",
+        preferGlobalSecret: false,
+        extraClaims: {
+          sub: "victim@example.test",
+          org_domain: "victim.example.test",
+          org_id: "org-victim",
+        },
+      },
+    );
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode("global-a2a-secret"),
+    );
+
+    expect(payload).toMatchObject({
+      org_id: "org-1",
+      aud: "https://peer.example.test",
+    });
+    expect(payload).not.toHaveProperty("org_domain");
+    expect(payload).not.toHaveProperty("sub");
+    await expect(
+      jose.jwtVerify(token, new TextEncoder().encode("org-a2a-secret")),
+    ).rejects.toThrow();
+  });
+
   it("auto-signs delegated calls with the shared secret before an org secret", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     let bearerToken = "";
@@ -1682,12 +1794,14 @@ describe("A2AClient", () => {
         bearerTokens[1],
         new TextEncoder().encode("org-a2a-secret"),
       ),
-    ).resolves.toMatchObject({
-      payload: {
-        sub: "alice+qa@agent-native.test",
-        org_domain: "builder.io",
-      },
-    });
+    ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    await expect(
+      jose.jwtVerify(
+        bearerTokens[1],
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
+    expect(jose.decodeJwt(bearerTokens[1])).not.toHaveProperty("sub");
   });
 
   it("tries explicit bearer token fallbacks in order", async () => {
@@ -1750,11 +1864,14 @@ describe("A2AClient", () => {
           return workingResponse(body, "task-auth-fallback");
         }
 
-        const verifiedByOrgSecret = await jose
+        const verifiedOrgPrincipal = await jose
           .jwtVerify(token, new TextEncoder().encode("org-a2a-secret"))
-          .then(() => true)
+          .then(
+            ({ payload }) =>
+              payload.sub === undefined && payload.org_domain === "builder.io",
+          )
           .catch(() => false);
-        if (!verifiedByOrgSecret) {
+        if (!verifiedOrgPrincipal) {
           return new Response("Invalid or expired A2A token", { status: 401 });
         }
         return completedResponse(body, "polled with fallback org secret");
@@ -1764,6 +1881,7 @@ describe("A2AClient", () => {
     await expect(
       callAgent("https://agent.test", "hello", {
         userEmail: "alice+qa@agent-native.test",
+        orgId: "sender-org-row",
         orgDomain: "builder.io",
         orgSecret: "org-a2a-secret",
         timeoutMs: 25,
@@ -1797,12 +1915,41 @@ describe("A2AClient", () => {
         calls[2]!.token,
         new TextEncoder().encode("org-a2a-secret"),
       ),
-    ).resolves.toMatchObject({
-      payload: {
-        sub: "alice+qa@agent-native.test",
-        org_domain: "builder.io",
-      },
-    });
+    ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    await expect(
+      jose.jwtVerify(
+        calls[2]!.token,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
+    expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("sub");
+    expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("org_id");
+  });
+
+  it("does not sign an unscoped peer token when an org ID has no domain", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    const authorizationHeaders: Array<string | null> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        authorizationHeaders.push(
+          new Headers(init?.headers).get("authorization"),
+        );
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        return completedResponse(JSON.parse(String(init.body)), "unscoped");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice@example.test",
+        orgId: "sender-org-row",
+      }),
+    ).resolves.toBe("unscoped");
+    expect(authorizationHeaders.filter(Boolean)).toEqual([]);
   });
 
   it("retries direct client requests with configured fallback bearer tokens", async () => {

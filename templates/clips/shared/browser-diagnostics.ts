@@ -8,6 +8,9 @@ export const MAX_BROWSER_DIAGNOSTIC_TIMELINE_EVENTS =
 export const MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH = 2_000;
 export const MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH = 200;
 export const MAX_BROWSER_DIAGNOSTIC_URL_LENGTH = 1_000;
+// Console and network entries from up to this long before a recording started
+// carry negative elapsedMs. Anything further back is dropped by the extension.
+export const BROWSER_DIAGNOSTIC_LOOKBACK_MS = 30_000;
 
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
@@ -81,6 +84,7 @@ export interface BrowserDiagnosticConsoleLog {
   level: BrowserDiagnosticConsoleLevel;
   message: string;
   stack?: string;
+  tabId?: number;
 }
 
 export interface BrowserDiagnosticNetworkRequest {
@@ -94,6 +98,7 @@ export interface BrowserDiagnosticNetworkRequest {
   ok?: boolean;
   durationMs: number;
   error?: string;
+  tabId?: number;
 }
 
 export type BrowserDiagnosticInteractionKind =
@@ -211,6 +216,7 @@ export function normalizeBrowserDiagnosticConsoleLog(
     level,
     message,
     ...(stack ? { stack } : {}),
+    ...(typeof entry.tabId === "number" ? { tabId: entry.tabId } : {}),
   };
 }
 
@@ -247,6 +253,7 @@ export function normalizeBrowserDiagnosticNetworkRequest(
     ...(typeof entry.ok === "boolean" ? { ok: entry.ok } : {}),
     durationMs,
     ...(error ? { error } : {}),
+    ...(typeof entry.tabId === "number" ? { tabId: entry.tabId } : {}),
   };
 }
 

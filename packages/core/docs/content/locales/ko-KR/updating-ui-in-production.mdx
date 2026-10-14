@@ -15,13 +15,13 @@ description: "배포된 앱의 UI가 출시 후 어떻게 업데이트되는지,
 
 ## Builder.io: 프로덕션에서의 시각적 편집 {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 에이전트가 프로덕션에서 앱의 UI를 수정할 수 있는, 코드 작업이 가능한 별도의 관리형 워크플로입니다. 저장소를 Builder.io에 연결하고(무료 등급 제공) UI 변경을 직접 프롬프트로 요청하세요. 재배포가 필요하지 않습니다.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 에이전트가 프로덕션에서 앱의 UI를 수정할 수 있는, 코드 작업이 가능한 별도의 관리형 워크플로입니다. 저장소와 함께 Builder.io를 사용하고(무료 등급 제공) UI 변경을 직접 프롬프트로 요청하세요. 재배포가 필요하지 않습니다.
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+설정의 **Builder.io를 사용하세요** 작업은 동일 출처 HTTPS 콜백 `/_agent-native/builder/callback`을 통해 Builder OAuth (`builder:ai:invoke`)를 시작합니다. 따라서 Railway와 같은 호스팅 도메인도 허용 목록 없이 사용할 수 있습니다. 기존 연결에서는 이전 `BUILDER_*` 비공개 키가 런타임 대체 경로로 계속 사용됩니다.
 
 **작동 방식:**
 
-1. agent-native 저장소를 Builder.io에 연결하세요(무료 등급 제공)
+1. agent-native 저장소와 함께 Builder.io를 사용하세요(무료 등급 제공)
 2. Builder.io는 에이전트, 시각적 편집, 실시간 협업이 포함된 클라우드 프레임을 제공합니다
 3. 에이전트에게 UI 변경을 프롬프트하세요. 컴포넌트, 라우트, 스타일을 실시간으로 편집합니다
 4. 변경 사항은 저장소에 다시 커밋됩니다

@@ -176,6 +176,17 @@ export function dictationsRefetchInterval(isActive: boolean): number | false {
   return isActive ? 2_000 : false;
 }
 
+export function withoutDictation<
+  T extends { dictations: Dictation[] } | Dictation[] | undefined,
+>(data: T, id: string): T {
+  if (!data) return data;
+  if (Array.isArray(data)) return data.filter((d) => d.id !== id) as T;
+  return {
+    ...data,
+    dictations: data.dictations?.filter((d) => d.id !== id),
+  } as T;
+}
+
 async function copyToClipboard(
   text: string,
   copiedMessage: string,
@@ -492,8 +503,15 @@ function DictationCard({
     deleteDictation.mutate(
       { id: dictation.id },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
           setDeleteOpen(false);
+          // An in-flight poll would otherwise land after this and put the
+          // deleted row back until the next refetch.
+          await qc.cancelQueries({ queryKey: ["action", "list-dictations"] });
+          qc.setQueriesData<{ dictations: Dictation[] } | Dictation[]>(
+            { queryKey: ["action", "list-dictations"] },
+            (data) => withoutDictation(data, dictation.id),
+          );
           toast.success(t("dictateRoute.deleted"));
           void qc.invalidateQueries({
             queryKey: ["action", "list-dictations"],

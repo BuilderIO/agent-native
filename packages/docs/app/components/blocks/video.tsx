@@ -1,5 +1,5 @@
-import { defineBlock } from "@agent-native/core/blocks";
-import type { BlockReadProps } from "@agent-native/core/blocks";
+import { defineBlock } from "@agent-native/toolkit/app/blocks";
+import type { BlockReadProps } from "@agent-native/toolkit/app/blocks";
 import { useRef } from "react";
 
 import { usePrefersReducedMotion } from "../use-prefers-reduced-motion";

@@ -288,6 +288,7 @@ export const MentionPopover = forwardRef<
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
         data-agent-native-composer-popover="true"
+        data-agent-native-mention-popover="true"
         className="fixed z-[9999] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 shadow-2xl"
         style={{
           bottom: `calc(100vh - ${position.top}px + ${COMPOSER_POPOVER_GAP}px)`,
@@ -301,7 +302,10 @@ export const MentionPopover = forwardRef<
             ),
           ),
           width: Math.min(position.width ?? 640, window.innerWidth - 32),
-          maxHeight: Math.max(0, Math.min(440, position.top - 16)),
+          maxHeight: Math.max(
+            0,
+            Math.min(440, position.top - COMPOSER_POPOVER_GAP - 16),
+          ),
         }}
       >
         {isLoading && itemCount === 0 ? (
@@ -385,7 +389,10 @@ export const MentionPopover = forwardRef<
                                   {item.label}
                                 </span>
                                 {item.description && (
-                                  <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
+                                  <span
+                                    data-mention-description
+                                    className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground"
+                                  >
                                     {item.description}
                                   </span>
                                 )}
@@ -427,7 +434,10 @@ export const MentionPopover = forwardRef<
                                   /{cmd.name}
                                 </span>
                                 {cmd.description && (
-                                  <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                  <span
+                                    data-mention-description
+                                    className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                  >
                                     {cmd.description}
                                   </span>
                                 )}
@@ -468,7 +478,10 @@ export const MentionPopover = forwardRef<
                                       {skill.name}
                                     </span>
                                     {skill.description && (
-                                      <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                      <span
+                                        data-mention-description
+                                        className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                      >
                                         {skill.description}
                                       </span>
                                     )}

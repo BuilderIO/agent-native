@@ -7,14 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDesktopChatRelayFetch } from "../lib/desktop-chat-relay.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatMemoryRouter: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
-  preloadAgentChatSurface: vi.fn(() => Promise.resolve()),
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+}));
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
+  preloadAgentChatSurface: vi.fn(() => Promise.resolve()),
 }));
 
 const APP_URLS: Record<string, string> = {

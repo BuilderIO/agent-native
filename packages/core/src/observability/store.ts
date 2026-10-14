@@ -10,9 +10,11 @@ import { defineStore } from "../db/store-registry.js";
 import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
+  TOOL_ERROR_DETAIL_METADATA_KEY,
 } from "./trace-error.js";
 import { redactSensitiveFields } from "./trace-redaction.js";
 import type {
+  SpanErrorDetail,
   TraceSpan,
   TraceSummary,
   FeedbackEntry,
@@ -119,12 +121,23 @@ const USER_SCOPED_TABLES = [
   "agent_evals",
   "agent_feedback",
   "agent_instruction_updates",
+  "agent_eval_datasets",
 ] as const;
 
 const MAX_REVIEW_THREAD_BYTES = 1_000_000;
 const MAX_REVIEW_FEEDBACK_THREAD_SCOPES = 600;
+const MAX_OBSERVABILITY_LIST_PAGE_SIZE = 100;
 export const MAX_REVIEW_TOOL_SPANS = 20;
 const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
+
+function boundedListLimit(requested?: number): number {
+  return Number.isFinite(requested)
+    ? Math.min(
+        MAX_OBSERVABILITY_LIST_PAGE_SIZE,
+        Math.max(1, Math.floor(requested!)),
+      )
+    : MAX_OBSERVABILITY_LIST_PAGE_SIZE;
+}
 
 function withUserFilter(
   baseWhere: string,
@@ -170,7 +183,8 @@ export const observabilityStore = defineStore({
           status TEXT NOT NULL DEFAULT 'success',
           error_message TEXT,
           metadata TEXT,
-          created_at BIGINT NOT NULL
+          created_at BIGINT NOT NULL,
+          ended_at BIGINT
         )
       `;
 
@@ -275,7 +289,9 @@ export const observabilityStore = defineStore({
           description TEXT NOT NULL DEFAULT '',
           entries TEXT NOT NULL DEFAULT '[]',
           created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
+          updated_at BIGINT NOT NULL,
+          user_id TEXT,
+          idempotency_key TEXT
         )
       `;
 
@@ -352,6 +368,11 @@ export const observabilityStore = defineStore({
           "owner_email",
           `ALTER TABLE agent_experiments ADD COLUMN IF NOT EXISTS owner_email TEXT`,
         );
+        await ensureColumnExists(
+          "agent_trace_spans",
+          "ended_at",
+          `ALTER TABLE agent_trace_spans ADD COLUMN IF NOT EXISTS ended_at BIGINT`,
+        );
         for (const table of USER_SCOPED_TABLES) {
           await ensureColumnExists(
             table,
@@ -380,6 +401,11 @@ export const observabilityStore = defineStore({
           "agent_feedback",
           "idempotency_key",
           `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_eval_datasets",
+          "idempotency_key",
+          `ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
         );
         await ensureIndexExists(
           "idx_trace_spans_run",
@@ -470,6 +496,10 @@ export const observabilityStore = defineStore({
           `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
         );
         await ensureIndexExists(
+          "idx_eval_datasets_idempotency",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)`,
+        );
+        await ensureIndexExists(
           "idx_experiment_results_exp",
           `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
         );
@@ -489,8 +519,8 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
     sql: `INSERT INTO agent_trace_spans
       (id, run_id, thread_id, user_id, org_id, parent_span_id, span_type, name,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       cost_cents_x100, duration_ms, status, error_message, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       cost_cents_x100, duration_ms, status, error_message, metadata, created_at, ended_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       span.id,
       span.runId,
@@ -510,6 +540,7 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
       span.errorMessage,
       span.metadata ? JSON.stringify(span.metadata) : null,
       span.createdAt,
+      span.endedAt ?? span.createdAt + span.durationMs,
     ],
   });
 }
@@ -857,6 +888,66 @@ export async function getTraceSummary(
   });
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
+}
+
+/**
+ * A thread created on a path with no request org keeps `org_id` NULL, and every
+ * review read requires `thread.org_id` to equal the trace's org, so its runs
+ * never reach Human Review. The run that executed under an org is the proof of
+ * which org the thread belongs to: adopt it, for the thread's own owner only
+ * and only while `org_id` is NULL.
+ *
+ * A private thread's `org_id` grants nothing but that review access (owner
+ * access ignores it, shares do not read it, and `visibility = 'org'` is the only
+ * way it scopes sharing), while `thread_data` holds every run's conversation. So
+ * a private thread whose owner's runs span more than one org belongs to none of
+ * them: the second statement unassigns it. Org-visible threads keep their
+ * `org_id`, which is an explicit sharing scope.
+ *
+ * Both statements run after this run's own summary is committed
+ * (`upsertTraceSummary` is awaited first), so of two concurrent runs under
+ * different orgs the one whose statements run later always sees the other's
+ * committed org. If this run's adopt raced ahead of the other run's summary, the
+ * other run's unassign undoes it, or, when that ran before this adopt
+ * committed, this run's own unassign does, since it starts after the adopt.
+ * No lock is needed.
+ *
+ * The multi-org signal is derived from `agent_trace_summaries`, so it is only
+ * as durable as those rows: retention purges them, and a run that never wrote a
+ * summary is invisible to it. A thread unassigned for spanning orgs can
+ * therefore be re-adopted once the other org's summaries age out.
+ */
+export async function adoptTraceOrgForThread(
+  summary: Pick<TraceSummary, "threadId" | "userId" | "orgId">,
+): Promise<void> {
+  if (!summary.orgId || !summary.threadId || !summary.userId) return;
+  const client = getDbExec();
+  // The subqueries only run for a thread owned by the caller (the other
+  // predicates short-circuit first) and probe
+  // idx_trace_summaries_thread_user_created by thread_id.
+  await client.execute({
+    sql: `UPDATE chat_threads SET org_id = ?
+      WHERE id = ? AND org_id IS NULL AND LOWER(owner_email) = LOWER(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> ?
+        )`,
+    args: [summary.orgId, summary.threadId, summary.userId, summary.orgId],
+  });
+  await client.execute({
+    sql: `UPDATE chat_threads SET org_id = NULL
+      WHERE id = ? AND org_id IS NOT NULL AND visibility = 'private'
+        AND LOWER(owner_email) = LOWER(?)
+        AND EXISTS (
+          SELECT 1 FROM agent_trace_summaries other
+          WHERE other.thread_id = chat_threads.id
+            AND LOWER(other.user_id) = LOWER(chat_threads.owner_email)
+            AND other.org_id IS NOT NULL AND other.org_id <> chat_threads.org_id
+        )`,
+    args: [summary.threadId, summary.userId],
+  });
 }
 
 export async function getOrgScopedThreadData(
@@ -1592,8 +1683,8 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_eval_datasets
-      (id, name, description, entries, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, name, description, entries, created_at, updated_at, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     args: [
       dataset.id,
       dataset.name,
@@ -1601,17 +1692,47 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
       JSON.stringify(dataset.entries),
       dataset.createdAt,
       dataset.updatedAt,
+      dataset.userId ?? null,
     ],
   });
 }
 
-export async function listEvalDatasets(): Promise<EvalDataset[]> {
+export async function listEvalDatasetsPage(
+  options: {
+    limit?: number;
+    before?: { updatedAt: number; id: string };
+  } = {},
+): Promise<EvalDataset[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { rows } = await client.execute(
-    `SELECT * FROM agent_eval_datasets ORDER BY updated_at DESC`,
-  );
+  const args: unknown[] = [];
+  const cursor = options.before;
+  const where = cursor
+    ? "WHERE updated_at < ? OR (updated_at = ? AND id < ?)"
+    : "";
+  if (cursor) args.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+  const limit = boundedListLimit(options.limit);
+  const { rows } = await client.execute({
+    sql: `SELECT id, name, description, entries, created_at, updated_at,
+        user_id, idempotency_key
+      FROM agent_eval_datasets ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit],
+  });
   return (rows as any[]).map(rowToDataset);
+}
+
+export async function listEvalDatasets(): Promise<EvalDataset[]> {
+  const datasets: EvalDataset[] = [];
+  let before: { updatedAt: number; id: string } | undefined;
+  while (true) {
+    const page = await listEvalDatasetsPage({ limit: 100, before });
+    datasets.push(...page);
+    if (page.length < 100) return datasets;
+    const last = page.at(-1)!;
+    before = { updatedAt: last.updatedAt, id: last.id };
+  }
 }
 
 export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
@@ -1623,6 +1744,157 @@ export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
   });
   if (rows.length === 0) return null;
   return rowToDataset(rows[0] as any);
+}
+
+export async function getEvalDatasetByName(
+  name: string,
+  opts: { userId?: string } = {},
+): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { where, args } = withUserFilter("name = ?", [name], opts.userId);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets WHERE ${where} ORDER BY updated_at DESC LIMIT 1`,
+    args,
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+const PROMOTED_DATASET_OWNER =
+  "(user_id = ? OR (? IS NULL AND user_id IS NULL))";
+
+async function selectPromotedEvalDatasetByKey(
+  idempotencyKey: string,
+  userId: string | null,
+): Promise<EvalDataset | null> {
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE idempotency_key = ?
+        AND ${PROMOTED_DATASET_OWNER}
+      LIMIT 1`,
+    args: [idempotencyKey, userId, userId],
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+/**
+ * The dataset already stored for this owner and source run, if any.
+ * A legacy row (same description, no key) is claimed in place so a concurrent
+ * insert cannot create a second promotion.
+ */
+export async function findPromotedEvalDataset(args: {
+  idempotencyKey: string;
+  description: string;
+  userId: string | null;
+}): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE ${PROMOTED_DATASET_OWNER}
+        AND (
+          idempotency_key = ?
+          OR (idempotency_key IS NULL AND description = ?)
+        )
+      ORDER BY CASE WHEN idempotency_key = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [
+      args.userId,
+      args.userId,
+      args.idempotencyKey,
+      args.description,
+      args.idempotencyKey,
+    ],
+  });
+  if (rows.length === 0) return null;
+  const dataset = rowToDataset(rows[0] as any);
+  if (dataset.idempotencyKey === args.idempotencyKey) return dataset;
+
+  try {
+    const updated = await client.execute({
+      sql: `UPDATE agent_eval_datasets
+        SET idempotency_key = ?
+        WHERE id = ?
+          AND idempotency_key IS NULL
+          AND description = ?
+          AND ${PROMOTED_DATASET_OWNER}`,
+      args: [
+        args.idempotencyKey,
+        dataset.id,
+        args.description,
+        args.userId,
+        args.userId,
+      ],
+    });
+    if (Number(updated.rowsAffected) > 0) {
+      return { ...dataset, idempotencyKey: args.idempotencyKey };
+    }
+  } catch (err) {
+    const winner = await selectPromotedEvalDatasetByKey(
+      args.idempotencyKey,
+      args.userId,
+    );
+    if (winner) return winner;
+    throw err;
+  }
+
+  const winner = await selectPromotedEvalDatasetByKey(
+    args.idempotencyKey,
+    args.userId,
+  );
+  return winner ?? dataset;
+}
+
+/**
+ * Insert a promoted dataset, or return the row that already owns its
+ * idempotency key. Concurrent promotions of the same run cannot both insert.
+ */
+export async function savePromotedEvalDataset(
+  dataset: EvalDataset,
+): Promise<EvalDataset> {
+  const idempotencyKey = dataset.idempotencyKey;
+  if (!idempotencyKey) {
+    await insertEvalDataset(dataset);
+    return dataset;
+  }
+  const userId = dataset.userId ?? null;
+  const existing = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (existing) return existing;
+
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_eval_datasets
+      (id, name, description, entries, created_at, updated_at, user_id, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (idempotency_key) DO NOTHING`,
+    args: [
+      dataset.id,
+      dataset.name,
+      dataset.description,
+      JSON.stringify(dataset.entries),
+      dataset.createdAt,
+      dataset.updatedAt,
+      userId,
+      idempotencyKey,
+    ],
+  });
+  if (Number(inserted.rowsAffected) > 0) return dataset;
+
+  const raced = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (raced) return raced;
+  throw new Error("Failed to save promoted eval dataset");
 }
 
 export async function updateEvalDataset(
@@ -1719,13 +1991,76 @@ export async function updateExperiment(
   });
 }
 
-export async function listExperiments(): Promise<Experiment[]> {
+export async function listExperimentsPageResult(
+  options: {
+    status?: Experiment["status"];
+    limit?: number;
+    before?: { createdAt: number; id: string };
+  } = {},
+): Promise<{
+  items: Experiment[];
+  nextCursor: { createdAt: number; id: string } | null;
+  hasMore: boolean;
+}> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { rows } = await client.execute(
-    `SELECT * FROM agent_experiments ORDER BY created_at DESC`,
-  );
-  return (rows as any[]).map(rowToExperiment);
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (options.status) {
+    conditions.push("status = ?");
+    args.push(options.status);
+  }
+  if (options.before) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    args.push(
+      options.before.createdAt,
+      options.before.createdAt,
+      options.before.id,
+    );
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = boundedListLimit(options.limit);
+  const { rows } = await client.execute({
+    sql: `SELECT id, name, status, variants, metrics, assignment_level,
+        started_at, ended_at, created_at, owner_email
+      FROM agent_experiments ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit + 1],
+  });
+  const experiments = (rows as any[]).map(rowToExperiment);
+  const hasMore = experiments.length > limit;
+  const items = experiments.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    hasMore,
+    nextCursor:
+      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+  };
+}
+
+export async function listExperimentsPage(
+  options: {
+    status?: Experiment["status"];
+    limit?: number;
+    before?: { createdAt: number; id: string };
+  } = {},
+): Promise<Experiment[]> {
+  return (await listExperimentsPageResult(options)).items;
+}
+
+export async function listExperiments(): Promise<Experiment[]> {
+  const experiments: Experiment[] = [];
+  let before: { createdAt: number; id: string } | undefined;
+  while (true) {
+    const page = await listExperimentsPage({ limit: 100, before });
+    experiments.push(...page);
+    if (page.length < 100) return experiments;
+    const last = page.at(-1)!;
+    before = { createdAt: last.createdAt, id: last.id };
+  }
 }
 
 export async function getExperiment(id: string): Promise<Experiment | null> {
@@ -1891,20 +2226,43 @@ export async function getObservabilityOverview(
   };
 }
 
+function toolErrorDetail(
+  metadata: Record<string, unknown> | null,
+  hasText: boolean,
+): SpanErrorDetail {
+  const stamped = metadata?.[TOOL_ERROR_DETAIL_METADATA_KEY];
+  if (stamped === "full" || stamped === "signature") return stamped;
+  if (metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1) return "full";
+  return hasText ? "withheld" : "unrecorded";
+}
+
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
   const storedMetadata = safeJsonParse<Record<string, unknown> | null>(
     row.metadata,
     null,
   );
   const metadata = storedMetadata ? { ...storedMetadata } : null;
-  const hasCapturedToolError =
-    metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1;
+  const errorMessage = row.error_message ? String(row.error_message) : null;
+  const errorDetail =
+    row.span_type === "tool_call" && row.status === "error"
+      ? toolErrorDetail(metadata, errorMessage !== null)
+      : undefined;
   if (metadata && metadata.input !== undefined) {
     metadata.input = redactSensitiveFields(metadata.input);
   }
-  if (metadata) delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
-  const errorMessage = row.error_message ? String(row.error_message) : null;
+  if (metadata) {
+    delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
+    delete metadata[TOOL_ERROR_DETAIL_METADATA_KEY];
+  }
+  // Tool text written before the redaction contract is not returned; its
+  // `errorDetail` says so.
+  const exposesErrorText =
+    row.span_type !== "tool_call" ||
+    errorDetail === "full" ||
+    errorDetail === "signature";
 
+  const createdAt = Number(row.created_at);
+  const durationMs = Number(row.duration_ms ?? 0);
   return {
     id: String(row.id),
     runId: String(row.run_id),
@@ -1919,16 +2277,17 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     cacheReadTokens: Number(row.cache_read_tokens ?? 0),
     cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
     costCentsX100: Number(row.cost_cents_x100 ?? 0),
-    durationMs: Number(row.duration_ms ?? 0),
+    durationMs,
     status: row.status as TraceSpan["status"],
     errorMessage:
-      row.span_type === "tool_call" && !hasCapturedToolError
-        ? null
-        : errorMessage
-          ? sanitizeToolErrorMessage(errorMessage)
-          : null,
+      errorMessage && exposesErrorText
+        ? sanitizeToolErrorMessage(errorMessage)
+        : null,
+    ...(errorDetail ? { errorDetail } : {}),
     metadata,
-    createdAt: Number(row.created_at),
+    createdAt,
+    endedAt:
+      row.ended_at == null ? createdAt + durationMs : Number(row.ended_at),
   };
 }
 
@@ -2035,6 +2394,8 @@ function rowToDataset(row: Record<string, any>): EvalDataset {
     entries: safeJsonParse(row.entries, []),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    userId: row.user_id ? String(row.user_id) : null,
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
   };
 }
 

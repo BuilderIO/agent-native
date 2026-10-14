@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { gmailCooldownFromError } from "@shared/gmail-freshness";
 import type { ManagedGmailFilter } from "@shared/types";
 import {
   IconArchive,
@@ -542,11 +543,7 @@ function FilterRow({
   );
 }
 
-export function GmailFiltersSection({
-  embedded = false,
-}: {
-  embedded?: boolean;
-}) {
+export function GmailFiltersSection() {
   const t = useT();
   const { data, isLoading, error } = useGmailFilters();
   const createFilter = useCreateGmailFilter();
@@ -578,23 +575,9 @@ export function GmailFiltersSection({
 
   return (
     <div>
-      {embedded ? (
-        <div className="mb-4 flex justify-end">{newFilterButton}</div>
-      ) : (
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-[16px] font-semibold text-foreground">
-              {t("mail.gmailFilters.title")}
-            </h2>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">
-              {t("mail.gmailFilters.description")}
-            </p>
-          </div>
-          {newFilterButton}
-        </div>
-      )}
+      <div className="mb-4 flex justify-end">{newFilterButton}</div>
 
-      <div className={embedded ? "space-y-2" : "max-w-2xl space-y-2"}>
+      <div className="space-y-2">
         {showNewForm && (
           <FilterEditRow
             accounts={accounts}
@@ -625,7 +608,9 @@ export function GmailFiltersSection({
 
         {error && !isLoading && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
-            {(error as Error).message}
+            {gmailCooldownFromError(error, Date.now())
+              ? t("mail.error.rateLimitDescription")
+              : (error as Error).message}
           </div>
         )}
 

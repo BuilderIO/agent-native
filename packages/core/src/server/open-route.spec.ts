@@ -176,7 +176,10 @@ describe("createOpenRouteHandler", () => {
 
   it("a forged/unknown `_session` value grants nothing: still unauthenticated with no app-state write", async () => {
     getSession.mockResolvedValue(null);
-    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    getConfiguredLoginHtml.mockReturnValue({
+      html: "<html>login</html>",
+      status: 200,
+    });
     const handler = createOpenRouteHandler();
 
     const res: Response = await handler(
@@ -192,7 +195,10 @@ describe("createOpenRouteHandler", () => {
 
   it("unauthenticated returns the configured login HTML with status 200 and no app-state write", async () => {
     getSession.mockResolvedValue(null);
-    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    getConfiguredLoginHtml.mockReturnValue({
+      html: "<html>login</html>",
+      status: 200,
+    });
     const handler = createOpenRouteHandler();
 
     const res: Response = await handler(
@@ -205,9 +211,29 @@ describe("createOpenRouteHandler", () => {
     expect(appStatePut).not.toHaveBeenCalled();
   });
 
+  it("passes through the setup page's 503 while sign-in cannot work", async () => {
+    getSession.mockResolvedValue(null);
+    getConfiguredLoginHtml.mockReturnValue({
+      html: "<html>setup</html>",
+      status: 503,
+    });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?view=inbox"),
+    );
+
+    expect(res.status).toBe(503);
+    expect(await res.text()).toBe("<html>setup</html>");
+    expect(appStatePut).not.toHaveBeenCalled();
+  });
+
   it("unauthenticated may redirect to an app-allowed public open target without app-state writes", async () => {
     getSession.mockResolvedValue(null);
-    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    getConfiguredLoginHtml.mockReturnValue({
+      html: "<html>login</html>",
+      status: 200,
+    });
     const handler = createOpenRouteHandler({
       allowUnauthenticatedOpen: ({ target }) =>
         target.split(/[?#]/, 1)[0]?.startsWith("/design/") ?? false,
@@ -228,7 +254,10 @@ describe("createOpenRouteHandler", () => {
 
   it("unauthenticated still gets login HTML when the app does not allow the resolved open target", async () => {
     getSession.mockResolvedValue(null);
-    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    getConfiguredLoginHtml.mockReturnValue({
+      html: "<html>login</html>",
+      status: 200,
+    });
     const handler = createOpenRouteHandler({
       allowUnauthenticatedOpen: ({ target }) =>
         target.split(/[?#]/, 1)[0]?.startsWith("/design/") ?? false,

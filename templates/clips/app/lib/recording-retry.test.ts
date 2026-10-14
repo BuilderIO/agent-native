@@ -12,11 +12,16 @@ vi.mock("./recording-backup", async (importOriginal) => {
 });
 
 import {
+  claimRecordingBackupLock,
   deleteRecordingBackup,
   getRecordingBackupChunks,
   getRecordingBackupMeta,
 } from "./recording-backup";
-import { retryRecordingUploadFromBackup } from "./recording-retry";
+import {
+  LocalCopyInUseError,
+  retryRecordingUploadFromBackup,
+} from "./recording-retry";
+import { FakeLockManager } from "./testing/fake-lock-manager";
 
 const savedAt = new Date().toISOString();
 const meta = {
@@ -58,11 +63,29 @@ function retryClaimResponse(url: string): Response {
   );
 }
 
+/** Resume, reset, then every chunk answers with `final` on the last one. */
+function serverAnswering(final: Record<string, unknown>) {
+  return vi.fn(async (input: string | URL) => {
+    const url = input.toString();
+    if (url.includes("/resume?")) return retryClaimResponse(url);
+    if (url.endsWith("/reset-chunks")) {
+      return new Response(JSON.stringify({ uploadGenerationId: "reset-gen" }), {
+        status: 200,
+      });
+    }
+    return new Response(
+      JSON.stringify(url.includes("isFinal=1") ? final : {}),
+      { status: 200 },
+    );
+  });
+}
+
 describe("retryRecordingUploadFromBackup", () => {
   beforeEach(() => {
     vi.stubGlobal("window", {
       location: { pathname: "/" },
     });
+    vi.stubGlobal("navigator", { locks: new FakeLockManager() });
   });
 
   afterEach(() => {
@@ -79,7 +102,7 @@ describe("retryRecordingUploadFromBackup", () => {
     );
   });
 
-  it("resets, replays chunks in order, and deletes the backup once ready", async () => {
+  it("resets, replays chunks in order, and deletes the backup once proven", async () => {
     vi.mocked(getRecordingBackupMeta).mockResolvedValue(meta);
     vi.mocked(getRecordingBackupChunks).mockResolvedValue([
       backupChunk(0, "a"),
@@ -107,7 +130,16 @@ describe("retryRecordingUploadFromBackup", () => {
         }
         const isFinal = url.includes("isFinal=1");
         return new Response(
-          JSON.stringify(isFinal ? { status: "ready", videoUrl: "u" } : {}),
+          JSON.stringify(
+            isFinal
+              ? {
+                  status: "ready",
+                  videoUrl: "u",
+                  sourceSizeBytes: 2,
+                  durationMs: 5_000,
+                }
+              : {},
+          ),
           { status: 200 },
         );
       }),
@@ -137,6 +169,67 @@ describe("retryRecordingUploadFromBackup", () => {
     expect(requests[2]?.body).toBe("ab");
     expect(result).toEqual({ status: "ready", videoUrl: "u" });
     expect(deleteRecordingBackup).toHaveBeenCalledWith("rec-1");
+  });
+
+  it("keeps the local backup on a bare ready the server never proved", async () => {
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue(meta);
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+      backupChunk(1, "b"),
+    ]);
+    vi.stubGlobal("fetch", serverAnswering({ status: "ready" }));
+
+    const result = await retryRecordingUploadFromBackup("rec-1");
+
+    expect(result.status).toBe("ready");
+    expect(deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("keeps the local backup when the server received fewer bytes", async () => {
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue(meta);
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+      backupChunk(1, "b"),
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      serverAnswering({ status: "ready", sourceSizeBytes: 1 }),
+    );
+
+    await retryRecordingUploadFromBackup("rec-1");
+
+    expect(deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("never replays or deletes a copy another tab is using", async () => {
+    await claimRecordingBackupLock("rec-1");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(retryRecordingUploadFromBackup("rec-1")).rejects.toThrow(
+      LocalCopyInUseError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("uploads without Web Locks but keeps the copy", async () => {
+    vi.stubGlobal("navigator", {});
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue(meta);
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+      backupChunk(1, "b"),
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      serverAnswering({ status: "ready", sourceSizeBytes: 2 }),
+    );
+
+    await expect(retryRecordingUploadFromBackup("rec-1")).resolves.toEqual({
+      status: "ready",
+      videoUrl: null,
+    });
+    expect(deleteRecordingBackup).not.toHaveBeenCalled();
   });
 
   it("keeps the local backup when the retry lands in processing/verification", async () => {
@@ -187,6 +280,25 @@ describe("retryRecordingUploadFromBackup", () => {
       /backup is incomplete/,
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a copy whose end never arrived to the recovery prompt", async () => {
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue({
+      ...meta,
+      incomplete: true,
+    });
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+      backupChunk(1, "b"),
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(retryRecordingUploadFromBackup("rec-1")).rejects.toThrow(
+      /backup is incomplete/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deleteRecordingBackup).not.toHaveBeenCalled();
   });
 
   it("rejects a non-contiguous backup before resetting the server", async () => {

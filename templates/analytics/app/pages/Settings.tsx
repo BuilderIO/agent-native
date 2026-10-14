@@ -1,13 +1,16 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrg } from "@agent-native/core/client/org";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
+import {
+  createCreativeContextAgentTab,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -16,13 +19,7 @@ import {
   useAgentSettingsTabs,
   type SettingsAppArea,
   type SettingsTabItem,
-} from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
-import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import {
-  createCreativeContextAgentTab,
-  useCreativeContextLab,
-} from "@agent-native/creative-context/client";
+} from "@agent-native/toolkit/app/settings";
 import { IconActivity, IconBell, IconDatabase } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -36,15 +33,13 @@ import {
   ANALYTICS_USER_PREFS_KEY,
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../shared/labs";
 import { AnalyticsReviewArtifactPreview } from "../components/AnalyticsReviewArtifactPreview";
-import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
-import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
 import {
   ALERTS_KEYWORDS,
   ANALYTICS_SETTINGS_AREAS,
   buildAnalyticsDataSourcesSearchEntries,
-  buildAnalyticsGeneralSettingsSearchEntries,
   buildAnalyticsNotificationsSearchEntries,
 } from "./settings/settings-search";
 
@@ -109,9 +104,7 @@ function CredentialsRow() {
 
 export default function Settings() {
   const t = useT();
-  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
   const creativeContextEnabled = useCreativeContextLab();
-  const replayStorageStatus = useReplayStorageStatus();
   const preferences = useNotificationPreferences();
   const {
     data: activeOrg,
@@ -157,10 +150,7 @@ export default function Settings() {
     () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
     [creativeContextEnabled],
   );
-  // The redesigned Settings has no Agent overview; the bell sound is on the
-  // Notifications page there.
   const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalContent: redesign ? undefined : bellSoundRow,
     agentAdditionalTabFactories,
   });
   const observabilityBasePath = buildSettingsRoute("observability");
@@ -210,30 +200,16 @@ export default function Settings() {
         displayName: t("creativeContext.share.title"),
         description: t("creativeContext.description"),
       },
+      {
+        ...ANALYTICS_SESSIONS_TRIAGE_LAB,
+        displayName: t("sessions.labName"),
+        description: t("sessions.labDescription"),
+      },
     ],
     [t],
   );
 
-  const legacyTabs = useMemo<SettingsTabItem[]>(
-    () => [
-      {
-        id: ANALYTICS_SETTINGS_AREAS.alerts,
-        label: t("settings.alertsTitle"),
-        icon: IconBell,
-        keywords: ALERTS_KEYWORDS,
-        content: (
-          <div className="w-full">
-            <AlertRulesSettingsCard />
-          </div>
-        ),
-      },
-      ...agentSettingsTabs,
-      ...observabilityTabs,
-    ],
-    [agentSettingsTabs, observabilityTabs, t],
-  );
-
-  const redesignTabs = useMemo<SettingsTabItem[]>(
+  const settingsTabs = useMemo<SettingsTabItem[]>(
     () => [...agentSettingsTabs, ...observabilityTabs],
     [agentSettingsTabs, observabilityTabs],
   );
@@ -245,7 +221,7 @@ export default function Settings() {
         label: t("settings.alertsTitle"),
         icon: IconBell,
         keywords: ALERTS_KEYWORDS,
-        content: <AlertRulesSettingsCard embedded />,
+        content: <AlertRulesSettingsCard />,
       },
       {
         id: ANALYTICS_SETTINGS_AREAS.dataSources,
@@ -263,86 +239,32 @@ export default function Settings() {
     [t],
   );
 
-  const generalSearchEntries = useMemo(
-    () =>
-      buildAnalyticsGeneralSettingsSearchEntries(
-        t,
-        !!replayStorageStatus.data?.configured,
-      ),
-    [replayStorageStatus.data?.configured, t],
-  );
   const notificationsSearchEntries = useMemo(
     () => buildAnalyticsNotificationsSearchEntries(t),
     [t],
   );
 
-  const whatsNew = (
-    <div className="w-full">
-      <ChangelogSettingsCard markdown={changelog} />
-    </div>
-  );
-
-  if (redesign) {
-    // Language is on Account › Preferences, and replay storage is the
-    // workspace's file storage on Organization › Infrastructure.
-    return (
-      <SettingsTabsPage
-        account={<AccountSettingsCard />}
-        whatsNewLabel={t("root.whatsNew")}
-        extraTabs={redesignTabs}
-        appAreas={appAreas}
-        notifications={
-          <div className="flex flex-col gap-8">
-            <SettingsGroup title={t("settings.notificationsEmailGroup")}>
-              {errorEmailRow}
-            </SettingsGroup>
-            <SettingsGroup title={t("settings.notificationsSoundGroup")}>
-              {bellSoundRow}
-            </SettingsGroup>
-          </div>
-        }
-        notificationsSearchEntries={notificationsSearchEntries}
-        labs={labs}
-        whatsNew={whatsNew}
-      />
-    );
-  }
-
+  // Language is on Account › Preferences, and replay storage is the
+  // workspace's file storage on Organization › Infrastructure.
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       whatsNewLabel={t("root.whatsNew")}
-      extraTabs={legacyTabs}
-      labs={labs}
-      generalSearchEntries={generalSearchEntries}
-      general={
-        <div className="w-full space-y-6">
-          <SettingsGroup className="bg-card border-border/50">
-            <CredentialsRow />
-            <SettingsRow
-              id="language"
-              label={t("settings.languageTitle")}
-              control={
-                <div className="w-56">
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </div>
-              }
-            />
+      extraTabs={settingsTabs}
+      appAreas={appAreas}
+      notifications={
+        <div className="flex flex-col gap-8">
+          <SettingsGroup title={t("settings.notificationsEmailGroup")}>
             {errorEmailRow}
           </SettingsGroup>
-
-          {replayStorageStatus.data?.configured ? (
-            <SettingsGroup
-              id="replay-storage"
-              title={t("sessions.storageSetupTitle")}
-              description={t("sessions.storageSetupDescription")}
-            >
-              <ReplayStorageHint embedded />
-            </SettingsGroup>
-          ) : null}
+          <SettingsGroup title={t("settings.notificationsSoundGroup")}>
+            {bellSoundRow}
+          </SettingsGroup>
         </div>
       }
-      whatsNew={whatsNew}
+      notificationsSearchEntries={notificationsSearchEntries}
+      labs={labs}
+      whatsNewMarkdown={changelog}
     />
   );
 }

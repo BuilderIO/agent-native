@@ -7,7 +7,10 @@ import {
   DESIGN_SAVE_OUTBOX_RETENTION_MS,
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
+  isRejectedRestoreClaimError,
   journalDesignSaveOutboxEntry,
+  reconcileRejectedRestoreClaimOutboxEntry,
+  reconcileRejectedRestoreClaimOutboxEntryResult,
   type DesignSaveOutboxEntry,
   type DesignSaveOutboxStorage,
 } from "./design-save-outbox";
@@ -92,6 +95,200 @@ function deferred<T>() {
 }
 
 describe("design save outbox", () => {
+  it("recognizes deterministic restore authorization failures", () => {
+    expect(
+      isRejectedRestoreClaimError({
+        statusCode: 403,
+        errorCode: "localhost_connection_scope_mismatch",
+      }),
+    ).toBe(true);
+    expect(
+      isRejectedRestoreClaimError({
+        status: 503,
+        errorCode: "temporary_failure",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["localhost_connection_scope_mismatch", "screen_restore_claim_used"])(
+    "removes only the rejected restore assignment and preserves other writes (%s)",
+    async (errorCode) => {
+      const storage = new MemoryOutboxStorage();
+      const entry = createDesignSaveOutboxEntry({
+        designId: "design-1",
+        actorScope: "user-1",
+        actionName: "update-design",
+        resourceId: "design-1",
+        operationSource: "editor-session-1",
+        operationRevision: 1,
+        payload: {
+          id: "design-1",
+          operationSource: "editor-session-1",
+          operationRevision: 1,
+          restoreClaims: [
+            {
+              claimId: "claim-1",
+              sourceFileId: "deleted-screen",
+              targetFileId: "restored-screen",
+            },
+            {
+              claimId: "claim-2",
+              sourceFileId: "deleted-screen-2",
+              targetFileId: "restored-screen-2",
+            },
+          ],
+          dataOperations: [
+            {
+              op: "set",
+              path: ["screenMetadata", "restored-screen"],
+              value: { connectionId: "foreign-connection", title: "Restored" },
+            },
+            {
+              op: "set",
+              path: ["screenMetadata", "restored-screen-2"],
+              value: { connectionId: "valid-connection", title: "Restored 2" },
+            },
+            {
+              op: "set",
+              path: ["canvasFrames", "restored-screen"],
+              value: { x: 20, y: 30, width: 300, height: 500 },
+            },
+          ],
+        },
+      });
+      const error = Object.assign(new Error("connection scope mismatch"), {
+        statusCode: 403,
+        errorCode,
+        details: { restoreTargetFileIds: ["restored-screen"] },
+      });
+      await journalDesignSaveOutboxEntry(entry, storage);
+
+      const firstDrain = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockRejectedValue(error),
+        storage,
+      });
+
+      expect(firstDrain.rebased).toEqual([{ entry, error }]);
+      expect(firstDrain.failed).toEqual([]);
+      const [reconciled] = await storage.list("design-1", "user-1");
+      expect(reconciled?.payload.restoreClaims).toEqual([
+        {
+          claimId: "claim-2",
+          sourceFileId: "deleted-screen-2",
+          targetFileId: "restored-screen-2",
+        },
+      ]);
+      expect(reconciled?.payload.dataOperations).toEqual([
+        {
+          op: "set",
+          path: ["screenMetadata", "restored-screen"],
+          value: { title: "Restored" },
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", "restored-screen-2"],
+          value: { connectionId: "valid-connection", title: "Restored 2" },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", "restored-screen"],
+          value: { x: 20, y: 30, width: 300, height: 500 },
+        },
+      ]);
+      expect(
+        reconcileRejectedRestoreClaimOutboxEntryResult(entry, [
+          "restored-screen",
+        ]),
+      ).toMatchObject({
+        kind: "updated",
+        entry: { payload: reconciled?.payload },
+      });
+      expect(
+        reconcileRejectedRestoreClaimOutboxEntry(entry, ["restored-screen"])
+          ?.payload,
+      ).toEqual(reconciled?.payload);
+
+      const retry = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockResolvedValue({ updated: true }),
+        storage,
+      });
+      expect(retry.saved).toEqual([reconciled]);
+      expect(await storage.list("design-1", "user-1")).toEqual([]);
+    },
+  );
+
+  it("acknowledges a rejected restore when reconciliation removes the last operation", async () => {
+    const storage = new MemoryOutboxStorage();
+    const entry = createDesignSaveOutboxEntry({
+      designId: "design-1",
+      actorScope: "user-1",
+      actionName: "update-design",
+      resourceId: "design-1",
+      operationSource: "editor-session-1",
+      operationRevision: 1,
+      payload: {
+        id: "design-1",
+        operationSource: "editor-session-1",
+        operationRevision: 1,
+        restoreClaims: [
+          {
+            claimId: "claim-1",
+            sourceFileId: "deleted-screen",
+            targetFileId: "restored-screen",
+          },
+        ],
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-screen"],
+            value: { connectionId: "foreign-connection" },
+          },
+        ],
+      },
+    });
+    const error = Object.assign(new Error("connection scope mismatch"), {
+      statusCode: 403,
+      errorCode: "localhost_connection_scope_mismatch",
+      details: { restoreTargetFileIds: ["restored-screen"] },
+    });
+    await journalDesignSaveOutboxEntry(entry, storage);
+
+    expect(
+      reconcileRejectedRestoreClaimOutboxEntryResult(entry, [
+        "restored-screen",
+      ]),
+    ).toEqual({ kind: "empty" });
+    expect(
+      reconcileRejectedRestoreClaimOutboxEntry(entry, ["restored-screen"]),
+    ).toBeNull();
+
+    const invokeAction = vi.fn().mockRejectedValue(error);
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+    });
+
+    expect(result.rebased).toEqual([{ entry, error }]);
+    expect(result.failed).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledTimes(1);
+
+    const retryAction = vi.fn();
+    await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: retryAction,
+      storage,
+    });
+    expect(retryAction).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, null, false, {}, { ok: true }, { updated: false }])(
     "retains the queued edit when a save has no persistence acknowledgement: %j",
     async (actionResult) => {

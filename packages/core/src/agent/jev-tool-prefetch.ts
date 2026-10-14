@@ -2,10 +2,14 @@ import {
   getBuilderProxyOrigin,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import {
+  loadOptionalPeer,
+  OptionalPeerDependencyError,
+} from "../shared/optional-peer.js";
 import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-headers.js";
 import type { EngineTool } from "./engine/types.js";
 import type { ActionEntry, JevContextCredentials } from "./production-agent.js";
-import { searchToolRegistry, TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
+import { TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
 import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
@@ -13,6 +17,7 @@ import type {
 } from "./types.js";
 
 const MAX_JEV_CANDIDATES = 128;
+const MAX_JEV_CANDIDATE_DESCRIPTION_CHARS = 140;
 const DEFAULT_PREFETCH_LIMIT = 3;
 const MAX_PREFETCH_LIMIT = 5;
 export const JEV_TIMEOUT_MS = 750;
@@ -56,7 +61,11 @@ export interface JevRankCandidatesOptions {
 }
 
 export interface JevCandidateRanking {
-  status: "selected" | "no-match" | "unavailable";
+  /**
+   * `unavailable` means there was nothing to rank against (no key, no
+   * candidates); `failed` and `timed_out` mean a ranking was attempted and lost.
+   */
+  status: "selected" | "no-match" | "unavailable" | "failed" | "timed_out";
   ids: string[];
 }
 
@@ -182,11 +191,15 @@ export async function rankJevCandidatesWithStatus(
   if (
     !request ||
     (!apiKey && !builderAuth) ||
-    options.candidates.length === 0 ||
+    options.candidates.length === 0
+  ) {
+    return { status: "unavailable", ids: [] };
+  }
+  if (
     options.signal?.aborted ||
     (options.timeoutMs !== undefined && options.timeoutMs <= 0)
   ) {
-    return { status: "unavailable", ids: [] };
+    return { status: "timed_out", ids: [] };
   }
 
   const candidates = shortlistJevCandidates(request, options.candidates);
@@ -251,7 +264,7 @@ export async function rankJevCandidatesWithStatus(
       noMatchProbability < 0 ||
       noMatchProbability > 1
     ) {
-      return { status: "unavailable", ids: [] };
+      return { status: "failed", ids: [] };
     }
     for (const candidate of candidates) {
       const probability = probabilities[candidate.id];
@@ -262,7 +275,7 @@ export async function rankJevCandidatesWithStatus(
           probability < 0 ||
           probability > 1)
       ) {
-        return { status: "unavailable", ids: [] };
+        return { status: "failed", ids: [] };
       }
     }
     const ids = candidates
@@ -284,12 +297,26 @@ export async function rankJevCandidatesWithStatus(
       ? { status: "selected", ids }
       : { status: "no-match", ids: [] };
   } catch (error) {
+    if (error instanceof OptionalPeerDependencyError) throw error;
     console.warn(
       "[agent] Jev context prefetch unavailable; continuing with the existing context.",
       error instanceof Error ? error.message : "unknown error",
     );
-    return { status: "unavailable", ids: [] };
+    return {
+      status: isJevTimeout(error, options.signal) ? "timed_out" : "failed",
+      ids: [],
+    };
   }
+}
+
+function isJevTimeout(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.name === "TimeoutError" ||
+      /\btime(?:d)?[ -]?out\b/i.test(error.message))
+  );
 }
 
 export function shortlistJevCandidates<T extends JevCandidate>(
@@ -345,37 +372,27 @@ export async function preloadJevTools(
   }
 
   const activeNames = new Set(options.initialTools.map((tool) => tool.name));
-  const availableByName = new Map(
-    options.availableTools.map((tool) => [tool.name, tool]),
-  );
-  const menu = searchToolRegistry(options.registry, {
-    readOnlyOnly: options.readOnlyOnly,
-  });
-  const eligible = menu.results.filter(
-    (result) =>
-      result.name !== TOOL_SEARCH_ACTION_NAME &&
-      !activeNames.has(result.name) &&
-      availableByName.has(result.name) &&
-      (!options.readOnlyOnly || result.callable),
-  );
-
-  let candidates = eligible;
-  if (candidates.length > MAX_JEV_CANDIDATES) {
-    // ponytail: cap Jev's choice catalog at 128; larger registries use a lexical shortlist until chunked selection exists.
-    const lexical = searchToolRegistry(
-      options.registry,
+  const candidates = options.availableTools.flatMap((tool) => {
+    const entry = options.registry[tool.name];
+    if (
+      tool.name === TOOL_SEARCH_ACTION_NAME ||
+      activeNames.has(tool.name) ||
+      !entry?.tool ||
+      (options.readOnlyOnly && entry.allowInPlanMode === false)
+    ) {
+      return [];
+    }
+    return [
       {
-        query: request,
-        limit: MAX_JEV_CANDIDATES,
-        readOnlyOnly: options.readOnlyOnly,
+        id: tool.name,
+        description: compactJevText(
+          entry.tool.description || tool.description || tool.name,
+          MAX_JEV_CANDIDATE_DESCRIPTION_CHARS,
+        ),
+        metadata: { kind: "tool" },
       },
-      { defaultLimit: MAX_JEV_CANDIDATES, maxLimit: MAX_JEV_CANDIDATES },
-    );
-    const eligibleNames = new Set(eligible.map((result) => result.name));
-    candidates = lexical.results.filter((result) =>
-      eligibleNames.has(result.name),
-    );
-  }
+    ];
+  });
   if (candidates.length === 0) return options.initialTools;
 
   const prefetchLimit = Math.max(
@@ -396,11 +413,7 @@ export async function preloadJevTools(
       request,
       apiKey,
       personalApiKey: options.personalApiKey,
-      candidates: candidates.map((candidate) => ({
-        id: candidate.name,
-        description: candidate.description,
-        metadata: { kind: "tool" },
-      })),
+      candidates,
       candidateStateKey: "candidate_tools",
       answerKey: "best_tool",
       builderAuth,
@@ -477,7 +490,10 @@ async function requestJevDirect(
   options: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<JevResponse> {
   options.signal?.throwIfAborted();
-  const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");
+  const { choice, TypeSafeClient } = await loadOptionalPeer(
+    "@typesafe-ai/sdk",
+    () => import("@typesafe-ai/sdk"),
+  );
   options.signal?.throwIfAborted();
   const client = new TypeSafeClient({
     apiKey,

@@ -28,7 +28,17 @@ vi.mock(
 );
 
 vi.mock("../server/lib/design-versions.js", () => ({
+  cleanupPreparedDesignVersionCheckpoint: vi.fn(),
+  persistPreparedDesignVersionCheckpoint: vi.fn(),
+  prepareDesignVersionBeforeAgentEditInVersionLock: vi.fn(async () => null),
   snapshotDesignBeforeAgentEditInVersionLock: vi.fn(),
+  withPreparedDesignVersionSourceFiles: async (
+    _designId: string,
+    work: (prepared: {
+      fileIds: string[];
+      leases: Map<string, unknown>;
+    }) => Promise<unknown>,
+  ) => work({ fileIds: [], leases: new Map() }),
   withDesignVersionLock: async (
     _designId: string,
     callback: () => Promise<unknown>,
@@ -41,6 +51,16 @@ vi.mock("../server/source-workspace.js", () => ({
     `agent-native:design-source:${designId}`,
   lockDesignFilesTable: vi.fn(),
   lockDesignSourceMutation: vi.fn(),
+  withDesignSourceMutationTransaction: async (
+    _designId: string,
+    callback: (transaction: unknown) => Promise<unknown>,
+    outcome?: { callbackCompleted: boolean; rollbackConfirmed: boolean },
+  ) =>
+    mocks.db.transaction(async (transaction: unknown) => {
+      const result = await callback(transaction);
+      if (outcome) outcome.callbackCompleted = true;
+      return result;
+    }),
 }));
 
 import action from "./delete-file.js";

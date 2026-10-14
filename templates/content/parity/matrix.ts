@@ -101,6 +101,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
       "actions/rollback-created-slash-document.test.ts",
     ],
@@ -141,6 +142,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/list-content-trash.db.test.ts",
       "actions/content-trash-purge.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
     ],
@@ -263,13 +265,15 @@ export const parityMatrix: ParityRow[] = [
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
+      "record-editor-mount",
+      "record-live-body-parity",
       "seed-document-collab",
       "set-image-alt-text",
       "transcribe-media",
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup and live collaboration seeding are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding, editor mount counts, and the flag-gated live-body parity count are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -278,8 +282,67 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/record-editor-mount.test.ts",
+      "app/components/editor/editor-mount-telemetry.test.ts",
+      "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.private-image-icons",
+    surface: "editor",
+    label:
+      "Reuse private uploaded image icons on pages, properties, and callouts",
+    uiEntrypoints: [
+      "app/components/editor/EmojiPicker.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/icons/private-icon-assets.ts",
+    ],
+    durableEffect:
+      "Private image assets stay outside SQL; authorized element references store asset IDs and are checked against the current page or property before serving the image.",
+    uiImplementation:
+      "The icon picker reads owned assets through list-private-icon-assets; page and property actions validate assignments, and callouts authorize private asset references through register-private-callout-icon before editing the live body.",
+    status: "action-backed",
+    actions: ["list-private-icon-assets", "register-private-callout-icon"],
+    exception:
+      "Uploading an image and serving its binary bytes use file-upload and non-JSON routes; durable assignment uses the shared actions.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "server/lib/private-icon-references.db.test.ts",
+      "app/components/icons/private-icon-assets.test.ts",
+    ],
+  },
+  {
+    id: "editor.breadcrumbs-and-link-targets",
+    surface: "editor",
+    label:
+      "Show page breadcrumbs and peer menus, and resolve page-link blocks and local-source reference previews",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/editor/ContentReferencePreview.tsx",
+      "app/hooks/use-content-links.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Breadcrumbs read the bounded active-item navigation context and load peer menus from the Files navigation page when opened; page-link blocks and reference previews resolve only their own targets instead of listing the workspace.",
+    status: "action-backed",
+    actions: ["resolve-content-links"],
+    exception:
+      "resolve-content-links is hidden with agentTool: false because it only resolves link targets for rendering; agents read linked pages with get-document and search-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-links.db.test.ts",
+      "app/hooks/use-content-links.test.ts",
+      "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
   },
   {
     id: "editor.suggested-edits",
@@ -391,6 +454,28 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["actions/_local-file-documents.test.ts"],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "header.import-markdown-files",
+    surface: "header",
+    label: "Import Markdown files as pages and undo the import",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/VisualEditor.tsx",
+      "app/components/editor/ContentImportDialog.tsx",
+    ],
+    durableEffect:
+      "Imported pages with an import History entry, provenance, and the original file; undo moves unedited imports to Trash.",
+    uiImplementation:
+      "The page menu and a dropped .md file open one dialog that previews with dryRun, applies, and offers Undo through the import actions.",
+    status: "action-backed",
+    actions: ["import-content", "undo-content-import"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/import-content.db.test.ts"],
   },
   {
     id: "sharing.os-reveal-local-source",
@@ -514,6 +599,7 @@ export const parityMatrix: ParityRow[] = [
       "duplicate-database-items",
       "duplicate-database-item",
       "update-database-items",
+      "patch-database-items",
       "migrate-content-database-rows",
       "manage-content-database-migration",
       "move-database-item",
@@ -527,11 +613,15 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
       "actions/upsert-database-item-by-key.db.test.ts",
+      "actions/patch-database-items.db.test.ts",
       "actions/migrate-content-database-rows.db.test.ts",
       "actions/content-database-block-actions.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
-    evalScenarioIds: ["database-bulk-row-reliability"],
+    evalScenarioIds: [
+      "database-bulk-row-reliability",
+      "database-distinct-row-patches",
+    ],
   },
   {
     id: "database.private-preview-drafts",
@@ -581,6 +671,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-personal-view",
       "list-document-properties",
       "reorder-document-property",
+      "search-content-database-rows",
       "set-document-property",
       "update-content-database-personal-view",
       "update-content-database-view",

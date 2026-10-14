@@ -4,6 +4,7 @@ import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
+  resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
   resourceDelete,
@@ -20,6 +21,7 @@ import {
   isReasoningEffort,
   REASONING_EFFORTS,
 } from "../shared/reasoning-effort.js";
+import { RESUME_AUTOMATION_PATCH } from "./automation-outcome.js";
 import {
   isValidCron,
   nextOccurrence,
@@ -213,7 +215,21 @@ async function runCreate(
   };
 
   const content = buildJobContent(meta, instructions);
-  await resourcePut(owner, path, content);
+  const created = await resourcePutIfAbsent(owner, path, content);
+  if (!created) {
+    const existing = await resourceGetByPath(owner, path);
+    if (!existing) {
+      return JSON.stringify({
+        error: `Job "${name}" was not created: the write was not applied.`,
+      });
+    }
+    return JSON.stringify({
+      error:
+        classifyJobResource(existing.content).kind === "automation"
+          ? `"${name}" already exists and is an automation. Use manage-automations to change it.`
+          : `Job "${name}" already exists. Use manage-jobs with action 'update' to change it, or pick a different name.`,
+    });
+  }
 
   return JSON.stringify({
     created: true,
@@ -264,6 +280,9 @@ async function runList(
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
         lastError: meta.lastError || null,
+        lastErrorCode: meta.lastErrorCode || null,
+        pausedReason: meta.pausedReason || null,
+        pausedAt: meta.pausedAt || null,
         nextRun: meta.nextRun || null,
         originScopeId: meta.originScopeId || null,
         deliveryPlatform: meta.deliveryPlatform || null,
@@ -364,6 +383,13 @@ async function runUpdate(
   if (enabled !== undefined) {
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
+    if (
+      meta.enabled &&
+      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+    ) {
+      // Enabling lifts a framework pause and starts a clean failure streak.
+      Object.assign(fields, RESUME_AUTOMATION_PATCH);
+    }
   }
 
   if (runAs === "creator" || runAs === "shared") {
@@ -491,7 +517,7 @@ export function createJobTools(appId?: string): Record<string, ActionEntry> {
         description: `Manage recurring jobs that run on a cron schedule.
 
 Actions:
-- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour.
+- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour. Fails if a job with that name already exists; use "update" to change an existing job.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.

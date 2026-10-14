@@ -386,6 +386,11 @@ pub async fn set_feature_config(
         crate::util::reapply_capture_exclusion_to_overlays(&app);
     }
     crate::clips::reconcile_region_guides(&app);
+    if previous.meetings_enabled != config.meetings_enabled {
+        if let Some(state) = app.try_state::<crate::meetings_watcher::MeetingsWatcherState>() {
+            state.invalidate_cache();
+        }
+    }
     if previous.whisper_model_enabled != config.whisper_model_enabled {
         let _ = app.emit(
             "whisper:model-enabled-changed",

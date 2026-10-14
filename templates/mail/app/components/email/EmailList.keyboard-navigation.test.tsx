@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   headerActions: null as unknown,
   priorityRequest: vi.fn(),
   priorityFeedback: vi.fn(),
+  confirmUncertainScheduled: vi.fn(),
+  retryUncertainScheduled: vi.fn(),
   automations: [] as unknown[],
   queryClient: {
     getQueryData: vi.fn(),
@@ -107,6 +109,35 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+vi.mock("@/components/ui/alert-dialog", async () => {
+  const React = await import("react");
+  const PassThrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, children);
+  return {
+    AlertDialog: ({
+      open,
+      children,
+    }: {
+      open: boolean;
+      children?: React.ReactNode;
+    }) =>
+      open ? React.createElement("div", { role: "dialog" }, children) : null,
+    AlertDialogAction: ({
+      children,
+      onClick,
+    }: {
+      children?: React.ReactNode;
+      onClick?: () => void;
+    }) => React.createElement("button", { onClick }, children),
+    AlertDialogCancel: PassThrough,
+    AlertDialogContent: PassThrough,
+    AlertDialogDescription: PassThrough,
+    AlertDialogFooter: PassThrough,
+    AlertDialogHeader: PassThrough,
+    AlertDialogTitle: PassThrough,
+  };
+});
+
 vi.mock("@/components/ui/dropdown-menu", async () => {
   const React = await import("react");
   const PassThrough = ({ children }: { children?: React.ReactNode }) =>
@@ -187,6 +218,10 @@ vi.mock("@/hooks/use-emails", () => {
 vi.mock("@/hooks/use-scheduled-jobs", () => ({
   useDeleteScheduledJob: () => ({ mutate: vi.fn() }),
   useSendScheduledJobNow: () => ({ mutate: vi.fn() }),
+  useConfirmUncertainScheduledEmail: () => ({ mutate: vi.fn() }),
+  useRetryUncertainScheduledEmail: () => ({
+    mutate: mocks.retryUncertainScheduled,
+  }),
 }));
 
 vi.mock("@/hooks/use-undo", () => ({
@@ -223,7 +258,9 @@ function Harness({
   emails = messages,
   onCompose,
   accountErrors,
+  read,
   emailsError,
+  isLoading,
   isFetching,
   refetchEmails,
   hasNextPage,
@@ -237,7 +274,9 @@ function Harness({
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  read?: React.ComponentProps<typeof EmailList>["read"];
   emailsError?: React.ComponentProps<typeof EmailList>["emailsError"];
+  isLoading?: boolean;
   isFetching?: boolean;
   refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
@@ -256,7 +295,7 @@ function Harness({
       <output aria-label="Focused id">{focusedId}</output>
       <EmailList
         emails={emails}
-        isLoading={false}
+        isLoading={isLoading ?? false}
         isFetching={isFetching}
         emailsError={emailsError}
         focusedId={focusedId}
@@ -266,6 +305,7 @@ function Harness({
         onCompose={onCompose}
         refetchEmails={refetchEmails}
         accountErrors={accountErrors}
+        read={read}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
@@ -359,6 +399,8 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.priorityFeedback
       .mockReset()
       .mockResolvedValue({ totalVotes: 1, recentVotes: [] });
+    mocks.confirmUncertainScheduled.mockReset();
+    mocks.retryUncertainScheduled.mockReset();
   });
 
   afterEach(() => {
@@ -388,6 +430,115 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(refetchEmails).not.toHaveBeenCalled();
     expect(retryButton.disabled).toBe(false);
     fireEvent.click(retryButton);
+    expect(refetchEmails).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the rows and shows a non-blocking notice while Gmail cools down", async () => {
+    vi.useFakeTimers();
+    mocks.view = "inbox";
+    const refetchEmails = vi.fn();
+    const cooldownUntil = Date.now() + 20_000;
+
+    render(
+      <Harness
+        read={{
+          freshness: "cached",
+          staleSince: Date.now() - 60_000,
+          cooldownUntil,
+          retryAfterMs: 20_000,
+        }}
+        refetchEmails={refetchEmails}
+      />,
+    );
+
+    expect(rows().length).toBeGreaterThan(0);
+    const notice = screen
+      .getByText("mail.error.rateLimitDescription")
+      .closest('[role="status"]');
+    expect(notice?.textContent).toContain("mail.error.tryAgainIn");
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgainIn" }),
+    ).toBeNull();
+
+    // Nothing is requested while Gmail is cooling down...
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(19_000);
+    });
+    expect(refetchEmails).not.toHaveBeenCalled();
+    // ...and one live read is requested once the named cooldown ends.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(refetchEmails).toHaveBeenCalledOnce();
+  });
+
+  it("shows no notice for live rows", () => {
+    mocks.view = "inbox";
+
+    render(<Harness read={{ freshness: "live" }} />);
+
+    expect(screen.queryByText("mail.error.rateLimitDescription")).toBeNull();
+    expect(rows().length).toBeGreaterThan(0);
+  });
+
+  it("requires duplicate-risk confirmation before retrying an uncertain scheduled email", () => {
+    mocks.view = "scheduled";
+    const uncertainEmail = {
+      ...messages[0],
+      id: "scheduled-job-1",
+      threadId: "scheduled-job-1",
+      scheduledJobStatus: "uncertain" as const,
+    };
+    render(<Harness emails={[uncertainEmail]} />);
+
+    const row = screen.getByRole("row");
+    fireEvent.click(
+      within(row).getByRole("button", {
+        name: "mail.sendLater.sendNewCopy",
+      }),
+    );
+
+    const confirmation = screen.getByRole("dialog");
+    expect(confirmation.textContent).toContain(
+      "mail.sendLater.confirmSendNewCopyDescription",
+    );
+    expect(mocks.retryUncertainScheduled).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(confirmation).getByRole("button", {
+        name: "mail.sendLater.sendNewCopy",
+      }),
+    );
+    expect(mocks.retryUncertainScheduled).toHaveBeenCalledWith(
+      { id: "job-1" },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("shows a retry state for a gateway timeout even while the list is loading", () => {
+    mocks.view = "inbox";
+    const refetchEmails = vi.fn();
+    const error = Object.assign(new Error("Gateway timeout"), { status: 504 });
+
+    render(
+      <Harness
+        emails={[]}
+        isLoading
+        emailsError={error}
+        refetchEmails={refetchEmails}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.loadTitle")).toBeTruthy();
+    expect(screen.getByText("Gateway timeout")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeTruthy();
+    expect(document.querySelector(".animate-pulse")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
     expect(refetchEmails).toHaveBeenCalledOnce();
   });
 

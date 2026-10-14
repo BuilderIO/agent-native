@@ -7,8 +7,10 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
 import {
   canUseLocalWorkspaceResourcePath,
   deleteLocalWorkspaceResource,
@@ -33,6 +35,8 @@ import {
   putSetting,
   type StoreWriteOptions,
 } from "../settings/store.js";
+import { isPersistableAttachmentUrl } from "../shared/attachments.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
@@ -62,6 +66,28 @@ export function organizationIdFromResourceOwner(owner: string): string | null {
 export function sharedResourceOwner(orgId?: string | null): string {
   const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
   return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
+}
+
+export function isBinaryResourceMimeType(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+  return !(normalized.startsWith("text/") || normalized === "application/json");
+}
+
+export function packScopeFromOwner(
+  owner: string,
+  userEmail: string,
+): "personal" | "organization" | "workspace" {
+  if (owner === userEmail) return "personal";
+  if (isWorkspaceResourceOwner(owner)) return "workspace";
+  return "organization";
+}
+
+export function ownerForPackTarget(
+  target: "personal" | "organization",
+  userEmail: string,
+  orgId?: string | null,
+): string {
+  return target === "personal" ? userEmail : sharedResourceOwner(orgId);
 }
 
 export function workspaceResourceOwner(orgId?: string | null): string {
@@ -307,6 +333,7 @@ export interface ResourceConditionalWrite {
   expectedUpdatedAt: number;
   expectedContent: string;
   mimeType?: string;
+  metadata?: ResourceWriteOptions["metadata"];
 }
 
 export interface ResourceSnapshotWrite {
@@ -326,8 +353,26 @@ export interface ResourceSnapshotWriteResult {
   resource: Resource;
 }
 
+function assertResourcePayloadIsSqlSafe(
+  content: string,
+  mimeType?: string,
+  metadata?: ResourceWriteOptions["metadata"],
+): void {
+  assertNoInlineImageBytes({ content, metadata }, "resource");
+  if (
+    mimeType?.toLowerCase().startsWith("image/") &&
+    !isPersistableAttachmentUrl(content)
+  ) {
+    assertNoInlineImageBytes(
+      { type: "image", mimeType, data: content },
+      "resource content",
+    );
+  }
+}
+
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
+  limit?: number;
   workspaceAppId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
@@ -446,6 +491,41 @@ Keep one memory per logical topic. Descriptions should be concise — the index 
 `;
 
 const DEFAULT_SKILL_LEARN_SHARED_MD = `---
+name: learn-shared
+description: >-
+  Review and update shared LEARNINGS.md with explicitly approved organization-wide
+  preferences, corrections, and patterns from this session.
+user-invocable: true
+---
+
+# Learn (Shared)
+
+Review the current conversation for findings that are useful across the organization. Keep setup-specific findings in personal memory or the current analysis. Before writing a finding to shared \`LEARNINGS.md\` or organization memory, confirm that the user intends it to be shared unless they directly requested that shared write. A generic request to remember something does not authorize sharing it.
+
+## What to capture
+
+- **Team conventions** — agreed-upon approaches, code style decisions
+- **Technical learnings** — API quirks, library gotchas, surprising behavior
+- **Architectural decisions** — why something is done a certain way
+- **Corrections** — mistakes that any team member's agent should avoid
+
+## What NOT to capture
+
+- Personal preferences (use \`/learn\` for those)
+- Things obvious from reading the code
+- Standard language/framework behavior
+
+## Steps
+
+1. Read shared learnings with the \`resources\` tool: \`action: "read"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`
+2. Review the conversation for team-relevant insights
+3. Merge approved shared learnings with existing ones — don't duplicate, refine existing entries
+4. Write back with the \`resources\` tool only after the user has approved the shared write: \`action: "write"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`, \`content: "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
+`;
+
+const PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD = `---
 name: learn-shared
 description: >-
   Update the shared LEARNINGS.md with team-wide preferences, corrections, and
@@ -590,6 +670,33 @@ async function migrateDefaultResourcePath({
   } catch {
     // Best-effort compatibility migration; seeding below still works if it fails.
   }
+}
+
+async function migrateDefaultResourceContent({
+  client,
+  owner,
+  resourcePath,
+  previousContent,
+  content,
+}: {
+  client: DbExec;
+  owner: string;
+  resourcePath: string;
+  previousContent: string;
+  content: string;
+}): Promise<void> {
+  assertResourcePayloadIsSqlSafe(content, "text/markdown");
+  await client.execute({
+    sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
+    args: [
+      content,
+      Buffer.byteLength(content, "utf8"),
+      Date.now(),
+      owner,
+      resourcePath,
+      previousContent,
+    ],
+  });
 }
 
 function normalizeCreatedBy(value: unknown): ResourceCreatedBy {
@@ -817,12 +924,14 @@ async function localWorkspaceResourceByPath(
 
 async function localWorkspaceResourceMetas(
   pathPrefix?: string,
+  limit?: number,
 ): Promise<ResourceMeta[]> {
-  const resources = (await listLocalWorkspaceResources()).map(
-    localWorkspaceResourceToMeta,
-  );
-  if (!pathPrefix) return resources;
-  return resources.filter((resource) => resource.path.startsWith(pathPrefix));
+  return (
+    await listLocalWorkspaceResources({
+      ...(limit === undefined ? {} : { maxResults: limit }),
+      ...(pathPrefix === undefined ? {} : { pathPrefix }),
+    })
+  ).map(localWorkspaceResourceToMeta);
 }
 
 export async function canWriteLocalWorkspaceResourcePath(
@@ -868,6 +977,15 @@ function mergeResourceMetas(
   return merged;
 }
 
+function limitResourceMetas(
+  resources: ResourceMeta[],
+  limit?: number,
+): ResourceMeta[] {
+  return limit === undefined
+    ? resources
+    : resources.slice(0, Math.max(0, Math.floor(limit)));
+}
+
 async function selectGrantedWorkspaceResourceRows(
   input: {
     resourceId?: string;
@@ -877,7 +995,7 @@ async function selectGrantedWorkspaceResourceRows(
     userEmail?: string | null;
     orgId?: string | null;
   },
-  options: { includeContent?: boolean } = {},
+  options: { includeContent?: boolean; limit?: number } = {},
 ): Promise<any[]> {
   const appId = currentWorkspaceAppId(input.workspaceAppId);
   const { userEmail, orgId } = requestScopedResourceIdentity(input);
@@ -916,10 +1034,11 @@ async function selectGrantedWorkspaceResourceRows(
     options.includeContent === false
       ? `${"octet_length(wr.content)"} AS content_size`
       : "wr.content";
+  const limited = options.limit !== undefined;
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `
-      SELECT
+      SELECT ${limited ? "DISTINCT ON (wr.path)" : ""}
         wr.id,
         wr.kind,
         wr.name,
@@ -933,14 +1052,16 @@ async function selectGrantedWorkspaceResourceRows(
       FROM workspace_resources wr
       INNER JOIN workspace_resource_grants wg ON wg.resource_id = wr.id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY wr.updated_at DESC
+      ORDER BY ${limited ? "wr.path, wr.updated_at DESC, wg.id" : "wr.updated_at DESC"}
+      ${limited ? "LIMIT ?" : ""}
     `,
-    args,
+    args: limited ? [...args, options.limit] : args,
   });
   return rows;
 }
 
 async function grantedWorkspaceResources(input: {
+  limit?: number;
   pathPrefix?: string;
   workspaceAppId?: string | null;
   userEmail?: string | null;
@@ -949,6 +1070,7 @@ async function grantedWorkspaceResources(input: {
   try {
     const rows = await selectGrantedWorkspaceResourceRows(input, {
       includeContent: false,
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
     });
     return rows.map(rowToGrantedWorkspaceResource);
   } catch {
@@ -1105,11 +1227,83 @@ export const resourcesStore = defineStore({
       name: "seed-default-resources",
       run: (exec) => seedDefaultResources(exec),
     },
+    {
+      name: "path-pattern-index",
+      run: async () => {
+        // The (path, owner) unique index uses the default operator class, which a
+        // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
+        // reads jobs/ by prefix every few seconds.
+        //
+        // NOT built CONCURRENTLY: this ensure path runs at release over the pooled
+        // Neon endpoint, where a transaction-pooled connection returns from
+        // `CREATE INDEX CONCURRENTLY` without creating anything (see the matching
+        // note in chat-threads/store.ts). A plain build is the form that lands.
+        await ensureIndexExists(
+          "resources_path_pattern_idx",
+          `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+        ).catch((err) => {
+          if (isMigrationAuthorizedRuntime()) throw err;
+          // coercion-ok: absence of an index degrades latency, never correctness
+          console.warn(
+            "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
+            (err as Error)?.message ?? err,
+          );
+        });
+      },
+    },
   ],
 });
 
-export function ensureTable(): Promise<void> {
-  return resourcesStore.ready();
+let _sharedLearnSharedMigration: Promise<void> | undefined;
+
+export async function ensureTable(): Promise<void> {
+  await resourcesStore.ready();
+  // Kept out of the store ledger: it has its own durable marker, and a failure
+  // must leave resources usable and retry in a later process.
+  _sharedLearnSharedMigration ??= retainRequestDbPoolScope(
+    migrateSharedLearnSharedDefault(getDbExec()),
+  );
+  await _sharedLearnSharedMigration;
+}
+
+// Migrate both shipped paths without touching edited copies. The legacy
+// path wins duplicate-name resolution in existing workspaces.
+// This marker stays separate from the shared seed version so it cannot
+// resurrect deleted defaults or rerun personal seeding.
+async function migrateSharedLearnSharedDefault(client: DbExec): Promise<void> {
+  try {
+    if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
+      let migrationComplete = true;
+      for (const resourcePath of [
+        "skills/learn-shared/SKILL.md",
+        "skills/learn-shared.md",
+      ]) {
+        try {
+          await migrateDefaultResourceContent({
+            client,
+            owner: SHARED_OWNER,
+            resourcePath,
+            previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
+            content: DEFAULT_SKILL_LEARN_SHARED_MD,
+          });
+        } catch (err) {
+          migrationComplete = false;
+          console.warn(
+            `[resources] could not migrate the shared learn-shared default at ${resourcePath}; it will retry on the next table ensure:`,
+            (err as Error)?.message ?? err,
+          );
+        }
+      }
+      if (migrationComplete) {
+        await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[resources] could not check or mark the shared learn-shared migration; it will retry on the next table ensure:",
+      (err as Error)?.message ?? err,
+    );
+  }
 }
 
 async function seedDefaultResources(client: DbExec): Promise<void> {
@@ -1147,6 +1341,7 @@ async function seedDefaultResources(client: DbExec): Promise<void> {
 
   const learningsSeedContent =
     (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
+  assertResourcePayloadIsSqlSafe(learningsSeedContent, "text/markdown");
   const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
   await client.execute({
     sql: seedSql,
@@ -1188,40 +1383,36 @@ async function seedDefaultResources(client: DbExec): Promise<void> {
     ],
   });
 
-  try {
-    const { getBuiltinAgents, BUILTIN_AGENTS_FOR_SEEDING } =
-      await import("../server/agent-discovery.js");
-    void getBuiltinAgents;
-    const builtins = BUILTIN_AGENTS_FOR_SEEDING;
-    for (const agent of builtins) {
-      const agentJson = JSON.stringify(
-        {
-          id: agent.id,
-          name: agent.name,
-          description: agent.description,
-          url: agent.url, // always prod
-          color: agent.color,
-        },
-        null,
-        2,
-      );
-      const agentSize = Buffer.byteLength(agentJson, "utf8");
-      await client.execute({
-        sql: seedSql,
-        args: [
-          crypto.randomUUID(),
-          `remote-agents/${agent.id}.json`,
-          SHARED_OWNER,
-          agentJson,
-          "application/json",
-          agentSize,
-          now,
-          now,
-        ],
-      });
-    }
-  } catch {
-    // Agent discovery not available — skip seeding
+  const { getBuiltinAgentsForSeeding } =
+    await import("../server/agent-discovery.js");
+  const builtins = getBuiltinAgentsForSeeding();
+  for (const agent of builtins) {
+    const agentJson = JSON.stringify(
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        url: agent.url, // always prod
+        color: agent.color,
+      },
+      null,
+      2,
+    );
+    assertResourcePayloadIsSqlSafe(agentJson, "application/json");
+    const agentSize = Buffer.byteLength(agentJson, "utf8");
+    await client.execute({
+      sql: seedSql,
+      args: [
+        crypto.randomUUID(),
+        `remote-agents/${agent.id}.json`,
+        SHARED_OWNER,
+        agentJson,
+        "application/json",
+        agentSize,
+        now,
+        now,
+      ],
+    });
   }
 
   try {
@@ -1251,6 +1442,8 @@ async function seedDefaultResources(client: DbExec): Promise<void> {
 }
 
 const RESOURCE_SEED_VERSION = 1;
+const SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY =
+  "resources-migrated:shared:learn-shared-approval:v1";
 
 const _personalSeeded = new Set<string>();
 
@@ -1506,6 +1699,7 @@ export async function resourcePut(
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource> {
+  assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1532,8 +1726,9 @@ export async function resourcePut(
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
 
+  const isJobFile = path.startsWith("jobs/");
   const { rows: existing } = await client.execute({
-    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
+    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata${isJobFile ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
   const existingRow = existing[0] as
@@ -1546,6 +1741,7 @@ export async function resourcePut(
         run_id?: string | null;
         expires_at?: number | null;
         metadata?: string | null;
+        content?: string | null;
       }
     | undefined;
 
@@ -1603,6 +1799,16 @@ export async function resourcePut(
     ],
   });
 
+  if (typeof existingRow?.content === "string") {
+    await noteJobFrontmatterWrite({
+      owner,
+      orgId: organizationIdFromResourceOwner(owner),
+      path,
+      before: existingRow.content,
+      after: content,
+      writer: "resourcePut",
+    });
+  }
   emitResourceChange(id, path, owner, options?.requestSource);
 
   return {
@@ -1649,6 +1855,7 @@ async function resourcePutIfAbsentInternal(
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<Resource | null> {
+  assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1725,6 +1932,45 @@ async function resourcePutIfAbsentInternal(
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
+  const resource = await writeResourceIfCurrent(input, getDbExec());
+  if (resource) await notifyResourceIfCurrent(input, resource);
+  return resource;
+}
+
+/** The caller must emit the returned notification only after its transaction commits. */
+export async function resourcePutIfCurrentInTransaction(
+  input: ResourceConditionalWrite,
+  tx: DbExec,
+): Promise<{ resource: Resource; notify: () => Promise<void> } | null> {
+  const resource = await writeResourceIfCurrent(input, tx);
+  return resource
+    ? {
+        resource,
+        notify: () => notifyResourceIfCurrent(input, resource),
+      }
+    : null;
+}
+
+async function notifyResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  resource: Resource,
+): Promise<void> {
+  await noteJobFrontmatterWrite({
+    owner: resource.owner,
+    orgId: organizationIdFromResourceOwner(resource.owner),
+    path: resource.path,
+    before: input.expectedContent,
+    after: resource.content,
+    writer: "resourcePutIfCurrent",
+  });
+  emitResourceChange(resource.id, resource.path, resource.owner);
+}
+
+async function writeResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  client: DbExec,
+): Promise<Resource | null> {
+  assertResourcePayloadIsSqlSafe(input.content, input.mimeType);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(input.owner) &&
@@ -1736,17 +1982,18 @@ export async function resourcePutIfCurrent(
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
-  const client = getDbExec();
   const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
+  const metadata = serializeMetadata(input.metadata);
   const result = await client.execute({
-    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?${metadata !== undefined ? ", metadata = ?" : ""} WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
     args: [
       input.content,
       mime,
       size,
       now,
+      ...(metadata !== undefined ? [metadata] : []),
       input.owner,
       input.path,
       input.expectedId,
@@ -1764,7 +2011,6 @@ export async function resourcePutIfCurrent(
   });
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
-  emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
 }
 
@@ -1807,6 +2053,11 @@ async function resourcePutIfSnapshotInternal(
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<ResourceSnapshotWriteResult | null> {
+  assertResourcePayloadIsSqlSafe(
+    input.content,
+    input.mimeType,
+    input.options?.metadata,
+  );
   await ensureTable();
   let previous = input.previous;
   if (
@@ -1900,6 +2151,14 @@ async function resourcePutIfSnapshotInternal(
   if (rows.length !== 1) return null;
   const resource = rowToResource(rows[0]);
   if (emitChange) {
+    await noteJobFrontmatterWrite({
+      owner: resource.owner,
+      orgId: organizationIdFromResourceOwner(resource.owner),
+      path: resource.path,
+      before: previous.content,
+      after: resource.content,
+      writer: "resourcePutIfSnapshot",
+    });
     emitResourceChange(
       resource.id,
       resource.path,
@@ -1933,6 +2192,14 @@ export async function resourcePutSnapshotBatchIfCurrent(
     );
   }
 
+  for (const write of writes) {
+    assertResourcePayloadIsSqlSafe(
+      write.content,
+      write.mimeType,
+      write.options?.metadata,
+    );
+  }
+
   await ensureTable();
   const client = getDbExec();
   if (!client.transaction) {
@@ -1956,7 +2223,17 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw error;
   }
 
-  for (const [index, { resource }] of result.entries()) {
+  for (const [index, { before, resource }] of result.entries()) {
+    if (before) {
+      await noteJobFrontmatterWrite({
+        owner: resource.owner,
+        orgId: organizationIdFromResourceOwner(resource.owner),
+        path: resource.path,
+        before: before.content,
+        after: resource.content,
+        writer: "resourcePutSnapshotBatchIfCurrent",
+      });
+    }
     emitResourceChange(
       resource.id,
       resource.path,
@@ -1983,6 +2260,11 @@ export async function resourceRestoreSnapshotIfCurrent(
   snapshot: Resource,
   current: Resource | null,
 ): Promise<boolean> {
+  assertResourcePayloadIsSqlSafe(
+    snapshot.content,
+    snapshot.mimeType,
+    snapshot.metadata,
+  );
   await ensureTable();
   const snapshotLocal = localWorkspaceResourceSnapshot(snapshot);
   if (snapshotLocal) {
@@ -2205,33 +2487,62 @@ export async function resourceList(
     ? workspaceReadOwners(owner, options?.orgId)
     : [owner];
   const listOwner = async (candidate: string): Promise<ResourceMeta[]> => {
-    const { rows } = await client.execute(
-      pathPrefix
-        ? {
-            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-            args: [candidate, prefixLike(pathPrefix)],
-          }
-        : {
-            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-            args: [candidate],
-          },
-    );
-    return filterLegacyDispatchWorkspaceRows(
-      rows
-        .map(rowToMeta)
-        .filter((resource) =>
-          isLegacySharedResourceVisibleToOrganization(resource, orgId),
-        ),
-      orgId,
-    );
+    const query = pathPrefix
+      ? {
+          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
+          args: [candidate, prefixLike(pathPrefix)],
+        }
+      : {
+          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
+          args: [candidate],
+        };
+    const listRows = async (limit?: number, offset = 0) =>
+      client.execute(
+        limit === undefined
+          ? query
+          : {
+              sql: `${query.sql} ORDER BY path LIMIT ? OFFSET ?`,
+              args: [...query.args, limit, offset],
+            },
+      );
+    if (options?.limit === undefined) {
+      const { rows } = await listRows();
+      return filterLegacyDispatchWorkspaceRows(
+        rows
+          .map(rowToMeta)
+          .filter((resource) =>
+            isLegacySharedResourceVisibleToOrganization(resource, orgId),
+          ),
+        orgId,
+      );
+    }
+
+    const limit = Math.max(0, Math.floor(options.limit));
+    const resources: ResourceMeta[] = [];
+    let offset = 0;
+    while (resources.length < limit) {
+      const { rows } = await listRows(limit, offset);
+      const visible = await filterLegacyDispatchWorkspaceRows(
+        rows
+          .map(rowToMeta)
+          .filter((resource) =>
+            isLegacySharedResourceVisibleToOrganization(resource, orgId),
+          ),
+        orgId,
+      );
+      resources.push(...visible);
+      offset += rows.length;
+      if (rows.length < limit) break;
+    }
+    return mergeResourceMetas([], resources).slice(0, limit);
   };
   const ownerResources = await Promise.all(owners.map(listOwner));
   const resources = ownerResources.reduce((merged, candidate) =>
     mergeResourceMetas(merged, candidate),
   );
-  if (!workspace) return resources;
+  if (!workspace) return limitResourceMetas(resources, options?.limit);
 
-  const local = await localWorkspaceResourceMetas(pathPrefix);
+  const local = await localWorkspaceResourceMetas(pathPrefix, options?.limit);
   const primaryResources = ownerResources[0] ?? [];
   const inheritedResources = ownerResources[1] ?? [];
   const workspaceResources = isBareWorkspaceResourceOwner(owners[0])
@@ -2241,12 +2552,16 @@ export async function resourceList(
         mergeResourceMetas(local, inheritedResources),
       );
   const granted = await grantedWorkspaceResources({
+    limit: options?.limit,
     pathPrefix,
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(workspaceResources, granted.map(resourceToMeta));
+  return limitResourceMetas(
+    mergeResourceMetas(workspaceResources, granted.map(resourceToMeta)),
+    options?.limit,
+  );
 }
 
 export async function resourceListContentByOwnersAndPrefixes(
@@ -2320,12 +2635,36 @@ export async function resourceListAccessible(
     }),
   ]);
 
-  return mergeResourceMetas(
-    personal,
+  return limitResourceMetas(
     mergeResourceMetas(
-      organization,
-      mergeResourceMetas(legacyShared, workspace),
+      personal,
+      mergeResourceMetas(
+        organization,
+        mergeResourceMetas(legacyShared, workspace),
+      ),
     ),
+    options?.limit,
+  );
+}
+
+/** Organization/shared rows a caller can list, including the legacy app default. */
+export async function resourceListOrganization(
+  orgId: string | null,
+  pathPrefix?: string,
+  options?: ResourceListOptions,
+): Promise<ResourceMeta[]> {
+  const organizationOwner = sharedResourceOwner(orgId);
+  const scopedOptions = { ...options, orgId };
+  if (organizationOwner === SHARED_OWNER) {
+    return resourceList(SHARED_OWNER, pathPrefix, scopedOptions);
+  }
+  const [organization, legacyAppDefaults] = await Promise.all([
+    resourceList(organizationOwner, pathPrefix, scopedOptions),
+    resourceList(SHARED_OWNER, pathPrefix, scopedOptions),
+  ]);
+  return limitResourceMetas(
+    mergeResourceMetas(organization, legacyAppDefaults),
+    options?.limit,
   );
 }
 
@@ -2403,23 +2742,93 @@ export async function resourceEffectiveContext(
   };
 }
 
-export async function resourceListAllOwners(
+function resourceFingerprint(
+  rows: Array<{
+    id: string;
+    owner: string;
+    path: string;
+    updatedAt: number;
+    contentMd5: string;
+  }>,
+  localResources: ResourceMeta[],
+): string {
+  const sqlPart = rows
+    .map(
+      (row) =>
+        `${row.id}|${row.owner}|${row.path}|${row.updatedAt}|${row.contentMd5}`,
+    )
+    .sort()
+    .join("\n");
+  // Local metadata carries the file's content hash, not just its mtime.
+  const localPart = localResources
+    .map(
+      (resource) =>
+        `${resource.path}@${resource.updatedAt}@${resource.metadata ?? ""}`,
+    )
+    .sort()
+    .join("\n");
+  return crypto
+    .createHash("sha256")
+    .update(`${sqlPart}\n--\n${localPart}`)
+    .digest("hex");
+}
+
+/**
+ * A cheap change detector for everything `resourceListAllOwners(pathPrefix)`
+ * reads: any insert, update, delete, move or snapshot restore of a SQL row
+ * changes it, including a same-size edit in the same millisecond. Content is
+ * hashed in the database, so only short per-row digests are transferred.
+ * Local workspace files are tracked by path, modification time and content
+ * hash. Equal to
+ * the fingerprint `resourceListAllOwnersWithFingerprint` returns for the same
+ * state.
+ */
+export async function resourceFingerprintAllOwners(
   pathPrefix: string,
-  options: { includeShadowedWorkspaceRows?: boolean } = {},
-): Promise<Resource[]> {
+  options: { timeoutMs?: number } = {},
+): Promise<string> {
   await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, owner, path, updated_at, md5(COALESCE(content, '')) AS content_md5 FROM resources WHERE path LIKE ? ESCAPE '!'`,
+    args: [prefixLike(pathPrefix)],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
+  });
+  return resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: row.content_md5 as string,
+    })),
+    await localWorkspaceResourceMetas(pathPrefix),
+  );
+}
+
+async function readAllOwners(pathPrefix: string): Promise<{
+  rows: Record<string, unknown>[];
+  localMetas: ResourceMeta[];
+  localResources: Resource[];
+}> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
+  const localMetas = await localWorkspaceResourceMetas(pathPrefix);
   const localResources = (
-    await Promise.all(
-      (
-        await localWorkspaceResourceMetas(pathPrefix)
-      ).map((resource) => resourceGet(resource.id)),
-    )
+    await Promise.all(localMetas.map((resource) => resourceGet(resource.id)))
   ).filter((resource): resource is Resource => !!resource);
+  return { rows, localMetas, localResources };
+}
+
+function mergeAllOwners(
+  rows: Record<string, unknown>[],
+  localResources: Resource[],
+  includeShadowedWorkspaceRows: boolean | undefined,
+): Resource[] {
   const localPaths = new Set(localResources.map((resource) => resource.path));
   return [
     ...localResources,
@@ -2427,11 +2836,51 @@ export async function resourceListAllOwners(
       .map(rowToResource)
       .filter(
         (resource) =>
-          options.includeShadowedWorkspaceRows ||
+          includeShadowedWorkspaceRows ||
           resource.owner !== WORKSPACE_OWNER ||
           !localPaths.has(resource.path),
       ),
   ];
+}
+
+export async function resourceListAllOwners(
+  pathPrefix: string,
+  options: { includeShadowedWorkspaceRows?: boolean } = {},
+): Promise<Resource[]> {
+  const { rows, localResources } = await readAllOwners(pathPrefix);
+  return mergeAllOwners(
+    rows,
+    localResources,
+    options.includeShadowedWorkspaceRows,
+  );
+}
+
+/**
+ * `resourceListAllOwners` plus the fingerprint of exactly the rows that one
+ * read returned, so a later `resourceFingerprintAllOwners` match proves the
+ * list is unchanged.
+ */
+export async function resourceListAllOwnersWithFingerprint(
+  pathPrefix: string,
+): Promise<{ resources: Resource[]; fingerprint: string }> {
+  const { rows, localMetas, localResources } = await readAllOwners(pathPrefix);
+  const fingerprint = resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: crypto
+        .createHash("md5")
+        .update((row.content as string | null) ?? "", "utf8")
+        .digest("hex"),
+    })),
+    localMetas,
+  );
+  return {
+    resources: mergeAllOwners(rows, localResources, false),
+    fingerprint,
+  };
 }
 
 export async function resourceMove(

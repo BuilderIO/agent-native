@@ -1,14 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  readAppStateForCurrentTab,
-  writeAppState,
-} from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { putLocalhostConsentRequest } from "./localhost-consent-request-state.js";
 
 export default defineAction({
   description:
@@ -94,7 +92,7 @@ export default defineAction({
       };
     }
 
-    await writeAppState(`design-localhost-write-consent-request:${designId}`, {
+    await putLocalhostConsentRequest(designId, {
       designId,
       connectionId,
       rootPath: connection.rootPath,

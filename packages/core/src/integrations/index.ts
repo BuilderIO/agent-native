@@ -150,6 +150,7 @@ export {
   saveIntegrationConfig,
   deleteIntegrationConfig,
   listIntegrationConfigs,
+  listIntegrationConfigPage,
   type IntegrationConfig,
 } from "./config-store.js";
 

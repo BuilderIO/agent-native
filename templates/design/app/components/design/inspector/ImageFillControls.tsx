@@ -1,10 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
-import { IconPhotoPlus, IconX } from "@tabler/icons-react";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -19,6 +20,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import type { StyleChangeMeta } from "../edit-panel/style-change-types";
 
 export type ImageFitMode = "fill" | "fit" | "crop" | "tile";
 
@@ -38,6 +41,38 @@ type UploadImageResult = {
   url?: string;
   error?: string;
 };
+
+let nextImageUploadRequestId = 0;
+let nextUnscopedImageUploadTargetId = 0;
+const imageUploadRequestsByTarget = new Map<
+  string,
+  { latestId: number; pendingIds: Set<number> }
+>();
+
+function beginImageUpload(targetKey: string): number {
+  const requestId = ++nextImageUploadRequestId;
+  const current = imageUploadRequestsByTarget.get(targetKey) ?? {
+    latestId: requestId,
+    pendingIds: new Set<number>(),
+  };
+  current.latestId = requestId;
+  current.pendingIds.add(requestId);
+  imageUploadRequestsByTarget.set(targetKey, current);
+  return requestId;
+}
+
+function isLatestImageUpload(targetKey: string, requestId: number): boolean {
+  return imageUploadRequestsByTarget.get(targetKey)?.latestId === requestId;
+}
+
+function finishImageUpload(targetKey: string, requestId: number): void {
+  const current = imageUploadRequestsByTarget.get(targetKey);
+  if (!current) return;
+  current.pendingIds.delete(requestId);
+  if (current.pendingIds.size === 0) {
+    imageUploadRequestsByTarget.delete(targetKey);
+  }
+}
 
 const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "fill", label: "Fill" }, // i18n-ignore image fit mode
@@ -252,7 +287,8 @@ export function mergeImageFitDraft(
 
 export interface ImageFillControlsProps {
   value: ImageFillValue;
-  onChange: (value: ImageFillValue) => void;
+  onChange: (value: ImageFillValue, meta?: StyleChangeMeta) => void;
+  uploadTargetKey?: string;
   disabled?: boolean;
   className?: string;
 }
@@ -260,6 +296,7 @@ export interface ImageFillControlsProps {
 export function ImageFillControls({
   value,
   onChange,
+  uploadTargetKey,
   disabled = false,
   className,
 }: ImageFillControlsProps) {
@@ -280,6 +317,25 @@ export function ImageFillControls({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  const latestValueRef = useRef(value);
+  const latestOnChangeRef = useRef(onChange);
+  const latestUploadTargetKeyRef = useRef(uploadTargetKey);
+  const activeUploadRequestIdRef = useRef(0);
+  const fallbackUploadTargetKeyRef = useRef<string | null>(null);
+  const unmountedRef = useRef(false);
+  if (!fallbackUploadTargetKeyRef.current) {
+    fallbackUploadTargetKeyRef.current = `unscoped-image-upload-${++nextUnscopedImageUploadTargetId}`;
+  }
+  latestValueRef.current = value;
+  latestOnChangeRef.current = onChange;
+  latestUploadTargetKeyRef.current = uploadTargetKey;
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (focused) return;
@@ -288,7 +344,9 @@ export function ImageFillControls({
   }, [focused, value.url]);
 
   const commitUrl = () => {
-    onChange({ ...value, url: urlDraftRef.current.trim() });
+    const url = urlDraftRef.current.trim();
+    if (url === value.url) return;
+    onChange({ ...value, url });
   };
 
   const requestImageUpload = () => {
@@ -298,8 +356,21 @@ export function ImageFillControls({
   };
 
   const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file || !canUploadImages) return;
+    input.value = "";
+    const uploadTargetKey =
+      latestUploadTargetKeyRef.current ?? fallbackUploadTargetKeyRef.current!;
+    const uploadRequestId = beginImageUpload(uploadTargetKey);
+    activeUploadRequestIdRef.current = uploadRequestId;
+    const onChangeAtStart = latestOnChangeRef.current;
+    const valueAtStart = latestValueRef.current;
+    const isCurrentLocalUpload = () =>
+      !unmountedRef.current &&
+      activeUploadRequestIdRef.current === uploadRequestId &&
+      (latestUploadTargetKeyRef.current ??
+        fallbackUploadTargetKeyRef.current) === uploadTargetKey;
     setUploadingImage(true);
     setUploadError(null);
     try {
@@ -309,30 +380,56 @@ export function ImageFillControls({
         filename: file.name,
       })) as UploadImageResult;
       if (result.url) {
-        urlDraftRef.current = result.url;
-        setUrlDraft(result.url);
-        onChange({ ...value, url: result.url });
+        if (isLatestImageUpload(uploadTargetKey, uploadRequestId)) {
+          const canUseLatestTargetState = isCurrentLocalUpload();
+          const onChange = canUseLatestTargetState
+            ? latestOnChangeRef.current
+            : onChangeAtStart;
+          const value = canUseLatestTargetState
+            ? latestValueRef.current
+            : valueAtStart;
+          if (canUseLatestTargetState) {
+            urlDraftRef.current = result.url;
+            setUrlDraft(result.url);
+          }
+          onChange(
+            { ...value, url: result.url },
+            { requirePersistedSourceAcceptance: true },
+          );
+        }
       } else {
-        setUploadError(
-          result.error ||
-            "File storage is not configured. Connect an upload provider before using local images.",
-        );
+        if (
+          isCurrentLocalUpload() &&
+          isLatestImageUpload(uploadTargetKey, uploadRequestId)
+        ) {
+          setUploadError(
+            result.error ||
+              "File storage is not configured. Connect an upload provider before using local images.",
+          );
+        }
       }
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : t("common.genericError"),
-      );
+      if (
+        isCurrentLocalUpload() &&
+        isLatestImageUpload(uploadTargetKey, uploadRequestId)
+      ) {
+        setUploadError(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
+      }
     } finally {
-      setUploadingImage(false);
-      event.target.value = "";
+      finishImageUpload(uploadTargetKey, uploadRequestId);
+      if (isCurrentLocalUpload()) {
+        setUploadingImage(false);
+      }
     }
   };
 
   return (
-    <div className={cn("space-y-1.5 px-3 pt-2 pb-2", className)}>
-      {/* ── Preview / drop target ─────────────────────────────────────────── */}
+    <div className={cn("space-y-2 px-3 py-3", className)}>
+      {/* ── Preview ───────────────────────────────────────────────────────── */}
       <div
-        className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
+        className="relative h-40 w-full overflow-hidden rounded-md border border-border/60"
         style={{
           backgroundImage: value.url
             ? `url("${escapeForQuotedUrl(value.url.trim())}")`
@@ -349,14 +446,6 @@ export function ImageFillControls({
           backgroundPosition: value.fit === "tile" ? "top left" : "center",
         }}
       >
-        {!value.url && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
-            <IconPhotoPlus className="size-5" />
-            <span className="text-[10px]">
-              {"Upload or paste a URL" /* i18n-ignore */}
-            </span>
-          </div>
-        )}
         {value.url && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -378,60 +467,75 @@ export function ImageFillControls({
         )}
       </div>
 
-      {/* ── URL input + upload ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1">
-        <Input
-          value={urlDraft}
-          disabled={disabled}
-          placeholder={"Image URL" /* i18n-ignore */}
-          aria-label={"Image URL" /* i18n-ignore */}
-          spellCheck={false}
-          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
-          onChange={(event) => {
-            urlDraftRef.current = event.target.value;
-            setUrlDraft(event.target.value);
-          }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false);
+      {/* ── Image URL ─────────────────────────────────────────────────────── */}
+      <Input
+        value={urlDraft}
+        disabled={disabled}
+        placeholder={"Image URL" /* i18n-ignore */}
+        aria-label={"Image URL" /* i18n-ignore */}
+        spellCheck={false}
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
+        onChange={(event) => {
+          urlDraftRef.current = event.target.value;
+          setUrlDraft(event.target.value);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          commitUrl();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
             commitUrl();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitUrl();
-              event.currentTarget.blur();
-            }
-          }}
-        />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled || uploadingImage}
-              aria-label={"Upload image" /* i18n-ignore */}
-              onClick={requestImageUpload}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                (disabled || uploadingImage) &&
-                  "pointer-events-none opacity-40",
-              )}
-            >
-              <IconPhotoPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{"Upload image" /* i18n-ignore */}</TooltipContent>
-        </Tooltip>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          disabled={!canUploadImages}
-          onChange={handleFilePick}
-        />
+            event.currentTarget.blur();
+          }
+        }}
+      />
+
+      {/* ── Choose image, Fit ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled || uploadingImage}
+          onClick={requestImageUpload}
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] px-2 !text-[11px] font-normal shadow-none"
+        >
+          {t("editPanel.colorPicker.chooseImage")}
+        </Button>
+        <Select
+          value={value.fit}
+          onValueChange={(v) =>
+            onChange(
+              mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
+            )
+          }
+          disabled={disabled}
+        >
+          <SelectTrigger
+            aria-label={"Fill" /* i18n-ignore image fit selector */}
+            className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="!text-[11px]">
+            {FIT_MODES.map(({ mode, label }) => (
+              <SelectItem key={mode} value={mode} className="!text-[11px]">
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        disabled={!canUploadImages}
+        onChange={handleFilePick}
+      />
       {uploadError && (
         <p className="text-[10px] leading-snug text-destructive">
           {uploadError}
@@ -452,31 +556,6 @@ export function ImageFillControls({
             }
           : { status: "missing" as const })}
       />
-
-      {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
-      <Select
-        value={value.fit}
-        onValueChange={(v) =>
-          onChange(
-            mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
-          )
-        }
-        disabled={disabled}
-      >
-        <SelectTrigger
-          aria-label={"Fill" /* i18n-ignore image fit selector */}
-          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="!text-[11px]">
-          {FIT_MODES.map(({ mode, label }) => (
-            <SelectItem key={mode} value={mode} className="!text-[11px]">
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
     </div>
   );
 }

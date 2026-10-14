@@ -1,62 +1,68 @@
-import { isAgentActionStopError } from "@agent-native/core/action";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mockPutPrivateBlob = vi.hoisted(() => vi.fn());
-const mockReadPrivateBlob = vi.hoisted(() => vi.fn());
-const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
-const mockGetRequestContext = vi.hoisted(() => vi.fn());
-const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
-
-vi.mock("@agent-native/core/private-blob", () => ({
-  putPrivateBlob: (...args: unknown[]) => mockPutPrivateBlob(...args),
-  readPrivateBlob: (...args: unknown[]) => mockReadPrivateBlob(...args),
-}));
-
-vi.mock("@agent-native/core/secrets/crypto", () => ({
-  encryptSecretValue: (value: string) =>
-    Buffer.from(value, "utf8").toString("base64url"),
-  decryptSecretValue: (value: string) =>
-    Buffer.from(value, "base64url").toString("utf8"),
-}));
-
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: (...args: unknown[]) => mockGetRequestContext(...args),
-  getRequestUserEmail: () => "owner@example.com",
-  getRequestOrgId: (...args: unknown[]) => mockGetRequestOrgId(...args),
-  runWithRequestContext: (...args: unknown[]) =>
-    mockRunWithRequestContext(...args),
-}));
-
-import { readUserUploadedFile } from "../../actions/_uploaded-files";
 import {
+  ATTACHMENT_REF_PREFIX,
+  LEGACY_SLIDES_UPLOAD_REF_PREFIX,
+  PrivateBlobError,
+  registerPrivateBlobProvider,
+  unregisterPrivateBlobProvider,
+  type PrivateBlobHandle,
+  type PrivateBlobProvider,
+} from "@agent-native/core/private-blob";
+import { encryptSecretValue } from "@agent-native/core/secrets/crypto";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { tenantFileKey } from "./tenant-files";
+import {
+  deleteUploadedReference,
   isHostedSlidesRuntime,
-  readUploadedReferenceBlob,
-  storeUploadedReferenceBlob,
+  mintUploadedReference,
+  resolveUploadedReference,
 } from "./uploaded-reference-storage";
 
-const HANDLE = {
-  id: "blob-1",
-  provider: "test",
-  opaque: true as const,
-  encrypted: true,
+const OWNER = "owner@example.com";
+const originalKey = process.env.SECRETS_ENCRYPTION_KEY;
+const originalNetlify = process.env.NETLIFY;
+
+const blobs = new Map<string, Uint8Array>();
+const provider: PrivateBlobProvider = {
+  id: "memory",
+  name: "Memory",
+  isConfigured: () => true,
+  put: async (input) => {
+    const id = `memory:${blobs.size + 1}`;
+    blobs.set(id, new Uint8Array(input.data));
+    return { id, provider: "memory", opaque: true, encrypted: false };
+  },
+  read: async (handle: PrivateBlobHandle) => {
+    const data = blobs.get(handle.id);
+    if (!data) throw new PrivateBlobError("missing", "not_found");
+    return { data, handle };
+  },
+  delete: async (handle: PrivateBlobHandle) => ({
+    deleted: blobs.delete(handle.id),
+    provider: "memory",
+  }),
 };
+
+const inOrg = async <T>(
+  orgId: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> => runWithRequestContext({ userEmail: OWNER, orgId }, fn);
 
 describe("Slides uploaded reference storage", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockPutPrivateBlob.mockResolvedValue(HANDLE);
-    mockReadPrivateBlob.mockResolvedValue({
-      data: new Uint8Array([1, 2, 3]),
-      handle: HANDLE,
-    });
-    mockGetRequestContext.mockReturnValue({
-      orgId: "existing-org",
-      timezone: "UTC",
-    });
-    mockGetRequestOrgId.mockReturnValue("existing-org");
-    mockRunWithRequestContext.mockImplementation(
-      (_context: unknown, fn: () => unknown) => fn(),
-    );
+    blobs.clear();
+    process.env.SECRETS_ENCRYPTION_KEY = "slides-reference-storage-test";
+    process.env.NETLIFY = "true";
+    registerPrivateBlobProvider(provider);
+  });
+
+  afterEach(() => {
+    unregisterPrivateBlobProvider("memory");
+    if (originalKey === undefined) delete process.env.SECRETS_ENCRYPTION_KEY;
+    else process.env.SECRETS_ENCRYPTION_KEY = originalKey;
+    if (originalNetlify === undefined) delete process.env.NETLIFY;
+    else process.env.NETLIFY = originalNetlify;
   });
 
   it("recognizes hosted runtimes without treating local development as hosted", () => {
@@ -82,150 +88,139 @@ describe("Slides uploaded reference storage", () => {
     ).toBe(true);
   });
 
-  it("stores and reads an encrypted owner-scoped private blob reference", async () => {
-    const reference = await storeUploadedReferenceBlob({
-      email: "owner@example.com",
-      filename: "deck.pptx",
-      data: new Uint8Array([1, 2, 3]),
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    });
-
-    expect(reference).toMatch(/^slides-upload:v1:/);
-    expect(mockPutPrivateBlob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerEmail: "owner@example.com",
+  it("mints a core attachment ref bound to the active org and opens it in that org", async () => {
+    const minted = await inOrg("existing-org", () =>
+      mintUploadedReference({
+        email: OWNER,
         filename: "deck.pptx",
+        data: new Uint8Array([1, 2, 3]),
+        mimeType: "application/octet-stream",
       }),
     );
-    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userEmail: "owner@example.com",
-        orgId: "existing-org",
-        timezone: "UTC",
+    if (minted.status !== "ok") throw new Error("mint failed");
+
+    expect(minted.ref.startsWith(ATTACHMENT_REF_PREFIX)).toBe(true);
+    await expect(
+      inOrg("existing-org", () => resolveUploadedReference(minted.ref, OWNER)),
+    ).resolves.toMatchObject({
+      status: "ok",
+      file: { data: Buffer.from([1, 2, 3]), filename: "deck.pptx" },
+    });
+  });
+
+  it("uses an explicitly supplied org over the request's", async () => {
+    const minted = await inOrg("request-org", () =>
+      mintUploadedReference({
+        email: OWNER,
+        orgId: "session-org",
+        filename: "deck.pptx",
+        data: new Uint8Array([1]),
+        mimeType: "application/octet-stream",
       }),
-      expect.any(Function),
     );
-    await expect(
-      readUploadedReferenceBlob(reference!, "owner@example.com"),
-    ).resolves.toEqual({
-      data: Buffer.from([1, 2, 3]),
-      filename: "deck.pptx",
-    });
-  });
-
-  it("uses an explicitly supplied org for org-scoped upload providers", async () => {
-    const reference = await storeUploadedReferenceBlob({
-      email: "owner@example.com",
-      orgId: "session-org",
-      filename: "deck.pptx",
-      data: new Uint8Array([1]),
-      mimeType: "application/octet-stream",
-    });
-
-    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "session-org" }),
-      expect.any(Function),
-    );
-
-    mockGetRequestOrgId.mockReturnValue("session-org");
-    await expect(
-      readUploadedReferenceBlob(reference!, "owner@example.com"),
-    ).resolves.toEqual({
-      data: Buffer.from([1, 2, 3]),
-      filename: "deck.pptx",
-    });
-  });
-
-  it("rejects another user's reference before reading the provider", async () => {
-    const reference = await storeUploadedReferenceBlob({
-      email: "owner@example.com",
-      filename: "deck.pptx",
-      data: new Uint8Array([1]),
-      mimeType: "application/octet-stream",
-    });
-    mockReadPrivateBlob.mockClear();
+    if (minted.status !== "ok") throw new Error("mint failed");
 
     await expect(
-      readUploadedReferenceBlob(reference!, "other@example.com"),
-    ).rejects.toThrow("Access denied");
-    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
-  });
-
-  it("stops instead of retrying a foreign reference from the storage reader", async () => {
-    const reference = await storeUploadedReferenceBlob({
-      email: "other@example.com",
-      filename: "deck.pptx",
-      data: new Uint8Array([1]),
-      mimeType: "application/octet-stream",
-    });
-    mockReadPrivateBlob.mockClear();
-
-    const error = await readUserUploadedFile(reference!).then(
-      () => null,
-      (caught: unknown) => caught,
-    );
-
-    expect(isAgentActionStopError(error)).toBe(true);
-    expect(error).toMatchObject({
-      message: expect.stringContaining(
-        "not valid for this user or organization",
-      ),
-      errorCode: "permanent_precondition",
-      toolResult: expect.stringContaining("Do not retry this filePath"),
-    });
-    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
-  });
-
-  it("rejects another organization's reference before reading the provider", async () => {
-    const reference = await storeUploadedReferenceBlob({
-      email: "owner@example.com",
-      orgId: "org-one",
-      filename: "deck.pptx",
-      data: new Uint8Array([1]),
-      mimeType: "application/octet-stream",
-    });
-    mockReadPrivateBlob.mockClear();
-    mockGetRequestOrgId.mockReturnValue("org-two");
-
+      inOrg("session-org", () => resolveUploadedReference(minted.ref, OWNER)),
+    ).resolves.toMatchObject({ status: "ok" });
     await expect(
-      readUploadedReferenceBlob(reference!, "owner@example.com"),
-    ).rejects.toThrow("Access denied");
-    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
+      inOrg("request-org", () => resolveUploadedReference(minted.ref, OWNER)),
+    ).resolves.toMatchObject({
+      status: "forbiddenScope",
+      reason: "org_mismatch",
+    });
   });
 
   it("keeps personal uploads outside organization scopes", async () => {
-    mockGetRequestContext.mockReturnValue({ timezone: "UTC" });
-    mockGetRequestOrgId.mockReturnValue(undefined);
-    const reference = await storeUploadedReferenceBlob({
-      email: "owner@example.com",
-      orgId: null,
-      filename: "deck.pptx",
-      data: new Uint8Array([1]),
-      mimeType: "application/octet-stream",
-    });
+    const minted = await inOrg(undefined, () =>
+      mintUploadedReference({
+        email: OWNER,
+        orgId: null,
+        filename: "deck.pptx",
+        data: new Uint8Array([1]),
+        mimeType: "application/octet-stream",
+      }),
+    );
+    if (minted.status !== "ok") throw new Error("mint failed");
 
     await expect(
-      readUploadedReferenceBlob(reference!, "owner@example.com"),
-    ).resolves.toEqual({
-      data: Buffer.from([1, 2, 3]),
-      filename: "deck.pptx",
-    });
-
-    mockReadPrivateBlob.mockClear();
-    mockGetRequestOrgId.mockReturnValue("org-one");
+      inOrg(undefined, () => resolveUploadedReference(minted.ref, OWNER)),
+    ).resolves.toMatchObject({ status: "ok" });
     await expect(
-      readUploadedReferenceBlob(reference!, "owner@example.com"),
-    ).rejects.toThrow("Access denied");
-    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
+      inOrg("org-one", () => resolveUploadedReference(minted.ref, OWNER)),
+    ).resolves.toMatchObject({
+      status: "forbiddenScope",
+      reason: "org_mismatch",
+    });
   });
 
-  it("rejects tampered references", async () => {
+  it("rejects another user's reference before reading storage", async () => {
+    const minted = await inOrg("org-one", () =>
+      mintUploadedReference({
+        email: OWNER,
+        orgId: "org-one",
+        filename: "deck.pptx",
+        data: new Uint8Array([1]),
+        mimeType: "application/octet-stream",
+      }),
+    );
+    if (minted.status !== "ok") throw new Error("mint failed");
+
     await expect(
-      readUploadedReferenceBlob(
-        "slides-upload:v1:not-valid",
-        "owner@example.com",
+      inOrg("org-one", () =>
+        resolveUploadedReference(minted.ref, "other@example.com"),
       ),
-    ).rejects.toThrow("Invalid uploaded file reference");
+    ).resolves.toMatchObject({
+      status: "forbiddenScope",
+      reason: "owner_mismatch",
+    });
+  });
+
+  it("still opens refs minted with the Slides-only descriptor", async () => {
+    // Same ownerKey derivation, same payload: the core resolver must open what
+    // Slides stored in chat threads and decks before the ref moved to core.
+    const handle = await provider.put({ data: Buffer.from("legacy") });
+    const legacy = `${LEGACY_SLIDES_UPLOAD_REF_PREFIX}${encryptSecretValue(
+      JSON.stringify({
+        kind: "slides-upload",
+        version: 1,
+        ownerKey: tenantFileKey(OWNER),
+        orgId: "org-one",
+        filename: "deck.pdf",
+        handle,
+      }),
+    )}`;
+
+    await expect(
+      inOrg("org-one", () => resolveUploadedReference(legacy, OWNER)),
+    ).resolves.toMatchObject({
+      status: "ok",
+      file: { data: Buffer.from("legacy"), filename: "deck.pdf" },
+    });
+  });
+
+  it("deletes through the same scope checks and types a foreign delete", async () => {
+    const minted = await inOrg("org-one", () =>
+      mintUploadedReference({
+        email: OWNER,
+        orgId: "org-one",
+        filename: "deck.pptx",
+        data: new Uint8Array([1]),
+        mimeType: "application/octet-stream",
+      }),
+    );
+    if (minted.status !== "ok") throw new Error("mint failed");
+
+    await expect(
+      inOrg("org-two", () => deleteUploadedReference(minted.ref, OWNER)),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      details: { attachmentErrorCode: "attachment_forbidden_scope" },
+    });
+    expect(blobs.size).toBe(1);
+    await expect(
+      inOrg("org-one", () => deleteUploadedReference(minted.ref, OWNER)),
+    ).resolves.toBe(true);
+    expect(blobs.size).toBe(0);
   });
 });

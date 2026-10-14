@@ -17,10 +17,6 @@ const messages = {
   },
   settings: {
     title: "設定",
-    description: "語言、工作區、資源和代理偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理 Dispatch 的團隊存取權限和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
@@ -39,8 +35,6 @@ const messages = {
     chatFirstDescription:
       "讓聊天保持核心位置，並在旁邊的情境面板中開啟工作區應用程式。此偏好只會變更你在 Dispatch 的本機外觀。",
     chatFirstAriaLabel: "使用聊天優先導覽",
-    chatFirstSessionWatchDescription:
-      "工作階段監看與後續訊息也能在此瀏覽器面板中運作。本機 CLI 訂閱偵測會保留在 Electron 應用程式；Dispatch 使用工作區／提供者憑證。",
     chatFirstStorageUnavailable:
       "此瀏覽器不允許本機偏好設定，因此無法儲存聊天優先模式。",
     chatFirstStorageBlocked:
@@ -363,7 +357,7 @@ const messages = {
       monitoring: "監控",
       database: "資料庫",
       chatAcrossApps: "跨應用程式聊天",
-      chatHomeTitle: "我們該做什麼？",
+      chatHomeTitle: "今天我們該做什麼？",
       chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
       overviewPromptPlaceholder: "想讓 Dispatch 幫你做什麼？",
       chatPromptPlaceholder: "告訴 Dispatch 你想完成什麼…",

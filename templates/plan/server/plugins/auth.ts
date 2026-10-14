@@ -1,4 +1,4 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { PLAN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 import { isLocalPlanRuntime } from "../lib/local-identity.js";
@@ -31,7 +31,7 @@ const LOCAL_MODE_ACTION_PATHS: string[] = isLocalPlanRuntime()
 
 const PUBLIC_AGENT_CHAT_PATHS = ["/_agent-native/agent-chat"];
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppAudience: "internal",
   workspaceAppPublicPaths: [
     "/",
@@ -51,7 +51,8 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Plan",
-    learnMoreUrl: "https://agent-native.com/apps/plan",
+    learnMoreUrl:
+      "https://agent-native.com/apps/plan?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

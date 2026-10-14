@@ -68,6 +68,7 @@ function acceptFixture(fileId: string, content: string) {
 function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
+  boardFileId?: string;
   refusePersistFalseFor?: string[];
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
   publish?: Parameters<
@@ -100,6 +101,7 @@ function runStoredCrossScreenDrop(args: {
   const baseContentByFile = new Map(contentByFile);
   const historyEntries: unknown[] = [];
   const selectionEvents: string[] = [];
+  const clearExplicitOverviewScreenSelection = vi.fn();
   const cancelledFileIds: string[] = [];
   const fileHistoryMutationPendingRef = { current: false };
   let clearPendingHistoryCalls = 0;
@@ -164,8 +166,9 @@ function runStoredCrossScreenDrop(args: {
   runCrossScreenElementDrop(
     {
       applyFileContentUpdate,
-      boardFileId: undefined,
+      boardFileId: args.boardFileId,
       canEditDesign: true,
+      clearExplicitOverviewScreenSelection,
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
@@ -240,6 +243,7 @@ function runStoredCrossScreenDrop(args: {
     activeFileId,
     createdOverviewLayerSelection,
     historyEntries,
+    clearExplicitOverviewScreenSelection,
     fileHistoryMutationPendingRef,
     selectionEvents,
     selectedElement,
@@ -558,6 +562,46 @@ it("preflights both real writes before moving Alpine-owned source into a destina
 });
 
 describe("runCrossScreenElementDrop duplicate routing", () => {
+  it("persists an inline duplicate in the hit-tested empty grid cell", () => {
+    const sourceContent = `<html><body><div data-agent-native-node-id="source">Source</div></body></html>`;
+    const targetContent = `<html><body><main data-agent-native-node-id="grid" style="display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:100px 100px"><div data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1"></div></main></body></html>`;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: targetContent,
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="source"]',
+        sourceNodeId: "source",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "grid",
+        targetAnchorSelector: '[data-agent-native-node-id="grid"]',
+        targetAnchorProvenance: { uniqueNodeId: "grid" },
+        targetAnchorPlacement: "inside",
+        targetDropMode: "flow-insert",
+        targetGridPlacement: {
+          column: 3,
+          columnEnd: 4,
+          row: 2,
+          rowEnd: 3,
+        },
+        duplicate: true,
+        sourceCloneHtml: '<div data-agent-native-node-id="copy">Copy</div>',
+      },
+    });
+
+    const written = result.writes.get("target");
+    expect(written).toBeTruthy();
+    const copy = new DOMParser()
+      .parseFromString(written!, "text/html")
+      .querySelector('[data-agent-native-layer-name="Copy"]');
+    expect(copy?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "grid",
+    );
+    expect((copy as HTMLElement | null)?.style.gridColumn).toBe("3 / 4");
+    expect((copy as HTMLElement | null)?.style.gridRow).toBe("2 / 3");
+    expect(result.clearExplicitOverviewScreenSelection).toHaveBeenCalledOnce();
+  });
+
   it("links an inline duplicate into another Screen in the same Design", () => {
     const designId = "design-1";
     const sourceContent = `<!doctype html><html><body>
@@ -718,9 +762,15 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
           sourceNodeId: "source-id",
           sourceScreenId: "source",
           targetScreenId: "target",
-          targetAnchorSelector: "body",
+          targetAnchorSelector: "#grid",
           targetAnchorPlacement: "inside",
-          targetDropMode: "absolute-container",
+          targetDropMode: "flow-insert",
+          targetGridPlacement: {
+            column: 3,
+            columnEnd: 4,
+            row: 2,
+            rowEnd: 3,
+          },
           targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
           targetLocalPoint: { x: 240, y: 300 },
           sourcePointerOffset: { x: 10, y: 12 },
@@ -733,15 +783,16 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
       expect(runtimeStructureInsertRevisionRef.current).toBe(1);
       expect(runtimeStructureInsertRequest).toMatchObject({
         screenId: "target",
-        anchor: { selector: "body" },
+        anchor: { selector: "#grid" },
         placement: "inside",
+        gridPlacement: { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
       });
       const insertedHtml = (runtimeStructureInsertRequest as { html: string })
         .html;
       expect(insertedHtml).not.toContain('id="source-root"');
       expect(insertedHtml).toMatch(/data-agent-native-node-id="[^"]+"/);
-      expect(insertedHtml).toContain("left: 130px");
-      expect(insertedHtml).toContain("top: 238px");
+      expect(insertedHtml).not.toContain("left: 4px");
+      expect(insertedHtml).not.toContain("top: 6px");
     },
   );
 
@@ -1019,6 +1070,80 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
+  it("persists an unanchored board drop in authored coordinates outside board content", () => {
+    const renderOrigin = { x: -16_384, y: -8_192 };
+    const targetCanvasPoint = { x: -18_099.98, y: -9_234.5 };
+    const targetLocalPoint = {
+      x: targetCanvasPoint.x - renderOrigin.x,
+      y: targetCanvasPoint.y - renderOrigin.y,
+    };
+    const sourcePointerOffset = { x: 32, y: 12 };
+    const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
+    const { writes } = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      boardFileId: "target",
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="widget"]',
+        sourceNodeId: "widget",
+        sourceProvenance: { uniqueNodeId: "widget" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetDropMode: "absolute-container",
+        targetCanvasPoint,
+        targetOutsideBoardContentBounds: true,
+        targetLocalPoint,
+        sourcePointerOffset,
+      },
+    });
+
+    const persistedWidget = new DOMParser()
+      .parseFromString(writes.get("target") ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
+    expect(persistedWidget).not.toBeNull();
+    expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
+      Math.round(targetCanvasPoint.x - sourcePointerOffset.x),
+    );
+    expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
+      Math.round(targetCanvasPoint.y - sourcePointerOffset.y),
+    );
+  });
+
+  it("keeps render-window-local coordinates for an in-window board drop", () => {
+    const targetCanvasPoint = { x: 8_276, y: 5_000 };
+    const targetLocalPoint = { x: 84, y: 904 };
+    const sourcePointerOffset = { x: 32, y: 12 };
+    const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
+    const { writes } = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      boardFileId: "target",
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="widget"]',
+        sourceNodeId: "widget",
+        sourceProvenance: { uniqueNodeId: "widget" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetDropMode: "absolute-container",
+        targetCanvasPoint,
+        targetOutsideBoardContentBounds: false,
+        targetLocalPoint,
+        sourcePointerOffset,
+      },
+    });
+
+    const persistedWidget = new DOMParser()
+      .parseFromString(writes.get("target") ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
+    expect(persistedWidget).not.toBeNull();
+    expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
+      targetLocalPoint.x - sourcePointerOffset.x,
+    );
+    expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
+      targetLocalPoint.y - sourcePointerOffset.y,
+    );
+  });
+
   it("preserves resolved dimensions only when a drop converts auto layout to absolute positioning", () => {
     const sourceContent = `<!DOCTYPE html><html><body><section style="display:flex"><div data-agent-native-node-id="flow-child" style="flex:0 0 100px;height:50px"></div></section></body></html>`;
     const styleSnapshot = {
@@ -1111,6 +1236,9 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
       "move-id",
     );
     expect(selection.selectedLayerIds).toEqual([movedNode!.id]);
+    expect(
+      selection.clearExplicitOverviewScreenSelection,
+    ).toHaveBeenCalledOnce();
     expect(selection.createdOverviewLayerSelection).toEqual({
       screenId: "target",
       layerId: movedNode!.id,
@@ -2807,7 +2935,7 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     const runtimeContent =
       '<html><body><div id="subject" data-agent-native-node-id="runtime-1m2vou">Subject</div></body></html>';
     const targetContent =
-      '<html><body><div data-agent-native-node-id="an-anchor">Anchor</div></body></html>';
+      '<html><body><main data-agent-native-node-id="an-anchor" style="display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:100px 100px"></main></body></html>';
     const runtimeProjection = buildCodeLayerProjection(runtimeContent);
     const runtimeTree = buildCodeLayerTree(runtimeProjection);
     const sourceNodeIdAttrs = codeLayerSourceNodeIdAttrs(sourceContent);
@@ -2890,15 +3018,22 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
         targetScreenId: "target",
         targetAnchorNodeId: "an-anchor",
         targetAnchorSelector: '[data-agent-native-node-id="an-anchor"]',
-        targetAnchorPlacement: "after",
+        targetAnchorPlacement: "inside",
         targetDropMode: "flow-insert",
+        targetGridPlacement: {
+          column: 3,
+          columnEnd: 4,
+          row: 2,
+          rowEnd: 3,
+        },
       },
     );
 
     expect(sendRuntimeLayerMoveSemanticHandoff).toHaveBeenCalledWith(
       sourceNode.id,
       targetNode.id,
-      "after",
+      "inside",
+      { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
     );
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
   });

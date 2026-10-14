@@ -1,16 +1,12 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useDbSync } from "@agent-native/core/client/hooks";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/theme";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -30,6 +26,12 @@ import { Layout as AppLayout } from "@/components/layout/Layout";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
+import {
+  HOME_PATH,
+  isChatPathname,
+  NEW_CHAT_PATH,
+  threadIdFromPath,
+} from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { i18nCatalog } from "./i18n";
@@ -119,7 +121,7 @@ function AppContent() {
   const navigate = useNavigate();
   const t = useT();
   const location = useLocation();
-  const isChatThread = location.pathname.startsWith("/chat/");
+  const isChatThread = threadIdFromPath(location.pathname) !== null;
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -138,8 +140,13 @@ function AppContent() {
               {t("chat.newChat")}
             </CommandMenu.Item>
           ) : null}
-          {!isChatThread && location.pathname !== "/home" ? (
-            <CommandMenu.Item onSelect={() => navigate("/home")}>
+          {location.pathname !== HOME_PATH ? (
+            <CommandMenu.Item onSelect={() => navigate(HOME_PATH)}>
+              {t("navigation.home")}
+            </CommandMenu.Item>
+          ) : null}
+          {!isChatPathname(location.pathname) ? (
+            <CommandMenu.Item onSelect={() => navigate(NEW_CHAT_PATH)}>
               {t("navigation.chat")}
             </CommandMenu.Item>
           ) : null}
@@ -185,4 +192,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/error-boundary";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared/ErrorBoundary";

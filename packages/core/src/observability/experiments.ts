@@ -2,7 +2,7 @@ import { getDbExec } from "../db/client.js";
 import {
   insertExperiment,
   updateExperiment,
-  listExperiments,
+  listExperimentsPage,
   getExperiment,
   upsertAssignment,
   getAssignment,
@@ -30,14 +30,27 @@ function generateId(prefix: string): string {
 let _cachedActive: Experiment[] | null = null;
 let _cachedActiveAt = 0;
 const CACHE_TTL_MS = 5_000;
+const ACTIVE_EXPERIMENT_PAGE_SIZE = 100;
 
 async function getActiveExperiments(): Promise<Experiment[]> {
   const now = Date.now();
   if (_cachedActive && now - _cachedActiveAt < CACHE_TTL_MS) {
     return _cachedActive;
   }
-  const all = await listExperiments();
-  _cachedActive = all.filter((e) => e.status === "running");
+  const active: Experiment[] = [];
+  let before: { createdAt: number; id: string } | undefined;
+  for (;;) {
+    const page = await listExperimentsPage({
+      status: "running",
+      limit: ACTIVE_EXPERIMENT_PAGE_SIZE,
+      ...(before ? { before } : {}),
+    });
+    active.push(...page.filter((e) => e.status === "running"));
+    if (page.length < ACTIVE_EXPERIMENT_PAGE_SIZE) break;
+    const last = page.at(-1)!;
+    before = { createdAt: last.createdAt, id: last.id };
+  }
+  _cachedActive = active;
   _cachedActiveAt = now;
   return _cachedActive;
 }

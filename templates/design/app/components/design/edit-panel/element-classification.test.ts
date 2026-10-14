@@ -12,6 +12,7 @@ import {
   elementHasComponentAnnotation,
   inferElementSizing,
   inspectorObjectTitle,
+  isBoxlessText,
   isContainerElement,
   measuredElementSize,
   parentFlexDirection,
@@ -135,6 +136,67 @@ describe("isTextElement — B5-12 nested board text regression", () => {
   });
 });
 
+describe("isBoxlessText — corner radius on text", () => {
+  const text = (computedStyles: Record<string, string> = {}) =>
+    makeElement({ tagName: "h1", hasOwnText: true, computedStyles });
+
+  it("does not expose corner rounding for plain text", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage: "none",
+          borderTopWidth: "0px",
+          borderTopStyle: "none",
+          outlineWidth: "3px",
+          outlineStyle: "none",
+          outlineColor: "rgb(21, 24, 27)",
+          boxShadow: "none",
+          backdropFilter: "none",
+          textShadow: "0px 4px 12px rgba(30, 158, 73, 0.57)",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not count a gradient clipped to the glyphs as a box", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundImage: "linear-gradient(red, blue)",
+          backgroundClip: "text",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps corner radius when HTML text paints a box", () => {
+    expect(isBoxlessText(text({ backgroundColor: "rgb(255, 0, 0)" }))).toBe(
+      false,
+    );
+    expect(
+      isBoxlessText(text({ backgroundImage: "linear-gradient(red, blue)" })),
+    ).toBe(false);
+    expect(
+      isBoxlessText(
+        text({
+          borderLeftWidth: "1px",
+          borderLeftStyle: "solid",
+          borderLeftColor: "rgb(0, 0, 0)",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isBoxlessText(text({ boxShadow: "rgb(0, 0, 0) 0px 2px 4px 0px" })),
+    ).toBe(false);
+    expect(isBoxlessText(text({ backdropFilter: "blur(8px)" }))).toBe(false);
+  });
+
+  it("never disables corner radius on non-text layers", () => {
+    expect(isBoxlessText(makeElement({ tagName: "div" }))).toBe(false);
+  });
+});
+
 describe("isVectorShapeElement — pasted SVG descendants", () => {
   it("uses SVG fill controls for drawable path and shape elements", () => {
     for (const tagName of [
@@ -227,7 +289,7 @@ describe("inspectorObjectTitle", () => {
     ).toBe("Card");
   });
 
-  it("names images, vectors, and frames as Figma does instead of by tag", () => {
+  it("classifies imported images, vectors, and frames from layer metadata", () => {
     expect(inspectorObjectTitle(makeElement({ tagName: "img" }))).toBe("Image");
     expect(inspectorObjectTitle(makeElement({ tagName: "svg" }))).toBe(
       "Vector",

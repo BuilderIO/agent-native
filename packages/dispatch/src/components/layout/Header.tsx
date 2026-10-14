@@ -1,8 +1,10 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import { RunsTray } from "@agent-native/core/client/progress";
+import type { AgentRun } from "@agent-native/core/progress/types";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat/AgentSidebar";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";
 
+import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
 import { Button } from "../ui/button";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
@@ -10,7 +12,6 @@ const pageTitles: Record<string, string> = {
   "/": "Overview",
   "/overview": "Overview",
   "/vault": "Vault",
-  "/integrations": "Integrations",
   "/workspace": "Resources",
   "/messaging": "Messaging",
   "/agents": "Agents",
@@ -50,21 +51,15 @@ export function Header({
   const title = useHeaderTitle();
   const actions = useHeaderActions();
 
-  function openRunThread(threadId: string) {
+  function openRunThread(threadId: string, run: AgentRun) {
     void navigate("/chat", {
       state: {
         dispatchThread: {
           id: `${Date.now()}-${threadId}`,
           threadId,
+          ...getDispatchRunThreadContext(threadId, run),
         },
       },
-    });
-    window.requestAnimationFrame(() => {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId },
-        }),
-      );
     });
   }
 

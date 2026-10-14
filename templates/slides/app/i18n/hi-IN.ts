@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   templatesPage: {
     actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
     previewAction: "पूर्वावलोकन",
@@ -19,6 +20,9 @@ const messages = {
     slidePosition: "स्लाइड {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["hi-IN"],
+  common: {
+    loading: "लोड हो रहा है...",
+  },
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
     searchDecks: "डेक खोजें",
@@ -42,25 +46,19 @@ const messages = {
     designSystems: "डिज़ाइन सिस्टम",
   },
   settings: {
-    agentObservability: "एजेंट अवलोकन",
+    agentObservability: "अवलोकनक्षमता",
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
     labLayoutOverflowWarningDescription: "एडिटर में लेआउट ओवरफ्लो चेतावनी दिखाएँ।",
-    emailNotifications: "ईमेल सूचनाएँ",
-    emailNotificationsDescription:
-      "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
     notificationsEmail: "ईमेल",
     commentsAndReplies: "टिप्पणियाँ और जवाब",
     commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
     retry: "फिर कोशिश करें",
+    reload: "फिर से लोड करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -126,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "Google Drive की फ़ाइल ब्राउज़िंग कॉन्फ़िगर नहीं है। आप लिंक चिपकाकर दस्तावेज़ इंपोर्ट कर सकते हैं।",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
@@ -172,6 +170,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
+    slideConflictReview: "समीक्षा करें",
+    slideConflictTitle: "यह स्लाइड कहीं और बदली गई है",
+    slideConflictDescription:
+      "किसी अन्य संपादक ने नया संस्करण सहेजा है। अपना ड्राफ़्ट रखने से सहेजी गई स्लाइड की सामग्री बदल जाएगी, या नवीनतम संस्करण का उपयोग करें।",
+    slideConflictUseLatest: "नवीनतम संस्करण उपयोग करें",
+    slideConflictKeepDraft: "मेरा ड्राफ़्ट रखें",
+    slideConflictKeepEditing: "संपादन जारी रखें",
+    slideConflictResolutionFailed:
+      "संघर्ष हल नहीं हो सका। आपका ड्राफ़्ट अभी भी यहाँ है।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -231,6 +238,7 @@ const messages = {
     importCompleteFile: "{{fileName}} से फ़ाइल आयात हुई।",
     backToDecks: "डेक पर वापस जाएं",
     toggleSlideList: "स्लाइड सूची टॉगल करें",
+    openInAgentNative: "Agent-Native में खोलें",
     designSystem: "डिज़ाइन सिस्टम",
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
@@ -244,6 +252,19 @@ const messages = {
     media: "मीडिया",
     generateImage: "इमेज बनाएं",
     assetLibrary: "एसेट लाइब्रेरी",
+    imageOptions: "छवि विकल्प",
+    videoPlayback: "वीडियो प्लेबैक",
+    autoplayVideo: "अपने आप चलाएँ",
+    loopVideo: "वीडियो दोहराएँ",
+    videoUploading: "वीडियो अपलोड हो रहा है…",
+    videoAdded: "वीडियो जोड़ा गया",
+    videoUploadFailed: "वीडियो अपलोड विफल",
+    videoUploadError: "यह वीडियो अपलोड नहीं हो सका।",
+    videoFormatUnsupported: "केवल MP4 और WebM वीडियो समर्थित हैं।",
+    videoTooLarge: "वीडियो का आकार 50 MB या उससे कम होना चाहिए।",
+    videoUploadNeedsBuilder: "वीडियो स्टोरेज कॉन्फ़िगर नहीं है।",
+    cropImage: "छवि क्रॉप करें",
+    cropHandle: "छवि {{position}} क्रॉप करें",
     diagrams: "डायग्राम",
     insertMermaidDiagram: "Mermaid डायग्राम डालें",
     insertMermaidFailed: "डायग्राम डालने में विफल",
@@ -252,10 +273,21 @@ const messages = {
     convertMermaidFailed: "डायग्राम बदलने में विफल",
     removeExcalidrawCanvas: "Excalidraw कैनवास हटाएं",
     transition: "ट्रांज़िशन",
-    transition_instant: "तुरंत",
+    transition_none: "कोई नहीं",
+    transition_dissolve: "डिज़ॉल्व",
     transition_fade: "फ़ेड",
-    transition_slide: "स्लाइड",
-    transition_zoom: "ज़ूम",
+    transition_slide_from_right: "दाईं ओर से स्लाइड",
+    transition_slide_from_left: "बाईं ओर से स्लाइड",
+    transition_flip: "फ़्लिप",
+    transition_cube: "क्यूब",
+    transition_gallery: "गैलरी",
+    transition_panel: "स्लाइड ट्रांज़िशन",
+    transition_speed: "गति",
+    transition_slow: "धीमा",
+    transition_fast: "तेज़",
+    transition_seconds: "{{seconds}} सेकंड",
+    transition_apply_all: "सभी स्लाइड पर लागू करें",
+    transition_play: "ट्रांज़िशन चलाएं",
     aspectRatio: "आस्पेक्ट रेशियो",
     setAspectRatio: "डेक को {{ratio}} पर सेट करें",
     slideTools: "स्लाइड टूल्स",
@@ -291,6 +323,24 @@ const messages = {
     importing: "आयात हो रहा है...",
     importFile: "फ़ाइल आयात करें",
     downloadBackup: "बैकअप डाउनलोड करें",
+    conflictStatus: "टेक्स्ट में विरोध",
+    conflictStatusDescription:
+      "अन्य बदलाव सहेजने से पहले विरोध वाले टेक्स्ट की समीक्षा करें।",
+    accessLost: "एक्सेस खो गया",
+    accessLostDescription:
+      "इस डेक पर आपका एक्सेस बदल गया है। आपके बदलाव स्क्रीन पर बने रहेंगे; एक्सेस बहाल होने पर दोबारा कोशिश करें या बैकअप डाउनलोड करें।",
+    reviewConflict: "विरोध की समीक्षा करें",
+    conflictTitle: "स्लाइड {{number}} में टेक्स्ट का विरोध है",
+    conflictDescription:
+      "आपके टेक्स्ट संपादित करते समय किसी अन्य संस्करण ने इस स्लाइड को बदला।",
+    conflictChoicesDescription:
+      "अपना टेक्स्ट रखने पर वह नवीनतम संस्करण पर सहेजा जाएगा। सहेजा हुआ टेक्स्ट चुनने पर केवल इस स्लाइड का स्थानीय ड्राफ़्ट बदलेगा।",
+    conflictBackupDescription:
+      "पूरी प्रस्तुति के इस ड्राफ़्ट को स्लाइड-दर-स्लाइड हल नहीं किया जा सकता। इसे सुरक्षित रखने के लिए बैकअप डाउनलोड करें।",
+    conflictResolveFailed:
+      "विरोध हल नहीं हो सका। आपका ड्राफ़्ट इस डिवाइस पर उपलब्ध है।",
+    conflictKeepMine: "मेरा टेक्स्ट रखें",
+    conflictUseLatest: "सहेजा हुआ टेक्स्ट इस्तेमाल करें",
     importBackup: "बैकअप आयात करें",
     backupDownloaded: "बैकअप डाउनलोड हो गया",
     backupDownloadFailed: "बैकअप डाउनलोड नहीं हो सका",
@@ -325,6 +375,7 @@ const messages = {
       "Google Slides एक्सपोर्ट अभी अनुपलब्ध है क्योंकि Google कनेक्शन सेट अप नहीं है. इसके बजाय PPTX के रूप में एक्सपोर्ट करें और उसे Google Slides में इंपोर्ट करें.",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
+    googleSlidesGoTo: "Google Slides पर जाएँ",
     duplicateDeck: "डेक डुप्लिकेट करें",
   },
   share: {
@@ -387,6 +438,8 @@ const messages = {
     orderedList: "क्रमबद्ध सूची",
     quote: "उद्धरण",
     blockquote: "ब्लॉक उद्धरण",
+    divider: "विभाजक",
+    horizontalRule: "क्षैतिज रेखा",
   },
   comments: {
     deleteComment: "टिप्पणी हटाएं",
@@ -409,7 +462,8 @@ const messages = {
     resolveThread: "थ्रेड हल करें",
     reopenThread: "थ्रेड फिर खोलें",
     hideReplies: "जवाब छिपाएं",
-    replyCount: "{{count}} जवाब",
+    replyCount_one: "{{count}} जवाब",
+    replyCount_other: "{{count}} जवाब",
     title: "टिप्पणियां",
     addComment: "टिप्पणी जोड़ें",
     close: "बंद करें",
@@ -420,6 +474,7 @@ const messages = {
     retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
+    filters: "टिप्पणी फ़िल्टर",
     scope: "टिप्पणी का दायरा",
     thisSlide: "यह स्लाइड",
     allComments: "सभी स्लाइड",
@@ -546,7 +601,6 @@ const messages = {
     selectObject: "ऐनिमेट करने के लिए ऑब्जेक्ट चुनें",
     addTransition: "ट्रांज़िशन जोड़ें",
     effect: "प्रभाव",
-    trigger: "ट्रिगर",
     onClick: "क्लिक पर",
     byParagraph: "पैराग्राफ़ के अनुसार",
     expand: "ट्रांज़िशन फैलाएं",
@@ -557,6 +611,11 @@ const messages = {
     clearAll: "सब साफ़ करें",
     elements: "तत्व",
     autoFill: "ऑटो-फ़िल",
+    issueStalePath: "यह ऑब्जेक्ट अब स्लाइड पर नहीं है।",
+    issueMissingElement: "स्लाइड पर यह ऑब्जेक्ट नहीं मिला।",
+    issueDuplicate: "यह एनिमेशन स्लाइड पर किसी दूसरे एनिमेशन से ओवरलैप करता है।",
+    blocked: "सेव या प्ले करने से पहले हल न हो पाए एनिमेशन को हटाएँ या सुधारें।",
+    changeNotApplied: "यह बदलाव लागू नहीं हुआ।",
     noAnimatableElements: "इस स्लाइड पर कोई एनिमेट किए जा सकने वाले तत्व नहीं मिले।",
   },
   generateSlides: {
@@ -600,9 +659,12 @@ const messages = {
     slideNumber: "स्लाइड {{number}}",
     noSlidesInSnapshot: "इस स्नैपशॉट में कोई स्लाइड नहीं है।",
     restoreThisVersion: "यह संस्करण बहाल करें",
+    retry: "फिर से प्रयास करें",
     noSavedVersions: "अभी कोई सहेजा गया संस्करण नहीं",
     noSavedVersionsDescription:
       "भविष्य के डेक संपादनों से पहले संस्करण अपने-आप सहेजे जाते हैं।",
+    loadFailed: "सहेजे गए संस्करण लोड नहीं हो सके।",
+    snapshotLoadFailed: "यह सहेजा गया संस्करण लोड नहीं हो सका।",
   },
   editorSidebar: {
     selectSlide: "स्लाइड {{number}} चुनें",
@@ -724,6 +786,16 @@ const messages = {
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",
+    agentRunFailed:
+      "स्लाइड बनाने से पहले एजेंट रन विफल हो गया। चैट में विवरण देखें और फिर कोशिश करें।",
+    generationFailed: "स्लाइड नहीं बन पाईं। चैट में विवरण देखें और फिर से कोशिश करें।",
+    generationOutcomeUnresolved:
+      "हम पुष्टि नहीं कर पाए कि स्लाइड बनी हैं या नहीं। दोबारा कोशिश करने से पहले डेक देखें।",
+    partialGenerationFailed:
+      "हम स्लाइड बनाना पूरा नहीं कर पाए। आगे बढ़ने से पहले, यहाँ मौजूद स्लाइड और अपना मूल अनुरोध देख लें।",
+    originalPrompt: "आपका अनुरोध",
+    backToHome: "होम पर वापस जाएं",
+    checkedDeckTryAgain: "मैंने डेक जाँच लिया है। फिर कोशिश करें",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",
@@ -757,7 +829,7 @@ const messages = {
     sourceMixed: "कई स्रोत",
     sourceBuilder: "Builder डिज़ाइन सिस्टम इंटेलिजेंस",
     sourceIndexingDescription:
-      "Builder अभी इस स्रोत को प्रोसेस कर रहा है। तैयार परिणाम यहां दिखाई देंगे।",
+      "आपकी ब्रांड शैली अभी तैयार हो रही है। तैयार होने तक प्रतीक्षा करें, फिर दोबारा कोशिश करें।",
     sourceIndexedDescription: "{{docs}} दस्तावेज़ · {{tokens}} टोकन इंडेक्स किए गए",
     sourceIndexedDocsOnly: "{{docs}} दस्तावेज़ इंडेक्स किए गए",
     sourceIndexedTokensOnly: "{{tokens}} टोकन इंडेक्स किए गए",
@@ -841,6 +913,7 @@ const messages = {
       networkFailed:
         "आयात अनुरोध का समय समाप्त हो गया या नेटवर्क कनेक्शन टूट गया। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
       notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+      unsupportedFileType: "यह फ़ाइल प्रकार समर्थित नहीं है। समर्थित फ़ाइल चुनें।",
       uploadLimitExceeded:
         "अपलोड की अनुमति सीमा पार हो गई है। फ़ाइल का आकार कम करें या कम फ़ाइलें चुनें, फिर दोबारा कोशिश करें।",
     },
@@ -860,7 +933,7 @@ const messages = {
       searchPresentations: "प्रस्तुतियाँ खोजें…",
       menu: {
         system: "डिज़ाइन सिस्टम का उपयोग करें",
-        figma: "Figma संलग्न करें",
+        figma: "Figma जोड़ें",
         design: "डिज़ाइन का संदर्भ लें",
         deck: "प्रस्तुति का संदर्भ लें",
         searchDesign: "डिज़ाइन खोजें…",
@@ -881,6 +954,8 @@ const messages = {
       notReady:
         "संदर्भ लोड हो रहा है या उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें या उसे हटाएं।",
       emptySource: "इस स्रोत से उपयोगी संदर्भ नहीं मिला।",
+      websiteReadFailed:
+        "इस वेबसाइट को अपने-आप नहीं पढ़ा जा सका। इसके बजाय संबंधित टेक्स्ट कॉपी करके पेस्ट करें।",
       figmaReadFailed:
         "Design यह Figma संदर्भ नहीं पढ़ सका। Design में सेव किया गया Figma access token और यह जाँचें कि उससे जुड़ा खाता फ़ाइल खोल सकता है, फिर दोबारा कोशिश करें।",
       tooMany: "अधिकतम 20 संदर्भ चुनें।",
@@ -921,8 +996,8 @@ const messages = {
           "दी गई कंपनी की वेबसाइट पढ़ें और कंपनी के बारे में प्रस्तुति बनाएं। तथ्य गढ़ने के बजाय पहुंच की विफलताओं की जानकारी दें।",
       },
     },
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     recent: "हाल के",
     starters: {
       pitch: {
@@ -956,13 +1031,19 @@ const messages = {
     generationStartFailed: "डेक जनरेशन शुरू नहीं हो सकी",
     generationStartFailedDescription:
       "नया डेक सहेजना पूरा नहीं हुआ, इसलिए एजेंट को गुम डेक पर शुरू नहीं किया गया। आपका प्रॉम्प्ट सहेज लिया गया है ताकि आप फिर कोशिश कर सकें।",
+    generationContextUnavailableDescription:
+      "चुनी गई ब्रांड शैली या संदर्भ प्रस्तुति को लोड नहीं किया जा सका। जांचें कि आप इसे खोल सकते हैं और आपका इंटरनेट कनेक्शन काम कर रहा है, फिर दोबारा कोशिश करें।",
     showAllDecks: "सभी डेक दिखाएं",
     all: "सभी",
     showMineDecks: "मेरे बनाए डेक दिखाएं",
     mine: "मेरे",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
     noDecksMatchSearch: "आपकी खोज से कोई डेक मेल नहीं खाता।",
+    noDecksMatchFilter: "वर्तमान फ़िल्टर से कोई डेक मेल नहीं खाता।",
     deleteDeckTitle: "डेक हटाएं?",
     deleteDeckDescription:
       "यह इस डेक और इसकी सभी स्लाइड्स को स्थायी रूप से हटा देगा। यह कार्रवाई वापस नहीं की जा सकती।",
@@ -1034,6 +1115,11 @@ const messages = {
     emptyTitle: "अभी कोई डेक नहीं",
     createFirstDeck: "अपना पहला डेक बनाएं",
     emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
+    },
   },
 };
 

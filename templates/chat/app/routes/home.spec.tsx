@@ -2,13 +2,23 @@
 
 import { readFileSync } from "node:fs";
 
+import {
+  COMPOSER_CONTEXT_MAX_BYTES,
+  type PromptComposerProps,
+} from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  readFailedChatHandoff,
+  writeFailedChatHandoff,
+} from "@/lib/chat-paths";
+
 const routeState = vi.hoisted(() => ({
   basePath: "",
   threadId: undefined as string | undefined,
+  activeRunIds: [] as string[],
   messages: [] as Array<{
     id: string;
     role?: string;
@@ -35,8 +45,18 @@ const routeState = vi.hoisted(() => ({
   }>,
   rootProps: null as Record<string, unknown> | null,
   chatProps: null as Record<string, unknown> | null,
+  stopButton: "stop-button-element" as unknown,
+  stopButtonOptions: null as {
+    label: string;
+    onError: (error: Error) => void;
+  } | null,
+  connectionRequestProps: null as Record<string, unknown> | null,
+  resumeProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
   sendMessage: vi.fn(),
+  uploadFiles: vi.fn(),
+  send: vi.fn(),
+  locationState: null as unknown,
 }));
 
 const createTransport = vi.hoisted(() =>
@@ -51,35 +71,46 @@ const createTransport = vi.hoisted(() =>
   }),
 );
 const markHandoff = vi.hoisted(() => vi.fn());
+const captureException = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
+const toastError = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
   markAgentChatHomeHandoff: markHandoff,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
   agentNativePath: (path: string) => `${routeState.basePath}${path}`,
 }));
-vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
+vi.mock("@agent-native/core/client/analytics", () => ({
+  captureException,
+  trackEvent,
+}));
 
-vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   CoreComposerRuntimeProvider: ({
     children,
   }: {
     children: React.ReactNode;
   }) => <div data-core-composer-runtime="">{children}</div>,
 }));
-vi.mock("@agent-native/core/client/agentkit-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/index", () => ({
   CoreAgentKitRoot: (props: Record<string, unknown>) => {
     routeState.rootProps = props;
     return <>{props.children as React.ReactNode}</>;
   },
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/connections", () => ({
-  McpAgentKitConnectionRequestCard: () => null,
-  McpAgentKitConnectionResume: () => null,
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/connections", () => ({
+  McpAgentKitConnectionRequestCard: (props: Record<string, unknown>) => {
+    routeState.connectionRequestProps = props;
+    return null;
+  },
+  McpAgentKitConnectionResume: (props: Record<string, unknown>) => {
+    routeState.resumeProps = props;
+    return null;
+  },
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/questions", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/questions", () => ({
   GuidedQuestionFlow: () => null,
   useGuidedQuestionFlow: () => ({
     questions: null,
@@ -87,7 +118,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/questions", () => ({
     handleSkip: vi.fn(),
   }),
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/suggestions", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/suggestions", () => ({
   findMcpConnectionSuggestionIntegration: () => null,
   McpConnectionSuggestion: () => null,
 }));
@@ -95,7 +126,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
   createAgentNativeAgentKitTransport: createTransport,
 }));
 
-vi.mock("@agent-native/agentkit/react/components", () => ({
+vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
   AgentMessageView: ({ value }: { value: { id: string } }) => (
     <div data-testid="rendered-agent-message">{value.id}</div>
   ),
@@ -103,10 +134,23 @@ vi.mock("@agent-native/agentkit/react/components", () => ({
     <div data-testid="generic-run-failure">{error.message}</div>
   ),
   AgentConnectionRequestCard: () => null,
+  useAgentKitStopButton: (options: {
+    label: string;
+    onError: (error: Error) => void;
+  }) => {
+    routeState.stopButtonOptions = options;
+    return routeState.stopButton;
+  },
   AgentKitChat: (props: Record<string, unknown>) => {
     routeState.chatProps = props;
+    const composerProps = props.composerProps as
+      | { toolbarSlot?: React.ReactNode }
+      | undefined;
     return (
       <div data-agentkit-chat="">
+        <div data-testid="composer-toolbar-slot">
+          {composerProps?.toolbarSlot}
+        </div>
         {routeState.messages.length > 0
           ? (props.toolbar as React.ReactNode)
           : null}
@@ -114,9 +158,13 @@ vi.mock("@agent-native/agentkit/react/components", () => ({
     );
   },
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
-    <button data-testid="chat-builder-setup" onClick={onRetry} />
+    <div data-testid="chat-builder-setup">
+      {onRetry ? (
+        <button data-testid="chat-builder-setup-retry" onClick={onRetry} />
+      ) : null}
+    </div>
   ),
   isMissingLlmProviderRunError: ({
     errorCode,
@@ -128,7 +176,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     errorCode === "missing_credentials" ||
     /No LLM provider key was found/i.test(details ?? ""),
 }));
-vi.mock("@agent-native/agentkit/react/context", () => ({
+vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
   useAgentKit: () => ({
     threadId: routeState.threadId ?? "new-thread",
     controller: {
@@ -138,8 +186,13 @@ vi.mock("@agent-native/agentkit/react/context", () => ({
   }),
   useAgentKitControl: () => ({
     resolveConnectionRequest: routeState.resolveConnectionRequest,
+    send: routeState.send,
+    sendMessage: routeState.sendMessage,
+    uploadFiles: routeState.uploadFiles,
   }),
   useAgentThread: () => ({
+    activeRunIds: routeState.activeRunIds,
+    events: [],
     messages: routeState.messages,
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
@@ -147,13 +200,22 @@ vi.mock("@agent-native/agentkit/react/context", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 vi.mock("react-router", () => ({
   useNavigate: () => routeState.navigate,
   useParams: () => ({ threadId: routeState.threadId }),
+  useLocation: () => ({
+    pathname: `/chat/${routeState.threadId ?? ""}`,
+    search: "",
+    state: routeState.locationState,
+  }),
 }));
 
 vi.mock("@/lib/app-config", () => ({ APP_TITLE: "Chat" }));
+vi.mock("@/components/home/HomePage", () => ({
+  default: () => <div data-testid="home-page" />,
+}));
 vi.mock("@/lib/tab-id", () => ({ TAB_ID: "chat-tab" }));
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -167,17 +229,28 @@ vi.mock("@/components/ui/tooltip", () => ({
 
 import ChatRoute from "@/components/chat/ChatRouteContent";
 
-import ChatHomeRoute from "./home";
+import ChatHomeRoute from "./chat._index";
+import HomeRoute from "./home";
 
 describe("ChatRoute AgentKit surface", () => {
   let container: HTMLDivElement;
   let root: Root;
   let locationReplace: ReturnType<typeof vi.spyOn>;
+  let restoreSessionStorageSetItem: (() => void) | null = null;
+  let restoreSessionStorageRemoveItem: (() => void) | null = null;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     routeState.basePath = "";
+    routeState.send.mockReset();
+    routeState.send.mockResolvedValue(undefined);
+    routeState.sendMessage.mockReset();
+    routeState.sendMessage.mockResolvedValue(undefined);
+    routeState.uploadFiles.mockReset();
+    routeState.uploadFiles.mockResolvedValue([]);
+    routeState.locationState = null;
     routeState.threadId = undefined;
+    routeState.activeRunIds = [];
     routeState.messages = [];
     routeState.title = undefined;
     routeState.navigate.mockReset();
@@ -185,10 +258,13 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.transports = [];
     routeState.rootProps = null;
     routeState.chatProps = null;
+    routeState.connectionRequestProps = null;
+    routeState.resumeProps = null;
     routeState.resolveConnectionRequest.mockReset();
-    routeState.sendMessage.mockReset();
     createTransport.mockClear();
     markHandoff.mockClear();
+    captureException.mockReset();
+    toastError.mockReset();
     trackEvent.mockClear();
     window.sessionStorage.clear();
     locationReplace = vi
@@ -203,7 +279,13 @@ describe("ChatRoute AgentKit surface", () => {
     act(() => root.unmount());
     container.remove();
     locationReplace.mockRestore();
+    restoreSessionStorageSetItem?.();
+    restoreSessionStorageSetItem = null;
+    restoreSessionStorageRemoveItem?.();
+    restoreSessionStorageRemoveItem = null;
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("mounts the real Agent-Native transport into AgentKit", () => {
@@ -244,7 +326,12 @@ describe("ChatRoute AgentKit surface", () => {
         voiceEnabled: true,
         includeDefaultSlashCommands: false,
         includeDefaultSlashSkills: false,
+        stopButton: routeState.stopButton,
       },
+    });
+    expect(routeState.stopButtonOptions).toMatchObject({
+      label: expect.any(String),
+      onError: expect.any(Function),
     });
     expect(
       container.querySelector("[data-core-composer-runtime]"),
@@ -252,6 +339,72 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-agent-page-workspace-toggle]"),
     ).toBeNull();
+  });
+
+  it("passes connection request scope to the MCP connection card", () => {
+    routeState.threadId = "thread-one";
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      connectionRequest: React.ComponentType<{
+        value: {
+          id: string;
+          provider: string;
+          reason: "grant";
+          status: "requested";
+          appId: string;
+          source: { id: string; kind: string; label: string };
+        };
+        runId: string;
+      }>;
+    };
+    const source = {
+      id: "salesforce",
+      kind: "workspace_connection",
+      label: "Salesforce",
+    };
+    act(() =>
+      root.render(
+        React.createElement(slots.connectionRequest, {
+          value: {
+            id: "request-one",
+            provider: "salesforce",
+            reason: "grant",
+            status: "requested",
+            appId: "chat",
+            source,
+          },
+          runId: "run-one",
+        }),
+      ),
+    );
+
+    expect(routeState.connectionRequestProps).toMatchObject({
+      reason: "grant",
+      appId: "chat",
+      source,
+    });
+  });
+
+  it("keeps failed connection resolution retryable", async () => {
+    routeState.threadId = "thread-one";
+    const error = new Error("Connection request could not be resolved.");
+    routeState.resolveConnectionRequest.mockRejectedValueOnce(error);
+    await act(async () => root.render(<ChatRoute />));
+
+    const resumeProps = routeState.resumeProps as {
+      onResume: (
+        target: { threadId: string; runId: string; requestId: string },
+        request: { message: string },
+      ) => Promise<void>;
+    };
+    await expect(
+      resumeProps.onResume(
+        { threadId: "thread-one", runId: "run-one", requestId: "req-one" },
+        { message: "Continue after connecting." },
+      ),
+    ).rejects.toBe(error);
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
   });
 
   it("keeps the empty chat state to its heading", () => {
@@ -322,6 +475,13 @@ describe("ChatRoute AgentKit surface", () => {
             mediaType: "application/pdf",
           },
         ],
+        metadata: {
+          engine: "anthropic",
+          model: "claude-example",
+          effort: "high",
+          mode: "plan",
+          requestMode: "plan",
+        },
       },
     ];
     act(() => root.render(<ChatRoute />));
@@ -350,7 +510,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     act(() =>
       container
-        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
         ?.click(),
     );
 
@@ -366,12 +528,41 @@ describe("ChatRoute AgentKit surface", () => {
           mediaType: "application/pdf",
         },
       ],
+      options: {
+        model: "claude-example",
+        mode: "plan",
+        reasoningEffort: "high",
+        metadata: {
+          engine: "anthropic",
+          model: "claude-example",
+          effort: "high",
+          mode: "plan",
+          requestMode: "plan",
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: "run-one",
+            agentNativeQueueWhileRunning: true,
+            agentNativeQueuedWhileRunActive: false,
+            agentNativeInterruptActiveRun: false,
+          },
+        },
+      },
       metadata: {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        mode: "plan",
+        requestMode: "plan",
         custom: {
           agentNativeRecoveryAction: "retry",
           agentNativeRecoveryOfRunId: "run-one",
+          agentNativeQueueWhileRunning: true,
+          agentNativeQueuedWhileRunActive: false,
+          agentNativeInterruptActiveRun: false,
         },
       },
+      queueWhileRunning: true,
+      queuedWhileRunActive: false,
     });
 
     const messageSlot = (
@@ -502,7 +693,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     act(() =>
       container
-        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
         ?.click(),
     );
 
@@ -510,6 +703,723 @@ describe("ChatRoute AgentKit surface", () => {
     expect(container.querySelector("[role='alert']")?.textContent).toBe(
       "chat.retryAttachmentUnavailable",
     );
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).not.toBeNull();
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='remove-recovery-attachment-0']",
+        )
+        ?.click(),
+    );
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).toBeNull();
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click(),
+    );
+    expect(routeState.sendMessage).toHaveBeenCalledWith({
+      threadId: "thread-one",
+      text: "Summarize this file",
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+          agentNativeQueueWhileRunning: true,
+          agentNativeQueuedWhileRunActive: false,
+          agentNativeInterruptActiveRun: false,
+        },
+      },
+      queueWhileRunning: true,
+      queuedWhileRunActive: false,
+    });
+  });
+
+  it("captures rejected retry sends", async () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Draft a launch plan" }],
+      },
+    ];
+    routeState.sendMessage.mockRejectedValueOnce(new Error("send failed"));
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    act(() =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { area: "chat_retry" },
+    });
+  });
+
+  it("sends the full Home composer payload once, then clears it", async () => {
+    routeState.threadId = "chat-from-home";
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const projectContext = "Use project defaults. ".repeat(500);
+    const contextItems = [
+      { key: "project", title: "Project", context: projectContext },
+    ];
+    const uploadedAttachment = {
+      type: "file",
+      name: "notes.txt",
+      mediaType: "text/plain",
+      url: "https://uploads.example/notes.txt",
+    };
+    routeState.locationState = {
+      initialMessage: "Call the hello action",
+      initialComposerOptions: {
+        intent: "queued",
+        steer: true,
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        mode: "plan",
+        references,
+        contextItems,
+        composerModeContext: "Use the selected action.",
+        uploadedAttachments: [uploadedAttachment],
+      },
+    };
+
+    await act(async () =>
+      root.render(
+        <React.StrictMode>
+          <ChatRoute />
+        </React.StrictMode>,
+      ),
+    );
+
+    const expectedMetadata = {
+      engine: "anthropic",
+      model: "claude-example",
+      effort: "high",
+      references,
+      contextItems,
+      mode: "plan",
+      requestMode: "plan",
+      custom: {
+        agentNativeQueueWhileRunning: true,
+        agentNativeQueuedWhileRunActive: true,
+        agentNativeInterruptActiveRun: true,
+      },
+    };
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage).toHaveBeenCalledWith({
+      text: `Call the hello action\n\n<context data-agentkit-context-encoding="entities-v1">\nUse the selected action.\n\n${projectContext.trim()}\n</context>`,
+      attachments: [uploadedAttachment],
+      options: {
+        model: "claude-example",
+        mode: "plan",
+        reasoningEffort: "high",
+        metadata: expectedMetadata,
+      },
+      metadata: expectedMetadata,
+      queueWhileRunning: true,
+      queuedWhileRunActive: true,
+      interruptActiveRun: true,
+    });
+    expect(routeState.navigate).toHaveBeenCalledWith(
+      { pathname: "/chat/chat-from-home", search: "" },
+      { replace: true, state: null },
+    );
+  });
+
+  it.each([
+    {
+      intent: "immediate" as const,
+      active: true,
+      queueWhileRunning: false,
+      queuedWhileRunActive: false,
+    },
+    {
+      intent: "queued" as const,
+      active: false,
+      queueWhileRunning: true,
+      queuedWhileRunActive: true,
+    },
+    {
+      intent: undefined,
+      active: true,
+      queueWhileRunning: true,
+      queuedWhileRunActive: true,
+    },
+  ])(
+    "preserves $intent handoff intent with active=$active",
+    async ({ intent, active, queueWhileRunning, queuedWhileRunActive }) => {
+      routeState.threadId = "chat-from-home";
+      routeState.activeRunIds = active ? ["run-active"] : [];
+      routeState.locationState = {
+        initialMessage: "Continue with the requested work",
+        initialComposerOptions: intent ? { intent } : undefined,
+      };
+
+      await act(async () => root.render(<ChatRoute />));
+
+      expect(routeState.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queueWhileRunning,
+          queuedWhileRunActive,
+        }),
+      );
+    },
+  );
+
+  it("restores failed handoff settings and clears recovery after a successful retry", async () => {
+    routeState.threadId = "chat-from-home";
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const contextItems = [
+      { key: "project", title: "Project", context: "Use project defaults." },
+    ];
+    const uploadedAttachment = {
+      type: "file",
+      name: "notes.txt",
+      mediaType: "text/plain",
+      url: "https://uploads.example/notes.txt",
+    };
+    routeState.locationState = {
+      initialMessage: "Call the hello action",
+      initialComposerOptions: {
+        intent: "queued",
+        steer: true,
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        mode: "plan",
+        references,
+        contextItems,
+        composerModeContext: "Use the selected action.",
+        uploadedAttachments: [uploadedAttachment],
+      },
+    };
+    routeState.sendMessage.mockRejectedValueOnce(
+      new Error("No model connected"),
+    );
+
+    await act(async () => root.render(<ChatRoute />));
+
+    const storageKey = "agent-native.chat.failed-handoff:chat-from-home";
+    expect(window.sessionStorage.getItem(storageKey)).toContain(
+      "Call the hello action",
+    );
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    routeState.sendMessage.mockClear();
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: {
+        initialText: "Call the hello action",
+        selectedEngine: "anthropic",
+        selectedModel: "claude-example",
+        selectedEffort: "high",
+        mode: "plan",
+        contextItems,
+      },
+    });
+    expect(
+      container.querySelector('[data-recovery-source="reference"]')
+        ?.textContent,
+    ).toContain("hello.ts");
+    expect(
+      container.querySelector("[data-testid='remove-recovery-reference-0']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]')
+        ?.textContent,
+    ).toContain("notes.txt");
+    expect(
+      container.querySelector("[data-testid='remove-recovery-attachment-0']"),
+    ).not.toBeNull();
+    const retry = (
+      routeState.chatProps?.composerProps as {
+        onSubmit: PromptComposerProps["onSubmit"];
+      }
+    ).onSubmit;
+    const onLocalSubmit = vi.fn();
+    await act(async () =>
+      retry("Call the hello action", [], [], {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        onLocalSubmit,
+      }),
+    );
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Use the selected action."),
+        attachments: [uploadedAttachment],
+        queueWhileRunning: true,
+        queuedWhileRunActive: true,
+        interruptActiveRun: true,
+        options: expect.objectContaining({
+          model: "claude-example",
+          mode: "plan",
+          reasoningEffort: "high",
+        }),
+        metadata: expect.objectContaining({
+          engine: "anthropic",
+          model: "claude-example",
+          effort: "high",
+          references,
+          contextItems,
+          mode: "plan",
+          requestMode: "plan",
+        }),
+        onLocalSubmit,
+      }),
+    );
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+
+    routeState.threadId = "another-thread";
+    act(() => root.render(<ChatRoute />));
+    routeState.threadId = "chat-from-home";
+    act(() => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+  });
+
+  it("shows failed-request references and attachments and lets people remove them before retry", async () => {
+    routeState.threadId = "thread-one";
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const attachment = {
+      type: "file" as const,
+      name: "brief.pdf",
+      url: "/uploads/brief.pdf",
+      mediaType: "application/pdf",
+    };
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize this file" }, attachment],
+        metadata: {
+          references,
+          custom: {
+            agentNativeQueueWhileRunning: true,
+            agentNativeQueuedWhileRunActive: true,
+            agentNativeInterruptActiveRun: true,
+          },
+        },
+      },
+    ];
+    await act(async () => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    await act(async () =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector('[data-recovery-source="reference"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='remove-recovery-reference-0']",
+        )
+        ?.click();
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='remove-recovery-attachment-0']",
+        )
+        ?.click();
+    });
+
+    expect(
+      container.querySelector('[data-recovery-source="reference"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).toBeNull();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(routeState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Summarize this file",
+        queueWhileRunning: true,
+        queuedWhileRunActive: true,
+        interruptActiveRun: true,
+        metadata: {
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: "run-one",
+            agentNativeQueueWhileRunning: true,
+            agentNativeQueuedWhileRunActive: true,
+            agentNativeInterruptActiveRun: true,
+          },
+        },
+      }),
+    );
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).not.toHaveProperty(
+      "attachments",
+    );
+  });
+
+  it("preserves an immediate run when retrying its failure", async () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Run this immediately" }],
+        metadata: {
+          custom: {
+            agentNativeQueueWhileRunning: false,
+            agentNativeQueuedWhileRunActive: false,
+            agentNativeInterruptActiveRun: false,
+          },
+        },
+      },
+    ];
+    await act(async () => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    await act(async () =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(routeState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueWhileRunning: false,
+        queuedWhileRunActive: false,
+        metadata: {
+          custom: expect.objectContaining({
+            agentNativeQueueWhileRunning: false,
+            agentNativeQueuedWhileRunActive: false,
+            agentNativeInterruptActiveRun: false,
+          }),
+        },
+      }),
+    );
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).not.toHaveProperty(
+      "interruptActiveRun",
+    );
+  });
+
+  it("reports a handed-over prompt that fails to send", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+    routeState.sendMessage.mockRejectedValue(new Error("No model connected"));
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { area: "chat_initial_message" },
+    });
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Call the hello action" },
+    });
+  });
+
+  it("clears router state when failed handoff storage is unavailable", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+    const setItemSpy = vi
+      .spyOn(window.sessionStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage is full", "QuotaExceededError");
+      });
+    restoreSessionStorageSetItem = () => setItemSpy.mockRestore();
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(routeState.navigate).toHaveBeenCalledWith(
+      { pathname: "/chat/chat-from-home", search: "" },
+      { replace: true, state: null },
+    );
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Call the hello action" },
+    });
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
+        ?.textContent,
+    ).toBe("chat.recoveryDraftUnsaved");
+  });
+
+  it("sends an oversized recovery prompt without blocking the initial request", async () => {
+    routeState.threadId = "large-prompt-chat";
+    const message = "漢".repeat(64 * 1024);
+    routeState.locationState = { initialMessage: message };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: message,
+    });
+    expect(readFailedChatHandoff("large-prompt-chat")).toEqual({
+      status: "absent",
+    });
+  });
+
+  it("sends context that fits the composer limit with its recovery envelope", async () => {
+    routeState.threadId = "large-context-chat";
+    const contextItems = [
+      {
+        key: "project",
+        title: "Project",
+        context: "界".repeat(21_800),
+      },
+    ];
+    expect(
+      new TextEncoder().encode(JSON.stringify(contextItems)).byteLength,
+    ).toBeLessThanOrEqual(COMPOSER_CONTEXT_MAX_BYTES);
+    routeState.locationState = {
+      initialMessage: "Use the project context",
+      initialComposerOptions: { contextItems },
+    };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: expect.stringContaining(contextItems[0]!.context),
+      metadata: { contextItems },
+    });
+    expect(readFailedChatHandoff("large-context-chat")).toEqual({
+      status: "absent",
+    });
+  });
+
+  it("retains an unsaved recovery draft while switching between threads", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Keep this request" };
+    const setItemSpy = vi
+      .spyOn(window.sessionStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage is full", "QuotaExceededError");
+      });
+    restoreSessionStorageSetItem = () => setItemSpy.mockRestore();
+
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Keep this request" },
+    });
+
+    routeState.threadId = "another-thread";
+    routeState.locationState = null;
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]'),
+    ).toBeNull();
+
+    routeState.threadId = "chat-from-home";
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Keep this request" },
+    });
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
+        ?.textContent,
+    ).toBe("chat.recoveryDraftUnsaved");
+  });
+
+  it("does not restore an accepted handoff when session storage refuses removal", async () => {
+    routeState.threadId = "accepted-chat";
+    routeState.locationState = { initialMessage: "Send this once" };
+    const removeItemSpy = vi
+      .spyOn(window.sessionStorage, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("storage remove failed");
+      });
+    restoreSessionStorageRemoveItem = () => removeItemSpy.mockRestore();
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(readFailedChatHandoff("accepted-chat")).toEqual({
+      status: "absent",
+    });
+
+    routeState.locationState = null;
+    act(() => root.unmount());
+    root = createRoot(container);
+    routeState.sendMessage.mockClear();
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+  });
+
+  it("warns when edits to a recovery draft cannot be saved", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+    routeState.sendMessage.mockRejectedValueOnce(
+      new Error("No model connected"),
+    );
+
+    await act(async () => root.render(<ChatRoute />));
+
+    const editedDraft = "漢".repeat(64 * 1024);
+    const onTextChange = (
+      routeState.chatProps?.composerProps as {
+        onTextChange: (text: string) => void;
+      }
+    ).onTextChange;
+    act(() => onTextChange(editedDraft));
+
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
+        ?.textContent,
+    ).toBe("chat.recoveryDraftUnsaved");
+    expect(readFailedChatHandoff("chat-from-home")).toEqual({
+      status: "absent",
+    });
+
+    routeState.locationState = null;
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+  });
+
+  it("keeps the prompt recoverable instead of sending invalid handoff options", async () => {
+    routeState.threadId = "invalid-chat";
+    routeState.locationState = {
+      initialMessage: "Use the selected references",
+      initialComposerOptions: { futureOption: "unsupported" },
+    };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(routeState.navigate).toHaveBeenCalledWith(
+      { pathname: "/chat/invalid-chat", search: "" },
+      { replace: true, state: null },
+    );
+    expect(toastError).toHaveBeenCalledWith("chat.invalidHandoffOptions");
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Use the selected references" },
+    });
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.chat.failed-handoff:invalid-chat",
+      ),
+    ).toContain("Use the selected references");
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { area: "chat_initial_message" },
+    });
   });
 
   it("keeps one owned transport across routed threads", () => {
@@ -541,6 +1451,24 @@ describe("ChatRoute AgentKit surface", () => {
       expect.stringMatching(/^\/chat\/chat-/),
     );
     expect(markHandoff).toHaveBeenCalledWith("chat");
+  });
+
+  it("renders the Home page at /home during development", async () => {
+    vi.stubEnv("DEV", true);
+    await act(async () => root.render(<HomeRoute />));
+
+    expect(container.querySelector('[data-testid="home-page"]')).not.toBeNull();
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(markHandoff).not.toHaveBeenCalled();
+  });
+
+  it("renders the Home page at /home in production", async () => {
+    vi.stubEnv("DEV", false);
+    await act(async () => root.render(<HomeRoute />));
+
+    expect(container.querySelector('[data-testid="home-page"]')).not.toBeNull();
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(markHandoff).not.toHaveBeenCalled();
   });
 
   it("keeps the home handoff inside the deployed app base path", async () => {

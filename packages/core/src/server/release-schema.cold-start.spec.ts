@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import {
   closeDbExec,
   getDbExec,
@@ -31,6 +32,8 @@ describe("hosted cold start against a released database", () => {
   it("readies every framework store with one schema query and no DDL", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    resetAppConfigForTests();
     __resetStoreLedgerSnapshotForTests();
     const stores = await Promise.all(
       FRAMEWORK_STORES.map(([, load]) => load()),

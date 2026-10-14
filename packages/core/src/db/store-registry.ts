@@ -13,13 +13,17 @@
  * kept only for that.
  */
 
-import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isLocalDatabase, type DbExec } from "./client.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import { appMigratesAtRelease } from "./migration-policy.js";
 import {
+  isHostedFunctionInvocationRuntime,
+  isMigrationAuthorizedRuntime,
+  isMigrationExecutingRuntime,
   isProductionServerlessFunctionRuntime,
-  retryOnDdlRace,
-} from "./runtime-facts.js";
+  withMigrationExecutionRuntime,
+} from "./migration-runtime.js";
+import { retainRequestDbPoolScope } from "./request-pool-context.js";
+import { retryOnDdlRace } from "./runtime-facts.js";
 
 export const STORE_MIGRATIONS_TABLE = "_an_store_migrations";
 
@@ -68,24 +72,36 @@ export class SchemaNotMigratedError extends Error {
   }
 }
 
-type Readiness = "apply" | "verify" | "replay";
+type Readiness = "apply" | "hosted-apply" | "verify" | "replay";
+
+function isHostedRuntime(): boolean {
+  return (
+    isHostedFunctionInvocationRuntime() ||
+    isProductionServerlessFunctionRuntime()
+  );
+}
 
 /**
- * Hosted functions never own schema, and neither does a deployment that
- * declared release-owned migrations. A local database always self-provisions.
+ * A deployment that declared release-owned migrations never issues DDL from a
+ * request. A local database always self-provisions.
  */
 export function schemaIsReleaseOwned(): boolean {
-  if (isProductionServerlessFunctionRuntime()) return true;
-  const migration = getAppConfig().migration;
-  const declared =
-    migration?.releaseMigrations === true ||
-    migration?.betaSchemaOwner?.toLowerCase() === "production";
-  return declared && !isLocalDatabase();
+  if (!appMigratesAtRelease()) return false;
+  return isHostedRuntime() || !isLocalDatabase();
 }
 
 function readiness(): Readiness {
-  if (isMigrationAuthorizedRuntime()) return "apply";
+  if (
+    isMigrationExecutingRuntime() ||
+    (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime())
+  ) {
+    return "apply";
+  }
   if (schemaIsReleaseOwned()) return "verify";
+  // Hosted apps that never declared release migrations still provision from
+  // the request path, as `ddl-guard` allows; the ledger keeps that to one read
+  // per cold start once the schema exists.
+  if (isHostedRuntime()) return "hosted-apply";
   return "replay";
 }
 
@@ -106,6 +122,14 @@ async function runMigration(
 
 async function applyWithLedger(store: StoreDefinition): Promise<void> {
   const exec = getDbExec();
+  const known = await readLedgerSnapshot().catch((err) => {
+    ledgerSnapshot = undefined;
+    if (isMissingRelation(err)) return undefined;
+    throw err;
+  });
+  const recorded = known?.get(store.id);
+  if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
+
   await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
   const { rows } = await exec.execute({
     sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
@@ -128,7 +152,10 @@ async function applyWithLedger(store: StoreDefinition): Promise<void> {
       sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at) VALUES (?, ?, ?) ON CONFLICT (store_id, name) DO NOTHING`,
       args: [store.id, migration.name, Date.now()],
     });
+    applied.add(migration.name);
   }
+  // A snapshot taken before this store applied would fail a later verify.
+  ledgerSnapshot = undefined;
 }
 
 async function replay(store: StoreDefinition): Promise<void> {
@@ -161,11 +188,14 @@ async function loadLedger(): Promise<Map<string, Set<string>>> {
   return ledger;
 }
 
+function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
+  return (ledgerSnapshot ??= loadLedger());
+}
+
 async function verify(store: StoreDefinition): Promise<void> {
-  ledgerSnapshot ??= loadLedger();
   let ledger: Map<string, Set<string>>;
   try {
-    ledger = await ledgerSnapshot;
+    ledger = await readLedgerSnapshot();
   } catch (err) {
     ledgerSnapshot = undefined;
     if (isMissingRelation(err)) {
@@ -228,13 +258,19 @@ export function defineStore(definition: StoreDefinition): Store {
       const run =
         mode === "apply"
           ? applyWithLedger(store)
-          : mode === "verify"
-            ? verify(store)
-            : replay(store);
-      const tracked = run.catch((err) => {
-        if (pending.get(mode) === tracked) pending.delete(mode);
-        throw err;
-      });
+          : mode === "hosted-apply"
+            ? withMigrationExecutionRuntime(() => applyWithLedger(store))
+            : mode === "verify"
+              ? verify(store)
+              : replay(store);
+      // The memo outlives the request that started it; on Workers that
+      // request's pool must stay open until the work settles.
+      const tracked = retainRequestDbPoolScope(
+        run.catch((err) => {
+          if (pending.get(mode) === tracked) pending.delete(mode);
+          throw err;
+        }),
+      );
       pending.set(mode, tracked);
       return tracked;
     },

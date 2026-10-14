@@ -9,6 +9,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
@@ -405,4 +406,6 @@ export default defineAction({
 
     return { ...result, collabReconcilePending };
   },
+  changeResource: (_p, result) =>
+    designChangeResource(result?.designId, result),
 });

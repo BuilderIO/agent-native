@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { findWorkspaceRoot } from "../scripts/utils.js";
+import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 
 export interface McpStdioServerConfig {
   type?: "stdio";

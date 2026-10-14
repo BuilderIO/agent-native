@@ -18,12 +18,12 @@ const messages = {
     disconnecting: "Desconectando…",
   },
   settings: {
+    backHome: "Voltar para o início",
     title: "Configurações",
-    description: "Preferências de idioma e workspace para este app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
+    description: "Gerencie as configurações do app e do idioma.",
+    languageTitle: "Idioma da interface",
+    languageDescription: "Escolha o idioma usado neste app.",
+    languageLabel: "Idioma",
     agentTitle: "Configurações do agente",
     agentDescription:
       "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
@@ -33,7 +33,6 @@ const messages = {
       "Gerencie o acesso da equipe e os recursos do espaço de trabalho compartilhado.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    backHome: "Voltar ao início",
     emailChange: "Alterar e-mail",
     emailChangeSent: "Verifique seu e-mail para confirmar esta alteração.",
     emailChangeError: "Não foi possível enviar a confirmação.",
@@ -371,9 +370,9 @@ const messages = {
       "Deixe nosso agente de nuvem fazer as alterações para você. Você receberá um link para visualizar e implantar.",
     codeChangeTitle: "Isso requer uma mudança de código",
     codeChangeBadge: "Mudança de código",
-    connectBuilderTitle: "Conectar Builder.io",
+    connectBuilderTitle: "Usar o Builder.io",
     connectBuilderDescription:
-      "Connect Builder (nível gratuito disponível) para permitir alterações de código baseadas em nuvem deste aplicativo.",
+      "Use o Builder.io (nível gratuito disponível) para permitir alterações de código baseadas em nuvem deste aplicativo.",
     setupRequired: "Configuração necessária",
     branchCreated: "Filial criada",
     close: "Fechar",
@@ -627,7 +626,7 @@ const messages = {
     back: "Voltar",
     agentEngineRequired: "Mecanismo de agente necessário",
     agentEngineDescription:
-      "Connect Builder.io (nível gratuito disponível) or an LLM key before {{platform}} can answer.",
+      "Use o Builder.io (nível gratuito disponível) ou uma chave de LLM antes que {{platform}} possa responder.",
     openLlm: "Abra LLM",
     setup: "Setup",
     shareDocumentsWith: "Compartilhe documentos com",
@@ -666,6 +665,14 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Voltar à lista",
+    promoteMustContain: "A resposta deve conter…",
+    promoteMustContainOptional: "Texto opcional a verificar na resposta…",
+    promoteMustContainLabel:
+      "Texto a verificar na resposta da avaliação promovida",
+    promoteReviewedPromptLabel:
+      "Prompt revisado manualmente (nunca copiado da produção)",
+    promoteNeedsContains:
+      "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",
     type: "Tipo",
     name: "Nome",

@@ -2,7 +2,6 @@ import { runMigrations } from "@agent-native/core/db";
 import { registerIdentityColumns } from "@agent-native/core/org";
 
 import { dispatchMigrations } from "../../db/migrations.js";
-import { scheduleVaultBootResync } from "../lib/vault-boot-resync.js";
 
 registerIdentityColumns([
   {
@@ -58,5 +57,4 @@ export const runDispatchMigrations = runMigrations(dispatchMigrations, {
 
 export default async (nitroApp: any) => {
   await runDispatchMigrations(nitroApp);
-  scheduleVaultBootResync();
 };

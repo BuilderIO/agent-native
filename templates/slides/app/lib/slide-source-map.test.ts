@@ -15,14 +15,16 @@ import {
   stampSlideSource,
   storedFormOf,
 } from "./slide-source-map";
+import { applyVideoPlaybackSettings } from "./slide-video";
 
 const NONCE = "slide-r1.s1";
 const SCOPE = '[data-slide-content-scope="slide-r1"]';
 
-function mount(stored: string) {
+function mount(stored: string, disableVideoAutoplay = false) {
   const rendered = renderRawSlideHtml(stored, {
     scopeSelector: SCOPE,
     stampNonce: NONCE,
+    disableVideoAutoplay,
   });
   const root = document.createElement("div");
   root.innerHTML = rendered.html;
@@ -121,6 +123,55 @@ describe("mergeRenderedEdits", () => {
     expect(slides).toBeGreaterThan(40);
   });
 
+  it("persists autoplay being turned off from a thumbnail-rendered slide", () => {
+    const source =
+      '<div class="fmd-slide"><video autoplay src="/uploads/clip.mp4"></video></div>';
+    const { root, save } = mount(source, true);
+    const video = root.querySelector("video");
+    if (!video) throw new Error("Expected video in rendered slide");
+
+    applyVideoPlaybackSettings(video, { mode: "click", loop: false });
+
+    const result = save();
+    const savedVideo = new DOMParser()
+      .parseFromString(result.html, "text/html")
+      .querySelector("video");
+    expect(result.changed).toBe(true);
+    expect(savedVideo?.hasAttribute("autoplay")).toBe(false);
+    expect(savedVideo?.hasAttribute("data-video-autoplay")).toBe(false);
+  });
+
+  it("does not persist transient slash-menu accessibility attributes", () => {
+    const source = '<div class="fmd-slide"><p>Text</p></div>';
+    const { root, save } = mount(source);
+    const paragraph = q(root, "p");
+    paragraph.setAttribute("aria-expanded", "true");
+    paragraph.setAttribute("aria-autocomplete", "list");
+    paragraph.setAttribute("aria-controls", "slide-slash-command-list");
+    paragraph.setAttribute("aria-activedescendant", "slide-slash-heading1");
+    paragraph.setAttribute("aria-haspopup", "listbox");
+    paragraph.setAttribute("role", "combobox");
+
+    expect(save()).toEqual({ html: source, changed: false });
+  });
+
+  it("preserves authored accessibility attributes when a block is retagged", () => {
+    const source =
+      '<div class="fmd-slide"><p role="textbox" aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</p></div>';
+    const { root, save } = mount(source);
+    const paragraph = q(root, "p");
+    const heading = document.createElement("h2");
+    for (const attribute of Array.from(paragraph.attributes)) {
+      heading.setAttribute(attribute.name, attribute.value);
+    }
+    heading.replaceChildren(...Array.from(paragraph.childNodes));
+    paragraph.replaceWith(heading);
+
+    expect(save().html).toContain(
+      '<h2 role="textbox" aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</h2>',
+    );
+  });
+
   const stored =
     '<div class="fmd-slide" style="padding: 40px 60px;background:#fff">\n' +
     "  <style>.card { color: var(--ds-accent); }</style>\n" +
@@ -129,6 +180,15 @@ describe("mergeRenderedEdits", () => {
     '  <ul class="points"><li data-pptx-paragraph="1" style="color:#111">One</li><li>Two</li></ul>\n' +
     '  <div class="card" style="left:10px;top:20px"><img src="https://img.logo.dev/acme.com" alt="Acme"><p>Body</p><svg width="4"><circle r="2"/></svg></div>\n' +
     "</div>";
+
+  it("persists a zero border-width style edit", () => {
+    const border =
+      '<div class="fmd-slide"><div class="card" style="border: 2px solid #222">Card</div></div>';
+    const { root, save } = mount(border);
+    q(root, ".card").style.setProperty("border-width", "0px");
+
+    expect(save().html).toContain("border-width: 0px");
+  });
 
   it("appends typed text inside the edited element only", () => {
     const { root, save } = mount(stored);
@@ -246,6 +306,30 @@ describe("mergeRenderedEdits", () => {
     const out = save().html;
     expect(out).toContain("<p>Pasted</p>");
     expect(out).not.toContain(SOURCE_STAMP_ATTR);
+  });
+
+  it("keeps generated crop keyframes inside a newly wrapped image", () => {
+    const source =
+      '<div class="fmd-slide"><img id="pic" src="image.png"></div>';
+    const { root, save } = mount(source);
+    const image = q(root, "#pic");
+    const frame = document.createElement("div");
+    frame.className = "fmd-pptx-image";
+    image.replaceWith(frame);
+    const viewport = document.createElement("div");
+    viewport.className = "fmd-image-crop-viewport";
+    viewport.append(image);
+    frame.append(viewport);
+    const style = document.createElement("style");
+    style.setAttribute("data-fmd-crop-keyframes", "");
+    style.textContent =
+      "@keyframes fmd_crop_test { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }";
+    frame.append(style);
+
+    const output = save().html;
+    expect(output).toContain("@keyframes fmd_crop_test");
+    expect(output).toContain('data-fmd-crop-keyframes=""');
+    expect(output).toContain('class="fmd-pptx-image"');
   });
 
   it("falls back to canonical markup for a misnested element only", () => {

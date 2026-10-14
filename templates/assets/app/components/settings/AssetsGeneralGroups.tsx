@@ -7,7 +7,7 @@ import {
   SettingsGroup,
   SettingsRow,
   useSettingsShell,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useState, type ReactNode } from "react";
 

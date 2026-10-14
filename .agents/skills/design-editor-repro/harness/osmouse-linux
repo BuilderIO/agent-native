@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Linux osmouse: same CLI as the macOS CGEvent tool, over xdotool (XTEST) on $DISPLAY.
+set -euo pipefail
+export DISPLAY="${DISPLAY:-:99}"
+here() { eval "$(xdotool getmouselocation --shell)"; }
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  pos) here; echo "{\"x\":$X,\"y\":$Y}" ;;
+  trusted) echo '{"accessibility":true}' ;;
+  move) xdotool mousemove "$1" "$2"; echo "{\"moved\":[$1,$2]}" ;;
+  click) xdotool mousemove "$1" "$2" sleep 0.04 mousedown 1 sleep 0.04 mouseup 1; echo "{\"clicked\":[$1,$2]}" ;;
+  down) xdotool mousemove "$1" "$2" sleep 0.06 mousedown 1; echo "{\"down\":[$1,$2]}" ;;
+  up) xdotool mouseup 1; here; echo "{\"up\":[$X,$Y]}" ;;
+  dragto)
+    steps="${3:-20}"; here
+    for i in $(seq 1 "$steps"); do
+      xdotool mousemove $(( X + ($1 - X) * i / steps )) $(( Y + ($2 - Y) * i / steps )); sleep 0.016
+    done
+    echo "{\"dragto\":[$1,$2]}" ;;
+  jiggle)
+    n="${1:-10}"; here
+    for i in $(seq 0 $(( n - 1 ))); do
+      xdotool mousemove $(( X + (i % 2 == 0 ? 1 : -1) )) $(( Y + (i % 4 < 2 ? 1 : -1) )); sleep 0.09
+    done
+    echo "{\"jiggled\":$n}" ;;
+  drag)
+    x1=$1 y1=$2 x2=$3 y2=$4 steps="${5:-40}" hold="${6:-700}"
+    xdotool mousemove "$x1" "$y1" sleep 0.12 mousedown 1 sleep 0.22
+    for i in $(seq 1 "$steps"); do
+      xdotool mousemove $(( x1 + (x2 - x1) * i / steps )) $(( y1 + (y2 - y1) * i / steps )); sleep 0.016
+    done
+    for i in 0 1 2 3 4 5 6 7; do
+      xdotool mousemove $(( x2 + (i % 2 == 0 ? 1 : -1) )) $(( y2 + (i % 4 < 2 ? 1 : -1) )); sleep "$(awk "BEGIN{print $hold/8000}")"
+    done
+    xdotool mouseup 1
+    echo "{\"dragged\":[[$x1,$y1],[$x2,$y2]]}" ;;
+  *) echo "usage: osmouse pos|trusted|move X Y|click X Y|down X Y|up|dragto X Y [steps]|jiggle [n]|drag X1 Y1 X2 Y2 [steps] [holdMs]"; exit 2 ;;
+esac

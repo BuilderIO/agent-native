@@ -8,14 +8,16 @@
 //! watcher's tick, though it reuses the same session credentials via
 //! `MeetingsWatcherState::session_snapshot()` rather than tracking its own);
 //! recording start also kicks off a best-effort (non-blocking) refresh so the
-//! cache stays warm without ever delaying a recording start. A fetch failure
-//! (offline, no session yet, 401) just leaves the last-known-good value in
+//! cache stays warm without ever delaying a recording start. Both paths share
+//! the same rejection budget. A fetch failure (offline, no session yet, 401)
+//! just leaves the last-known-good value in
 //! place — the cache never resets to defaults once a real value has been
 //! fetched.
 //!
 //! `refresh` skips the request entirely when neither a cookie nor a bearer
 //! token is available (a request would just 401), and `spawn_watcher` backs
-//! off a credential pair that did 401 (`UnauthorizedRetry`, shared with
+//! off a credential pair that did 401 and pauses it after a few rejections
+//! (`MeetingsWatcherState::note_unauthorized`, shared with
 //! `meetings_watcher.rs`) instead of retrying it every poll — otherwise a
 //! stuck install with a dead session polls prod forever at the fast-poll
 //! cadence.
@@ -24,11 +26,9 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::meetings_watcher::{
-    should_poll, MeetingsWatcherState, SessionCredentials, UnauthorizedRetry,
-};
+use crate::meetings_watcher::{MeetingsWatcherState, Poller, SessionCredentials};
 
 const REMOTE_FLAGS_POLL_SECS: u64 = 60;
 const REMOTE_FLAGS_FAST_POLL_SECS: u64 = 5;
@@ -125,15 +125,21 @@ pub(crate) async fn refresh(
     Ok(())
 }
 
-pub(crate) fn spawn_refresh(
-    server_url: Option<String>,
-    cookie: Option<String>,
-    auth_token: Option<String>,
-) {
-    let Some(server_url) = server_url.filter(|s| !s.trim().is_empty()) else {
-        return;
-    };
+pub(crate) fn spawn_refresh(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let Some(state) = app.try_state::<MeetingsWatcherState>() else {
+            return;
+        };
+        let snapshot = state.session_snapshot();
+        let Some(server_url) = snapshot.server_url.filter(|s| !s.trim().is_empty()) else {
+            return;
+        };
+        let credentials: SessionCredentials =
+            (snapshot.session_cookie.clone(), snapshot.auth_token.clone());
+        let now = Instant::now();
+        if !state.should_poll(Poller::FeatureFlags, &credentials, now) {
+            return;
+        }
         let client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
             .build()
@@ -144,15 +150,26 @@ pub(crate) fn spawn_refresh(
                 return;
             }
         };
-        if let Err(err) = refresh(
+        match refresh(
             &client,
             &server_url,
-            cookie.as_deref(),
-            auth_token.as_deref(),
+            snapshot.session_cookie.as_deref(),
+            snapshot.auth_token.as_deref(),
         )
         .await
         {
-            eprintln!("[feature-flags] refresh failed: {err}");
+            Ok(()) => state.note_authorized(Poller::FeatureFlags, &credentials),
+            Err(RefreshError::Unauthorized) => {
+                let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+                state.note_unauthorized(
+                    Poller::FeatureFlags,
+                    credentials,
+                    Duration::from_secs(REMOTE_FLAGS_FAST_POLL_SECS),
+                    now,
+                );
+                eprintln!("[feature-flags] refresh failed: unauthorized");
+            }
+            Err(err) => eprintln!("[feature-flags] refresh failed: {err}"),
         }
     });
 }
@@ -174,14 +191,13 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
             }
         };
         let mut fetched_once = false;
-        let mut unauthorized_retry: Option<UnauthorizedRetry> = None;
         loop {
             if let Some(state) = app.try_state::<MeetingsWatcherState>() {
                 let snapshot = state.session_snapshot();
                 let credentials: SessionCredentials =
                     (snapshot.session_cookie.clone(), snapshot.auth_token.clone());
                 let now = Instant::now();
-                if should_poll(&unauthorized_retry, &credentials, now) {
+                if state.should_poll(Poller::FeatureFlags, &credentials, now) {
                     if let Some(server_url) = snapshot.server_url {
                         match refresh(
                             &client,
@@ -193,17 +209,18 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
                         {
                             Ok(()) => {
                                 fetched_once = true;
-                                unauthorized_retry = None;
+                                state.note_authorized(Poller::FeatureFlags, &credentials);
                             }
                             Err(RefreshError::NoCredentials) => {}
                             Err(RefreshError::Unauthorized) => {
                                 eprintln!("[feature-flags] watcher refresh failed: unauthorized");
-                                unauthorized_retry = Some(UnauthorizedRetry::after(
-                                    unauthorized_retry.as_ref(),
+                                let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+                                state.note_unauthorized(
+                                    Poller::FeatureFlags,
                                     credentials,
                                     Duration::from_secs(REMOTE_FLAGS_FAST_POLL_SECS),
                                     now,
-                                ));
+                                );
                             }
                             Err(err) => eprintln!("[feature-flags] watcher refresh failed: {err}"),
                         }

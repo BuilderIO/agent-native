@@ -1,12 +1,10 @@
 /**
  * Figma node JSON -> HTML mapper.
  *
- * Input is the `document` subtree returned by
- * `GET /v1/files/:fileKey/nodes?ids=...&geometry=paths` (or the file's root
- * `document` node). Output is a self-contained HTML fragment using absolute
- * positioning + inline styles, matching Figma's own canvas model 1:1 rather
- * than reconstructing a semantic/Tailwind layout — the goal is pixel fidelity
- * for an imported snapshot, not idiomatic hand-authored markup.
+ * Input is a `document` subtree returned by the provider's files/nodes API (or
+ * the file's root `document` node). Output is a self-contained HTML fragment
+ * using absolute positioning and inline styles to preserve imported node
+ * geometry and styling. Unsupported constructs are reported to the caller.
  *
  * This module is pure and synchronous: it never calls the network. The
  * caller (an action) is responsible for:
@@ -18,60 +16,10 @@
  *      `/v1/files/:fileKey/images` (fill ref -> URL map).
  *   4. Calling `mapFigmaNodeToHtml` with the resulting maps.
  *
- * ## Pixel-perfect property coverage
- *
- * | Property                                   | Fidelity      | Notes |
- * | ------------------------------------------- | ------------- | ----- |
- * | Position/size (absoluteBoundingBox)         | exact         | frame-relative |
- * | Auto-layout (flex*)                         | exact         | Figma auto-layout IS flexbox |
- * | Text font/size/weight/case/decoration/align | exact         | |
- * | Line-height (px vs percent-of-font-size)    | exact         | resolved to px |
- * | Letter-spacing                              | exact         | already px in REST API |
- * | Solid fills                                 | exact         | |
- * | Gradient fills (angle/position)              | exact (linear)/approximated (radial/angular/diamond) | derived from gradientHandlePositions, not a default angle |
- * | Multiple fills (layering)                    | exact         | reversed to match CSS background-image stacking |
- * | Image fills (scale modes)                    | exact (FILL/FIT/TILE/STRETCH-axis-aligned) / approximated (skewed imageTransform) | |
- * | Per-paint opacity                            | exact         | folded into color/stop alpha; IMAGE paints become an overlay div (CSS background layers have no per-layer opacity) |
- * | Per-paint blend mode                         | image fallback | a non-NORMAL paint blendMode escalates the whole node to a rendered PNG (see `needsImageFallback`) |
- * | Strokes (uniform, align)                     | exact         | CENTER via outline+negative offset, INSIDE via inset box-shadow, OUTSIDE via outline |
- * | Strokes (per-side weights)                   | approximated  | CSS has no per-side outline; falls back to per-side `border` (inside-only) |
- * | Corner radii (uniform + per-corner)          | exact         | |
- * | Effects: drop/inner shadow                   | exact         | |
- * | Effects: layer/background blur               | approximated  | CSS blur() = 0.45x the Figma radius, fitted against Figma's own renders (see FIGMA_BLUR_RADIUS_TO_CSS_BLUR) |
- * | Opacity                                      | exact         | |
- * | Blend modes (CSS-supported)                   | exact         | |
- * | Blend modes (Figma-only: LINEAR_BURN/DODGE/LIGHTER/DARKER) | approximated | mapped to closest CSS equivalent |
- * | clipsContent                                  | exact        | overflow: hidden |
- * | Rotation                                      | approximated | pivots about the bounding-box center (see below) |
- * | Vectors / boolean ops WITH `fillGeometry` (geometry=paths) | exact | inline `<svg><path>`, real editable geometry |
- * | Vectors / boolean ops / unsupported types WITHOUT geometry | image fallback | never approximated structurally |
- *
- * ### Rotation caveat
- * The REST API docs describe `rotation` as being in degrees, but the field
- * is empirically returned in RADIANS (verified against known authored
- * rotations via the Plugin API); this mapper converts it to degrees before
- * use. `absoluteBoundingBox` is the *already-rotated* axis-aligned bounding
- * box —
- * Figma does not expose the pre-rotation box directly. We reconstruct the
- * unrotated box by treating the AABB's center as invariant under rotation
- * (true for a shape rotated about its own center) and rotate the CSS element
- * about `transform-origin: center` by `rotation` degrees.
- *
- * The sign is NOT flipped: `relativeTransform`'s 2x2 block is exactly CSS's
- * own `[[cos a, -sin a], [sin a, cos a]]` in the same y-down screen space.
- * The `Rotated Radial` node in the `parity-stress` corpus frame reports
- * `rotation: -0.2967` (= -17deg) with `relativeTransform`
- * `[[0.9563, 0.2924, ...], [-0.2924, 0.9563, ...]]`, which solves to
- * a = -17deg; `Masked Diamond Gradient` reports +9deg and solves to +9deg.
- * Negating it (as this mapper did until the fidelity harness rendered that
- * frame side by side) tilts every rotated node the wrong way by 2x the angle.
- *
- * This is exact when Figma pivots rotation about the shape's center and only
- * approximated if Figma's internal pivot differs (rare in practice; visually
- * indistinguishable in the overwhelming majority of designs). A fully exact
- * alternative would consume `relativeTransform` as a CSS `matrix()` directly,
- * which is a documented follow-up if a specific design surfaces a visible
- * mismatch.
+ * Conversion coverage varies by node property. The conversion report records
+ * unsupported fields and fallbacks so callers can explain what was imported.
+ * Rotation uses the provider's transform fields and the node bounds to build
+ * a CSS transform around the bounds center.
  */
 
 import {
@@ -499,7 +447,7 @@ function paintToCssImage(
       tracker.record(
         node,
         "exact",
-        "Conic (angular) gradient start angle derived from the centre->end handle ray, and swept in the node's normalized space as Figma does — drawn into a square and scaled to the box, so a non-square box keeps its mid-sweep stop positions.",
+        "Conic (angular) gradient start angle derived from the centre->end handle ray, and swept in normalized node space — the square gradient is scaled to the box so a non-square box keeps its mid-sweep stop positions.",
       );
       return `conic-gradient(from ${round(fromAngle ?? 0, 2)}deg at ${cx}% ${cy}%, ${stops})`;
     }
@@ -577,7 +525,7 @@ function diamondGradientLayers(
   tracker.record(
     node,
     "exact",
-    "Diamond gradient reproduced as four quadrant-tiled linear gradients; its falloff is linear within each quadrant, so this is the same shape Figma draws rather than an elliptical approximation.",
+    "Diamond gradient uses four quadrant-tiled linear gradients; its falloff is linear within each quadrant, forming a four-pointed star rather than an ellipse.",
   );
   return layers;
 }
@@ -939,7 +887,7 @@ function buildStrokes(node: FigmaNode, tracker: FidelityTracker): StrokeResult {
       tracker.record(
         node,
         "exact",
-        "CENTER stroke rendered via outline with outline-offset = -weight/2 (straddles the edge like Figma).",
+        "CENTER stroke rendered via outline with outline-offset = -weight/2 (half inside and half outside the edge).",
       );
       return {
         styles: {
@@ -1042,7 +990,7 @@ function buildEffects(
       tracker.record(
         node,
         "approximated",
-        `LAYER_BLUR mapped to CSS filter: blur() at ${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}x the Figma radius (fitted against Figma's own renders; see FIGMA_BLUR_RADIUS_TO_CSS_BLUR).`,
+        `LAYER_BLUR mapped to CSS filter: blur() using the import conversion scale (${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}).`,
       );
     } else if (effect.type === "BACKGROUND_BLUR") {
       const radius =
@@ -1053,7 +1001,7 @@ function buildEffects(
       tracker.record(
         node,
         "approximated",
-        `BACKGROUND_BLUR mapped to CSS backdrop-filter: blur() at ${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}x the Figma radius (same fit as LAYER_BLUR).`,
+        `BACKGROUND_BLUR mapped to CSS backdrop-filter: blur() using the import conversion scale (${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}).`,
       );
     }
   }
@@ -2156,7 +2104,7 @@ function buildNode(
     tracker.record(
       node,
       "approximated",
-      `Rotation (${round(rotation, 2)}deg) reconstructed by pivoting the unrotated box about the absoluteBoundingBox center; exact only when Figma's internal pivot is also the shape's center.`,
+      `Rotation (${round(rotation, 2)}deg) reconstructed by pivoting the unrotated box about the absoluteBoundingBox center.`,
     );
   }
 

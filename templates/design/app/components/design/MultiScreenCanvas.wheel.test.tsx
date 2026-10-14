@@ -46,6 +46,8 @@ function trustedWheel(tick: WheelTick) {
 }
 
 const WHEEL_STEP_PER_NOTCH = 1.1;
+const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
+  "--an-breakpoint-label-gesture-visibility";
 
 function notchFactor(deltaY: number) {
   return Math.pow(WHEEL_STEP_PER_NOTCH, Math.abs(deltaY) / 100);
@@ -104,7 +106,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
         />,
       );
@@ -124,7 +126,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     return readView(container);
   }
 
-  it("moves one accelerated mouse notch by a Figma-sized step, not the per-frame ceiling", async () => {
+  it("moves one accelerated mouse notch by a configured step, not the per-frame ceiling", async () => {
     const surface = await renderSurface();
     const view = await applyTicks(surface, [{ deltaY: -66.7, ctrlKey: true }]);
     expect(view.scale).toBeCloseTo(notchFactor(66.7), 6);
@@ -149,6 +151,74 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
       6,
     );
     expect(view.scale).toBeLessThan(MAX_ZOOM_FACTOR_PER_FRAME);
+  });
+
+  it("bounds responsive breakpoint labels with the live zoom scale", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          metadataById={{ "screen-a": { width: 1280, height: 640 } }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 1280, height: 640 },
+            },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const label = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame] [data-frame-label]",
+    );
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const surface = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-surface]",
+    );
+    expect(label).not.toBeNull();
+    expect(world).not.toBeNull();
+    expect(surface).not.toBeNull();
+    const width = label!.style.getPropertyValue(
+      "--an-breakpoint-label-max-width",
+    );
+    expect(width).toContain("100% / var(--an-chrome-scale");
+
+    const view = await applyTicks(surface!, [{ deltaY: 100, ctrlKey: true }]);
+
+    expect(view.scale).toBeLessThan(1);
+    expect(
+      world!.style.getPropertyValue(
+        BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+      ),
+    ).toBe("hidden");
+    expect(
+      Number(label!.style.getPropertyValue("--an-chrome-scale")),
+    ).toBeCloseTo(1 / view.scale, 6);
+    expect(
+      label!.style.getPropertyValue("--an-breakpoint-label-max-width"),
+    ).toBe(width);
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+    });
+
+    expect(
+      world!.style.getPropertyValue(
+        BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+      ),
+    ).toBe("");
   });
 
   it("still runs a genuine trackpad pinch on the pinch curve", async () => {
@@ -227,13 +297,14 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
           <MultiScreenCanvas
             screens={[]}
             zoom={zooming ? 3 : 2}
-            activeTool="move"
+            creation={{ activeTool: "move" }}
             onPick={() => {}}
-            boardFileId="board"
-            boardFrameGeometry={geometry}
-            boardFileContent={
-              '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>'
-            }
+            board={{
+              boardFileId: "board",
+              boardFrameGeometry: geometry,
+              boardFileContent:
+                '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>',
+            }}
           />,
         ),
       );
@@ -285,9 +356,9 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
-          onZoomChange={onZoomChange}
+          camera={{ onZoomChange }}
         />,
       );
     });

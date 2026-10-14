@@ -1,4 +1,6 @@
+import { isDateRangePresetFilter } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import type { DashboardTimeScope } from "../../app/pages/adhoc/sql-dashboard/types";
+import type { DashboardFilter } from "../../app/pages/adhoc/sql-dashboard/types";
 
 export const DASHBOARD_TIME_SCOPES: readonly DashboardTimeScope[] = [
   "dashboard",
@@ -324,7 +326,13 @@ export function validateFirstPartyDashboardTimeScope(
       if (filter.type !== "select") {
         return `panel[${index}] ${label} uses {{timeRange}}, but filter "timeRange" must have type "select"`;
       }
-    } else if (filter.type !== "date-range") {
+    } else if (
+      filter.type !== "date-range" &&
+      !(
+        filter.type === "select" &&
+        isDateRangePresetFilter(filter as DashboardFilter)
+      )
+    ) {
       return `panel[${index}] ${label} uses {{${variable}}}, but filter "${expectedFilterId}" must have type "date-range"`;
     }
     if (typeof filter.default !== "string" || !filter.default.trim()) {

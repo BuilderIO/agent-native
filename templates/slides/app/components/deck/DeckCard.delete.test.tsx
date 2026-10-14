@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -241,5 +242,53 @@ describe("DeckCard delete flow", () => {
         "true",
       ),
     );
+  });
+});
+
+describe("DeckCard rename", () => {
+  it("focuses and selects the rename field before it accepts typing", () => {
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Rename"));
+    act(() => mocks.closeAutoFocus?.({ preventDefault: vi.fn() }));
+
+    const input = screen.getByDisplayValue("Test deck") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
+  it("does not commit or close a rename while IME keys are composing", async () => {
+    const onRename = vi.fn();
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={onRename}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Rename"));
+    mocks.closeAutoFocus?.({ preventDefault: vi.fn() });
+    const input = await waitFor(() => screen.getByDisplayValue("Test deck"));
+    fireEvent.change(input, { target: { value: "candidate" } });
+    fireEvent.keyDown(input, {
+      key: "Enter",
+      isComposing: true,
+    });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(screen.getByDisplayValue("candidate")).toBeTruthy();
+    expect(onRename).not.toHaveBeenCalled();
   });
 });

@@ -29,15 +29,20 @@ vi.mock("@/hooks/use-comments", () => ({
   }),
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteComment: () => ({ mutateAsync: vi.fn() }),
   useResolveComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
   useChatModels: () => ({
     configuredModels: [],
@@ -57,7 +62,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   }),
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => content,
 }));
 

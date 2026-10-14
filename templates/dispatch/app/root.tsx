@@ -4,21 +4,19 @@ import {
 } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
   Layout as AppLayout,
   RequireDispatchAccess,
 } from "@agent-native/dispatch/components";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -281,4 +279,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

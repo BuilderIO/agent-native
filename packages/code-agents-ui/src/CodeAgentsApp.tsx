@@ -1,5 +1,22 @@
 import type { AgentMessage } from "@agent-native/agentkit/protocol";
 import {
+  createAgentKitProtocolAdapter,
+  isCodeAgentRunActive,
+  isCredentialGapCodeAgentEvent,
+  mergeCodeAgentTranscriptEvents,
+} from "@agent-native/core/client/agent-chat";
+import {
+  closeChatFirstSessionWatch,
+  emitChatFirstSessionWatch,
+  useChatFirstSessionWatch,
+  type ChatFirstSurfaceKind,
+  type ChatFirstOpenAppDetail,
+} from "@agent-native/core/client/chat-first-state";
+import { usePollLoop } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { createPollEngine } from "@agent-native/core/shared";
+import type { AppConfig } from "@agent-native/shared-app-config";
+import {
   AgentKitChat,
   AgentKitRoot,
   AgentMessageActions,
@@ -9,45 +26,40 @@ import {
   useAgentThread,
   type AgentKitRenderProps,
   type AgentKitSlots,
-} from "@agent-native/agentkit/react";
+} from "@agent-native/toolkit/app/agentkit";
 import {
   ChatHistoryList,
-  closeChatFirstSessionWatch,
-  emitChatFirstSessionWatch,
-  isCodeAgentRunActive,
-  isCredentialGapCodeAgentEvent,
-  mergeCodeAgentTranscriptEvents,
-  useChatFirstSessionWatch,
-  type ChatFirstSurfaceKind,
   type ChatHistoryItem,
-} from "@agent-native/core/client/agent-chat";
-import { createAgentKitProtocolAdapter } from "@agent-native/core/client/chat";
+} from "@agent-native/toolkit/app/chat/chat";
 import {
   ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
-  type ChatFirstOpenAppDetail,
   type ChatFirstPrimaryTab,
-} from "@agent-native/core/client/chat-first";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
+} from "@agent-native/toolkit/app/chat/chat-first";
 import {
-  PromptComposer,
   isClaudeCodeAgentId,
   isLocalRuntimeEngine,
   isLunaModel,
+  PromptComposer,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
   type ComposerTerminalModeControl,
   type PromptComposerFile,
+  type PromptComposerProps,
   type SlashCommand,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+} from "@agent-native/toolkit/app/chat/composer";
 import {
   AgentConversationMessageView,
   type AgentConversationMessage,
-} from "@agent-native/core/client/conversation";
-import { usePollLoop } from "@agent-native/core/client/hooks";
-import { createPollEngine } from "@agent-native/core/shared";
-import type { AppConfig } from "@agent-native/shared-app-config";
+} from "@agent-native/toolkit/app/chat/conversation";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+  type BuilderConnectFlow,
+  type BuilderConnectTransport,
+} from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconAlertCircle,
   IconBan,
@@ -95,6 +107,8 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+
+import { createCodeAgentAiReadinessGate } from "./ai-readiness.js";
 
 const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
 
@@ -146,7 +160,6 @@ import type {
   CodeAgentPortalTransferAllResult,
   CodeAgentPortalTransferRequest,
   CodeAgentPortalTransferResult,
-  CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
   CodeAgentProjectListResult,
@@ -278,7 +291,7 @@ export interface CodeAgentsHost {
   pairRemoteConnector?: (
     request?: CodeAgentRemoteConnectorPairRequest,
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
-  connectBuilderProvider?: () => Promise<CodeAgentProviderConnectResult>;
+  builderConnectTransport?: BuilderConnectTransport;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -582,8 +595,8 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
     engine: "ai-sdk:openai",
     engineLabel: "OpenAI",
-    model: "gpt-5.6-luna",
-    label: "GPT-5.6 Luna",
+    model: "gpt-6-luna",
+    label: "GPT-6 Luna",
     description: "Model list is loading.",
     configured: false,
   },
@@ -839,6 +852,7 @@ export default function CodeAgentsApp({
   onRunsChange,
   onSelectedRunChange,
 }: CodeAgentsAppProps) {
+  const t = useT();
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
@@ -1048,10 +1062,9 @@ export default function CodeAgentsApp({
     useState(false);
   const [accessibilityPrompted, setAccessibilityPrompted] = useState(false);
   const [screenRecordingPrompted, setScreenRecordingPrompted] = useState(false);
-  const [builderConnecting, setBuilderConnecting] = useState(false);
-  const [builderConnectMessage, setBuilderConnectMessage] = useState<
-    string | null
-  >(null);
+  const builderConnectedHandlerRef = useRef<
+    (state: { orgName: string | null }) => void | Promise<void>
+  >(async () => {});
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
@@ -1390,6 +1403,15 @@ export default function CodeAgentsApp({
     }
   }, [host, isActive]);
 
+  const builderConnectFlow = useBuilderConnectFlow({
+    enabled: isActive,
+    provisionAccount: true,
+    trackingSource: "desktop_code_agents",
+    trackingFlow: "code_provider_setup",
+    transport: host.builderConnectTransport,
+    onConnected: (state) => builderConnectedHandlerRef.current(state),
+  });
+
   const runComputerSetupAction = useCallback(
     async (action: CodeAgentComputerSetupAction) => {
       if (!host.runComputerSetupAction) {
@@ -1437,75 +1459,50 @@ export default function CodeAgentsApp({
     if (isActive) pollHostMetadataNow();
   }, [isActive, pollHostMetadataNow, refreshKey]);
 
-  const connectBuilderProvider = useCallback(async () => {
-    setBuilderConnectMessage(null);
-    if (!host.connectBuilderProvider) {
-      onOpenSettings?.();
-      return;
-    }
-
-    setBuilderConnecting(true);
-    try {
-      const result = await host.connectBuilderProvider();
-      const message = result.error ?? result.message;
-      setBuilderConnectMessage(result.ok ? null : message);
-      if (result.ok) {
-        toast("Builder.io connected", {
-          description: "Agent can now use Builder credits.",
-        });
-      } else {
-        toast("Builder.io connect did not finish", {
-          description: message,
-        });
-      }
-      await loadHostMetadata();
-      const modelResult = await host.listModels?.({ refresh: true });
-      let retrySelection = selectedModelSelection;
-      if (modelResult?.status === "ok") {
-        setModelOptions(modelResult.models);
-        if (
-          modelResult.selected &&
-          (!modelSelection.model || modelSelection.model === "auto")
-        ) {
-          setModelSelection(modelResult.selected);
-          retrySelection = {
-            ...modelResult.selected,
-            effort: selectedModelSelection.effort,
-          };
-        }
-      }
+  const handleBuilderConnected = useCallback(async () => {
+    toast("Builder.io connected", {
+      description: "Agent can now use Builder credits.",
+    });
+    await loadHostMetadata();
+    const modelResult = await host.listModels?.({ refresh: true });
+    let retrySelection = selectedModelSelection;
+    if (modelResult?.status === "ok") {
+      setModelOptions(modelResult.models);
       if (
-        result.ok &&
-        selectedRun &&
-        hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
-        host.retryRun
+        modelResult.selected &&
+        (!modelSelection.model || modelSelection.model === "auto")
       ) {
-        const retryResult = await host.retryRun({
-          goalId: selectedGoal.id,
-          runId: selectedRun.id,
-          permissionMode: selectedPermissionMode,
-          engine: retrySelection.engine,
-          model: retrySelection.model,
-          effort: retrySelection.effort,
-        });
-        if (retryResult.run) {
-          setRuns((current) => [
-            retryResult.run!,
-            ...current.filter((run) => run.id !== retryResult.run!.id),
-          ]);
-          setSelectedExtensionDetailId(null);
-          selectRun(retryResult.run.id);
-          await loadTranscript(retryResult.run.id, true);
-        }
+        setModelSelection(modelResult.selected);
+        retrySelection = {
+          ...modelResult.selected,
+          effort: selectedModelSelection.effort,
+        };
       }
-      await loadRuns(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setBuilderConnectMessage(message);
-      toast("Builder.io connect did not finish", { description: message });
-    } finally {
-      setBuilderConnecting(false);
     }
+    if (
+      selectedRun &&
+      hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
+      host.retryRun
+    ) {
+      const retryResult = await host.retryRun({
+        goalId: selectedGoal.id,
+        runId: selectedRun.id,
+        permissionMode: selectedPermissionMode,
+        engine: retrySelection.engine,
+        model: retrySelection.model,
+        effort: retrySelection.effort,
+      });
+      if (retryResult.run) {
+        setRuns((current) => [
+          retryResult.run!,
+          ...current.filter((run) => run.id !== retryResult.run!.id),
+        ]);
+        setSelectedExtensionDetailId(null);
+        selectRun(retryResult.run.id);
+        await loadTranscript(retryResult.run.id, true);
+      }
+    }
+    await loadRuns(true);
   }, [
     host,
     loadHostMetadata,
@@ -1513,13 +1510,17 @@ export default function CodeAgentsApp({
     loadTranscript,
     modelSelection.model,
     selectRun,
-    onOpenSettings,
     selectedGoal.id,
     selectedModelSelection,
     selectedPermissionMode,
     selectedRun,
     transcriptEvents,
   ]);
+  builderConnectedHandlerRef.current = handleBuilderConnected;
+
+  const connectBuilderProvider = useCallback(() => {
+    builderConnectFlow.start({ provisionAccount: false });
+  }, [builderConnectFlow.start]);
 
   const connectLocalRuntime = useCallback(
     async (engine: string) => {
@@ -2332,10 +2333,17 @@ export default function CodeAgentsApp({
       return;
     }
     if (providerGate.blocked && !activeNewSessionExtension) {
-      toast("Connect a model provider first", {
-        description: providerGate.description,
-        duration: 3600,
-      });
+      toast(
+        t("agentChat.setup.connectToStart", {
+          defaultValue: "Connect a model provider first",
+        }),
+        {
+          description: t("agentChat.setup.builderOrOwnKeys", {
+            defaultValue: providerGate.description,
+          }),
+          duration: 3600,
+        },
+      );
       return;
     }
     const typedGoal =
@@ -3048,8 +3056,9 @@ export default function CodeAgentsApp({
                               providerGate.blocked &&
                               !isPortalCodeAgentRun(selectedRun)
                             }
-                            builderConnecting={builderConnecting}
-                            builderConnectMessage={builderConnectMessage}
+                            builderConnectFlow={builderConnectFlow}
+                            builderConnecting={builderConnectFlow.connecting}
+                            builderConnectMessage={builderConnectFlow.error}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
                             onConnectProvider={connectBuilderProvider}
@@ -3079,8 +3088,9 @@ export default function CodeAgentsApp({
                               providerGate.blocked && (
                                 <ProviderGateNotice
                                   description={providerGate.description}
-                                  connecting={builderConnecting}
-                                  message={builderConnectMessage}
+                                  builderConnectFlow={builderConnectFlow}
+                                  connecting={builderConnectFlow.connecting}
+                                  message={builderConnectFlow.error}
                                   bouncePulse={providerGateBouncePulse}
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
@@ -3143,6 +3153,7 @@ export default function CodeAgentsApp({
                                   : newSessionExtensionComposerState.showModelSelector
                               }
                               onPromptChange={setNewPrompt}
+                              getHostMetadata={host.getHostMetadata}
                               onPermissionModeChange={setNewRunPermissionMode}
                               onModelSelectionChange={setModelSelection}
                               onSlashCommand={
@@ -3892,6 +3903,7 @@ function NewSessionComposer({
   onConnectProvider,
   onConnectLocalRuntime,
   onDisabledClick,
+  getHostMetadata,
 }: {
   prompt: string;
   promptSeed: number;
@@ -3918,6 +3930,7 @@ function NewSessionComposer({
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
 }) {
   return (
     <CodeAgentComposer
@@ -3945,6 +3958,7 @@ function NewSessionComposer({
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
       onDisabledClick={onDisabledClick}
+      getHostMetadata={getHostMetadata}
     />
   );
 }
@@ -3972,6 +3986,7 @@ function CodeAgentComposer({
   onConnectProvider,
   onConnectLocalRuntime,
   onDisabledClick,
+  getHostMetadata,
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
@@ -4006,12 +4021,14 @@ function CodeAgentComposer({
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
   plusMenuModeOverride?: "full" | "upload-only";
   draftScopeOverride?: string;
 }) {
+  const t = useT();
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const availableAgents = terminalAgent
@@ -4059,8 +4076,36 @@ function CodeAgentComposer({
       </button>
     ) : undefined;
 
+  const onBeforeSubmit = useMemo<
+    NonNullable<PromptComposerProps["onBeforeSubmit"]>
+  >(
+    () =>
+      createCodeAgentAiReadinessGate(
+        getHostMetadata,
+        normalizedModel.engine,
+        (readiness) => {
+          if (readiness === "missing") onDisabledClick?.();
+          toast(
+            readiness === "missing"
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
+            { duration: 3200 },
+          );
+        },
+      ),
+    [getHostMetadata, normalizedModel.engine, onDisabledClick],
+  );
+
   return (
     <PromptComposer
+      // Desktop renders from file://; its host metadata IPC is the readiness
+      // source, while the main-process dispatch still enforces provider setup.
+      onBeforeSubmit={onBeforeSubmit}
       className="code-agents-standard-composer code-agents-composer-shell"
       style={codeAgentComposerAreaStyle}
       rootStyle={codeAgentComposerRootStyle}
@@ -4199,7 +4244,7 @@ export function getProviderGate(
   ) {
     return {
       blocked: true,
-      description: "Connect Builder.io or add custom keys to start coding.",
+      description: "Use Builder.io or add custom keys to start coding.",
     };
   }
   return {
@@ -4228,6 +4273,7 @@ export function shouldShowCodeAgentCredentialCallout({
 
 function ProviderGateNotice({
   description,
+  builderConnectFlow,
   connecting,
   message,
   bouncePulse,
@@ -4237,6 +4283,7 @@ function ProviderGateNotice({
   onConnectLocalRuntime,
 }: {
   description: string;
+  builderConnectFlow: BuilderConnectFlow;
   connecting: boolean;
   message: string | null;
   bouncePulse?: number;
@@ -4248,18 +4295,34 @@ function ProviderGateNotice({
   }>;
   onConnectLocalRuntime?: (engine: string) => void;
 }) {
+  const t = useT();
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect AI"
-      description={message ?? description}
-      primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
-      primaryDisabled={connecting}
+      title={t("agentChat.setup.connectAi", { defaultValue: "Connect AI" })}
+      description={
+        message ??
+        builderConnectFlow.error ??
+        t("agentChat.setup.builderOrOwnKeys", { defaultValue: description })
+      }
+      builderConnectFlow={builderConnectFlow}
+      primaryActionLabel={
+        connecting
+          ? t("agentChat.composer.connectingBuilder", {
+              defaultValue: "Signing in to Builder.io…",
+            })
+          : t("agentChat.composer.connectBuilder", {
+              defaultValue: "Use Builder.io",
+            })
+      }
+      primaryDisabled={connecting || builderConnectFlow.connecting}
       onPrimaryAction={onConnectBuilder}
       bouncePulse={bouncePulse}
       localRuntimeOptions={localRuntimeOptions}
       onConnectLocalRuntime={onConnectLocalRuntime}
-      secondaryActionLabel="Custom keys"
+      secondaryActionLabel={t("agentChat.composer.addOwnKeys", {
+        defaultValue: "Custom keys",
+      })}
       onOpenSettings={onOpenSettings}
     />
   );
@@ -4288,10 +4351,11 @@ function ClaudeMark({ size }: { size: number }) {
   );
 }
 
-function CodeProviderNotice({
+export function CodeProviderNotice({
   className,
   title,
   description,
+  builderConnectFlow,
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
@@ -4304,6 +4368,7 @@ function CodeProviderNotice({
   className: string;
   title: string;
   description: string;
+  builderConnectFlow: BuilderConnectFlow;
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
@@ -4339,14 +4404,32 @@ function CodeProviderNotice({
       </div>
       <div className="code-agents-provider-actions">
         {onPrimaryAction && primaryActionLabel && (
-          <button
-            type="button"
-            className="code-agents-button--primary"
-            onClick={onPrimaryAction}
-            disabled={primaryDisabled}
+          <BuilderConnectPopover
+            flow={builderConnectFlow}
+            onConnect={(provisionAccount) => {
+              if (provisionAccount) {
+                builderConnectFlow.start({ provisionAccount: true });
+              } else {
+                onPrimaryAction?.();
+              }
+            }}
           >
-            {primaryActionLabel}
-          </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              disabled={primaryDisabled || builderConnectFlow.connecting}
+            >
+              {builderConnectFlow.connecting ? (
+                <IconRefresh
+                  size={14}
+                  strokeWidth={1.8}
+                  className="code-agents-spin"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {primaryActionLabel}
+            </button>
+          </BuilderConnectPopover>
         )}
         {showRuntimeMenu ? (
           <DropdownMenu>
@@ -5343,6 +5426,7 @@ function RunDetailCard({
   onApproveAlways,
   onDeny,
   providerBlocked,
+  builderConnectFlow,
   builderConnecting,
   builderConnectMessage,
   onConnectBuilder,
@@ -5372,6 +5456,7 @@ function RunDetailCard({
   onApproveAlways: () => void;
   onDeny: () => void;
   providerBlocked: boolean;
+  builderConnectFlow: BuilderConnectFlow;
   builderConnecting: boolean;
   builderConnectMessage: string | null;
   onConnectBuilder: () => void;
@@ -5454,12 +5539,14 @@ function RunDetailCard({
           title="Connect AI"
           description={
             builderConnectMessage ??
-            "Connect Builder.io or add custom keys to continue coding."
+            builderConnectFlow.error ??
+            "Use Builder.io or add custom keys to continue coding."
           }
+          builderConnectFlow={builderConnectFlow}
           primaryActionLabel={
-            builderConnecting ? "Waiting..." : "Connect Builder.io"
+            builderConnecting ? "Signing in to Builder.io…" : "Use Builder.io"
           }
-          primaryDisabled={builderConnecting}
+          primaryDisabled={builderConnecting || builderConnectFlow.connecting}
           onPrimaryAction={onConnectBuilder}
           localRuntimeOptions={getLocalRuntimeOptions(modelOptions)}
           onConnectLocalRuntime={onConnectLocalRuntime}
@@ -5643,6 +5730,7 @@ function TranscriptPanel({
       onForkChat,
       chatBlocked,
       onDisabledClick,
+      getHostMetadata: host.getHostMetadata,
     }),
     [
       modelOptions,
@@ -5656,6 +5744,7 @@ function TranscriptPanel({
       onStop,
       permissionMode,
       chatBlocked,
+      host.getHostMetadata,
       runIsActive,
     ],
   );
@@ -5682,6 +5771,8 @@ function TranscriptPanel({
               clientOptions={{
                 transportOwnership: "owned",
                 retainActiveRunsOnThreadRelease: true,
+                // CodeAgentAgentKitRuntime checks this host's provider gate before dispatch.
+                aiSetupReadiness: "not-applicable",
               }}
               slots={CODE_AGENTKIT_CHAT_SLOTS}
             >
@@ -5795,6 +5886,7 @@ interface CodeAgentChatContextValue {
   onConnectLocalRuntime?: (engine: string) => void;
   chatBlocked: boolean;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   onForkChat?: () => void;
 }
 
@@ -5832,6 +5924,7 @@ function CodeAgentKitComposerSlot({ threadId }: { threadId: string }) {
       stopActive={chat.runIsActive}
       disabled={chat.chatBlocked}
       onPromptChange={() => undefined}
+      getHostMetadata={chat.getHostMetadata}
       onPermissionModeChange={chat.onPermissionModeChange}
       onModelSelectionChange={chat.onModelSelectionChange}
       onSubmit={async (prompt, attachments, followUpMode) => {

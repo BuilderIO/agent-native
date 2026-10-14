@@ -3,6 +3,7 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
 const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
@@ -111,17 +112,9 @@ export async function appStatePut(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  const serialized = serializeAppStateValue(key, value);
   await ensureTable();
   const client = getDbExec();
-  const serialized = JSON.stringify(value);
-  if (
-    !isLocalDatabase() &&
-    utf8ByteLength(serialized) > MAX_HOSTED_APP_STATE_VALUE_BYTES
-  ) {
-    throw new Error(
-      `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
-    );
-  }
   await client.execute({
     sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
     args: [sessionId, key, serialized, Date.now()],
@@ -152,6 +145,7 @@ export async function appStateCompareAndSet(
   nextValue: Record<string, unknown> | null,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  if (nextValue !== null) serializeAppStateValue(key, nextValue);
   await ensureTable();
   const client = getDbExec();
   const changed = await executeAppStateCompareAndSet(
@@ -234,6 +228,7 @@ function serializeAppStateValue(
   key: string,
   value: Record<string, unknown>,
 ): string {
+  assertNoInlineImageBytes(value, `application_state value "${key}"`);
   const serialized = JSON.stringify(value);
   if (
     !isLocalDatabase() &&

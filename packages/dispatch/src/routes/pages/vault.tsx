@@ -7,7 +7,7 @@ import { useOrgRole } from "@agent-native/core/client/org";
 import {
   NewKeyMenu,
   type NewKeyOption,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconChevronDown,
   IconChevronRight,

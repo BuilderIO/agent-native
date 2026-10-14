@@ -21,7 +21,7 @@ export interface ScheduledJob {
   accountEmail?: string | null;
   payload: string;
   runAt: number;
-  status: "pending" | "processing" | "done" | "cancelled";
+  status: "pending" | "processing" | "uncertain" | "done" | "cancelled";
   createdAt: number;
 }
 
@@ -183,6 +183,37 @@ export function useSendScheduledJobNow() {
       void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
       void qc.invalidateQueries({ queryKey: ["emails"] });
     },
+  });
+}
+
+function invalidateScheduledEmailQueries(
+  qc: ReturnType<typeof useQueryClient>,
+) {
+  void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+  void qc.invalidateQueries({ queryKey: ["emails"] });
+}
+
+export function useConfirmUncertainScheduledEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) =>
+      callAction("confirm-uncertain-scheduled-email", {
+        id,
+        verifiedInSent: true,
+      }).then(assertActionSuccess),
+    onSettled: () => invalidateScheduledEmailQueries(qc),
+  });
+}
+
+export function useRetryUncertainScheduledEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) =>
+      callAction("retry-uncertain-scheduled-email", {
+        id,
+        duplicateRiskAcknowledged: true,
+      }).then(assertActionSuccess),
+    onSettled: () => invalidateScheduledEmailQueries(qc),
   });
 }
 

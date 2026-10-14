@@ -52,6 +52,26 @@ describe("summarizeArchiveFailures", () => {
     });
   });
 
+  it("drops the agent retry guidance from a typed cooldown message", () => {
+    const cooldown =
+      "Email service is briefly busy and will be ready again in about 45s. Do not retry before then.";
+
+    expect(
+      summarizeArchiveFailures({ succeeded: 0, total: 1, failures: [cooldown] })
+        .message,
+    ).toBe(
+      "Archive failed because Gmail is briefly busy and will be ready again in about 45s.",
+    );
+    expect(
+      archiveFailureToastMessage(
+        new Error(`Action archive-email failed: ${cooldown}`),
+        "fallback",
+      ),
+    ).toBe(
+      "Archive failed because Gmail is briefly busy and will be ready again in about 45s.",
+    );
+  });
+
   it("summarizes partial bulk archive failures", () => {
     const summary = summarizeArchiveFailures({
       succeeded: 2,

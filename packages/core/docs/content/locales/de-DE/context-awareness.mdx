@@ -408,6 +408,11 @@ Die aus `app/lib/tab-id.ts` importierte `TAB_ID` ist der Wert des Frameworks `ge
 | `getNavigationState` – ordnet URL dem semantischen Zustand zu        | `navigation` schreibt, tabulatorgesteuert und mit einem globalen Fallback-Schlüssel                   |
 | `getCommandPath` – Ordnen Sie einen `navigate`-Befehl einer Route zu | Befehlsabfrage, Löschen nach dem Lesen, Schutz vor doppelten Befehlen, Tagging der Anforderungsquelle |
 
+Als Zeichenfolgen zurückgegebene Pfade sind immer lokal zu dieser App, auch wenn
+sie mit dem Mount-Pfad einer anderen Workspace-App beginnen. Um gezielt zu einer
+Geschwister-App zu navigieren, geben Sie `{ type: "workspace-app", path:
+"/seo-application/settings" }` mit dem vollständigen Mount-Pfad zurück.
+
 `useAgentRouteState` geht vom React-Router aus. Wenn die Navigation nicht im URL erfolgt – ein Assistentenschritt, eine Canvas-Auswahl, eine Nicht-Router-Shell –, wechseln Sie stattdessen zur untergeordneten `useSemanticNavigationState`: Sie übergeben ihr einen vorgefertigten `state`-Wert plus `navigationKeys`/`commandKeys` und einen `onCommand`-Rückruf, und sie bleibt völlig unabhängig vom React-Router.
 
 ## Jitter-Verhinderung {#jitter-prevention}

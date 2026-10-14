@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
 import {
   normalizeDocumentTitle,
   testUserRegex,
 } from "@agent-native/core/shared";
+import { Turnstile, PoweredByBadge } from "@agent-native/toolkit/app/shared";
 import { isConditionalFieldVisible } from "@shared/conditional";
 import {
   getFormCompletionMode,

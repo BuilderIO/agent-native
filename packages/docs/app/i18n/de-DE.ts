@@ -3,8 +3,8 @@ import enUS from "./en-US";
 const deDE = {
   agentChat: {
     setup: {
-      checkingProvider: "KI-Verbindung wird geprüft…",
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
   },
@@ -682,7 +682,7 @@ const deDE = {
         "Installiere visuelle Planung als app-backed Skill. Dein Coding-Agent kann strukturierte Pläne mit Diagrammen, Wireframes, Prototypen, Annotationen, Kommentaren und Review-Links öffnen.",
     },
     design: {
-      replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
+      replaces: "Agent-Native Designstudio",
       description:
         "Verwandelt Prompts in interaktive Designs, die Ihrem Designsystem folgen, während der Agent jeden Bildschirm mit Feedback verfeinert.",
     },
@@ -1459,7 +1459,7 @@ const deDE = {
       s003: "Generieren",
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
-      s006: "Das Open-Source-Prototyping-Studio AI HTML",
+      s006: "Open-Source-Design-Arbeitsbereich",
       s007: "Erstellen Sie interaktive Designs und Prototypen. Verfeinern Sie sie mit gewohnten Werkzeugen oder nehmen Sie Konversationsbearbeitungen vor. Exportieren Sie überall hin.",
       s008: "Etwas gestalten",
       s009: "Wie es funktioniert",
@@ -1902,7 +1902,6 @@ const deDE = {
       heroDescription:
         "Plans ist ein kostenloses Open-Source-Tool zur visuellen Planung, mit dem du den Ansatz deines Coding-Agenten prüfst, Feedback gibst und Codeänderungen anhand von Diagrammen, Wireframes und kommentiertem Code verstehst.",
       heroCta: "Plane visuell",
-      heroSecondaryCta: "Plans öffnen",
       useCasesHeading: "Was kannst du mit Plans machen?",
       useCasesBody:
         "Prüfe einen Implementierungsansatz, arbeite eine Oberfläche durch oder verstehe eine abgeschlossene Änderung gemeinsam mit deinem KI-Coding-Agenten.",
@@ -2203,6 +2202,8 @@ const deDE = {
     downloadStarted: "Download gestartet",
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     loadError: "Der neueste Desktop-Installer konnte nicht geladen werden.",
+    mountError:
+      "Die Downloadseite für die Desktop-App konnte ihren Workspace-Pfad nicht finden. Bitte den Workspace-Administrator, die App-Pfadkonfiguration zu prüfen.",
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
     retry: "Erneut versuchen",
     unavailable: "Installer für diese Plattform nicht verfügbar",
@@ -2558,6 +2559,7 @@ const deDE = {
     keyConcepts: "Schlüsselkonzepte",
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Überblick",
+    toolkitFoundations: "Grundlagen",
     toolkitUiPrimitives: "UI-Primitiven",
     customDesignSystem: "Eigene Design-Systeme",
     toolkitEditorsCanvases: "Editor und Arbeitsflächen",
@@ -2570,6 +2572,10 @@ const deDE = {
     toolkitCommandNavigation: "Befehle und Navigation",
     toolkitResources: "Ressourcen",
     toolkitAgentUx: "Agent-Erlebnis",
+    toolkitDashboard: "Dashboard",
+    toolkitChatHistory: "Chatverlauf",
+    toolkitAgentPage: "Agentenseite",
+    toolkitNotifications: "Benachrichtigungen",
     toolkitHistory: "Verlauf",
     toolkitCommentsReview: "Kommentare und Review",
     toolkitObservability: "Observability",
@@ -2626,11 +2632,12 @@ const deDE = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",
@@ -2720,6 +2727,7 @@ const deDE = {
     planAutomations: "Ereignisse und Automatisierungen",
     planLocalAndDesktop: "Lokale Dateien und Desktop",
     planDevelopers: "Entwicklerhandbuch",
+    turnIntoApp: "In App umwandeln",
     prVisualRecap: "Visuelle PR-Zusammenfassung",
     planPluginMarketplace: "Plan-Plugin und Marketplace",
     slides: "Folien",

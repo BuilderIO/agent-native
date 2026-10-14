@@ -1,3 +1,4 @@
+import { RETIRED_ENABLED_FLAG_KEYS } from "../../feature-flags/registry.js";
 import { agentNativeApiDisabledReason } from "../api-surface.js";
 import { useActionQuery } from "../use-action.js";
 import { useSession } from "../use-session.js";
@@ -16,6 +17,7 @@ export function useFeatureFlag(key: string): boolean {
     undefined,
     { enabled: status === "authenticated" },
   );
+  if (RETIRED_ENABLED_FLAG_KEYS.has(key)) return true;
   return featureFlagValue(evaluatedFeatureFlagValues(query.data), key);
 }
 
@@ -42,6 +44,9 @@ export function useFeatureFlagState(key: string): FeatureFlagState {
     undefined,
     { enabled: status === "authenticated" },
   );
+  if (RETIRED_ENABLED_FLAG_KEYS.has(key)) {
+    return { status: "ready", enabled: true };
+  }
   if (apiDisabled) return { status: "unavailable", enabled: false };
   if (status === "loading") return { status: "loading", enabled: false };
   if (status !== "authenticated") {

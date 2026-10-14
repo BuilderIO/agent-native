@@ -1293,6 +1293,10 @@ async function assertQueueIdentity(input: {
     "Successful steering must remove the exact queued item.",
   );
 
+  if (promoted && "alreadyRemoved" in promoted) {
+    throw new Error("Queue item was removed before promotion completed.");
+  }
+
   if (promoted) {
     const events = await collect(
       transport.subscribeToRun({ threadId, runId: promoted.runId }),

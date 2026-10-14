@@ -8,6 +8,7 @@ const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockGetUploadRecoveryPolicy = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -46,6 +47,11 @@ vi.mock("../../../../lib/player-video-url.js", () => ({
     mockResolvePlayerVideoUrl(...args),
 }));
 
+vi.mock("../../../../lib/recording-policy.js", () => ({
+  getUploadRecoveryPolicy: (...args: unknown[]) =>
+    mockGetUploadRecoveryPolicy(...args),
+}));
+
 vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
     mockGetEventOwnerContext(...args),
@@ -76,6 +82,7 @@ describe("/api/uploads/:recordingId/status route", () => {
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
     mockReadAppState.mockResolvedValue(null);
+    mockGetUploadRecoveryPolicy.mockResolvedValue(false);
   });
 
   it("returns owner-scoped recording status for private recovery", async () => {
@@ -120,6 +127,22 @@ describe("/api/uploads/:recordingId/status route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 404);
   });
 
+  it("exposes the saved recovery choice for an interrupted upload", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([{ id: "rec-1", status: "failed" }]),
+    );
+    mockGetUploadRecoveryPolicy.mockResolvedValue(true);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      recording: { id: "rec-1", recoveryEnabled: true },
+    });
+    expect(mockGetUploadRecoveryPolicy).toHaveBeenCalledWith(
+      "owner@example.com",
+      "org-1",
+      "rec-1",
+    );
+  });
+
   it("exposes durable media verification without caching the status", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRows([
@@ -140,6 +163,35 @@ describe("/api/uploads/:recordingId/status route", () => {
         recording: expect.objectContaining({
           status: "processing",
           verificationPending: true,
+        }),
+      }),
+    );
+  });
+
+  it("reports the bytes finalize received so a client can prove its copy uploaded", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "rec-1",
+          status: "ready",
+          videoUrl: "s3://private/rec-1.webm",
+          durationMs: 4_000,
+          hasAudio: true,
+          hasCamera: false,
+        },
+      ]),
+    );
+    mockReadAppState.mockResolvedValue({
+      status: "ready",
+      sourceSizeBytes: 123_456,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        recording: expect.objectContaining({
+          status: "ready",
+          durationMs: 4_000,
+          sourceSizeBytes: 123_456,
         }),
       }),
     );

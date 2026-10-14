@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 
 import {
   designFileCodeLayerSource,
+  forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
   preparedSourceProjection,
   resolveSourceBaseForPublication,
@@ -67,7 +68,7 @@ it("reuses canonical preparation for unchanged screen content", () => {
   expect(second).toBe(first);
 });
 
-it("does not retain an oversized screen in the canonical cache", () => {
+it("keeps an oversized unchanged screen cached", () => {
   const content = `<main data-agent-native-node-id="screen">${" ".repeat(256 * 1024)}<button data-agent-native-node-id="cta">Continue</button></main>`;
 
   const first = prepareCanonicalSourceContent(content, {
@@ -79,11 +80,24 @@ it("does not retain an oversized screen in the canonical cache", () => {
     fileType: "html",
   });
 
-  expect(second).not.toBe(first);
+  expect(second).toBe(first);
 });
 
-it("bounds canonical cache retention by UTF-8 bytes", () => {
-  const content = `<main data-agent-native-node-id="screen">${"😀".repeat(70_000)}</main>`;
+it("evicts oversized unchanged screens past the referenced-bytes budget", () => {
+  const screen = (tag: string) =>
+    `<main data-agent-native-node-id="${tag}">${" ".repeat(24 * 1024 * 1024)}</main>`;
+  const prepare = (fileId: string, content: string) =>
+    prepareCanonicalSourceContent(content, { fileId, fileType: "html" });
+  const first = screen("a");
+  const firstResult = prepare("referenced-a", first);
+  prepare("referenced-b", screen("b"));
+  prepare("referenced-c", screen("c"));
+
+  expect(prepare("referenced-a", first)).not.toBe(firstResult);
+});
+
+it("bounds repaired-screen cache retention by UTF-8 bytes", () => {
+  const content = `<main>${"😀".repeat(70_000)}</main>`;
 
   const first = prepareCanonicalSourceContent(content, {
     fileId: "unicode-screen-cache",
@@ -182,6 +196,25 @@ it("uses canonical pending bytes once identity migration is durable", () => {
   ).toBe(canonical);
 });
 
+it("does not use an unaccepted deferred upload as a publication base", () => {
+  const uploadCandidate = "<main>uploaded image URL</main>";
+  const remoteContent = "<main>remote collaborator source</main>";
+
+  expect(
+    resolveSourceBaseForPublication({
+      fileId: "screen-a",
+      fileType: "html",
+      pending: {
+        content: uploadCandidate,
+        deferCollabReconcile: true,
+      },
+      collabContent: remoteContent,
+      persistedContent: "<main>stored source</main>",
+      beforeContent: remoteContent,
+    }),
+  ).toBe(remoteContent);
+});
+
 it("hands the Layers model the projection it built for the editor's source", () => {
   const content =
     '<main data-agent-native-node-id="screen"><p>Hi</p><p>There</p></main>';
@@ -229,4 +262,17 @@ it("refuses a projection source that names another file", () => {
       source: designFileCodeLayerSource("design-1", "screen-b", undefined),
     }),
   ).toThrow("same file");
+});
+
+it("forgets prepared sources for files that left the design", () => {
+  const html = '<div data-agent-native-node-id="kept">kept</div>';
+  const deleted = prepareCanonicalSourceContent(html, { fileId: "deleted" });
+  const kept = prepareCanonicalSourceContent(html, { fileId: "kept" });
+
+  forgetPreparedSourcesExcept(new Set(["kept"]));
+
+  expect(prepareCanonicalSourceContent(html, { fileId: "kept" })).toBe(kept);
+  expect(prepareCanonicalSourceContent(html, { fileId: "deleted" })).not.toBe(
+    deleted,
+  );
 });

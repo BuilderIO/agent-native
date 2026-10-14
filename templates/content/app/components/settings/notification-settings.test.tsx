@@ -23,7 +23,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   SettingsGroup: ({
     title,
     children,
@@ -92,7 +92,6 @@ vi.mock("@/components/ui/switch", () => ({
 
 import {
   COMMENT_EMAILS_ROW_ID,
-  LegacyEmailNotificationsRow,
   NotificationSettings,
 } from "./notification-settings";
 
@@ -171,8 +170,8 @@ describe("Content notification settings", () => {
 
   it("flips optimistically and rolls back when the save fails", () => {
     mocks.query.data = { emailNotifications: true };
-    render(<LegacyEmailNotificationsRow />);
-    const current = () => toggle("settings.emailNotifications");
+    render(<NotificationSettings />);
+    const current = () => toggle("settings.commentsRepliesMentions");
 
     act(() => current()?.click());
     expect(current()?.getAttribute("aria-checked")).toBe("false");

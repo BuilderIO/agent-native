@@ -2,7 +2,7 @@ import type {
   BlockReadProps,
   BlockRenderContext,
   BlockSpec,
-} from "@agent-native/core/blocks";
+} from "@agent-native/core/blocks/server";
 import { inlineDatabaseBlockConfig } from "@shared/inline-database-block";
 import type { InlineDatabaseData } from "@shared/inline-database-block";
 import { IconDatabase } from "@tabler/icons-react";

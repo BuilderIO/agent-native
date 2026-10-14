@@ -4,15 +4,31 @@ import {
 } from "../../server/chatgpt-subscription-oauth.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import {
-  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
   CHATGPT_SUBSCRIPTION_ENDPOINT,
   CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_MODELS,
 } from "../chatgpt-subscription-contract.js";
 import { createAISDKEngine, PROVIDER_CAPABILITIES } from "./ai-sdk-engine.js";
 import type { AgentEngine } from "./types.js";
 
 const OPENAI_RESPONSES_BASE_URL = "https://api.openai.com/v1";
+const UNSUPPORTED_RESPONSES_FIELDS = [
+  "background",
+  "conversation",
+  "max_output_tokens",
+  "max_tool_calls",
+  "metadata",
+  "moderation",
+  "multi_agent",
+  "previous_response_id",
+  "prompt",
+  "prompt_cache_retention",
+  "safety_identifier",
+  "temperature",
+  "top_logprobs",
+  "top_p",
+  "truncation",
+  "user",
+] as const;
 
 function requestUrl(input: RequestInfo | URL): URL {
   return input instanceof URL
@@ -20,7 +36,7 @@ function requestUrl(input: RequestInfo | URL): URL {
     : new URL(typeof input === "string" ? input : input.url);
 }
 
-function copyHeaders(input: RequestInfo | URL, init?: RequestInit): Headers {
+function requestHeaders(input: RequestInfo | URL, init?: RequestInit): Headers {
   const headers = new Headers(
     input instanceof Request ? input.headers : undefined,
   );
@@ -28,23 +44,44 @@ function copyHeaders(input: RequestInfo | URL, init?: RequestInit): Headers {
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
   }
   headers.delete("authorization");
-  headers.delete("Authorization");
+  headers.delete("originator");
+  headers.delete("chatgpt-account-id");
   return headers;
 }
 
-function stripUnsupportedRequestFields(body: BodyInit | null | undefined) {
-  if (typeof body !== "string") return body;
-  try {
-    const parsed: unknown = JSON.parse(body);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return body;
-    }
-    const request = { ...(parsed as Record<string, unknown>) };
-    delete request.max_output_tokens;
-    return JSON.stringify(request);
-  } catch {
-    return body;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeChatGPTSubscriptionResponsesBody(
+  body: unknown,
+): string {
+  if (typeof body !== "string") {
+    throw new Error("Sign in with ChatGPT requires a JSON Responses request.");
   }
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    throw new Error("Sign in with ChatGPT received invalid Responses JSON.");
+  }
+  if (!isRecord(value) || !Array.isArray(value.input)) {
+    throw new Error(
+      "Sign in with ChatGPT requires Responses input as an array.",
+    );
+  }
+
+  const request = { ...value };
+  for (const field of UNSUPPORTED_RESPONSES_FIELDS) delete request[field];
+  const input = request.input as unknown[];
+  request.input = input.map((item) =>
+    isRecord(item) && item.role === "system"
+      ? { ...item, role: "developer" }
+      : item,
+  );
+  request.store = false;
+  request.stream = true;
+  return JSON.stringify(request);
 }
 
 function currentUserEmail(config: Record<string, unknown>): string {
@@ -54,46 +91,139 @@ function currentUserEmail(config: Record<string, unknown>): string {
   return getRequestUserEmail()?.trim() ?? "";
 }
 
+async function markUnauthorized(email: string, response: Response) {
+  if (response.status === 401) {
+    await markChatGPTSubscriptionReconnectRequired(email);
+  }
+}
+
+export interface ChatGPTSubscriptionModelCatalog {
+  models: string[];
+  modelDisplayNames: Record<string, string>;
+}
+
+async function readChatGPTSubscriptionModelCatalog(
+  accessToken: string,
+  email: string,
+): Promise<ChatGPTSubscriptionModelCatalog> {
+  const response = await fetch(`${OPENAI_RESPONSES_BASE_URL}/models`, {
+    method: "GET",
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+    redirect: "error",
+  });
+  await markUnauthorized(email, response);
+  if (!response.ok) {
+    throw new Error(
+      `OpenAI ChatGPT model listing failed with HTTP ${response.status}.`,
+    );
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("OpenAI returned invalid ChatGPT model-list JSON.");
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.models)) {
+    throw new Error("OpenAI returned an invalid ChatGPT model catalog.");
+  }
+
+  const models: string[] = [];
+  const modelDisplayNameEntries: Array<[string, string]> = [];
+  const seen = new Set<string>();
+  for (const item of payload.models) {
+    if (!isRecord(item)) {
+      throw new Error("OpenAI returned an invalid ChatGPT model-list row.");
+    }
+    if (item.visibility !== "list") continue;
+    const { slug, display_name: displayName } = item;
+    if (
+      typeof slug !== "string" ||
+      !slug.trim() ||
+      slug.length > 200 ||
+      /[\s\p{Cc}]/u.test(slug) ||
+      typeof displayName !== "string" ||
+      !displayName.trim() ||
+      displayName.length > 200 ||
+      /[\p{Cc}]/u.test(displayName)
+    ) {
+      throw new Error("OpenAI returned an invalid visible ChatGPT model.");
+    }
+    if (seen.has(slug)) {
+      throw new Error("OpenAI returned a duplicate visible ChatGPT model.");
+    }
+    seen.add(slug);
+    models.push(slug);
+    modelDisplayNameEntries.push([slug, displayName]);
+  }
+  if (models.length === 0) {
+    throw new Error("The selected ChatGPT account has no visible models.");
+  }
+  return {
+    models,
+    modelDisplayNames: Object.fromEntries(modelDisplayNameEntries),
+  };
+}
+
+export async function listChatGPTSubscriptionModels(
+  email: string,
+): Promise<ChatGPTSubscriptionModelCatalog> {
+  const access = await getChatGPTSubscriptionAccess(email);
+  return readChatGPTSubscriptionModelCatalog(access.accessToken, email);
+}
+
 export function createChatGPTSubscriptionFetch(email: string): typeof fetch {
   return async (input, init) => {
-    const access = await getChatGPTSubscriptionAccess(email);
-    const parsed = requestUrl(input);
-    const rewrite =
-      parsed.pathname.includes("/v1/responses") ||
-      parsed.pathname.includes("/chat/completions");
-    const url = rewrite ? new URL(CHATGPT_SUBSCRIPTION_ENDPOINT) : parsed;
-    const headers = copyHeaders(input, init);
-    headers.set("authorization", `Bearer ${access.accessToken}`);
-    headers.set("originator", "agent-native");
-    headers.set("user-agent", "agent-native-framework");
-    if (access.accountId) headers.set("ChatGPT-Account-Id", access.accountId);
-
+    const target = requestUrl(input);
+    const endpoint = new URL(CHATGPT_SUBSCRIPTION_ENDPOINT);
+    if (
+      target.origin !== endpoint.origin ||
+      target.pathname !== endpoint.pathname ||
+      target.search ||
+      target.hash
+    ) {
+      throw new Error(
+        "Sign in with ChatGPT requests must use the public OpenAI Responses API.",
+      );
+    }
     const source = input instanceof Request ? input : undefined;
-    const requestInit: RequestInit = {
-      ...(source
-        ? {
-            method: source.method,
-            body:
-              source.method === "GET" || source.method === "HEAD"
-                ? undefined
-                : source.body,
-            signal: source.signal,
-          }
-        : {}),
+    const method = init?.method ?? source?.method ?? "GET";
+    if (method.toUpperCase() !== "POST") {
+      throw new Error("The OpenAI Responses API requires POST requests.");
+    }
+    const body =
+      source && init?.body === undefined
+        ? await source.clone().text()
+        : init?.body;
+    const access = await getChatGPTSubscriptionAccess(email);
+    const headers = requestHeaders(input, init);
+    headers.set("authorization", `Bearer ${access.accessToken}`);
+    headers.set("content-type", "application/json");
+    const requestBody = JSON.parse(
+      normalizeChatGPTSubscriptionResponsesBody(body),
+    ) as Record<string, unknown>;
+    if (typeof requestBody.model !== "string" || !requestBody.model.trim()) {
+      const catalog = await readChatGPTSubscriptionModelCatalog(
+        access.accessToken,
+        email,
+      );
+      const model = catalog.models[0];
+      if (!model) {
+        throw new Error("The selected ChatGPT account has no visible models.");
+      }
+      requestBody.model = model;
+    }
+    const response = await fetch(endpoint, {
       ...(init ?? {}),
+      method: "POST",
       headers,
-    };
-    if (rewrite) {
-      requestInit.body =
-        source && init?.body === undefined
-          ? stripUnsupportedRequestFields(await source.clone().text())
-          : stripUnsupportedRequestFields(requestInit.body);
-    }
-
-    const response = await fetch(url, requestInit);
-    if (response.status === 401) {
-      await markChatGPTSubscriptionReconnectRequired(email).catch(() => {});
-    }
+      body: JSON.stringify(requestBody),
+      cache: "no-store",
+      redirect: "error",
+      ...(source?.signal ? { signal: source.signal } : {}),
+    });
+    await markUnauthorized(email, response);
     return response;
   };
 }
@@ -103,14 +233,14 @@ export function createChatGPTSubscriptionEngine(
 ): AgentEngine {
   const email = currentUserEmail(config);
   if (!email) {
-    throw new Error("A signed-in user is required for a ChatGPT subscription.");
+    throw new Error("A signed-in user is required for ChatGPT plan access.");
   }
 
   return createAISDKEngine("openai", {
     name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-    label: "ChatGPT subscription",
-    model: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-    supportedModels: CHATGPT_SUBSCRIPTION_MODELS,
+    label: "ChatGPT plan access",
+    model: typeof config.model === "string" ? config.model : "",
+    supportedModels: [],
     acceptsCustomModels: false,
     capabilities: PROVIDER_CAPABILITIES.openai,
     apiKey: "chatgpt-subscription",

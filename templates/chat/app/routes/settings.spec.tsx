@@ -4,38 +4,26 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const flag = vi.hoisted(() => ({ enabled: false }));
 const pageProps = vi.hoisted(() => ({
   current: null as {
     general?: unknown;
     team?: unknown;
     generalSearchEntries?: unknown;
+    whatsNewMarkdown?: string;
   } | null,
-}));
-
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlagState: () => ({ status: "ready", enabled: flag.enabled }),
-}));
-
-vi.mock("@agent-native/core/feature-flags/registry", () => ({
-  SETTINGS_REDESIGN_FLAG: { key: "settings-redesign" },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  LanguagePicker: () => null,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
-  SettingsGroup: ({ children }: { children: React.ReactNode }) => (
-    <section>{children}</section>
-  ),
-  SettingsRow: ({ label }: { label: React.ReactNode }) => <div>{label}</div>,
   SettingsTabsPage: (props: {
     general?: React.ReactNode;
     team?: React.ReactNode;
     generalSearchEntries?: unknown;
+    whatsNewMarkdown?: string;
   }) => {
     pageProps.current = props;
     return <main>{props.general}</main>;
@@ -57,7 +45,6 @@ describe("Chat settings route", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    flag.enabled = false;
     pageProps.current = null;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -70,17 +57,7 @@ describe("Chat settings route", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the language row on today's General tab", () => {
-    act(() => {
-      root.render(<SettingsRoute />);
-    });
-
-    expect(container.textContent).toContain("settings.languageTitle");
-    expect(pageProps.current?.team).toBeUndefined();
-  });
-
-  it("drops the language row in the redesigned Settings", () => {
-    flag.enabled = true;
+  it("has no language row of its own", () => {
     act(() => {
       root.render(<SettingsRoute />);
     });
@@ -88,5 +65,16 @@ describe("Chat settings route", () => {
     expect(pageProps.current?.general).toBeUndefined();
     expect(pageProps.current?.generalSearchEntries).toBeUndefined();
     expect(container.textContent).not.toContain("settings.languageTitle");
+    expect(pageProps.current?.team).toBeUndefined();
+  });
+
+  it("passes the app changelog to Settings for the What's new page", () => {
+    act(() => {
+      root.render(<SettingsRoute />);
+    });
+
+    expect(pageProps.current?.whatsNewMarkdown).toContain(
+      "Chat retries the original request with its attachments after model setup.",
+    );
   });
 });

@@ -217,11 +217,12 @@ export function evaluateSourceAnswerPolicy(args: {
   const answerIneligible = effectivePolicies.some(
     (policy) => !policy.answerEligible,
   );
+  // reviewRequired is legacy: nothing reviews captures anymore, so it no
+  // longer excludes evidence.
   const missingRequiredReview =
     !args.reviewed &&
     effectivePolicies.some(
-      (policy) =>
-        policy.reviewRequired || policy.conflictBehavior === "require-review",
+      (policy) => policy.conflictBehavior === "require-review",
     );
   const exclusionReasons: EvaluatedSourceAnswerPolicy["exclusionReasons"] = [];
   if (answerIneligible) exclusionReasons.push("answer-ineligible");

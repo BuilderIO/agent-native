@@ -1,13 +1,13 @@
-import {
-  AgentChatHome,
-  useAgentChatContext,
-} from "@agent-native/core/client/agent-chat";
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
+import { analyticsAskThreadPath } from "@shared/ask-route";
 import { useEffect, useMemo } from "react";
+import { useNavigate } from "react-router";
 
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import {
@@ -21,8 +21,9 @@ const DASHBOARD_CONTEXT_KEYS = new Set([
   "analytics-selected-dashboard-panel",
 ]);
 
-export default function AskPage() {
+export default function AskPage({ threadId }: { threadId: string | null }) {
   const t = useT();
+  const navigate = useNavigate();
   const creativeContextEnabled = useCreativeContextLab();
   const chatContext = useAgentChatContext();
   const chatContextItems = chatContext.items;
@@ -57,10 +58,16 @@ export default function AskPage() {
   return (
     <AgentChatHome
       className="analytics-ask-page h-full min-h-0"
+      contentClassName="max-w-none"
       surfaceClassName="analytics-chat-panel"
       chatViewTransition
       defaultMode="chat"
       storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+      threadUrlSync={{
+        routeThreadId: threadId,
+        getPath: analyticsAskThreadPath,
+        navigate,
+      }}
       browserTabId={TAB_ID}
       showHeader={false}
       showTabBar={false}

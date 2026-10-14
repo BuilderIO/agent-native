@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `/content${path}`,
 }));
-vi.mock("@agent-native/core/client/clipboard", () => ({
+vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText: mocks.copy,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({

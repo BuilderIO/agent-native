@@ -2,7 +2,10 @@ import { createHash } from "crypto";
 
 import { getDbExec } from "@agent-native/core/db";
 
-import type { AnalyticsQueryResult } from "./first-party-analytics.js";
+import type {
+  AnalyticsQueryResult,
+  AnalyticsScope,
+} from "./first-party-analytics.js";
 
 interface L1Entry {
   result: AnalyticsQueryResult;
@@ -22,14 +25,27 @@ function inFlightKey(key: string, timeoutMs?: number): string {
 
 export interface FirstPartyCacheOptions {
   timeoutMs?: number;
+  deadlineAt?: number;
 }
 
+/**
+ * The key names the actor and tenant explicitly, so a cached result is never
+ * served to another caller even when two scopes compile to the same SQL.
+ */
 export function firstPartyCacheKey(
   scopedSql: string,
   args: Array<string | null>,
+  scope: AnalyticsScope,
 ): string {
+  const caller = {
+    actor: scope.userEmail.trim().toLowerCase(),
+    orgId: scope.orgId ?? null,
+    credentialScope: scope.credentialScope ?? null,
+  };
   return createHash("sha256")
-    .update(`${scopedSql}\n${JSON.stringify(args)}`)
+    .update(
+      `sql-policy-v2\n${JSON.stringify(caller)}\n${scopedSql}\n${JSON.stringify(args)}`,
+    )
     .digest("hex");
 }
 
@@ -120,6 +136,28 @@ function cacheIoTimeoutMs(deadlineAt: number): number {
   );
 }
 
+// A caller can join a read that started after it did, so its own deadline,
+// not the read's, bounds the wait.
+function waitUntilDeadline(
+  promise: Promise<AnalyticsQueryResult>,
+  deadlineAt: number,
+  timeoutMs: number,
+): Promise<AnalyticsQueryResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `First-party analytics query timed out after ${timeoutMs}ms`,
+          ),
+        ),
+      remainingTimeoutMs(deadlineAt),
+    );
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 export async function withFirstPartyCache(
   key: string,
   sql: string,
@@ -130,11 +168,11 @@ export async function withFirstPartyCache(
   if (l1Hit) return l1Hit;
 
   const timeoutMs = Math.max(1, options.timeoutMs ?? CACHE_IO_TIMEOUT_MS);
-  const deadlineAt = Date.now() + timeoutMs;
+  const deadlineAt = options.deadlineAt ?? Date.now() + timeoutMs;
 
   const requestKey = inFlightKey(key, options.timeoutMs);
   const existing = inFlight.get(requestKey);
-  if (existing) return existing;
+  if (existing) return waitUntilDeadline(existing, deadlineAt, timeoutMs);
 
   const promise = (async () => {
     const l2Hit = await getL2(key, deadlineAt);

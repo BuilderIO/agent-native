@@ -1,12 +1,14 @@
 import path from "node:path";
 
-import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import type { AgentPostgresStatement } from "../../agent-sql/postgres.js";
+import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
 import {
-  assertNoRawDbAccessControlWrite,
-  assertNoSchemaQualifiedTables,
-  assertNoSensitiveFrameworkTables,
+  finalRawDbSql,
+  rawDbInsertTarget,
+  readRawDbWriteStatement,
+  verifyRawDbStatement,
 } from "./safety.js";
 import { buildScopingPostgres, type ScopingContext } from "./scoping.js";
 
@@ -72,111 +74,24 @@ function parseStatements(parsed: Record<string, string>): DbExecStatement[] {
   return [{ sql: parsed.sql, args: parseSqlArgs(parsed.args) }];
 }
 
-function stripLeadingSqlComments(sql: string): string {
-  return sql
-    .replace(/^\s*--[^\n]*\n/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
-}
-
-function hasAdditionalStatement(sql: string): boolean {
-  let state: "normal" | "single" | "double" | "line" | "block" = "normal";
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i];
-    const next = sql[i + 1];
-    if (state === "line") {
-      if (ch === "\n") state = "normal";
-      continue;
-    }
-    if (state === "block") {
-      if (ch === "*" && next === "/") {
-        i++;
-        state = "normal";
-      }
-      continue;
-    }
-    if (state === "single") {
-      if (ch === "'" && next === "'") i++;
-      else if (ch === "'") state = "normal";
-      continue;
-    }
-    if (state === "double") {
-      if (ch === '"' && next === '"') i++;
-      else if (ch === '"') state = "normal";
-      continue;
-    }
-    if (ch === "-" && next === "-") {
-      i++;
-      state = "line";
-    } else if (ch === "/" && next === "*") {
-      i++;
-      state = "block";
-    } else if (ch === "'") {
-      state = "single";
-    } else if (ch === '"') {
-      state = "double";
-    } else if (ch === ";") {
-      return sql.slice(i + 1).trim().length > 0;
-    }
-  }
-  return false;
-}
-
-function normalizeUserSql(sql: string, index: number): string {
-  const normalized = stripLeadingSqlComments(sql);
-  if (!normalized) fail(`Statement ${index} is empty`);
-  if (hasAdditionalStatement(normalized)) {
-    fail(
-      `Statement ${index} contains multiple SQL statements. Use --statements for batches so each write can be validated and run transactionally.`,
-    );
-  }
-  return normalized.replace(/;\s*$/, "");
-}
-
-function validateWriteSql(sql: string, index: number): string {
-  const normalized = normalizeUserSql(sql, index);
-  const upper = normalized.toUpperCase();
-  const allowed = ["INSERT", "UPDATE", "DELETE"];
-  const blocked = ["SELECT", "WITH", "EXPLAIN"];
-  if (blocked.some((keyword) => upper.startsWith(keyword))) {
-    fail(
-      `Statement ${index}: use db-query for read statements. db-exec is for writes only.`,
-    );
-  }
-  if (upper.startsWith("CREATE") || upper.startsWith("ALTER")) {
-    fail(
-      `Statement ${index}: schema changes are not allowed through db-exec. Additive schema changes must go through reviewed migrations or startup code.`,
-    );
-  }
-  if (!allowed.some((keyword) => upper.startsWith(keyword))) {
-    fail(
-      `Statement ${index}: only ${allowed.join(", ")} statements are allowed. Dangerous operations such as DROP, TRUNCATE, GRANT, and REVOKE are blocked.`,
-    );
-  }
-  assertNoSensitiveFrameworkTables(normalized, "write");
-  assertNoRawDbAccessControlWrite(normalized);
-  assertNoSchemaQualifiedTables(normalized, "write");
-  return normalized;
-}
-
 const INSERT_INTO = "INSERT\\s+INTO";
 
-function injectOwnership(sql: string, scoping: ScopingContext): string {
-  if (!scoping.active) return sql;
-  if (!stripLeadingSqlComments(sql).toUpperCase().startsWith("INSERT")) {
-    return sql;
-  }
+function injectOwnership(
+  statement: AgentPostgresStatement,
+  scoping: ScopingContext,
+): string {
+  const sql = statement.sql;
+  if (!scoping.active || statement.keyword !== "insert") return sql;
 
-  const match = sql.match(
-    new RegExp(`${INSERT_INTO}\\s+["']?(\\w+)["']?`, "i"),
-  );
-  if (!match) return sql;
-  const tableName = match[1];
+  const target = rawDbInsertTarget(statement);
+  if (!target) return sql;
+  const tableName = target.table;
+  const listed = new Set(target.columns ?? []);
   const injections: { column: string; value: string }[] = [];
   if (
     scoping.userEmail &&
     scoping.ownerEmailTables.has(tableName) &&
-    !/owner_email/i.test(sql)
+    !listed.has("owner_email")
   ) {
     injections.push({
       column: "owner_email",
@@ -186,7 +101,7 @@ function injectOwnership(sql: string, scoping: ScopingContext): string {
   if (
     scoping.orgId &&
     scoping.orgIdTables.has(tableName) &&
-    !/org_id/i.test(sql)
+    !listed.has("org_id")
   ) {
     injections.push({
       column: "org_id",
@@ -271,7 +186,7 @@ Options:
   }
 
   const statements = parseStatements(parsed).map((statement, index) => ({
-    sql: validateWriteSql(statement.sql, index + 1),
+    statement: readRawDbWriteStatement(statement.sql, `Statement ${index + 1}`),
     args: statement.args,
   }));
   const url = parsed.db
@@ -287,14 +202,33 @@ Options:
       try {
         for (let index = 0; index < statements.length; index++) {
           const statement = statements[index];
-          const sql = toPostgresParams(injectOwnership(statement.sql, scoping));
+          const label = `Statement ${index + 1}`;
+          // Ownership injection rewrites the text, so the guards re-read the
+          // final SQL and check it against this transaction's state right
+          // before it runs, after any earlier statement in the batch.
+          const executed = finalRawDbSql(
+            injectOwnership(statement.statement, scoping),
+            "write",
+            label,
+          );
+          await verifyRawDbStatement(tx, executed.statement, {
+            columnsByTable: scoping.columnsByTable,
+            label,
+          });
+          const sql = executed.sql;
           try {
-            const result = await tx.unsafe(sql, statement.args);
+            const result = await tx.unsafe(sql, statement.args, {
+              singleStatement: true,
+            });
             results.push({
               index: index + 1,
               sql,
               changes: result.count ?? 0,
-              rows: /\bRETURNING\b/i.test(sql) ? Array.from(result) : [],
+              rows: executed.statement.tokens.some(
+                (token) => token.kind === "word" && token.value === "returning",
+              )
+                ? Array.from(result)
+                : [],
             });
           } catch (error) {
             throw new Error(

@@ -1,12 +1,12 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { DbAdminPage } from "@agent-native/toolkit/app/db-admin";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   IconActivity,
   IconAlertTriangle,

@@ -119,6 +119,7 @@ const BRANCHES: Array<[string, Record<string, unknown>]> = [
   ["includeSlides", { includeSlides: "true" }],
   ["compact", { includeSlides: "false", compact: "true" }],
   ["paged", { limit: 100 }],
+  ["paged + preview", { limit: 12, includePreview: "true" }],
   ["updatedSince", { updatedSince: "2020-01-01T00:00:00.000Z" }],
 ];
 

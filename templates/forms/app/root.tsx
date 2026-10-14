@@ -3,16 +3,14 @@ import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useDbSync,
-  AppProviders,
   createAgentNativeQueryClient,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -30,6 +28,7 @@ import type { LinksFunction } from "react-router";
 
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { isFormsAskPath } from "@/lib/chat-route";
 import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -257,12 +256,12 @@ function FormsCommandMenu({
             {t("header.form")}
           </CommandMenu.Item>
         ) : null}
-        {location.pathname === "/ask" ? (
+        {isFormsAskPath(location.pathname) ? (
           <CommandMenu.Item onSelect={() => navigate("/forms")}>
             {t("navigation.allForms")}
           </CommandMenu.Item>
         ) : null}
-        {location.pathname !== "/ask" && !formId ? (
+        {!isFormsAskPath(location.pathname) && !formId ? (
           <CommandMenu.Item onSelect={() => navigate("/ask")}>
             {t("navigation.askForms")}
           </CommandMenu.Item>
@@ -326,4 +325,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

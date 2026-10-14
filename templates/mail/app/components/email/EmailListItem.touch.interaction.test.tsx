@@ -399,6 +399,76 @@ describe("EmailListItem touch swipe interactions", () => {
     ).toBeTruthy();
   });
 
+  it("shows explicit recovery actions without pending controls for uncertain sends", () => {
+    const uncertainEmail = {
+      ...email,
+      scheduledJobStatus: "uncertain" as const,
+    };
+    const uncertainThread = { ...thread, latestMessage: uncertainEmail };
+    const onConfirmUncertainScheduled = vi.fn();
+    const onRetryUncertainScheduled = vi.fn();
+    const { row } = renderRow({
+      email: uncertainEmail,
+      thread: uncertainThread,
+      scheduledJobId: "scheduled-uncertain-1",
+      onSendNow: vi.fn(),
+      onCancelSchedule: vi.fn(),
+      onConfirmUncertainScheduled,
+      onRetryUncertainScheduled,
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "mail.sendLater.deliveryUnknownWarning",
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sendLater.sendNow" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.sendLater.cancelScheduledSend",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "mail.sendLater.markSentAfterChecking",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sendLater.sendNewCopy" }),
+    );
+
+    expect(onConfirmUncertainScheduled).toHaveBeenCalledOnce();
+    expect(onRetryUncertainScheduled).toHaveBeenCalledOnce();
+    expect(row.className).toContain("min-h-[96px]");
+  });
+
+  it("hides pending controls while a scheduled send is processing", () => {
+    const processingEmail = {
+      ...email,
+      scheduledJobStatus: "processing" as const,
+    };
+    renderRow({
+      email: processingEmail,
+      thread: { ...thread, latestMessage: processingEmail },
+      scheduledJobId: "scheduled-processing-1",
+      onSendNow: vi.fn(),
+      onCancelSchedule: vi.fn(),
+    });
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "mail.sendLater.sendingStatus",
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sendLater.sendNow" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.sendLater.cancelScheduledSend",
+      }),
+    ).toBeNull();
+  });
+
   it("does not reveal or commit the direction whose handler is absent", () => {
     const onSwipeArchive = vi.fn();
     const { row } = renderRow({ onSwipeArchive });

@@ -22,7 +22,7 @@
  * migration is preview-only until the user approves cutover.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -30,13 +30,11 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 import {
   resolveSourceCapabilities,
   resolveFusionCapabilities,
@@ -81,7 +79,7 @@ export default defineAction({
   description:
     "Start or link a Builder-hosted branch for a fusion-backed design. " +
     "Requires the design's source to advertise the 'branch' capability (fusion tier) " +
-    "AND Builder.io to be connected. " +
+    "AND use Builder.io. " +
     "For inline/localhost designs without Builder, returns a ctaRequired response " +
     "with a 'Make it real' upgrade message — never fakes a branch call. " +
     "On success, persists branch metadata (branchName, url, status, projectId) " +
@@ -105,11 +103,10 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, branchName, purpose }) => {
-    const db = getDb();
-
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const resource = access.resource as {
       title?: string;
@@ -138,45 +135,19 @@ export default defineAction({
           ? ("connect-builder" as const)
           : ("make-it-real" as const),
         ctaMessage: isFusion
-          ? "Builder is not yet connected. Connect Builder.io (free tier available) to create branches for this design."
+          ? "Builder is not yet connected. Use Builder.io (free tier available) to create branches for this design."
           : "Branching requires a Builder-hosted app. Use 'Make it real' to upgrade this inline design to a real-app source, then create branches.",
         branch: null,
         versionId: null,
       };
     }
 
-    const files = await db
-      .select({
-        id: schema.designFiles.id,
-        filename: schema.designFiles.filename,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-
     const now = new Date().toISOString();
-    const versionId = `dv_${nanoid(12)}`;
-
-    const snapshot = JSON.stringify({
+    const version = await createDesignVersionSnapshotWithSourceMutationLock(
       designId,
-      snapshotKind: "pre-branch",
-      branchPurpose: purpose ?? null,
-      files: files.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        content: f.content,
-        bytes: f.content?.length ?? 0,
-      })),
-      capturedAt: now,
-    });
-
-    await db.insert(schema.designVersions).values({
-      id: versionId,
-      designId,
-      label: `Pre-branch snapshot — ${now}`,
-      snapshot,
-      createdAt: now,
-    });
+      { label: `Pre-branch snapshot — ${now}` },
+    );
+    const versionId = version.id;
 
     const projectId = await resolveBuilderBranchProjectId();
     const userEmail = getRequestUserEmail();

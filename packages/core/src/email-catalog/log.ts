@@ -16,7 +16,6 @@ const ADDITIVE_TEXT_COLUMNS = [
   "html_body",
   "text_body",
 ] as const;
-
 export const emailLogStore = defineStore({
   id: "email_log",
   migrations: [
@@ -95,7 +94,7 @@ export interface RecordEmailSendArgs {
   recipient: string;
   sender: string;
   subject: string;
-  status: "sent" | "failed";
+  status: "sent" | "failed" | "suppressed";
   error?: string;
   provider: string;
   requestPayload?: string;
@@ -195,7 +194,7 @@ export interface ListEmailLogFilters {
   excludeTo?: string;
   from?: string;
   excludeFrom?: string;
-  status?: "sent" | "failed";
+  status?: "sent" | "failed" | "suppressed";
   provider?: string;
   sinceMs?: number;
   untilMs?: number;

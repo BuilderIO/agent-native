@@ -1,9 +1,11 @@
+import { getUserLabStates } from "../labs/store.js";
 import {
   DEFAULT_SKILL_SCOPE,
   isRuntimeVisibleScope,
   normalizeSkillScope,
   type SkillScope,
 } from "./agent-chat/skill-frontmatter.js";
+import { captureError } from "./capture-error.js";
 
 export {
   DEFAULT_SKILL_SCOPE,
@@ -16,6 +18,7 @@ export interface SkillMeta {
   name: string;
   description: string;
   scope: SkillScope;
+  requiresLab?: string;
 }
 
 export interface Skill {
@@ -104,6 +107,7 @@ export function parseSkillFrontmatter(
     else if (key === "description" && value) result.description = value;
     else if (key === "scope" && value)
       result.scope = normalizeSkillScope(value, sourceLabel ?? result.name);
+    else if (key === "requires-lab" && value) result.requiresLab = value;
   }
 
   return result;
@@ -211,6 +215,7 @@ function readSkillsDir(
           name,
           description: meta.description ?? "",
           scope: meta.scope ?? DEFAULT_SKILL_SCOPE,
+          ...(meta.requiresLab ? { requiresLab: meta.requiresLab } : {}),
         },
         content,
         dir: path.relative(rootForRelative, skillDirAbs).replace(/\\/g, "/"),
@@ -361,6 +366,59 @@ export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
   );
 }
 
+export async function getRuntimeSkillsForUser(
+  bundle: AgentsBundle,
+  userEmail?: string | null,
+): Promise<Skill[]> {
+  const skills = getRuntimeSkills(bundle);
+  const requiredLabs = new Set(
+    skills
+      .map((skill) => skill.meta.requiresLab)
+      .filter((key): key is string => Boolean(key)),
+  );
+  if (requiredLabs.size === 0) return skills;
+  const enabledLabs = await getEnabledSkillLabsForUser(requiredLabs, userEmail);
+  return skills.filter(
+    (skill) =>
+      !skill.meta.requiresLab || enabledLabs.has(skill.meta.requiresLab),
+  );
+}
+
+export async function getEnabledSkillLabsForUser(
+  requiredLabs: Iterable<string>,
+  userEmail?: string | null,
+): Promise<ReadonlySet<string>> {
+  const keys = [...new Set(requiredLabs)];
+  if (keys.length === 0 || !userEmail?.trim()) return new Set();
+
+  // Lab state is account-specific; never put it on the process-cached bundle.
+  const labs = await getUserLabStates(userEmail.trim());
+  return new Set(
+    keys.filter((key) => {
+      const state = labs[key];
+      if (!state) throw new Error(`Unknown required lab: ${key}`);
+      if ("error" in state) {
+        captureError(
+          new Error(
+            state.error === "invalid-choice"
+              ? `Invalid saved lab choice: ${key}`
+              : `Could not resolve saved lab state: ${key}`,
+          ),
+          {
+            tags: {
+              source: "agent-skills",
+              op: "get-enabled-skill-labs",
+              lab: key,
+            },
+          },
+        );
+        return false;
+      }
+      return state.enabled;
+    }),
+  );
+}
+
 export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter(
     (skill) => skill.meta.scope !== "runtime",
@@ -428,7 +486,7 @@ function generateSkillsPromptBlockForEntries(
       ? `To read a skill in the in-app runtime agent, before starting a task it applies to:
   \`docs-search --slug "<slug>"\` — each skill's slug is the [bracketed] token ending its line
   \`docs-search --query "<topic>"\` to discover matching docs/skills
-Read each relevant page once per turn and reuse it for subsequent steps. Do not repeat an equivalent lookup unless you need a different page or question.`
+Read each relevant page once per conversation and reuse it. Do not repeat an equivalent lookup unless you need a different page or question.`
       : `To read a skill in dev mode (when you have bash access):
   \`bash(command="cat <skill-dir>/SKILL.md")\`
   \`bash(command="ls <skill-dir>/")\` to see all files in the folder`;
@@ -443,11 +501,11 @@ ${lines.join("\n")}
 </skills>`;
 }
 
-export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
-  return generateSkillsPromptBlockForEntries(
-    getRuntimeSkills(bundle),
-    "runtime",
-  );
+export function generateSkillsPromptBlock(
+  bundle: AgentsBundle,
+  runtimeSkills = getRuntimeSkills(bundle),
+): string {
+  return generateSkillsPromptBlockForEntries(runtimeSkills, "runtime");
 }
 
 export function generateDevelopmentSkillsPromptBlock(

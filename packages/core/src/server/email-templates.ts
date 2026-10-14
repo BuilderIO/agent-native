@@ -1,6 +1,12 @@
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig, type AppConfig } from "../app-config/index.js";
-import { renderEmail, emailStrong } from "./email-template.js";
+import type { ShareEmailExtras } from "../sharing/registry.js";
+import {
+  renderEmail,
+  emailQuote,
+  emailStrong,
+  type EmailTemplateApp,
+} from "./email-template.js";
 
 export const AGENT_NATIVE_REPLY_TO = "agent-native@builder.io";
 
@@ -64,6 +70,15 @@ function resolveAppLogoUrl(): string | undefined {
   return isFirstPartyApp(app) ? undefined : app.logoUrl;
 }
 
+export function resolveEmailBrandApp(): EmailTemplateApp {
+  const brand = resolveBrand();
+  return { name: brand.name, logoUrl: brand.logoUrl };
+}
+
+export function resolveEmailApp(): EmailTemplateApp {
+  return { name: resolveAppName(), logoUrl: resolveAppLogoUrl() };
+}
+
 export interface RenderInviteEmailArgs {
   invitee: string;
   orgName: string;
@@ -102,13 +117,17 @@ export function renderInviteEmail(
   };
 }
 
-export function renderBuilderCreditLimitEmail(args: {
+export interface RenderBuilderCreditLimitEmailArgs {
   subject: string;
   heading: string;
   body: string;
   upgradeLabel: string;
   upgradeUrl: string;
-}): RenderedEmailMessage {
+}
+
+export function renderBuilderCreditLimitEmail(
+  args: RenderBuilderCreditLimitEmailArgs,
+): RenderedEmailMessage {
   const brand = resolveBrand();
   const { html, text } = renderEmail({
     brandName: brand.name,
@@ -336,4 +355,123 @@ export function renderResetPasswordEmail(
         }
       : undefined,
   };
+}
+
+export interface RenderResourceSharedEmailArgs {
+  recipientEmail: string;
+  sender: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  role: "viewer" | "commenter" | "editor" | "admin";
+  message?: string;
+  app: EmailTemplateApp;
+  heroHtml?: string;
+  extras?: ShareEmailExtras;
+}
+
+const SHARE_ROLE_VERBS: Record<RenderResourceSharedEmailArgs["role"], string> =
+  {
+    viewer: "view",
+    commenter: "comment on",
+    editor: "edit",
+    admin: "edit and manage access to",
+  };
+
+export function renderResourceSharedEmail(
+  args: RenderResourceSharedEmailArgs,
+): RenderedEmailMessage {
+  const senderName = stripCrlf(args.sender.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
+  const subject = `${senderName} shared with you: "${resourceTitle}"`;
+  const messageParagraph = args.message?.trim()
+    ? emailQuote(args.message)
+    : null;
+  const defaultParagraphs = [
+    `${emailStrong(senderName)} (${emailStrong(args.sender.email)}) has invited you to ${SHARE_ROLE_VERBS[args.role]} the following ${resourceLabel}:`,
+    ...(messageParagraph ? [messageParagraph] : []),
+  ];
+  const extras = args.extras;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${senderName} shared ${article} ${resourceLabel}`,
+    paragraphs: extras?.paragraphs
+      ? messageParagraph
+        ? [messageParagraph, ...extras.paragraphs]
+        : extras.paragraphs
+      : defaultParagraphs,
+    resourceBlock: { name: resourceTitle },
+    heroHtml: args.heroHtml,
+    cta: { label: "Open", url: args.resource.url },
+    secondaryCta: extras?.secondaryCta,
+    linkBlock: extras?.linkBlock,
+    closingParagraphs: extras?.closingParagraphs,
+  });
+  return { subject, html, text };
+}
+
+export interface RenderAccessRequestedEmailArgs {
+  recipientEmail: string;
+  requester: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  /** The page where someone who manages access allows or declines. */
+  reviewUrl: string;
+  note?: string;
+  app: EmailTemplateApp;
+}
+
+export function renderAccessRequestedEmail(
+  args: RenderAccessRequestedEmailArgs,
+): RenderedEmailMessage {
+  const requesterName = stripCrlf(args.requester.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const subject = `${requesterName} is asking for access to "${resourceTitle}"`;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${requesterName} is asking for access`,
+    paragraphs: [
+      `${emailStrong(requesterName)} (${emailStrong(args.requester.email)}) is asking to open this ${resourceLabel}:`,
+      ...(args.note?.trim() ? [emailQuote(args.note)] : []),
+    ],
+    resourceBlock: { name: resourceTitle },
+    cta: { label: "Review request", url: args.reviewUrl },
+    closingParagraphs: [
+      `You're getting this because you can manage access to this ${resourceLabel}.`,
+    ],
+  });
+  return { subject, html, text };
+}
+
+export interface RenderAccessGrantedEmailArgs {
+  recipientEmail: string;
+  approver: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  role: "viewer" | "commenter" | "editor" | "admin";
+  app: EmailTemplateApp;
+}
+
+export function renderAccessGrantedEmail(
+  args: RenderAccessGrantedEmailArgs,
+): RenderedEmailMessage {
+  const approverName = stripCrlf(args.approver.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const subject = `You can now open "${resourceTitle}"`;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${approverName} approved your request`,
+    paragraphs: [
+      `${emailStrong(approverName)} (${emailStrong(args.approver.email)}) gave you access to ${SHARE_ROLE_VERBS[args.role]} this ${resourceLabel}:`,
+    ],
+    resourceBlock: { name: resourceTitle },
+    cta: { label: "Open", url: args.resource.url },
+  });
+  return { subject, html, text };
 }

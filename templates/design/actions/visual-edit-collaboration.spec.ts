@@ -76,6 +76,7 @@ vi.mock("@agent-native/core/action", () => ({
   },
 }));
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => ({ op: "accessFilter" })),
   assertAccess: mocks.assertAccess,
   currentAccess: mocks.currentAccess,
 }));
@@ -83,6 +84,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ conditions })),
   eq: vi.fn((left, right) => ({ left, right })),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings: [...strings],
@@ -92,6 +94,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => ({
   schema: {
     designs: mocks.designs,
+    designShares: {},
     designVisualEditSnapshots: mocks.snapshots,
   },
 }));

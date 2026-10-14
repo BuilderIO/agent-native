@@ -6,7 +6,7 @@ import { collectCodeLayerAncestors } from "@/pages/design-editor/code-layer-stat
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface CanMoveLayerArgs {
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;

@@ -1,5 +1,6 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +35,9 @@ export function SignInPromptDialog({
       ? "signInPrompt.commentIntent"
       : "signInPrompt.reactIntent",
   );
-  const signInHref = buildSignInReturnHref({ returnTo });
+  const signInHref = buildSignInReturnHref({
+    returnTo: returnTo ? appPath(returnTo) : undefined,
+  });
   const signUpHref = buildSignUpReturnHref(returnTo);
 
   return (
@@ -76,6 +79,8 @@ export function SignInPromptDialog({
 }
 
 export function buildSignUpReturnHref(returnTo?: string): string {
-  const signInHref = buildSignInReturnHref({ returnTo });
+  const signInHref = buildSignInReturnHref({
+    returnTo: returnTo ? appPath(returnTo) : undefined,
+  });
   return `${signInHref}${signInHref.includes("?") ? "&" : "?"}tab=signup`;
 }

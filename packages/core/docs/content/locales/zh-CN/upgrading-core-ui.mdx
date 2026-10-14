@@ -1,0 +1,172 @@
+---
+title: "将现有应用升级到 Core 0.198.0"
+description: "介绍迁移到 Core 0.198.0、Toolkit 导入、可选 peer 包和验证步骤的操作指南。"
+---
+
+# 将现有应用升级到 Core 0.198.0
+
+按照本指南将现有应用升级到 Core 0.198.0。请在应用或 workspace 根目录运行
+命令，并在开始前保留可审阅的源代码差异。请单独检查远程部署配置：CLI
+可以读取本地环境文件，但无法查看远程环境或保存在数据库中的功能设置。
+
+## 1. 预览升级和 import codemod
+
+使用 Core 0.198.0 随附的 CLI，以加载该版本的 migration manifest：
+
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
+
+在应用中安装 Core 0.198.0 后，也可以通过本地 CLI 二进制文件运行相同的预览：
+
+    npx agent-native upgrade --codemods --dry-run
+
+`--codemods` 命令使用 `ts-morph`。如果应用尚不能解析该包，请先将其安装为开发依赖：`pnpm add -D ts-morph`。
+
+`--codemods` 默认会应用受支持的 import 修改。添加 `--dry-run` 可预览计划中的依赖变更、
+文件差异和警告。现在不再需要 `--yes`。
+
+codemod 使用当前生效的 Core 和 Toolkit migration manifest。它仅扫描 .ts 和
+.tsx 文件（跳过声明文件、生成文件和依赖目录），并重写受支持的 import
+和 re-export specifier。如果具名 export 移至不同模块，它可以按 symbol
+拆分声明，同时保留别名和 type-only import。它还会重写简单的 CSS
+@import 路径，并在已解析的重写跨越 package 边界时添加缺失依赖。
+
+诊断也会检测 CommonJS `require()` 和动态 `import()` 形式。当旧模块只有一个新目标时，codemod 会重写字面量 `import()` 调用。`require()` 以及需要按符号拆分的动态导入会保持不变并给出警告；请根据报告中的新位置替换它们，然后重新运行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路径无论是否带引号，codemod 都会重写。
+
+codemod 不会改动调用位置，也不会移动文件。未解析或 planned 的迁移会保留
+原样并显示警告。它无法拆分 default、namespace、side-effect 或 star
+import/export；也不能按 symbol 拆分 CSS import。
+请手动检查这些情况。已移除的 export 可能需要修改代码；请按 CLI 警告中
+给出的 migration guide 处理。
+
+预览还会展示完整升级计划：阻止升级的 framework override 或 patch、待
+更新的 @agent-native/\* 版本、根据本地配置推断的功能依赖、package manager
+安装、scaffold skill 更新，以及根 package 存在 typecheck script 时的
+typecheck。命令会将 package spec 更新为 registry 当前的 latest，然后固定
+安装解析出的版本。请在 0.198.0 是预期当前版本时运行；如果之后需要精确
+版本，请确认解析后的 pin。
+
+## 2. 确认 Toolkit 和可选软件包
+
+迁移到 `@agent-native/toolkit/*` 的导入需要安装 `@agent-native/toolkit`。codemod 会在将受支持且可解析的导入或导出迁移到 Toolkit 时添加该依赖。如果应用使用了 Toolkit 导出但未添加依赖，请安装与 Core 0.198.0 对应的 Toolkit 版本：
+
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
+
+### 由升级 CLI 选择的依赖
+
+本地环境检查符合条件时，CLI 会添加以下依赖。对于 PGlite，它先检查规范化应用名对应的 `${APP_NAME}_DATABASE_URL`，再检查 `DATABASE_URL`；如果没有 URL 或 URL 以 `pglite:` 开头，就会选择 PGlite。CLI 无法检查远程环境或存储在数据库中的功能设置，请单独确认生产和预览环境。
+
+| 功能                         | 可选软件包                   | 版本                | CLI 检查的本地配置                                                                    |
+| ---------------------------- | ---------------------------- | ------------------- | ------------------------------------------------------------------------------------- |
+| PGlite 数据库                | @electric-sql/pglite         | ^0.5.8              | 规范化的 `${APP_NAME}_DATABASE_URL`，然后是 `DATABASE_URL`；未设置或以 `pglite:` 开头 |
+| 服务端 Sentry                | @sentry/node                 | ^10.60.0 或 ^11.0.0 | `SENTRY_SERVER_DSN`、`SENTRY_DSN` 或 Sentry 密钥组                                    |
+| 浏览器端 Sentry              | @sentry/browser              | ^10.60.0 或 ^11.0.0 | 客户端 Sentry DSN、`SENTRY_DSN` 或密钥组                                              |
+| 构建时上传 Sentry source map | @sentry/vite-plugin          | ^5.4.0              | 已设置 `SENTRY_AUTH_TOKEN`、组织和项目                                                |
+| SSO 身份验证                 | @better-auth/sso             | 1.7.6               | 已启用 `AUTH_SSO`                                                                     |
+| SCIM 身份验证                | @better-auth/scim            | 1.7.6               | 已启用 `AUTH_SCIM`                                                                    |
+| Amplitude                    | @amplitude/analytics-browser | ^2.45.8             | 已设置 `VITE_AMPLITUDE_API_KEY`                                                       |
+| Microsoft Teams              | botframework-connector       | ^4.23.3             | 已设置 `MICROSOFT_TEAMS_APP_ID` 和 `MICROSOFT_TEAMS_APP_PASSWORD`                     |
+
+### 按使用功能添加的运行时 peer
+
+CLI 不会推断以下 peer。请根据应用实际使用的功能添加软件包，并检查本地及已部署的配置。AI SDK 引擎需要 `ai` 和引擎选定的 provider 软件包：
+
+| 功能                                                        | 可选软件包                                                                                       | 版本             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- |
+| AI SDK 引擎                                                 | ai                                                                                               | >=6              |
+| Anthropic、Cohere、Google、Groq、Mistral 或 OpenAI provider | @ai-sdk/anthropic, @ai-sdk/cohere, @ai-sdk/google, @ai-sdk/groq, @ai-sdk/mistral, @ai-sdk/openai | >=3 each         |
+| OpenRouter provider                                         | @openrouter/ai-sdk-provider                                                                      | >=2              |
+| Ollama provider                                             | ai-sdk-ollama                                                                                    | >=3              |
+| Context X-Ray 的精确 Anthropic token 计数                   | @anthropic-ai/tokenizer                                                                          | ^0.0.4           |
+| Builder 设计系统索引类型                                    | @builder.io/ai-utils                                                                             | ^0.84.0          |
+| Jev 的直接 TypeSafe AI 请求                                 | @typesafe-ai/sdk                                                                                 | ^0.6.0           |
+| Office 文档导入                                             | officeparser; mammoth                                                                            | ^7.3.0; ^1.12.0  |
+| 电子表格导入                                                | xlsx                                                                                             | ^0.18.5          |
+| PowerPoint 导入                                             | jszip; fast-xml-parser                                                                           | ^3.10.1; ^5.10.1 |
+| 媒体元数据和图像转换                                        | sharp                                                                                            | ^0.35.3          |
+| 社交预览 / Open Graph SVG 渲染                              | @resvg/resvg-js                                                                                  | ^2.6.2           |
+| 浏览器会话回放录制                                          | @rrweb/record                                                                                    | ^2.1.0           |
+| OpenTelemetry 跟踪集成                                      | @opentelemetry/api                                                                               | ^1.9.1           |
+| LaunchDarkly 服务端功能标志                                 | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
+| 嵌入式终端会话                                              | node-pty; ws                                                                                     | >=1; >=8         |
+| 扩展 HTML 格式化                                            | prettier                                                                                         | ^3.8.3           |
+| 第一方模板源码搜索                                          | @agent-native/core-corpus                                                                        | 0.198.0          |
+
+**Core 已包含：**网页转 Markdown 页面提取使用 `linkedom`、`@mozilla/readability` 和 `turndown`。Core 将它们作为常规软件包依赖包含在内，因此无需单独添加。Vite、React Router、Tailwind 和 Drizzle Kit 等构建及框架 peer 不属于此表中的应用功能；请让它们与应用的框架配置保持一致。
+
+如需搜索第一方模板源码，请将对应版本的 corpus 包作为开发依赖添加：`pnpm add -D @agent-native/core-corpus@0.198.0`。
+
+## 3. 应用升级
+
+检查预览并确认功能包后，使用带版本号的 CLI 应用计划。如果应用仍使用
+Core 0.196 或更旧的 CLI，这一点很重要，因为旧 CLI 中包含旧的迁移清单：
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+在应用中安装 Core 0.198.0 后，可通过本地 CLI 运行相同命令：
+
+    npx agent-native upgrade --codemods
+
+两种调用都会更新符合条件的 @agent-native/\* dependency spec，对齐检测到的
+功能依赖，运行 package manager，固定解析出的 Agent-Native 版本，应用受
+支持的 codemod，刷新 scaffold skill，并在根目录存在 typecheck script 时
+执行它。无需再运行第二次 upgrade 来应用 codemod。请在应用代码中处理
+警告和应用级错误；不要添加 framework override 或 patch。
+
+## 4. 验证结果
+
+检查完整差异，特别是跳过的 codemod 警告和依赖版本，然后运行：
+
+    npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
+    pnpm typecheck
+
+Doctor 默认运行 `migration-manifest` 和 `feature-dependencies` 检查。它会
+报告旧 import，以及根据本地配置检测到的功能所缺少的可选 peer。它无法
+检查远程部署设置或存储在数据库中的功能设置，请另外确认这些设置。
+
+使用 npm 或 Yarn 对应的 typecheck 命令。如果应用提供测试和构建脚本，请
+运行它们，通常是 `pnpm test` 和 `pnpm build`。确认可选 peer 表覆盖了本地
+及已部署的功能设置。搜索下表列出的旧 import；剩余结果应是有意保留、
+manifest 不支持，或已由警告说明。
+
+## 旧路径和迁移目标示例
+
+migration manifest 按 symbol 映射，因此同一旧模块中的 export 也可能迁移
+到不同目标。下表列出代表性项目，并非所有迁移 symbol。
+
+| 旧路径和 symbol                                                                                                                  | 新路径                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| @agent-native/core/client/settings                                                                                               | @agent-native/toolkit/app/settings                                                                                                                             |
+| @agent-native/core/client/agent-chat: AgentPanel、AgentSidebar、AgentChatHome、AgentChatSurface                                  | @agent-native/toolkit/app/chat                                                                                                                                 |
+| @agent-native/core/client: useSendToAgentChat                                                                                    | @agent-native/toolkit/app/chat                                                                                                                                 |
+| @agent-native/core/client/chat: useSendToAgentChat                                                                               | @agent-native/toolkit/app/chat                                                                                                                                 |
+| @agent-native/core/client/agent-chat: useSendToAgentChat                                                                         | @agent-native/toolkit/app/chat                                                                                                                                 |
+| @agent-native/core/client/agent-chat: guided-question export                                                                     | @agent-native/toolkit/app/chat/agentkit-chat                                                                                                                   |
+| @agent-native/core/client/changelog: ChangelogDialog、ChangelogSettingsCard                                                      | @agent-native/toolkit/app/changelog                                                                                                                            |
+| @agent-native/core/client/org: OrgSwitcher、BuilderCreditNotice                                                                  | @agent-native/toolkit/app/org                                                                                                                                  |
+| @agent-native/core/client/org: TeamPage                                                                                          | @agent-native/toolkit/app/org/TeamPage                                                                                                                         |
+| @agent-native/core/client/org: OrgInfo、DomainMatchOrg、OrgInvitationSummary                                                     | @agent-native/core/org/types                                                                                                                                   |
+| @agent-native/core/client/setup-connections: BuilderConnectCard、SetupConnectionsPage                                            | @agent-native/toolkit/app/setup-connections                                                                                                                    |
+| @agent-native/core/client/setup-connections: FileStorageSetupPopover                                                             | @agent-native/toolkit/app/chat/FileStorageSetupPopover                                                                                                         |
+| @agent-native/core/client/setup-connections: settings、onboarding、resources、integrations UI export                             | 拆分到 @agent-native/toolkit/app/settings、@agent-native/toolkit/app/onboarding、@agent-native/toolkit/app/resources 和 @agent-native/toolkit/app/integrations |
+| @agent-native/core/client/host: buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox                              | @agent-native/toolkit/app/extensions/portable-extension                                                                                                        |
+| @agent-native/core/client/ui: shared UI export；feedback export                                                                  | @agent-native/toolkit/app/shared；@agent-native/toolkit/app/feedback                                                                                           |
+| @agent-native/core/client/ui: buildSignInReturnHref                                                                              | @agent-native/core/client/sign-in-return                                                                                                                       |
+| @agent-native/core/blocks: client registry、renderer、editor；server block type 和 registration                                  | @agent-native/toolkit/app/blocks；@agent-native/core/blocks/server                                                                                             |
+| @agent-native/core/client/hooks: AppProviders、AppProvidersProps                                                                 | @agent-native/toolkit/app/providers                                                                                                                            |
+| @agent-native/core/client：composer 和语音相关符号，包括 PromptComposer 和 TiptapComposer                                        | @agent-native/toolkit/app/chat                                                                                                                                 |
+| @agent-native/core/client/components/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                  | @agent-native/toolkit/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                                                               |
+| @agent-native/core/client/editor 和 @agent-native/core/client/rich-markdown-editor：RegistryBlockDataProvider                    | @agent-native/toolkit/app/blocks                                                                                                                               |
+| @agent-native/core/client/editor 和 @agent-native/core/client/rich-markdown-editor：其他 editor 导出                             | @agent-native/toolkit/editor                                                                                                                                   |
+| @agent-native/core/client/editor 和 @agent-native/core/client/rich-markdown-editor：uploadEditorImage                            | @agent-native/core/client/uploads                                                                                                                              |
+| @agent-native/core/client/components/{AgentPresenceChip,PresenceBar,LiveCursorOverlay,RecentEditHighlights,RemoteSelectionRings} | @agent-native/toolkit/collab-ui                                                                                                                                |
+| @agent-native/core/styles/agent-native.css                                                                                       | @agent-native/toolkit/styles.css                                                                                                                               |
+| @agent-native/core/styles/agent-conversation.css                                                                                 | @agent-native/toolkit/app/styles/agent-conversation.css                                                                                                        |
+| @agent-native/core/styles/chat-history-list.css                                                                                  | @agent-native/toolkit/app/styles/chat-history-list.css                                                                                                         |
+| @agent-native/agentkit/react/styles.css                                                                                          | @agent-native/toolkit/app/agentkit/react/styles.css                                                                                                            |
+| @agent-native/agentkit/react 及其 React 子路径                                                                                   | @agent-native/toolkit/app/agentkit                                                                                                                             |
+
+规范来源 URL：
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx)。

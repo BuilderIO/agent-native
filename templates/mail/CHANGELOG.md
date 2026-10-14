@@ -3,16 +3,114 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Chats open on their own shareable URL at /chat/<id>, and /chat always starts a blank chat.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies the account action and available credits.
+
+### Fixed
+
+- Pressing R on a message in the list opens the reply window even right after Mail updates, and the error screen now offers Reload.
+
+## 2026-10-01
+
+### Improved
+
+- Mail keeps its inbox or app shell visible while routing and recovering
+
+### Fixed
+
+- Mail stops repeating actions when Gmail remains in a cooldown.
+- When Gmail rate-limits Mail it keeps showing your saved inbox with a small notice and retries on its own, and an account Google rejected now asks you to reconnect instead of retrying forever
+
+## 2026-09-30
+
+### Improved
+
+- Builder credit connections now use the Builder.io name.
+- The Mail navigation stays readable over the inbox and uses locale-formatted label counts
+
+### Fixed
+
+- Mail refreshes chat readiness after a successful Builder connection.
+- Mail scopes cached message bodies to the signed-in account and mailbox.
+- Opening an agent-focused draft restores its composer when minimized.
+- Restored emails return to Inbox and cached messages are cleared at sign-out.
+
+### Security
+
+- Switching accounts or mailboxes no longer shows cached messages from the previous mailbox.
+
+## 2026-09-29
+
+### Improved
+
+- Pin the Mail sidebar to keep folder navigation visible.
+- Mail triage settings separate status-fetch errors from rule failures and offer safe retries.
+- Mail loading screens match the current inbox layout.
+- Mail shows the first messages sooner and keeps them visible while background sync finishes.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
+- The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Existing compose drafts keep their attachments when revised
+- Scheduled email changes refresh the inbox and schedule list
+
 ## 2026-09-28
 
 ### Improved
 
+- AI triage now appears before Automations in Mail settings.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Google sign-in shows progress while authentication finishes.
+- General and AI triage settings now share a consistent full-width layout.
+- Mail background work stays within its time budget and checks fewer connected accounts per sweep.
+- Mail onboarding saves inbox rules before provider setup and sorts recent mail after connection.
+- Mail syncs large inboxes progressively with shared Gmail quota control and resumable bulk archiving.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
 - Builder credit notices appear above sidebar actions in a full-width layout.
 - Mail automation rules use a consistent neutral color treatment.
 - Open the current agent conversation in a full-page view
 
 ### Fixed
 
+- Your inbox now loads without getting stuck on loading placeholders.
+- Inbox category tabs stay in the inbox view
+- Inbox rule sorting now offers a retry when starting fails and reports undo errors.
+- Large archives finish without manual retries
+- Mail actions follow the active inbox tab and ignore rows retained from previous filters
+- Mail automations start from the current inbox point after setup or a sync gap.
+- Mail preserves sorting progress and undo access when a retry is needed
+- Mail retries Gmail status errors and avoids repeating Google sign-in in manual setup.
+- Mail setup keeps saved rules available when browser storage or onboarding completion fails.
+- Mail setup stays recoverable when model settings or sorting status checks fail.
+- Mail updates an existing compose draft in place when you ask for a revision.
+- Rule backfills show why recent mail could not be processed
+- Scheduled Mail jobs recover after interrupted sweeps without duplicating sends
+- Search results no longer trigger a duplicate mailbox fetch
 - Avoid automatic retries after Gmail quota cooldowns
 
 ## 2026-09-27
@@ -33,6 +131,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Emails show as soon as their text arrives instead of waiting for every image, and no longer go blank when an open email refreshes.
 - Failed queued draft sends now report an error instead of appearing successful.
 - Gmail cooldown messages now show when to try again.
 - Inbox sorting recovers automatically when background processing is interrupted
@@ -112,6 +211,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Security
 
+- Mail session replays mask email text in the mailbox while keeping agent requests and replies readable, including email quotes
 - Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
 
 ## 2026-09-23

@@ -1,6 +1,7 @@
+import { bookingOgLoader } from "@/lib/booking-og-loader.server";
 import BookingPage from "@/pages/BookingPage";
 
-import { bookingOgLoader, bookingOgMeta } from "./booking-og-meta";
+import { bookingOgMeta } from "./booking-og-meta";
 
 export const loader = bookingOgLoader;
 

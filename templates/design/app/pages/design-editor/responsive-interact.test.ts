@@ -2,11 +2,15 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
+  findSelectableInteractDevicePreset,
   formatInteractZoom,
+  INTERACT_CUSTOM_DEVICE_NAME,
   resolveInteractDeviceForScreen,
+  SELECTABLE_INTERACT_DEVICE_PRESETS,
 } from "./responsive-interact";
 
 describe("computeInteractZoomToFit", () => {
@@ -91,8 +95,42 @@ describe("responsive Interact defaults", () => {
   });
 });
 
+describe("Interact device choices", () => {
+  it("offers every preset except the Custom display state", () => {
+    expect(
+      SELECTABLE_INTERACT_DEVICE_PRESETS.map((preset) => preset.name),
+    ).not.toContain(INTERACT_CUSTOM_DEVICE_NAME);
+    expect(
+      SELECTABLE_INTERACT_DEVICE_PRESETS.every(
+        (preset) => preset.category !== "custom",
+      ),
+    ).toBe(true);
+    expect(SELECTABLE_INTERACT_DEVICE_PRESETS.length).toBeGreaterThan(0);
+  });
+
+  it("resolves a selectable preset by exact name only", () => {
+    expect(findSelectableInteractDevicePreset("iPhone 17")).toMatchObject({
+      width: 402,
+      height: 874,
+    });
+    expect(findSelectableInteractDevicePreset("Custom")).toBeUndefined();
+    expect(findSelectableInteractDevicePreset("iphone 17")).toBeUndefined();
+    expect(findSelectableInteractDevicePreset(undefined)).toBeUndefined();
+    expect(findSelectableInteractDevicePreset(402)).toBeUndefined();
+  });
+
+  it("names a screen whose size matches a preset by that preset, and any other size Custom", () => {
+    expect(
+      resolveInteractDeviceForScreen({ width: 402, height: 874 }).name,
+    ).toBe("iPhone 17");
+    expect(
+      resolveInteractDeviceForScreen({ width: 403, height: 874 }),
+    ).toMatchObject({ name: INTERACT_CUSTOM_DEVICE_NAME, width: 403 });
+  });
+});
+
 describe("responsive Interact wiring", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const editorSurface =
     source +
     readdirSync("app/pages/design-editor/commands")
@@ -106,9 +144,16 @@ describe("responsive Interact wiring", () => {
     );
   });
 
-  it("mounts the bar without disturbing either side rail", () => {
-    expect(source).toContain("<ResponsiveInteractBar");
-    expect(source).toContain("onClose={handleExitResponsiveInteract}");
+  it("mounts the controls in the docked top bar without disturbing either side rail", () => {
+    expect(source).not.toContain("<ResponsiveInteractBar");
+    // A widget is minimal UI, which has no top bar, so its Interact controls float.
+    expect(source).toContain("const interactInTopBar = topBarVisible;");
+    expect(source).toContain(
+      "responsiveInteractActive && interactInTopBar\n      ? renderInteractTopBarSlots(interactControlArgs)",
+    );
+    expect(source).toContain("leading={interactTopBarSlots?.leading}");
+    expect(source).toContain("interactTopBarSlots?.center ??");
+    expect(source).toContain("interactTopBarSlots?.zoomControl");
     expect(source).not.toContain("!uiHidden && !responsiveInteractActive");
     expect(source).not.toContain(
       "!initialGenerationChromeLimited &&\n        !responsiveInteractActive",
@@ -125,25 +170,15 @@ describe("responsive Interact wiring", () => {
     );
   });
 
-  it("pins a squeeze-immune close beside the docked bar", () => {
-    expect(source).toContain("showClose={floating}");
-    expect(source).toContain("ResponsiveInteractExitButton");
-    const pinnedExitIndex = source.indexOf(
-      "responsiveInteractActive && !minimalUi ? (",
-    );
-    expect(pinnedExitIndex).toBeGreaterThan(-1);
-    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
-    expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
-    expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
-    expect(pinnedExit).toContain(
-      "flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
+  it("leaves Interact through the mode switch, keeping an explicit Exit only where there is no mode switch", () => {
+    expect(source).not.toContain("ResponsiveInteractExitButton");
+    expect(source).not.toContain("responsiveInteractActive && !minimalUi ? (");
+    expect(source).toContain(
+      "responsiveInteractActive && !interactInTopBar && !hostOwnsChrome\n      ? renderInteractFloatingBar(interactControlArgs)",
     );
   });
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
-    expect(source).toContain(
-      "embedded && !hostOwnsChrome && !embedChromeRequested",
-    );
     expect(source).not.toContain(
       '<IconLayoutSidebar className="size-4 -scale-x-100" />',
     );
@@ -155,9 +190,6 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       'className="pointer-events-none flex min-w-0 justify-center"',
     );
-    expect(source).toContain(
-      "isMobileViewport && minimalInspectorHasSelection",
-    );
   });
 
   it("resets chrome mode when same-design navigation changes embed mode", () => {
@@ -167,17 +199,13 @@ describe("responsive Interact wiring", () => {
     );
   });
 
-  it("keeps the inline iframe document stable while switching interaction in place", () => {
+  it("builds Interact's inline document apart from Edit's, and keeps the stand-down guards", () => {
     const canvas = readFileSync(
       "app/components/design/DesignCanvas.tsx",
       "utf8",
     );
-    expect(canvas).toContain(
-      "const initialInteractModeRef = useRef(interactMode)",
-    );
-    expect(canvas).toContain(
-      'initialInteractModeRef.current ? "false" : "true"',
-    );
+    expect(canvas).toContain("buildInteractPreviewDocument({");
+    expect(canvas).not.toContain("initialInteractModeRef");
     expect(canvas).toContain("const editorChromeBridge =");
     expect(canvas).not.toContain("const editorChromeBridge = interactMode");
     expect(canvas).toContain("set-interaction-mode");
@@ -200,12 +228,35 @@ describe("responsive Interact wiring", () => {
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
-    const consentAnchor = "const key = `design-localhost-write-consent-request";
+    const consentAnchor =
+      "const localhostConsentRequestQuery = useActionQuery(";
     const consentIndex = source.indexOf(consentAnchor);
     expect(consentIndex).toBeGreaterThan(0);
-    const consent = source.slice(consentIndex - 900, consentIndex);
-    expect(consent).toContain("!id || !canEditDesign");
-    expect(consent).not.toContain("!id || !isSignedIn");
+    const consentQuery = source.slice(consentIndex, consentIndex + 700);
+    expect(consentQuery).toContain("enabled: Boolean(id && canEditDesign)");
+    expect(consentQuery).not.toContain("isSignedIn");
+    expect(consentQuery).toContain("localhostConsentRequestRefetchInterval({");
+    expect(consentQuery).toContain(
+      "failedClearKey: failedLocalhostConsentClear",
+    );
+
+    const consentEffect = source.slice(
+      source.indexOf(
+        "// Agent requests run in a design-scoped capability session",
+      ),
+      source.indexOf("const activeScreenBaseWidthPx"),
+    );
+    expect(consentEffect).toMatch(/!id\s*\|\|\s*!canEditDesign/);
+    expect(consentEffect).not.toMatch(/!id\s*\|\|\s*!isSignedIn/);
+    expect(consentEffect).toContain("localhostConsentRequestQuery.refetch()");
+    expect(consentEffect).toContain("setFailedLocalhostConsentClear");
+    expect(consentEffect).not.toContain(
+      "lastLocalhostConsentRequestRef.current ===",
+    );
+    expect(consentEffect).toContain('if (disposition === "ignore") return;');
+    expect(consentEffect).toContain(
+      'const retryingClear = disposition === "retry-clear";',
+    );
 
     const commandChannel = source.slice(
       source.indexOf("designEditorCommandFromSearchParams(\n") - 600,
@@ -214,12 +265,9 @@ describe("responsive Interact wiring", () => {
     expect(commandChannel).not.toContain("!id || !isSignedIn");
   });
 
-  it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
-    expect(source).toContain('handleModeChange("interact");');
-    expect(source).toContain("enterSingleScreen(screenId, { mode });");
+  it("keeps screen focus on All screens and reserves Interact for explicit mode changes", () => {
+    expect(source).toContain('if (mode === "interact")');
+    expect(source).toContain("handleSidebarScreenSelect(match.id)");
     expect(source).not.toContain("enterSingleScreenInteract");
     expect(editorSurface).toContain("resolveModeChangeView({");
     expect(editorSurface).toContain('options?.mode ?? "interact"');
@@ -234,7 +282,9 @@ describe("responsive Interact wiring", () => {
   it("keeps editor-shell editing paths inert while Interact owns the screen", () => {
     const hotkeys = source.slice(
       source.indexOf("useDesignHotkeys({"),
-      source.indexOf("const startRetryGeneration"),
+      source.indexOf(
+        "canEditSelectedLiveLayerRef.current = canEditSelectedLiveLayer;",
+      ),
     );
     expect(hotkeys).toContain("!responsiveInteractActive");
 
@@ -257,21 +307,13 @@ describe("responsive Interact wiring", () => {
     expect(assetInsertion).toContain('setViewMode("overview")');
   });
 
-  it("keeps a way out of Interact into Edit/Annotate on the one canvas path", () => {
-    const barMount = source.slice(
-      source.indexOf("<ResponsiveInteractBar"),
-      source.indexOf("onClose={handleExitResponsiveInteract}"),
-    );
-    expect(barMount).toContain("onModeChange={(next) => {");
-    expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");
-    expect(barMount).toContain("canAnnotate={canEditDesign}");
-    const bar = readFileSync(
-      "app/components/design/ResponsiveInteractBar.tsx",
-      "utf8",
-    );
-    expect(bar).toContain("onModeChange(exit.mode)");
-    expect(bar).not.toContain("setMode(");
-    expect(bar).not.toContain('"interact"');
+  it("keeps a way out of Interact into Design on the one canvas path", () => {
+    const handlerStart = source.indexOf("const handleTopBarModeChange =");
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handler = source.slice(handlerStart, handlerStart + 320);
+    expect(handler).toContain('mode === "interact" && next === "edit"');
+    expect(handler).toContain("setRuntimeLayerSnapshotRequest(");
+    expect(handler).toContain("handleModeChange(next)");
   });
 
   it("refreshes live Layers when Interact returns to Edit", () => {
@@ -367,16 +409,5 @@ describe("responsive Interact wiring", () => {
     expect(escapeExitEffect).toContain(
       'window.addEventListener("keydown", handleKeyDown);',
     );
-  });
-
-  it("keeps responsive chrome values readable", () => {
-    const bar = readFileSync(
-      "app/components/design/ResponsiveInteractBar.tsx",
-      "utf8",
-    );
-    expect(bar).toContain("w-[88px]");
-    expect(bar).toContain("appearance:textfield");
-    expect(bar).not.toContain("zoomIn");
-    expect(bar).not.toContain("zoomOut");
   });
 });

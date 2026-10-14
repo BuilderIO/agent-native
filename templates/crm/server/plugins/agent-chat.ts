@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CRM_CONNECTOR_CATALOG } from "../lib/crm-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
   "get-crm-workspace",
@@ -130,6 +131,7 @@ export default createAgentChatPlugin({
   onAgentTurnComplete: autosaveCrmDashboardAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: { connectorCatalog: [...CRM_CONNECTOR_CATALOG] },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the CRM for this workspace. Your operating rules live in AGENTS.md and the \`crm\` skill — follow them; this prompt deliberately does not restate them.

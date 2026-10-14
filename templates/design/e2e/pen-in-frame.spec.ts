@@ -353,7 +353,7 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
   }
 });
 
-test("a new Pen path previews every pointer step in the selected frame and closes with fill", async ({
+test("a new Pen path previews every pointer step in the selected frame and closes without fill", async ({
   page,
   request,
 }) => {
@@ -413,9 +413,18 @@ test("a new Pen path previews every pointer step in the selected frame and close
       expect(preview.pathData).toMatch(/[CQ]/);
       expect(Math.abs(preview.anchors[1]!.x - points[1]!.x)).toBeLessThan(3);
       expect(Math.abs(preview.anchors[1]!.y - points[1]!.y)).toBeLessThan(3);
-      const draggedHandle = preview.handles[preview.handles.length - 1]!;
-      expect(Math.abs(draggedHandle.x - pointer.x)).toBeLessThan(3);
-      expect(Math.abs(draggedHandle.y - pointer.y)).toBeLessThan(3);
+      await expect
+        .poll(async () => {
+          const handles = (await penPreview(page)).handles;
+          return Math.abs(handles[handles.length - 1]!.x - pointer.x);
+        })
+        .toBeLessThan(3);
+      await expect
+        .poll(async () => {
+          const handles = (await penPreview(page)).handles;
+          return Math.abs(handles[handles.length - 1]!.y - pointer.y);
+        })
+        .toBeLessThan(3);
     }
     const curvedAnchorExpected = await screenLocalPoint(page, points[1]!);
     await page.mouse.up();
@@ -482,8 +491,8 @@ test("a new Pen path previews every pointer step in the selected frame and close
       expect(Math.abs(actual.y - expected.y)).toBeLessThan(3);
     });
     expect(vector!.closed).toBe(true);
-    expect(vector!.fill).toBe("rgb(218, 218, 218)");
-    expect(vector!.stroke).toBe("none");
+    expect(vector!.fill).toBe("none");
+    expect(vector!.stroke).toBe("rgb(0, 0, 0)");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

@@ -49,20 +49,69 @@ export default defineAppConfig({
     enabled: true,
     capturePrompts: false,
     captureToolArgs: true, // capture action input args
-    captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
+    captureToolResults: false, // include results and full error text in local tool spans
     evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
     inferredSentimentEnabled: false,
     inferredSentimentSampleRate: 0,
-    inferredSentimentModel: "gpt-5-6-luna",
+    inferredSentimentModel: "gpt-6-luna",
   },
 });
 ```
+
+Two things are recorded whatever the flags say, because a failure nobody can
+classify is not observable:
+
+- **A failed tool span always keeps a signature**: the first line of the error,
+  redacted (credentials, emails, long opaque ids) and capped at 500
+  characters. `captureToolResults` only decides
+  whether the rest is kept. The span's metadata says which (`__tool_error_detail`:
+  `full` | `signature`), and the read path returns it as `errorDetail`
+  (`full` | `signature` | `withheld` | `unrecorded`) so "withheld on purpose" is
+  never read as "nothing was recorded". `$ai_*` telemetry omits error text
+  even when capture is enabled. Optional host-owned OTel run spans also use
+  fixed code-derived messages and retain `agent.error_code` / `agent.error_cause`.
+- **A stop that waits on the user is not an error.** An `input_required`
+  outcome (question, approval, connection) records the `agent_run` span as
+  `status: "paused"` with the reason in `terminal_code`, not `error`. Anything
+  that counts failed runs must treat `paused` as non-error; an `error` event
+  that follows the pause still makes the run an error.
+
+#### From an error report to the failing run
+
+A report is only useful if it names where it happened. Four pieces make that
+true, so nobody has to ask the reporter for an example:
+
+- **The failure packet.** Every server `captureError()` carries
+  `extra.failureContext` (`app`, `route`, `actionName`, `automationName`,
+  `threadId`, `runId`, `requestId`, `userScope`, `threadUrl`, build,
+  environment, `errorCode`, `failureClass`); see the tracking skill for how it
+  is derived. `threadUrl` is `https://<app host>/?thread=<chat_threads.id>`, and
+  the Analytics issue page links it. The same fields (`$ai_trace_id` = run id,
+  `thread_id`) are on the `$ai_trace` for the run.
+- **A copyable report on the client.** `formatClientFailureReport()` from
+  `@agent-native/core/client/failure-report` builds the plain-text packet (app,
+  thread link, run, request, code, time, build, and the inspection call) for a
+  "Copy details" button. The chat run-error card's existing "Copy debug info"
+  button uses it; call it from any other error card. It needs only what the
+  card already knows (`message`, `errorCode`, `runId`, `requestId`) and falls
+  back to the open thread. The error-screen "Open GitHub issue" template adds
+  the same thread link, build and time. A failed action carries `error.requestId` (the
+  response's `x-agent-native-request-id`, also on the server capture's
+  `failureContext.requestId`).
+- **Read by id.** Dispatch's `get-agent-thread-debug` takes a `threadId` or the
+  copied run id (`run-…`) and returns the run's `terminalReason` and terminal
+  event, its events, trace spans (failed tools carry a signature, see above),
+  feedback and checkpoints; `list-agent-run-failures` finds candidates. Both are
+  owner-scoped. Without Dispatch, `GET /_agent-native/observability/traces/:runId`
+  returns the same spans for the caller's own runs.
+- **Alerts name examples.** The chat-health Slack alert lists the latest failed
+  turns as `threadUrl (run id, code)`; if they cannot be read it says so.
 
 #### Optional inferred sentiment
 
 Self-hosted apps default to no inferred sentiment. First-party apps hosted on
 `agent-native.com` automatically classify 100% of eligible user replies with
-`gpt-5-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
+`gpt-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
 opt-out. Deployment overrides are `AGENT_NATIVE_INFERRED_SENTIMENT=on|off`,
 `AGENT_NATIVE_INFERRED_SENTIMENT_SAMPLE_RATE=0..1`, and
 `AGENT_NATIVE_INFERRED_SENTIMENT_MODEL=<model>`; `off` is always the emergency
@@ -87,9 +136,24 @@ Successful classifications emit a content-free `$ai_sentiment` tracking event:
 
 No raw message, prompt, or response text is persisted or tracked.
 
+A classification that cannot complete emits `$ai_sentiment_failed` with the same
+identity properties and a coarse `reason`: `engine_unavailable`,
+`model_unsupported`, `timeout`, `parse_failed`, or `empty`. It never carries
+content, so a drop in `$ai_sentiment` is a count to read, not a silence to
+guess at. The run's own engine classifies when it serves the classifier model;
+otherwise the hosted Builder engine does. `model_unsupported` means the engine
+is up but refuses the configured classifier model: its catalog does not list it
+(the default is typed against the Builder catalog in `model-config.ts`, so a
+retired id fails the build), or the call fails with a model-rejection
+`errorCode` (`builder_model_unauthorized`, `model_not_found`,
+`not_found_error`). It is a configuration error to fix, never an outage to
+retry; any other failed call stays `engine_unavailable`.
+
 ### 2. Feedback
 
-**Explicit** — AgentKit's assistant-message action bar renders inline thumbs up/down controls. A thumbs-down can collect a reason, and feedback includes the run and message sequence for trace linking. The shared `AgentKitAssistantChat` host submits it through the existing feedback action.
+**Explicit** — AgentKit's assistant-message action bar renders inline thumbs up/down controls. A thumbs-down can collect a reason, and feedback includes the run and message sequence for trace linking. The shared `AgentKitAssistantChat` host submits it through the existing feedback action. The popover also offers one-click reason chips and a Copy details button (the failure-report packet with run, thread link and build, plus the note) so a "this chat was not good" report is one paste.
+
+A vote for a run whose trace was never persisted is still saved, unlinked from the run (`runId` null), with `traceMissing` in the response and the stored value and `trace_missing` / `unverified_run_id` on `$ai_feedback`. A run that exists but belongs to someone else still answers 404.
 
 **Implicit** — `computeSatisfactionScore(threadId)` computes a Frustration Index (0-100) from conversation signals:
 - Rephrasing detection (weight 30): consecutive similar user messages
@@ -140,6 +204,8 @@ Three layers, configured via `evalSampleRate` in the observability config:
 
 **Dataset evaluation:** `runDatasetEval(datasetId)` runs a golden dataset through the agent and scores each case.
 
+Promote a surprising production run into a CI eval case (`promote-trace-eval` / `agent-native eval promote <runId> --write ...`) rather than only inspecting it. Truncated runs fail closed.
+
 Custom criteria use natural language rubrics:
 ```ts
 const criteria: EvalCriteria = {
@@ -167,7 +233,7 @@ export default defineEval({
 
 - Built-in scorers: `exactMatch` / `contains` / `usesTool` (pure JS) and `llmJudge` (provider-agnostic judge).
 - Custom scorers: `createScorer` with the 4-step `preprocess → analyze → generateScore → generateReason` pipeline (only `generateScore` is required).
-- Run as a gate: `agent-native eval [pattern] [--json] [--threshold N]` — discovers `**/*.eval.ts` and `evals/*.ts`, runs the agent, and exits non-zero if any eval is below its threshold. An app with no eval files exits `0`. Complements (does not replace) the post-hoc scoring in `evals.ts`. See the Evals doc.
+- Run as a gate: `agent-native eval [pattern] [--json] [--threshold N]` — discovers `**/*.eval.ts` and `evals/*.ts`, runs the agent, and exits non-zero if any eval is below its threshold. An app with no eval files exits `0`. Complements (does not replace) the post-hoc scoring in `evals.ts`. Promote a surprising production run with `agent-native eval promote <runId> --write evals/from-trace.eval.ts` rather than only inspecting it. See the Evals doc.
 
 ### 4. Experiments
 
@@ -237,6 +303,7 @@ All auto-mounted at `/_agent-native/observability/*`:
 | GET | `/traces` | List trace summaries |
 | GET | `/traces/:runId` | Trace detail (summary + spans) |
 | GET | `/traces/:runId/evals` | Evals for a run |
+| POST | `/traces/:runId/promote` | Promote a completed run into a CI eval case |
 | POST | `/feedback` | Submit feedback |
 | GET | `/feedback` | List feedback entries |
 | GET | `/feedback/stats` | Feedback aggregation |
@@ -274,6 +341,10 @@ All tables are PostgreSQL-compatible and strictly additive.
 | `packages/core/src/observability/store.ts` | SQL tables + CRUD |
 | `packages/core/src/observability/traces.ts` | Auto-instrumentation |
 | `packages/core/src/observability/posthog-ai.ts` | `$ai_trace` / `$ai_span` / `survey sent` emission, content bounding, `$ai_error` |
+| `packages/core/src/observability/failure-context.ts` | The server failure packet (`buildFailureContext`, `withFailureContext`), applied by `captureError()` |
+| `packages/core/src/shared/failure-report.ts` | The packet type, the `?thread=` link, and the plain-text report format |
+| `packages/core/src/client/failure-report.ts` | The browser's packet and `formatClientFailureReport()` for "Copy details" |
+| `packages/core/src/tracking/failure-counters.ts` | Windowed failure counters (`action_error_counts`, `credential_state_counts`) |
 | `packages/core/src/observability/feedback.ts` | Feedback + Frustration Index |
 | `packages/core/src/observability/evals.ts` | Eval engine (3 layers) |
 | `packages/core/src/observability/experiments.ts` | A/B testing system |
@@ -297,7 +368,7 @@ This layer is optional and **no-op by default**:
 - `@opentelemetry/api` is an **optional dependency**. If it isn't installed, the span helpers degrade to silent no-ops — they never throw into the agent loop.
 - Even with the api package installed, it ships a default no-op tracer. Spans become real only once the **host registers a `TracerProvider`** (via `@opentelemetry/sdk-node` or similar). The framework deliberately does not depend on the heavy SDK/exporter packages and never registers a provider itself — instrumentation is opt-in by the embedding app.
 
-The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model`), `tool.call` (`tool.name` + status), and `llm.call` spans, each finished with OK/ERROR status. This is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables. Source: `packages/core/src/observability/tracing.ts` + `traces.ts`. See the Observability doc for the full table.
+The loop emits `invoke_agent` (with `gen_ai.provider.name` (the engine), `gen_ai.conversation.id`, `gen_ai.request.model`, `gen_ai.usage.*`, `agent.run_id`, `agent.user_id`), `execute_tool {tool}` (`gen_ai.tool.name`, `gen_ai.tool.call.id` + status), and `chat {model}` (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`) spans, each finished with OK/ERROR status. This is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables. Source: `packages/core/src/observability/tracing.ts` + `traces.ts`. See the Observability doc for the full table.
 
 ## Tracking Bridge
 
@@ -319,6 +390,10 @@ same best-effort fan-out as other tracking events.
 - Each event is stamped with when it happened, not when the run flushed. The
   whole tree is emitted in one burst at run end, so `track()` takes an
   `occurredAt` and the trace tree keeps a real timeline.
+- Model-call spans preserve `createdAt` and `endedAt` as epoch milliseconds,
+  alongside `durationMs`. Their `$ai_generation` events carry the matching
+  `created_at_ms`, `ended_at_ms`, and `duration_ms` properties so latency can
+  be compared over time without reconstructing request boundaries.
 - Agent-Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
@@ -331,6 +406,15 @@ same best-effort fan-out as other tracking events.
   logical turn may span multiple concrete runs.
 
 Constraints that are not visible from the emit site:
+
+- **Run failure telemetry carries identifiers, not error text.** `error_detail`
+  and `error_message` are absent from tracking. `$ai_error.message` is fixed
+  text derived from its `terminal_code`; `cause` comes from the failure taxonomy.
+  Failed tool results in `$ai_output_state` and generation input transcripts are
+  replaced with an omission marker, and the `tools` array retains only its error
+  class. Local `agent_runs.error_detail` and `agent_trace_spans.error_message`
+  remain available to owner-scoped debugging and the Observability UI.
+  Monitoring run/gateway captures use the omission policy documented in tracking.
 
 - **The trace event carries no latency, tokens, or cost under `$ai_*`.** PostHog
   DERIVES those from a trace's children: its trace query sums `$ai_latency` over

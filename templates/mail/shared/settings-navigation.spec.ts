@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  legacyMailSettingsTab,
-  legacyMailSettingsTabForPath,
   MAIL_SETTINGS_AREA_IDS,
   mailSettingsRedirect,
   mailSettingsRoute,
@@ -30,29 +28,5 @@ describe("Mail settings navigation", () => {
     expect(mailSettingsRedirect("integrations")).toBeNull();
     expect(mailSettingsRedirect(null)).toBeNull();
     expect(mailSettingsRoute("integrations")).toBe("/settings/integrations");
-  });
-
-  it("maps redesigned paths back to today's tabs", () => {
-    expect(legacyMailSettingsTabForPath("/settings/app/rules")).toBe(
-      "automations",
-    );
-    expect(legacyMailSettingsTabForPath("/settings/channels/slack")).toBe(
-      "slack",
-    );
-    expect(legacyMailSettingsTabForPath("/settings/app/tracking")).toBe(
-      "tracking",
-    );
-    // Today's tabs already resolve these paths themselves.
-    expect(legacyMailSettingsTabForPath("/settings/app")).toBeNull();
-    expect(legacyMailSettingsTabForPath("/settings/members")).toBeNull();
-    expect(legacyMailSettingsTabForPath("/settings/app/unknown")).toBeNull();
-    expect(legacyMailSettingsTabForPath("/inbox")).toBeNull();
-  });
-
-  it("maps section ids to today's tab ids", () => {
-    expect(legacyMailSettingsTab("rules")).toBe("automations");
-    expect(legacyMailSettingsTab("automations")).toBe("automations");
-    expect(legacyMailSettingsTab("team")).toBe("organization");
-    expect(legacyMailSettingsTab("integrations")).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import {
   type MentionEntry,
 } from "@/components/player/comment-composer";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   NotificationsList,
@@ -137,9 +138,22 @@ export default function NotificationsRoute() {
 
         <div className="mt-4">
           {isLoading ? (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              {t("notificationsRoute.loading")}
-            </div>
+            <ul aria-busy="true" className="divide-y">
+              {Array.from({ length: 5 }, (_, index) => (
+                <li key={index} className="flex items-start gap-3 py-3">
+                  <Skeleton className="size-9 shrink-0 rounded-full" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="ms-auto h-3 w-12" />
+                    </div>
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-2/3" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : isError ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <IconAlertTriangle className="size-9 text-destructive" />

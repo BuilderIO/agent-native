@@ -1,4 +1,7 @@
-import { resolveSecret } from "../server/credential-provider.js";
+import {
+  prefetchSecrets,
+  resolveSecret,
+} from "../server/credential-provider.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
@@ -84,7 +87,23 @@ async function resolveStorageSecret(
   return primaryValue ?? cleanValue(await resolveSecret(fallback));
 }
 
+const STORAGE_SECRET_KEYS = [
+  "S3_BUCKET",
+  "R2_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "R2_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "R2_SECRET_ACCESS_KEY",
+  "S3_ENDPOINT",
+  "R2_ENDPOINT",
+  "S3_REGION",
+  "R2_REGION",
+  "S3_PUBLIC_BASE_URL",
+  "R2_PUBLIC_BASE_URL",
+] as const;
+
 async function readRequestConfig(): Promise<S3Config | null> {
+  await prefetchSecrets(STORAGE_SECRET_KEYS);
   const scopedConfig = buildConfig({
     bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
     accessKeyId: await resolveStorageSecret(
@@ -283,7 +302,7 @@ async function deleteObject(config: S3Config, key: string): Promise<boolean> {
     headers: { ...headers, Authorization: authorization },
   });
   if (response.ok) return true;
-  if (response.status === 404) return false;
+  if (response.status === 404) return true;
   const detail = await response.text();
   throw new Error(
     `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,

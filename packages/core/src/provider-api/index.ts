@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
 import { AgentConnectionRequiredError } from "../action.js";
-import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
+import {
+  getWorkspaceConnectionProvider,
+  type WorkspaceConnectionTemplateUse,
+} from "../connections/catalog.js";
 import {
   assertCredentialCanReachEndpoint,
   describeCredentialScopeGap,
@@ -68,6 +71,7 @@ export const PROVIDER_API_IDS = [
   "clay",
   "commonroom",
   "dataforseo",
+  "dbt",
   "ga4",
   "gcloud",
   "github",
@@ -77,6 +81,7 @@ export const PROVIDER_API_IDS = [
   "gong",
   "google_calendar",
   "google_drive",
+  "google_sheets",
   "google_slides",
   "granola",
   "grafana",
@@ -89,6 +94,7 @@ export const PROVIDER_API_IDS = [
   "prometheus",
   "pylon",
   "sentry",
+  "sigma",
   "slack",
   "stripe",
   "twitter",
@@ -324,12 +330,21 @@ export type ProviderApiAuthKind =
   | {
       type: "google-service-account";
       scopes: readonly string[];
+      oauthProvider?: string;
+      workspaceProvider?: string;
     }
   | {
       type: "oauth-bearer";
       oauthProvider: string;
       tokenLabel: string;
       workspaceProvider?: string;
+    }
+  | {
+      type: "oauth-client-credentials";
+      clientIdKey: string;
+      clientSecretKey: string;
+      tokenPath: string;
+      workspaceProvider: string;
     }
   | {
       type: "oauth-bearer-or-api-key-header";
@@ -365,12 +380,16 @@ export interface ProviderApiConfig {
   label: string;
   defaultBaseUrl: string;
   requiresConnectionId?: boolean;
+  requiresWorkspaceConnection?: boolean;
   baseUrlCredentialKey?: string;
+  baseUrlConnectionConfigKey?: string;
+  baseUrlMustMatchAllowedHost?: boolean;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
   docsUrls: readonly string[];
   specUrls?: readonly string[];
   allowedHostSuffixes?: readonly string[];
+  requireHttps?: boolean;
   defaultHeaders?: Record<string, string>;
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
@@ -559,6 +578,22 @@ const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
   "unauthorized_client",
   "invalid_client",
 ]);
+const GOOGLE_SHEETS_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const GOOGLE_SHEETS_LEGACY_ALLOWED_SCOPES = new Set([
+  GOOGLE_SHEETS_DRIVE_SCOPE,
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+]);
+
+function hasIsolatedGoogleSheetsScopes(scopes: ReadonlySet<string>): boolean {
+  return (
+    scopes.has(GOOGLE_SHEETS_DRIVE_SCOPE) &&
+    [...scopes].every((scope) => GOOGLE_SHEETS_LEGACY_ALLOWED_SCOPES.has(scope))
+  );
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -610,6 +645,55 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
   },
+  sigma: {
+    id: "sigma",
+    label: "Sigma REST API",
+    defaultBaseUrl: "https://aws-api.sigmacomputing.com",
+    baseUrlCredentialKey: "SIGMA_BASE_URL",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "oauth-client-credentials",
+      clientIdKey: "SIGMA_CLIENT_ID",
+      clientSecretKey: "SIGMA_CLIENT_SECRET",
+      tokenPath: "/v2/auth/token",
+      workspaceProvider: "sigma",
+    },
+    credentialKeys: [
+      "SIGMA_CLIENT_ID",
+      "SIGMA_CLIENT_SECRET",
+      "SIGMA_BASE_URL",
+    ],
+    docsUrls: [
+      "https://help.sigmacomputing.com/reference/get-started-sigma-api",
+      "https://help.sigmacomputing.com/reference/post-token",
+      "https://help.sigmacomputing.com/reference/list-workbooks",
+      "https://help.sigmacomputing.com/reference/list-workbook-elements",
+      "https://help.sigmacomputing.com/reference/list-workbook-queries",
+    ],
+    specUrls: [
+      "https://help.sigmacomputing.com/openapi/openapi/sigma-rest-api.json",
+    ],
+    allowedHostSuffixes: ["sigmacomputing.com"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "List workbooks", method: "GET", path: "/v2/workbooks" },
+      {
+        label: "List workbook elements",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/elements",
+      },
+      {
+        label: "List workbook queries",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/queries",
+      },
+    ],
+    notes: [
+      "Uses OAuth client-credentials exchange through a Sigma workspace connection. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
+    ],
+  },
   apollo: {
     id: "apollo",
     label: "Apollo",
@@ -641,10 +725,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/bigquery",
       ],
+      oauthProvider: "google",
+      workspaceProvider: "bigquery",
     },
     credentialKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     ],
     docsUrls: ["https://cloud.google.com/bigquery/docs/reference/rest"],
     specUrls: ["https://bigquery.googleapis.com/$discovery/rest?version=v2"],
@@ -755,6 +841,38 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           { keyword: "builder.io", location_code: 2840, language_code: "en" },
         ],
       },
+    ],
+  },
+  dbt: {
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    defaultBaseUrl: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+    baseUrlConnectionConfigKey: "semanticLayerBaseUrl",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "bearer",
+      keys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+      workspaceProvider: "dbt",
+    },
+    credentialKeys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+    docsUrls: ["https://docs.getdbt.com/docs/dbt-apis/sl-graphql"],
+    allowedHostSuffixes: ["dbt.com", "getdbt.com"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "List metric metadata",
+        method: "POST",
+        path: "/api/graphql",
+        body: {
+          query:
+            "query Metrics($environmentId: BigInt!, $search: String) { metricsPaginated(environmentId: $environmentId, search: $search, pageNum: 1, pageSize: 20) { items { name description type dimensions { name description type } queryableGranularities } totalItems totalPages } }",
+        },
+      },
+    ],
+    notes: [
+      "Use the Semantic Layer only for owner-defined dbt metrics. Sigma and Amplitude are examples and cross-checks, not metric definitions.",
     ],
   },
   ga4: {
@@ -1146,6 +1264,37 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
+    ],
+  },
+  google_sheets: {
+    id: "google_sheets",
+    label: "Google Sheets API",
+    defaultBaseUrl: "https://sheets.googleapis.com/v4",
+    requiresWorkspaceConnection: true,
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "google_sheets",
+      tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_sheets",
+    },
+    credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developers.google.com/workspace/sheets/api/reference/rest",
+    ],
+    specUrls: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "Create a spreadsheet", method: "POST", path: "/spreadsheets" },
+      {
+        label: "Write spreadsheet values",
+        method: "PUT",
+        path: "/spreadsheets/{spreadsheetId}/values/{range}",
+      },
+    ],
+    notes: [
+      "Uses the current user's Google Sheets connection and the non-sensitive drive.file scope, limited to files created by this app or explicitly selected by the user.",
+      "Google Sheets authorization is isolated from scopes previously granted to other Google integrations.",
+      "Pass accountId when the user has multiple Google accounts connected.",
     ],
   },
   google_slides: {
@@ -1770,7 +1919,7 @@ export async function fetchProviderApiDocs(
   const responseBody =
     response.text ??
     (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
-  const content = processWebContent({
+  const content = await processWebContent({
     url: url.href,
     body: responseBody,
     contentType: response.contentType,
@@ -1855,7 +2004,7 @@ export async function executeProviderApiRequest(
   const auth =
     args.auth === "none"
       ? emptyAuth()
-      : await resolveAuth(config, runtime, ctx, args);
+      : await resolveAuth(config, runtime, ctx, args, endpoint);
   if (endpoint.owner) {
     for (const credential of auth.credentialSources) {
       assertCredentialCanReachEndpoint(
@@ -2098,7 +2247,14 @@ export async function resolveProviderApiOAuthAccessToken(
               tokenLabel: auth.tokenLabel,
               workspaceProvider: auth.workspaceProvider,
             }
-          : null;
+          : auth.type === "google-service-account" && auth.oauthProvider
+            ? {
+                type: "oauth-bearer" as const,
+                oauthProvider: auth.oauthProvider,
+                tokenLabel: "Google OAuth token",
+                workspaceProvider: auth.workspaceProvider,
+              }
+            : null;
   if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
@@ -2108,6 +2264,11 @@ export async function resolveProviderApiOAuthAccessToken(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
+  if (args.provider === "bigquery" && ctx.credentialScope === "org") {
+    throw new Error(
+      "Personal BigQuery OAuth is unavailable for org-only credential scope.",
+    );
+  }
   const credential = oauthAuth.workspaceProvider
     ? await resolveOptionalConnectionBoundOAuthBearerToken({
         auth: oauthAuth,
@@ -2119,6 +2280,7 @@ export async function resolveProviderApiOAuthAccessToken(
       })
     : await resolveOAuthBearerToken({
         auth: oauthAuth,
+        runtime,
         ctx,
         accountId: args.accountId,
       });
@@ -3342,6 +3504,9 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "api-key-header") return `api-key-header:${auth.header}`;
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
+  if (auth.type === "oauth-client-credentials") {
+    return `oauth-client-credentials:${auth.workspaceProvider}`;
+  }
   if (auth.type === "oauth-bearer-or-api-key-header") {
     return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
@@ -3379,15 +3544,62 @@ async function resolveBaseUrl(
     args,
   );
   if (oauthEndpoint) return oauthEndpoint;
+  if (config.baseUrlConnectionConfigKey) {
+    const auth = config.auth;
+    const workspaceProvider =
+      "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
+    if (!workspaceProvider) {
+      throw new Error(
+        `${config.label} connection URL configuration requires a workspace provider.`,
+      );
+    }
+    const resolved = await resolveWorkspaceConnectionForApp({
+      appId: runtime.appId,
+      provider: workspaceProvider,
+      connectionId: args.connectionId ?? undefined,
+      requireConnected: true,
+    });
+    if (!resolved.available || !resolved.connection) {
+      throw new Error(
+        `${config.label} requires an available workspace connection.`,
+      );
+    }
+    const configured =
+      resolved.connection.config[config.baseUrlConnectionConfigKey];
+    const value =
+      typeof configured === "string" && configured.trim()
+        ? configured.trim()
+        : config.defaultBaseUrl;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error(`${config.label} connection URL is invalid.`);
+    }
+    if (
+      (config.requireHttps && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/api/graphql" ||
+      (config.baseUrlMustMatchAllowedHost &&
+        !isAllowedProviderHost(url.hostname, config))
+    ) {
+      throw new Error(
+        `${config.label} requests must use the HTTPS /api/graphql endpoint on a registered provider host suffix.`,
+      );
+    }
+    return {
+      url: value.replace(/\/+$/, ""),
+      owner: workspaceConnectionEndpointOwner(resolved.connection),
+    };
+  }
   if (!config.baseUrlCredentialKey) return { url: config.defaultBaseUrl };
   const auth = config.auth;
   const workspaceProvider =
-    auth.type === "oauth-bearer" ||
-    auth.type === "oauth-bearer-or-api-key-header" ||
-    auth.type === "oauth-bearer-or-bearer-key" ||
-    auth.type === "oauth-bearer-or-basic"
-      ? auth.workspaceProvider
-      : undefined;
+    "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
   const configured = await resolveCredentialResult({
     config,
     runtime,
@@ -3396,8 +3608,17 @@ async function resolveBaseUrl(
     args,
     workspaceProvider,
   });
+  const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
+  if (
+    config.baseUrlMustMatchAllowedHost &&
+    !isAllowedProviderHost(new URL(url).hostname, config)
+  ) {
+    throw new Error(
+      `${config.label} API requests must stay on the configured provider host or registered provider host suffix.`,
+    );
+  }
   return {
-    url: (configured?.value || config.defaultBaseUrl).replace(/\/+$/, ""),
+    url,
     ...(configured
       ? {
           owner: {
@@ -3618,8 +3839,17 @@ function isAllowedProviderUrl(
   config: ProviderApiConfig,
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-  if (url.origin === base.origin) return true;
-  const host = url.hostname.toLowerCase();
+  if (config.requireHttps && url.protocol !== "https:") return false;
+  return (
+    url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
+  );
+}
+
+function isAllowedProviderHost(
+  hostname: string,
+  config: ProviderApiConfig,
+): boolean {
+  const host = hostname.toLowerCase();
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
     const normalized = suffix.toLowerCase().replace(/^\./, "");
     return host === normalized || host.endsWith(`.${normalized}`);
@@ -3650,6 +3880,7 @@ async function resolveAuth(
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
+  endpoint: ResolvedProviderEndpoint,
 ): Promise<ResolvedAuth> {
   const auth = config.auth;
   if (auth.type === "none") return emptyAuth();
@@ -3733,7 +3964,116 @@ async function resolveAuth(
       secretValues: [credential.value],
     };
   }
+  if (auth.type === "oauth-client-credentials") {
+    const clientId = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientIdKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const clientSecret = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientSecretKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    if (endpoint.owner) {
+      assertCredentialCanReachEndpoint(endpoint.owner, clientId, clientId.key);
+      assertCredentialCanReachEndpoint(
+        endpoint.owner,
+        clientSecret,
+        clientSecret.key,
+      );
+    }
+    const tokenUrl = buildProviderUrl({
+      config,
+      baseUrl: endpoint.url,
+      rawPath: auth.tokenPath,
+      query: undefined,
+    });
+    if (await isBlockedExtensionUrlWithDns(tokenUrl.href)) {
+      throw new Error(
+        `Blocked private/internal provider URL: ${tokenUrl.href}`,
+      );
+    }
+    const tokenResponse = await fetchWithTimeout(tokenUrl.href, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId.value,
+        client_secret: clientSecret.value,
+      }),
+      timeoutMs: clampTimeout(args.timeoutMs),
+      signal: args.signal,
+      maxBytes: 16_384,
+      secretValues: [clientId.value, clientSecret.value],
+    });
+    if (!tokenResponse.ok) {
+      throw new Error(
+        `${config.label} client-credentials exchange failed (HTTP ${tokenResponse.status}).`,
+      );
+    }
+    const accessToken = asRecord(tokenResponse.json).access_token;
+    if (typeof accessToken !== "string" || !accessToken.trim()) {
+      throw new Error(`${config.label} did not return an access token.`);
+    }
+    return {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentialSources: [
+        omitCredentialValue(clientId),
+        omitCredentialValue(clientSecret),
+      ],
+      secretValues: [clientId.value, clientSecret.value, accessToken],
+    };
+  }
   if (auth.type === "google-service-account") {
+    if (
+      auth.oauthProvider &&
+      auth.workspaceProvider &&
+      !(auth.workspaceProvider === "bigquery" && ctx.credentialScope === "org")
+    ) {
+      let oauthCredential: ProviderApiResolvedCredential | null;
+      try {
+        oauthCredential = await resolveOptionalConnectionBoundOAuthBearerToken({
+          auth: {
+            type: "oauth-bearer",
+            oauthProvider: auth.oauthProvider,
+            tokenLabel: "Google OAuth token",
+            workspaceProvider: auth.workspaceProvider,
+          },
+          runtime,
+          ctx,
+          workspaceProvider: auth.workspaceProvider,
+          connectionId: args.connectionId,
+          accountId: args.accountId,
+        });
+      } catch (error) {
+        if (
+          auth.workspaceProvider !== "bigquery" ||
+          !(error instanceof AgentConnectionRequiredError) ||
+          error.provider !== "bigquery" ||
+          error.reason !== "reauthorize"
+        ) {
+          throw error;
+        }
+        if (args.connectionId?.trim() || args.accountId?.trim()) {
+          throw error;
+        }
+        oauthCredential = null;
+      }
+      if (oauthCredential) {
+        return {
+          headers: { Authorization: `Bearer ${oauthCredential.value}` },
+          credentialSources: [omitCredentialValue(oauthCredential)],
+          secretValues: [oauthCredential.value],
+        };
+      }
+    }
     const token = await getGoogleServiceAccountToken(auth.scopes, runtime, ctx);
     return {
       headers: { Authorization: `Bearer ${token}` },
@@ -3751,7 +4091,8 @@ async function resolveAuth(
     const oauthProvider =
       runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
     const credential =
-      auth.workspaceProvider && args.connectionId
+      auth.workspaceProvider &&
+      (args.connectionId || config.requiresWorkspaceConnection)
         ? await resolveConnectionBoundOAuthBearerToken({
             auth: { ...auth, oauthProvider },
             runtime,
@@ -3762,8 +4103,10 @@ async function resolveAuth(
           })
         : await resolveOAuthBearerToken({
             auth: { ...auth, oauthProvider },
+            runtime,
             ctx,
             accountId: args.accountId,
+            connectionId: args.connectionId,
           });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
@@ -4044,11 +4387,7 @@ async function resolveAnyCredential(options: {
     options.keys,
     options.ctx,
   ).catch(() => null);
-  if (
-    options.workspaceProvider &&
-    !options.runtime.resolveCredential &&
-    !scopeGap
-  ) {
+  if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
       provider: options.workspaceProvider,
@@ -4077,11 +4416,7 @@ async function resolveRequiredCredential(options: {
     // coercion-ok: only enriches an error we throw either way — losing the scope
     // hint still surfaces the real "not configured" failure, never a success.
     .catch(() => null);
-  if (
-    options.workspaceProvider &&
-    !options.runtime.resolveCredential &&
-    !scopeGap
-  ) {
+  if (options.workspaceProvider && !scopeGap) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
       provider: options.workspaceProvider,
@@ -4259,38 +4594,147 @@ async function getGoogleServiceAccountToken(
 
 async function resolveOAuthBearerToken(options: {
   auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
+  runtime: ProviderApiRuntimeOptions;
   ctx: CredentialContext;
   accountId?: string | null;
   ownerEmail?: string | null;
   salesforceLoginUrl?: string | null;
+  connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
+  const requestedAccountId = options.accountId?.trim();
   const accounts = await listOAuthAccountsByOwner(
     options.auth.oauthProvider,
     ownerEmail,
   );
-  if (accounts.length === 0) {
-    throw new Error(
-      `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
-    );
-  }
-  const accountId = options.accountId?.trim();
-  const account = accountId
-    ? accounts.find((entry) => entry.accountId === accountId)
+  const account = requestedAccountId
+    ? accounts.find((entry) => entry.accountId === requestedAccountId)
     : accounts[0];
+  if (
+    !account &&
+    options.auth.oauthProvider === "google_sheets" &&
+    requestedAccountId &&
+    options.connectionId?.trim()
+  ) {
+    const legacyAccounts = await listOAuthAccountsByOwner("google", ownerEmail);
+    const legacyAccount = legacyAccounts.find(
+      (entry) => entry.accountId === requestedAccountId,
+    );
+    const legacyTokens = legacyAccount?.tokens as OAuthTokens | undefined;
+    const legacyAccessToken =
+      legacyTokens?.access_token ?? legacyTokens?.accessToken;
+    const legacyExpiresAt =
+      legacyTokens?.expiry_date ?? legacyTokens?.expiresAt;
+    const legacyRefreshToken =
+      legacyTokens?.refresh_token ?? legacyTokens?.refreshToken;
+    const legacyScopes = new Set(
+      typeof legacyTokens?.scope === "string"
+        ? legacyTokens.scope.split(/[\s,]+/).filter(Boolean)
+        : [],
+    );
+    if (
+      legacyAccount &&
+      legacyTokens &&
+      typeof legacyAccessToken === "string" &&
+      legacyAccessToken &&
+      hasIsolatedGoogleSheetsScopes(legacyScopes) &&
+      typeof legacyExpiresAt === "number" &&
+      Number.isFinite(legacyExpiresAt) &&
+      (legacyExpiresAt > Date.now() + 60_000 ||
+        (typeof legacyRefreshToken === "string" && legacyRefreshToken))
+    ) {
+      let accessToken = legacyAccessToken;
+      if (legacyExpiresAt <= Date.now() + 60_000) {
+        try {
+          accessToken = await getValidOAuthAccessToken({
+            oauthProvider: "google",
+            accountId: legacyAccount.accountId,
+            ownerEmail,
+            tokens: legacyTokens,
+            preserveTokensOnPermanentFailure: true,
+          });
+        } catch (error) {
+          if (!isPermanentGoogleOAuthRefreshFailure(error)) throw error;
+          return throwWorkspaceConnectionRequired({
+            runtime: options.runtime,
+            provider: options.auth.workspaceProvider ?? "google_sheets",
+            connectionId: options.connectionId,
+            message:
+              "Google Sheets needs to be reconnected because its Google authorization has expired.",
+            reason: "reauthorize",
+          });
+        }
+      }
+      return {
+        key: "GOOGLE_OAUTH_TOKEN",
+        value: accessToken,
+        source: "oauth_token",
+        provider: "google",
+        accountId: legacyAccount.accountId,
+        accountLabel: legacyAccount.displayName,
+      };
+    }
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.auth.workspaceProvider ?? "google_sheets",
+      connectionId: options.connectionId,
+      message:
+        "Google Sheets needs to be reconnected because its saved access token is missing, expired, or lacks file-level access.",
+      reason: "reauthorize",
+    });
+  }
   if (!account) {
+    if (accounts.length === 0) {
+      if (options.auth.workspaceProvider) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.auth.workspaceProvider,
+          connectionId: options.connectionId,
+          message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+          ...(options.auth.oauthProvider === "google_sheets" &&
+          options.connectionId
+            ? { reason: "reauthorize" as const }
+            : {}),
+        });
+      }
+      throw new Error(
+        `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
+      );
+    }
     throw new Error(
-      `${options.auth.tokenLabel} account ${accountId} is not available to ${ownerEmail}.`,
+      `${options.auth.tokenLabel} account ${requestedAccountId} is not available to ${ownerEmail}.`,
     );
   }
   const tokens = account.tokens as OAuthTokens;
-  const token = await getValidOAuthAccessToken({
-    oauthProvider: options.auth.oauthProvider,
-    accountId: account.accountId,
-    ownerEmail,
-    tokens,
-    salesforceLoginUrl: options.salesforceLoginUrl,
-  });
+  const preserveSharedGoogleGrant =
+    options.auth.oauthProvider === "google" &&
+    Boolean(options.auth.workspaceProvider);
+  let token: string;
+  try {
+    token = await getValidOAuthAccessToken({
+      oauthProvider: options.auth.oauthProvider,
+      accountId: account.accountId,
+      ownerEmail,
+      tokens,
+      preserveTokensOnPermanentFailure: preserveSharedGoogleGrant,
+      salesforceLoginUrl: options.salesforceLoginUrl,
+    });
+  } catch (error) {
+    if (
+      preserveSharedGoogleGrant &&
+      options.auth.workspaceProvider &&
+      isPermanentGoogleOAuthRefreshFailure(error)
+    ) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.auth.workspaceProvider,
+        connectionId: options.connectionId,
+        message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+        reason: "reauthorize",
+      });
+    }
+    throw error;
+  }
   return {
     key: `${options.auth.oauthProvider.toUpperCase()}_OAUTH_TOKEN`,
     value: token,
@@ -4325,8 +4769,9 @@ async function throwWorkspaceConnectionRequired(options: {
   provider: string;
   connectionId?: string | null;
   message: string;
+  reason?: "connect" | "grant" | "reauthorize";
 }): Promise<never> {
-  let reason: "connect" | "grant" | "reauthorize" = "connect";
+  let reason: "connect" | "grant" | "reauthorize" = options.reason ?? "connect";
   const resolved = await resolveWorkspaceConnectionForApp({
     appId: options.runtime.appId,
     provider: options.provider,
@@ -4334,18 +4779,33 @@ async function throwWorkspaceConnectionRequired(options: {
     includeDisabled: true,
     requireConnected: false,
   });
-  if (resolved.connection && resolved.appAccess?.available === false) {
+  if (
+    !options.reason &&
+    resolved.connection &&
+    resolved.appAccess?.available === false
+  ) {
     reason = "grant";
   } else if (
+    !options.reason &&
     resolved.connection &&
     resolved.connection.status !== "connected"
   ) {
     reason = "reauthorize";
   }
+  const connectionProvider = getWorkspaceConnectionProvider(options.provider);
   throw new AgentConnectionRequiredError(options.message, {
     provider: options.provider,
     reason,
     appId: options.runtime.appId,
+    ...(connectionProvider
+      ? {
+          source: {
+            id: options.provider,
+            kind: "workspace_connection",
+            label: connectionProvider.label,
+          },
+        }
+      : {}),
   });
 }
 
@@ -4359,12 +4819,17 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   allowUnbound?: boolean;
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
+  const requestedAccountId = options.accountId?.trim();
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
   try {
     resolved = await resolveWorkspaceConnectionForApp({
       appId: options.runtime.appId,
       provider: options.workspaceProvider,
       connectionId: requestedConnectionId,
+      accountId: requestedAccountId,
+      ...(options.workspaceProvider === "bigquery"
+        ? { connectionOwnerEmail: options.ctx.userEmail }
+        : {}),
       requireConnected: true,
     });
   } catch (error) {
@@ -4372,12 +4837,20 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       error instanceof Error &&
       error.message === "Workspace connections require an authenticated user."
     ) {
+      if (requestedConnectionId || requestedAccountId) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.workspaceProvider,
+          connectionId: requestedConnectionId,
+          message: "Sign in to use the selected workspace connection.",
+        });
+      }
       return null;
     }
     throw error;
   }
   if (!resolved.available || !resolved.connection) {
-    if (requestedConnectionId) {
+    if (requestedConnectionId || requestedAccountId) {
       return throwWorkspaceConnectionRequired({
         runtime: options.runtime,
         provider: options.workspaceProvider,
@@ -4387,6 +4860,19 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     }
     return null;
   }
+  if (
+    options.workspaceProvider === "google_sheets" &&
+    !resolved.connection.scopes.includes(GOOGLE_SHEETS_DRIVE_SCOPE)
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId,
+      message:
+        "Google Sheets needs to be reconnected to grant file-level access.",
+      reason: "reauthorize",
+    });
+  }
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
     if (options.allowUnbound) return null;
@@ -4394,17 +4880,18 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
     );
   }
-  const requestedAccountId = options.accountId?.trim();
   if (requestedAccountId && requestedAccountId !== connectionAccountId) {
     throw new Error(
-      `${options.auth.tokenLabel} account ${requestedAccountId} does not match workspace connection ${requestedConnectionId}.`,
+      `${options.auth.tokenLabel} account binding does not match the requested workspace connection.`,
     );
   }
   const credential = await resolveOAuthBearerToken({
     auth: options.auth,
+    runtime: options.runtime,
     ctx: options.ctx,
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
+    connectionId: resolved.connection.id,
     salesforceLoginUrl:
       options.auth.oauthProvider === "salesforce" &&
       typeof resolved.connection.config?.salesforceLoginUrl === "string"
@@ -4421,11 +4908,21 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   };
 }
 
+function isPermanentGoogleOAuthRefreshFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const oauthError = (error as { oauthError?: unknown }).oauthError;
+  return (
+    typeof oauthError === "string" &&
+    PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(oauthError)
+  );
+}
+
 async function getValidOAuthAccessToken(options: {
   oauthProvider: string;
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  preserveTokensOnPermanentFailure?: boolean;
   salesforceLoginUrl?: string | null;
 }): Promise<string> {
   const accessToken =
@@ -4449,7 +4946,8 @@ async function getValidOAuthAccessToken(options: {
   if (!refreshToken) return accessToken;
   if (
     options.oauthProvider === "google" ||
-    options.oauthProvider === "google-docs"
+    options.oauthProvider === "google-docs" ||
+    options.oauthProvider === "google_sheets"
   ) {
     return refreshGoogleOAuthToken(options, refreshToken);
   }
@@ -5075,6 +5573,7 @@ async function refreshGoogleOAuthToken(
     accountId: string;
     ownerEmail: string;
     tokens: OAuthTokens;
+    preserveTokensOnPermanentFailure?: boolean;
   },
   refreshToken: string,
 ): Promise<string> {
@@ -5166,10 +5665,16 @@ async function refreshGoogleOAuthToken(
 
   if (!data?.access_token) {
     if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
-      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+      if (!options.preserveTokensOnPermanentFailure) {
+        await deleteOAuthTokens(options.oauthProvider, options.accountId);
+      }
     }
     const detail = data?.error_description ?? data?.error ?? lastStatusText;
-    throw new Error(`Google OAuth refresh failed: ${detail}`);
+    const error = new Error(`Google OAuth refresh failed: ${detail}`);
+    if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      Object.assign(error, { oauthError: data.error });
+    }
+    throw error;
   }
   const merged: OAuthTokens = {
     ...options.tokens,
@@ -5400,10 +5905,36 @@ function providerQuotaExhaustedResponse(
   };
 }
 
-function applyBodyEnvelopeOutcome(
-  response: ProviderApiHttpResponse,
-  config: ProviderApiConfig,
-): ProviderApiHttpResponse {
+export function providerApiResponseOutcomeForUrl(
+  url: string,
+  response: Pick<ProviderApiHttpResponse, "ok" | "statusText">,
+  body: string,
+): Pick<ProviderApiHttpResponse, "ok" | "statusText"> {
+  const target = new URL(url);
+  const config = Object.values(PROVIDER_CONFIGS).find((candidate) => {
+    if (!candidate.bodyOkField) return false;
+    const base = new URL(candidate.defaultBaseUrl);
+    const path = base.pathname.replace(/\/$/, "");
+    return (
+      target.origin === base.origin &&
+      (target.pathname === path || target.pathname.startsWith(`${path}/`))
+    );
+  });
+  return config
+    ? applyBodyEnvelopeOutcome(
+        {
+          ok: response.ok,
+          statusText: response.statusText,
+          json: tryParseJson(body),
+        },
+        config,
+      )
+    : response;
+}
+
+function applyBodyEnvelopeOutcome<
+  T extends Pick<ProviderApiHttpResponse, "ok" | "statusText" | "json">,
+>(response: T, config: ProviderApiConfig): T {
   const field = config.bodyOkField;
   if (!field || !response.ok) return response;
   const body = response.json;

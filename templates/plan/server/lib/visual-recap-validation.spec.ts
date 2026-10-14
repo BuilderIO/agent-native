@@ -110,7 +110,7 @@ describe("assertRecapWireframesHaveContent", () => {
                     el: "screen",
                     children: [
                       { el: "title", text: "Connect storage" },
-                      { el: "btn", label: "Connect Builder.io" },
+                      { el: "btn", label: "Use Builder.io" },
                     ],
                   },
                 ],

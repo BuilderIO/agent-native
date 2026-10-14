@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,7 +8,8 @@ import { createAssetFromBuffer } from "../server/lib/assets.js";
 import { assertCanApprove } from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import {
-  filterDuplicateAssetUploads,
+  ASSET_DEDUPE_BATCH_SIZE,
+  filterDuplicateAssetUploadsAcrossBatches,
   hashAssetBuffer,
 } from "../server/lib/upload-dedupe.js";
 import {
@@ -196,25 +197,24 @@ async function findDuplicateReferenceAsset(input: {
   filename: string | null;
 }): Promise<typeof schema.assets.$inferSelect | null> {
   const db = getDb();
-  const existingReferenceAssets = await db
-    .select({
-      id: schema.assets.id,
-      title: schema.assets.title,
-      mediaType: schema.assets.mediaType,
-      mimeType: schema.assets.mimeType,
-      sizeBytes: schema.assets.sizeBytes,
-      metadata: schema.assets.metadata,
-      objectKey: schema.assets.objectKey,
-    })
-    .from(schema.assets)
-    .where(
-      and(
-        eq(schema.assets.libraryId, input.libraryId),
-        eq(schema.assets.status, "reference"),
-        eq(schema.assets.role, input.role),
-      ),
-    );
-  const { skippedDuplicates } = await filterDuplicateAssetUploads({
+  const existingContentHash = sql<
+    string | null
+  >`CASE WHEN ${schema.assets.metadata} IS JSON THEN CASE WHEN jsonb_typeof(${schema.assets.metadata}::jsonb -> 'contentHash') = 'string' THEN NULLIF(${schema.assets.metadata}::jsonb ->> 'contentHash', '') END END`;
+  const duplicateAssetColumns = {
+    id: schema.assets.id,
+    title: schema.assets.title,
+    mediaType: schema.assets.mediaType,
+    mimeType: schema.assets.mimeType,
+    sizeBytes: schema.assets.sizeBytes,
+    metadata: schema.assets.metadata,
+    objectKey: schema.assets.objectKey,
+  };
+  const dedupeScope = [
+    eq(schema.assets.libraryId, input.libraryId),
+    eq(schema.assets.status, "reference"),
+    eq(schema.assets.role, input.role),
+  ];
+  const { skippedDuplicates } = await filterDuplicateAssetUploadsAcrossBatches({
     files: [
       {
         altText: null,
@@ -227,7 +227,48 @@ async function findDuplicateReferenceAsset(input: {
         title: "",
       },
     ],
-    existingAssets: existingReferenceAssets,
+    existingAssets: [],
+    readExistingAssetHashes: async (files) =>
+      (
+        await Promise.all(
+          files.map(async (file) => {
+            const [asset] = await db
+              .select(duplicateAssetColumns)
+              .from(schema.assets)
+              .where(
+                and(
+                  ...dedupeScope,
+                  eq(schema.assets.mediaType, file.mediaType),
+                  eq(existingContentHash, file.contentHash),
+                ),
+              )
+              .limit(1);
+            return asset ? [asset] : [];
+          }),
+        )
+      ).flat(),
+    readExistingAssetBatch: (afterId, files, limit) =>
+      db
+        .select(duplicateAssetColumns)
+        .from(schema.assets)
+        .where(
+          and(
+            ...dedupeScope,
+            or(
+              ...files.map((file) =>
+                and(
+                  eq(schema.assets.mediaType, file.mediaType),
+                  eq(schema.assets.mimeType, file.mimeType),
+                  eq(schema.assets.sizeBytes, file.buffer.byteLength),
+                  isNull(existingContentHash),
+                ),
+              ),
+            ),
+            ...(afterId ? [gt(schema.assets.id, afterId)] : []),
+          ),
+        )
+        .orderBy(asc(schema.assets.id))
+        .limit(Math.min(ASSET_DEDUPE_BATCH_SIZE, limit)),
     readExistingAssetBuffer: (asset) => getObject(asset.objectKey),
   });
   const duplicate = skippedDuplicates.find(

@@ -6,8 +6,7 @@ const mocks = vi.hoisted(() => ({
   executeActions: vi.fn(),
   emit: vi.fn(),
   emitAsync: vi.fn(),
-  listSubscriptions: vi.fn(),
-  refreshEventSubscriptions: vi.fn(),
+  hasEventAutomation: vi.fn(),
   activeRules: [] as Array<Record<string, unknown>>,
   userSettings: new Map<string, unknown>(),
   getJevContextCredentials: vi.fn(),
@@ -54,10 +53,9 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: mocks.emit,
   emitAsync: mocks.emitAsync,
-  listSubscriptions: mocks.listSubscriptions,
 }));
 vi.mock("@agent-native/core/triggers", () => ({
-  refreshEventSubscriptions: mocks.refreshEventSubscriptions,
+  hasEventAutomation: mocks.hasEventAutomation,
 }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -129,8 +127,7 @@ describe("Mail Jev automation routing", () => {
     mocks.gmailGetMessage.mockReset();
     mocks.gmailBatchGetMessages.mockReset();
     mocks.userSettings.clear();
-    mocks.listSubscriptions.mockReturnValue([]);
-    mocks.refreshEventSubscriptions.mockResolvedValue(true);
+    mocks.hasEventAutomation.mockResolvedValue(false);
     mocks.activeRules = [{ id: "rule-1", kind: "automation", actions: "[]" }];
     mocks.getJevContextCredentials.mockResolvedValue({
       apiKey: undefined,
@@ -200,7 +197,7 @@ describe("Mail Jev automation routing", () => {
   it("checks model availability while processing a queued backfill", async () => {
     mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
       engine: "ai-sdk:openrouter",
-      model: "openai/gpt-5.6-luna",
+      model: "openai/gpt-6-luna",
     });
     mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
 
@@ -621,9 +618,7 @@ describe("Mail Jev automation routing", () => {
 
   it("emits received-mail events for new arrivals without local rules or Jev", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
 
@@ -684,11 +679,68 @@ describe("Mail Jev automation routing", () => {
     expect(mocks.isJevEnabled).not.toHaveBeenCalled();
   });
 
+  it("aborts an in-flight Gmail read and still releases the poll lease", async () => {
+    mocks.activeRules = [];
+    mocks.hasEventAutomation.mockResolvedValue(true);
+    const ownerEmail = "owner@example.com";
+    const accountEmail = "mailbox@example.com";
+    const watermarkKey = `${ownerEmail}:mail-received-events:${accountEmail}:watermark`;
+    mocks.userSettings.set(watermarkKey, {
+      lastHistoryId: "history-1",
+      lastTimestamp: Date.now(),
+    });
+
+    let signalHistoryStarted = () => {};
+    const historyStarted = new Promise<void>((resolve) => {
+      signalHistoryStarted = resolve;
+    });
+    mocks.gmailListHistory.mockImplementationOnce(
+      (
+        _accessToken: string,
+        _params: unknown,
+        _lane: string,
+        signal?: AbortSignal,
+      ) =>
+        new Promise((_resolve, reject) => {
+          if (!signal) throw new Error("Expected the sweep signal.");
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          signalHistoryStarted();
+        }),
+    );
+
+    const controller = new AbortController();
+    const poll = processAutomationsForAccount(
+      ownerEmail,
+      accountEmail,
+      "google-access-token",
+      controller.signal,
+    );
+    await historyStarted;
+    controller.abort();
+
+    await expect(poll).rejects.toBe(controller.signal.reason);
+    expect(mocks.gmailListHistory).toHaveBeenCalledWith(
+      "google-access-token",
+      expect.objectContaining({ startHistoryId: "history-1" }),
+      "incremental",
+      controller.signal,
+    );
+    expect(mocks.gmailListMessages).not.toHaveBeenCalled();
+    expect(mocks.gmailBatchGetMessages).not.toHaveBeenCalled();
+    expect(mocks.emitAsync).not.toHaveBeenCalled();
+    expect(mocks.executeActions).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get(
+        `${ownerEmail}:mail-automation-poll:${accountEmail}:lease`,
+      ),
+    ).toEqual({ claimToken: "", leaseUntil: 0 });
+  });
+
   it("drains paginated received-mail history without skipping overflow", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
 
@@ -767,6 +819,8 @@ describe("Mail Jev automation routing", () => {
         startHistoryId: "history-1",
         pageToken: "page-2",
       }),
+      "incremental",
+      undefined,
     );
     expect(mocks.emitAsync).toHaveBeenCalledTimes(50);
 
@@ -782,6 +836,8 @@ describe("Mail Jev automation routing", () => {
         startHistoryId: "history-1",
         pageToken: "page-3",
       }),
+      "incremental",
+      undefined,
     );
     expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
       lastHistoryId: "history-final",
@@ -797,9 +853,7 @@ describe("Mail Jev automation routing", () => {
 
   it("serializes polls per account while allowing other accounts to progress", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
     await processAutomationsForAccount(
@@ -1113,8 +1167,9 @@ describe("Mail Jev automation routing", () => {
     ).toEqual([]);
   });
 
-  it("baselines event history before an event automation subscribes", async () => {
+  it("baselines event history on the first poll after an event subscription", async () => {
     mocks.activeRules = [];
+    mocks.hasEventAutomation.mockResolvedValue(true);
 
     await processAutomationsForAccount(
       "owner@example.com",
@@ -1122,9 +1177,20 @@ describe("Mail Jev automation routing", () => {
       "google-access-token",
     );
 
-    expect(mocks.gmailGetProfile).toHaveBeenCalledOnce();
+    expect(mocks.gmailGetProfile).toHaveBeenCalledWith(
+      "google-access-token",
+      "incremental",
+      false,
+      undefined,
+    );
     expect(mocks.gmailListHistory).not.toHaveBeenCalled();
     expect(mocks.gmailListMessages).not.toHaveBeenCalled();
+    expect(mocks.emitAsync).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get(
+        "owner@example.com:mail-received-events:mailbox@example.com:watermark",
+      ),
+    ).toEqual(expect.objectContaining({ lastHistoryId: "history-1" }));
   });
 
   it("refreshes the received-mail cursor while no event automation is subscribed", async () => {
@@ -1146,7 +1212,9 @@ describe("Mail Jev automation routing", () => {
       "mail-received-events:mailbox@example.com:watermark",
       expect.objectContaining({ lastHistoryId: "fresh-history" }),
     );
-    expect(mocks.refreshEventSubscriptions).toHaveBeenCalledOnce();
+    expect(mocks.hasEventAutomation).toHaveBeenCalledWith(
+      "mail.message.received",
+    );
     expect(mocks.gmailListHistory).not.toHaveBeenCalled();
   });
 
@@ -1156,7 +1224,9 @@ describe("Mail Jev automation routing", () => {
       "owner@example.com:mail-received-events:mailbox@example.com:watermark",
       { lastHistoryId: "saved-history", lastTimestamp: 1 },
     );
-    mocks.refreshEventSubscriptions.mockResolvedValueOnce(false);
+    mocks.hasEventAutomation.mockRejectedValueOnce(
+      new Error("resource store unavailable"),
+    );
 
     const result = await processAutomationsForAccount(
       "owner@example.com",
@@ -1173,18 +1243,17 @@ describe("Mail Jev automation routing", () => {
     expect(mocks.gmailGetProfile).not.toHaveBeenCalled();
   });
 
-  it("does not persist a malformed cursor when Gmail history fallback cannot refresh it", async () => {
+  it("does not persist a malformed cursor when Gmail cannot reset it", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey = "mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(`owner@example.com:${watermarkKey}`, {
       lastHistoryId: "expired-history",
       lastTimestamp: Date.now(),
     });
-    mocks.gmailListHistory.mockRejectedValueOnce(new Error("history expired"));
-    mocks.gmailListMessages.mockResolvedValueOnce({ messages: [] });
+    mocks.gmailListHistory.mockRejectedValueOnce(
+      new Error("Google API error (404): history expired"),
+    );
     mocks.gmailGetProfile.mockRejectedValueOnce(
       new Error("profile unavailable"),
     );
@@ -1205,9 +1274,7 @@ describe("Mail Jev automation routing", () => {
 
   it("keeps a message pending when Gmail batch and refill fetches both fail", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     mocks.userSettings.set(
       "owner@example.com:mail-received-events:mailbox@example.com:watermark",
       { lastHistoryId: "history-1", lastTimestamp: Date.now() },
@@ -1258,9 +1325,7 @@ describe("Mail Jev automation routing", () => {
 
   it("continues Gmail fallback listing across pages", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     mocks.userSettings.set(
       "owner@example.com:mail-received-events:mailbox@example.com:watermark",
       { lastHistoryId: "expired-history", lastTimestamp: Date.now() },
@@ -1332,6 +1397,8 @@ describe("Mail Jev automation routing", () => {
       2,
       "google-access-token",
       expect.objectContaining({ pageToken: "fallback-page-two" }),
+      "incremental",
+      undefined,
     );
     expect(mocks.emitAsync).toHaveBeenCalledTimes(60);
     expect(
@@ -1343,9 +1410,7 @@ describe("Mail Jev automation routing", () => {
 
   it("keeps the fallback history cursor when history fails during a list continuation", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey =
       "owner@example.com:mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(watermarkKey, {
@@ -1393,6 +1458,8 @@ describe("Mail Jev automation routing", () => {
     expect(mocks.gmailListMessages).toHaveBeenCalledWith(
       "google-access-token",
       expect.objectContaining({ pageToken: "fallback-page-two" }),
+      "incremental",
+      undefined,
     );
     expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
       lastHistoryId: "fallback-base",
@@ -1408,6 +1475,8 @@ describe("Mail Jev automation routing", () => {
       2,
       "google-access-token",
       expect.objectContaining({ startHistoryId: "fallback-base" }),
+      "incremental",
+      undefined,
     );
     expect(mocks.emitAsync).toHaveBeenCalledWith(
       "mail.message.received",
@@ -1418,9 +1487,7 @@ describe("Mail Jev automation routing", () => {
 
   it("persists fallback candidates when the Gmail batch request fails", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey =
       "owner@example.com:mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(watermarkKey, {
@@ -1477,5 +1544,77 @@ describe("Mail Jev automation routing", () => {
 
     expect(mocks.emitAsync).toHaveBeenCalledTimes(2);
     expect(mocks.gmailListMessages).toHaveBeenCalledOnce();
+  });
+
+  it("resets an expired Gmail cursor without replaying recent mail", async () => {
+    mocks.activeRules = [];
+    mocks.hasEventAutomation.mockResolvedValue(true);
+    const watermarkKey =
+      "owner@example.com:mail-received-events:mailbox@example.com:watermark";
+    mocks.userSettings.set(watermarkKey, {
+      lastHistoryId: "expired-history",
+      fallbackPageToken: "old-fallback-page",
+      lastTimestamp: Date.now(),
+    });
+    mocks.gmailListHistory
+      .mockRejectedValueOnce(
+        new Error("Google API error (404): history expired"),
+      )
+      .mockResolvedValueOnce({
+        historyId: "history-after-new-mail",
+        history: [
+          {
+            messagesAdded: [
+              { message: { id: "new-mail", labelIds: ["INBOX"] } },
+            ],
+          },
+        ],
+      });
+    mocks.gmailGetProfile.mockResolvedValueOnce({ historyId: "fresh-history" });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "new-mail",
+        data: {
+          id: "new-mail",
+          threadId: "new-mail",
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(mocks.gmailListMessages).not.toHaveBeenCalled();
+    expect(mocks.emitAsync).not.toHaveBeenCalled();
+    expect(mocks.userSettings.get(watermarkKey)).toEqual(
+      expect.objectContaining({ lastHistoryId: "fresh-history" }),
+    );
+    expect(mocks.userSettings.get(watermarkKey)).not.toHaveProperty(
+      "fallbackPageToken",
+    );
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(mocks.gmailListHistory).toHaveBeenNthCalledWith(
+      2,
+      "google-access-token",
+      expect.objectContaining({ startHistoryId: "fresh-history" }),
+      "incremental",
+      undefined,
+    );
+    expect(mocks.emitAsync).toHaveBeenCalledWith(
+      "mail.message.received",
+      expect.objectContaining({ messageId: "new-mail" }),
+      expect.anything(),
+    );
   });
 });

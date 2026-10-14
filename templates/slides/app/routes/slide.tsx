@@ -15,6 +15,8 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import messages from "@/i18n/en-US";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
+import type { SlidePosition } from "../../shared/slide-number";
+
 export function meta() {
   return [{ title: messages.raw.slidePreviewTitle }];
 }
@@ -41,6 +43,9 @@ export default function SlideRoute() {
   const slideIndexParam = params.get("slideIndex");
 
   const [slide, setSlide] = useState<Slide | null>(null);
+  const [slidePosition, setSlidePosition] = useState<SlidePosition | undefined>(
+    undefined,
+  );
   const [aspectRatio, setAspectRatio] = useState<AspectRatio | undefined>(
     undefined,
   );
@@ -104,6 +109,7 @@ export default function SlideRoute() {
         }
         const idx = Math.max(0, Math.min(slideIndex, slides.length - 1));
         setSlide(slides[idx]);
+        setSlidePosition({ number: idx + 1, count: slides.length });
         setDeckTitle(deck.title ?? null);
         setAspectRatio(deck.aspectRatio);
         setDesignSystemId(deck.designSystemId ?? null);
@@ -140,6 +146,7 @@ export default function SlideRoute() {
     <div className="relative h-screen w-screen overflow-hidden bg-black">
       <SlideRenderer
         slide={slide}
+        slidePosition={slidePosition}
         thumbnail={false}
         aspectRatio={aspectRatio}
         designSystem={designSystem}

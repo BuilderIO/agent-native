@@ -1,7 +1,22 @@
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
 export type SpanType = "llm_call" | "tool_call" | "agent_run";
-export type SpanStatus = "success" | "error";
+/**
+ * `paused` is a run that stopped on purpose to wait for the user (a question or
+ * an approval). It is not a failure: error counts and rates must not include it.
+ */
+export type SpanStatus = "success" | "error" | "paused";
+
+/**
+ * What `errorMessage` of a failed tool span holds, so callers can tell the cases
+ * apart instead of reading them all as `null`:
+ * - `full` — the sanitized error text (captureToolResults was on)
+ * - `signature` — one redacted line; the rest was withheld by config
+ * - `withheld` — text exists but was written before the redaction contract, so
+ *   it is not returned
+ * - `unrecorded` — nothing was stored
+ */
+export type SpanErrorDetail = "full" | "signature" | "withheld" | "unrecorded";
 
 export interface TraceSpan {
   id: string;
@@ -20,8 +35,12 @@ export interface TraceSpan {
   durationMs: number;
   status: SpanStatus;
   errorMessage: string | null;
+  /** Set when reading a failed tool span; see {@link SpanErrorDetail}. */
+  errorDetail?: SpanErrorDetail;
   metadata: Record<string, unknown> | null;
   createdAt: number;
+  /** Request/span end time in epoch milliseconds. Older rows derive this from duration. */
+  endedAt?: number;
 }
 
 export interface TraceSummary {
@@ -207,6 +226,16 @@ export interface EvalDataset {
   entries: EvalTestCase[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Owner of the dataset. Null on legacy rows from before per-user
+   * isolation; scoped reads pass `userId` the same way traces do.
+   */
+  userId?: string | null;
+  /**
+   * Per-owner identity of a trace promotion. Null on datasets that were
+   * not promoted from a run. A unique index makes repeat promotion upsert.
+   */
+  idempotencyKey?: string | null;
 }
 
 export interface EvalTestCase {

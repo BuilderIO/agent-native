@@ -54,7 +54,8 @@ export const recapImagesStore = defineStore({
     {
       name: "baseline",
       run: async () => {
-        await ensureTableExists("recap_images", buildRecapImagesCreateSql());
+        const recapImagesCreateSql = buildRecapImagesCreateSql();
+        await ensureTableExists("recap_images", recapImagesCreateSql);
       },
     },
   ],

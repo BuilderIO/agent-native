@@ -1,0 +1,287 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
+import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
+import {
+  acknowledgeFrameGeometryRestoreClaims,
+  createFrameGeometryDataSavePayload,
+  frameGeometryRestoreClaimsForOperations,
+  frameGeometryRestoreClaimsThroughRevision,
+  persistReconciledFrameGeometryEntry,
+  stageFrameGeometryRestoreClaims,
+} from "@/pages/design-editor/domains/use-editor-active-screen-and-geometry";
+
+function createReconciledGeometryEntry() {
+  return createDesignSaveOutboxEntry({
+    designId: "design-1",
+    actorScope: "editor-session",
+    actionName: "update-design",
+    resourceId: "design-1",
+    operationSource: "editor-session",
+    operationRevision: 9,
+    payload: {
+      id: "design-1",
+      operationRevision: 9,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-1"],
+          value: { x: 20, y: 30, width: 320, height: 220 },
+        },
+      ],
+    },
+  });
+}
+
+describe("reconciled frame geometry save recovery", () => {
+  it("retries and acknowledges the reconciled save before invalidating", async () => {
+    const events: string[] = [];
+    const persisted = await persistReconciledFrameGeometryEntry(
+      createReconciledGeometryEntry(),
+      {
+        journal: async () => {
+          events.push("journal");
+        },
+        save: async () => {
+          events.push("save");
+        },
+        acknowledge: async () => {
+          events.push("acknowledge");
+        },
+        onSaved: () => events.push("clear-pending"),
+        invalidate: () => events.push("invalidate"),
+      },
+    );
+
+    expect(persisted).toEqual({ status: "saved" });
+    expect(events).toEqual([
+      "journal",
+      "save",
+      "acknowledge",
+      "clear-pending",
+      "invalidate",
+    ]);
+  });
+
+  it("preserves the retry error and current design cache when save is pending", async () => {
+    const events: string[] = [];
+    const error = new Error("temporary save failure");
+    const persisted = await persistReconciledFrameGeometryEntry(
+      createReconciledGeometryEntry(),
+      {
+        journal: async () => {
+          events.push("journal");
+        },
+        save: async () => {
+          events.push("save");
+          throw error;
+        },
+        acknowledge: async () => {
+          events.push("acknowledge");
+        },
+        onSaved: () => events.push("clear-pending"),
+        invalidate: () => events.push("invalidate"),
+      },
+    );
+
+    expect(persisted).toEqual({ status: "retry", error });
+    expect(events).toEqual(["journal", "save"]);
+  });
+});
+
+describe("frame geometry save payload", () => {
+  it("copies scoped restore claims into a stable outbox payload", () => {
+    const claim = {
+      claimId: "claim-1",
+      sourceFileId: "deleted-screen",
+      targetFileId: "restored-screen",
+    };
+    const dataOperations: DesignDataOperation[] = [
+      {
+        op: "set" as const,
+        path: ["screenMetadata", "restored-screen"],
+        value: { connectionId: "connection-1" },
+      },
+    ];
+
+    const payload = createFrameGeometryDataSavePayload({
+      id: "design-1",
+      dataOperations,
+      operationSource: "editor-session",
+      operationRevision: 7,
+      restoreClaims: [claim],
+    });
+
+    expect(payload).toEqual({
+      id: "design-1",
+      dataOperations,
+      operationSource: "editor-session",
+      operationRevision: 7,
+      restoreClaims: [claim],
+    });
+    claim.targetFileId = "later-target";
+    expect(payload.restoreClaims).toEqual([
+      {
+        claimId: "claim-1",
+        sourceFileId: "deleted-screen",
+        targetFileId: "restored-screen",
+      },
+    ]);
+  });
+
+  it("omits restoration claims from ordinary saves", () => {
+    expect(
+      createFrameGeometryDataSavePayload({
+        id: "design-1",
+        dataOperations: [],
+        operationSource: "editor-session",
+        operationRevision: 8,
+      }),
+    ).toEqual({
+      id: "design-1",
+      dataOperations: [],
+      operationSource: "editor-session",
+      operationRevision: 8,
+    });
+  });
+
+  it("attaches a restore claim only when its pending operations restore a connection", () => {
+    const claim = {
+      claimId: "claim-restore",
+      sourceFileId: "deleted-screen",
+      targetFileId: "restored-screen",
+    };
+
+    expect(
+      frameGeometryRestoreClaimsForOperations(
+        [claim],
+        [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a"],
+            value: { x: 20, y: 0, width: 300, height: 200 },
+          },
+        ],
+      ),
+    ).toEqual([]);
+    expect(
+      frameGeometryRestoreClaimsForOperations(
+        [claim],
+        [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-screen"],
+            value: { connectionId: "connection-1" },
+          },
+        ],
+      ),
+    ).toEqual([claim]);
+    expect(
+      frameGeometryRestoreClaimsForOperations(
+        [claim],
+        [{ op: "delete", path: ["screenMetadata", "restored-screen"] }],
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the same claim through a rejected save and drops it after success", async () => {
+    const claim = {
+      claimId: "claim-2",
+      sourceFileId: "source-screen",
+      targetFileId: "restored-screen",
+    };
+    let pending = stageFrameGeometryRestoreClaims([], "design-1", [claim], 10);
+    const dataOperations: DesignDataOperation[] = [
+      {
+        op: "set",
+        path: ["localhostScreens", "restored-screen"],
+        value: { connectionId: "connection-2" },
+      },
+    ];
+    const buildPayload = (
+      pendingClaims: typeof pending,
+      operationRevision: number,
+    ) =>
+      createFrameGeometryDataSavePayload({
+        id: "design-1",
+        dataOperations,
+        operationSource: "editor-session",
+        operationRevision,
+        restoreClaims: frameGeometryRestoreClaimsThroughRevision(
+          pendingClaims,
+          "design-1",
+          operationRevision,
+        ),
+      });
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary save failure"))
+      .mockResolvedValueOnce(undefined);
+    const initialPayload = buildPayload(pending, 10);
+
+    await expect(save(initialPayload)).rejects.toThrow(
+      "temporary save failure",
+    );
+    const retryPayload = buildPayload(pending, 11);
+    expect(initialPayload.restoreClaims).toEqual([claim]);
+    expect(retryPayload.restoreClaims).toEqual([claim]);
+    await expect(save(retryPayload)).resolves.toBeUndefined();
+
+    pending = acknowledgeFrameGeometryRestoreClaims(
+      pending,
+      "design-1",
+      retryPayload.restoreClaims as Array<typeof claim>,
+    );
+    expect(
+      frameGeometryRestoreClaimsThroughRevision(pending, "design-1", 12),
+    ).toEqual([]);
+    expect(buildPayload(pending, 12).restoreClaims).toBeUndefined();
+  });
+
+  it("keeps claims scoped to their design across navigation", () => {
+    const claim = {
+      claimId: "claim-3",
+      sourceFileId: "source-a",
+      targetFileId: "restored-a",
+    };
+    const pending = stageFrameGeometryRestoreClaims(
+      [],
+      "design-a",
+      [claim],
+      20,
+    );
+    const operations: DesignDataOperation[] = [
+      {
+        op: "set",
+        path: ["screenMetadata", "restored-a"],
+        value: { connectionId: "connection-a" },
+      },
+    ];
+
+    const designBPayload = createFrameGeometryDataSavePayload({
+      id: "design-b",
+      dataOperations: operations,
+      operationSource: "editor-session-b",
+      operationRevision: 21,
+      restoreClaims: frameGeometryRestoreClaimsThroughRevision(
+        pending,
+        "design-b",
+        21,
+      ),
+    });
+    const designARetryPayload = createFrameGeometryDataSavePayload({
+      id: "design-a",
+      dataOperations: operations,
+      operationSource: "editor-session-a",
+      operationRevision: 22,
+      restoreClaims: frameGeometryRestoreClaimsThroughRevision(
+        pending,
+        "design-a",
+        22,
+      ),
+    });
+
+    expect(designBPayload).not.toHaveProperty("restoreClaims");
+    expect(designARetryPayload.restoreClaims).toEqual([claim]);
+  });
+});

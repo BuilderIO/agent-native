@@ -1,13 +1,13 @@
+import { useEffect, useRef, useState } from "react";
+
+import type { OtherPresence } from "./presence.js";
 import {
   RECENT_EDITS_MAX,
   RECENT_EDIT_TTL_MS,
   type AttributedRecentEdit,
   type RecentEdit,
   type RecentEditDescriptor,
-} from "@agent-native/toolkit/collab-ui";
-import { useEffect, useRef, useState } from "react";
-
-import type { OtherPresence } from "./presence.js";
+} from "./types.js";
 
 export {
   RECENT_EDITS_MAX,
@@ -15,7 +15,7 @@ export {
   type AttributedRecentEdit,
   type RecentEdit,
   type RecentEditDescriptor,
-} from "@agent-native/toolkit/collab-ui";
+} from "./types.js";
 
 const RECENT_EDIT_STRING_MAX = 500;
 

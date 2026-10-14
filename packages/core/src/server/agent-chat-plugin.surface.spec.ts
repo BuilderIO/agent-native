@@ -102,9 +102,10 @@ describe("lean production run policy", () => {
     const codeExecution =
       "<code-execution-mode>Sandboxed</code-execution-mode>";
 
-    expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
-      restriction + codeExecution,
-    );
+    const policy = buildLeanRunPolicyPrompt(restriction, codeExecution);
+
+    expect(policy.endsWith(restriction + codeExecution)).toBe(true);
+    expect(policy).toContain("emit them in the same step");
   });
 
   it("keeps resource-backed AGENTS.md in the lean system prompt", () => {
@@ -411,9 +412,19 @@ describe("request-scoped action surface", () => {
     expect(route).toContain("runWithRequestContext");
     expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
     expect(route).toContain("{ userEmail: ownerEmail, orgId }");
-    expect(route).toContain("completeText({");
-    expect(route).toContain("appId: options?.appId");
-    expect(route).toContain('return { title: "" };');
+    expect(route).toContain("requireAgentChatAiSetup()");
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf(
+        "const request = chatTitleRequestFromBody(await readBody(event));",
+      ),
+    );
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf("requireAgentChatAiSetup()"),
+    );
+    expect(route).toContain(
+      "generateChatTitle({ ...request, appId: options?.appId })",
+    );
+    expect(route).toContain("setResponseStatus(event, 502);");
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
   });
 
@@ -532,10 +543,14 @@ describe("request-scoped action surface", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
+    const actionsStart = source.indexOf("const buildSubAgentActions");
+    const actionsEnd = source.indexOf("const teamTools", actionsStart);
+    const subAgentActions = source.slice(actionsStart, actionsEnd);
 
     expect(source).toMatch(
       /getActions:\s*\(\) =>\s*filterRuntimeActionsToSurface\(buildSubAgentActions\(\)\),/,
     );
+    expect(subAgentActions.match(/\.\.\.templateScripts,/g)).toHaveLength(2);
     expect(source).toMatch(
       /baseSystemPrompt: filterFrameworkPromptToSurface\(\s*basePrompt,\s*prodActions,\s*payload\.allowedActionNames,/,
     );

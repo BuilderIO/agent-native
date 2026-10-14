@@ -3,9 +3,8 @@ import enUS from "./en-US";
 const ptBR = {
   agentChat: {
     setup: {
-      checkingProvider: "Verificando a conexão com a IA…",
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
     common: { retry: "Tentar novamente" },
   },
@@ -679,7 +678,7 @@ const ptBR = {
         "Instale planejamento visual como skill apoiada por app. Seu agente de código pode abrir planos estruturados com diagramas, wireframes, protótipos, anotações, comentários e links de revisão compartilháveis.",
     },
     design: {
-      replaces: "Substitui ou amplia ferramentas de prototipagem de design",
+      replaces: "Estúdio de design da Agent-Native",
       description:
         "Transforma prompts em designs interativos que seguem seu sistema de design enquanto o agente refina cada tela com seu feedback.",
     },
@@ -1449,7 +1448,7 @@ const ptBR = {
       s003: "Gerar",
       s004: "Refinar",
       s005: "Todos os modelos",
-      s006: "O estúdio de prototipagem de código aberto AI HTML",
+      s006: "Espaço de design de código aberto",
       s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
@@ -1894,7 +1893,6 @@ const ptBR = {
       heroDescription:
         "Plans é uma ferramenta de planejamento visual gratuita e de código aberto para revisar a abordagem do seu agente de programação, dar feedback e entender mudanças de código por meio de diagramas, wireframes e código anotado.",
       heroCta: "Planeje visualmente",
-      heroSecondaryCta: "Abrir o Plans",
       useCasesHeading: "O que você pode fazer com o Plans?",
       useCasesBody:
         "Revise uma abordagem de implementação, avalie uma interface ou entenda uma mudança concluída com seu agente de programação com IA.",
@@ -2189,6 +2187,8 @@ const ptBR = {
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",
     loadError: "Não foi possível carregar o instalador desktop mais recente.",
+    mountError:
+      "A página de download para desktop não conseguiu encontrar seu caminho no workspace. Peça ao administrador do workspace para verificar a configuração do caminho do app.",
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",
     unavailable: "Instalador indisponível para esta plataforma",
@@ -2544,6 +2544,7 @@ const ptBR = {
     keyConcepts: "Conceitos principais",
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Visão geral",
+    toolkitFoundations: "Fundamentos",
     toolkitUiPrimitives: "Primitivas de UI",
     customDesignSystem: "Sistemas de design personalizados",
     toolkitEditorsCanvases: "Editores e canvases",
@@ -2556,6 +2557,10 @@ const ptBR = {
     toolkitCommandNavigation: "Comando e navegação",
     toolkitResources: "Recursos",
     toolkitAgentUx: "UX do agente",
+    toolkitDashboard: "Painel",
+    toolkitChatHistory: "Histórico de chats",
+    toolkitAgentPage: "Página do agente",
+    toolkitNotifications: "Notificações",
     toolkitHistory: "Histórico",
     toolkitCommentsReview: "Comentários e revisão",
     toolkitObservability: "Observabilidade",
@@ -2612,11 +2617,12 @@ const ptBR = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",
@@ -2706,6 +2712,7 @@ const ptBR = {
     planAutomations: "Eventos e automações",
     planLocalAndDesktop: "Arquivos locais e desktop",
     planDevelopers: "Guia do desenvolvedor",
+    turnIntoApp: "Transformar em app",
     prVisualRecap: "Recap visual de PR",
     planPluginMarketplace: "Plugin Plan e marketplace",
     slides: "Slides",

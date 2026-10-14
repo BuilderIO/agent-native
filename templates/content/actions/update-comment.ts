@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 type Mention = { email: string; name: string };
 
@@ -139,7 +140,11 @@ export default defineAction({
           );
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      return { ok: true, resolved: args.resolved };
+      return {
+        ok: true,
+        resolved: args.resolved,
+        documentId: comment.documentId,
+      };
     }
 
     await db
@@ -153,6 +158,8 @@ export default defineAction({
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true };
+    return { ok: true, documentId: comment.documentId };
   },
+  changeResource: (input, result) =>
+    documentChangeResource(input.documentId ?? result.documentId),
 });

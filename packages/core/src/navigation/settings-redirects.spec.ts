@@ -94,6 +94,7 @@ describe("legacy settings redirect table", () => {
     ["agent", "model"],
     ["agent:overview", "model"],
     ["providers", "model"],
+    ["agent:personalization", "personalization"],
     ["connections", "integrations"],
     ["integrations", "integrations"],
     ["keys", "api-keys"],

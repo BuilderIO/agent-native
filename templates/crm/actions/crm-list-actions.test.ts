@@ -44,6 +44,18 @@ const ownership = {
   visibility: "private" as const,
 };
 
+/** What the native connection below grants its owner right now. */
+const NATIVE_SCOPE = {
+  key: "native",
+  actorId: OWNER,
+  mode: "native",
+  objectReadable: true,
+  objectCreateable: true,
+  objectUpdateable: true,
+  objectDeleteable: true,
+  recordVisibility: "actor",
+} as const;
+
 const asOwner = <T>(fn: () => Promise<T>): Promise<T> =>
   runWithRequestContext({ userEmail: OWNER }, fn) as Promise<T>;
 const asOther = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -57,6 +69,7 @@ let counter = 0;
 async function createRecord(
   objectType: string,
   displayName: string,
+  scope: object = NATIVE_SCOPE,
 ): Promise<string> {
   const id = `rec_${++counter}`;
   const now = new Date().toISOString();
@@ -71,7 +84,7 @@ async function createRecord(
       remoteId: id,
       displayName,
       accessScopeKey: "native",
-      accessScopeJson: "{}",
+      accessScopeJson: JSON.stringify(scope),
       ...ownership,
       createdAt: now,
       updatedAt: now,
@@ -127,6 +140,26 @@ beforeAll(async () => {
       createdAt: now,
       updatedAt: now,
     });
+  for (const [objectType, kind] of [
+    ["companies", "account"],
+    ["people", "person"],
+    ["opportunities", "opportunity"],
+  ] as const) {
+    await getDb()
+      .insert(schema.crmObjects)
+      .values({
+        id: `obj_lists_${objectType}`,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType,
+        kind,
+        label: objectType,
+        pluralLabel: objectType,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+  }
 }, 60_000);
 
 afterAll(() => {
@@ -229,6 +262,72 @@ describe("list membership", () => {
       recordId,
       recordId,
     ]);
+  });
+
+  it("does not expose list entries whose connection the caller cannot see", async () => {
+    // Org visibility, not an explicit share row, is what makes the list,
+    // record, and entry visible to OTHER here (requireCrmScope stamps
+    // visibility "org" for anything created with an orgId). CONNECTION_ID —
+    // created in beforeAll, owned solely by OWNER, never org-scoped — must
+    // still gate the list itself even though everything else is visible.
+    const SHARE_ORG = "org_list_entries_share";
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+    const otherInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OTHER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: CONNECTION_ID,
+          name: "Org Visible List",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const recordId = `rec_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Org Visible Co",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await asOwnerInOrg(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId }, ownerInOrgCtx),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OTHER, orgId: SHARE_ORG }, () =>
+        listCrmListEntries.run({ listId: list.id }, otherInOrgCtx),
+      ),
+    ).rejects.toMatchObject({ code: "crm-list-not-found" });
   });
 
   it("rejects a record whose objectType is not the list's parentObjectType", async () => {
@@ -852,7 +951,9 @@ describe("list-crm-list-entries filtering, sorting, and pagination", () => {
     expect(first.entries).toHaveLength(1);
     expect(first.entries[0].recordId).toBe(wonRecordIds[0]);
     expect(first.complete).toBe(false);
-    expect(first.nextCursor).toBe("1");
+    expect(first.nextCursor).toBeTruthy();
+    // Sealed: the raw scan offset is not readable by the caller.
+    expect(first.nextCursor).not.toMatch(/^\d+$/);
 
     const second = await asOwner(() =>
       listCrmListEntries.run(
@@ -1034,6 +1135,67 @@ describe("access scoping", () => {
       .where(eq(schema.crmListEntries.id, entry.entryId));
     expect(stillThere).toBeTruthy();
   });
+
+  it("withholds entries whose record scope the connection no longer grants", async () => {
+    const list = await newList("Scope Check");
+    const kept = await createRecord("companies", "Still Granted");
+    const revoked = await createRecord("companies", "Revoked Grant", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    for (const recordId of [kept, revoked]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries.map((entry: any) => entry.recordId)).toEqual([kept]);
+  });
+
+  it("fills the page past withheld entries instead of returning it short", async () => {
+    const list = await newList("Scope Fill");
+    const revoked = await createRecord("companies", "Revoked First", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    const visible = await createRecord("companies", "Visible Second");
+    for (const recordId of [revoked, visible]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id, limit: 1 }, ownerCtx),
+    );
+    expect(page.entries.map((entry: any) => entry.recordId)).toEqual([visible]);
+    expect(page.complete).toBe(true);
+  });
+});
+
+describe("list entry counts", () => {
+  it("counts only entries whose record scope is still current", async () => {
+    const list = await newList("Scope Count");
+    const kept = await createRecord("companies", "Counted Grant");
+    const revoked = await createRecord("companies", "Uncounted Grant", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    for (const recordId of [kept, revoked]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmLists.run({ connectionId: CONNECTION_ID }, ownerCtx),
+    );
+    const row = page.lists.find((entry: any) => entry.id === list.id);
+    expect(row.entryCount).toBe(1);
+  });
 });
 
 describe("list-crm-lists and update-crm-list", () => {
@@ -1079,6 +1241,170 @@ describe("list-crm-lists and update-crm-list", () => {
       ),
     );
     expect(archived.lists.some((row: any) => row.id === list.id)).toBe(true);
+  });
+
+  it("does not return a list whose connection the caller cannot see", async () => {
+    // Org visibility (not an explicit share row) is what makes this list
+    // visible to OTHER; CONNECTION_ID — created in beforeAll, owned solely by
+    // OWNER, never org-scoped — must still gate it out of the page.
+    const SHARE_ORG = "org_list_visibility_share";
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: CONNECTION_ID,
+          name: "Org Visible List Lists",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const visible = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () =>
+        listCrmLists.run(
+          {},
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+    );
+    expect(visible.lists.some((row: any) => row.id === list.id)).toBe(false);
+  });
+
+  it("does not count list entries whose record's connection the caller cannot see", async () => {
+    const SHARE_ORG = "org_list_entrycount_share";
+    const SHARED_CONNECTION_ID = "conn_lists_entrycount_shared";
+    const PRIVATE_CONNECTION_ID = "conn_lists_entrycount_private";
+    const now = new Date().toISOString();
+
+    await getDb()
+      .insert(schema.crmConnections)
+      .values([
+        {
+          id: SHARED_CONNECTION_ID,
+          provider: "native",
+          label: "Org Shared Connection",
+          mode: "native",
+          status: "connected",
+          accessScopeKey: "native",
+          ownerEmail: OWNER,
+          orgId: SHARE_ORG,
+          visibility: "org",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: PRIVATE_CONNECTION_ID,
+          provider: "native",
+          label: "Private Connection",
+          mode: "native",
+          status: "connected",
+          accessScopeKey: "native",
+          ownerEmail: OWNER,
+          orgId: null,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.crmObjects)
+      .values({
+        id: `obj_${++counter}`,
+        connectionId: SHARED_CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        label: "companies",
+        pluralLabel: "companies",
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: SHARED_CONNECTION_ID,
+          name: "Cross-Connection Count",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const recordId = `rec_${++counter}`;
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: PRIVATE_CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Cross-connection record",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.crmListEntries)
+      .values({
+        id: `entry_${++counter}`,
+        listId: list.id,
+        recordId,
+        position: 0,
+        createdByActorType: "user",
+        createdByActorId: OWNER,
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    // The list and entry are org-visible, but the ENTRY'S RECORD lives on
+    // PRIVATE_CONNECTION_ID, which OTHER cannot see: the count must not
+    // include it even though the list itself is returned.
+    const page = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () =>
+        listCrmLists.run(
+          { connectionId: SHARED_CONNECTION_ID },
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+    );
+    const row = page.lists.find((entry: any) => entry.id === list.id);
+    expect(row).toBeTruthy();
+    expect(row.entryCount).toBe(0);
   });
 
   it("rejects a defaultViewId the caller cannot see", async () => {

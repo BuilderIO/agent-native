@@ -2,7 +2,7 @@
 
 import { execFileSync } from "child_process";
 import fs from "fs";
-import { createRequire } from "module";
+import { createRequire, isBuiltin } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
@@ -13,15 +13,18 @@ import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_TEAM_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
 import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
+import { PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR } from "../db/server-runtime.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -46,12 +49,30 @@ import {
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
-import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
+import {
+  EMBED_TARGET_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  normalizeFrameworkRoutePrefix,
+  toPublicFrameworkPath,
+} from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import {
+  CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getMissingCoreOptionalPeers,
+} from "../shared/optional-peer-ssr.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -75,6 +96,7 @@ import {
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
+import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
 import {
   cloneServerBundleForFunction,
   copyDir,
@@ -102,6 +124,12 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+
+function packageExternalPattern(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?:/|$)`);
+}
+
 export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare_module",
   "cloudflare-module",
@@ -397,6 +425,8 @@ function cloudflareBindingsInitScript(): string {
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") globalThis.process.env[key] = value;
   }
+  globalThis.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ =
+    process.env.NODE_ENV === "production";
 }`;
 }
 
@@ -411,6 +441,26 @@ function cloudflareModuleTimerRestoreScript(): string {
     globalThis.setInterval = globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY};
   }
 }`;
+}
+
+function cloudflareRequestMetadataScript(): string {
+  return `function copyCloudflareRequestMetadata(source, target) {
+  if (source.cf !== undefined) {
+    Object.defineProperty(target, "cf", {
+      configurable: true,
+      value: source.cf,
+    });
+  }
+  if (typeof source.waitUntil === "function") {
+    Object.defineProperty(target, "waitUntil", {
+      configurable: true,
+      value: source.waitUntil,
+      writable: true,
+    });
+  }
+  return target;
+}
+`;
 }
 
 function cloudflareModuleTimerShimPrefix(): string {
@@ -431,8 +481,92 @@ export function shimCloudflarePagesModuleTimers(code: string): string {
   return code;
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
-  return `let handler;
+export const CLOUDFLARE_SWEEP_CRON = "* * * * *";
+
+/**
+ * The URL path a platform scheduler requests. Under a custom framework route
+ * prefix the request boundary 404s `/_agent-native/*` before any route runs,
+ * and the server is mounted under the app base path, so the internal sweep
+ * path alone never reaches the sweep.
+ */
+export function publicRecurringJobsSweepPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const basePath = normalizeAppBasePath(
+    env.VITE_APP_BASE_PATH || env.APP_BASE_PATH,
+  );
+  const publicPath = toPublicFrameworkPath(RECURRING_JOBS_SWEEP_PATH, {
+    publicPrefix: resolveBuildFrameworkRoutePrefix(env),
+  });
+  return `${basePath}${publicPath}`;
+}
+
+// The token format must match verifyInternalToken in
+// integrations/internal-token.ts.
+function cloudflareSweepTriggerScript(sweepPath: string): string {
+  return `const SWEEP_CRON = ${JSON.stringify(CLOUDFLARE_SWEEP_CRON)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
+const SWEEP_TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+
+async function sweepToken(secret) {
+  const timestamp = Date.now();
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(SWEEP_TOKEN_SUBJECT + ":" + timestamp),
+  );
+  const hex = Array.from(new Uint8Array(signature), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return timestamp + "." + hex;
+}
+
+async function runSweep(h, env, ctx) {
+  const secret = env?.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const request = new Request(
+    new URL(SWEEP_PATH, env.APP_URL || "https://scheduled-sweep.invalid"),
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + (await sweepToken(secret)),
+        "Content-Type": "application/json",
+        "user-agent": "agent-native-cloudflare-cron",
+      },
+      body: "{}",
+    },
+  );
+  if (typeof ctx?.waitUntil === "function") {
+    request.waitUntil = ctx.waitUntil.bind(ctx);
+  }
+  const response = await h.fetch(request, env, ctx);
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      "[recurring-jobs] Scheduled sweep failed (" + response.status + "): " + body.slice(0, 500),
+    );
+  }
+  console.log("[recurring-jobs] Scheduled sweep finished", body.slice(0, 500));
+}`;
+}
+
+export function generateCloudflareModuleWorkerEntry(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return `import { runWithRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";
+
+${cloudflareRequestMetadataScript()}
+let handler;
 
 async function loadHandler() {
   handler ??= (await import("./index.mjs")).default;
@@ -443,10 +577,45 @@ ${cloudflareBindingsInitScript()}
 
 ${cloudflareModuleTimerRestoreScript()}
 
+${cloudflareSweepTriggerScript(publicRecurringJobsSweepPath(env))}
+
+function createRequestDbPoolScopeContext(ctx) {
+  if (!ctx || (typeof ctx !== "object" && typeof ctx !== "function")) {
+    return ctx;
+  }
+  const scopedCtx = Object.create(Object.getPrototypeOf(ctx));
+  const copied = new Set();
+  for (
+    let source = ctx;
+    source && source !== Object.prototype;
+    source = Object.getPrototypeOf(source)
+  ) {
+    for (const key of Reflect.ownKeys(source)) {
+      if (key === "constructor" || copied.has(key)) continue;
+      copied.add(key);
+      const descriptor = Object.getOwnPropertyDescriptor(source, key);
+      Object.defineProperty(scopedCtx, key, {
+        configurable: true,
+        enumerable: descriptor?.enumerable ?? true,
+        get() {
+          const value = Reflect.get(ctx, key, ctx);
+          return typeof value === "function" ? value.bind(ctx) : value;
+        },
+      });
+    }
+  }
+  return scopedCtx;
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (typeof ctx?.waitUntil === "function") {
-      request.waitUntil = ctx.waitUntil.bind(ctx);
+      const requestWithWaitUntil = copyCloudflareRequestMetadata(
+        request,
+        new Request(request.url, request),
+      );
+      requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
+      request = requestWithWaitUntil;
     }
     initializeBindings(env);
     const h = await loadHandler();
@@ -454,34 +623,57 @@ export default {
     return h.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.scheduled?.(controller, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      const branches = [
+        h.scheduled?.(controller, env, scopedCtx),
+        controller?.cron === SWEEP_CRON
+          ? runSweep(h, env, scopedCtx)
+          : undefined,
+      ];
+      const results = await Promise.allSettled(branches);
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
+    });
   },
   async email(message, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.email?.(message, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.email?.(message, env, scopedCtx);
+    });
   },
   async queue(batch, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.queue?.(batch, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.queue?.(batch, env, scopedCtx);
+    });
   },
   async tail(traces, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.tail?.(traces, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.tail?.(traces, env, scopedCtx);
+    });
   },
   async trace(traces, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.trace?.(traces, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.trace?.(traces, env, scopedCtx);
+    });
   },
 };
 `;
@@ -565,16 +757,26 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
     main?: string;
     compatibility_flags?: unknown;
+    triggers?: { crons?: unknown; [key: string]: unknown };
     [key: string]: unknown;
   };
   config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  const crons = Array.isArray(config.triggers?.crons)
+    ? config.triggers.crons.filter(
+        (cron): cron is string => typeof cron === "string",
+      )
+    : [];
+  config.triggers = {
+    ...config.triggers,
+    crons: [...new Set([...crons, CLOUDFLARE_SWEEP_CRON])],
+  };
   const compatibilityFlags = Array.isArray(config.compatibility_flags)
     ? config.compatibility_flags.filter(
         (flag): flag is string => typeof flag === "string",
       )
     : [];
   config.compatibility_flags = [
-    ...new Set([...compatibilityFlags, "nodejs_compat"]),
+    ...new Set([...compatibilityFlags, "nodejs_compat", "nodejs_als"]),
   ];
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(
@@ -1246,6 +1448,8 @@ export function generateWorkerEntry(
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   const ssrCacheHeaders = resolveSsrCacheHeaders();
+  const chunkRecoveryCacheHeaders =
+    resolveChunkRecoveryCacheHeaders(ssrCacheHeaders);
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
@@ -1318,6 +1522,18 @@ export function generateWorkerEntry(
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }
+    const actionSession = ${varName}.requiresAuth === true
+      ? await getGeneratedSession(event)
+      : undefined;
+    const actionContext = uiActionContext ?? (actionSession?.email
+      ? { userEmail: actionSession.email, orgId: actionSession.orgId ?? null }
+      : undefined);
+    if (${varName}.requiresAuth === true && !actionContext?.userEmail) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const caller =
@@ -1328,16 +1544,11 @@ export function generateWorkerEntry(
         caller,
         requestHeaders: event.req.headers,
         actionName: ${JSON.stringify(a.name)},
-        ...(uiActionContext
-          ? {
-              userEmail: uiActionContext.userEmail,
-              orgId: uiActionContext.orgId ?? null,
-            }
-          : {}),
+        ...(actionContext ?? {}),
       };
       const runAction = () => ${varName}.run(params, actionRunContext);
-      const result = actionIsUiOnly
-        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+      const result = actionContext
+        ? await runWithGeneratedRequestContext(actionContext, runAction)
         : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
@@ -1454,6 +1665,7 @@ import {
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
+${cloudflareRequestMetadataScript()}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
@@ -1466,6 +1678,10 @@ function normalizeAppBasePath(value) {
 // CLASSIFICATION happens here; the h3 boundary inside the handler is what
 // translates the public prefix to the internal one, exactly once.
 const builtFrameworkRoutePrefix = ${JSON.stringify(builtFrameworkRoutePrefix)};
+const embedActionQueryParams = new Set(${JSON.stringify([
+    EMBED_TARGET_QUERY_PARAM,
+    EMBED_TOKEN_QUERY_PARAM,
+  ])});
 
 function getAppBasePath() {
   const builtAppBasePath = ${JSON.stringify(builtAppBasePath)};
@@ -1488,13 +1704,69 @@ function stripAppBasePath(pathname) {
   return pathname;
 }
 
+function splitReactRouterDataPathname(pathname) {
+  const trailingSlash = pathname.endsWith("/") ? "/" : "";
+  const pathWithoutTrailingSlash = trailingSlash
+    ? pathname.slice(0, -trailingSlash.length)
+    : pathname;
+  if (pathWithoutTrailingSlash.endsWith("/_.data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -"/_.data".length),
+      dataSuffix: "/_.data",
+      trailingSlash,
+    };
+  }
+  if (pathWithoutTrailingSlash.endsWith(".data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -".data".length),
+      dataSuffix: ".data",
+      trailingSlash,
+    };
+  }
+  return { routePath: pathWithoutTrailingSlash, dataSuffix: "", trailingSlash };
+}
+
+function stripChunkRecoveryPathSuffix(pathname) {
+  const { routePath, dataSuffix, trailingSlash } =
+    splitReactRouterDataPathname(pathname);
+  const routeHasTrailingSlash = routePath.endsWith("/");
+  const routePathWithoutTrailingSlash = routeHasTrailingSlash
+    ? routePath.slice(0, -1)
+    : routePath;
+  if (!routePathWithoutTrailingSlash.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) {
+    return pathname;
+  }
+
+  const routePathWithoutAlias =
+    routePathWithoutTrailingSlash.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length) ||
+    "/";
+  const separator = routePathWithoutAlias === "/" && dataSuffix.startsWith("/")
+    ? dataSuffix.slice(1)
+    : dataSuffix;
+  const suffix = separator + trailingSlash;
+  return routePathWithoutAlias === "/" && suffix === "/"
+    ? "/"
+    : routePathWithoutAlias + suffix;
+}
+
+function isChunkRecoveryPath(pathname) {
+  const { routePath } = splitReactRouterDataPathname(pathname);
+  return routePath.replace(/\\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
+}
+
+function isLegacyChunkRecoveryRequest(url) {
+  const values = url.searchParams.getAll(CHUNK_RECOVERY_QUERY_PARAM);
+  return values.length === 1 && values[0] === CHUNK_RECOVERY_QUERY_VALUE;
+}
+
 function parseActionSearchParams(searchParams) {
   const params = {};
   for (const [rawKey, value] of searchParams.entries()) {
     const isArrayKey = rawKey.endsWith("[]");
+    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+    if (embedActionQueryParams.has(key)) continue;
     // The core client serializes arrays as key[]=value so one-item arrays
     // survive GET action parsing in generated worker deployments.
-    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
     const current = params[key];
     if (current === undefined) {
       params[key] = isArrayKey ? [value] : value;
@@ -1529,9 +1801,7 @@ function requestWithMountedApiPrefixStripped(request) {
     return request;
   }
   url.pathname = strippedPathname;
-  const rewritten = new Request(url, request);
-  rewritten.waitUntil = request.waitUntil;
-  return rewritten;
+  return copyCloudflareRequestMetadata(request, new Request(url, request));
 }
 
 function prefixMountedPath(path, basePath) {
@@ -1774,9 +2044,9 @@ function getRealtimeClientConfigScript() {
 function getAppOriginClientConfigScript() {
   // MUST stay consistent with resolvePublicAppOriginConfig in
   // server/app-origin-config.ts, and with the alias order declared on
-  // app.url / workspace.* in app-config (worker bundles a string copy; it
-  // can't import them). Impersonal values only — this ships into the
-  // CDN-cached shell.
+  // app.id / app.workspaceId / app.basePath / app.url / workspace.* in
+  // app-config (worker bundles a string copy; it can't import them). Impersonal values only —
+  // this ships into the CDN-cached shell.
   const env = globalThis.process?.env || {};
   const appUrl = firstNonEmpty(
     env.APP_URL,
@@ -1802,7 +2072,8 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
-  const workspaceAppMountPaths = (() => {
+  const appConfig = getAgentNativeAppConfig();
+  const workspaceAppMountConfig = (() => {
     const raw = firstNonEmpty(
       env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
       env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
@@ -1816,46 +2087,76 @@ function getAppOriginClientConfigScript() {
           ? parsed.apps
           : null;
       if (!Array.isArray(entries)) return;
+      const mounts = entries
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const id = typeof entry.id === "string" ? entry.id : undefined;
+          let rawPath = null;
+          if (typeof entry.path === "string") rawPath = entry.path;
+          else if (id) rawPath = "/" + id;
+          if (!rawPath) return null;
+          const normalized = normalizeAppBasePath(rawPath);
+          return { id, path: normalized || "/" };
+        })
+        .filter(Boolean);
       const paths = Array.from(
-        new Set(
-          entries
-            .map((entry) => {
-              if (!entry || typeof entry !== "object") return null;
-              const rawPath =
-                typeof entry.path === "string"
-                  ? entry.path
-                  : typeof entry.id === "string"
-                    ? "/" + entry.id
-                    : null;
-              if (!rawPath) return null;
-              const normalized = normalizeAppBasePath(rawPath);
-              return normalized || null;
-            })
-            .filter(Boolean),
-        ),
+        new Set(mounts.map((mount) => mount.path).filter((mount) => mount !== "/")),
       );
-      return paths.length ? paths : undefined;
+      const workspaceAppId = appConfig.app.workspaceId;
+      const currentPath =
+        typeof workspaceAppId === "string" && workspaceAppId.trim().length > 0
+          ? mounts.find((mount) => mount.id === workspaceAppId)?.path
+          : undefined;
+      return paths.length || currentPath
+        ? {
+            ...(paths.length ? { paths } : {}),
+            ...(currentPath ? { currentPath } : {}),
+          }
+        : undefined;
     } catch {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(
-    getAgentNativeAppConfig().app,
-    getAgentNativeAppConfig().workspace,
-  );
+  const configuredWorkspaceAppPath =
+    typeof appConfig.app.basePath === "string" && appConfig.app.basePath.trim()
+      ? normalizeAppBasePath(appConfig.app.basePath) || "/"
+      : "";
+  const workspaceAppPath =
+    workspaceAppMountConfig?.currentPath ??
+    (workspaceRuntime ? configuredWorkspaceAppPath : "");
   const config = {
-    appHomePath,
+    ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
+    ...(appConfig.app.workspaceId
+      ? { workspaceAppId: appConfig.app.workspaceId }
+      : {}),
+    ...(workspaceAppPath ? { workspaceAppPath } : {}),
+    appHomePath: resolveAgentNativeAppHomePath(
+      appConfig.app,
+      appConfig.workspace,
+    ),
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
-    ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
+    ...(workspaceAppMountConfig?.paths
+      ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
   };
+  const toUnicodeEscape = (character) =>
+    String.fromCharCode(92) +
+    "u" +
+    character.charCodeAt(0).toString(16).padStart(4, "0");
+  let serializedConfig = JSON.stringify(config).replace(/[<>&]/g, toUnicodeEscape);
+  for (const character of [String.fromCharCode(0x2028), String.fromCharCode(0x2029)]) {
+    serializedConfig = serializedConfig
+      .split(character)
+      .join(toUnicodeEscape(character));
+  }
   if (Object.keys(config).length === 0) return null;
   return (
     '<script data-agent-native-app-origin-config>' +
     'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
-    JSON.stringify(config) +
+    serializedConfig +
     ");</script>"
   );
 }
@@ -1869,8 +2170,12 @@ function injectHeadScript(html, script) {
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
+const CHUNK_RECOVERY_ALIAS_CACHE_HEADERS = ${JSON.stringify(chunkRecoveryCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
+const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
+const CHUNK_RECOVERY_QUERY_PARAM = ${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
+const CHUNK_RECOVERY_QUERY_VALUE = ${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
 const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
@@ -1963,7 +2268,7 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * Always overwrite route cache hints so generated edge workers cannot drift
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
-function applyDefaultSsrCacheHeader(headers, status, pathname) {
+function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias = false, isLegacyRecovery = false) {
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
@@ -1987,10 +2292,19 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     headers.set(name, value);
   }
   const netlifyVary = varyByQuery
-    ? SSR_CACHE_KEY_HEADERS["netlify-vary"] ? "query" : undefined
-    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? "query"
+      : undefined
+    : isLegacyRecovery && SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? SSR_CACHE_KEY_HEADERS["netlify-vary"] + "|" + CHUNK_RECOVERY_QUERY_PARAM
+      : SSR_CACHE_KEY_HEADERS["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
+  if (isRecoveryAlias || isLegacyRecovery) {
+    for (const [name, value] of Object.entries(CHUNK_RECOVERY_ALIAS_CACHE_HEADERS)) {
+      headers.set(name, value);
+    }
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -2027,7 +2341,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, request) {
+async function rewriteMountedResponse(response, basePath, pathname, request, isRecoveryAlias = false, isLegacyRecovery = false) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
@@ -2040,7 +2354,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, isRecoveryAlias, isLegacyRecovery);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -2076,30 +2390,43 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
 }
 
 function requestWithMethod(request, method) {
-  return new Request(request.url, {
-    method,
-    headers: request.headers,
-    signal: request.signal,
-  });
+  return copyCloudflareRequestMetadata(
+    request,
+    new Request(request.url, {
+      method,
+      headers: request.headers,
+      signal: request.signal,
+    }),
+  );
 }
 
 function requestWithPathname(request, pathname) {
   const url = new URL(request.url);
   if (url.pathname === pathname) return request;
   url.pathname = pathname;
-  return new Request(url, request);
+  return copyCloudflareRequestMetadata(request, new Request(url, request));
 }
 
 function requestForAnonymousSsr(request) {
   const headers = new Headers(request.headers);
   headers.delete("cookie");
   headers.delete("authorization");
-  return new Request(request, { headers });
+  const init = new Proxy(request, {
+    get(target, key) {
+      return key === "headers" ? headers : Reflect.get(target, key, target);
+    },
+  });
+  return copyCloudflareRequestMetadata(
+    request,
+    new Request(request.url, init),
+  );
 }
 
 function isStaticAppShellRequest(request) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const p = stripChunkRecoveryPathSuffix(
+    stripAppBasePath(new URL(request.url).pathname)
+  );
   if (
     p.startsWith("/.well-known/") ||
     isFrameworkPath(p) ||
@@ -2116,7 +2443,11 @@ function isStaticAppShellRequest(request) {
 async function fetchStaticAppShell(request, env) {
   if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
   const basePath = getAppBasePath();
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const requestUrl = new URL(request.url);
+  const appPath = stripAppBasePath(requestUrl.pathname);
+  const isRecoveryAlias = isChunkRecoveryPath(appPath);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  const p = stripChunkRecoveryPathSuffix(appPath);
   const shellRequest = requestWithPathname(
     requestWithMethod(request, "GET"),
     "/index.html",
@@ -2138,9 +2469,18 @@ async function fetchStaticAppShell(request, env) {
       basePath,
       p,
       request,
+      isRecoveryAlias,
+      isLegacyRecovery,
     );
   }
-  return rewriteMountedResponse(response, basePath, p, request);
+  return rewriteMountedResponse(
+    response,
+    basePath,
+    p,
+    request,
+    isRecoveryAlias,
+    isLegacyRecovery,
+  );
 }
 
 // API route handlers
@@ -2176,7 +2516,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -2225,7 +2565,11 @@ ${
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(new URL(event.req.url).pathname);
+    const requestUrl = new URL(event.req.url);
+    const appPath = stripAppBasePath(requestUrl.pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (
       p.startsWith("/.well-known/") ||
       isFrameworkPath(p) ||
@@ -2252,14 +2596,18 @@ ${
         }),
         basePath,
         p,
-        getRequest
+        getRequest,
+        isRecoveryAlias,
+        isLegacyRecovery
       );
     }
     return rewriteMountedResponse(
       await runWithRequestContext(anonymousContext, () => rrHandler(request)),
       basePath,
       p,
-      request
+      request,
+      isRecoveryAlias,
+      isLegacyRecovery
     );
   }));`
     : ""
@@ -2277,7 +2625,12 @@ export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
-      request.waitUntil = ctx.waitUntil.bind(ctx);
+      const requestWithWaitUntil = copyCloudflareRequestMetadata(
+        request,
+        new Request(request.url, request),
+      );
+      requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
+      request = requestWithWaitUntil;
     }
     initializeBindings(env);
     // Unlike the Module entry, every dependency here is statically imported
@@ -2317,14 +2670,6 @@ ${
   }
 };
 `;
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
@@ -2640,133 +2985,6 @@ function patchReactRouterServerManifestInOutput(
   );
 }
 
-function collectModulePreloads(
-  manifest: ReactRouterAssetManifest,
-  route: ReactRouterAssetManifestRoute,
-): string[] {
-  const paths = new Set<string>();
-  const add = (value: string | undefined) => {
-    if (value) paths.add(value);
-  };
-  add(manifest.url);
-  add(manifest.entry.module);
-  manifest.entry.imports?.forEach(add);
-  add(route.module);
-  route.imports?.forEach(add);
-  add(route.clientActionModule);
-  add(route.clientLoaderModule);
-  add(route.clientMiddlewareModule);
-  add(route.hydrateFallbackModule);
-  return [...paths];
-}
-
-function collectStylesheetLinks(
-  manifest: ReactRouterAssetManifest,
-  route: ReactRouterAssetManifestRoute,
-): string[] {
-  return [...new Set([...(manifest.entry.css ?? []), ...(route.css ?? [])])];
-}
-
-function generateRouteModuleImportScript(
-  manifest: ReactRouterAssetManifest,
-  route: ReactRouterAssetManifestRoute,
-): string {
-  const modules = [
-    ["route0", route.module],
-    ["route0_clientAction", route.clientActionModule],
-    ["route0_clientLoader", route.clientLoaderModule],
-    ["route0_clientMiddleware", route.clientMiddlewareModule],
-    ["route0_hydrateFallback", route.hydrateFallbackModule],
-  ] as const;
-  const imports = modules
-    .filter(([, modulePath]) => modulePath)
-    .map(
-      ([name, modulePath]) =>
-        `import * as ${name} from ${JSON.stringify(modulePath)};`,
-    );
-  const parts = modules
-    .filter(([, modulePath]) => modulePath)
-    .map(([name]) => `...${name}`);
-
-  return [
-    `import ${JSON.stringify(manifest.url)};`,
-    ...imports,
-    `window.__reactRouterRouteModules = {${JSON.stringify(route.id)}:{${parts.join(",")}}};`,
-    `import(${JSON.stringify(manifest.entry.module)});`,
-  ].join("\n");
-}
-
-const EMPTY_REACT_ROUTER_TURBO_STREAM =
-  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{},"actionData","errors"]\n';
-
-const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
-  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
-
-const STATIC_SHELL_LOADING_MARKUP = [
-  '<div role="status" aria-label="Loading application" data-agent-native-app-skeleton="true" style="display:flex;height:var(--agent-native-viewport-height, 100vh);width:100%;overflow:hidden;background-color:hsl(var(--background, 0 0% 100%));color:hsl(var(--foreground, 240 10% 3.9%))">',
-  `<style>
-        [data-agent-native-app-skeleton] [aria-hidden="true"] {
-          animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;
-        }
-        @keyframes an-app-shell-skeleton-pulse {
-          0%, 100% { opacity: 0.45; }
-          50% { opacity: 0.85; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          [data-agent-native-app-skeleton] [aria-hidden="true"] { animation: none; }
-        }
-        @media (max-width: 767px) {
-          [data-agent-native-app-skeleton] [data-agent-native-app-skeleton-sidebar] { display: none; }
-        }
-      </style>`,
-  '<aside data-agent-native-app-skeleton-sidebar="true" aria-hidden="true" style="display:flex;width:248px;flex-shrink:0;flex-direction:column;gap:16px;border-right:1px solid hsl(var(--border, 240 5.9% 90%));padding:16px">',
-  '<span aria-hidden="true" style="display:block;width:132px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span>',
-  '<div style="display:flex;flex-direction:column;gap:10px"><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div>',
-  "</aside>",
-  '<main style="display:flex;min-width:0;flex:1;flex-direction:column">',
-  '<header aria-hidden="true" style="display:flex;height:48px;flex-shrink:0;align-items:center;gap:12px;border-bottom:1px solid hsl(var(--border, 240 5.9% 90%));padding:0 16px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:128px;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></header>',
-  '<section aria-hidden="true" style="display:flex;width:100%;max-width:960px;flex:1;flex-direction:column;gap:12px;margin:0 auto;padding:24px"><span aria-hidden="true" style="display:block;width:38%;height:28px;margin-bottom:8px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:24%;height:14px;margin-bottom:16px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:34%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:44%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:54%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:64%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:74%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:84%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div></section>',
-  "</main></div>",
-].join("");
-
-export function generateCloudflarePagesStaticShellFromManifest(
-  manifest: ReactRouterAssetManifest,
-  basePath = normalizeConfiguredAppBasePath(),
-): string {
-  const rootRoute = manifest.routes.root;
-  if (!rootRoute) {
-    throw new Error("React Router manifest is missing the root route");
-  }
-
-  const modulePreloads = collectModulePreloads(manifest, rootRoute)
-    .map(
-      (href) =>
-        `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}"/>`,
-    )
-    .join("");
-  const stylesheets = collectStylesheetLinks(manifest, rootRoute)
-    .map(
-      (href) => `<link rel="stylesheet" href="${escapeHtmlAttribute(href)}"/>`,
-    )
-    .join("");
-  const routeModuleScript = generateRouteModuleImportScript(
-    manifest,
-    rootRoute,
-  );
-  const context = {
-    basename: basePath || "/",
-    future: { unstable_optimizeDeps: false },
-    routeDiscovery: { mode: "initial" },
-    ssr: true,
-    isSpaMode: true,
-  };
-  const encodedInitialState = rootRoute.hasLoader
-    ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
-    : EMPTY_REACT_ROUTER_TURBO_STREAM;
-
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
-}
-
 const NODE_BUILTINS = [
   "assert",
   "async_hooks",
@@ -2820,41 +3038,35 @@ export function getNodeBuiltinNames(): string[] {
   return NODE_BUILTINS;
 }
 
-function findEsbuild(): string {
+export type EsbuildCommand = {
+  executable: string;
+  args: string[];
+};
+
+export function resolveEsbuildCommand(
+  platform: NodeJS.Platform = process.platform,
+  resolveModule: (specifier: string) => string = (specifier) =>
+    createRequire(import.meta.url).resolve(specifier),
+): EsbuildCommand {
+  let packageJson: string;
   try {
-    const _require = createRequire(cwd + "/");
-    const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
-    const bin = path.join(esbuildPkg, "bin", "esbuild");
-    if (fs.existsSync(bin)) return bin;
-  } catch {}
-
-  const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
-  if (fs.existsSync(localBin)) return localBin;
-
-  const workspaceRoot = findWorkspaceRoot(cwd);
-  if (workspaceRoot) {
-    const workspaceBin = path.resolve(
-      workspaceRoot,
-      "node_modules/.bin/esbuild",
+    packageJson = resolveModule("esbuild/package.json");
+  } catch {
+    throw new Error(
+      "[deploy] Could not resolve the esbuild dependency from @agent-native/core. Reinstall dependencies and try the build again.",
     );
-    if (fs.existsSync(workspaceBin)) return workspaceBin;
   }
 
-  return "esbuild";
-}
-
-function findWorkspaceRoot(dir: string): string | null {
-  let current = dir;
-  while (current !== path.dirname(current)) {
-    if (
-      fs.existsSync(path.join(current, "pnpm-workspace.yaml")) ||
-      fs.existsSync(path.join(current, "pnpm-lock.yaml"))
-    ) {
-      return current;
-    }
-    current = path.dirname(current);
+  const bin = path.join(path.dirname(packageJson), "bin", "esbuild");
+  if (!fs.existsSync(bin)) {
+    throw new Error(
+      `[deploy] The esbuild launcher is missing at ${bin}. Reinstall dependencies and try the build again.`,
+    );
   }
-  return null;
+
+  return platform === "win32"
+    ? { executable: process.execPath, args: [bin] }
+    : { executable: bin, args: [] };
 }
 
 function getDirSize(dir: string): number {
@@ -3503,6 +3715,130 @@ export function resolveKeepWarmSchedule(): string {
   return raw;
 }
 
+const DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE = "* * * * *";
+
+// Vercel accepts a narrower grammar than cron-parser, and a schedule outside
+// it fails the deployment rather than the build.
+function vercelCronScheduleProblem(raw: string): string | null {
+  const fields = raw.split(/\s+/);
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    return `must be a 5-field cron expression (minute hour day month weekday); got "${raw}" (${fields.length} field(s))`;
+  }
+  if (!fields.every((field) => /^[\d*,/-]+$/.test(field))) {
+    return `must use numbers, not names such as MON or JAN, on Vercel; got "${raw}"`;
+  }
+  const [, , dayOfMonth, , dayOfWeek] = fields;
+  if (dayOfMonth !== "*" && dayOfWeek !== "*") {
+    return `cannot set both a day of the month and a day of the week on Vercel, so one must be "*"; got "${raw}"`;
+  }
+  const weekdays = dayOfWeek
+    .split(",")
+    .flatMap((part) => part.split("/")[0].split("-"));
+  if (weekdays.some((day) => day !== "*" && Number(day) > 6)) {
+    return `must number weekdays 0-6 (Sunday to Saturday) on Vercel; got "${raw}"`;
+  }
+  return null;
+}
+
+// Vercel Hobby rejects a deployment whose cron runs more than once a day, and
+// the build cannot see the team's plan, so the schedule is the operator's call.
+export function resolveVercelSweepCronSchedule(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const raw = env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim();
+  if (!raw) return DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE;
+  const problem = vercelCronScheduleProblem(raw);
+  if (problem) {
+    throw new Error(
+      `AGENT_NATIVE_VERCEL_CRON_SCHEDULE ${problem}. ` +
+        `Example: "0 9 * * *" for once a day on Vercel Hobby.`,
+    );
+  }
+  return raw;
+}
+
+export function vercelSweepCrons(
+  sweepPaths: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Array<{ path: string; schedule: string }> {
+  const schedule = resolveVercelSweepCronSchedule(env);
+  return sweepPaths.map((sweepPath) => ({ path: sweepPath, schedule }));
+}
+
+export function addVercelSweepCron(
+  outputDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Nitro did not generate ${configPath} for vercel`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+    [key: string]: unknown;
+  };
+  const [sweepCron] = vercelSweepCrons(
+    [publicRecurringJobsSweepPath(env)],
+    env,
+  );
+  config.crons = [
+    ...(config.crons ?? []).filter((cron) => cron.path !== sweepCron.path),
+    sweepCron,
+  ];
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  console.log(
+    `[build] Added Vercel cron "${sweepCron.schedule}" for ${sweepCron.path}. ` +
+      "Vercel sends CRON_SECRET as its bearer, so set CRON_SECRET in the project." +
+      (env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim()
+        ? ""
+        : " Hobby only allows daily crons: set AGENT_NATIVE_VERCEL_CRON_SCHEDULE " +
+          'to a daily expression such as "0 9 * * *" there.'),
+  );
+}
+
+const SWEEP_PATH_AFTER_PREFIX = RECURRING_JOBS_SWEEP_PATH.slice(
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX.length,
+);
+
+/**
+ * Reads back the sweep cron `addVercelSweepCron` wrote for an app mounted at
+ * `basePath`. A workspace deploy must reuse it rather than recompute it: the
+ * app's build resolved its framework route prefix from config files the
+ * workspace build never reads.
+ */
+export function readVercelSweepCron(
+  outputDir: string,
+  basePath: string,
+): { path: string; schedule: string } {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Expected Vercel build config at ${configPath}`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+  };
+  const sweepCrons = (config.crons ?? []).filter((cron) => {
+    if (
+      !cron.path.startsWith(`${basePath}/`) ||
+      !cron.path.endsWith(SWEEP_PATH_AFTER_PREFIX)
+    ) {
+      return false;
+    }
+    const prefix = cron.path.slice(
+      basePath.length,
+      -SWEEP_PATH_AFTER_PREFIX.length,
+    );
+    return /^\/[^/]+$/.test(prefix);
+  });
+  if (sweepCrons.length !== 1) {
+    throw new Error(
+      `[deploy] Expected one recurring-jobs sweep cron under ${basePath} in ${configPath}, found ${sweepCrons.length}. ` +
+        "Build the app with this version of @agent-native/core so its scheduled work runs on Vercel.",
+    );
+  }
+  return sweepCrons[0];
+}
+
 export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
@@ -3790,6 +4126,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
   const a2aProcessTaskPath = JSON.stringify("/_agent-native/a2a/_process-task");
+  const agentTeamProcessRunPath = JSON.stringify(AGENT_TEAM_PROCESS_RUN_PATH);
   const integrationProcessTaskPath = JSON.stringify(
     "/_agent-native/integrations/process-task",
   );
@@ -3797,6 +4134,9 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
     AGENT_BACKGROUND_PROCESSOR_FIELD,
   );
   const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
+  const backgroundProcessorAgentTeam = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
+  );
   const backgroundProcessorIntegration = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   );
@@ -3819,9 +4159,11 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 // The framework route the Nitro router dispatches to (the _process-run plugin).
 const PROCESS_RUN_PATH = ${processRunPath};
 const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
+const AGENT_TEAM_PROCESS_RUN_PATH = ${agentTeamProcessRunPath};
 const INTEGRATION_PROCESS_TASK_PATH = ${integrationProcessTaskPath};
 const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
 const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+const BACKGROUND_PROCESSOR_AGENT_TEAM = ${backgroundProcessorAgentTeam};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
@@ -3833,6 +4175,11 @@ function processorPathFromBody(body) {
     const parsed = JSON.parse(body);
     if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
       return A2A_PROCESS_TASK_PATH;
+    }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_AGENT_TEAM
+    ) {
+      return AGENT_TEAM_PROCESS_RUN_PATH;
     }
     if (
       parsed?.[BACKGROUND_PROCESSOR_FIELD] ===
@@ -4044,14 +4391,6 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
-const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
-  "fast-xml-parser",
-  "jszip",
-  "officeparser",
-  "pdf-parse",
-  "pdfjs-dist",
-] as const;
-
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
@@ -4213,9 +4552,11 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   const bundledYjsPath = path.join(serverDir, "_libs", "yjs-runtime.mjs");
   fs.mkdirSync(path.dirname(bundledYjsPath), { recursive: true });
+  const esbuild = resolveEsbuildCommand();
   execFileSync(
-    findEsbuild(),
+    esbuild.executable,
     [
+      ...esbuild.args,
       resolveNitroBundledYjsEntry(),
       "--bundle",
       "--format=esm",
@@ -4529,7 +4870,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of NETLIFY_BUNDLED_INGESTION_DEPENDENCIES) {
+    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
       if (hasBareRuntimeImport(source, dependency)) {
         bareIngestionImports.push(
           `${dependency} in ${path.relative(projectCwd, filePath)}`,
@@ -4784,6 +5125,394 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   );
 }
 
+function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  if (!fs.existsSync(path.join(nodeModulesDir, "@puppeteer/browsers")))
+    return new Set();
+  const functionRoot = fs.realpathSync(functionDir);
+  const isWithinFunction = (directory: string): boolean => {
+    const relative = path.relative(functionRoot, directory);
+    return (
+      relative === "" ||
+      (relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    );
+  };
+  const packageSegments = (name: string): string[] | null => {
+    const segments = name.split("/");
+    if (
+      !name ||
+      name.includes("\\") ||
+      segments.some(
+        (segment) => !segment || segment === "." || segment === "..",
+      ) ||
+      segments.length > 2 ||
+      (segments.length === 2 && !segments[0].startsWith("@")) ||
+      (segments.length === 1 && segments[0].startsWith("@"))
+    )
+      return null;
+    return segments;
+  };
+  const resolvePackageDirectory = (
+    segments: string[],
+    fromPackageDir?: string,
+    resolvedPackageDir?: string,
+  ): string | null => {
+    if (resolvedPackageDir) {
+      const resolved = fs.realpathSync(resolvedPackageDir);
+      if (!isWithinFunction(resolved)) return null;
+      return fs.statSync(resolved).isDirectory() ? resolved : null;
+    }
+    let current = fromPackageDir ?? functionRoot;
+    if (!isWithinFunction(current)) return null;
+    while (isWithinFunction(current)) {
+      if (
+        current === functionRoot ||
+        path.basename(current) !== "node_modules"
+      ) {
+        const candidate = path.join(current, "node_modules", ...segments);
+        if (fs.existsSync(candidate)) {
+          const resolved = fs.realpathSync(candidate);
+          // A nearer out-of-bound install must not fall through to another version.
+          if (!isWithinFunction(resolved)) return null;
+          if (fs.statSync(resolved).isDirectory()) return resolved;
+          return null;
+        }
+      }
+      if (current === functionRoot) break;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    return null;
+  };
+  type PackageReference = {
+    name: string;
+    fromPackageDir: string;
+    resolvedPackageDir?: string;
+  };
+  type PackageRequest = string | PackageReference;
+  const candidateReferencesByFile = new Map<string, PackageReference[]>();
+  const packageReferencesByDirectory = new Map<string, PackageReference[]>();
+  const isEnoent = (error: unknown) =>
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT";
+  const isMissingDanglingSymlink = (fileStats: fs.Stats, error: unknown) =>
+    fileStats.isSymbolicLink() && isEnoent(error);
+  const resolveScannablePath = (
+    filePath: string,
+  ): { path: string; stats: fs.Stats } | null => {
+    const fileStats = fs.lstatSync(filePath);
+    let resolvedPath: string;
+    try {
+      resolvedPath = fs.realpathSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    if (!isWithinFunction(resolvedPath)) return null;
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    return { path: resolvedPath, stats };
+  };
+  const collect = (
+    roots: Iterable<PackageRequest>,
+    scanPackageReferences?: (packageDir: string) => Iterable<PackageReference>,
+  ): Set<string> => {
+    const collected = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (request: PackageRequest, parentPackageDir?: string) => {
+      const name = typeof request === "string" ? request : request.name;
+      const fromPackageDir =
+        typeof request === "string" ? parentPackageDir : request.fromPackageDir;
+      const segments = packageSegments(name);
+      if (!segments) return;
+      if (
+        scanPackageReferences &&
+        SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+      )
+        return;
+      collected.add(name);
+      const packageDir = resolvePackageDirectory(
+        segments,
+        fromPackageDir,
+        typeof request === "string" ? undefined : request.resolvedPackageDir,
+      );
+      if (!packageDir) return;
+      const manifest = readPackageManifest(packageDir);
+      const version =
+        typeof manifest?.version === "string" ? manifest.version : "";
+      const identity = `${packageDir}\0${version}`;
+      if (visited.has(identity)) return;
+      visited.add(identity);
+      if (scanPackageReferences) {
+        for (const reference of scanPackageReferences(packageDir))
+          visit(reference);
+      }
+      for (const field of [
+        ...RUNTIME_PACKAGE_DEPENDENCY_FIELDS,
+        "peerDependencies",
+      ]) {
+        const dependencies = manifest?.[field];
+        if (
+          !dependencies ||
+          typeof dependencies !== "object" ||
+          Array.isArray(dependencies)
+        )
+          continue;
+        for (const dependency of Object.keys(dependencies))
+          visit(dependency, packageDir);
+      }
+    };
+    for (const root of roots) visit(root);
+    return collected;
+  };
+  const candidates = collect([
+    "puppeteer",
+    "puppeteer-core",
+    "chromium-bidi",
+    "@puppeteer/browsers",
+  ]);
+  const findResolvedCandidate = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    if (
+      !specifier.startsWith("./") &&
+      !specifier.startsWith("../") &&
+      !path.isAbsolute(specifier)
+    )
+      return;
+    const target = path.resolve(fromPackageDir, specifier);
+    if (!isWithinFunction(target)) return;
+    let match:
+      | { name: string; resolvedPackageDir: string; markerStart: number }
+      | undefined;
+    for (const name of candidates) {
+      if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+      const marker = `${path.sep}node_modules${path.sep}${name
+        .split("/")
+        .join(path.sep)}`;
+      const markerStart = target.lastIndexOf(marker);
+      const suffix = target[markerStart + marker.length];
+      if (markerStart < 0 || (suffix !== undefined && suffix !== path.sep))
+        continue;
+      const candidateDir = target.slice(0, markerStart + marker.length);
+      if (!fs.existsSync(candidateDir)) continue;
+      const resolvedPackageDir = fs.realpathSync(candidateDir);
+      if (
+        !isWithinFunction(resolvedPackageDir) ||
+        !fs.statSync(resolvedPackageDir).isDirectory()
+      )
+        continue;
+      if (!match || markerStart > match.markerStart)
+        match = { name, resolvedPackageDir, markerStart };
+    }
+    return (
+      match && {
+        name: match.name,
+        resolvedPackageDir: match.resolvedPackageDir,
+      }
+    );
+  };
+  const isNonPackageSpecifier = (specifier: string) =>
+    path.isAbsolute(specifier) ||
+    specifier.startsWith(".") ||
+    specifier.startsWith("#") ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier);
+  const findResolvedPackage = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    const relativeCandidate = findResolvedCandidate(specifier, fromPackageDir);
+    if (relativeCandidate) return relativeCandidate;
+    if (isNonPackageSpecifier(specifier)) return;
+    const specifierSegments = specifier.split("/");
+    const name = specifierSegments[0]?.startsWith("@")
+      ? specifierSegments.slice(0, 2).join("/")
+      : specifierSegments[0];
+    const segments = name && packageSegments(name);
+    if (
+      !name ||
+      !segments ||
+      isBuiltin(name) ||
+      SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+    )
+      return;
+    const resolvedPackageDir = resolvePackageDirectory(
+      segments,
+      fromPackageDir,
+    );
+    return resolvedPackageDir ? { name, resolvedPackageDir } : undefined;
+  };
+  const findPackageImportReferences = (
+    packageDir: string,
+    packageManifest = readPackageManifest(packageDir),
+  ): PackageReference[] => {
+    const imports = packageManifest?.imports;
+    if (!imports || typeof imports !== "object" || Array.isArray(imports))
+      return [];
+    const targets: string[] = [];
+    const collectTargets = (value: unknown) => {
+      if (typeof value === "string") {
+        targets.push(value);
+      } else if (Array.isArray(value)) {
+        for (const target of value) collectTargets(target);
+      } else if (value && typeof value === "object") {
+        for (const target of Object.values(value)) collectTargets(target);
+      }
+    };
+    for (const target of Object.values(imports)) collectTargets(target);
+    const references = new Map<string, PackageReference>();
+    for (const target of targets) {
+      const resolved = findResolvedPackage(target, packageDir);
+      if (resolved) {
+        const reference = { ...resolved, fromPackageDir: packageDir };
+        references.set(
+          `${reference.name}\0${reference.resolvedPackageDir}`,
+          reference,
+        );
+        continue;
+      }
+      if (isNonPackageSpecifier(target)) continue;
+      const targetSegments = target.split("/");
+      const packageName = targetSegments[0]?.startsWith("@")
+        ? targetSegments.slice(0, 2).join("/")
+        : targetSegments[0];
+      if (packageName?.includes("*")) {
+        for (const name of candidates) {
+          if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+          const reference = { name, fromPackageDir: packageDir };
+          references.set(`${name}\0`, reference);
+        }
+        continue;
+      }
+    }
+    return [...references.values()];
+  };
+  const manifest = readPackageManifest(functionDir);
+  // Nitro's manifest flattens transitive dependencies, so installer children
+  // are not independent runtime roots merely because they appear there.
+  const retained = new Set(
+    PACKAGE_DEPENDENCY_FIELDS.flatMap((field) =>
+      Object.keys((manifest?.[field] as Record<string, unknown>) ?? {}),
+    ).filter(
+      (name) =>
+        !candidates.has(name) &&
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name),
+    ),
+  );
+  const findCandidateReferences = (
+    resolvedFilePath: string,
+  ): PackageReference[] => {
+    const cached = candidateReferencesByFile.get(resolvedFilePath);
+    if (cached) return cached;
+    const fromPackageDir = path.dirname(resolvedFilePath);
+    const source = fs.readFileSync(resolvedFilePath, "utf8");
+    const references = new Map<string, PackageReference>();
+    const addReference = (reference: PackageReference) => {
+      const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+      references.set(identity, reference);
+    };
+    const literalSpecifier =
+      /\b(?:import|export)\s*(?:[^;'"`]*?\s*from\s*)?(['"`])([^'"`]+)\1|\b(?:import\s*\.\s*meta\s*\.\s*resolve|import|require(?:\s*\.\s*resolve)?)\s*\(\s*(['"`])([^'"`]+)\3/g;
+    for (const match of source.matchAll(literalSpecifier)) {
+      const specifier = match[2] ?? match[4];
+      if (!specifier) continue;
+      const resolved = findResolvedPackage(specifier, fromPackageDir);
+      if (resolved) addReference({ ...resolved, fromPackageDir });
+    }
+    for (const name of candidates) {
+      if (
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
+        source.includes(name) &&
+        (hasExternalSsrRuntimeReference(source, name) ||
+          ["/", '"', "'", "`"].some((boundary) =>
+            source.includes(`node_modules/${name}${boundary}`),
+          ))
+      )
+        addReference({ name, fromPackageDir });
+    }
+    const found = [...references.values()];
+    candidateReferencesByFile.set(resolvedFilePath, found);
+    return found;
+  };
+  const collectTreeReferences = (roots: Iterable<string>) => {
+    const references = new Map<string, PackageReference>();
+    const visitedDirectories = new Set<string>();
+    const visitedFiles = new Set<string>();
+    const visit = (entryPath: string) => {
+      const resolved = resolveScannablePath(entryPath);
+      if (!resolved) return;
+      if (resolved.stats.isDirectory()) {
+        if (visitedDirectories.has(resolved.path)) return;
+        visitedDirectories.add(resolved.path);
+        for (const entry of fs.readdirSync(resolved.path, {
+          withFileTypes: true,
+        })) {
+          if (
+            entry.isDirectory() ||
+            entry.isSymbolicLink() ||
+            (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))
+          )
+            visit(path.join(resolved.path, entry.name));
+        }
+        return;
+      }
+      if (
+        !resolved.stats.isFile() ||
+        !/\.(?:[cm]?js)$/.test(path.basename(entryPath)) ||
+        visitedFiles.has(resolved.path)
+      )
+        return;
+      visitedFiles.add(resolved.path);
+      for (const reference of findCandidateReferences(resolved.path)) {
+        const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+        references.set(identity, reference);
+      }
+    };
+    for (const root of roots) visit(root);
+    return [...references.values()];
+  };
+  const emittedRoots = fs
+    .readdirSync(functionDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.name !== "node_modules" &&
+        (entry.isDirectory() ||
+          entry.isSymbolicLink() ||
+          (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))),
+    )
+    .map((entry) => path.join(functionDir, entry.name));
+  const emittedReferences = collectTreeReferences(emittedRoots);
+  const needed = collect(
+    [
+      ...retained,
+      ...emittedReferences,
+      ...findPackageImportReferences(functionDir, manifest),
+    ],
+    (packageDir) => {
+      const cached = packageReferencesByDirectory.get(packageDir);
+      if (cached) return cached;
+      const references = [
+        ...collectTreeReferences([packageDir]),
+        ...findPackageImportReferences(packageDir),
+      ];
+      packageReferencesByDirectory.set(packageDir, references);
+      return references;
+    },
+  );
+  return new Set([...candidates].filter((name) => !needed.has(name)));
+}
+
 export function sanitizeServerlessFunctionPackageManifest(
   functionDir: string | undefined,
 ): void {
@@ -4799,12 +5528,16 @@ export function sanitizeServerlessFunctionPackageManifest(
     return;
   }
 
+  const deniedPackages = new Set([
+    ...SERVERLESS_FUNCTION_PACKAGE_DENYLIST,
+    ...exclusiveBrowserInstallerPackages(functionDir),
+  ]);
   let removed = 0;
   for (const field of PACKAGE_DEPENDENCY_FIELDS) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
     const depRecord = deps as Record<string, unknown>;
-    for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+    for (const packageName of deniedPackages) {
       if (Object.prototype.hasOwnProperty.call(depRecord, packageName)) {
         delete depRecord[packageName];
         removed++;
@@ -4816,7 +5549,7 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 
   const nodeModulesDir = path.join(functionDir, "node_modules");
-  for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+  for (const packageName of deniedPackages) {
     const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
     if (fs.existsSync(packageDir)) {
       fs.rmSync(packageDir, { recursive: true, force: true });
@@ -5049,6 +5782,13 @@ export async function runNitroBuildPipeline(
   }
 }
 
+function removeServerSourceMaps(serverDir: string): void {
+  const sourceMaps = fs.globSync("**/*.map", { cwd: serverDir });
+  for (const sourceMap of sourceMaps) {
+    fs.rmSync(path.join(serverDir, sourceMap), { force: true });
+  }
+}
+
 function resolveNitroClientDirectory(
   cwd: string,
   defaultClientDirectory: string,
@@ -5262,6 +6002,12 @@ export function resolveNitroBuildReplacements(
       firstRunOnboardingMode,
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
+    // Bare Node/Docker has no platform marker for "this is the deployed
+    // server", so the production bundle carries its own. Keep it here only:
+    // the Vite config's replacements also apply to `pnpm dev`, which must
+    // never look deployed (see db/server-runtime.ts).
+    [`process.env.${PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR}`]:
+      JSON.stringify("true"),
   };
 }
 
@@ -5336,6 +6082,17 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const nodeExternalPreset =
+    preset === "netlify" ||
+    preset === "vercel" ||
+    isAwsLambdaPreset(preset) ||
+    preset === "node" ||
+    preset === "node-server";
+  const optionalPeerExternals = nodeExternalPreset
+    ? getMissingCoreOptionalPeers(cwd).map(packageExternalPattern)
+    : [];
+  const sentryServerSourceMapPlugins =
+    await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
     "virtual:agents-bundle": agentsBundleModuleSource,
   };
@@ -5365,6 +6122,14 @@ export default bundle;
     ...(isAwsLambdaPreset(preset) ? { awsLambda: { streaming: false } } : {}),
     baseURL: appBasePath || "/",
     minify: true,
+    ...(sentryServerSourceMapPlugins.length > 0
+      ? {
+          sourcemap: "hidden",
+          // Nitro strips sourcesContent by default; the maps never ship, so
+          // keep it for Sentry to show source context.
+          experimental: { sourcemapMinify: false },
+        }
+      : {}),
     serverDir: "./server",
     ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
@@ -5388,18 +6153,15 @@ export default bundle;
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
-      ...(preset === "netlify" ||
-      preset === "vercel" ||
-      isAwsLambdaPreset(preset) ||
-      preset === "node" ||
-      preset === "node-server"
-        ? { external: ["yjs"] }
+      ...(nodeExternalPreset
+        ? { external: ["yjs", ...optionalPeerExternals] }
         : {}),
       plugins: [
         ...(preset.startsWith("cloudflare")
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...sentryServerSourceMapPlugins,
         ...(enterpriseAuthAdaptersEnabled
           ? []
           : [createEnterpriseAuthAdapterStubPlugin(false)]),
@@ -5450,6 +6212,10 @@ export default bundle;
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
   }
 
+  if (preset === "vercel") {
+    addVercelSweepCron(nitro.options.output.dir);
+  }
+
   if (
     preset === "netlify" ||
     preset === "vercel" ||
@@ -5470,6 +6236,13 @@ export default bundle;
 
   if (isCloudflareModulePreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
+  if (sentryServerSourceMapPlugins.length > 0) {
+    removeServerSourceMaps(nitro.options.output.serverDir);
+    console.log(
+      "[deploy] Ensured Nitro server output is free of source maps before function packaging.",
+    );
   }
 
   if (preset === "netlify") {
@@ -5530,15 +6303,7 @@ export default bundle;
   if (preset.startsWith("cloudflare") || preset.startsWith("deno")) {
     const { execFileSync } = await import("child_process");
     const { createRequire } = await import("module");
-    const esbuildBin = (() => {
-      try {
-        const _req = createRequire(cwd + "/");
-        const pkg = path.dirname(_req.resolve("esbuild/package.json"));
-        const bin = path.join(pkg, "bin", "esbuild");
-        if (fs.existsSync(bin)) return bin;
-      } catch {}
-      return "esbuild";
-    })();
+    const esbuild = resolveEsbuildCommand();
 
     const outputDir =
       nitro.options.output.serverDir || path.join(cwd, "dist", "_worker.js");
@@ -5690,8 +6455,9 @@ export default bundle;
               : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
 
           execFileSync(
-            esbuildBin,
+            esbuild.executable,
             [
+              ...esbuild.args,
               "--bundle",
               `--outfile=${outFile}`,
               "--format=esm",

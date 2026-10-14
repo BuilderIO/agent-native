@@ -489,7 +489,14 @@ export async function resolveOAuthCredentialAccess<
     allowLegacy?: boolean;
     legacyAccountKey?: boolean;
     validateCredential?: (credential: T) => boolean;
+    shouldMarkReconnectRequiredOnRefreshFailure?: (error: unknown) => boolean;
     expirySkewMs?: number;
+    /**
+     * Refresh even though the stored token has not expired (or has no
+     * expiry): the caller just saw it refused. A refresh another holder
+     * finishes meanwhile satisfies it.
+     */
+    forceRefresh?: boolean;
     leaseMs?: number;
     waitMs?: number;
     maxWaitMs?: number;
@@ -509,10 +516,18 @@ export async function resolveOAuthCredentialAccess<
     now: startedAt,
     validateCredential: options.validateCredential,
   });
+  const initialRevision =
+    state.kind === "connected" || state.kind === "expired"
+      ? state.revision
+      : undefined;
+  const isUsable = (credential: T, revision: unknown, now: number) =>
+    options.forceRefresh
+      ? revision !== initialRevision
+      : typeof credential.tokenExpiresAt !== "number" ||
+        credential.tokenExpiresAt - now > expirySkewMs;
   if (
     state.kind === "connected" &&
-    (typeof state.credential.tokenExpiresAt !== "number" ||
-      state.credential.tokenExpiresAt - startedAt > expirySkewMs)
+    isUsable(state.credential, state.revision, startedAt)
   ) {
     return { state, accessToken: state.credential.tokens.access_token };
   }
@@ -575,8 +590,7 @@ export async function resolveOAuthCredentialAccess<
       if (
         state.kind === "connected" &&
         (state.revision !== baselineRevision ||
-          typeof state.credential.tokenExpiresAt !== "number" ||
-          state.credential.tokenExpiresAt - dependencies.now() > expirySkewMs)
+          isUsable(state.credential, state.revision, dependencies.now()))
       ) {
         return { state, accessToken: state.credential.tokens.access_token };
       }
@@ -606,8 +620,7 @@ export async function resolveOAuthCredentialAccess<
       }
       if (
         state.kind === "connected" &&
-        (typeof state.credential.tokenExpiresAt !== "number" ||
-          state.credential.tokenExpiresAt - dependencies.now() > expirySkewMs)
+        isUsable(state.credential, state.revision, dependencies.now())
       ) {
         return {
           state,
@@ -669,7 +682,7 @@ export async function resolveOAuthCredentialAccess<
               ? latest.credential.tokens.access_token
               : null,
         };
-      } catch {
+      } catch (error) {
         const stillOwnsLease = await acquireLease(
           identity,
           holder,
@@ -695,6 +708,12 @@ export async function resolveOAuthCredentialAccess<
           };
         }
         if (latest.kind === "expired") {
+          if (
+            options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+            false
+          ) {
+            return { state: latest, accessToken: null };
+          }
           await markReconnectRequired(
             identity,
             latest,

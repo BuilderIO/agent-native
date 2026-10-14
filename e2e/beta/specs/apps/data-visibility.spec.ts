@@ -13,10 +13,7 @@ import {
   selectedSites,
   siteById,
 } from "../../lib/fleet";
-import {
-  activeSettingsNavItem,
-  readSettingsRedesignFlag,
-} from "../../lib/settings";
+import { activeSettingsNavItem } from "../../lib/settings";
 
 skipUnlessAuthed();
 
@@ -172,8 +169,25 @@ test.describe("clips recorder", () => {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
+      await renderedText(page, "beta.clips idle recorder");
+      const skipStorageSetup = page.getByRole("button", {
+        name: /skip for now/i,
+      });
+      const modePicker = page.getByRole("radiogroup", {
+        name: /Clips recorder/i,
+      });
+      await expect(
+        skipStorageSetup.or(modePicker).first(),
+        "beta.clips /record showed neither optional storage setup nor the recorder",
+      ).toBeVisible({ timeout: 45_000 });
+      if (await skipStorageSetup.isVisible()) await skipStorageSetup.click();
+      // "Clips recorder" is the mode picker's accessible name, not page text.
+      // A single-select toggle group is a radiogroup.
+      await expect(
+        modePicker,
+        "beta.clips /record did not render the idle recorder's mode picker",
+      ).toBeVisible({ timeout: 45_000 });
       const recorderBody = await renderedText(page, "beta.clips idle recorder");
-      expect(recorderBody).toMatch(/Clips recorder/i);
       expect(recorderBody).not.toMatch(
         /preparing sources|recording your screen|saving your recording|already recording/i,
       );
@@ -219,30 +233,25 @@ test.describe("dispatch workspace", () => {
         'beta.dispatch /apps did not render the "Your apps" section',
       ).toMatch(/your apps/i);
 
-      // Today's links stay in the list because templates and emails still
-      // send them; with the Settings redesign on they land on the new pages.
-      const redesign = await readSettingsRedesignFlag(page);
+      // Legacy links stay in the list because templates and emails still
+      // send them; they land on the new pages.
       const settingsPaths = [
         { path: "/settings/general", page: "app" },
         {
           path: "/settings/agent/resources/instructions",
           page: "instructions",
         },
-        ...(redesign
-          ? [{ path: "/settings/instructions", page: "instructions" }]
-          : []),
+        { path: "/settings/instructions", page: "instructions" },
       ];
       for (const { path, page: settingsPage } of settingsPaths) {
         await page.goto(`${origin}${path}`, {
           waitUntil: "domcontentloaded",
           timeout: 90_000,
         });
-        if (redesign) {
-          await expect(
-            activeSettingsNavItem(page, settingsPage),
-            `beta.dispatch ${path} did not open Settings › ${settingsPage}; landed on ${page.url()}`,
-          ).toBeVisible({ timeout: 30_000 });
-        }
+        await expect(
+          activeSettingsNavItem(page, settingsPage),
+          `beta.dispatch ${path} did not open Settings › ${settingsPage}; landed on ${page.url()}`,
+        ).toBeVisible({ timeout: 30_000 });
         const settingsBody = await renderedText(page, `beta.dispatch ${path}`);
         expect(
           settingsBody,

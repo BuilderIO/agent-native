@@ -311,10 +311,12 @@ export function calendarGetEvent(
   accessToken: string,
   calendarId: string,
   eventId: string,
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ supportsAttachments: true })}`,
     accessToken,
+    { signal },
   );
 }
 
@@ -328,6 +330,7 @@ export function calendarPatchEvent(
     conferenceDataVersion?: number;
     supportsAttachments?: boolean;
   },
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
@@ -336,6 +339,7 @@ export function calendarPatchEvent(
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal,
     },
   );
 }
@@ -355,10 +359,12 @@ export function calendarListEvents(
     eventTypes?: string[];
     syncToken?: string;
   } = {},
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs({ ...params, supportsAttachments: true })}`,
     accessToken,
+    { signal },
   );
 }
 

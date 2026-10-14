@@ -1,11 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  useRealRanker: { value: false },
   rankJevCandidates: vi.fn(),
   track: vi.fn(),
   loadAgentsBundle: vi.fn(),
+  generateSkillsPromptBlock: vi.fn(() => ""),
   getRuntimeSkills: vi.fn(),
+  getRuntimeSkillsForUser: vi.fn(),
   requestOrgId: vi.fn(() => null),
+  requestUserEmail: vi.fn(() => undefined),
   resourceGet: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
@@ -13,20 +17,36 @@ const mocks = vi.hoisted(() => ({
   requestRunContext: vi.fn((): Record<string, unknown> | null => null),
 }));
 
-vi.mock("../../agent/jev-tool-prefetch.js", () => ({
-  JEV_TIMEOUT_MS: 750,
-  rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
-  rankJevCandidatesWithStatus: async (...args: unknown[]) => {
-    const ids = (await mocks.rankJevCandidates(...args)) as string[];
-    return {
-      status: ids.length > 0 ? "selected" : "no-match",
-      ids,
-    };
-  },
-}));
+vi.mock("../../agent/jev-tool-prefetch.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../agent/jev-tool-prefetch.js")
+  >("../../agent/jev-tool-prefetch.js");
+  return {
+    JEV_TIMEOUT_MS: 750,
+    rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
+    // The stub can only say selected or no-match; `useRealRanker` runs the
+    // real ranker so its failed and timed_out outcomes reach the preload.
+    rankJevCandidatesWithStatus: async (
+      ...args: Parameters<typeof actual.rankJevCandidatesWithStatus>
+    ) => {
+      if (mocks.useRealRanker.value) {
+        return actual.rankJevCandidatesWithStatus(...args);
+      }
+      const ids = (await mocks.rankJevCandidates(...args)) as string[];
+      return {
+        status: ids.length > 0 ? "selected" : "no-match",
+        ids,
+      };
+    },
+  };
+});
 vi.mock("../agents-bundle.js", () => ({
   loadAgentsBundle: (...args: unknown[]) => mocks.loadAgentsBundle(...args),
+  generateSkillsPromptBlock: (...args: unknown[]) =>
+    mocks.generateSkillsPromptBlock(...args),
   getRuntimeSkills: (...args: unknown[]) => mocks.getRuntimeSkills(...args),
+  getRuntimeSkillsForUser: (...args: unknown[]) =>
+    mocks.getRuntimeSkillsForUser(...args),
 }));
 vi.mock("../../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -54,18 +74,26 @@ vi.mock("../agent-discovery.js", () => ({
 }));
 vi.mock("../request-context.js", () => ({
   getRequestOrgId: () => mocks.requestOrgId(),
+  getRequestUserEmail: () => mocks.requestUserEmail(),
   getRequestRunContext: () => mocks.requestRunContext(),
 }));
 
 import {
   loadResourcesForPrompt,
   preloadJevContextForPrompt,
+  preloadJevContextWithStatus,
 } from "./prompt-resources.js";
 
 describe("preloadJevContextForPrompt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadAgentsBundle.mockResolvedValue({ skills: {} });
+    mocks.useRealRanker.value = false;
+    mocks.loadAgentsBundle.mockResolvedValue({
+      skills: {},
+      agentsMd: "",
+      runtimeAgentsMd: "",
+      workspaceAgentsMd: "",
+    });
     mocks.getRuntimeSkills.mockReturnValue([
       {
         meta: {
@@ -77,10 +105,15 @@ describe("preloadJevContextForPrompt", () => {
         content: "# Launch messaging\n\nLead with the customer outcome.",
       },
     ]);
+    mocks.getRuntimeSkillsForUser.mockImplementation(
+      (_bundle: unknown, userEmail?: string) =>
+        userEmail === "disabled@example.test" ? [] : mocks.getRuntimeSkills(),
+    );
     mocks.resourceListAccessible.mockResolvedValue([]);
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
+    mocks.requestUserEmail.mockReturnValue(undefined);
     mocks.requestRunContext.mockReturnValue(null);
   });
 
@@ -122,6 +155,35 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(mocks.resourceList).not.toHaveBeenCalled();
     expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
+  });
+
+  it("filters Lab-gated skills from JEV candidates per user", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["context-0"]);
+
+    const disabled = await preloadJevContextForPrompt({
+      request: "reuse approved context",
+      owner: "disabled@example.test",
+      apiKey: "jev-test-key",
+    });
+    expect(disabled).not.toContain("# Launch messaging");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+
+    const enabled = await preloadJevContextForPrompt({
+      request: "reuse approved context",
+      owner: "enabled@example.test",
+      apiKey: "jev-test-key",
+    });
+    expect(enabled).toContain("# Launch messaging");
+    expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      "disabled@example.test",
+    );
+    expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      "enabled@example.test",
+    );
   });
 
   it("prefetches Jev context with a saved personal key and no deployment key", async () => {
@@ -304,6 +366,162 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
     expect(requestRunContext.analyticsJevPrefetch).toEqual({
       preloadedReferenceCount: 1,
+    });
+  });
+
+  describe("status", () => {
+    const reference = {
+      id: "analytics-reference-1",
+      description: "Approved active users definition.",
+      metadata: { kind: "analytics-reference", similarity: "0.82" },
+      name: "Active users",
+      scope: "analytics-catalog",
+      content: "Metric: active users.",
+    };
+
+    it("is empty, not degraded, when nothing relevant exists", async () => {
+      mocks.getRuntimeSkills.mockReturnValue([]);
+
+      await expect(
+        preloadJevContextWithStatus({
+          request: "What is the weather?",
+          apiKey: "jev-test-key",
+        }),
+      ).resolves.toEqual({ context: "", status: "empty" });
+    });
+
+    it("is timed_out when the deadline passed before anything could load", async () => {
+      await expect(
+        preloadJevContextWithStatus({
+          request: "How many active users last month?",
+          apiKey: "jev-test-key",
+          contextPrefetchDeadlineAt: Date.now() - 1,
+        }),
+      ).resolves.toEqual({ context: "", status: "timed_out" });
+    });
+
+    it("is failed when ranking throws and nothing was injected", async () => {
+      mocks.rankJevCandidates.mockRejectedValue(new Error("ranker down"));
+
+      await expect(
+        preloadJevContextWithStatus({
+          request: "How many active users last month?",
+          apiKey: "jev-test-key",
+        }),
+      ).resolves.toEqual({ context: "", status: "failed" });
+    });
+
+    describe("with the real ranker", () => {
+      const builderAuth = {
+        authorization: "Bearer test-token",
+        spaceId: null,
+        userId: null,
+      };
+      const preload = (
+        extra: Partial<Parameters<typeof preloadJevContextWithStatus>[0]> = {},
+      ) =>
+        preloadJevContextWithStatus({
+          request: "draft launch copy",
+          builderAuth,
+          ...extra,
+        });
+
+      beforeEach(() => {
+        mocks.useRealRanker.value = true;
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      it("is failed when the ranking request errors and nothing was injected", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response("nope", { status: 500 })),
+        );
+
+        await expect(preload()).resolves.toEqual({
+          context: "",
+          status: "failed",
+        });
+      });
+
+      it("is timed_out when the ranking request outlives its own timeout", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            (_url: unknown, init?: RequestInit) =>
+              new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener("abort", () =>
+                  reject(new DOMException("aborted", "AbortError")),
+                );
+              }),
+          ),
+        );
+
+        await expect(preload()).resolves.toEqual({
+          context: "",
+          status: "timed_out",
+        });
+      });
+
+      it("is failed when the ranking response is unusable", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  answers: {
+                    best_skill: { probabilities: { "context-0": 2 } },
+                  },
+                }),
+              ),
+          ),
+        );
+
+        await expect(preload()).resolves.toEqual({
+          context: "",
+          status: "failed",
+        });
+      });
+
+      it("still injects the fallback reference when the ranking fails", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response("nope", { status: 500 })),
+        );
+
+        const result = await preload({
+          appId: "analytics",
+          // Below the similarity floor, so only the fallback can inject it.
+          candidates: [
+            {
+              ...reference,
+              metadata: { kind: "analytics-reference", similarity: "0.1" },
+            },
+          ],
+          fallbackCandidateIds: ["analytics-reference-1"],
+        });
+
+        expect(result.status).toBe("ok");
+        expect(result.context).toContain("Metric: active users.");
+      });
+    });
+
+    it("is ok when a fallback reference was still injected after the deadline", async () => {
+      const result = await preloadJevContextWithStatus({
+        request: "How many active users last month?",
+        apiKey: "jev-test-key",
+        appId: "analytics",
+        contextPrefetchDeadlineAt: Date.now() - 1,
+        candidates: [reference],
+        fallbackCandidateIds: ["analytics-reference-1"],
+      });
+
+      expect(result.status).toBe("ok");
+      expect(result.context).toContain("Metric: active users.");
     });
   });
 
@@ -994,6 +1212,145 @@ describe("preloadJevContextForPrompt", () => {
     expect(prompt).toContain("context/org-target.md");
     expect(prompt).not.toContain("Ambient");
     expect(prompt).not.toContain("ambient.md");
+  });
+
+  it("prefers the most recently updated resource skill when names repeat", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "legacy-repeat-skill",
+        owner,
+        path: "skills/legacy-repeat-skill.md",
+        mimeType: "text/markdown",
+        updatedAt: 500,
+        content:
+          "---\nname: repeat-skill\ndescription: Legacy filename version.\n---\n# Legacy",
+      },
+      {
+        id: "repeat-skill-2",
+        owner,
+        path: "skills/repeat-skill-2/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: repeat-skill\ndescription: Older version.\n---\n# Older",
+      },
+      {
+        id: "repeat-skill-3",
+        owner,
+        path: "skills/repeat-skill-3/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: repeat-skill\ndescription: Newest version.\n---\n# Newest",
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+
+    const prompt = await loadResourcesForPrompt(owner, false, undefined, null);
+
+    expect(prompt).toContain(
+      "`repeat-skill` at resource `skills/repeat-skill-3/SKILL.md`",
+    );
+    expect(prompt).toContain("Newest version.");
+    expect(prompt).not.toContain("skills/repeat-skill-2/SKILL.md");
+    expect(prompt).not.toContain("skills/legacy-repeat-skill.md");
+  });
+
+  it("prefers the same personal skill across canonical, suffixed, org, and shared paths", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "resource-priority-canonical",
+        owner,
+        path: "skills/resource-priority/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: resource-priority\ndescription: Older canonical version.\n---\n# Older",
+      },
+      {
+        id: "resource-priority-suffixed",
+        owner,
+        path: "skills/resource-priority-2/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer personal version.\n---\n# Newer personal",
+      },
+      {
+        id: "resource-priority-organization",
+        owner: "__organization__:org-1",
+        path: "skills/organization-copy/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 3000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer organization version.\n---\n# Organization",
+      },
+      {
+        id: "resource-priority-shared",
+        owner: "__shared__",
+        path: "skills/shared-copy/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+      {
+        id: "organization-priority-organization",
+        owner: "__organization__:org-1",
+        path: "skills/organization-priority/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: organization-priority\ndescription: Organization version.\n---\n# Organization",
+      },
+      {
+        id: "organization-priority-shared",
+        owner: "__shared__",
+        path: "skills/organization-priority-shared/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: organization-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      "org-1",
+    );
+
+    expect(prompt).toContain(
+      "`resource-priority` at resource `skills/resource-priority-2/SKILL.md`",
+    );
+    expect(prompt).toContain("Newer personal version.");
+    expect(prompt).not.toContain(
+      "`resource-priority` at resource `skills/organization-copy/SKILL.md`",
+    );
+    expect(prompt).not.toContain(
+      "`resource-priority` at resource `skills/shared-copy/SKILL.md`",
+    );
+    expect(prompt).toContain(
+      "`organization-priority` at resource `skills/organization-priority/SKILL.md`",
+    );
+    expect(prompt).toContain("Organization version.");
+    expect(prompt).not.toContain("Newer shared version.");
   });
 
   it.each([false, true])(

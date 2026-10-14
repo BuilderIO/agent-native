@@ -40,7 +40,7 @@ export interface LayerRenameArgs {
     },
   ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;

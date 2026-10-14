@@ -49,7 +49,7 @@ export const uploadEditorImage: EditorImageUploadFn = async (file: File) => {
   if (!result || typeof result.url !== "string" || !result.url) {
     throw new Error(
       result?.error ||
-        "Image upload failed. Connect Builder.io (free) or configure your own S3-compatible storage in Settings → File uploads, then try again.",
+        "Image upload failed. Use Builder.io's managed storage (free) or configure your own S3-compatible storage in Settings → File uploads, then try again.",
     );
   }
 

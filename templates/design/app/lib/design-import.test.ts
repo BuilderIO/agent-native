@@ -144,7 +144,7 @@ describe("design import clipboard helpers", () => {
     ).toBe(true);
   });
 
-  it("detects current bare-comment Figma clipboard markers", () => {
+  it("detects bare-comment clipboard markers", () => {
     const html =
       '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
     expect(hasFigmaClipboardPayload(html)).toBe(true);
@@ -353,6 +353,7 @@ describe("design clipboard marker round-trip", () => {
           filename: "home.html",
           fileType: "html",
           content: "<html><body>Home</body></html>",
+          sourceScreenId: "screen-home",
           canvasFrame: { x: 100, y: 200, width: 390, height: 844 },
         },
       ],
@@ -410,6 +411,11 @@ describe("design clipboard marker round-trip", () => {
         filename: "safe.html",
         content: "<main>nope</main>",
         canvasFrame: { x: Number.POSITIVE_INFINITY },
+      },
+      {
+        filename: "safe.html",
+        content: "<main>nope</main>",
+        sourceScreenId: 7,
       },
     ]) {
       const marker = btoa(
@@ -628,5 +634,21 @@ describe("figmaHydrationErrorMessage", () => {
     expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
       forbidden,
     );
+  });
+
+  it("localizes a Figma file URL submitted as a hydration token", () => {
+    const error = Object.assign(
+      new Error("Paste a Figma access token, not a Figma file URL."),
+      { name: "FigmaFileUrlUsedAsTokenError" },
+    );
+
+    expect(
+      figmaHydrationErrorMessage(
+        error,
+        fallback,
+        forbidden,
+        "designEditor.import.errors.figmaTokenMustBeToken",
+      ),
+    ).toBe("designEditor.import.errors.figmaTokenMustBeToken");
   });
 });

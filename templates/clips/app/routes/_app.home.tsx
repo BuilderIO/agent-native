@@ -1,4 +1,3 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
@@ -34,14 +33,6 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
   throw withSsrHtmlContentType(redirect(buildTarget(url)), {
     varyByQuery: true,
   });
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <DefaultSpinner />
-    </div>
-  );
 }
 
 export default function HomeRoute() {

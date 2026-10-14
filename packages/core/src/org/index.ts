@@ -63,6 +63,10 @@ export const resolveOrgIdForEmail = lazyFunction(
   loadOrgContext,
   "resolveOrgIdForEmail",
 );
+export const resolveActiveOrgIdForStorageCredential = lazyFunction(
+  loadOrgContext,
+  "resolveActiveOrgIdForStorageCredential",
+);
 export const createOrganization = lazyFunction(
   loadOrgContext,
   "createOrganization",
@@ -116,6 +120,7 @@ export type {
   AppRoles,
   AppRolesDescriptor,
   AppRoleCaller,
+  AppPermissionPolicy,
   AppRoleLookup,
   AppMemberRoleRow,
   AppAuthorizationContext,
@@ -294,6 +299,9 @@ export const setAppRoleHandler = lazyFunction(
   "setAppRoleHandler",
 );
 
-export { isFreeEmailProvider } from "./free-email-providers.js";
+export {
+  FREE_EMAIL_PROVIDER_DOMAINS,
+  isFreeEmailProvider,
+} from "./free-email-providers.js";
 
 export { isOrgMember } from "./membership.js";

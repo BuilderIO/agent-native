@@ -341,14 +341,15 @@ function marginValuesForStyles(
   return { value, mixed, textValues };
 }
 
-function marginStylesForSides(
-  margin: AutoLayoutMargin,
+function spacingStylesForSides(
+  kind: "margin" | "padding",
+  spacing: AutoLayoutMargin,
   sides: Array<keyof AutoLayoutMargin>,
 ): Record<string, string> {
   const styles: Record<string, string> = {};
   for (const side of sides) {
-    const property = `margin${side[0].toUpperCase()}${side.slice(1)}`;
-    styles[property] = `${margin[side]}px`;
+    const property = `${kind}${side[0].toUpperCase()}${side.slice(1)}`;
+    styles[property] = `${spacing[side]}px`;
   }
   return styles;
 }
@@ -389,6 +390,7 @@ function FlexContainerControls({
   onDisableAutoLayout,
   onApplyLayoutFlow,
   showSizingControls,
+  motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -396,6 +398,7 @@ function FlexContainerControls({
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showSizingControls: boolean;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -448,12 +451,15 @@ function FlexContainerControls({
     bottom: parseNumericValue(styles.paddingBottom || "0"),
     left: parseNumericValue(styles.paddingLeft || "0"),
   };
-  const allPaddingEqual = fourValuesEqual([
-    padding.top,
-    padding.right,
-    padding.bottom,
-    padding.left,
-  ]);
+  const paddingMixed = {
+    top: isMixedValue(styles.paddingTop),
+    right: isMixedValue(styles.paddingRight),
+    bottom: isMixedValue(styles.paddingBottom),
+    left: isMixedValue(styles.paddingLeft),
+  };
+  const allPaddingEqual =
+    !Object.values(paddingMixed).some(Boolean) &&
+    fourValuesEqual([padding.top, padding.right, padding.bottom, padding.left]);
   const [paddingLinked, setPaddingLinked] = useState(allPaddingEqual);
 
   const autoLayoutValue: AutoLayoutMatrixValue = {
@@ -473,12 +479,7 @@ function FlexContainerControls({
     gapMixed: isMixedValue(styles.gap),
     gapModeMixed: isMixedValue(styles.justifyContent),
     padding,
-    paddingMixed: {
-      top: isMixedValue(styles.paddingTop),
-      right: isMixedValue(styles.paddingRight),
-      bottom: isMixedValue(styles.paddingBottom),
-      left: isMixedValue(styles.paddingLeft),
-    },
+    paddingMixed,
     paddingLinked,
     margin: marginProperties.value,
     marginMixed: marginProperties.mixed,
@@ -512,6 +513,9 @@ function FlexContainerControls({
       <AutoLayoutMatrix
         value={autoLayoutValue}
         labels={marginLabels}
+        showMotionKeyframes={motionKeyframeContext?.hasTimeline === true}
+        motionKeyframedProperties={motionKeyframeContext?.keyframedProperties}
+        onToggleMotionKeyframe={motionKeyframeContext?.onToggle}
         onFlowChange={(flow) => {
           const nodeId = element.sourceId ?? element.pendingNodeId;
           if (flow === "normal" && onDisableAutoLayout && nodeId) {
@@ -591,34 +595,38 @@ function FlexContainerControls({
           onStyleChange("alignItems", verticalToAlign(alignment.vertical));
         }}
         onGapChange={(gap, meta) => onStyleChange("gap", `${gap}px`, meta)}
-        onPaddingChange={(nextPadding, meta) => {
-          const patch = {
-            paddingTop: `${nextPadding.top}px`,
-            paddingRight: `${nextPadding.right}px`,
-            paddingBottom: `${nextPadding.bottom}px`,
-            paddingLeft: `${nextPadding.left}px`,
-          };
+        onPaddingChange={(nextPadding, meta, changedSides) => {
+          const patch = spacingStylesForSides(
+            "padding",
+            nextPadding,
+            changedSides,
+          );
+          const changeMeta =
+            meta &&
+            (meta.relativeDelta !== undefined || meta.relativeExpression)
+              ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+              : meta;
           if (onStylesChange) {
-            onStylesChange(patch, meta);
+            onStylesChange(patch, changeMeta);
             return;
           }
           Object.entries(patch).forEach(([property, value]) =>
-            onStyleChange(property, value, meta),
+            onStyleChange(property, value, changeMeta),
           );
         }}
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
-          // Linking is a display-mode choice, not a style edit. Figma keeps
-          // asymmetric padding intact when the sides are linked and only
-          // equalizes an axis after the user edits that linked field. The old
-          // eager average destroyed all four authored values immediately and
-          // produced four source commits/undo entries just from clicking the
-          // link icon. AutoLayoutMatrix intentionally displays left/top as
-          // each linked axis's representative value and applies both sides on
-          // the next real field edit, so no style write belongs here.
+          // Linking changes the display mode without committing a style edit.
+          // Asymmetric values remain intact until the user edits a linked
+          // field; eagerly averaging them here would destroy the authored
+          // values and create history entries from a display-only action.
         }}
         onMarginChange={(nextMargin, meta, changedSides) => {
-          const patch = marginStylesForSides(nextMargin, changedSides);
+          const patch = spacingStylesForSides(
+            "margin",
+            nextMargin,
+            changedSides,
+          );
           const changeMeta =
             meta &&
             (meta.relativeDelta !== undefined || meta.relativeExpression)
@@ -845,6 +853,7 @@ export function LayoutContextProperties({
   onDisableAutoLayout,
   onApplyLayoutFlow,
   showContainerSizing = true,
+  motionInspector = false,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -854,6 +863,7 @@ export function LayoutContextProperties({
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showContainerSizing?: boolean;
+  motionInspector?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -880,6 +890,8 @@ export function LayoutContextProperties({
     ) : undefined;
 
   if (!isContainer) {
+    if (motionInspector) return null;
+
     const widthSizing = inferElementSizing(element, "horizontal");
     const heightSizing = inferElementSizing(element, "vertical");
     const resolvedWidth = measuredElementSize(element, "horizontal");
@@ -957,7 +969,7 @@ export function LayoutContextProperties({
         {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
             with the full sizing menu (modes + min/max + variable) per axis,
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
-            (Figma parity — the constrain-proportions link sits after both W
+            (the constrain-proportions link sits after both W
             and H, not between them). */}
         <InspectorGrid className="items-start" layout="action-pair">
           <InspectorGridCell
@@ -969,6 +981,7 @@ export function LayoutContextProperties({
                 <SubsectionLabel>{t("editPanel.labels.width")}</SubsectionLabel>
                 <FieldTrailer
                   element={element}
+                  motionCssProperty="width"
                   overrideProperty="width"
                   motionKeyframeContext={motionKeyframeContext}
                   breakpointOverrideContext={breakpointOverrideContext}
@@ -1014,6 +1027,7 @@ export function LayoutContextProperties({
                 </SubsectionLabel>
                 <FieldTrailer
                   element={element}
+                  motionCssProperty="height"
                   overrideProperty="height"
                   motionKeyframeContext={motionKeyframeContext}
                   breakpointOverrideContext={breakpointOverrideContext}
@@ -1094,7 +1108,7 @@ export function LayoutContextProperties({
           textValues={marginProperties.textValues}
           labels={marginLabels}
           onChange={(margin, meta, changedSides) => {
-            const patch = marginStylesForSides(margin, changedSides);
+            const patch = spacingStylesForSides("margin", margin, changedSides);
             const changeMeta =
               meta &&
               (meta.relativeDelta !== undefined || meta.relativeExpression)
@@ -1110,6 +1124,22 @@ export function LayoutContextProperties({
           }}
         />
       </PanelSection>
+    );
+  }
+
+  if (motionInspector) {
+    if (!element.isFlexContainer && !element.isGridContainer) return null;
+    return (
+      <FlexContainerControls
+        key={elementStableKey(element)}
+        element={element}
+        onStyleChange={onStyleChange}
+        onStylesChange={onStylesChange}
+        onDisableAutoLayout={onDisableAutoLayout}
+        onApplyLayoutFlow={onApplyLayoutFlow}
+        showSizingControls={false}
+        motionKeyframeContext={motionKeyframeContext}
+      />
     );
   }
 
@@ -1138,6 +1168,7 @@ export function LayoutContextProperties({
         onDisableAutoLayout={onDisableAutoLayout}
         onApplyLayoutFlow={onApplyLayoutFlow}
         showSizingControls={showContainerSizing}
+        motionKeyframeContext={motionKeyframeContext}
       />
     </PanelSection>
   );

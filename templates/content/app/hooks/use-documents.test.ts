@@ -4,11 +4,11 @@ import type { ContentDatabaseItem, Document } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { pageLinkTargetQueryKey } from "./use-content-links";
 import {
   buildDocumentTree,
-  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   fetchCompleteDocumentList,
   LIST_DOCUMENTS_QUERY_KEY,
@@ -31,6 +31,7 @@ import {
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
+  useDocument,
   useDocuments,
 } from "./use-documents";
 
@@ -241,12 +242,57 @@ describe("complete document discovery", () => {
 });
 
 describe("document query freshness", () => {
-  it("always replaces seeded row snapshots before the editor mounts", () => {
-    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
-      staleTime: 0,
-      refetchOnMount: "always",
-      retry: false,
+  it("always replaces seeded row snapshots before the editor mounts", async () => {
+    const seeded = { ...doc("row-page", null), content: "Seeded snapshot" };
+    const fresh = { ...seeded, content: "Fresh from the server" };
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(fresh), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // A client that treats cached data as fresh forever: the seeded snapshot
+    // below only gets replaced if useDocument insists on refetching.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     });
+    queryClient.setQueryData(documentQueryKey("row-page"), seeded);
+    let editorSees: Document | undefined;
+    function Consumer() {
+      editorSees = useDocument("row-page").data;
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Consumer),
+          ),
+        );
+      });
+
+      await vi.waitFor(() =>
+        expect(editorSees?.content).toBe("Fresh from the server"),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => root.unmount());
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      queryClient.clear();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps membership contexts in separate Page query keys", () => {
@@ -713,6 +759,54 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databasePageKey)?.items[0].document.title,
     ).toBe("Page one");
+  });
+
+  it("renames resolved page-link blocks and breadcrumb ancestors", () => {
+    const queryClient = new QueryClient();
+    const linkKey = pageLinkTargetQueryKey("0123456789abcdef0123456789abcdef");
+    const otherLinkKey = pageLinkTargetQueryKey("other");
+    const sourceKey = [
+      "action",
+      "resolve-content-links",
+      { sourcePaths: ["docs/a.md"] },
+    ];
+    const navigationKey = [
+      "action",
+      "get-content-navigation-context",
+      { id: "child" },
+    ];
+    queryClient.setQueryData(linkKey, {
+      documentId: "a",
+      title: "Old title",
+      icon: null,
+    });
+    queryClient.setQueryData(otherLinkKey, null);
+    queryClient.setQueryData(sourceKey, { links: [], sources: [] });
+    queryClient.setQueryData(navigationKey, {
+      document: doc("child", "a"),
+      path: [
+        { id: "a", parentId: null, title: "Old title" },
+        { id: "child", parentId: "a", title: "Child" },
+      ],
+    });
+
+    patchDocumentCaches(queryClient, "a", { title: "Renamed" });
+
+    expect(queryClient.getQueryData(linkKey)).toEqual({
+      documentId: "a",
+      title: "Renamed",
+      icon: null,
+    });
+    expect(queryClient.getQueryData(otherLinkKey)).toBeNull();
+    expect(queryClient.getQueryData(sourceKey)).toEqual({
+      links: [],
+      sources: [],
+    });
+    expect(
+      queryClient
+        .getQueryData<{ path: Array<{ title: string }> }>(navigationKey)
+        ?.path.map((entry) => entry.title),
+    ).toEqual(["Renamed", "Child"]);
   });
 
   it("patches Page-owned fields across contexts without exchanging memberships", () => {

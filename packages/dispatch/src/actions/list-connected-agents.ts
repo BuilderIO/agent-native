@@ -12,6 +12,8 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   discoverAgents,
   getBuiltinAgents,
+  isBuiltinAgentCatalogId,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
@@ -26,9 +28,19 @@ export default defineAction({
     const { hiddenAgentIds = [] } = await import("../server/index.js").then(
       (m) => m.getDispatchConfig(),
     );
-    const discovered = await discoverAgents("dispatch");
+    const [discovered, workspaceApps] = await Promise.all([
+      discoverAgents("dispatch"),
+      loadWorkspaceAppsManifest(),
+    ]);
+    // A mounted workspace app with a built-in's id is a workspace app; the
+    // built-in config never applies to it.
+    const workspaceIds = new Set(
+      (workspaceApps ?? []).map((app) => normalizeAgentId(app.id)),
+    );
     const builtins = getBuiltinAgents("dispatch");
-    const builtinIds = new Set(builtins.map((agent) => agent.id));
+    const builtinIds = new Set(
+      builtins.map((agent) => agent.id).filter((id) => !workspaceIds.has(id)),
+    );
     const builtinHomeUrls = new Map(
       builtins.map((agent) => [agent.id, agent.url]),
     );
@@ -59,7 +71,9 @@ export default defineAction({
       if (!manifest) continue;
       if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
       const manifestId = normalizeAgentId(manifest.id);
-      if (builtinIds.has(manifestId)) continue;
+      // Built-in ids stay under the workspace's built-in config even when a
+      // seeded manifest for them exists in resources.
+      if (isBuiltinAgentCatalogId(manifestId)) continue;
       customById.set(manifestId, {
         resourceId: resource.id,
         path: resource.path,

@@ -9,6 +9,11 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconCopiedFromDocument,
+} from "../server/lib/private-icon-references.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
@@ -189,6 +194,17 @@ export default defineAction({
           ),
         );
 
+      for (const duplicate of lockedDuplicates) {
+        await verifyPrivateIconCopiedFromDocument(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            sourceDocumentId: duplicate.row.document.id,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
+      }
       await tx.insert(schema.documents).values(
         lockedDuplicates.map((duplicate) => ({
           id: duplicate.duplicatedDocumentId,
@@ -208,6 +224,34 @@ export default defineAction({
           updatedAt: now,
         })),
       );
+      for (const duplicate of lockedDuplicates) {
+        await syncPrivateIconReference(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            elementType: "document",
+            elementId: duplicate.duplicatedDocumentId,
+            documentId: duplicate.duplicatedDocumentId,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
+        await syncPrivateCalloutReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId: duplicate.duplicatedDocumentId,
+            before: "",
+            after: duplicate.row.document.content,
+            userEmail: currentUserEmail,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+            source: {
+              kind: "document",
+              documentId: duplicate.row.document.id,
+            },
+          },
+        );
+      }
 
       await tx.insert(schema.contentDatabaseItems).values(
         lockedDuplicates.map((duplicate) => ({

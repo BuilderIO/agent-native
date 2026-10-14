@@ -18,12 +18,15 @@ vi.mock("../agent/run-store.js", () => ({
   getTurnInitiatorByRun: getTurnInitiatorByRunMock,
 }));
 
+import { AGENT_CHAT_BROWSER_SESSION_ID_FIELD } from "../agent/durable-background.js";
 import {
   resolveAgentRunOrgId,
+  resolveAgentRunRequestContext,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
   seedBackgroundAgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { markCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
@@ -102,6 +105,17 @@ describe("server/agent-run-context", () => {
     ).rejects.toMatchObject({
       statusCode: 401,
     });
+  });
+
+  it("throws a retryable 503, not 401 or an anonymous owner, when the bearer's org membership could not be checked", async () => {
+    const event = makeEvent();
+    markCredentialMembershipUnavailable(event);
+
+    await expect(
+      resolveAgentRunOwnerContext(event, {
+        anonymousOwner: () => "anon-visitor",
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
   });
 
   it("prefers the explicit org resolver over session and implicit org context", async () => {
@@ -218,6 +232,40 @@ describe("server/agent-run-context", () => {
       clientPlatform: "electron",
       isBackgroundWorker: true,
     });
+  });
+
+  it("restores the browser session captured in a durable run payload", async () => {
+    const event = makeEvent({
+      "x-agent-native-session-id": "dispatch-session",
+    });
+    event.context.__agentChatBackgroundBody = {
+      [AGENT_CHAT_BROWSER_SESSION_ID_FIELD]: "origin-session",
+    };
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+      isBackgroundWorker: true,
+    });
+
+    expect(requestContext.browserSessionId).toBe("origin-session");
+  });
+
+  it("does not use dispatch headers when the durable run had no browser session", async () => {
+    const event = makeEvent({
+      "x-agent-native-session-id": "dispatch-session",
+    });
+    event.context.__agentChatBackgroundBody = {
+      [AGENT_CHAT_BROWSER_SESSION_ID_FIELD]: null,
+    };
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+      isBackgroundWorker: true,
+    });
+
+    expect(requestContext.browserSessionId).toBeUndefined();
   });
 
   it("keeps the request-scoped waitUntil callback in the run context", async () => {

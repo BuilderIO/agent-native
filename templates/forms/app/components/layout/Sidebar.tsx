@@ -1,16 +1,14 @@
-import {
-  focusAgentChat,
-  navigateWithAgentChatViewTransition,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
-  FeedbackButton,
   type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   IconArrowUp,
   IconForms,
@@ -37,6 +35,7 @@ import {
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { isFormsAskPath } from "@/lib/chat-route";
 
 const SIDEBAR_COLLAPSE_KEY = "forms.sidebar.collapsed";
 
@@ -120,7 +119,8 @@ export function Sidebar() {
       to: "/ask",
       label: t("navigation.askForms"),
       icon: IconMessageCircle,
-      active: location.pathname === "/ask" || location.pathname === "/home",
+      active:
+        isFormsAskPath(location.pathname) || location.pathname === "/home",
       onClick: navigateHomeChat,
     },
     {

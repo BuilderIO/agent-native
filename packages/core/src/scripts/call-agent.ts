@@ -9,10 +9,9 @@ import {
 } from "../a2a/anthropic-managed-agents.js";
 import {
   A2ATaskTimeoutError,
+  getGlobalA2ASecret,
   MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
-  shouldPreferGlobalA2ASecret,
-  signA2AToken,
 } from "../a2a/client.js";
 import { MAX_A2A_DELEGATION_HOPS } from "../a2a/correlation.js";
 import { invokeAgentAction } from "../a2a/invoke.js";
@@ -22,7 +21,7 @@ import {
   resolveRemoteAgentToken,
 } from "../a2a/remote-agent-auth.js";
 import type {
-  A2AApprovedAction,
+  A2AConnectionRequestMetadata,
   A2ACorrelationMetadata,
   A2AHandlerResult,
   A2ASourceContext,
@@ -50,12 +49,12 @@ import {
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
+import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
 const NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS = 15_000;
-const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
 type A2AInvocationStatus = "success" | "pending" | "error";
@@ -141,10 +140,12 @@ function terminalTaskError(value: unknown): {
   taskId?: string;
   responseText?: string;
   errorCode?: string;
+  connectionProvider?: string;
 } | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.name !== "A2ATaskTerminalError") return null;
+  const connectionProvider = connectionRequestProvider(candidate.task);
   return {
     state: stringifyValue(candidate.state ?? "failed"),
     ...(typeof candidate.taskId === "string"
@@ -156,7 +157,104 @@ function terminalTaskError(value: unknown): {
     ...(typeof candidate.errorCode === "string"
       ? { errorCode: candidate.errorCode }
       : {}),
+    ...(connectionProvider ? { connectionProvider } : {}),
   };
+}
+
+// Only the typed code decides, so a peer whose answer merely mentions a
+// credential is never skipped. permanent_precondition and a typed LLM credential
+// failure (missing_credentials, or a provider rejection such as http_401,
+// http_403, invalid_api_key) block the peer for the rest of the turn. Budget and
+// timeout codes stay retryable, and so does a2a_auth_rejected: that is the
+// caller's own auth to the peer, not the peer's LLM credential. The text that
+// told the model not to retry is also what a retry is answered with, so each
+// cause stays named as what it is.
+function recordChildTaskFailure(
+  context: ActionRunContext | undefined,
+  targetHandle: string,
+  agentName: string,
+  terminal: { state: string; errorCode?: string },
+  detail: string,
+): { permanentText?: string; terminalCode: string } {
+  const cause =
+    terminal.errorCode === "permanent_precondition"
+      ? `The ${agentName} agent could not complete this delegated request because one of its actions hit a permanent precondition.`
+      : isLlmCredentialError(undefined, terminal.errorCode)
+        ? formatLlmCredentialErrorMessage({ agentName })
+        : undefined;
+  const permanentText = cause
+    ? `${cause} Do not call ${agentName} again this turn; continue with other sources.` +
+      (detail ? `\n\nRemote detail:\n${wrapDiagnosticSnippet(detail)}` : "")
+    : undefined;
+  if (permanentText) {
+    context?.blockedA2ATargets?.set(targetHandle, permanentText);
+  }
+  return {
+    permanentText,
+    terminalCode:
+      terminal.errorCode === "permanent_precondition"
+        ? "a2a_child_permanent_precondition"
+        : (terminal.errorCode ?? terminal.state),
+  };
+}
+
+const CONNECTION_REQUEST_REASONS = new Set<unknown>([
+  "connect",
+  "grant",
+  "reauthorize",
+  "admin_required",
+] satisfies A2AConnectionRequestMetadata["reason"][]);
+
+// Mirrors the validation in production-agent.ts parseA2AConnectionRequest; only
+// the provider is needed to word the result.
+function connectionRequestProvider(task: unknown): string | undefined {
+  const request = (task as Task | undefined)?.status?.message?.metadata
+    ?.agentNativeConnectionRequest as
+    | Partial<A2AConnectionRequestMetadata>
+    | undefined;
+  if (
+    !request ||
+    typeof request !== "object" ||
+    request.version !== 1 ||
+    !CONNECTION_REQUEST_REASONS.has(request.reason)
+  ) {
+    return;
+  }
+  const provider =
+    typeof request.provider === "string" ? request.provider.trim() : "";
+  return provider && provider.length <= 120 ? provider : undefined;
+}
+
+// A connection is made by the user in the peer app; the model can neither
+// supply it nor wait for it, so the peer is blocked for the rest of the turn.
+function inputRequiredOutcome(
+  context: ActionRunContext | undefined,
+  targetHandle: string,
+  agentName: string,
+  agentIdOrName: string,
+  terminal: {
+    taskId?: string;
+    responseText?: string;
+    errorCode?: string;
+    connectionProvider?: string;
+  },
+): { text: string; terminalCode: string } {
+  const provider = terminal.connectionProvider;
+  if (!provider) {
+    return {
+      text: formatInputRequiredWaitInstruction(
+        agentName,
+        terminal,
+        agentIdOrName,
+      ),
+      terminalCode: terminal.errorCode ?? "input_required",
+    };
+  }
+  const text =
+    `The ${agentName} agent needs ${provider} connected by the user in ${agentName}. ` +
+    `Do not retry or wait for it; continue without ${agentName} for this part, or tell the user to connect ${provider} in ${agentName}.`;
+  context?.blockedA2ATargets?.set(targetHandle, text);
+  return { text, terminalCode: "connection_required" };
 }
 
 class A2AInvocationError extends Error {
@@ -356,9 +454,19 @@ function remoteAgentAuthFailure(
   agentName: string,
   value: unknown,
   hostedAuthConfigured = false,
+  callerWorkspace?: { orgId?: string; orgDomain?: string },
 ): { message: string; errorCode: string } | null {
   if (value instanceof RemoteAgentCredentialRejectedError) {
     if (!hostedAuthConfigured) {
+      if (callerWorkspace?.orgId && !callerWorkspace.orgDomain?.trim()) {
+        return {
+          message:
+            `Error: The ${agentName} agent rejected the A2A request (HTTP ${value.statusCode}). ` +
+            "This workspace has no domain configured, so the caller could not send a workspace-scoped identity. " +
+            "Set the workspace domain or configure explicit credentials for this agent, then retry.",
+          errorCode: "a2a_caller_org_domain_missing",
+        };
+      }
       return ordinaryPeerAuthFailure(agentName, value.status);
     }
     return {
@@ -597,7 +705,7 @@ function stringifyManagedAgentApprovalInput(
 
 export const tool: ActionTool = {
   description:
-    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Ask a DIFFERENT, separately-deployed app's agent over A2A. ONLY use it when the user's requested outcome depends on data or a capability only that app can provide, or the user explicitly asks you to involve it; availability alone is not a reason. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
@@ -633,19 +741,6 @@ export const tool: ActionTool = {
           "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations. For a mutating request, omit action and use message.",
         additionalProperties: true,
       },
-      approvedActions: {
-        type: "array",
-        description:
-          "Exact downstream tool calls the current user explicitly authorized in this chat. Never infer authorization or include a broader/different action.",
-        items: {
-          type: "object",
-          properties: {
-            tool: { type: "string" },
-            input: { type: "object", additionalProperties: true },
-          },
-          required: ["tool", "input"],
-        },
-      },
       managedAgentConfirmations: {
         type: "array",
         description:
@@ -675,9 +770,6 @@ export async function run(
   const taskId = stringifyValue(args.taskId ?? "").trim();
   const action = stringifyValue(args.action ?? "").trim();
   const input = args.input ?? {};
-  const approvedActions = Array.isArray(args.approvedActions)
-    ? (args.approvedActions as A2AApprovedAction[])
-    : undefined;
   const parsedManagedAgentConfirmations = parseManagedAgentConfirmations(
     args.managedAgentConfirmations,
   );
@@ -712,14 +804,60 @@ export async function run(
     );
   }
 
-  const agent = await findAgent(agentIdOrName, selfAppId);
+  const resolutionStartedAt = Date.now();
+  const resolutionMode: A2AInvocationMode = action
+    ? "direct_action"
+    : taskId
+      ? "task_poll"
+      : "message";
+  let agent: DiscoveredAgent | undefined;
+  try {
+    agent = await findAgent(agentIdOrName, selfAppId, {
+      includePersonalAgents: true,
+      requireReadableAgentSources: true,
+    });
+  } catch (error) {
+    const terminalCode = "agent_discovery_failed";
+    const targetApp = normalizeAppHandle(agentIdOrName) || "unknown";
+    const correlation = buildDelegationCorrelation(context, selfAppId);
+    console.error(
+      `[call-agent] Could not read connected agents while resolving "${agentIdOrName}":`,
+      error,
+    );
+    trackA2AInvocation({
+      invocationId: randomUUID(),
+      callerApp: selfAppId,
+      targetApp,
+      mode: resolutionMode,
+      status: "error",
+      startedAt: resolutionStartedAt,
+      terminalCode,
+      correlation,
+    });
+    throw new A2AInvocationError(
+      `Could not read the connected-agent registry while resolving "${agentIdOrName}". ` +
+        "No request was sent to another agent. Retry after the workspace agent list is available.",
+      { errorCode: terminalCode },
+    );
+  }
   if (!agent) {
     throw unresolvableAgentTargetError(
       agentIdOrName,
-      await discoverAgents(selfAppId),
+      await discoverAgents(selfAppId, { includePersonalAgents: true }),
       selfAppId,
       buildDelegationCorrelation(context, selfAppId),
       action ? "direct_action" : taskId ? "task_poll" : "message",
+    );
+  }
+  const targetHandle =
+    normalizeAppHandle((agent as { id?: string }).id) ||
+    normalizeAppHandle(agent.name) ||
+    normalizeAppHandle(agentIdOrName);
+  const blockedReason = context?.blockedA2ATargets?.get(targetHandle);
+  if (blockedReason !== undefined) {
+    throw new A2AInvocationError(
+      `Not calling ${agent.name} again this turn.\n\n${blockedReason}`,
+      { errorCode: "a2a_target_blocked_this_turn" },
     );
   }
 
@@ -862,6 +1000,8 @@ export async function run(
   let invocationStatus: A2AInvocationStatus = "error";
   let invocationTaskId = taskId || undefined;
   let invocationTerminalCode: string | undefined;
+  let callerOrgId: string | undefined;
+  let callerOrgDomain: string | undefined;
 
   try {
     if (agent.kind?.provider === "anthropic-managed-agents") {
@@ -887,40 +1027,13 @@ export async function run(
       const a2aMetadata: Record<string, unknown> = {};
       if (callerEmail) a2aMetadata.userEmail = callerEmail;
 
-      let callerOrgDomain: string | undefined;
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
-      if (orgId) {
-        try {
-          const domain = await getOrgDomain(orgId);
-          if (domain) {
-            callerOrgDomain = domain;
-            a2aMetadata.orgDomain = domain;
-          }
-        } catch {}
-        try {
-          const secret = await getOrgA2ASecret(orgId);
-          if (secret) callerOrgSecret = secret;
-        } catch {}
-      }
-
-      let apiKey: string | undefined;
-      if (
-        !agent.auth &&
-        callerEmail &&
-        (callerOrgSecret || process.env.A2A_SECRET)
-      ) {
-        try {
-          apiKey = await signA2AToken(
-            callerEmail,
-            callerOrgDomain,
-            callerOrgSecret,
-            {
-              expiresIn: INTEGRATION_A2A_TOKEN_TTL,
-              preferGlobalSecret: shouldPreferGlobalA2ASecret(callerOrgSecret),
-            },
-          );
-        } catch {}
+      callerOrgId = orgId;
+      if (orgId && !agent.auth) {
+        callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
+        if (callerOrgDomain) a2aMetadata.orgDomain = callerOrgDomain;
+        callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
       }
 
       if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
@@ -1024,18 +1137,18 @@ export async function run(
             ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
             : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
-          apiKey: agent.auth ? hostedAgentToken : apiKey,
+          ...(agent.auth ? { apiKey: hostedAgentToken } : {}),
           ...(agent.auth
             ? {}
             : {
                 userEmail: callerEmail,
+                orgId,
                 orgDomain: callerOrgDomain,
                 orgSecret: callerOrgSecret,
               }),
           ...(hostedAgentCardUrl(agent)
             ? { cardUrl: hostedAgentCardUrl(agent) }
             : {}),
-          approvedActions,
           ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
           contextId: context.threadId,
           correlation,
@@ -1092,32 +1205,45 @@ export async function run(
           terminalStatus = "pending";
           const terminal = terminalTaskError(pollErr)!;
           invocationTaskId = terminal.taskId;
-          invocationTerminalCode = terminal.errorCode ?? "input_required";
-          responseText = formatInputRequiredWaitInstruction(
+          const inputRequired = inputRequiredOutcome(
+            context,
+            targetHandle,
             agent.name,
-            terminal,
             agentIdOrName,
+            terminal,
           );
+          invocationTerminalCode = inputRequired.terminalCode;
+          responseText = inputRequired.text;
         } else if (terminalTaskError(pollErr)) {
           terminalStatus = "error";
           const terminal = terminalTaskError(pollErr)!;
           invocationTaskId = terminal.taskId;
-          invocationTerminalCode = terminal.errorCode ?? terminal.state;
           const detail = expandRelativeUrls(
             terminal.responseText ?? pollErr?.message ?? "unknown failure",
             agent.url,
           );
+          const childFailure = recordChildTaskFailure(
+            context,
+            targetHandle,
+            agent.name,
+            terminal,
+            detail,
+          );
+          invocationTerminalCode = childFailure.terminalCode;
           responseText =
+            childFailure.permanentText ??
             `Error: The ${agent.name} agent ended ${terminal.state}` +
-            (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-            (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-            (detail ? `: ${detail}` : "");
+              (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+              (detail
+                ? `\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
+                : "");
         } else {
           terminalStatus = "error";
           const authFailure = remoteAgentAuthFailure(
             agent.name,
             pollErr,
             Boolean(agent.auth),
+            { orgId: callerOrgId, orgDomain: callerOrgDomain },
           );
           invocationTerminalCode = authFailure?.errorCode ?? "call_failed";
           const reason = pollErr?.message ?? "unknown error";
@@ -1177,13 +1303,11 @@ export async function run(
     let domain: string | undefined;
     let orgSecret: string | undefined;
     const currentOrgId = getRequestOrgId();
-    if (currentOrgId) {
-      try {
-        domain = (await getOrgDomain(currentOrgId)) ?? undefined;
-      } catch {}
-      try {
-        orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
-      } catch {}
+    callerOrgId = currentOrgId;
+    if (currentOrgId && !agent.auth) {
+      domain = (await getOrgDomain(currentOrgId)) ?? undefined;
+      callerOrgDomain = domain;
+      orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
     }
     const hostedAgentToken = agent.auth
       ? await resolveRemoteAgentToken(agent.auth, {
@@ -1193,11 +1317,17 @@ export async function run(
       : undefined;
     const response = await callAgent(agent.url, messageWithHint, {
       apiKey: hostedAgentToken,
-      ...(agent.auth ? {} : { userEmail: email, orgDomain: domain, orgSecret }),
+      ...(agent.auth
+        ? {}
+        : {
+            userEmail: email,
+            orgId: currentOrgId,
+            orgDomain: domain,
+            orgSecret,
+          }),
       ...(hostedAgentCardUrl(agent)
         ? { cardUrl: hostedAgentCardUrl(agent) }
         : {}),
-      approvedActions,
       ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
       contextId: context?.threadId,
       correlation,
@@ -1229,6 +1359,7 @@ export async function run(
       agent.name,
       err,
       Boolean(agent.auth || agent.kind),
+      { orgId: callerOrgId, orgDomain: callerOrgDomain },
     );
     if (authFailure) {
       invocationStatus = "error";
@@ -1238,34 +1369,64 @@ export async function run(
       });
     }
     const msg = err?.message ?? String(err);
+    const terminal = terminalTaskError(err);
+    // A waiting task has not failed, so its state decides before any check of
+    // its prose for a credential, as on the streaming path.
+    if (terminal?.state === "input-required") {
+      invocationStatus = "pending";
+      invocationTaskId = terminal.taskId;
+      const inputRequired = inputRequiredOutcome(
+        context,
+        targetHandle,
+        agent.name,
+        agentIdOrName,
+        terminal,
+      );
+      invocationTerminalCode = inputRequired.terminalCode;
+      return inputRequired.text;
+    }
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
       err,
     );
-    if (credentialMessage) return credentialMessage;
-    const terminal = terminalTaskError(err);
-    if (terminal?.state === "input-required") {
-      invocationStatus = "pending";
-      invocationTaskId = terminal.taskId;
-      invocationTerminalCode = terminal.errorCode ?? "input_required";
-      return formatInputRequiredWaitInstruction(
-        agent.name,
-        terminal,
-        agentIdOrName,
-      );
+    if (credentialMessage) {
+      // A typed credential failure returns here before the terminal branch
+      // below, so the peer must be blocked and the outcome typed on this path
+      // too.
+      if (terminal) {
+        invocationTaskId = terminal.taskId;
+        invocationTerminalCode = recordChildTaskFailure(
+          context,
+          targetHandle,
+          agent.name,
+          terminal,
+          terminal.responseText ?? "",
+        ).terminalCode;
+      }
+      return credentialMessage;
     }
     if (terminal) {
       invocationStatus = "error";
       invocationTaskId = terminal.taskId;
-      invocationTerminalCode = terminal.errorCode ?? terminal.state;
+      const childFailure = recordChildTaskFailure(
+        context,
+        targetHandle,
+        agent.name,
+        terminal,
+        terminal.responseText ?? "",
+      );
+      invocationTerminalCode = childFailure.terminalCode;
+      const detail = terminal.responseText
+        ? `\nRemote detail:\n${wrapDiagnosticSnippet(terminal.responseText)}`
+        : "";
       throw new A2AInvocationError(
-        `Error calling ${agent.name}: remote task ${terminal.state}` +
-          (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-          (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-          (terminal.responseText ? `: ${terminal.responseText}` : ""),
+        childFailure.permanentText ??
+          `Error calling ${agent.name}: remote task ${terminal.state}` +
+            (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+            detail,
         {
           taskId: terminal.taskId,
-          errorCode: terminal.errorCode ?? terminal.state,
+          errorCode: invocationTerminalCode,
         },
       );
     }
@@ -1325,16 +1486,25 @@ async function invokeReadOnlyAppAction(
   let callerOrgDomain: string | undefined;
   let callerOrgSecret: string | undefined;
   const orgId = getRequestOrgId();
-  if (orgId) {
-    try {
-      callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
-    } catch {}
-    try {
-      callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
-    } catch {}
+  if (orgId && !hostedAuthConfigured) {
+    callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
+    callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
   }
 
-  if (!hostedAgentToken && !callerOrgSecret && !process.env.A2A_SECRET) {
+  if (
+    !hostedAgentToken &&
+    !hostedAuthConfigured &&
+    orgId &&
+    !callerOrgDomain &&
+    !getGlobalA2ASecret()
+  ) {
+    return (
+      `Error calling ${agent.name} action ${action}: this workspace has no domain configured, ` +
+      "so the request cannot include workspace-scoped A2A identity. Set the workspace domain or configure explicit credentials for this agent."
+    );
+  }
+
+  if (!hostedAgentToken && !callerOrgSecret && !getGlobalA2ASecret()) {
     return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
   }
 
@@ -1361,6 +1531,7 @@ async function invokeReadOnlyAppAction(
       agent.name,
       error,
       hostedAuthConfigured,
+      { orgId, orgDomain: callerOrgDomain },
     );
     if (authFailure) {
       throw new A2AInvocationError(authFailure.message, {

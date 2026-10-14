@@ -79,7 +79,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: () => null,
 }));
 

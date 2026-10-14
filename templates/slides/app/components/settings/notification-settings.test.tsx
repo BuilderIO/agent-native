@@ -29,7 +29,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   SettingsGroup: ({
     title,
     children,
@@ -96,10 +96,7 @@ vi.mock("@/components/ui/switch", () => ({
   ),
 }));
 
-import {
-  LegacyEmailNotificationsRow,
-  NotificationSettings,
-} from "./notification-settings";
+import { NotificationSettings } from "./notification-settings";
 
 beforeEach(() => {
   mocks.query.data = undefined;
@@ -148,9 +145,9 @@ describe("Slides notification settings", () => {
 
   it("flips optimistically and rolls back when the save fails", () => {
     mocks.query.data = { emailNotifications: true };
-    render(<LegacyEmailNotificationsRow />);
+    render(<NotificationSettings />);
     const toggle = () =>
-      screen.getByRole("switch", { name: "settings.emailNotifications" });
+      screen.getByRole("switch", { name: "settings.commentsAndReplies" });
 
     fireEvent.click(toggle());
     expect(toggle().getAttribute("aria-checked")).toBe("false");

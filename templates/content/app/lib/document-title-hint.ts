@@ -106,3 +106,18 @@ export function updateLandingTitleHintCache(
     });
   }
 }
+
+export function rememberLandingTitleHint(
+  queryClient: {
+    setQueryData: (
+      queryKey: readonly unknown[],
+      value: LandingTitleHint | null,
+    ) => unknown;
+  },
+  state: ContentLastLocationState,
+) {
+  queryClient.setQueryData(
+    CONTENT_LAST_LOCATION_HINT_QUERY_KEY,
+    landingTitleHintFromState(state),
+  );
+}

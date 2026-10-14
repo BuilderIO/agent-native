@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor pending source handoff", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const agentHandoffSource = readFileSync(
     "app/pages/design-editor/commands/apply-pending-visual-styles-with-agent.ts",
     "utf8",
@@ -32,7 +34,9 @@ describe("DesignEditor pending source handoff", () => {
     expect(handler).toContain("HOST_TURN_START_TIMEOUT_MS");
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
-      source.indexOf("const focusDesignInspectorForSelection"),
+      source.indexOf(
+        "const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);",
+      ),
     );
     expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');
     expect(chatState).toContain(
@@ -47,18 +51,26 @@ describe("DesignEditor pending source handoff", () => {
     );
   });
 
-  it("routes pending edits to the host agent or the copy-prompt menu", () => {
+  it("keeps visual-edit handoffs on the copy-prompt path when signed in", () => {
     const start = source.indexOf("data-design-pending-visual-style-toolbar");
     const toolbar = source.slice(
       start,
       source.indexOf('viewMode === "overview"', start),
     );
     expect(toolbar).not.toBe("");
-    expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent");
+    expect(source).toMatch(
+      /const canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent &&\s*\(!isVisualEditSurface \|\| hostEmbeddedEditor\);/,
+    );
+    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar");
     expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
     expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent ? null : (");
+    expect(toolbar).toContain(
+      "canApplyPendingVisualEditsFromToolbar ? null : (",
+    );
     expect(toolbar).toContain("<DropdownMenu>");
+    expect(toolbar).toContain(
+      '"designEditor.pendingVisualStyles.copyAgentPrompt"',
+    );
     expect(toolbar).toContain('"designEditor.pendingVisualStyles.copyPrompt"');
     expect(toolbar).toContain(
       '"designEditor.pendingVisualStyles.copyFullPrompt"',
@@ -81,6 +93,22 @@ describe("DesignEditor pending source handoff", () => {
     expect(copyHandler).toContain("          id,");
   });
 
+  it("waits for queued handoff publication before copying the full prompt by default", () => {
+    const copyHandler = source.slice(
+      source.indexOf("const handleCopyPendingVisualStylePrompt = useCallback"),
+      source.indexOf(
+        "// ── Export:",
+        source.indexOf(
+          "const handleCopyPendingVisualStylePrompt = useCallback",
+        ),
+      ),
+    );
+    expect(copyHandler).toContain("fullPrompt = true");
+    expect(copyHandler).toContain(
+      "await pendingVisualEditPublicationQueueRef.current",
+    );
+  });
+
   it("drops the staged flag whenever pending edits are cleared", () => {
     const clearState = source.slice(
       source.indexOf("const clearPendingLiveEditState = useCallback"),
@@ -95,7 +123,9 @@ describe("DesignEditor pending source handoff", () => {
     expect(source).toContain("refetchIntervalInBackground: false");
     const acknowledgementEffect = source.slice(
       source.indexOf("const localPendingCount"),
-      source.indexOf("const visualEditPromptResult"),
+      source.indexOf(
+        'useEffect(() => {\n    if (viewMode === "overview" && !motionDockOpen) return;',
+      ),
     );
     expect(acknowledgementEffect).toContain(
       "isVisualEditHandoffAcknowledged({",

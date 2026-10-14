@@ -21,6 +21,7 @@ vi.mock("../secrets/storage.js", () => ({
     store.set(refId(ref), ref.value);
   },
   deleteAppSecret: async (ref: Ref) => store.delete(refId(ref)),
+  hasAppSecret: async (ref: Ref) => store.has(refId(ref)),
   readAppSecret: async (ref: Ref) => {
     const value = store.get(refId(ref));
     return value ? { value } : null;
@@ -47,7 +48,8 @@ vi.mock("./agent-engine-provider-models-route.js", () => ({
     envVar === "OPENAI_API_KEY" ? "openai" : "anthropic",
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: async () => null,
   putSetting: async () => {},
   deleteSetting: async () => {},

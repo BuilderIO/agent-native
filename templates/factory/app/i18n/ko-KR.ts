@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "설정",
-    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     workspaceTitle: "워크스페이스",
     workspaceDescription:
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
@@ -454,7 +449,10 @@ const messages = {
     automationSourceSentryHint: "미해결 오류.",
     automationSlackChannel: "Slack 채널 ID",
     automationSlackChannelDescription:
-      "이 작업이 폴링하는 채널. C로 시작합니다.",
+      "이 작업이 읽거나 조사 결과를 모아 게시하는 Slack 채널. C로 시작합니다.",
+    automationFindingsSlackChannel: "Slack 조사 결과 채널",
+    automationFindingsSlackChannelDescription:
+      "해당 GitHub 및 Sentry 조사 결과를 이 채널의 메시지 하나로 묶습니다.",
     automationRepository: "GitHub 저장소",
     automationRepositoryDescription: "이 작업이 폴링하는 owner/repo.",
     automationSentryOrg: "Sentry 조직",

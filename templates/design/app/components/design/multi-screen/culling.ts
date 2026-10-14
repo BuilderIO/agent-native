@@ -21,26 +21,58 @@ export const OVERVIEW_STATIC_PREVIEW_BUDGET = 64;
 
 export const OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR = 0.5;
 
+// Booting an editor costs a full parse of the screen, so a zoom that makes a
+// whole board large enough must only start editors for screens actually on
+// screen; ones already running are kept while they stay in the overscan.
 export function resolveLiveEditorScreenIds({
   candidates,
   zoomPercent,
   previousIds,
+  warmIds = new Set(),
   minScreenPx = OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX,
+  visibleViewport,
+  retainViewport,
+  admitNew = true,
 }: {
-  candidates: readonly { id: string; width: number; alwaysLive: boolean }[];
+  candidates: readonly {
+    id: string;
+    width: number;
+    alwaysLive: boolean;
+    geometry?: FrameGeometry;
+  }[];
   zoomPercent: number;
   previousIds: ReadonlySet<string>;
+  /** Running editors kept through a zoom-out, so zooming back skips a reboot. */
+  warmIds?: ReadonlySet<string>;
   minScreenPx?: number;
+  visibleViewport?: OverscannedViewportBounds | null;
+  retainViewport?: OverscannedViewportBounds | null;
+  /** Booting an editor stalls the page; the camera holds new ones until it is idle. */
+  admitNew?: boolean;
 }): Set<string> {
   const scale = zoomPercent / 100;
   const live = new Set<string>();
-  for (const { id, width, alwaysLive } of candidates) {
+  for (const { id, width, alwaysLive, geometry } of candidates) {
+    if (alwaysLive) {
+      live.add(id);
+      continue;
+    }
     const screenPx = width * scale;
-    if (
-      alwaysLive ||
+    const wasLive = previousIds.has(id);
+    if (!wasLive && !admitNew) continue;
+    const largeEnough =
       screenPx >= minScreenPx ||
-      (previousIds.has(id) &&
-        screenPx >= minScreenPx * LIVE_EDITOR_DEMOTE_RATIO)
+      (wasLive &&
+        (screenPx >= minScreenPx * LIVE_EDITOR_DEMOTE_RATIO ||
+          warmIds.has(id)));
+    if (!largeEnough) continue;
+    if (
+      !geometry ||
+      !visibleViewport ||
+      isFrameWithinOverscannedViewport(geometry, visibleViewport) ||
+      (wasLive &&
+        (!retainViewport ||
+          isFrameWithinOverscannedViewport(geometry, retainViewport)))
     ) {
       live.add(id);
     }
@@ -48,23 +80,31 @@ export function resolveLiveEditorScreenIds({
   return live;
 }
 
+// Screens already seen keep their previews after the camera leaves them:
+// unmounting one rebuilds it from scratch, blank, when the camera returns.
 export function selectStaticPreviewScreenIds({
   candidates,
   viewport,
+  retainedIds,
   budget = OVERVIEW_STATIC_PREVIEW_BUDGET,
 }: {
   candidates: readonly { id: string; geometry: FrameGeometry }[];
   viewport: OverscannedViewportBounds | null;
+  retainedIds: ReadonlySet<string>;
   budget?: number;
 }): Set<string> {
   if (!viewport) return new Set();
+  const nearby = candidates.filter(({ geometry }) =>
+    isFrameWithinOverscannedViewport(geometry, viewport),
+  );
+  const retained = candidates.filter(
+    (candidate) => retainedIds.has(candidate.id) && !nearby.includes(candidate),
+  );
   return new Set(
-    orderByViewportDistance(
-      candidates.filter(({ geometry }) =>
-        isFrameWithinOverscannedViewport(geometry, viewport),
-      ),
-      viewport,
-    ).slice(0, Math.max(0, Math.floor(budget))),
+    [
+      ...orderByViewportDistance(nearby, viewport),
+      ...orderByViewportDistance(retained, viewport),
+    ].slice(0, Math.max(0, Math.floor(budget))),
   );
 }
 

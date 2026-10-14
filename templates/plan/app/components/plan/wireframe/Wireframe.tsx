@@ -1,10 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   sanitizeDiagramHtml,
   sanitizeWireframeCss,
   sanitizeWireframeHtml,
   scopeDesignCss,
-} from "@agent-native/core/blocks";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/blocks";
 import type {
   PlanDiagramBlock,
   PlanLegacyWireframeBlock,

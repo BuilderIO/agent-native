@@ -2,8 +2,6 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   defaultEmbeddingFamily,
   type EmbeddingFamily,
-  readEmbeddingFamilyAvailability,
-  resolveDefaultEmbeddingFamily,
 } from "@agent-native/core/embeddings";
 import {
   deletePgVectors,
@@ -17,6 +15,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  BrainEmbeddingUnavailableError,
+  resolveBrainEmbeddingFamily,
+} from "./brain-embedding-family.js";
 import { nanoid, nowIso } from "./brain.js";
 import {
   BRAIN_SEARCH_INDEX_VERSION,
@@ -325,16 +327,19 @@ export function embeddingReadinessFromFamilies(
 }
 
 export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness> {
-  const availability = await readEmbeddingFamilyAvailability();
-  return embeddingReadinessFromFamilies(
-    availability.families,
-    availability.unavailableProviders,
-    availability.preferredProvider,
-  );
+  try {
+    const family = await resolveBrainEmbeddingFamily();
+    return embeddingReadinessFromFamilies([family], [], null);
+  } catch (error) {
+    if (error instanceof BrainEmbeddingUnavailableError) {
+      return embeddingReadinessFromFamilies([], [], null);
+    }
+    throw error;
+  }
 }
 
-function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
-  return resolveDefaultEmbeddingFamily();
+function configuredEmbeddingFamily(): Promise<EmbeddingFamily> {
+  return resolveBrainEmbeddingFamily();
 }
 
 export interface CaptureEmbeddingCoverage {
@@ -519,7 +524,7 @@ async function indexExternalSearchLanes(input: {
   const family = await configuredEmbeddingFamily();
   if (
     input.requiredEmbeddingSetId &&
-    family?.id !== input.requiredEmbeddingSetId
+    family.id !== input.requiredEmbeddingSetId
   ) {
     throw new Error("Required embedding set unavailable.");
   }
@@ -537,18 +542,17 @@ async function indexExternalSearchLanes(input: {
       text: input.burstBodies[index] ?? "",
     })),
   ].filter((target) => target.text.trim());
-  const vectors = await embedSearchTexts(
-    family,
-    targets.map((target) => target.text),
+  const vectors = await family.embed(
+    targets.map((target) => ({ text: target.text })),
+    "document",
   );
-  if (!family || !vectors) return;
   await ensurePgVectorIndex(dbExec, family.dimensions, {
     namespace: SEARCH_NAMESPACE,
   });
   const db = getDb();
   for (const [index, target] of targets.entries()) {
     const vector = vectors[index];
-    if (!vector) continue;
+    if (!vector) throw new Error("Embedding response was malformed.");
     await upsertPgVector(
       dbExec,
       {
@@ -603,19 +607,25 @@ async function indexExternalSearchLanes(input: {
 }
 
 function safeEmbeddingLaneFailure(error: unknown): string {
+  if (error instanceof BrainEmbeddingUnavailableError) {
+    return "OpenAI credential unavailable";
+  }
   const message = error instanceof Error ? error.message : "";
   const status = message.match(
-    /^Embedding provider builder\/builder-multimodal-embedding failed with status ([1-5]\d\d)\.$/,
+    /^Embedding provider ([a-z]+)\/[\w.-]+ failed with status ([1-5]\d\d)\.$/,
   );
-  if (status) return `Builder embedding provider HTTP ${status[1]}`;
-  if (
-    message ===
-    "Embedding provider builder/builder-multimodal-embedding timed out."
-  ) {
-    return "Builder embedding provider timed out";
+  if (status) {
+    return `${embeddingProviderLabel(status[1]!)} embedding provider HTTP ${status[2]}`;
+  }
+  const timeout = message.match(
+    /^Embedding provider ([a-z]+)\/[\w.-]+ timed out\.$/,
+  );
+  if (timeout) {
+    return `${embeddingProviderLabel(timeout[1]!)} embedding provider timed out`;
   }
   if (
     message === "Embedding response was malformed." ||
+    message === "OpenAI embedding family does not support images." ||
     message === "Embedding response contained an invalid vector." ||
     message === "Required embedding set unavailable." ||
     message === "Builder embedding text input exceeds 32,000 characters."
@@ -644,7 +654,20 @@ export async function runSearchExternalLane(
         `Embedding backfill external lane failed: ${safeEmbeddingLaneFailure(error)}.`,
       );
     }
+    throw new Error(
+      `Search index external lane failed: ${safeEmbeddingLaneFailure(error)}.`,
+    );
   }
+}
+
+const EMBEDDING_PROVIDER_LABELS = new Map([
+  ["builder", "Builder"],
+  ["openai", "OpenAI"],
+  ["gemini", "Gemini"],
+]);
+
+function embeddingProviderLabel(provider: string): string {
+  return EMBEDDING_PROVIDER_LABELS.get(provider) || provider;
 }
 
 async function retireExternalSearchLanesForArtifacts(

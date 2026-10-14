@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 
+import { Editor as CoreEditor } from "@tiptap/core";
 import type { Editor } from "@tiptap/react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
+import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { SharedRichEditor } from "./SharedRichEditor.js";
 
 describe("SharedRichEditor block controls", () => {
@@ -201,5 +204,84 @@ describe("SharedRichEditor unstyled mode", () => {
 
     act(() => defaultRoot.unmount());
     defaultContainer.remove();
+  });
+});
+
+describe("SharedRichEditor remote collaboration updates", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a collaborator's text arriving through the live document", async () => {
+    const ydoc = new Y.Doc();
+    const peerDoc = new Y.Doc();
+    const seedEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
+    });
+    seedEditor.commands.setContent("Hello");
+    seedEditor.destroy();
+    const onRemoteSnapshotChange = vi.fn();
+    let peerEditor: CoreEditor | null = null;
+    try {
+      await act(async () => {
+        root.render(
+          <SharedRichEditor
+            value="Hello"
+            onChange={() => undefined}
+            ydoc={ydoc}
+            collabSynced
+            contentUpdatedAt="2024-01-01T00:00:01.000Z"
+            // Reconciling against the stale `value` is not what is under test.
+            parseValue={false}
+            setContent={() => undefined}
+            onRemoteSnapshotChange={onRemoteSnapshotChange}
+            dragHandle={false}
+          />,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      // Effects, and with them the seed check, only run once the act scope ends.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(ydoc));
+      peerEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: peerDoc,
+        }),
+      });
+      const stateVector = Y.encodeStateVector(ydoc);
+      onRemoteSnapshotChange.mockClear();
+      peerEditor.commands.insertContentAt(1, "Peer ");
+      await act(async () => {
+        Y.applyUpdate(
+          ydoc,
+          Y.encodeStateAsUpdate(peerDoc, stateVector),
+          "remote",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(onRemoteSnapshotChange).toHaveBeenCalledWith(
+        expect.stringContaining("Peer"),
+      );
+    } finally {
+      peerEditor?.destroy();
+      peerDoc.destroy();
+      ydoc.destroy();
+    }
   });
 });

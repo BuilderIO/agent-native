@@ -1,7 +1,6 @@
 import {
   getOAuthTokens,
   listOAuthAccountsByOwner,
-  saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
@@ -9,17 +8,15 @@ import type { EmailMessage, Label } from "@shared/types.js";
 
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
-  createOAuth2Client,
   gmailGetMessage,
   gmailModifyMessage,
   gmailModifyThread,
   gmailTrashThread,
-  gmailUntrashThread,
+  registerGmailAccountToken,
 } from "./google-api.js";
 import {
   getClientForConnectedAccount,
   getConnectedAccountsWithErrors,
-  getOAuth2Credentials,
   isConnected,
 } from "./google-auth.js";
 import { syncInboxLabelDelta } from "./inbox-store-sync.js";
@@ -35,50 +32,28 @@ import {
 } from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
-
-async function refreshIfNeeded(
-  accountId: string,
-  tokens: StoredTokens,
-): Promise<string> {
-  if (
-    tokens.refresh_token &&
-    tokens.expiry_date &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    const { clientId, clientSecret } = await getOAuth2Credentials(accountId);
-    const oauth = createOAuth2Client(clientId, clientSecret, "");
-    const refreshed = await oauth.refreshToken(tokens.refresh_token);
-    const updated = {
-      ...tokens,
-      access_token: refreshed.access_token,
-      expiry_date: Date.now() + refreshed.expires_in * 1000,
-    };
-    await saveOAuthTokens(
-      "google",
-      accountId,
-      updated as unknown as Record<string, unknown>,
-    );
-    return refreshed.access_token;
-  }
-  return tokens.access_token;
-}
-
 async function getToken(
   accountId: string,
   ownerEmail: string,
 ): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountId)) as unknown as
-    | StoredTokens
+    | { access_token: string; expiry_date?: number }
     | undefined;
-  if (tokens?.access_token) return refreshIfNeeded(accountId, tokens);
-  const managed = await getClientForConnectedAccount(ownerEmail, accountId);
-  return managed && managed.email.toLowerCase() === accountId.toLowerCase()
-    ? managed.accessToken
+  if (
+    tokens?.access_token &&
+    (!tokens.expiry_date || Date.now() < tokens.expiry_date - 5 * 60 * 1000)
+  ) {
+    await registerGmailAccountToken(
+      tokens.access_token,
+      ownerEmail,
+      accountId,
+      tokens.expiry_date,
+    );
+    return tokens.access_token;
+  }
+  const client = await getClientForConnectedAccount(ownerEmail, accountId);
+  return client && client.email.toLowerCase() === accountId.toLowerCase()
+    ? client.accessToken
     : null;
 }
 
@@ -317,7 +292,7 @@ export async function archiveEmail(
         undefined,
         removeLabels,
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(ownerEmail, resolvedThreadId);
+      invalidateThreadCache(ownerEmail, resolvedThreadId, account.accountId);
       await syncInboxLabelDelta(
         ownerEmail,
         account.accountId,
@@ -387,7 +362,7 @@ export async function unarchiveEmail(
   const updated = (await gmailModifyThread(token, msg.threadId, ["INBOX"])) as
     | { historyId?: string }
     | undefined;
-  invalidateThreadCache(ownerEmail, msg.threadId);
+  invalidateThreadCache(ownerEmail, msg.threadId, resolvedAccount);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
     add: ["INBOX"],
     providerHistoryId: updated?.historyId,
@@ -454,7 +429,7 @@ export async function toggleStar(
       )) as { historyId?: string; threadId?: string } | undefined;
       const resolvedThreadId = hintThreadId || updated?.threadId;
       if (resolvedThreadId) {
-        invalidateThreadCache(ownerEmail, resolvedThreadId);
+        invalidateThreadCache(ownerEmail, resolvedThreadId, account.accountId);
         await syncInboxLabelDelta(
           ownerEmail,
           account.accountId,
@@ -531,7 +506,7 @@ export async function trashEmail(
       const updated = (await gmailTrashThread(token, msg.threadId)) as
         | { historyId?: string }
         | undefined;
-      invalidateThreadCache(ownerEmail, msg.threadId);
+      invalidateThreadCache(ownerEmail, msg.threadId, account.accountId);
       await syncInboxLabelDelta(ownerEmail, account.accountId, [msg.threadId], {
         add: ["TRASH"],
         remove: ["INBOX"],
@@ -594,11 +569,16 @@ export async function untrashEmail(
   );
   const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
-  const updated = (await gmailUntrashThread(token, msg.threadId)) as
-    | { historyId?: string }
-    | undefined;
-  invalidateThreadCache(ownerEmail, msg.threadId);
+  if (!msg.threadId) throw new Error(`Thread not found for email ${id}`);
+  const updated = (await gmailModifyThread(
+    token,
+    msg.threadId,
+    ["INBOX"],
+    ["TRASH"],
+  )) as { historyId?: string } | undefined;
+  invalidateThreadCache(ownerEmail, msg.threadId, resolvedAccount);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
+    add: ["INBOX"],
     remove: ["TRASH"],
     providerHistoryId: updated?.historyId,
   });
@@ -805,7 +785,7 @@ export async function markThreadRead(
     isRead ? undefined : ["UNREAD"],
     isRead ? ["UNREAD"] : undefined,
   )) as { historyId?: string } | undefined;
-  invalidateThreadCache(ownerEmail, threadId);
+  invalidateThreadCache(ownerEmail, threadId, resolvedAccount);
   await syncInboxLabelDelta(ownerEmail, resolvedAccount, [threadId], {
     add: isRead ? undefined : ["UNREAD"],
     remove: isRead ? ["UNREAD"] : undefined,

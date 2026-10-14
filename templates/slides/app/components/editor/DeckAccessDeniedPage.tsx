@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { AgentNativeIcon } from "@agent-native/core/client/ui";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared";
 import { SLIDES_ACCESS_REQUEST_NOTE_MAX_LENGTH } from "@shared/deck-access";
 import {
   IconCheck,

@@ -379,17 +379,42 @@ const nextStackCandidate =
 const resolveCornerRadiusXY = loadPureBridgeFn<
   (value: string, width: number, height: number) => { x: number; y: number }
 >("resolveCornerRadiusXY", ["readPx", "resolveCornerRadiusComponent"]);
-const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
-  "isDirectCornerRadiusValue",
-);
-const composeRadiusLinearTransform = loadPureBridgeFn<
+const cornerRadiusMap = loadPureBridgeFn<
   (
-    transform: { a: number; b: number; c: number; d: number },
-    scaleX: number,
-    scaleY: number,
-    radians: number,
-  ) => { a: number; b: number; c: number; d: number }
->("composeRadiusLinearTransform");
+    computedStyle: {
+      borderTopLeftRadius: string;
+      borderTopRightRadius: string;
+      borderBottomRightRadius: string;
+      borderBottomLeftRadius: string;
+    },
+    width: number,
+    height: number,
+  ) => Record<string, { x: number; y: number }>
+>("cornerRadiusMap", [
+  "resolveCornerRadiusXY",
+  "resolveCornerRadiusComponent",
+  "readPx",
+]);
+const composeRadiusTransformMatrices = loadPureBridgeFn<
+  (parent: number[], child: number[]) => number[]
+>("composeRadiusTransformMatrices");
+const radiusTransformInverse = loadPureBridgeFn<
+  (matrix: { a: number; b: number; c: number; d: number } | null) => {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
+    determinant: number;
+    scale: number;
+  } | null
+>("radiusTransformInverse");
+const radiusInverseLinearDelta = loadPureBridgeFn<
+  (
+    matrix: { a: number; b: number; c: number; d: number },
+    screenDx: number,
+    screenDy: number,
+  ) => { x: number; y: number } | null
+>("radiusInverseLinearDelta", ["radiusTransformInverse"]);
 const radiusDragMaximums =
   loadPureBridgeFn<
     (
@@ -397,6 +422,7 @@ const radiusDragMaximums =
       radii: Record<string, { x: number; y: number }>,
       width: number,
       height: number,
+      minimumRadius?: { x: number; y: number },
     ) => { x: number; y: number }
   >("radiusDragMaximums");
 
@@ -1034,18 +1060,80 @@ describe("editor-chrome bridge — corner radius math", () => {
     expect(resolveCornerRadiusXY("50%", 200, 100)).toEqual({ x: 100, y: 50 });
   });
 
-  it("uses computed geometry when the authored radius is tokenized", () => {
-    const authored = "var(--radius)";
-    const computed = "24px";
-    const value = isDirectCornerRadiusValue(authored) ? authored : computed;
-    expect(isDirectCornerRadiusValue(authored)).toBe(false);
-    expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
+  it("uses computed geometry for tokenized corner radii", () => {
+    const computedStyle = {
+      borderTopLeftRadius: "24px",
+      borderTopRightRadius: "24px",
+      borderBottomRightRadius: "24px",
+      borderBottomLeftRadius: "24px",
+    };
+    expect(cornerRadiusMap(computedStyle, 200, 100).nw).toEqual({
+      x: 24,
+      y: 24,
+    });
   });
 
-  it("composes independent scale after a transformed element", () => {
+  it("composes full 3D transforms before projecting the radius plane", () => {
+    const cosX = Math.cos(Math.PI / 4);
+    const sinX = Math.sin(Math.PI / 4);
+    const cosY = Math.cos(Math.PI / 6);
+    const sinY = Math.sin(Math.PI / 6);
+    const rotateX = [
+      1,
+      0,
+      0,
+      0,
+      0,
+      cosX,
+      -sinX,
+      0,
+      0,
+      sinX,
+      cosX,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ];
+    const rotateY = [
+      cosY,
+      0,
+      sinY,
+      0,
+      0,
+      1,
+      0,
+      0,
+      -sinY,
+      0,
+      cosY,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ];
+    const combined = composeRadiusTransformMatrices(rotateY, rotateX);
+
+    expect(combined[0]).toBeCloseTo(cosY);
+    expect(combined[1]).toBeCloseTo(sinY * sinX);
+    expect(combined[5]).toBeCloseTo(cosX);
+    expect(combined[1]).not.toBeCloseTo(0);
+  });
+
+  it("conditions inverse radius mapping relative to transform scale", () => {
     expect(
-      composeRadiusLinearTransform({ a: 0, b: 1, c: -1, d: 0 }, 2, 3, 0),
-    ).toEqual({ a: 0, b: 3, c: -2, d: 0 });
+      radiusTransformInverse({ a: 0.001, b: 0, c: 0, d: 0.001 }),
+    ).not.toBeNull();
+    expect(
+      radiusInverseLinearDelta(
+        { a: 0.001, b: 0, c: 0, d: 0.001 },
+        0.001,
+        -0.002,
+      ),
+    ).toEqual({ x: 1, y: -2 });
+    expect(radiusTransformInverse({ a: 1e9, b: 0, c: 0, d: 1e-9 })).toBeNull();
   });
 
   it("leaves room for the adjacent corners before clamping a drag", () => {
@@ -1062,6 +1150,23 @@ describe("editor-chrome bridge — corner radius math", () => {
         100,
       ),
     ).toEqual({ x: 60, y: 30 });
+  });
+
+  it("does not clamp an individual corner below its rendered radius", () => {
+    expect(
+      radiusDragMaximums(
+        "nw",
+        {
+          nw: { x: 100, y: 100 },
+          ne: { x: 0, y: 0 },
+          se: { x: 0, y: 0 },
+          sw: { x: 0, y: 0 },
+        },
+        200,
+        100,
+        { x: 100, y: 100 },
+      ),
+    ).toEqual({ x: 100, y: 100 });
   });
 });
 
@@ -1278,10 +1383,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "layerNameForElement",
   );
+  const generatedGroupWrapper = extractFunction(
+    editorChromeBridgeScript,
+    "isGeneratedGroupWrapper",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${generatedGroupWrapper}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }

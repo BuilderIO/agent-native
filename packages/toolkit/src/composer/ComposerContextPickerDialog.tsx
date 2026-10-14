@@ -1,5 +1,7 @@
+import { IconCheck } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { TemplateLibraryGrid } from "../app-shell/TemplateLibraryGrid.js";
 import { Alert, AlertDescription } from "../ui/alert.js";
 import { Button } from "../ui/button.js";
 import { Checkbox } from "../ui/checkbox.js";
@@ -12,6 +14,7 @@ import {
 } from "../ui/dialog.js";
 import { Input } from "../ui/input.js";
 import { Label } from "../ui/label.js";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group.js";
 import { Skeleton } from "../ui/skeleton.js";
 import {
   useComposerContextPicker,
@@ -34,6 +37,9 @@ export function ComposerContextPickerDialog({
   const presentation =
     typeof config.presentation === "object" ? config.presentation : undefined;
   const urlOnly = presentation?.mode === "url";
+  const singleSelect = presentation?.mode === "single";
+  const gallery =
+    presentation?.mode === "multiple" && presentation.layout === "gallery";
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const [touched, setTouched] = useState(false);
@@ -55,6 +61,7 @@ export function ComposerContextPickerDialog({
       }}
     >
       <DialogContent
+        className={gallery ? "max-w-5xl" : undefined}
         aria-describedby={undefined}
         overlayClassName="bg-background/85 backdrop-blur-sm"
         closeLabel={t("agentChat.common.close", { defaultValue: "Close" })}
@@ -68,7 +75,9 @@ export function ComposerContextPickerDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle className="min-w-0 break-words pe-6">
+            {title}
+          </DialogTitle>
         </DialogHeader>
         <form
           noValidate
@@ -127,7 +136,64 @@ export function ComposerContextPickerDialog({
                   });
                 }}
               />
-              {error ? null : loading ? (
+              {gallery ? (
+                <div className="agent-context-reference-gallery max-h-96 overflow-y-auto p-1">
+                  <TemplateLibraryGrid
+                    items={items.map((item) => ({
+                      ...item,
+                      disabled:
+                        item.disabled || config.selectedIds?.includes(item.id),
+                    }))}
+                    loading={loading}
+                    error={error}
+                    disabled={selecting}
+                    labels={{
+                      loading: t("agentChat.composer.contextPending", {
+                        defaultValue: "Loading context…",
+                      }),
+                      empty:
+                        config.emptyMessage ??
+                        t("agentChat.composer.noContextResults", {
+                          defaultValue: "No matching context.",
+                        }),
+                      retry: t("agentChat.common.retry", {
+                        defaultValue: "Retry",
+                      }),
+                    }}
+                    isSelected={(item) =>
+                      config.selectedIds?.includes(item.id) === true ||
+                      picker.selectedItems.some(
+                        (selected) => selected.id === item.id,
+                      )
+                    }
+                    onSelect={(item) =>
+                      picker.toggleItem(
+                        item,
+                        !picker.selectedItems.some(
+                          (selected) => selected.id === item.id,
+                        ),
+                      )
+                    }
+                    renderPreview={(item) => (
+                      <div className="pointer-events-none relative h-full overflow-hidden bg-muted">
+                        {item.preview}
+                        {(config.selectedIds?.includes(item.id) ||
+                          picker.selectedItems.some(
+                            (selected) => selected.id === item.id,
+                          )) && (
+                          <span
+                            aria-hidden
+                            className="absolute end-2 top-2 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                          >
+                            <IconCheck className="size-4" />
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    renderMetadata={(item) => item.metadata}
+                  />
+                </div>
+              ) : error ? null : loading ? (
                 <div
                   className="grid gap-2"
                   role="status"
@@ -139,6 +205,33 @@ export function ComposerContextPickerDialog({
                   <Skeleton className="h-8 w-full" />
                   <Skeleton className="h-8 w-full" />
                 </div>
+              ) : items.length && singleSelect ? (
+                <RadioGroup
+                  aria-label={config.searchPlaceholder}
+                  value={config.selectedIds?.[0] ?? ""}
+                  onValueChange={(value) => {
+                    const item = items.find((option) => option.id === value);
+                    if (item && !item.disabled && !loading && !selecting)
+                      void picker.select(item);
+                  }}
+                  disabled={loading || selecting}
+                  className="max-h-64 gap-2 overflow-y-auto"
+                >
+                  {items.map((item) => (
+                    <Label
+                      key={item.id}
+                      htmlFor={`${id}-${item.id}`}
+                      className="flex cursor-pointer items-center gap-3 rounded-md border p-3"
+                    >
+                      <RadioGroupItem
+                        id={`${id}-${item.id}`}
+                        value={item.id}
+                        disabled={item.disabled}
+                      />
+                      <span className="min-w-0 truncate">{item.title}</span>
+                    </Label>
+                  ))}
+                </RadioGroup>
               ) : items.length ? (
                 <div className="grid max-h-64 gap-3 overflow-y-auto">
                   {items.map((item) => {
@@ -159,7 +252,12 @@ export function ComposerContextPickerDialog({
                             picker.toggleItem(item, checked === true)
                           }
                         />
-                        <Label htmlFor={`${id}-${item.id}`}>{item.title}</Label>
+                        <Label
+                          className="min-w-0 break-words"
+                          htmlFor={`${id}-${item.id}`}
+                        >
+                          {item.title}
+                        </Label>
                       </div>
                     );
                   })}
@@ -171,6 +269,17 @@ export function ComposerContextPickerDialog({
                       defaultValue: "No matching context.",
                     })}
                 </p>
+              )}
+              {stage === "results" && config.clearSelection && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="justify-start"
+                  disabled={selecting}
+                  onClick={() => void picker.select()}
+                >
+                  {config.clearSelection.label}
+                </Button>
               )}
               {(location.page > 1 || picker.hasMore) && (
                 <div className="flex gap-2">
@@ -218,12 +327,35 @@ export function ComposerContextPickerDialog({
               )}
             </>
           )}
-          {error && (
+          {error && !gallery && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
           <DialogFooter>
+            {config.footerAction &&
+              (config.footerAction.renderLink &&
+              !config.footerAction.disabled &&
+              !selecting ? (
+                <Button asChild variant="outline" onClick={onClose}>
+                  {config.footerAction.renderLink(
+                    <>
+                      {config.footerAction.icon}
+                      {config.footerAction.label}
+                    </>,
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={config.footerAction.disabled || selecting}
+                  onClick={() => void picker.select("footer")}
+                >
+                  {config.footerAction.icon}
+                  {config.footerAction.label}
+                </Button>
+              ))}
             {error &&
               (stage === "link" ? picker.actionError?.retry : picker.retry) && (
                 <Button
@@ -238,7 +370,7 @@ export function ComposerContextPickerDialog({
                   {t("agentChat.common.retry", { defaultValue: "Retry" })}
                 </Button>
               )}
-            {stage === "results" && (
+            {stage === "results" && config.link && (
               <Button
                 type="button"
                 variant="outline"
@@ -253,18 +385,22 @@ export function ComposerContextPickerDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               {t("agentChat.common.cancel", { defaultValue: "Cancel" })}
             </Button>
-            <Button
-              type="submit"
-              disabled={
-                stage === "link"
-                  ? selecting || Boolean(picker.linkError)
-                  : !canAttach
-              }
-            >
-              {stage === "link" && !urlOnly
-                ? t("agentChat.common.continue", { defaultValue: "Continue" })
-                : attach}
-            </Button>
+            {!(stage === "results" && singleSelect) && (
+              <Button
+                type="submit"
+                disabled={
+                  stage === "link"
+                    ? selecting || Boolean(picker.linkError)
+                    : !canAttach
+                }
+              >
+                {stage === "link" && !urlOnly
+                  ? t("agentChat.common.continue", {
+                      defaultValue: "Continue",
+                    })
+                  : attach}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

@@ -7,7 +7,6 @@ export default {
     connecting: "接続中...",
     clipboardUnavailable: "クリップボードへのアクセスは利用できません",
     disconnect: "切断",
-    notConnected: "未接続",
     loadFailed: "このデータを読み込めませんでした。",
     retry: "再試行",
     saving: "保存中...",
@@ -199,10 +198,6 @@ export default {
   },
   settings: {
     title: "設定",
-    description: "カレンダーと連携を設定します。",
-    languageTitle: "言語",
-    languageDescription: "Calendar のインターフェース言語を選択します。",
-    languageLabel: "インターフェース言語",
     agentTitle: "エージェントを管理",
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
@@ -216,13 +211,8 @@ export default {
     zoomConnectFailed: "Zoom に接続できませんでした",
     zoomDisconnected: "Zoom を切断しました",
     zoomDisconnectFailed: "Zoom の切断に失敗しました",
-    general: "一般",
-    generalDescription: "カレンダー既定値と予約ページの代替文言。",
-    timezone: "タイムゾーン",
-    saveSettings: "設定を保存",
     saved: "設定を保存しました",
     saveFailed: "設定を保存できませんでした",
-    appearance: "外観",
     appearanceDescription:
       "ワークスペースのカラーテーマを選ぶか、エージェントに依頼します。",
     desktopNotifications: "デスクトップ通知",
@@ -236,19 +226,10 @@ export default {
     connectGoogleDescription: "予定を同期して一か所で管理します。",
     zoomDescription:
       "Zoom を接続して、カレンダーイベントと予約用の会議リンクを作成します。",
-    zoomNotConfigured: "未設定",
     zoomCredentialsPrompt:
       "接続を有効にするには Zoom OAuth 認証情報を追加します。",
-    bookingTitleLabel: "予約ページの予備タイトル",
     bookingTitlePlaceholder: "ミーティングを予約",
-    bookingTitleHelp:
-      "予約リンクにタイトルがない場合だけ使われます。予約リンクから公開 URL を作成、開く、コピーできます。",
-    bookingDescriptionLabel: "予約ページの予備説明",
     bookingDescriptionPlaceholder: "都合のよい時間を選んでください。",
-    bookingDescriptionHelp: "予約リンクに独自の説明がない場合だけ使われます。",
-    defaultDurationLabel: "デフォルトのイベント時間（分）",
-    defaultDurationHelp:
-      "新しいカレンダーイベントと予約枠のデフォルト時間です。予約リンクごとに上書きできます。",
     weekStartLabel: "週の開始日",
     weekStartSunday: "日曜日 - 土曜日",
     weekStartMonday: "月曜日 - 日曜日",
@@ -257,7 +238,7 @@ export default {
     eventRulesConnectJev: "招待ルールを実行するには Jev を接続",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io なら無料、または API キーを追加。",
-    eventRulesConnectBuilder: "Builder.io を接続",
+    eventRulesConnectBuilder: "Builder.io を使う",
     eventRulesAddJevApiKey: "API キーを追加",
     eventRulesTabRules: "ルール",
     eventRulesHelpLabel: "招待ルールのプロンプトについて",
@@ -617,6 +598,7 @@ export default {
     fieldRequired: "{{label}} は必須です",
     linkDisabled: "{{title}}は無効です",
     linkEnabled: "{{title}}有効",
+    advanced: "詳細設定",
     linkVisibility: "リンクの可視性",
     linkVisibilityDescription:
       "公開ページを無効にするには、これをオフにします。",
@@ -791,6 +773,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "終日セクションのサイズを変更",
     addWorkingLocation: "勤務場所を追加",
     addTitleBeforeCreate: "イベントを作成する前にタイトルを追加してください",
     calendarSettingsLoading:
@@ -983,6 +966,8 @@ export default {
     occurrences: "回",
     reviewInvite: "レビューの招待",
     reviewProposedTime: "提案された時刻を確認",
+    newTimeProposedBy: "{{name}}さんが新しい時間を提案しました",
+    reviewTimeProposals: "時間の提案を確認",
     responseAwaitingCount: "{{count}} 待機中",
     responseMaybeCount: "{{count}} 未定",
     responseNoCount: "{{count}} いいえ",

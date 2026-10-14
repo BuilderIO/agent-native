@@ -1,7 +1,6 @@
 import {
   clampAgentSidebarWidth,
   getAgentSidebarWideWidth,
-  focusAgentChat,
   startAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
 import {
@@ -10,6 +9,7 @@ import {
   getTemplateGatewayAppUrl,
   getTemplateGatewayUrl,
 } from "@agent-native/shared-app-config";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import {
   type CSSProperties,
   useState,

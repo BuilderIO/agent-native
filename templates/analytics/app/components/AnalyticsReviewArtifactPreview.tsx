@@ -10,7 +10,7 @@ import {
   reviewDashboardFilters,
   reviewDashboardVariables,
 } from "@/pages/adhoc/sql-dashboard/filter-vars";
-import { interpolate } from "@/pages/adhoc/sql-dashboard/interpolate";
+import { interpolateDashboardPanelSql } from "@/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { timeRangeDays } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
@@ -293,9 +293,11 @@ function ReviewDashboardPanel({
     );
   }
 
-  const resolvedSql = interpolate(serializePanelSql(panel.sql), variables, {
-    failClosedTimeVariables: true,
-  });
+  const resolvedSql = interpolateDashboardPanelSql(
+    serializePanelSql(panel.sql),
+    variables,
+    panel,
+  );
   return (
     <div ref={containerRef} className="min-w-0 border-b border-border/70 pb-5">
       {!compact && (

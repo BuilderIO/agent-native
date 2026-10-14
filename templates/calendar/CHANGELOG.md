@@ -3,6 +3,77 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-08
+
+### Added
+
+- Connected agents can create events, edit events, and RSVP to one recurring occurrence or the entire series directly over MCP
+
+  Creating invitations or out-of-office auto-declines requires approval in connected clients and the Calendar agent.
+
+### Improved
+
+- Calendar highlights proposed times and links to Google Calendar for review
+- The week view's all-day section can be resized
+
+## 2026-10-06
+
+### Fixed
+
+- Builder.io setup details render immediately, and model settings hide disconnected defaults and upgrade outdated GPT selections.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Notifications sent by the agent or an automation show up again in a bell in the Calendar header.
+- On phones, the Calendar header shows the full date range again, with Today as a compact icon.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies account activation and sign-in.
+- Owners and admins can save Apollo, HubSpot, Gong, and Pylon keys for the whole organization or just for themselves.
+
+## 2026-10-01
+
+### Improved
+
+- Public booking pages show their background and a layout-matched skeleton while details load
+
+## 2026-09-30
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Events longer than 24 hours appear as compact bars at the top of Calendar.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Booking link host, custom-field, visibility, and delete controls now live in a collapsible Advanced section.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+
+### Fixed
+
+- Public booking pages no longer get stuck loading.
+
 ## 2026-09-27
 
 ### Improved

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,6 +10,8 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { AssistantReadyProvider } from "../shell-ready";
 
 const state = vi.hoisted(() => ({
   toggleThemeMock: vi.fn(),
@@ -22,7 +25,7 @@ const state = vi.hoisted(() => ({
   providerEnabled: [] as boolean[],
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   BuilderSetupCard: () => null,
   chatModelSelectionStorageKey: (namespace?: string | null) =>
     namespace
@@ -38,7 +41,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     return { selectedEngine: state.selectedEngine };
   },
 }));
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: () => null,
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
   isLocalRuntimeEngine: (engine: string) => engine === "ollama",
 }));
 
@@ -68,7 +74,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/client/navigation", () => ({
+vi.mock("@agent-native/toolkit/app/shared", () => ({
   submitToAgent: vi.fn(),
 }));
 
@@ -80,7 +86,7 @@ vi.mock("./docs-content", () => ({
   buildSearchIndexAsync: vi.fn(),
 }));
 
-import { submitToAgent } from "@agent-native/core/client/navigation";
+import { submitToAgent } from "@agent-native/toolkit/app/shared";
 
 import { buildSearchIndexAsync } from "./docs-content";
 import { SearchModal } from "./SearchModal";
@@ -209,8 +215,10 @@ describe("SearchModal", () => {
 
     fireEvent.click(askButton);
 
-    expect(vi.mocked(submitToAgent)).toHaveBeenCalledWith(
-      "How do I configure chat?",
+    await waitFor(() =>
+      expect(vi.mocked(submitToAgent)).toHaveBeenCalledWith(
+        "How do I configure chat?",
+      ),
     );
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -232,5 +240,104 @@ describe("SearchModal", () => {
     expect((askButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(askButton);
     expect(vi.mocked(submitToAgent)).not.toHaveBeenCalled();
+  });
+
+  it("keeps a first question pending beyond the submit buffer lifetime", async () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    let ready!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const onClose = vi.fn();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+    render(
+      <MemoryRouter>
+        <AssistantReadyProvider value={() => pending}>
+          <SearchModal open onClose={onClose} />
+        </AssistantReadyProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Keep this question" },
+    });
+    const askButton = screen.getByRole("button", { name: /Ask AI/ });
+    fireEvent.click(askButton);
+    clock.mockReturnValue(9_000);
+    expect(submitToAgent).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect((askButton as HTMLButtonElement).disabled).toBe(true);
+    ready();
+    await waitFor(() =>
+      expect(submitToAgent).toHaveBeenCalledWith("Keep this question"),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    clock.mockRestore();
+  });
+
+  it("cancels a pending question when its query changes", async () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    let ready!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <AssistantReadyProvider value={() => pending}>
+          <SearchModal open onClose={onClose} />
+        </AssistantReadyProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Earlier question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Ask AI/ }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Revised question" },
+    });
+    await act(async () => ready());
+    expect(submitToAgent).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Ask AI/ }));
+    await waitFor(() =>
+      expect(submitToAgent).toHaveBeenCalledWith("Revised question"),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a reopened search alone when an earlier request finishes loading", async () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    let ready!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const onClose = vi.fn();
+    const modal = (open: boolean) => (
+      <MemoryRouter>
+        <AssistantReadyProvider value={() => pending}>
+          <SearchModal open={open} onClose={onClose} />
+        </AssistantReadyProvider>
+      </MemoryRouter>
+    );
+    const { rerender } = render(modal(true));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Earlier question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Ask AI/ }));
+    rerender(modal(false));
+    rerender(modal(true));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "New search" },
+    });
+    await act(async () => ready());
+    expect(submitToAgent).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe(
+      "New search",
+    );
+    expect(
+      (screen.getByRole("button", { name: /Ask AI/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 });

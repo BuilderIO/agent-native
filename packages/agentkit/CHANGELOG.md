@@ -1,5 +1,203 @@
 # @agent-native/agentkit
 
+## 0.208.0
+
+### Patch Changes
+
+- 0fb4de3: Keep completed responses available when terminal replay catch-up is incomplete.
+- afe2ee7: Preserve completed tool history and render legacy Plan blocks through their authoring controls.
+- Release all public npm packages with a patch version bump.
+- 0fb4de3: Report exhausted terminal catch-up transport failures through the normal stream error path.
+
+## 0.207.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77c15ee: Recover AgentKit run cursors from trusted protocol metadata, compact omitted event ranges, and retry transient first-run status failures.
+
+## 0.207.0
+
+### Minor Changes
+
+- 41700be: Expose server-confirmed chat persistence, report snapshot save results, and allow canceled persistence requests so the UI can retry failed saves safely. The legacy `persistThreadSnapshot()` method rejects on unexpected transport failure and resolves for expected cancellation or queue deferral without confirming that the snapshot was saved. Use `persistThreadSnapshotWithResult()` when callers need the save outcome.
+
+### Patch Changes
+
+- 19cd58b: Fix chat turns that died or looked broken for recoverable reasons. A turn that yields to a connection request is recorded as awaiting input instead of a truncated run (no synthetic auto-continue, no chained successor), and automations record the yield as a typed connection_required failure and pause. Stale connection cards retire with their run, and a chat that does not own a pending connection resume no longer shows a stuck "Connection failed" banner. A failed peer-app call shows the app name once with a short reason and keeps its participant after the run finishes. Peer-app failures carry typed codes so the caller stops retrying an unfixable peer, and a peer that needs a connection returns a do-not-retry result. An org A2A secret equal to the deploy secret is refused, and the resulting identity demotion is logged.
+- aa34418: Never persist inline image or file bytes in chat storage: thread snapshots, queued messages, run events and dispatch payloads keep a durable URL or an explicit omitted marker instead of `data:` URLs. Chat now reports typed, localized upload and attachment errors (including a "Retry without attachment" action for provider-rejected files), replays earlier attachments and the original ask in long threads, keeps a provider ownership check from failing on one unreachable provider, marks interrupted tool results as unknown-outcome errors, and no longer records experiment assignments when a model was chosen explicitly.
+- ccddd3a: Preserve image attachments and user-selected output dimensions throughout agent chat and Design generation.
+- Release all public npm packages with a patch version bump.
+- ecfe037: Preserve opaque uploaded file IDs and show an error when retrying without attachments fails.
+
+## 0.206.0
+
+### Minor Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+### Patch Changes
+
+- d6f1e18: Keep inline attachment bytes out of durable chat payloads, reject data URLs in queued file references, and distinguish stored references from unreadable malformed uploads.
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- Release all public npm packages with a patch version bump.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- f3d2b81: Recover completed chat runs when terminal replay is briefly incomplete, keep invalid gateway requests from retrying as transient errors, classify completion timeouts with a stable error code, preserve retries for no-detail transient gateway codes, continue recoverable run timeouts, and reject partial completion when a stream ends cleanly after timeout.
+
+## 0.205.0
+
+### Patch Changes
+
+- b7e32e4: Place the "tool-call history was omitted" note before the user's prompt in `sendMessage` requests, so the request ends on the user's turn instead of a synthetic assistant message.
+- e7416e0: Keep runs awaiting approval active when the client needs to rebuild its run projection, so follow-up prompts stay queued.
+- Release all public npm packages with a patch version bump.
+- 5c5e00e: Keep approval-pending runs active when restoring a thread snapshot.
+- 004f2a9: Continuing a stopped agent run no longer repeats the steps it already finished. A run the server ends after its worker died now saves its finished tool calls to the thread, a new message after an unfinished turn tells the agent what that turn already did, and the run failure card offers Continue, which resumes the stopped run's own turn so a finished send or charge is not run again. AgentKit transports can implement the new optional `continueRun`.
+
+## 0.204.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- bed3b01: Keep queued AgentKit messages behind replacement runs resumed from an approval.
+
+## 0.203.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.203.0
+
+### Patch Changes
+
+- 3d573d7: Prevent duplicate chat output and bound custom transport snapshot persistence.
+- Release all public npm packages with a patch version bump.
+- 3d573d7: Persist AgentKit thread snapshots as bounded deltas so long conversations do not exceed hosting request limits.
+- 4738d38: Include completed tool calls and results in the next AgentKit turn so the agent can answer questions about its prior tool activity.
+
+## 0.202.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.201.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.201.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.200.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 5113a23: Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.
+
+## 0.199.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- Release all public npm packages with a patch version bump.
+- 20d3bb8: Retry automatic queued message promotion when the run slot remains occupied.
+
+## 0.198.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ce1245c: Preserve queued chat intent through asynchronous preparation and resumed runtime streams.
+
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- Release all public npm packages with a patch version bump.
+
+## 0.198.0
+
+### Minor Changes
+
+- afbee14: Move runtime-backed React surfaces and generated source corpus out of Core's default package path, and move AgentKit's React entrypoints to Toolkit in a breaking AgentKit release. Follow the [Core 0.198.0 upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) when updating an existing app or consuming AgentKit directly.
+
+### Patch Changes
+
+- 8853f61: Keep reasoning inside collapsed work history, align disclosure chevrons with their labels, and tighten progress spacing. Show elapsed time once on the work summary instead of repeating the full run duration on each thought.
+- 8853f61: Render model-authored follow-up suggestions only for the latest successfully completed turn, retire stale suggestions across new turns and restores, and submit full suggestion prompts through normal context and permission checks. Keep initial empty-state starters separate from conversational follow-ups.
+
+  Pass the active thread ID to fullscreen callbacks instead of a menu selection event.
+
+- 8853f61: Clear shared chat composers when AgentKit owns the recoverable user message instead of waiting for the agent request to start. Preserve newer drafts, explicit send failures, and queued-message acknowledgement timing without sending local callbacks to transports or persisted submissions.
+- 8853f61: Show catalog integration badges throughout live and expanded agent activity, retaining provider identity while tools run and keeping activity from different providers in separate groups.
+- Release all public npm packages with a patch version bump.
+- 8853f61: Collapse run activity by default, keep the latest active step visible, and group expanded history by purpose.
+- 8853f61: Preserve completed runs when history refresh or stream closure fails, honor resolved approvals during hydration, keep connection continuations responsive, and expose tool, approval, and cancellation failures. Reject retained attachments if standalone upload access is withdrawn instead of silently dropping files. Reset chat disclosures across threads, preserve host composer gates, recognize streamed provider arguments, and contain long transcript content. Integrate thread- and account-scoped app composer context with exact revalidation, active-surface checks, and accepted-only cleanup while preserving ambient context, composer mode instructions, and full menu defaults.
+
+## 0.5.1
+
+### Patch Changes
+
+- f2e8ffe: Center empty chat composers correctly and make send buttons circular across shared chat surfaces.
+- Release all public npm packages with a patch version bump.
+- 57e0a0f: Preserve live assistant messages through stale thread snapshots and reconcile terminal run status without skipping events.
+- 82ad87c: Publish the current AgentKit runtime exports required by Core's chat surface.
+- Updated dependencies [f2e8ffe]
+- Updated dependencies [023ee9b]
+- Updated dependencies [47985fe]
+- Updated dependencies
+- Updated dependencies [fa62fdf]
+  - @agent-native/toolkit@0.23.1
+
 ## 0.5.0
 
 ### Minor Changes

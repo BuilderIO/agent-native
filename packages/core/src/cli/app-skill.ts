@@ -18,6 +18,7 @@ import {
   buildHttpMcpEntry,
   removeSameUrlDuplicatesForClient,
 } from "./mcp-config-writers.js";
+import { openUrlInBrowser } from "./open-url.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
@@ -33,6 +34,41 @@ export interface AppSkillManifestSkill {
   path: string;
   visibility: SkillVisibility;
   exportAs?: string;
+}
+
+export interface AppSkillChatGptTestCase {
+  description: string;
+  prompt: string;
+  tools_triggered?: string;
+  expected_behavior?: string;
+}
+
+export interface AppSkillChatGptPlugin {
+  version: string;
+  interface: {
+    displayName: string;
+    shortDescription: string;
+    longDescription: string;
+    developerName: string;
+    category: string;
+    capabilities: string[];
+    websiteURL: string;
+    supportURL: string;
+    privacyPolicyURL: string;
+    termsOfServiceURL: string;
+    defaultPrompt: string[];
+    logoPath: string;
+    keywords?: string[];
+  };
+  review: {
+    test_cases: {
+      positive: AppSkillChatGptTestCase[];
+      negative: AppSkillChatGptTestCase[];
+    };
+    commerce: boolean;
+    iframeJustification: string;
+    demo_recording_url?: string;
+  };
 }
 
 export interface AppSkillSurface {
@@ -74,6 +110,7 @@ export interface AppSkillManifest {
   surfaces: AppSkillSurface[];
   skills: AppSkillManifestSkill[];
   hostAdapters: AppSkillHostAdapter[];
+  chatgpt?: AppSkillChatGptPlugin;
 }
 
 export interface LoadedAppSkillManifest {
@@ -255,6 +292,190 @@ function uniqueAdapters(values: AppSkillHostAdapter[]): AppSkillHostAdapter[] {
   });
 }
 
+function requiredPluginString(
+  record: Record<string, unknown>,
+  key: string,
+  field: string,
+): string {
+  const value = record[key];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${field} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function requiredPluginStringArray(value: unknown, field: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string" && item.trim())
+  ) {
+    throw new Error(`${field} must be an array of non-empty strings.`);
+  }
+  return value;
+}
+
+function normalizeChatGptPlugin(value: unknown): AppSkillChatGptPlugin {
+  if (!isRecord(value)) throw new Error("chatgpt must be an object.");
+  if (!isRecord(value.interface)) {
+    throw new Error("chatgpt.interface must be an object.");
+  }
+  if (!isRecord(value.review)) {
+    throw new Error("chatgpt.review must be an object.");
+  }
+  const listing = value.interface;
+  const review = value.review;
+  if (!isRecord(review.test_cases)) {
+    throw new Error("chatgpt.review.test_cases must be an object.");
+  }
+
+  const normalizeCases = (
+    rawCases: unknown,
+    field: string,
+  ): AppSkillChatGptTestCase[] => {
+    if (!Array.isArray(rawCases)) {
+      throw new Error(`${field} must be an array.`);
+    }
+    return rawCases.map((rawCase, index) => {
+      const caseField = `${field}[${index}]`;
+      if (!isRecord(rawCase)) {
+        throw new Error(`${caseField} must be an object.`);
+      }
+      return {
+        description: requiredPluginString(
+          rawCase,
+          "description",
+          `${caseField}.description`,
+        ),
+        prompt: requiredPluginString(rawCase, "prompt", `${caseField}.prompt`),
+        ...(rawCase.tools_triggered === undefined
+          ? {}
+          : {
+              tools_triggered: requiredPluginString(
+                rawCase,
+                "tools_triggered",
+                `${caseField}.tools_triggered`,
+              ),
+            }),
+        ...(rawCase.expected_behavior === undefined
+          ? {}
+          : {
+              expected_behavior: requiredPluginString(
+                rawCase,
+                "expected_behavior",
+                `${caseField}.expected_behavior`,
+              ),
+            }),
+      };
+    });
+  };
+
+  if (typeof review.commerce !== "boolean") {
+    throw new Error("chatgpt.review.commerce must be a boolean.");
+  }
+  if (
+    review.demo_recording_url !== undefined &&
+    (typeof review.demo_recording_url !== "string" ||
+      !review.demo_recording_url.trim())
+  ) {
+    throw new Error(
+      "chatgpt.review.demo_recording_url must be a non-empty string when set.",
+    );
+  }
+  const keywords =
+    listing.keywords === undefined
+      ? undefined
+      : requiredPluginStringArray(
+          listing.keywords,
+          "chatgpt.interface.keywords",
+        );
+
+  return {
+    version: requiredPluginString(value, "version", "chatgpt.version"),
+    interface: {
+      displayName: requiredPluginString(
+        listing,
+        "displayName",
+        "chatgpt.interface.displayName",
+      ),
+      shortDescription: requiredPluginString(
+        listing,
+        "shortDescription",
+        "chatgpt.interface.shortDescription",
+      ),
+      longDescription: requiredPluginString(
+        listing,
+        "longDescription",
+        "chatgpt.interface.longDescription",
+      ),
+      developerName: requiredPluginString(
+        listing,
+        "developerName",
+        "chatgpt.interface.developerName",
+      ),
+      category: requiredPluginString(
+        listing,
+        "category",
+        "chatgpt.interface.category",
+      ),
+      capabilities: requiredPluginStringArray(
+        listing.capabilities,
+        "chatgpt.interface.capabilities",
+      ),
+      websiteURL: requiredPluginString(
+        listing,
+        "websiteURL",
+        "chatgpt.interface.websiteURL",
+      ),
+      supportURL: requiredPluginString(
+        listing,
+        "supportURL",
+        "chatgpt.interface.supportURL",
+      ),
+      privacyPolicyURL: requiredPluginString(
+        listing,
+        "privacyPolicyURL",
+        "chatgpt.interface.privacyPolicyURL",
+      ),
+      termsOfServiceURL: requiredPluginString(
+        listing,
+        "termsOfServiceURL",
+        "chatgpt.interface.termsOfServiceURL",
+      ),
+      defaultPrompt: requiredPluginStringArray(
+        listing.defaultPrompt,
+        "chatgpt.interface.defaultPrompt",
+      ),
+      logoPath: requiredPluginString(
+        listing,
+        "logoPath",
+        "chatgpt.interface.logoPath",
+      ),
+      ...(keywords ? { keywords } : {}),
+    },
+    review: {
+      test_cases: {
+        positive: normalizeCases(
+          review.test_cases.positive,
+          "chatgpt.review.test_cases.positive",
+        ),
+        negative: normalizeCases(
+          review.test_cases.negative,
+          "chatgpt.review.test_cases.negative",
+        ),
+      },
+      commerce: review.commerce,
+      iframeJustification: requiredPluginString(
+        review,
+        "iframeJustification",
+        "chatgpt.review.iframeJustification",
+      ),
+      ...(review.demo_recording_url !== undefined
+        ? { demo_recording_url: review.demo_recording_url }
+        : {}),
+    },
+  };
+}
+
 export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
   if (!isRecord(raw)) throw new Error("App skill manifest must be an object.");
   const schemaVersion = raw.schemaVersion ?? 1;
@@ -294,6 +515,8 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
       .map(normalizeHostAdapter)
       .filter((value): value is AppSkillHostAdapter => Boolean(value)),
   );
+  const chatgpt =
+    raw.chatgpt === undefined ? undefined : normalizeChatGptPlugin(raw.chatgpt);
 
   return {
     schemaVersion: 1,
@@ -372,6 +595,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
       }))
       .filter((skill) => skill.path),
     hostAdapters: adapters.length ? adapters : defaultHostAdapters(),
+    ...(chatgpt ? { chatgpt } : {}),
   };
 }
 
@@ -1201,22 +1425,6 @@ function runShell(command: string, cwd: string): Promise<number> {
   });
 }
 
-function openUrl(url: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore",
-    shell: process.platform === "win32",
-  });
-  child.unref();
-}
-
 export async function ensureAppSkill(
   loaded: LoadedAppSkillManifest,
   options: EnsureAppSkillOptions = {},
@@ -1345,7 +1553,7 @@ export async function launchAppSkill(
 
   if (plan.mode === "hosted") {
     log(`Opening ${loaded.manifest.displayName}: ${plan.url}`);
-    openUrl(plan.url);
+    openUrlInBrowser(plan.url);
     return plan;
   }
 

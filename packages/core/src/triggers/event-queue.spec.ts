@@ -29,10 +29,12 @@ import {
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
+  ensureAutomationTriggerEventQueue,
   expireAutomationTriggerEvent,
   expireStaleAutomationTriggerEvents,
   failAutomationTriggerEvent,
   getAutomationTriggerSweepCursor,
+  hasPendingStaleAutomationTriggerEvents,
   listReadyAutomationTriggerIds,
   purgeExpiredAutomationTriggerEvents,
   reserveAutomationTriggerEventPurge,
@@ -45,6 +47,15 @@ describe("automation trigger event queue", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+  });
+
+  it("ensures the active-head index during queue initialization", async () => {
+    await ensureAutomationTriggerEventQueue();
+
+    expect(ensureIndexExistsMock).toHaveBeenCalledWith(
+      "idx_automation_trigger_event_queue_active_head",
+      expect.stringContaining("WHERE status IN ('pending', 'processing')"),
+    );
   });
 
   it("persists payload and source metadata with a stable per-trigger dedupe key", async () => {
@@ -140,9 +151,14 @@ describe("automation trigger event queue", () => {
       args: unknown[];
       sql: string;
     };
-    expect(update.sql).toContain("ORDER BY candidate.sequence_id ASC");
-    expect(update.sql).toContain("earlier.status IN ('pending', 'processing')");
-    expect(update.sql).toContain("candidate.status = 'processing'");
+    expect(update.sql).toContain("ORDER BY head.sequence_id ASC");
+    expect(update.sql).toContain("head.status IN ('pending', 'processing')");
+    expect(update.sql).toContain("head.app_id = ?");
+    expect(update.sql).not.toContain("NOT EXISTS");
+    expect(update.sql).toContain(
+      "claimed.status = 'pending' AND claimed.available_at <= ?",
+    );
+    expect(update.sql).toContain("claimed.status = 'processing'");
     expect(update.sql).toContain(
       "failure_attempts = claimed.failure_attempts +",
     );
@@ -150,7 +166,40 @@ describe("automation trigger event queue", () => {
       "CASE WHEN claimed.status = 'processing' THEN 1 ELSE 0 END",
     );
     expect(update.sql).toContain("RETURNING claimed.id");
-    expect(update.args).toContain("mail");
+    expect(update.args).toEqual([
+      expect.any(Number),
+      "resource-1",
+      "mail",
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
+  it("returns null without mutating a FIFO head that is not claimable", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      claimNextAutomationTriggerEvent("resource-1", "mail"),
+    ).resolves.toBeNull();
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("SELECT head.id");
+    expect(query.sql).toContain("head.status IN ('pending', 'processing')");
+    expect(query.sql).toContain("ORDER BY head.sequence_id ASC");
+    expect(query.sql).toContain("LIMIT 1");
+    expect(query.sql).toContain("claimed.available_at <= ?");
+    expect(query.sql).toContain("claimed.claimed_at <= ?");
+    expect(query.args).toEqual([
+      expect.any(Number),
+      "resource-1",
+      "mail",
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+    expect(executeMock).toHaveBeenCalledOnce();
   });
 
   it("defers busy events without consuming a failure attempt", async () => {
@@ -160,12 +209,14 @@ describe("automation trigger event queue", () => {
       2,
       1,
       new Error("automation is running"),
-      { delayMs: 5_000, countFailure: false },
+      { delayMs: 5_000, countFailure: false, timeoutMs: 5_000 },
     );
 
     const update = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
+      maxAttempts?: number;
       sql: string;
+      timeoutMs?: number;
     };
     expect(update.sql).toContain("SET status = 'pending'");
     expect(update.sql).toContain("claimed_at = NULL");
@@ -175,6 +226,8 @@ describe("automation trigger event queue", () => {
       "claimed_at = ? AND attempts = ? AND failure_attempts = ?",
     );
     expect(update.sql).not.toContain("payload");
+    expect(update.timeoutMs).toBe(5_000);
+    expect(update.maxAttempts).toBe(1);
     expect(update.args).toEqual([
       expect.any(Number),
       0,
@@ -193,11 +246,14 @@ describe("automation trigger event queue", () => {
       8,
       MAX_AUTOMATION_TRIGGER_EVENT_FAILURES - 1,
       new Error("provider unavailable"),
+      { timeoutMs: 5_000 },
     );
 
     const update = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
+      maxAttempts?: number;
       sql: string;
+      timeoutMs?: number;
     };
     expect(update.sql).toContain("SET status = 'failed'");
     expect(update.sql).toContain("payload = ?");
@@ -208,6 +264,8 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain(
       "claimed_at = ? AND attempts = ? AND failure_attempts = ?",
     );
+    expect(update.timeoutMs).toBe(5_000);
+    expect(update.maxAttempts).toBe(1);
     expect(update.args).toEqual([
       '{"kind":"completed"}',
       expect.any(Number),
@@ -261,6 +319,39 @@ describe("automation trigger event queue", () => {
     expect(query.args).toContain("mail");
   });
 
+  it("can skip a trigger whose next queued event is stale", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [{ trigger_id: "resource-z" }] });
+
+    await listReadyAutomationTriggerIds(
+      "mail",
+      100,
+      {},
+      {
+        timeoutMs: 5_000,
+        excludeStaleEventBefore: {
+          eventName: "mail.message.received",
+          emittedBefore: "2026-09-27T10:00:00.000Z",
+        },
+      },
+    );
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      maxAttempts?: number;
+      sql: string;
+    };
+    expect(query.sql).toContain("WITH ready AS (");
+    expect(query.sql).toContain("stale.sequence_id");
+    expect(query.sql).toContain("earlier.sequence_id < stale.sequence_id");
+    expect(query.args).toEqual(
+      expect.arrayContaining([
+        "mail.message.received",
+        "2026-09-27T10:00:00.000Z",
+      ]),
+    );
+    expect(query.maxAttempts).toBe(1);
+  });
+
   it("bounds ready-trigger pages and keysets past the durable cursor", async () => {
     const triggerIds = Array.from({ length: 100 }, (_, index) => ({
       trigger_id: `resource-${index}`,
@@ -308,6 +399,22 @@ describe("automation trigger event queue", () => {
     );
   });
 
+  it("adds a partial index for active FIFO heads", () => {
+    const activeHeadIndexMigration = AUTOMATION_TRIGGER_EVENT_MIGRATIONS.find(
+      ({ name }) => name === "automation-trigger-event-active-head-index",
+    );
+    expect(activeHeadIndexMigration).toMatchObject({
+      version: 5,
+      name: "automation-trigger-event-active-head-index",
+    });
+    expect(activeHeadIndexMigration?.sql).toContain(
+      "ON automation_trigger_event_queue (app_id, trigger_id, sequence_id)",
+    );
+    expect(activeHeadIndexMigration?.sql).toContain(
+      "WHERE status IN ('pending', 'processing')",
+    );
+  });
+
   it("persists the fair sweep cursor across cold invocations", async () => {
     executeMock.mockResolvedValueOnce({
       rows: [{ last_trigger_id: "resource-m" }],
@@ -349,11 +456,15 @@ describe("automation trigger event queue", () => {
   });
 
   it("scrubs a completed event payload and retains its dedupe row", async () => {
-    await completeAutomationTriggerEvent("queue-1", 1234, 1);
+    await completeAutomationTriggerEvent("queue-1", 1234, 1, {
+      timeoutMs: 5_000,
+    });
 
     const update = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
+      maxAttempts?: number;
       sql: string;
+      timeoutMs?: number;
     };
     expect(update.sql).toContain("SET status = 'completed'");
     expect(update.sql).toContain("payload = ?");
@@ -361,6 +472,8 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain("claimed_at = ? AND attempts = ?");
     expect(update.sql).not.toContain("DELETE");
     expect(update.sql).not.toContain("event_id =");
+    expect(update.timeoutMs).toBe(5_000);
+    expect(update.maxAttempts).toBe(1);
     expect(update.args).toEqual([
       '{"kind":"completed"}',
       expect.any(Number),
@@ -403,21 +516,57 @@ describe("automation trigger event queue", () => {
     ]);
   });
 
+  it("checks for a remaining pending stale event with a bounded query", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [{ id: "queue-1" }] });
+    const input = {
+      appId: "mail",
+      eventName: "mail.message.received",
+      emittedBefore: "2026-09-28T10:00:00.000Z",
+      timeoutMs: 5_000,
+    };
+
+    await expect(hasPendingStaleAutomationTriggerEvents(input)).resolves.toBe(
+      true,
+    );
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      maxAttempts?: number;
+      sql: string;
+      timeoutMs?: number;
+    };
+    expect(query.sql).toContain("event_name = ? AND status = 'pending'");
+    expect(query.sql).toContain("emitted_at < ?");
+    expect(query.sql).toContain("LIMIT 1");
+    expect(query.args).toEqual([
+      input.appId,
+      input.eventName,
+      input.emittedBefore,
+    ]);
+    expect(query.timeoutMs).toBe(5_000);
+    expect(query.maxAttempts).toBe(1);
+  });
+
   it("expires a reclaimed stale event only while its claim is current", async () => {
     await expireAutomationTriggerEvent(
       "queue-1",
       1234,
       2,
       "Expired stale mail event.",
+      { timeoutMs: 5_000 },
     );
 
     const query = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
+      maxAttempts?: number;
       sql: string;
+      timeoutMs?: number;
     };
     expect(query.sql).toContain("SET status = 'completed'");
     expect(query.sql).toContain("last_error = ?");
     expect(query.sql).toContain("claimed_at = ? AND attempts = ?");
+    expect(query.timeoutMs).toBe(5_000);
+    expect(query.maxAttempts).toBe(1);
     expect(query.args).toEqual([
       '{"kind":"completed"}',
       expect.any(Number),

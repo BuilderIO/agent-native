@@ -12,6 +12,9 @@ let selectedRows: Record<string, unknown>[] = [];
 const mockEnsureIndexExists = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
+const executeResults: Array<{ rows: any[]; rowsAffected: number }> = [];
+const ensuredColumns = vi.hoisted(() => [] as string[]);
+const ensuredIndexes = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -19,10 +22,12 @@ function createCapturingDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args ?? []);
       execCalls.push({ sql: rawSql, args });
-      return {
-        rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
-        rowsAffected: 0,
-      };
+      return (
+        executeResults.shift() ?? {
+          rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
+          rowsAffected: 0,
+        }
+      );
     }),
   };
 }
@@ -35,12 +40,20 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: mockEnsureIndexExists,
+  ensureColumnExists: vi.fn(
+    async (table: string, column: string, sql: string) => {
+      ensuredColumns.push(`${table}.${column}:${sql}`);
+    },
+  ),
+  ensureIndexExists: vi.fn(async (name: string, sql: string) => {
+    ensuredIndexes.push(`${name}:${sql}`);
+    return mockEnsureIndexExists(name, sql);
+  }),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const {
+  adoptTraceOrgForThread,
   getTraceSummaries,
   getTraceSummary,
   getLatestTraceSummaryForThread,
@@ -62,7 +75,16 @@ const {
   getObservabilityOverview,
   insertTraceSpan,
   insertEvalResult,
+  listEvalDatasets,
+  listExperiments,
+  listExperimentsPage,
+  listExperimentsPageResult,
   insertFeedback,
+  insertEvalDataset,
+  listEvalDatasetsPage,
+  getEvalDatasetByName,
+  findPromotedEvalDataset,
+  savePromotedEvalDataset,
   upsertTraceSummary,
   upsertHumanReviewSummary,
   upsertSatisfactionScore,
@@ -74,10 +96,43 @@ function lastSelect(): ExecCall {
   return selects[selects.length - 1];
 }
 
+// Runs `run` against PGlite tables shaped like the ones the thread-org adoption
+// SQL reads, with the store's `execute` pointed at them.
+async function withThreadOrgDb(
+  seed: string,
+  run: (pg: Awaited<ReturnType<typeof createTestPglite>>) => Promise<void>,
+): Promise<void> {
+  const pg = await createTestPglite();
+  const capturingExecute = vi.mocked(mockDb.execute).getMockImplementation()!;
+  try {
+    await pg.exec(`
+      CREATE TABLE chat_threads (
+        id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      CREATE TABLE agent_trace_summaries (
+        run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
+      ${seed}
+    `);
+    vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+      const { sql, args } =
+        typeof input === "string" ? { sql: input, args: [] } : input;
+      const result = await pg.query(sql, args ?? []);
+      return { rows: result.rows, rowsAffected: 0 };
+    });
+    await run(pg);
+  } finally {
+    vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+    await pg.close();
+  }
+}
+
 describe("observability store: per-user isolation", () => {
   beforeEach(() => {
     execCalls.length = 0;
     selectedRows = [];
+    executeResults.length = 0;
     vi.clearAllMocks();
   });
 
@@ -415,6 +470,327 @@ describe("observability store: per-user isolation", () => {
       expect(call.sql).toMatch(/AND id IN \(\?, \?\)/);
       expect(call.sql).toMatch(/^SELECT id, thread_data FROM chat_threads/);
       expect(call.args).toEqual(["org-a", "alice@example.com", "a", "b"]);
+    });
+
+    it("makes a NULL-org thread reviewable by its trace org only, and only for its owner", async () => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT,
+            visibility TEXT NOT NULL DEFAULT 'private'
+          );
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+          );
+          INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
+            VALUES ('thread-null', NULL, 'Alice@example.com', 't', '{"a":1}'),
+                   ('thread-bobs', NULL, 'bob@example.com', 't', '{"b":1}'),
+                   ('thread-assigned', 'org-existing', 'alice@example.com', 't', '{"c":1}');
+        `);
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+        const readAs = (orgId: string, threadId: string) =>
+          getOrgScopedThreadData(orgId, "alice@example.com", [threadId]);
+
+        // Before the run's org is adopted, no org's admin can read the thread.
+        expect((await readAs("org-a", "thread-null")).size).toBe(0);
+
+        await adoptTraceOrgForThread({
+          threadId: "thread-null",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        // Another user's thread, and a thread whose org is already recorded,
+        // are never repointed by a run that merely names them.
+        await adoptTraceOrgForThread({
+          threadId: "thread-bobs",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        await adoptTraceOrgForThread({
+          threadId: "thread-assigned",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        await adoptTraceOrgForThread({
+          threadId: "thread-null",
+          userId: "alice@example.com",
+          orgId: "org-b",
+        });
+
+        expect((await readAs("org-a", "thread-null")).get("thread-null")).toBe(
+          '{"a":1}',
+        );
+        expect((await readAs("org-b", "thread-null")).size).toBe(0);
+        const rows = await pg.query(
+          "SELECT id, org_id FROM chat_threads ORDER BY id",
+        );
+        expect(rows.rows).toEqual([
+          { id: "thread-assigned", org_id: "org-existing" },
+          { id: "thread-bobs", org_id: null },
+          { id: "thread-null", org_id: "org-a" },
+        ]);
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
+    });
+
+    it("adopts a NULL-org thread only when the owner's runs on it name a single org", async () => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT,
+            visibility TEXT NOT NULL DEFAULT 'private'
+          );
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+          );
+          INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
+            VALUES ('thread-first', NULL, 'alice@example.com', 't', '{"first":1}'),
+                   ('thread-split', NULL, 'Alice@example.com', 't', '{"split":1}'),
+                   ('thread-same-org', NULL, 'alice@example.com', 't', '{"same":1}'),
+                   ('thread-unscoped-run', NULL, 'alice@example.com', 't', '{"unscoped":1}'),
+                   ('thread-viewer-run', NULL, 'alice@example.com', 't', '{"viewer":1}');
+          INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-first', 'thread-first', 'alice@example.com', 'org-a'),
+                   ('run-split-b', 'thread-split', 'alice@example.com', 'org-b'),
+                   ('run-split-a', 'thread-split', 'alice@example.com', 'org-a'),
+                   ('run-same-1', 'thread-same-org', 'alice@example.com', 'org-a'),
+                   ('run-same-2', 'thread-same-org', 'ALICE@example.com', 'org-a'),
+                   ('run-unscoped', 'thread-unscoped-run', 'alice@example.com', NULL),
+                   ('run-unscoped-a', 'thread-unscoped-run', 'alice@example.com', 'org-a'),
+                   ('run-viewer-b', 'thread-viewer-run', 'bob@example.com', 'org-b'),
+                   ('run-viewer-a', 'thread-viewer-run', 'alice@example.com', 'org-a');
+        `);
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+        const adoptAs = (threadId: string, orgId: string) =>
+          adoptTraceOrgForThread({
+            threadId,
+            userId: "alice@example.com",
+            orgId,
+          });
+
+        await adoptAs("thread-first", "org-a");
+        // The thread already ran under org-b, so neither org can claim it.
+        await adoptAs("thread-split", "org-a");
+        await adoptAs("thread-split", "org-b");
+        await adoptAs("thread-same-org", "org-a");
+        await adoptAs("thread-unscoped-run", "org-a");
+        // Only the owner's own runs count toward ambiguity.
+        await adoptAs("thread-viewer-run", "org-a");
+
+        const rows = await pg.query(
+          "SELECT id, org_id FROM chat_threads ORDER BY id",
+        );
+        expect(rows.rows).toEqual([
+          { id: "thread-first", org_id: "org-a" },
+          { id: "thread-same-org", org_id: "org-a" },
+          { id: "thread-split", org_id: null },
+          { id: "thread-unscoped-run", org_id: "org-a" },
+          { id: "thread-viewer-run", org_id: "org-a" },
+        ]);
+        // A thread left unassigned is review-visible to no org at all.
+        for (const orgId of ["org-a", "org-b"]) {
+          expect(
+            (
+              await getOrgScopedThreadData(orgId, "alice@example.com", [
+                "thread-split",
+              ])
+            ).size,
+          ).toBe(0);
+        }
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
+    });
+
+    describe("a private thread whose owner's runs span orgs", () => {
+      const record = (
+        pg: Awaited<ReturnType<typeof createTestPglite>>,
+        runId: string,
+        threadId: string,
+        orgId: string,
+        userId = "alice@example.com",
+      ) =>
+        pg.query(
+          "INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id) VALUES ($1, $2, $3, $4)",
+          [runId, threadId, userId, orgId],
+        );
+      const finish = (
+        pg: Awaited<ReturnType<typeof createTestPglite>>,
+        runId: string,
+        threadId: string,
+        orgId: string,
+        userId = "alice@example.com",
+      ) =>
+        record(pg, runId, threadId, orgId, userId).then(() =>
+          adoptTraceOrgForThread({ threadId, userId, orgId }),
+        );
+      const orgOf = async (
+        pg: Awaited<ReturnType<typeof createTestPglite>>,
+        threadId: string,
+      ) =>
+        (
+          await pg.query("SELECT org_id FROM chat_threads WHERE id = $1", [
+            threadId,
+          ])
+        ).rows[0]?.org_id;
+      const reviewable = async (orgId: string, threadId: string) =>
+        (await getOrgScopedThreadData(orgId, "alice@example.com", [threadId]))
+          .size === 1;
+
+      it("unassigns a thread that one org's run adopted once another org's run finishes on it", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-split', NULL, 'Alice@example.com', '{"a":1,"b":1}')`,
+          async (pg) => {
+            await finish(pg, "run-a", "thread-split", "org-a");
+            expect(await orgOf(pg, "thread-split")).toBe("org-a");
+            expect(await reviewable("org-a", "thread-split")).toBe(true);
+
+            await finish(pg, "run-b", "thread-split", "org-b");
+            expect(await orgOf(pg, "thread-split")).toBeNull();
+            expect(await reviewable("org-a", "thread-split")).toBe(false);
+            expect(await reviewable("org-b", "thread-split")).toBe(false);
+
+            // The thread stays unassigned for later runs of either org.
+            await finish(pg, "run-a2", "thread-split", "org-a");
+            await finish(pg, "run-b2", "thread-split", "org-b");
+            expect(await orgOf(pg, "thread-split")).toBeNull();
+          },
+        );
+      });
+
+      it("unassigns a thread created under one org once the owner runs it under another", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-created', 'org-a', 'alice@example.com', '{"a":1}');
+           INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-a', 'thread-created', 'alice@example.com', 'org-a')`,
+          async (pg) => {
+            await finish(pg, "run-a2", "thread-created", "org-a");
+            expect(await orgOf(pg, "thread-created")).toBe("org-a");
+
+            await finish(pg, "run-b", "thread-created", "org-b");
+            expect(await orgOf(pg, "thread-created")).toBeNull();
+          },
+        );
+      });
+
+      it("ends unassigned however two concurrent runs interleave their summary commits and adoptions", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-ab', NULL, 'alice@example.com', '{}'),
+                   ('thread-ba', NULL, 'alice@example.com', '{}'),
+                   ('thread-raced-a', NULL, 'alice@example.com', '{}'),
+                   ('thread-raced-b', NULL, 'alice@example.com', '{}')`,
+          async (pg) => {
+            const adoptAs = (threadId: string, orgId: string) =>
+              adoptTraceOrgForThread({
+                threadId,
+                userId: "alice@example.com",
+                orgId,
+              });
+            // Both summaries are committed before either adoption runs.
+            for (const threadId of ["thread-ab", "thread-ba"]) {
+              await record(pg, `${threadId}-a`, threadId, "org-a");
+              await record(pg, `${threadId}-b`, threadId, "org-b");
+            }
+            await adoptAs("thread-ab", "org-a");
+            await adoptAs("thread-ab", "org-b");
+            await adoptAs("thread-ba", "org-b");
+            await adoptAs("thread-ba", "org-a");
+
+            // org-a's adoption passed its check before org-b's summary was
+            // committed, so the thread is bound to org-a while both summaries
+            // exist. Whichever run's statements execute next undoes it.
+            for (const threadId of ["thread-raced-a", "thread-raced-b"]) {
+              await record(pg, `${threadId}-a`, threadId, "org-a");
+              await record(pg, `${threadId}-b`, threadId, "org-b");
+              await pg.query(
+                "UPDATE chat_threads SET org_id = 'org-a' WHERE id = $1",
+                [threadId],
+              );
+            }
+            await adoptAs("thread-raced-a", "org-a");
+            await adoptAs("thread-raced-b", "org-b");
+
+            for (const threadId of [
+              "thread-ab",
+              "thread-ba",
+              "thread-raced-a",
+              "thread-raced-b",
+            ]) {
+              expect(await orgOf(pg, threadId)).toBeNull();
+              expect(await reviewable("org-a", threadId)).toBe(false);
+              expect(await reviewable("org-b", threadId)).toBe(false);
+            }
+          },
+        );
+      });
+
+      it("keeps a thread adopted while every run of the owner names the same org", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-one-org', NULL, 'alice@example.com', '{"a":1}')`,
+          async (pg) => {
+            await finish(pg, "run-1", "thread-one-org", "org-a");
+            await finish(pg, "run-2", "thread-one-org", "org-a");
+            expect(await orgOf(pg, "thread-one-org")).toBe("org-a");
+            expect(await reviewable("org-a", "thread-one-org")).toBe(true);
+          },
+        );
+      });
+
+      it("ignores other users' runs on the thread and another owner's thread", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-viewed', NULL, 'alice@example.com', '{}'),
+                   ('thread-bobs', 'org-a', 'bob@example.com', '{}');
+           INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-viewer', 'thread-viewed', 'bob@example.com', 'org-b'),
+                   ('run-bob-b', 'thread-bobs', 'bob@example.com', 'org-b')`,
+          async (pg) => {
+            await finish(pg, "run-alice", "thread-viewed", "org-a");
+            expect(await orgOf(pg, "thread-viewed")).toBe("org-a");
+
+            // Alice's run names Bob's thread; only its owner's runs move it.
+            await finish(pg, "run-alice-b", "thread-bobs", "org-c");
+            expect(await orgOf(pg, "thread-bobs")).toBe("org-a");
+          },
+        );
+      });
+
+      it("never unassigns an org-visible thread", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data, visibility)
+            VALUES ('thread-shared', 'org-a', 'alice@example.com', '{}', 'org')`,
+          async (pg) => {
+            await finish(pg, "run-a", "thread-shared", "org-a");
+            await finish(pg, "run-b", "thread-shared", "org-b");
+            expect(await orgOf(pg, "thread-shared")).toBe("org-a");
+          },
+        );
+      });
     });
 
     it("reads thread titles only from explicitly org-owned rows", async () => {
@@ -1137,6 +1513,21 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["run-x", "alice"]);
     });
 
+    it("getEvalDatasetByName scopes by user_id (prevents IDOR by name)", async () => {
+      await getEvalDatasetByName("from-trace:run-x", { userId: "alice" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \? AND user_id = \?/);
+      expect(call.args).toEqual(["from-trace:run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName omits user_id filter when userId is undefined", async () => {
+      await getEvalDatasetByName("from-trace:run-x");
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \?/);
+      expect(call.sql).not.toMatch(/user_id/);
+      expect(call.args).toEqual(["from-trace:run-x"]);
+    });
+
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
       const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
@@ -1188,13 +1579,16 @@ describe("observability store: per-user isolation", () => {
         errorMessage: null,
         metadata: null,
         createdAt: 1,
+        endedAt: 5,
       });
       const call = execCalls.find((c) =>
         /INSERT INTO agent_trace_spans/.test(c.sql),
       );
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.sql).toMatch(/\bended_at\b/);
       expect(call!.args).toContain("alice");
+      expect(call!.args).toContain(5);
     });
 
     it("upsertTraceSummary persists user_id", async () => {
@@ -1248,6 +1642,24 @@ describe("observability store: per-user isolation", () => {
       );
     });
 
+    it("insertEvalDataset persists user_id", async () => {
+      await insertEvalDataset({
+        id: "ds1",
+        name: "from-trace:run-1",
+        description: "Promoted from production run run-1",
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      const call = execCalls.find((c) =>
+        /INSERT INTO agent_eval_datasets/.test(c.sql),
+      );
+      expect(call).toBeDefined();
+      expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.args).toContain("alice");
+    });
+
     it("insertEvalResult persists user_id", async () => {
       await insertEvalResult({
         id: "e1",
@@ -1287,6 +1699,133 @@ describe("observability store: per-user isolation", () => {
       expect(call!.args).toContain("alice");
     });
 
+    it("claims one dataset per owner and source run", async () => {
+      await getEvalDatasetByName("warmup");
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.idempotency_key:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
+      );
+      expect(ensuredIndexes).toContain(
+        "idx_eval_datasets_idempotency:CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)",
+      );
+
+      const key = "from-trace:alice%40example.com:run-1";
+      const description = "Promoted from production run run-1";
+      execCalls.length = 0;
+      const found = await findPromotedEvalDataset({
+        idempotencyKey: key,
+        description,
+        userId: "alice@example.com",
+      });
+      expect(found).toBeNull();
+      const lookup = execCalls.find((call) =>
+        /FROM agent_eval_datasets/i.test(call.sql),
+      );
+      expect(lookup?.sql).toMatch(/user_id = \?/);
+      expect(lookup?.sql).toMatch(/idempotency_key = \?/);
+      expect(lookup?.args).toEqual([
+        "alice@example.com",
+        "alice@example.com",
+        key,
+        description,
+        key,
+      ]);
+
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const saved = await savePromotedEvalDataset({
+        id: "ds-new",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(saved.id).toBe("ds-new");
+      const insert = execCalls.find((call) =>
+        /INSERT INTO agent_eval_datasets/.test(call.sql),
+      );
+      expect(insert?.sql).toMatch(/ON CONFLICT \(idempotency_key\) DO NOTHING/);
+      expect(insert?.args).toContain(key);
+      expect(insert?.args).toContain("alice@example.com");
+
+      const legacy = {
+        id: "ds-legacy",
+        name: "from-trace:run-1",
+        description,
+        entries: JSON.stringify([
+          { input: "hello", tags: ["from-trace", "run-1"] },
+        ]),
+        created_at: 1,
+        updated_at: 2,
+        user_id: "alice@example.com",
+        idempotency_key: null,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [legacy], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const claimed = await savePromotedEvalDataset({
+        id: "ds-retry",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 3,
+        updatedAt: 3,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(claimed.id).toBe("ds-legacy");
+      expect(claimed.idempotencyKey).toBe(key);
+      expect(
+        execCalls.some((call) =>
+          /INSERT INTO agent_eval_datasets/.test(call.sql),
+        ),
+      ).toBe(false);
+      const claim = execCalls.find((call) =>
+        /UPDATE agent_eval_datasets/i.test(call.sql),
+      );
+      expect(claim?.sql).toMatch(/SET idempotency_key = \?/);
+      expect(claim?.args?.[0]).toBe(key);
+
+      const winner = {
+        ...legacy,
+        id: "ds-winner",
+        idempotency_key: key,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [winner], rowsAffected: 0 });
+      const raced = await savePromotedEvalDataset({
+        id: "ds-loser",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 4,
+        updatedAt: 4,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(raced.id).toBe("ds-winner");
+    });
+
+    it("adds user_id to an existing agent_eval_datasets table before insert", async () => {
+      await insertEvalDataset({
+        id: "ds-migrate",
+        name: "from-trace:run-migrate",
+        description: "",
+        entries: [],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.user_id:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS user_id TEXT",
+      );
+    });
+
     it("insertFeedback persists user_id and dedupes idempotency keys", async () => {
       await insertFeedback({
         id: "f1",
@@ -1308,5 +1847,157 @@ describe("observability store: per-user isolation", () => {
       expect(call!.sql).toMatch(/idempotency_key/);
       expect(call!.sql).toMatch(/ON CONFLICT DO NOTHING/);
     });
+  });
+});
+
+describe("observability list bounds", () => {
+  beforeEach(() => {
+    execCalls.length = 0;
+    selectedRows = [];
+    vi.clearAllMocks();
+  });
+
+  it("pages eval datasets by update time and id", async () => {
+    await listEvalDatasetsPage({
+      limit: 500,
+      before: { updatedAt: 20, id: "dataset-b" },
+    });
+    const call = lastSelect();
+    expect(call.sql).toContain("FROM agent_eval_datasets");
+    expect(call.sql).toContain("updated_at < ? OR (updated_at = ? AND id < ?)");
+    expect(call.sql).toContain("LIMIT ?");
+    expect(call.sql).not.toContain("SELECT *");
+    expect(call.args).toEqual([20, 20, "dataset-b", 100]);
+  });
+
+  it("maps dataset ownership and idempotency fields from its bounded projection", async () => {
+    selectedRows = [
+      {
+        id: "dataset-a",
+        name: "A",
+        description: "",
+        entries: "[]",
+        created_at: 10,
+        updated_at: 20,
+        user_id: "alice",
+        idempotency_key: "promoted-run-a",
+      },
+    ];
+
+    const [dataset] = await listEvalDatasetsPage();
+
+    expect(dataset).toMatchObject({
+      id: "dataset-a",
+      userId: "alice",
+      idempotencyKey: "promoted-run-a",
+    });
+    expect(lastSelect().sql).toContain("user_id, idempotency_key");
+  });
+
+  it("returns the full legacy dataset list through bounded pages", async () => {
+    const row = (id: number) => ({
+      id: `dataset-${id}`,
+      name: `Dataset ${id}`,
+      description: "",
+      entries: "[]",
+      created_at: id,
+      updated_at: id,
+      user_id: null,
+      idempotency_key: null,
+    });
+    executeResults.push(
+      {
+        rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+        rowsAffected: 0,
+      },
+      { rows: [row(100)], rowsAffected: 0 },
+    );
+
+    const datasets = await listEvalDatasets();
+
+    expect(datasets).toHaveLength(101);
+    const selects = execCalls.filter((call) =>
+      /FROM agent_eval_datasets/.test(call.sql),
+    );
+    expect(selects).toHaveLength(2);
+    expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
+    expect(selects[1]?.args).toEqual([101, 101, "dataset-101", 100]);
+  });
+
+  it("filters running experiments in SQL and pages the admin list", async () => {
+    await expect(
+      listExperimentsPage({
+        status: "running",
+        limit: 25,
+        before: { createdAt: 30, id: "experiment-c" },
+      }),
+    ).resolves.toEqual([]);
+    const call = lastSelect();
+    expect(call.sql).toContain("status = ?");
+    expect(call.sql).toContain("created_at < ? OR (created_at = ? AND id < ?)");
+    expect(call.sql).toContain("LIMIT ?");
+    expect(call.sql).not.toContain("SELECT *");
+    expect(call.args).toEqual(["running", 30, 30, "experiment-c", 26]);
+  });
+
+  it("returns an explicit cursor when another experiment page exists", async () => {
+    const row = (id: number) => ({
+      id: `experiment-${id}`,
+      name: `Experiment ${id}`,
+      status: "paused",
+      variants: "[]",
+      metrics: "[]",
+      assignment_level: "user",
+      started_at: null,
+      ended_at: null,
+      created_at: id,
+      owner_email: null,
+    });
+    executeResults.push({
+      rows: [row(30), row(20), row(10)],
+      rowsAffected: 0,
+    });
+
+    await expect(listExperimentsPageResult({ limit: 2 })).resolves.toEqual({
+      items: [
+        expect.objectContaining({ id: "experiment-30" }),
+        expect.objectContaining({ id: "experiment-20" }),
+      ],
+      nextCursor: { createdAt: 20, id: "experiment-20" },
+      hasMore: true,
+    });
+    expect(lastSelect().args).toEqual([3]);
+  });
+
+  it("returns the full legacy experiment list through bounded pages", async () => {
+    const row = (id: number) => ({
+      id: `experiment-${id}`,
+      name: `Experiment ${id}`,
+      status: "paused",
+      variants: "[]",
+      metrics: "[]",
+      assignment_level: "user",
+      started_at: null,
+      ended_at: null,
+      created_at: id,
+      owner_email: null,
+    });
+    executeResults.push(
+      {
+        rows: Array.from({ length: 101 }, (_, index) => row(200 - index)),
+        rowsAffected: 0,
+      },
+      { rows: [row(100)], rowsAffected: 0 },
+    );
+
+    const experiments = await listExperiments();
+
+    expect(experiments).toHaveLength(101);
+    const selects = execCalls.filter((call) =>
+      /FROM agent_experiments/.test(call.sql),
+    );
+    expect(selects).toHaveLength(2);
+    expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
+    expect(selects[1]?.args).toEqual([101, 101, "experiment-101", 101]);
   });
 });

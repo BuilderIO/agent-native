@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -458,7 +453,10 @@ const messages = {
     automationSourceSentryHint: "未解決のエラー。",
     automationSlackChannel: "Slack チャンネル ID",
     automationSlackChannelDescription:
-      "このジョブがポーリングするチャンネル。C で始まります。",
+      "このジョブが読み取る、または検出結果をまとめて投稿する Slack チャンネル。C で始まります。",
+    automationFindingsSlackChannel: "Slack 検出結果チャンネル",
+    automationFindingsSlackChannelDescription:
+      "対象となる GitHub と Sentry の検出結果をこのチャンネルの 1 件のメッセージにまとめます。",
     automationRepository: "GitHub リポジトリ",
     automationRepositoryDescription: "このジョブがポーリングする owner/repo。",
     automationSentryOrg: "Sentry 組織",

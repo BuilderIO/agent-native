@@ -1,0 +1,495 @@
+// @vitest-environment happy-dom
+
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  clearToolRenderersForTests,
+  registerToolRenderer,
+} from "../chat/tool-render-registry.js";
+import {
+  AgentConversation,
+  AgentConversationMessageView,
+} from "./AgentConversation.js";
+
+vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
+  McpAppRenderer: () => <div data-testid="conversation-mcp-app" />,
+}));
+
+vi.mock("../../extensions/index.js", () => ({
+  InlineExtensionFrame: ({ extensionId, extension }: any) => (
+    <div
+      data-testid="conversation-inline-extension"
+      data-extension-id={extensionId ?? extension?.id}
+    >
+      {extension?.name}
+    </div>
+  ),
+}));
+
+describe("AgentConversationMessageView", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    clearToolRenderersForTests();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("masks the conversation error without masking its container", () => {
+    act(() =>
+      root.render(
+        <AgentConversation
+          messages={[]}
+          error="Example Person's example run failed."
+        />,
+      ),
+    );
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
+      true,
+    );
+    expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+  });
+
+  it.each(["errored", "completed"] as const)(
+    "masks only errored conversation tool diagnostics (%s)",
+    (state) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-example",
+                  type: "tool",
+                  tool: {
+                    id: "tool-example",
+                    name: "example-tool",
+                    state,
+                    summary: "Example Person's example notes.",
+                    result: "Example Document failed.",
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const summary = container.querySelector(
+        ".agent-conversation-tool__summary",
+      );
+      const result = container.querySelector("pre span");
+      expect(summary?.hasAttribute("data-an-mask")).toBe(state === "errored");
+      expect(result?.textContent).toBe("Example Document failed.");
+      expect(result?.hasAttribute("data-an-mask")).toBe(state === "errored");
+      expect(
+        container
+          .querySelector(".agent-conversation-tool__name")
+          ?.closest("[data-an-mask]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("pre strong")?.closest("[data-an-mask]"),
+      ).toBeNull();
+    },
+  );
+
+  it("shows an errored tool through the masked fallback, not its renderer", () => {
+    registerToolRenderer({
+      id: "example-renderer",
+      match: "example-tool",
+      Component: ({ context }) => (
+        <div data-testid="example-renderer">{context.resultText}</div>
+      ),
+    });
+    act(() =>
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-example",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-example",
+                type: "tool",
+                tool: {
+                  id: "tool-example",
+                  name: "example-tool",
+                  state: "errored",
+                  result: "Example Document failed.",
+                },
+              },
+            ],
+          }}
+        />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="example-renderer"]')).toBe(
+      null,
+    );
+    expect(
+      container.querySelector("pre span")?.hasAttribute("data-an-mask"),
+    ).toBe(true);
+  });
+
+  it.each(["errored", "completed"] as const)(
+    "blocks only an errored tool's MCP App from replays (%s)",
+    (state) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-example",
+                  type: "tool",
+                  tool: {
+                    id: "tool-example",
+                    name: "example-tool",
+                    state,
+                    result: "Example Document failed.",
+                    mcpApp: {
+                      serverId: "server",
+                      toolName: "example-tool",
+                      originalToolName: "example-tool",
+                      resourceUri: "ui://example-tool",
+                      toolInput: {},
+                      toolResult: {},
+                    },
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const app = container.querySelector(
+        '[data-testid="conversation-mcp-app"]',
+      );
+      expect(app).not.toBeNull();
+      expect(app?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null).toBe(
+        state === "errored",
+      );
+    },
+  );
+
+  it.each(["error", "warning", "info"] as const)(
+    "masks notice text but not its title or action (%s)",
+    (tone) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              notices: [
+                {
+                  id: "notice-example",
+                  tone,
+                  title: "Run status",
+                  text: "Example Person's example run status.",
+                  action: <button>Retry</button>,
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const notice = container.querySelector(".agent-conversation-notice");
+      expect(notice?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
+        true,
+      );
+      expect(
+        notice?.querySelector("strong")?.closest("[data-an-mask]"),
+      ).toBeNull();
+      expect(
+        notice?.querySelector("button")?.closest("[data-an-mask]"),
+      ).toBeNull();
+    },
+  );
+
+  it("renders text and tool parts in transcript order", () => {
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              { id: "text-1", type: "text", text: "Before tool." },
+              {
+                id: "tool-1",
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "list_files",
+                  state: "completed",
+                  summary: "finished",
+                },
+              },
+              { id: "text-2", type: "text", text: "After tool." },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toMatch(
+      /Before tool\.\s*list files\s*finished\s*After tool\./,
+    );
+  });
+
+  it("humanizes running tool names", () => {
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-1",
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "generate-design",
+                  state: "running",
+                },
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.textContent).not.toContain("generate-design");
+  });
+
+  it("renders native inline extension tool UI", async () => {
+    await act(async () => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-1",
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "render-inline-extension",
+                  state: "completed",
+                  result: JSON.stringify({
+                    ok: true,
+                    inlineExtension: {
+                      mode: "transient",
+                      id: "inline-1",
+                      name: "Knobs",
+                      content: "<div>Knobs</div>",
+                    },
+                  }),
+                  chatUI: { renderer: "core.inline-extension" },
+                },
+              },
+            ],
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(
+      container.querySelector('[data-testid="conversation-inline-extension"]'),
+    ).toBeTruthy();
+    expect(container.textContent).toContain("Knobs");
+    expect(container.textContent).not.toContain("render inline extension");
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("my-3");
+    expect(surface?.className).toContain("border");
+  });
+
+  it("opens markdown links in a new external window", () => {
+    const open = vi
+      .spyOn(window, "open")
+      .mockImplementation(() => null as Window | null);
+
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "text-1",
+                type: "text",
+                text: "[Builder](https://builder.io/docs)",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    container
+      .querySelector("a")
+      ?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+
+    expect(open).toHaveBeenCalledWith(
+      "https://builder.io/docs",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("does not preserve file links from markdown", () => {
+    const open = vi
+      .spyOn(window, "open")
+      .mockImplementation(() => null as Window | null);
+
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "text-1",
+                type: "text",
+                text: "[Local file](file:///etc/passwd)",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(container.querySelector("a")).toBeNull();
+
+    expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe("AgentConversationMessageView tool labels", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the app's catalog label for a tool row", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "de-DE",
+            messages: {
+              agentChat: {
+                toolLabels: {
+                  list_files: "Dateien auflisten",
+                },
+              },
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <AgentConversationMessageView
+            message={{
+              id: "message-1",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-1",
+                  type: "tool",
+                  tool: {
+                    id: "tool-1",
+                    name: "list_files",
+                    state: "completed",
+                  },
+                },
+              ],
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Dateien auflisten");
+    expect(container.textContent).not.toContain("list files");
+  });
+
+  it("falls back to the derived name when the catalog has no entry", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{ sourceLocale: "de-DE", messages: {} }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <AgentConversationMessageView
+            message={{
+              id: "message-1",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-1",
+                  type: "tool",
+                  tool: {
+                    id: "tool-1",
+                    name: "list_files",
+                    state: "completed",
+                  },
+                },
+              ],
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("list files");
+  });
+});

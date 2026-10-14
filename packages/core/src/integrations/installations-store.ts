@@ -20,7 +20,6 @@ import {
 } from "../secrets/storage.js";
 
 const TABLE = "integration_installations";
-
 export type IntegrationInstallationStatus =
   | "connected"
   | "disconnected"

@@ -1,10 +1,6 @@
 const messages = {
   settings: {
     title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
@@ -433,7 +429,11 @@ const messages = {
     automationSourceGithubHint: "Issue 與拉取請求。",
     automationSourceSentryHint: "未解決的錯誤。",
     automationSlackChannel: "Slack 頻道 ID",
-    automationSlackChannelDescription: "此工作輪詢的頻道。以 C 開頭。",
+    automationSlackChannelDescription:
+      "此工作讀取或用來發布彙整調查結果的 Slack 頻道。以 C 開頭。",
+    automationFindingsSlackChannel: "Slack 調查結果頻道",
+    automationFindingsSlackChannelDescription:
+      "符合條件的 GitHub 與 Sentry 發現會彙整為一則訊息傳送至此頻道。",
     automationRepository: "GitHub 儲存庫",
     automationRepositoryDescription: "此工作輪詢的 owner/repo。",
     automationSentryOrg: "Sentry 組織",

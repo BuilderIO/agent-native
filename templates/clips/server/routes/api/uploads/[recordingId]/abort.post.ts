@@ -30,6 +30,7 @@ import {
   getResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
 
 function uploadStateMatchesRecording(
   state: Record<string, unknown>,
@@ -112,15 +113,21 @@ export async function handleAbortRecordingUpload(
     "Recording cancelled during countdown",
     "Upload cancelled",
   ]);
-  const normalizedFailureCode = !reasonText
-    ? "unknown"
-    : requestedFailureCode === "unknown" &&
-        legacyCancellationReasons.has(reasonText)
-      ? "user_cancelled"
-      : requestedFailureCode;
+  const legacyInterruptionReasons = new Set([
+    "Recording interruption has unknown cause",
+    "The recorder page closed before the recording finished saving.",
+  ]);
+  const normalizedFailureCode =
+    requestedFailureCode !== "unknown"
+      ? requestedFailureCode
+      : legacyCancellationReasons.has(reasonText)
+        ? "user_cancelled"
+        : legacyInterruptionReasons.has(reasonText)
+          ? "recording_interrupted"
+          : "upload_aborted";
   const failureCode =
     (normalizedFailureCode === "upload_failed" ||
-      normalizedFailureCode === "unknown") &&
+      normalizedFailureCode === "upload_aborted") &&
     isHtmlFailure
       ? "chunk_html_error"
       : normalizedFailureCode;
@@ -213,6 +220,15 @@ export async function handleAbortRecordingUpload(
       return {
         error: "A newer upload retry is already active.",
         staleAttempt: true,
+      };
+    }
+
+    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
       };
     }
 

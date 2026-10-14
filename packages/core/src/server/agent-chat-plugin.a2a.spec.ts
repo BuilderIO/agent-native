@@ -1,22 +1,88 @@
 import { readFileSync } from "node:fs";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "h3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getObservabilityConfigMock = vi.hoisted(() => vi.fn());
 const instrumentAgentLoopMock = vi.hoisted(() => vi.fn());
+const a2aReceiver = vi.hoisted(() => ({
+  config: undefined as
+    | {
+        handler: (
+          message: unknown,
+          context: unknown,
+        ) => AsyncGenerator<unknown, void>;
+      }
+    | undefined,
+  initPromises: [] as Promise<void>[],
+}));
 
 vi.mock("../observability/traces.js", () => ({
   getObservabilityConfig: getObservabilityConfigMock,
   instrumentAgentLoop: instrumentAgentLoopMock,
 }));
 
+// Boot the real plugin and capture the A2A config it mounts, so the receiver
+// handler under test is the one the app ships.
+vi.mock("./framework-request-handler.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./framework-request-handler.js")>()),
+  awaitBootstrap: () => Promise.resolve(),
+  getH3App: (nitroApp: any) => nitroApp.h3App,
+  markDefaultPluginProvided: vi.fn(),
+  trackPluginInit: (_nitroApp: any, promise: Promise<void>) => {
+    a2aReceiver.initPromises.push(promise);
+  },
+}));
+
+vi.mock("../a2a/server.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../a2a/server.js")>()),
+  mountA2A: (_app: unknown, config: any) => {
+    a2aReceiver.config = config;
+  },
+}));
+
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
+  listUnclaimedBackgroundRunRows: vi.fn(async () => []),
+  reapAllStaleRuns: vi.fn(async () => ({
+    scanned: 0,
+    reaped: 0,
+    failed: 0,
+    truncated: false,
+  })),
+}));
+
+vi.mock("../mcp-client/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../mcp-client/index.js")>()),
+  buildMergedConfig: vi.fn(async () => null),
+  startMcpConfigRefresh: () => () => {},
+}));
+
+vi.mock("../jobs/scheduler.js", () => ({
+  processRecurringJobs: vi.fn(async () => {}),
+}));
+
+vi.mock("../triggers/dispatcher.js", () => ({
+  initTriggerDispatcher: vi.fn(async () => {}),
+}));
+
+vi.mock("../chat-threads/migrations.js", () => ({
+  runChatThreadDataMigrations: vi.fn(async () => {}),
+}));
+
+vi.mock("./social-og-image.js", () => ({
+  createAgentNativeOgImageHandler: () => () => new Response(),
+}));
+
 import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
+import { EngineError } from "../agent/engine/types.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
   buildSelectedA2AReceiverContext,
   buildPublicAgentA2ASkills,
   createA2AEngineToolSurface,
+  createAgentChatPlugin,
   isSelectedA2AReceiver,
   createSerializedA2ATaskStatusWriter,
   DEFAULT_DELEGATED_MAX_ITERATIONS,
@@ -26,6 +92,7 @@ import {
   runMCPAgentLoop,
   runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
+import { unverifiedA2AUserError } from "./agent-chat/action-filters-a2a.js";
 
 describe("delegated A2A recoverable artifact checkpoints", () => {
   it("prefers the organization A2A secret when a global secret is also configured", async () => {
@@ -884,4 +951,168 @@ describe("assembleA2AFinalResponse", () => {
       ).toThrow(code);
     },
   );
+});
+
+describe("typed A2A receiver failures", () => {
+  const loopOptions = {
+    engine: {} as any,
+    model: "test-model",
+    systemPrompt: "system",
+    tools: [],
+    messages: [],
+    actions: {},
+    send: () => {},
+    signal: new AbortController().signal,
+  };
+
+  it("carries a typed engine failure to the A2A task instead of dropping it", async () => {
+    const runner = vi.fn(async () => {
+      throw new EngineError("No LLM provider is connected.", {
+        errorCode: "missing_credentials",
+      });
+    });
+
+    await expect(
+      runA2AAgentLoop(loopOptions, {}, {}, { runner: runner as any }),
+    ).rejects.toMatchObject({
+      message: "No LLM provider is connected.",
+      agentNativeErrorCode: "missing_credentials",
+    });
+  });
+
+  it("leaves untyped failures and an existing agentNativeErrorCode untouched", async () => {
+    const untyped = new Error("boom");
+    const alreadyTyped = Object.assign(
+      new EngineError("engine", {
+        errorCode: "provider_network_error",
+      }),
+      { agentNativeErrorCode: "permanent_precondition" },
+    );
+
+    await expect(
+      runA2AAgentLoop(
+        loopOptions,
+        {},
+        {},
+        {
+          runner: vi.fn(async () => {
+            throw untyped;
+          }) as any,
+        },
+      ),
+    ).rejects.not.toHaveProperty("agentNativeErrorCode");
+    await expect(
+      runA2AAgentLoop(
+        loopOptions,
+        {},
+        {},
+        {
+          runner: vi.fn(async () => {
+            throw alreadyTyped;
+          }) as any,
+        },
+      ),
+    ).rejects.toMatchObject({ agentNativeErrorCode: "permanent_precondition" });
+  });
+
+  it("words an organization-verified call from the receiver's own assurance", () => {
+    const error = unverifiedA2AUserError({
+      context: { __a2aIdentityAssurance: "organization" },
+    }) as Error & { agentNativeErrorCode?: string };
+
+    expect(error.agentNativeErrorCode).toBe("permanent_precondition");
+    expect(error.message).toContain("verified as an organization");
+    expect(error.message).toContain("do not retry");
+    expect(error.message).toContain("code: permanent_precondition");
+  });
+
+  it.each([
+    undefined,
+    {},
+    { context: {} },
+    { context: { __a2aIdentityAssurance: "user" } },
+  ])(
+    "words any other call with no verified user as arriving unverified (%j)",
+    (event) => {
+      const error = unverifiedA2AUserError(event) as Error & {
+        agentNativeErrorCode?: string;
+      };
+
+      expect(error.agentNativeErrorCode).toBe("permanent_precondition");
+      expect(error.message).toContain("without a verified user");
+      expect(error.message).toContain("code: permanent_precondition");
+      expect(error.message).not.toContain("verified as an organization");
+    },
+  );
+});
+
+describe("A2A receiver handler with no verified user", () => {
+  const CLAIMED_EMAIL = "julia@example.test";
+  const message = {
+    role: "user" as const,
+    parts: [{ type: "text" as const, text: "list my decks" }],
+  };
+  const closers: Array<() => void | Promise<void>> = [];
+
+  afterEach(async () => {
+    await Promise.all(closers.splice(0).map((close) => close()));
+  });
+
+  async function receive(
+    metadata: Record<string, unknown>,
+    event?: unknown,
+  ): Promise<Error & { agentNativeErrorCode?: string }> {
+    const nitroApp = {
+      h3App: createApp(),
+      hooks: {
+        hook(name: string, callback: () => void | Promise<void>) {
+          if (name === "close") closers.push(callback);
+        },
+      },
+    };
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })(nitroApp);
+    await a2aReceiver.initPromises.at(-1);
+
+    const handler = a2aReceiver.config!.handler;
+    return handler(message, {
+      taskId: "task-no-user",
+      metadata,
+      event,
+      writeArtifact: () => "",
+    })
+      .next()
+      .then(
+        () => {
+          throw new Error("expected the A2A handler to fail");
+        },
+        (error: Error & { agentNativeErrorCode?: string }) => error,
+      );
+  }
+
+  it("fails the task as a permanent precondition without echoing the claimed email", async () => {
+    const failure = await receive({ userEmail: CLAIMED_EMAIL });
+
+    expect(failure.agentNativeErrorCode).toBe("permanent_precondition");
+    expect(failure.message).toContain("without a verified user");
+    expect(failure.message).toContain("code: permanent_precondition");
+    expect(failure.message).not.toContain(CLAIMED_EMAIL);
+  });
+
+  it("words an organization-verified call from the receiver's assurance, never the caller's claim", async () => {
+    const event = { context: { __a2aIdentityAssurance: "organization" } };
+
+    const claimed = await receive({ userEmail: CLAIMED_EMAIL }, event);
+    const unclaimed = await receive({}, event);
+
+    expect(claimed.agentNativeErrorCode).toBe("permanent_precondition");
+    expect(claimed.message).toContain("verified as an organization");
+    expect(claimed.message).not.toContain(CLAIMED_EMAIL);
+    expect(claimed.message).toBe(unclaimed.message);
+  });
 });

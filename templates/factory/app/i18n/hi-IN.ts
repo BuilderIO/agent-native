@@ -1,10 +1,6 @@
 const messages = {
   settings: {
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -447,7 +443,10 @@ const messages = {
     automationSourceSentryHint: "अनसुलझी त्रुटियाँ।",
     automationSlackChannel: "Slack चैनल आईडी",
     automationSlackChannelDescription:
-      "वह चैनल जिसे यह जॉब पोल करता है। C से शुरू होता है।",
+      "Slack चैनल जिसे यह जॉब पढ़ता है या समूहित निष्कर्ष पोस्ट करता है। C से शुरू होता है।",
+    automationFindingsSlackChannel: "Slack निष्कर्ष चैनल",
+    automationFindingsSlackChannelDescription:
+      "योग्य GitHub और Sentry निष्कर्ष इस चैनल में एक संदेश में समूहित होते हैं।",
     automationRepository: "GitHub रिपॉज़िटरी",
     automationRepositoryDescription: "owner/repo जिसे यह जॉब पोल करता है।",
     automationSentryOrg: "Sentry संगठन",

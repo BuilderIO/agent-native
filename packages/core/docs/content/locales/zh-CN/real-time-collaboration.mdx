@@ -639,7 +639,7 @@ AGENT_NATIVE_REALTIME_TRANSPORT=hosted
 
 <Callout tone="warning">
 
-**在应用内连接 Builder 并不够。** 应用内的 Builder 连接会把凭据按用户或按组织存放
+**在应用内使用 Builder.io 并不够。** 应用内的 Builder 连接会把凭据按用户或按组织存放
 在应用的密钥保管库中。自注册会刻意忽略该凭据 —— 单个用户的连接不应把整个部署的数据
 库登记到恰好发出第一个请求的那个组织名下 —— 它只读取部署级的 `BUILDER_PRIVATE_KEY`
 环境变量。一个显示「Builder 已连接」但没有该变量的应用，仍会停留在本地同步。

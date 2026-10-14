@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { AgentChatSurface, type AgentChatSurfaceProps } from "./AgentPanel.js";
-import { AgentSidebar, type AgentSidebarProps } from "./AgentSidebar.js";
 import {
   createAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeErrorSource,
 } from "./browser-session-bridge.js";
 import {
   readAgentNativeScreenContext,
@@ -38,6 +37,10 @@ export interface AgentNativeEmbeddedBrowserSessionOptions {
   pollMs?: number;
   ttlMs?: number;
   fetch?: typeof fetch;
+  onError?: (
+    error: unknown,
+    source: AgentNativeBrowserSessionBridgeErrorSource,
+  ) => void;
   onReady?: (bridge: AgentNativeBrowserSessionBridge) => void;
 }
 
@@ -55,15 +58,6 @@ export interface UseAgentNativeEmbeddedBrowserSessionOptions {
   onRemount?: AgentNativeEmbeddedCommandCallback;
   onOpenResource?: AgentNativeEmbeddedCommandCallback;
   onRequestApproval?: AgentNativeEmbeddedCommandCallback;
-}
-
-export interface AgentNativeEmbeddedProps
-  extends
-    Omit<AgentSidebarProps, "children">,
-    UseAgentNativeEmbeddedBrowserSessionOptions {
-  children?: React.ReactNode;
-  surface?: "sidebar" | "panel";
-  panel?: AgentChatSurfaceProps;
 }
 
 function mergeObject<T extends object>(
@@ -98,13 +92,6 @@ function toCommandHandler(
       requestId: request.requestId,
       origin: request.origin,
     });
-}
-
-function sessionBrowserTabId(
-  session: UseAgentNativeEmbeddedBrowserSessionOptions["session"],
-): string | undefined {
-  if (typeof session === "string") return session;
-  return typeof session?.id === "string" ? session.id : undefined;
 }
 
 function useMergedEmbeddedCommands({
@@ -185,6 +172,19 @@ export function useAgentNativeEmbeddedBrowserSession({
     onRemount,
     onRequestApproval,
   });
+  const onBrowserSessionErrorRef = useRef(browserSession?.onError);
+  onBrowserSessionErrorRef.current = browserSession?.onError;
+  const reportBrowserSessionError = useCallback(
+    (error: unknown, source: AgentNativeBrowserSessionBridgeErrorSource) => {
+      const onError = onBrowserSessionErrorRef.current;
+      if (onError) {
+        onError(error, source);
+        return;
+      }
+      console.error(`[Agent-Native browser session] ${source} failed:`, error);
+    },
+    [],
+  );
 
   const getMergedContext = useCallback(async () => {
     const screenContext =
@@ -206,6 +206,7 @@ export function useAgentNativeEmbeddedBrowserSession({
       pollMs: browserSession?.pollMs,
       ttlMs: browserSession?.ttlMs,
       fetch: browserSession?.fetch,
+      onError: reportBrowserSessionError,
       session,
       getContext: getMergedContext,
       actions,
@@ -231,56 +232,4 @@ export function useAgentNativeEmbeddedBrowserSession({
     session,
     webmcp,
   ]);
-}
-
-export function AgentNativeEmbedded({
-  children,
-  surface,
-  actions,
-  getContext,
-  enabled,
-  screen,
-  commands,
-  webmcp,
-  session,
-  browserSession,
-  onNavigate,
-  onOpenResource,
-  onRefresh,
-  onRemount,
-  onRequestApproval,
-  panel,
-  ...sidebarProps
-}: AgentNativeEmbeddedProps) {
-  useAgentNativeEmbeddedBrowserSession({
-    enabled,
-    actions,
-    getContext,
-    screen,
-    commands,
-    webmcp,
-    session,
-    browserSession,
-    onNavigate,
-    onOpenResource,
-    onRefresh,
-    onRemount,
-    onRequestApproval,
-  });
-
-  const mode = surface ?? (children ? "sidebar" : "panel");
-  const browserTabId =
-    sidebarProps.browserTabId ??
-    panel?.browserTabId ??
-    sessionBrowserTabId(session);
-
-  if (mode === "panel" || !children) {
-    return <AgentChatSurface browserTabId={browserTabId} {...panel} />;
-  }
-
-  return (
-    <AgentSidebar {...sidebarProps} browserTabId={browserTabId}>
-      {children}
-    </AgentSidebar>
-  );
 }

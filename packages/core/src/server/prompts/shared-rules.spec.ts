@@ -5,6 +5,14 @@ import { buildFrameworkCore } from "./framework-core.js";
 import { RESPONSE_TYPOGRAPHY_GUIDANCE, sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {
+  it("keeps Assets delegation conditional on native generators not already delegating", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "unless the current app has its own generation action that already delegates there",
+      );
+    }
+  });
+
   it("keeps generated response emphasis intentional in full and compact prompts", () => {
     expect(RESPONSE_TYPOGRAPHY_GUIDANCE).toContain(
       "do not use bold or italics as routine emphasis",

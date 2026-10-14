@@ -68,6 +68,7 @@ export default defineAction({
         ? db
             .select()
             .from(schema.assetTemplates)
+            // guard:allow-unscoped — templateAccess enforces direct template shares and inherited access to its Brand Kit before the preset is returned.
             .where(
               and(
                 eq(schema.assetTemplates.id, session.presetId),

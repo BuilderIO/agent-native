@@ -1,4 +1,3 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
@@ -36,7 +35,7 @@ export const clientLoader: ClientLoaderFunction = async ({ request }) => {
 clientLoader.hydrate = true;
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <ConnectRoute />;
 }
 
 export { ConnectRoute as default, meta };

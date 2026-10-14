@@ -2,12 +2,18 @@ import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
@@ -325,6 +331,15 @@ export default defineAction({
         )
           ? (metadata.icon ?? null)
           : (currentDocument.icon ?? null);
+        const userEmail = getRequestUserEmail();
+        if (!userEmail) throw new Error("Authentication is required.");
+        if (resolvedIcon !== currentDocument.icon) {
+          await verifyPrivateIconAssignment({
+            icon: resolvedIcon,
+            userEmail,
+            orgId: currentDocument.orgId,
+          });
+        }
         const versionId = `content_document_version_${createHash("sha256")
           .update(
             `${currentDocument.id}:${currentDocument.updatedAt}:${proposedHash}`,
@@ -367,6 +382,24 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documents.id, target.document.id));
+        if (resolvedIcon !== currentDocument.icon) {
+          await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+            elementType: "document",
+            elementId: currentDocument.id,
+            documentId: currentDocument.id,
+            icon: resolvedIcon,
+            ownerEmail: currentDocument.ownerEmail,
+            orgId: currentDocument.orgId,
+          });
+        }
+        await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+          documentId: currentDocument.id,
+          before: currentDocument.content,
+          after: sourceContent!,
+          userEmail,
+          ownerEmail: currentDocument.ownerEmail,
+          orgId: currentDocument.orgId,
+        });
         const [sourceRow] = await tx
           .select()
           .from(schema.contentDatabaseSourceRows)

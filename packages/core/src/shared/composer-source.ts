@@ -18,8 +18,8 @@ export const composerWebsiteUrlSchema = z
 export const composerSourceRequestSchema = z
   .object({
     source: z
-      .enum(["design", "slides", "figma", "website"])
-      .describe("Source app or provider to browse."),
+      .enum(["design", "slides", "figma", "website", "integration"])
+      .describe("Source app, context source, or connected integration."),
     operation: z
       .enum(["list", "read"])
       .describe("List available references or read one selected reference."),
@@ -69,6 +69,21 @@ export const composerSourceRequestSchema = z
       .describe("Opaque Slides continuation cursor from a prior result."),
   })
   .superRefine((value, ctx) => {
+    if (value.source === "integration") {
+      if (!value.id)
+        ctx.addIssue({
+          code: "custom",
+          path: ["id"],
+          message: "A connected integration is required.",
+        });
+      if (value.operation !== "read")
+        ctx.addIssue({
+          code: "custom",
+          path: ["operation"],
+          message: "Integration intents support read only.",
+        });
+      return;
+    }
     if (value.source !== "website") return;
     if (!value.url)
       ctx.addIssue({

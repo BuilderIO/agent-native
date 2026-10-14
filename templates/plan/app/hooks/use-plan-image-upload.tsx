@@ -1,8 +1,8 @@
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import {
   uploadEditorImage,
   useFileUploadStatus,
 } from "@agent-native/core/client/uploads";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function usePlanImageUpload() {

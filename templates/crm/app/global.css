@@ -1,6 +1,5 @@
 @import "@fontsource-variable/inter";
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
@@ -239,7 +238,7 @@
   display: grid;
   width: 100%;
   max-width: min(670px, 90%);
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 .crm-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
@@ -251,7 +250,7 @@
   display: grid;
   width: 100%;
   max-width: min(670px, 90%);
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 .crm-chat-intro h1 {

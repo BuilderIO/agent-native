@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
+const prefetchSecretsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
+  prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
   resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
 }));
 
@@ -37,10 +39,32 @@ describe("s3FileUploadProvider", () => {
     }
     resolveSecretMock.mockReset();
     resolveSecretMock.mockResolvedValue(null);
+    prefetchSecretsMock.mockReset();
+    prefetchSecretsMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  it("batches every storage key into one prefetch before resolving them", async () => {
+    const order: string[] = [];
+    prefetchSecretsMock.mockImplementation(async () => {
+      order.push("prefetch");
+    });
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      order.push(key);
+      return null;
+    });
+
+    await s3FileUploadProvider.isConfiguredForRequest?.();
+
+    expect(prefetchSecretsMock).toHaveBeenCalledTimes(1);
+    const [prefetched] = prefetchSecretsMock.mock.calls[0] as [string[]];
+    const resolved = order.slice(1);
+    expect(order[0]).toBe("prefetch");
+    expect(new Set(prefetched)).toEqual(new Set(resolved));
+    expect(resolved).toHaveLength(12);
   });
 
   it("is unavailable until all public URL and credential values exist", async () => {
@@ -109,6 +133,36 @@ describe("s3FileUploadProvider", () => {
         Authorization: expect.stringContaining("Credential=access-example/"),
       }),
     });
+  });
+
+  it("treats a missing S3 object as already deleted", async () => {
+    const secrets: Record<string, string> = {
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "uploads-example",
+      S3_ACCESS_KEY_ID: "access-example",
+      S3_SECRET_ACCESS_KEY: "secret-example",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+    };
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secrets[key] ?? null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        text: async () => "",
+      })),
+    );
+
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/missing.mp4",
+        id: "uploads/missing.mp4",
+      }),
+    ).resolves.toBe(true);
   });
 
   it("uploads through environment-backed storage when scoped secrets are absent", async () => {

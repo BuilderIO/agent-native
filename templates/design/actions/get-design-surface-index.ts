@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   accessFilter,
   assertAccess,
@@ -431,7 +431,7 @@ export default defineAction({
   }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
     if (includeReview) {
       await assertAccess("design", designId, "editor");

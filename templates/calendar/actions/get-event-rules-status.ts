@@ -14,6 +14,7 @@ export default defineAction({
     "Check whether automatic calendar invitation rules can run on this deployment.",
   schema: z.object({}),
   http: { method: "GET" },
+  dedupe: false,
   run: async () => {
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");

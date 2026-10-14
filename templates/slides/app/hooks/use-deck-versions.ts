@@ -11,7 +11,6 @@ export function useDeckVersions(deckId: string | null) {
     deckId ? { deckId } : undefined,
     {
       enabled: !!deckId,
-      placeholderData: (prev: any) => prev,
     } as any,
   );
 }
@@ -25,7 +24,6 @@ export function useDeckVersion(
     deckId && versionId ? { deckId, versionId } : undefined,
     {
       enabled: !!(deckId && versionId),
-      placeholderData: (prev: any) => prev,
     } as any,
   );
 }

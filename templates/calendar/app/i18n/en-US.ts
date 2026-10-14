@@ -7,7 +7,6 @@ export default {
     connecting: "Connecting...",
     clipboardUnavailable: "Clipboard access is unavailable",
     disconnect: "Disconnect",
-    notConnected: "Not connected",
     loadFailed: "Could not load this data.",
     retry: "Retry",
     saving: "Saving...",
@@ -197,10 +196,6 @@ export default {
   },
   settings: {
     title: "Settings",
-    description: "Configure your calendar and integrations.",
-    languageTitle: "Language",
-    languageDescription: "Choose the interface language for Calendar.",
-    languageLabel: "Interface language",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -214,13 +209,8 @@ export default {
     zoomConnectFailed: "Could not connect Zoom",
     zoomDisconnected: "Zoom disconnected",
     zoomDisconnectFailed: "Failed to disconnect Zoom",
-    general: "General",
-    generalDescription: "Calendar defaults and fallback booking copy.",
-    timezone: "Timezone",
-    saveSettings: "Save Settings",
     saved: "Settings saved",
     saveFailed: "Failed to save settings",
-    appearance: "Appearance",
     appearanceDescription:
       "Pick a color theme for your workspace. Or just ask the agent.",
     desktopNotifications: "Desktop notifications",
@@ -235,19 +225,9 @@ export default {
       "Sync your events and manage everything in one place.",
     zoomDescription:
       "Connect Zoom to create meeting links for calendar events and bookings.",
-    zoomNotConfigured: "Not configured",
     zoomCredentialsPrompt: "Add Zoom OAuth credentials to enable connection.",
-    bookingTitleLabel: "Fallback booking page title",
     bookingTitlePlaceholder: "Book a Meeting",
-    bookingTitleHelp:
-      "Used only when a booking link has no title. Create, open, and copy public URLs from Booking links.",
-    bookingDescriptionLabel: "Fallback booking page description",
     bookingDescriptionPlaceholder: "Pick a time that works for you.",
-    bookingDescriptionHelp:
-      "Used only when a booking link has no description of its own.",
-    defaultDurationLabel: "Default event duration (minutes)",
-    defaultDurationHelp:
-      "Default length for new calendar events and booking slots. Booking links can override this per link.",
     weekStartLabel: "Week starts on",
     weekStartSunday: "Sunday - Saturday",
     weekStartMonday: "Monday - Sunday",
@@ -255,7 +235,7 @@ export default {
     eventRulesAutomationLink: "For other actions, create an automation",
     eventRulesConnectJev: "Connect Jev to run invitation rules",
     eventRulesFreeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
-    eventRulesConnectBuilder: "Connect Builder.io",
+    eventRulesConnectBuilder: "Use Builder.io",
     eventRulesAddJevApiKey: "Add API key",
     eventRulesTabRules: "Rules",
     eventRulesHelpLabel: "About invitation rule prompts",
@@ -613,6 +593,7 @@ export default {
     fieldRequired: "{{label}} is required",
     linkDisabled: "{{title}} disabled",
     linkEnabled: "{{title}} enabled",
+    advanced: "Advanced",
     linkVisibility: "Link visibility",
     linkVisibilityDescription: "Turn this off to disable the public page.",
     loadingMeetingTypes: "Loading meeting types",
@@ -787,6 +768,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "Resize all-day section",
     addWorkingLocation: "Add working location",
     addTitleBeforeCreate: "Add a title before creating the event",
     calendarSettingsLoading:
@@ -977,6 +959,8 @@ export default {
     occurrences: "occurrences",
     reviewInvite: "Review Invite",
     reviewProposedTime: "Review proposed time",
+    newTimeProposedBy: "New time proposed by {{name}}",
+    reviewTimeProposals: "Review time proposals",
     responseAwaitingCount: "{{count}} awaiting",
     responseMaybeCount: "{{count}} maybe",
     responseNoCount: "{{count}} no",

@@ -130,6 +130,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。請求：{{action}}。",
+    widgetDocumentLoadStage: "已儲存的頁面內文",
+    widgetDraftCheckStage: "頁面草稿復原",
+    widgetEditorInitStage: "富文字編輯器初始化",
     iconPickerIcons: "圖示",
     iconPickerEmoji: "表情符號",
     iconPickerRecent: "最近使用",
@@ -190,7 +194,9 @@ const history = {
 
 const overrides = {
   close: "關閉",
-  setup: { checkingProvider: "正在檢查 AI 連線…" },
+  setup: {
+    providerStatusUnavailable: "無法確認 AI 是否已就緒。",
+  },
   onboarding: {
     fileStorage: {
       title: "連接儲存空間以上傳檔案",
@@ -200,6 +206,7 @@ const overrides = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
+    loadingContent: "正在載入內容",
     commandSearchDocuments: "搜尋檔案",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改時間自 {{date}} 起",
@@ -250,8 +257,6 @@ const overrides = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
-    requestedPageUnavailable:
-      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
     workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
     workspaceWelcomeUnavailableDescription:
@@ -269,10 +274,6 @@ const overrides = {
   settings: {
     metaTitle: "設定 - Content",
     title: "設定",
-    description: "Content 的語言和工作區偏好設定。",
-    emailNotifications: "郵件通知",
-    emailNotificationsDescription:
-      "當有人評論你的文件、在討論串中回覆或提到你時，收到郵件通知。",
     saveFailed: "儲存失敗",
     notificationsEmail: "電子郵件",
     commentsRepliesMentions: "評論、回覆和提及",
@@ -281,9 +282,6 @@ const overrides = {
     retry: "重試",
     mcpAbout:
       "將 Content 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。該應用程式就能代你在 Content 中工作：搜尋、撰寫和編輯文件。它只能看到你能看到的內容。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理協作者和共用檔案存取權限。",
     openTeamSettings: "開啟工作區存取設定",
@@ -316,6 +314,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
+    pageNoAccess: "你沒有此頁面的存取權",
+    pageMissing: "此頁面不存在",
+    pageInTrash: "此頁面在垃圾桶中",
+    pageInTrashAskOwner: "請擁有者還原它。",
+    openTrash: "開啟垃圾桶",
+    goToMyPages: "前往我的頁面",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:
@@ -338,6 +342,10 @@ const overrides = {
     suggestionFormattingBaselineUnsupported:
       "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+    suggestionUnplaceable:
+      "此建議周圍的文字已變更，因此無法套用。它仍在待處理狀態：請拒絕它，或重新建議此修改。",
+    proposalUnplaceable:
+      "其中一則建議周圍的文字已變更，無法套用，因此所有建議均未套用。它們仍在待處理狀態：請逐則接受或拒絕。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
@@ -432,7 +440,6 @@ const overrides = {
     reorderField: "重新排序 {{name}}",
     title: "標題",
     toggleField: "切換 {{name}}",
-    createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",
@@ -725,6 +732,34 @@ const overrides = {
       pageCount_few: "{{count}} 頁面",
       pageCount_many: "{{count}} 頁面",
       pageCount_other: "{{count}} 頁面",
+      back: "返回",
+      relatedDatabase: "關聯資料庫",
+      searchDatabases: "搜尋資料庫",
+      thisDatabase: "此資料庫",
+      noDatabases: "找不到資料庫",
+      searchPages: "搜尋頁面",
+      noMatchingPages: "沒有相符的頁面",
+      removeRelation: "移除 {{name}}",
+      openPage: "開啟 {{name}}",
+      unavailablePage: "無法使用的頁面",
+      unavailablePageCount_zero: "{{count}} 個無法使用",
+      unavailablePageCount_one: "{{count}} 個無法使用",
+      unavailablePageCount_two: "{{count}} 個無法使用",
+      unavailablePageCount_few: "{{count}} 個無法使用",
+      unavailablePageCount_many: "{{count}} 個無法使用",
+      unavailablePageCount_other: "{{count}} 個無法使用",
+      noRelatedDatabase: "未設定關聯資料庫",
+      linkAPage: "連結或建立頁面…",
+      createPage: "建立「{{name}}」",
+      reorderRelation: "重新排序 {{name}}",
+      selectMore: "選擇更多",
+      selectAPage: "選擇頁面",
+      selectedCount_zero: "已選擇 {{count}} 個",
+      selectedCount_one: "已選擇 {{count}} 個",
+      selectedCount_two: "已選擇 {{count}} 個",
+      selectedCount_few: "已選擇 {{count}} 個",
+      selectedCount_many: "已選擇 {{count}} 個",
+      selectedCount_other: "已選擇 {{count}} 個",
       pasteFileOrMediaLink: "貼上檔案或媒體連結",
       personOrEmail: "個人或電子郵件",
       propertyMenuFor: "{{name}} 的屬性選單",
@@ -837,6 +872,8 @@ const overrides = {
       openInClaude: "在 Claude 中開啟",
       openInClaudeCode: "在 Claude Code 中開啟",
       openInCodex: "在 Codex 中開啟",
+      connectContent: "連接 Content",
+      otherAgents: "其他代理程式",
       agentCopyAccessNote: "代理程式可以透過現有權限使用 Content MCP",
       temporaryAgentLink: "暫時性代理程式連結",
       privateLinkCanView: "只有有權限的人可以檢視",
@@ -928,6 +965,7 @@ const overrides = {
       notionPageUrlOrId: "Notion 頁面 URL 或頁面 ID",
       open: "開啟",
       openInNotion: "在概念中開啟",
+      openInAgentNative: "在 Agent-Native 中開啟",
       orgCanFindAndView: "您組織中的任何人都可以尋找和檢視",
       orgLinkCanView: "您組織中知道該連結的任何人都可以檢視",
       pageBreadcrumb: "頁面面包屑",
@@ -1022,6 +1060,9 @@ const overrides = {
     aiUndo: "復原",
     aiDone: "完成",
     aiMoreChanges: "另外 {{count}} 處",
+    suggestionReplaced: "已取代",
+    suggestionWithdrawn: "已撤回",
+    suggestedChange: "建議的變更",
     aiUndoUnavailable: "已刪除的文字無法自動復原",
     aiUndoFailed: "無法復原變更",
     aiResolvedByAi: "已由 AI 解決",
@@ -1367,7 +1408,7 @@ const overrides = {
     attached: "Attached",
     bodyDiff: "內文差異",
     builderIsntConnectedGoBackToConnectYour:
-      "Builder 未連線。請先返回並連線你的帳戶。",
+      "Builder 尚未連線。請返回並先使用 Builder.io。",
     calculate: "Calculate",
     calendarBy: "行事曆依據",
     cancel: "Cancel",
@@ -1384,7 +1425,7 @@ const overrides = {
     collapseAllGroups: "折疊所有分組",
     color: "Color",
     connectYourBuilderAccountToBrowseItsSpaces:
-      "連線你的 Builder 帳戶以瀏覽其空間和模型。",
+      "使用 Builder 帳戶瀏覽其空間和模型。",
     connectedSources: "已連線的來源",
     couldntSyncRetry: "無法同步 · 重試",
     databasePagePreview: "集合頁面預覽",
@@ -1733,6 +1774,11 @@ const overrides = {
     removeLocalFilesFromSidebar: "從側邊欄移除",
     removeLocalFilesQuestion: "要從側邊欄移除本機檔案嗎？",
     failedCreatePage: "建立頁面失敗",
+    failedCreatePageDraftDescription:
+      "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
+    discardFailedCreatePageQuestion: "捨棄待處理的建立？",
+    discardFailedCreatePageDescription:
+      "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

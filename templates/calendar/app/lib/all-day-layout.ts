@@ -2,10 +2,12 @@ import type { CalendarEvent } from "@shared/api";
 
 import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
+  DATE_ONLY_PATTERN,
   addCalendarDays,
   dateToCalendarDateKey,
   eventOverlapsCalendarDay,
   getBrowserTimezone,
+  isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
 import { getFullDayOutOfOfficeDateRange } from "@/lib/out-of-office";
 import { isWorkingLocationEvent } from "@/lib/working-location";
@@ -26,6 +28,25 @@ export interface AllDayLayout {
 }
 
 export type AllDayPlacementGroup = AllDayPlacement[];
+
+export function isCompactCalendarEvent(event: CalendarEvent): boolean {
+  if (isAllDayCalendarEvent(event)) return true;
+  if (
+    DATE_ONLY_PATTERN.test(event.start) ||
+    !event.end ||
+    DATE_ONLY_PATTERN.test(event.end)
+  ) {
+    return false;
+  }
+
+  const start = Date.parse(event.start);
+  const end = Date.parse(event.end);
+  return (
+    Number.isFinite(start) &&
+    Number.isFinite(end) &&
+    end - start > 24 * 60 * 60 * 1000
+  );
+}
 
 export function partitionAllDayEvents(events: CalendarEvent[]) {
   const workingLocations: CalendarEvent[] = [];

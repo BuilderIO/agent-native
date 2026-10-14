@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   recordActionAudit: vi.fn(async (_input: unknown) => {}),
 }));
 
-vi.mock("../../settings/store.js", () => ({
+vi.mock("../../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../settings/store.js")>()),
   getSetting: async (key: string) => mocks.settings.get(key) ?? null,
   mutateSetting: async (
     key: string,

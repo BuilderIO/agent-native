@@ -1,14 +1,23 @@
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../agent/chatgpt-subscription-contract.js";
+
 export interface EngineModelGroup {
   engine: string;
   label: string;
   models: string[];
+  modelDisplayNames?: Readonly<Record<string, string>>;
+  preserveCustomModels?: boolean;
   configured: boolean;
+  isSubscription?: boolean;
 }
 
 export interface ChatModelEngineEntry {
   name: string;
   label: string;
+  defaultModel?: string;
   supportedModels?: readonly string[];
+  /** Full runtime model set, independent of any user-selected picker subset. */
+  runtimeSupportedModels?: readonly string[];
+  modelDisplayNames?: Readonly<Record<string, string>>;
   acceptsCustomModels?: boolean;
   preserveCustomModels?: boolean;
   requiredEnvVars?: readonly string[];
@@ -207,6 +216,7 @@ function shouldShowDirectEngine(
   if (engine.name === currentEngineName) return true;
   if (engine.name === "builder") return false;
   if (engine.name === "ai-sdk:anthropic") return false;
+  if (engine.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) return configured;
   // Keyless engines (Ollama) always report ready, so only models someone
   // checked for them say they are set up.
   if (engine.requiredEnvVars?.length === 0) {
@@ -271,11 +281,21 @@ export function buildChatModelGroups({
       const group: EngineModelGroup = {
         engine: engine.name,
         label: engine.label,
-        models: sortModelsByCost(modelsFor(engine, true)),
+        models:
+          engine.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+            ? modelsFor(engine, false)
+            : sortModelsByCost(modelsFor(engine, true)),
+        ...(engine.modelDisplayNames
+          ? { modelDisplayNames: engine.modelDisplayNames }
+          : {}),
+        ...(engine.preserveCustomModels ? { preserveCustomModels: true } : {}),
         configured:
           engine.configured ??
           (requiredEnvVars.length === 0 ||
             requiredEnvVars.some((key) => configured.has(key))),
+        ...(engine.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+          ? { isSubscription: true }
+          : {}),
       };
       return { engine, group };
     })

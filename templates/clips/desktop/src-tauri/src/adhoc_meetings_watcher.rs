@@ -10,7 +10,9 @@
 //! the same meeting-notification overlay used for calendar reminders.
 //!
 //! Reuses `MeetingsWatcherState` session (server URL + cookie + auth token)
-//! so the popover only needs to push credentials once.
+//! so the popover only needs to push credentials once, and its rejection
+//! budget (`Poller::AdhocMeetings`) so a dead session stops attempting
+//! `create-meeting` after a few 401s instead of once a minute per call.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -21,8 +23,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::config::{feature_config, MeetingTranscriptionMode};
 use crate::dlog;
 use crate::meetings_watcher::{
-    find_matching_calendar_meeting, parse_meetings, MeetingItem, MeetingsWatcherState,
-    CALENDAR_MATCH_WINDOW_MINUTES,
+    find_matching_calendar_meeting, parse_meetings, MeetingItem, MeetingsSessionSnapshot,
+    MeetingsWatcherState, Poller, SessionCredentials, CALENDAR_MATCH_WINDOW_MINUTES,
 };
 
 const POLL_SECS: u64 = 2;
@@ -78,18 +80,41 @@ struct AdhocMeetingsWatcherInner {
 enum CreateFailure {
     NotCommitted(String),
     Ambiguous(String),
+    /// The server rejected the session; nothing was written.
+    Unauthorized(String),
 }
 
 impl CreateFailure {
     fn message(&self) -> &str {
         match self {
-            CreateFailure::NotCommitted(m) | CreateFailure::Ambiguous(m) => m,
+            CreateFailure::NotCommitted(m)
+            | CreateFailure::Ambiguous(m)
+            | CreateFailure::Unauthorized(m) => m,
         }
     }
 
     fn is_ambiguous(&self) -> bool {
         matches!(self, CreateFailure::Ambiguous(_))
     }
+}
+
+#[derive(Debug)]
+enum LookupError {
+    Unauthorized,
+    Other(String),
+}
+
+impl std::fmt::Display for LookupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LookupError::Unauthorized => write!(f, "list-meetings http 401/403"),
+            LookupError::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+fn is_auth_rejection(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -523,6 +548,16 @@ async fn tick_macos(
         }
     }
 
+    let meetings_state = app
+        .try_state::<MeetingsWatcherState>()
+        .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
+    let session = meetings_state.session_snapshot();
+    let credentials: SessionCredentials =
+        (session.session_cookie.clone(), session.auth_token.clone());
+    if !meetings_state.should_poll(Poller::AdhocMeetings, &credentials, now) {
+        return Ok(());
+    }
+
     let reconcile_since = {
         let state = app
             .try_state::<AdhocMeetingsWatcherState>()
@@ -537,9 +572,21 @@ async fn tick_macos(
         platform
     );
 
-    let meeting = match create_adhoc_meeting(app, client, platform, reconcile_since).await {
-        Ok(meeting) => meeting,
+    let meeting = match create_adhoc_meeting(app, client, &session, platform, reconcile_since).await
+    {
+        Ok(meeting) => {
+            meetings_state.note_authorized(Poller::AdhocMeetings, &credentials);
+            meeting
+        }
         Err(failure) => {
+            if matches!(failure, CreateFailure::Unauthorized(_)) {
+                meetings_state.note_unauthorized(
+                    Poller::AdhocMeetings,
+                    credentials,
+                    Duration::from_secs(CREATE_RETRY_BACKOFF_SECS as u64),
+                    now,
+                );
+            }
             if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
                 if let Ok(mut g) = state.inner.lock() {
                     g.note_create_failed(platform, now_ts, failure.is_ambiguous());
@@ -629,6 +676,13 @@ async fn tick_macos(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forbidden_responses_are_auth_rejections() {
+        assert!(is_auth_rejection(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(is_auth_rejection(reqwest::StatusCode::FORBIDDEN));
+        assert!(!is_auth_rejection(reqwest::StatusCode::NOT_FOUND));
+    }
 
     fn config_with(
         mode: MeetingTranscriptionMode,
@@ -1496,13 +1550,10 @@ fn reset_evidence(app: &AppHandle) {
 async fn create_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
+    session: &MeetingsSessionSnapshot,
     platform: &str,
     reconcile_since: Option<i64>,
 ) -> Result<MeetingItem, CreateFailure> {
-    let session = app
-        .try_state::<MeetingsWatcherState>()
-        .map(|s| s.session_snapshot())
-        .unwrap_or_default();
     let Some(server_url) = session.server_url.as_deref() else {
         return Err(CreateFailure::NotCommitted(
             "no server_url for create-meeting".to_string(),
@@ -1510,7 +1561,7 @@ async fn create_adhoc_meeting(
     };
 
     if let Some(since) = reconcile_since {
-        match find_recent_adhoc_meeting(app, client, server_url, &session, platform, since).await {
+        match find_recent_adhoc_meeting(app, client, server_url, session, platform, since).await {
             Ok(Some(existing)) => {
                 dlog!(
                     "[clips-tray] adhoc reconciled to existing meeting {} for {}",
@@ -1520,6 +1571,11 @@ async fn create_adhoc_meeting(
                 return Ok(existing);
             }
             Ok(None) => {}
+            Err(LookupError::Unauthorized) => {
+                return Err(CreateFailure::Unauthorized(
+                    LookupError::Unauthorized.to_string(),
+                ));
+            }
             Err(error) => {
                 return Err(CreateFailure::Ambiguous(format!(
                     "adhoc reconcile unreadable for {platform}, not retrying create: {error}"
@@ -1528,7 +1584,7 @@ async fn create_adhoc_meeting(
         }
     }
 
-    match find_calendar_meeting(app, client, server_url, &session, platform).await {
+    match find_calendar_meeting(app, client, server_url, session, platform).await {
         Ok(Some(meeting)) => {
             dlog!(
                 "[clips-tray] adhoc matched calendar meeting {} for {}",
@@ -1538,6 +1594,11 @@ async fn create_adhoc_meeting(
             return Ok(meeting);
         }
         Ok(None) => {}
+        Err(LookupError::Unauthorized) => {
+            return Err(CreateFailure::Unauthorized(
+                LookupError::Unauthorized.to_string(),
+            ));
+        }
         Err(error) => dlog!(
             "[clips-tray] adhoc calendar title lookup skipped for {}: {}",
             platform,
@@ -1580,11 +1641,11 @@ async fn create_adhoc_meeting(
         }
     })?;
     let status = resp.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED {
+    if is_auth_rejection(status) {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
-        return Err(CreateFailure::NotCommitted(
-            "create-meeting http 401".to_string(),
-        ));
+        return Err(CreateFailure::Unauthorized(format!(
+            "create-meeting http {status}"
+        )));
     }
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
@@ -1624,10 +1685,10 @@ async fn find_recent_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
     server_url: &str,
-    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    session: &MeetingsSessionSnapshot,
     platform: &str,
     since_ts: i64,
-) -> Result<Option<MeetingItem>, String> {
+) -> Result<Option<MeetingItem>, LookupError> {
     let now_ts = chrono::Utc::now().timestamp();
     let lookback_min = (((now_ts - since_ts).max(0) / 60) + 2).to_string();
 
@@ -1651,19 +1712,19 @@ async fn find_recent_adhoc_meeting(
         }
     }
 
-    Err(format!(
+    Err(LookupError::Other(format!(
         "list-meetings did not reach the reconcile window within {RECONCILE_MAX_PAGES} pages"
-    ))
+    )))
 }
 
 async fn fetch_agenda_page(
     app: &AppHandle,
     client: &reqwest::Client,
     server_url: &str,
-    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    session: &MeetingsSessionSnapshot,
     lookback_min: &str,
     offset: usize,
-) -> Result<Vec<MeetingItem>, String> {
+) -> Result<Vec<MeetingItem>, LookupError> {
     let page_limit = RECONCILE_PAGE_LIMIT.to_string();
     let offset = offset.to_string();
     let url = format!("{server_url}/_agent-native/actions/list-meetings");
@@ -1686,23 +1747,26 @@ async fn fetch_agenda_page(
     let response = req
         .send()
         .await
-        .map_err(|error| format!("list-meetings fetch: {error}"))?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        .map_err(|error| LookupError::Other(format!("list-meetings fetch: {error}")))?;
+    if is_auth_rejection(response.status()) {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
-        return Err("list-meetings http 401".to_string());
+        return Err(LookupError::Unauthorized);
     }
     if !response.status().is_success() {
-        return Err(format!("list-meetings http {}", response.status()));
+        return Err(LookupError::Other(format!(
+            "list-meetings http {}",
+            response.status()
+        )));
     }
     let body: serde_json::Value = response
         .json()
         .await
-        .map_err(|error| format!("list-meetings response: {error}"))?;
+        .map_err(|error| LookupError::Other(format!("list-meetings response: {error}")))?;
     crate::meetings_watcher::try_parse_meetings(&body).ok_or_else(|| {
-        format!(
+        LookupError::Other(format!(
             "list-meetings response was not a meetings list: {}",
             body.to_string().chars().take(200).collect::<String>()
-        )
+        ))
     })
 }
 
@@ -1750,9 +1814,9 @@ async fn find_calendar_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
     server_url: &str,
-    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    session: &MeetingsSessionSnapshot,
     platform: &str,
-) -> Result<Option<MeetingItem>, String> {
+) -> Result<Option<MeetingItem>, LookupError> {
     let url = format!("{server_url}/_agent-native/actions/list-meetings");
     let upcoming_within_min = CALENDAR_MATCH_WINDOW_MINUTES.to_string();
     let mut req = client.get(url).query(&[
@@ -1773,18 +1837,21 @@ async fn find_calendar_meeting(
     let response = req
         .send()
         .await
-        .map_err(|error| format!("list-meetings fetch: {error}"))?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        .map_err(|error| LookupError::Other(format!("list-meetings fetch: {error}")))?;
+    if is_auth_rejection(response.status()) {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
-        return Err("list-meetings http 401".to_string());
+        return Err(LookupError::Unauthorized);
     }
     if !response.status().is_success() {
-        return Err(format!("list-meetings http {}", response.status()));
+        return Err(LookupError::Other(format!(
+            "list-meetings http {}",
+            response.status()
+        )));
     }
     let body: serde_json::Value = response
         .json()
         .await
-        .map_err(|error| format!("list-meetings response: {error}"))?;
+        .map_err(|error| LookupError::Other(format!("list-meetings response: {error}")))?;
     Ok(find_matching_calendar_meeting(
         &parse_meetings(&body),
         platform,

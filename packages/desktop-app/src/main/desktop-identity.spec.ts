@@ -401,6 +401,131 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).toHaveBeenCalledOnce();
   });
 
+  it("starts email verification recovery after an unverified signup", async () => {
+    const authority = authorityFixture();
+    const externalAuthentication = deferred<boolean>();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/register")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/_agent-native/auth/login")) {
+        return new Response(JSON.stringify({ error: "Email not verified" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/_agent-native/auth/magic-link")) {
+        return new Response(
+          JSON.stringify({ flowId: "flow_123", verifier: "verifier_123" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      throw new Error(`Unexpected identity request: ${url}`);
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    const finishExternalAuthentication = vi
+      .spyOn(
+        broker as unknown as {
+          finishExternalAuthentication: (...args: never[]) => Promise<boolean>;
+        },
+        "finishExternalAuthentication",
+      )
+      .mockReturnValue(externalAuthentication.promise);
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-up",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "Account created. Check your email to verify it, then sign in.",
+    });
+
+    expect(identityFetch).toHaveBeenCalledTimes(3);
+    expect(identityFetch).toHaveBeenNthCalledWith(
+      3,
+      `${authority.origin}/_agent-native/auth/magic-link`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "steve@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      }),
+    );
+    expect(finishExternalAuthentication).toHaveBeenCalledWith(
+      authority,
+      "flow_123",
+      "verifier_123",
+      expect.any(Number),
+    );
+    expect(broker.getStatus()).toBe("signing-in");
+
+    externalAuthentication.resolve(true);
+    await externalAuthentication.promise;
+  });
+
+  it("does not use email verification recovery for other signup 403s", async () => {
+    const authority = authorityFixture();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/register")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/_agent-native/auth/login")) {
+        return new Response(
+          JSON.stringify({ error: "Google sign-in is required." }),
+          {
+            status: 403,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      throw new Error(`Unexpected identity request: ${url}`);
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-up",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual({ ok: false, error: "Google sign-in is required." });
+    expect(identityFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("times out while reading a stalled magic-link response body", async () => {
     vi.useFakeTimers();
     try {
@@ -1756,6 +1881,18 @@ describe("DesktopIdentityBroker", () => {
   it("uses an isolated identity window and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
+    const calendar = {
+      ...appFixture(),
+      id: "calendar",
+      origin: "https://calendar.agent-native.com",
+      cookieNames: ["an_session_calendar", "an_session"],
+      cookieNamesToClear: [
+        "an_session_calendar",
+        "an_session",
+        "an_calendar.session_token",
+        "__Secure-an_calendar.session_token",
+      ],
+    };
     mail.alternateOrigins = ["https://beta.mail.agent-native.com"];
     mail.alternateCookieNameMap = {
       "https://beta.mail.agent-native.com": {
@@ -1765,6 +1902,13 @@ describe("DesktopIdentityBroker", () => {
     const identityCookies = cookieStore();
     const authorityCookies = cookieStore();
     const mailCookies = cookieStore();
+    const calendarCookies = cookieStore();
+    const calendarStartReached = deferred<void>();
+    const releaseCalendarStart = deferred<void>();
+    const calendarStartGates = [
+      { started: calendarStartReached, release: releaseCalendarStart },
+    ];
+    const clearIdentityStorage = vi.fn(async () => {});
     const openedUrls: string[] = [];
     const identityFetch = vi.fn(
       async (input: string, init?: RequestInit): Promise<Response> => {
@@ -1795,6 +1939,9 @@ describe("DesktopIdentityBroker", () => {
         if (url.pathname === "/_agent-native/auth/session") {
           return sessionResponse("owner@example.com");
         }
+        if (url.pathname === "/_agent-native/auth/logout") {
+          return new Response(null, { status: 200 });
+        }
         if (
           url.pathname ===
           "/_agent-native/actions/create-workspace-app-embed-session"
@@ -1807,15 +1954,15 @@ describe("DesktopIdentityBroker", () => {
               "X-Agent-Native-CSRF": "1",
             }),
           );
-          expect(JSON.parse(String(init?.body))).toEqual({
-            app: "mail",
+          const body = JSON.parse(String(init?.body));
+          expect(body).toEqual({
+            app: expect.stringMatching(/^(mail|calendar)$/),
             path: "/",
             chrome: "minimal",
           });
           return new Response(
             JSON.stringify({
-              startUrl:
-                "https://mail.agent-native.com/_agent-native/embed/start?ticket=mail-ticket",
+              startUrl: `https://${body.app}.agent-native.com/_agent-native/embed/start?ticket=${body.app}-ticket`,
             }),
             { status: 200 },
           );
@@ -1825,11 +1972,15 @@ describe("DesktopIdentityBroker", () => {
     );
     authority.session = {
       cookies: authorityCookies,
-      fetch: vi.fn(async (input: string) =>
-        new URL(input).pathname === "/_agent-native/auth/session"
-          ? sessionResponse("owner@example.com")
-          : new Response(null, { status: 404 }),
-      ),
+      fetch: vi.fn(async (input: string) => {
+        const pathname = new URL(input).pathname;
+        if (pathname === "/_agent-native/auth/session") {
+          return sessionResponse("owner@example.com");
+        }
+        return pathname === "/_agent-native/auth/logout"
+          ? new Response(null, { status: 200 })
+          : new Response(null, { status: 404 });
+      }),
     } as unknown as Electron.Session;
     mail.session = {
       cookies: mailCookies,
@@ -1843,8 +1994,36 @@ describe("DesktopIdentityBroker", () => {
           });
           return new Response("<html></html>", { status: 200 });
         }
-        return url.pathname === "/_agent-native/auth/session"
-          ? sessionResponse("owner@example.com")
+        if (url.pathname === "/_agent-native/auth/session") {
+          return sessionResponse("owner@example.com");
+        }
+        return url.pathname === "/_agent-native/auth/logout"
+          ? new Response(null, { status: 200 })
+          : new Response(null, { status: 404 });
+      }),
+    } as unknown as Electron.Session;
+    calendar.session = {
+      cookies: calendarCookies,
+      fetch: vi.fn(async (input: string) => {
+        const url = new URL(input);
+        if (url.pathname === "/_agent-native/embed/start") {
+          const gate = calendarStartGates.shift();
+          if (gate) {
+            gate.started.resolve();
+            await gate.release.promise;
+          }
+          await calendarCookies.set({
+            url: calendar.origin,
+            name: "an_session_calendar",
+            value: "calendar-session",
+          });
+          return new Response("<html></html>", { status: 200 });
+        }
+        if (url.pathname === "/_agent-native/auth/session") {
+          return sessionResponse("owner@example.com");
+        }
+        return url.pathname === "/_agent-native/auth/logout"
+          ? new Response(null, { status: 200 })
           : new Response(null, { status: 404 });
       }),
     } as unknown as Electron.Session;
@@ -1864,12 +2043,18 @@ describe("DesktopIdentityBroker", () => {
       identitySession: {
         cookies: identityCookies,
         fetch: identityFetch,
-        clearStorageData: vi.fn(async () => {}),
+        clearStorageData: clearIdentityStorage,
       } as unknown as Electron.Session,
       isAvailable: vi.fn(async () => true),
       resolveApp: (id) =>
-        id === authority.id ? authority : id === mail.id ? mail : null,
-      listApps: () => [authority, mail],
+        id === authority.id
+          ? authority
+          : id === mail.id
+            ? mail
+            : id === calendar.id
+              ? calendar
+              : null,
+      listApps: () => [authority, mail, calendar],
       createWindow,
       userAgent: "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
       openExternal: vi.fn(async (url: string) => {
@@ -1879,7 +2064,15 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.signIn(mail.id)).resolves.toBe(true);
+    let signInSettled = false;
+    const signIn = broker.signIn(authority.id).finally(() => {
+      signInSettled = true;
+    });
+    await calendarStartReached.promise;
+    expect(signInSettled).toBe(false);
+    expect(broker.getStatus()).not.toBe("signed-in");
+    releaseCalendarStart.resolve();
+    await expect(signIn).resolves.toBe(true);
 
     expect(createWindow).toHaveBeenCalledOnce();
     expect(createWindow).toHaveBeenCalledWith(
@@ -1905,6 +2098,12 @@ describe("DesktopIdentityBroker", () => {
         value: "mail-session",
       }),
     );
+    expect(calendarCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_calendar",
+        value: "calendar-session",
+      }),
+    );
     expect(mailCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://beta.mail.agent-native.com",
@@ -1914,6 +2113,7 @@ describe("DesktopIdentityBroker", () => {
     );
     expect(reloadApp).toHaveBeenCalledWith(authority);
     expect(reloadApp).toHaveBeenCalledWith(mail);
+    expect(reloadApp).toHaveBeenCalledWith(calendar);
     expect(broker.getStatus()).toBe("signed-in");
 
     const embedSessionRequests = identityFetch.mock.calls.filter(
@@ -1948,6 +2148,42 @@ describe("DesktopIdentityBroker", () => {
     ).toHaveLength(embedSessionRequests.length);
     expect(reloadApp).toHaveBeenCalledTimes(reloadCount);
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
+
+    await expect(broker.signOut([authority, mail, calendar])).resolves.toBe(
+      true,
+    );
+    clearIdentityStorage.mockClear();
+
+    const lateCalendarStartReached = deferred<void>();
+    const releaseLateCalendarStart = deferred<void>();
+    calendarStartGates.push({
+      started: lateCalendarStartReached,
+      release: releaseLateCalendarStart,
+    });
+    const lateSignIn = broker.signIn(authority.id);
+    await lateCalendarStartReached.promise;
+
+    let signOutSettled = false;
+    const lateSignOut = broker
+      .signOut([authority, mail, calendar])
+      .finally(() => {
+        signOutSettled = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(signOutSettled).toBe(false);
+    expect(clearIdentityStorage).not.toHaveBeenCalled();
+
+    releaseLateCalendarStart.resolve();
+    await expect(lateSignIn).resolves.toBe(false);
+    await expect(lateSignOut).resolves.toBe(true);
+    expect(await calendarCookies.get({ url: calendar.origin })).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "an_session_calendar",
+          value: "calendar-session",
+        }),
+      ]),
+    );
   });
 
   it("maps a beta-primary app session back to its production cookie name", async () => {

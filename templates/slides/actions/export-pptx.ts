@@ -5,13 +5,21 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
 import "../server/db/index.js";
-import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
 import {
+  trackDeckExported,
+  withExportFailureTracking,
+} from "../server/lib/deck-export-tracking.js";
+import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
+import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
+import {
+  isHostedSlidesRuntime,
+  pruneHostedPptxExports,
+  pptxDeckBindingPath,
+  pptxExportRevisionKey,
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
@@ -20,6 +28,8 @@ import {
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
+import { getExportUrl } from "./_app-url.js";
 
 type TableCell = PptxGenJS.TableCell;
 type TableRow = PptxGenJS.TableRow;
@@ -1631,6 +1641,35 @@ export async function fetchImageAsBase64(
   }
 }
 
+const trackPptxExportFailures = withExportFailureTracking<{
+  deckId: string;
+  includeNotes: boolean;
+}>("pptx");
+
+type SlidesPptxDownloadContext = {
+  slidesPptxDownload?: true;
+  slidesPptxDownloadFilename?: string;
+  slidesPptxDownloadPersist?: true;
+  slidesPptxDownloadExpectedRevision?: string;
+};
+
+function slidesPptxDownloadContext(
+  ctx: unknown,
+): SlidesPptxDownloadContext | undefined {
+  const context = ctx as SlidesPptxDownloadContext | undefined;
+  return context?.slidesPptxDownload === true ? context : undefined;
+}
+
+function isSafePptxFilename(filename: unknown): filename is string {
+  return (
+    typeof filename === "string" &&
+    !filename.includes("..") &&
+    path.basename(filename) === filename &&
+    path.extname(filename).toLowerCase() === ".pptx" &&
+    /^[a-zA-Z0-9_.-]+$/.test(filename)
+  );
+}
+
 export default defineAction({
   description:
     "Export a deck as a PowerPoint (.pptx) file, preserving imported PPTX geometry, text styles, shapes, and images. Freeform editor objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
@@ -1643,7 +1682,9 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }, ctx) => {
+  run: trackPptxExportFailures(async (args, ctx, facts) => {
+    const { deckId, includeNotes } = args;
+    const downloadContext = slidesPptxDownloadContext(ctx);
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -1658,9 +1699,30 @@ export default defineAction({
         statusCode: 404,
       });
 
+    facts.deckId = deckId;
     const row = access.resource;
+    const exportRevision = pptxExportRevisionKey(
+      deckId,
+      row.updatedAt,
+      row.title,
+      row.data,
+      includeNotes,
+    );
+    if (
+      downloadContext?.slidesPptxDownloadExpectedRevision &&
+      downloadContext.slidesPptxDownloadExpectedRevision !== exportRevision
+    ) {
+      fail("Deck changed after this export link was created. Export again.", {
+        errorCode: "export_revision_stale",
+        statusCode: 409,
+      });
+    }
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    facts.slideCount = slides.length;
+    facts.generationAttemptId = generationAttemptIdOf(
+      deckData.generationContext,
+    );
     if (slides.length === 0) {
       fail("Cannot export empty deck", {
         errorCode: "empty_deck",
@@ -1673,12 +1735,19 @@ export default defineAction({
     )
       ? rawAspectRatio
       : undefined;
-    const slideContents: string[] = slides.map((slide: unknown) =>
-      slide &&
-      typeof slide === "object" &&
-      typeof (slide as { content?: unknown }).content === "string"
-        ? (slide as { content: string }).content
-        : "",
+    const slideContents: string[] = slides.map(
+      (slide: unknown, index: number) =>
+        slide &&
+        typeof slide === "object" &&
+        typeof (slide as { content?: unknown }).content === "string"
+          ? fillSlideNumberTokensInHtml(
+              (slide as { content: string }).content,
+              {
+                number: index + 1,
+                count: slides.length,
+              },
+            )
+          : "",
     );
     const sourcePage = slideContents
       .map(sourcePageInches)
@@ -1903,39 +1972,63 @@ export default defineAction({
       (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
       { themeColors: deckThemeColors(deckData), slideGradients },
     );
-    const filename = safeGeneratedFilename(row.title, ".pptx");
+    const filename = isSafePptxFilename(
+      downloadContext?.slidesPptxDownloadFilename,
+    )
+      ? downloadContext.slidesPptxDownloadFilename
+      : safeGeneratedFilename(row.title, ".pptx", deckId);
+    const persistExport =
+      !downloadContext || downloadContext.slidesPptxDownloadPersist === true;
 
-    let filePath: string | undefined;
-    if (!isServerless()) {
-      const exportDir = tenantExportDir(userEmail);
+    const exportDir = tenantExportDir(userEmail);
+    if (persistExport) {
       fs.mkdirSync(exportDir, { recursive: true });
-      filePath = path.join(exportDir, filename);
-      fs.writeFileSync(filePath, buffer);
+      fs.writeFileSync(path.join(exportDir, filename), buffer);
+      fs.writeFileSync(
+        pptxDeckBindingPath(exportDir, filename),
+        exportRevision,
+      );
+    }
+    if (isHostedSlidesRuntime()) {
+      try {
+        pruneHostedPptxExports(
+          exportDir,
+          Date.now(),
+          persistExport ? filename : undefined,
+        );
+      } catch (error) {
+        console.warn(
+          "[export-pptx] Could not prune hosted PPTX exports",
+          error,
+        );
+      }
     }
 
-    track(
-      "deck_exported",
+    trackDeckExported(
       {
-        app_name: "slides",
-        template_name: "slides",
-        output_id: deckId,
-        output_type: "deck",
-        export_format: "pptx",
-        slide_count: slides.length,
+        ...facts,
+        deckId,
+        exportFormat: "pptx",
+        renderLocation: "server",
+        status: "completed",
       },
       ctx,
     );
 
     return {
-      buffer,
-      filePath,
+      downloadUrl: getExportUrl(filename, {
+        deckId,
+        includeNotes,
+        exportRevision,
+      }),
+      ...(downloadContext ? { buffer } : {}),
       filename,
       slideCount: slides.length,
       ...(backgroundGradientsFlattened > 0
         ? { backgroundGradientsFlattened }
         : {}),
     };
-  },
+  }),
 });
 
 function deckThemeColors(
@@ -1962,14 +2055,4 @@ function deckThemeFonts(
       ? (fonts[index] as string)
       : undefined;
   return [face(0), face(1) ?? face(0)];
-}
-
-function isServerless(): boolean {
-  return Boolean(
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.cwd() === "/var/task" ||
-    process.cwd().startsWith("/var/task/"),
-  );
 }

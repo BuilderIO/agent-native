@@ -3,10 +3,61 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Chats open on their own URL so a conversation can be bookmarked or shared, and the chat home always starts blank.
+
+## 2026-10-08
+
+### Improved
+
+- A new chat shows its heading and prompt immediately while existing chat history loads.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies account use and available credits.
+- Owners and admins can save image generation keys for the whole organization, which is now the default.
+
+## 2026-10-01
+
+### Fixed
+
+- A generation that was deleted is no longer checked over and over in the background
+
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
 ## 2026-09-28
 
 ### Improved
 
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
 - Create starter prompts now appear below the composer.
 
 ## 2026-09-27

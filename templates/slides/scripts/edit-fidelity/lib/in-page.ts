@@ -35,6 +35,9 @@ export interface Rect {
 
 export interface TextTarget {
   index: number;
+  builderId: string | null;
+  slideObjectId: string | null;
+  pptxParagraph: string | null;
   tag: string;
   className: string;
   text: string;
@@ -50,8 +53,34 @@ export interface TextTarget {
 
 export interface SnapRecord {
   key: string;
+  stableKey?: string;
+  pptxRecordKey?: string;
+  slideObjectId?: string | null;
+  pptxParagraph?: string | null;
   kind: "text" | "box";
   inside: boolean;
+  /** Its appearance is preserved even when it shares the edited visual row. */
+  protectedStyle?: boolean;
+  /** Its marker box relative to the edited row, for measuring aligned reflow. */
+  protectedRect?: Rect;
+  /** Its presence is preserved when the authoring operation should keep the row. */
+  protectedStructure?: boolean;
+  /** A leading span that supplies the marker for a styled bullet row. */
+  styledBulletMarker?: boolean;
+  styledBulletMarkerText?: string;
+  downstreamFlow?: boolean;
+  flexCrossAlignment?: {
+    context: string;
+    axis: "x" | "y";
+    containerPosition: number;
+    containerSize: number;
+    itemSize: number;
+    editedItemSize: number;
+  };
+  layoutPath?: string[];
+  tag?: string;
+  className?: string;
+  inlineStyle?: string;
   props: Record<string, string>;
   rect: Rect;
 }
@@ -70,9 +99,35 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** Border box of the edited element, without overflowing descendants. */
+  editedBoxRect: Rect | null;
+  editedObjectId?: string | null;
+  editedParagraphId?: string | null;
+  editedObjectRect?: Rect | null;
+  editedTargetRect?: Rect | null;
+  editedFlowAnchorRect?: Rect | null;
+  editedAuthoringFragmentRects?: Rect[];
+  editedObjectPosition?: string | null;
+  /** The edited target moves siblings through normal document flow. */
+  editedInFlow?: boolean;
   /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
+  editedLayoutPath?: string[];
 }
+
+export type OutsideSnapshot = Pick<
+  Snapshot,
+  | "records"
+  | "editedRect"
+  | "editedInFlow"
+  | "editedObjectId"
+  | "editedParagraphId"
+  | "editedObjectRect"
+  | "editedTargetRect"
+  | "editedFlowAnchorRect"
+  | "editedAuthoringFragmentRects"
+  | "editedObjectPosition"
+>;
 
 export interface EditorState {
   editing: boolean;
@@ -89,6 +144,7 @@ export interface EditorState {
    * the caret, -1 for the element itself; null with no caret in it.
    */
   caretBlock: number | null;
+  caretConvertibleTag: string | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -105,10 +161,12 @@ export interface CanonicalPair {
 
 export interface InPageHelpers {
   listTargets(canvasSel: string): TextTarget[];
+  targetSourceHtml(canvasSel: string, targetIndex: number): string;
   snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string },
+    edited: { targetIndex?: number; text?: string; marker?: string },
   ): Snapshot;
+  outsideSnapshot(canvasSel: string): OutsideSnapshot;
   editorState(canvasSel: string): EditorState;
   /** Why the selection entering edit left is not at the gesture's point, or null. */
   entryCaretProblem(
@@ -116,6 +174,7 @@ export interface InPageHelpers {
     gesture: string,
   ): Promise<string | null>;
   backgroundPoint(canvasSel: string): { x: number; y: number } | null;
+  customStyleProperties(element: Element): string[];
   canonical(html: string): string[];
   canonicalOutside(
     stored: string,
@@ -141,6 +200,17 @@ declare global {
 }
 
 export function installInPageHelpers(chromeSelector: string) {
+  const snapEpoch = crypto.randomUUID();
+  const snapIds = new WeakMap<Element, number>();
+  let nextSnapId = 0;
+  const snapId = (element: Element) => {
+    let id = snapIds.get(element);
+    if (id === undefined) {
+      id = ++nextSnapId;
+      snapIds.set(element, id);
+    }
+    return id;
+  };
   const TEXT_PROPS = [
     "font-family",
     "font-size",
@@ -161,11 +231,27 @@ export function installInPageHelpers(chromeSelector: string) {
     "opacity",
     "visibility",
   ];
+  const customStylePropertiesByDocument = new WeakMap<
+    Document,
+    {
+      version: number;
+      propertiesVersion: number;
+      properties: string[] | null;
+      observer: MutationObserver;
+    }
+  >();
   const SIDES = ["top", "right", "bottom", "left"];
   const BOX_PROPS = [
     "display",
     "opacity",
     "visibility",
+    "position",
+    ...SIDES,
+    "transform",
+    "transform-origin",
+    "translate",
+    "rotate",
+    "scale",
     ...SIDES.map((s) => `margin-${s}`),
     ...SIDES.map((s) => `padding-${s}`),
     ...SIDES.flatMap((s) => [
@@ -180,6 +266,44 @@ export function installInPageHelpers(chromeSelector: string) {
     "background-color",
     "background-image",
     "box-shadow",
+  ];
+  const OUTSIDE_EXTRA_STYLE_PROPS = [
+    "filter",
+    "backdrop-filter",
+    "clip-path",
+    "mask-image",
+    "mix-blend-mode",
+    "isolation",
+    "z-index",
+    "overflow-x",
+    "overflow-y",
+    "contain",
+    "content-visibility",
+    "object-fit",
+    "object-position",
+    "align-content",
+    "align-items",
+    "align-self",
+    "justify-content",
+    "justify-items",
+    "justify-self",
+    "flex-basis",
+    "flex-direction",
+    "flex-grow",
+    "flex-shrink",
+    "flex-wrap",
+    "gap",
+    "row-gap",
+    "column-gap",
+    "grid-area",
+    "grid-auto-flow",
+    "grid-column-end",
+    "grid-column-start",
+    "grid-row-end",
+    "grid-row-start",
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
   ];
   const PAINTED_TAGS = new Set([
     "SVG",
@@ -208,6 +332,19 @@ export function installInPageHelpers(chromeSelector: string) {
     "sub",
     "sup",
     "u",
+  ]);
+  const TRANSIENT_ATTRS = new Set([
+    "data-src-i",
+    "data-builder-id",
+    "data-slide-text-block",
+    "data-editing-block",
+    "data-slide-content-scope",
+    "contenteditable",
+    "spellcheck",
+    "aria-expanded",
+    "aria-controls",
+    "aria-activedescendant",
+    "aria-haspopup",
   ]);
 
   const norm = (s: string | null | undefined) =>
@@ -277,13 +414,166 @@ export function installInPageHelpers(chromeSelector: string) {
     for (const p of props) out[p] = cs.getPropertyValue(p).trim();
     return out;
   };
+  const computedStyleProps = (
+    cs: CSSStyleDeclaration,
+    customProperties: string[],
+  ) => {
+    const out = pick(cs, OUTSIDE_EXTRA_STYLE_PROPS);
+    for (const property of customProperties) {
+      out[property] = cs.getPropertyValue(property).trim();
+    }
+    return out;
+  };
+  const customPropertiesFor = (root: Element) => {
+    const document = root.ownerDocument;
+    let cache = customStylePropertiesByDocument.get(document);
+    if (!cache) {
+      cache = {
+        version: 0,
+        propertiesVersion: -1,
+        properties: null,
+        observer: new MutationObserver((records) => {
+          const isStyleSheet = (node: Node) => {
+            const element = node instanceof Element ? node : node.parentElement;
+            return !!element?.closest('style,link[rel~="stylesheet"]');
+          };
+          if (
+            records.some(
+              (record) =>
+                isStyleSheet(record.target) ||
+                Array.from(record.addedNodes).some(
+                  (node) =>
+                    node instanceof Element &&
+                    (node.matches('style,link[rel~="stylesheet"]') ||
+                      node.querySelector('style,link[rel~="stylesheet"]')),
+                ) ||
+                Array.from(record.removedNodes).some(
+                  (node) =>
+                    node instanceof Element &&
+                    (node.matches('style,link[rel~="stylesheet"]') ||
+                      node.querySelector('style,link[rel~="stylesheet"]')),
+                ),
+            )
+          ) {
+            cache!.version += 1;
+          }
+        }),
+      };
+      cache.observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["disabled", "href", "media", "rel", "type"],
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+      customStylePropertiesByDocument.set(document, cache);
+    }
+
+    const collectRuleProperties = () => {
+      const names = new Set<string>();
+      const visit = (rules: CSSRuleList) => {
+        for (const rule of Array.from(rules)) {
+          const style = (rule as CSSStyleRule).style;
+          if (style) {
+            for (let index = 0; index < style.length; index += 1) {
+              const property = style[index];
+              if (property?.startsWith("--")) names.add(property);
+            }
+          }
+          if (
+            "name" in rule &&
+            typeof rule.name === "string" &&
+            rule.name.startsWith("--") &&
+            "syntax" in rule
+          ) {
+            names.add(rule.name);
+          }
+          if ("cssRules" in rule) visit((rule as CSSGroupingRule).cssRules);
+          if ("styleSheet" in rule) {
+            const imported = (rule as CSSImportRule).styleSheet;
+            if (imported) visit(imported.cssRules);
+          }
+        }
+      };
+
+      try {
+        for (const stylesheet of Array.from(document.styleSheets)) {
+          // Slides only uses this remote sheet for @font-face declarations.
+          if (
+            stylesheet.href &&
+            new URL(stylesheet.href).hostname === "fonts.googleapis.com"
+          ) {
+            continue;
+          }
+          visit(stylesheet.cssRules);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "SecurityError") {
+          return null;
+        }
+        throw error;
+      }
+      return [...names].sort();
+    };
+
+    if (cache.propertiesVersion !== cache.version) {
+      cache.properties = collectRuleProperties();
+      cache.propertiesVersion = cache.version;
+    }
+
+    const names = new Set(cache.properties ?? []);
+    if (cache.properties === null) {
+      for (const element of [root, ...root.querySelectorAll("*")]) {
+        const style = getComputedStyle(element);
+        for (let index = 0; index < style.length; index += 1) {
+          const property = style[index];
+          if (property?.startsWith("--")) names.add(property);
+        }
+      }
+    }
+
+    const addInlineProperties = (element: Element) => {
+      const style = (element as HTMLElement | SVGElement).style;
+      if (!style) return;
+      for (let index = 0; index < style.length; index += 1) {
+        const property = style[index];
+        if (property?.startsWith("--")) names.add(property);
+      }
+    };
+    for (
+      let ancestor: Element | null = root;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      addInlineProperties(ancestor);
+    }
+    for (const element of root.querySelectorAll<HTMLElement | SVGElement>(
+      "[style]",
+    )) {
+      addInlineProperties(element);
+    }
+    return [...names].sort();
+  };
   // getComputedStyle resolves an `auto` margin to its used length, which
   // moves whenever a flex sibling grows; the computed value stays `auto`.
   const boxProps = (el: Element, cs: CSSStyleDeclaration) => {
     const out = pick(cs, BOX_PROPS);
-    const map = el.computedStyleMap();
+    if (el.hasAttribute("data-fmd-autofit-content")) {
+      out["--fmd-fit-scale"] = cs.getPropertyValue("--fmd-fit-scale").trim();
+      out["--fmd-fit-x"] = cs.getPropertyValue("--fmd-fit-x").trim();
+      out["--fmd-fit-y"] = cs.getPropertyValue("--fmd-fit-y").trim();
+      out["data-fmd-autofit-active"] = String(
+        el.hasAttribute("data-fmd-autofit-active"),
+      );
+    }
+    const map =
+      typeof el.computedStyleMap === "function" ? el.computedStyleMap() : null;
+    const inline = (el as HTMLElement).style;
     for (const s of SIDES) {
-      if (String(map.get(`margin-${s}`)) === "auto")
+      if (
+        String(map?.get(`margin-${s}`)) === "auto" ||
+        (!map && inline?.getPropertyValue(`margin-${s}`) === "auto")
+      )
         out[`margin-${s}`] = "auto";
     }
     return out;
@@ -334,25 +624,48 @@ export function installInPageHelpers(chromeSelector: string) {
     return n;
   }
 
-  /** Deepest-first match for text an edit may have extended. */
+  /** Deepest match also covers a source split across sibling text targets. */
   function findByText(root: Element, text: string): Element | null {
     const want = strip(text);
     if (!want) return null;
     const prefix = want.slice(0, 40);
     let best: Element | null = null;
     let bestScore = Infinity;
-    for (const el of Array.from(root.querySelectorAll("*"))) {
-      if (el.tagName === "STYLE" || isChrome(el)) continue;
-      const have = strip(el.textContent);
-      if (!have.startsWith(prefix)) continue;
-      const score = Math.abs(have.length - want.length);
-      // Ties go to the outermost element, which is what the editor targets.
-      if (score < bestScore) {
-        best = el;
-        bestScore = score;
+    let bestDepth = -1;
+    let bestCount = 0;
+    const candidates = new Set<Element>();
+    for (const target of textTargets(root)) {
+      for (
+        let el: Element | null = target;
+        el && el !== root;
+        el = el.parentElement
+      ) {
+        candidates.add(el);
       }
     }
-    return best;
+    for (const el of candidates) {
+      if (!visible(el)) continue;
+      const have = strip(el.textContent);
+      if (!have.includes(prefix)) continue;
+      const score = Math.abs(have.length - want.length);
+      let depth = 0;
+      for (
+        let parent = el.parentElement;
+        parent && parent !== root;
+        parent = parent.parentElement
+      ) {
+        depth++;
+      }
+      if (score < bestScore || (score === bestScore && depth > bestDepth)) {
+        best = el;
+        bestScore = score;
+        bestDepth = depth;
+        bestCount = 1;
+      } else if (score === bestScore && depth === bestDepth) {
+        bestCount += 1;
+      }
+    }
+    return bestCount === 1 ? best : null;
   }
 
   /**
@@ -389,6 +702,15 @@ export function installInPageHelpers(chromeSelector: string) {
       const hit = document.elementFromPoint(point.x, point.y);
       return {
         index,
+        builderId: el.getAttribute("data-builder-id"),
+        slideObjectId:
+          el
+            .closest<HTMLElement>("[data-slide-object-id]")
+            ?.getAttribute("data-slide-object-id") ?? null,
+        pptxParagraph:
+          el
+            .closest<HTMLElement>("[data-pptx-paragraph]")
+            ?.getAttribute("data-pptx-paragraph") ?? null,
         tag: el.tagName,
         className: el.getAttribute("class") ?? "",
         text: norm(el.textContent),
@@ -398,6 +720,14 @@ export function installInPageHelpers(chromeSelector: string) {
         covered: !hit || !(el === hit || el.contains(hit)),
       };
     });
+  }
+
+  function targetSourceHtml(canvasSel: string, targetIndex: number) {
+    const root = document.querySelector(canvasSel);
+    if (!root) throw new Error(`canvas not found: ${canvasSel}`);
+    const target = textTargets(root)[targetIndex];
+    if (!target) throw new Error(`text target not found: ${targetIndex}`);
+    return target.innerHTML;
   }
 
   /** The focused editor root, in place or floating; a fix may move it. */
@@ -492,6 +822,19 @@ export function installInPageHelpers(chromeSelector: string) {
       : Array.from(source.querySelectorAll("*")).indexOf(el);
   }
 
+  function caretConvertibleTag(editor: HTMLElement | null): string | null {
+    const focus = getSelection()?.focusNode;
+    if (!editor || !focus || !editor.contains(focus)) return null;
+    let el = focus instanceof Element ? focus : focus.parentElement;
+    while (el) {
+      const tag = el.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag) || tag === "li") return tag;
+      if (el === editor) break;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   /**
    * Top of the element's rendered text and line breaks. A range over the
    * whole element would also take in the border box of every child, so a
@@ -536,6 +879,7 @@ export function installInPageHelpers(chromeSelector: string) {
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
       caretBlock: caretBlock(source),
+      caretConvertibleTag: caretConvertibleTag(pm),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
@@ -732,39 +1076,490 @@ export function installInPageHelpers(chromeSelector: string) {
     return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${editorText.length}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
   }
 
-  function snapshot(
+  function captureSnapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string },
-  ): Snapshot {
+    edited: {
+      targetIndex?: number;
+      text?: string;
+      marker?: string;
+      targetBuilderId?: string;
+      targetSlideObjectId?: string;
+      targetPptxParagraph?: string;
+      targetTextIncludes?: string;
+      authoringFragmentTexts?: string[];
+      preserveStyledBulletMarker?: boolean;
+    },
+    outsideOnly = false,
+  ): Snapshot | OutsideSnapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
+    const customProperties = outsideOnly ? customPropertiesFor(root) : [];
     const origin = root.getBoundingClientRect();
     const editor = activeEditor();
     const host = floatingHost(root, editor);
     const editingBlock = editedSource(root, editor);
     let editedEl: Element | null = null;
-    if (edited.targetIndex !== undefined) {
+    if (edited.marker) {
+      const marker = strip(edited.marker);
+      const matches = textTargets(root).filter((el) =>
+        strip(el.textContent).includes(marker),
+      );
+      editedEl = matches.length === 1 ? matches[0]! : null;
+    } else if (edited.targetIndex !== undefined) {
       editedEl = textTargets(root)[edited.targetIndex] ?? null;
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
+    let stableEditedTarget: Element | null = null;
+    if (
+      edited.targetSlideObjectId !== undefined &&
+      edited.targetPptxParagraph !== undefined
+    ) {
+      const matches = Array.from(
+        root.querySelectorAll<HTMLElement>("[data-pptx-paragraph]"),
+      ).filter(
+        (el) =>
+          el.getAttribute("data-pptx-paragraph") ===
+            edited.targetPptxParagraph &&
+          el
+            .closest("[data-slide-object-id]")
+            ?.getAttribute("data-slide-object-id") ===
+            edited.targetSlideObjectId,
+      );
+      const paragraphTextMatches = edited.targetTextIncludes
+        ? matches.filter((el) =>
+            norm(el.textContent).includes(norm(edited.targetTextIncludes)),
+          )
+        : matches;
+      const targetObject = Array.from(
+        root.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+      ).find(
+        (el) =>
+          el.getAttribute("data-slide-object-id") ===
+          edited.targetSlideObjectId,
+      );
+      const fallbackTextMatches =
+        edited.targetTextIncludes && targetObject
+          ? Array.from(
+              targetObject.querySelectorAll<HTMLElement>(
+                "p,li,blockquote,h1,h2,h3,h4,h5,h6,div",
+              ),
+            ).filter((el) =>
+              norm(el.textContent).includes(norm(edited.targetTextIncludes)),
+            )
+          : [];
+      const fallbackTargets = fallbackTextMatches.filter(
+        (el) =>
+          !fallbackTextMatches.some(
+            (other) => other !== el && el.contains(other),
+          ),
+      );
+      const textMatches =
+        paragraphTextMatches.length > 0
+          ? paragraphTextMatches
+          : fallbackTargets;
+      const builderMatches = edited.targetBuilderId
+        ? textMatches.filter(
+            (el) =>
+              el
+                .closest<HTMLElement>("[data-builder-id]")
+                ?.getAttribute("data-builder-id") === edited.targetBuilderId,
+          )
+        : [];
+      const resolvedTargets =
+        builderMatches.length === 1 ? builderMatches : textMatches;
+      if (resolvedTargets.length !== 1) {
+        const candidates = textMatches.map((el) => {
+          const object = el.closest<HTMLElement>("[data-slide-object-id]");
+          const builder = el.closest<HTMLElement>("[data-builder-id]");
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return {
+            objectId: object?.getAttribute("data-slide-object-id") ?? null,
+            builderId: builder?.getAttribute("data-builder-id") ?? null,
+            editing: el.getAttribute("data-editing-block"),
+            rect: [rect.x, rect.y, rect.width, rect.height],
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+          };
+        });
+        throw new Error(
+          `expected one imported paragraph ${edited.targetPptxParagraph} in slide object ${edited.targetSlideObjectId}${edited.targetTextIncludes ? ` containing ${JSON.stringify(edited.targetTextIncludes)} for builder ${edited.targetBuilderId ?? "any"}` : ""}, found ${resolvedTargets.length}: ${JSON.stringify(candidates)}`,
+        );
+      }
+      stableEditedTarget = resolvedTargets[0]!;
+    } else if (edited.targetBuilderId) {
+      stableEditedTarget =
+        Array.from(
+          root.querySelectorAll<HTMLElement>("[data-builder-id]"),
+        ).find(
+          (el) => el.getAttribute("data-builder-id") === edited.targetBuilderId,
+        ) ?? null;
+    }
+    const editedOwner =
+      stableEditedTarget ??
+      (editedEl
+        ? (editedEl.closest("[data-slide-object-id]") ??
+          editedEl.closest('[data-slide-text-block="true"]') ??
+          editedEl.closest("ul, ol") ??
+          editedEl)
+        : null);
+    const targetBlock = editingBlock ?? editedOwner;
+    const editedBox = editingBlock ?? targetBlock;
+    const editedObject =
+      stableEditedTarget?.closest<HTMLElement>("[data-slide-object-id]") ??
+      editedBox?.closest<HTMLElement>("[data-slide-object-id]") ??
+      null;
+    const logicalObjectId =
+      edited.targetSlideObjectId ??
+      editedObject?.getAttribute("data-slide-object-id") ??
+      null;
+    const targetObjectIds = new Set(
+      [logicalObjectId].filter((id): id is string => !!id),
+    );
+    const targetParagraph =
+      edited.targetSlideObjectId !== undefined &&
+      edited.targetPptxParagraph !== undefined
+        ? Array.from(
+            root.querySelectorAll<HTMLElement>("[data-pptx-paragraph]"),
+          ).find(
+            (el) =>
+              el.getAttribute("data-pptx-paragraph") ===
+                edited.targetPptxParagraph &&
+              el
+                .closest("[data-slide-object-id]")
+                ?.getAttribute("data-slide-object-id") ===
+                edited.targetSlideObjectId,
+          )
+        : null;
+    const fragmentTexts = [
+      ...(edited.authoringFragmentTexts ?? []),
+      ...(edited.targetTextIncludes ? [edited.targetTextIncludes] : []),
+    ];
+    const authoringFragmentBlocks = new Set<HTMLElement>();
+    if (fragmentTexts.length > 0 && editedObject) {
+      for (const text of new Set(fragmentTexts)) {
+        const candidates = Array.from(
+          editedObject.querySelectorAll<HTMLElement>(
+            "p,li,blockquote,h1,h2,h3,h4,h5,h6,div",
+          ),
+        ).filter((el) => norm(el.textContent).includes(norm(text)));
+        const blocks = candidates.filter(
+          (el) =>
+            !candidates.some((other) => other !== el && el.contains(other)),
+        );
+        if (blocks.length !== 1) {
+          throw new Error(
+            `expected one authoring fragment block in slide object ${logicalObjectId} for marker ${JSON.stringify(text)}, found ${blocks.length}`,
+          );
+        }
+        const block = blocks[0]!;
+        authoringFragmentBlocks.add(block);
+        if (block.parentElement?.matches("ul,ol")) {
+          authoringFragmentBlocks.add(block.parentElement);
+        }
+      }
+    }
+    const isStyledBulletRow = (el: Element) => {
+      if (!/^(DIV|LI|P)$/.test(el.tagName)) return false;
+      const marker = el.firstElementChild;
+      if (!marker || marker.tagName !== "SPAN") return false;
+      const text = norm(marker.textContent);
+      if (/^[-*•●◦▪‣·⁃–—]+$/u.test(text)) return true;
+      const style = getComputedStyle(marker);
+      const width = Number.parseFloat(style.width);
+      const height = Number.parseFloat(style.height);
+      const background = style.backgroundColor;
+      const alpha = background.match(/[,/]\s*([\d.]+)%?\s*\)$/)?.[1];
+      const hasVisibleBackground =
+        background !== "transparent" &&
+        (alpha === undefined || Number(alpha) !== 0);
+      return (
+        !text &&
+        width > 0 &&
+        width <= 48 &&
+        height > 0 &&
+        height <= 48 &&
+        (Number.parseFloat(style.borderTopWidth) > 0 ||
+          Number.parseFloat(style.borderLeftWidth) > 0 ||
+          hasVisibleBackground ||
+          Number.parseFloat(style.borderRadius) > 0)
+      );
+    };
+    let visualEditBlock = targetBlock;
+    let protectedMarker: Element | null = null;
+    for (
+      let ancestor = targetBlock;
+      ancestor && ancestor !== root;
+      ancestor = ancestor.parentElement
+    ) {
+      if (isStyledBulletRow(ancestor)) {
+        visualEditBlock = ancestor;
+        if (edited.preserveStyledBulletMarker) {
+          protectedMarker = ancestor.firstElementChild;
+        }
+        break;
+      }
+    }
+    const isInNormalFlow = (el: Element | null) => {
+      if (!el) return false;
+      for (
+        let ancestor: Element | null = el;
+        ancestor && ancestor !== root;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (
+          style.position === "absolute" ||
+          style.position === "fixed" ||
+          style.position === "sticky" ||
+          style.cssFloat !== "none" ||
+          style.transform !== "none" ||
+          (style.position === "relative" &&
+            [style.top, style.right, style.bottom, style.left].some(
+              (offset) => offset !== "auto" && Number.parseFloat(offset) !== 0,
+            ))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    const followsEditedFlow = (el: Element) => {
+      if (
+        !editedBox ||
+        editedBox === el ||
+        editedBox.contains(el) ||
+        el.contains(editedBox)
+      ) {
+        return false;
+      }
+      let editedBranch: Element = editedBox;
+      while (
+        editedBranch.parentElement &&
+        !editedBranch.parentElement.contains(el)
+      ) {
+        editedBranch = editedBranch.parentElement;
+      }
+      let followingBranch: Element = el;
+      while (
+        followingBranch.parentElement &&
+        !followingBranch.parentElement.contains(editedBranch)
+      ) {
+        followingBranch = followingBranch.parentElement;
+      }
+      const parent = editedBranch.parentElement;
+      if (!parent || followingBranch.parentElement !== parent) return false;
+      const parentStyle = getComputedStyle(parent);
+      const flexDirection = parentStyle.flexDirection;
+      const isRow = flexDirection.startsWith("row");
+      const isColumn = flexDirection.startsWith("column");
+      const itemStyle = getComputedStyle(followingBranch);
+      const align =
+        itemStyle.alignSelf === "auto"
+          ? parentStyle.alignItems
+          : itemStyle.alignSelf;
+      if (
+        parentStyle.display.includes("flex") &&
+        parentStyle.flexWrap === "nowrap" &&
+        (isRow || isColumn) &&
+        align === "center"
+      ) {
+        const axis: "x" | "y" = isRow ? "y" : "x";
+        const parentRect = parent.getBoundingClientRect();
+        const itemRect = followingBranch.getBoundingClientRect();
+        const editedRect = editedBranch.getBoundingClientRect();
+        const editedItemStyle = getComputedStyle(editedBranch);
+        const isFlexItem = (style: CSSStyleDeclaration) =>
+          style.position !== "absolute" &&
+          style.position !== "fixed" &&
+          style.position !== "sticky" &&
+          style.cssFloat === "none";
+        if (!isFlexItem(editedItemStyle) || !isFlexItem(itemStyle)) {
+          return false;
+        }
+        const size = axis === "x" ? "width" : "height";
+        const path: number[] = [];
+        for (
+          let node: Element | null = parent;
+          node && node !== root && node.parentElement;
+          node = node.parentElement
+        ) {
+          path.unshift(
+            Array.prototype.indexOf.call(node.parentElement!.children, node),
+          );
+        }
+        return {
+          flexCrossAlignment: {
+            context: path.join(".") || "root",
+            axis,
+            containerPosition: parentRect[axis] - origin[axis],
+            containerSize: parentRect[size],
+            itemSize: itemRect[size],
+            editedItemSize: editedRect[size],
+          },
+        };
+      }
+      if (!isInNormalFlow(editedBox) || !isInNormalFlow(el)) return false;
+      const editedOrder = Number.parseInt(
+        getComputedStyle(editedBranch).order,
+        10,
+      );
+      const followingOrder = Number.parseInt(
+        getComputedStyle(followingBranch).order,
+        10,
+      );
+      if (
+        parentStyle.display.includes("flex") &&
+        Number.isFinite(editedOrder) &&
+        Number.isFinite(followingOrder) &&
+        followingOrder < editedOrder
+      ) {
+        return false;
+      }
+      if (
+        editedBranch.compareDocumentPosition(followingBranch) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      ) {
+        return {};
+      }
+      return false;
+    };
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
-      (!!editingBlock && editingBlock.contains(el)) ||
-      (!!editedEl && editedEl.contains(el));
+      (!!visualEditBlock &&
+        (visualEditBlock === el || visualEditBlock.contains(el))) ||
+      Array.from(authoringFragmentBlocks).some(
+        (block) => block === el || block.contains(el),
+      );
 
     const records: SnapRecord[] = [];
     const seen = new Map<string, number>();
+    const layoutPathOf = (el: Element) => {
+      const path: string[] = [];
+      const editedObject = editedBox?.closest("[data-slide-object-id]");
+      for (
+        let node: Element | null = el;
+        node && node !== root;
+        node = node.parentElement
+      ) {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        const object = node.closest("[data-slide-object-id]");
+        const paragraph = node.closest("[data-pptx-paragraph]");
+        path.push(
+          `${node.tagName.toLowerCase()}[sameObject=${Boolean(object && object === editedObject)};object=${object?.getAttribute("data-slide-object-id") ?? ""};paragraph=${paragraph?.getAttribute("data-pptx-paragraph") ?? ""};block=${node.hasAttribute("data-slide-text-block")};editing=${node.hasAttribute("data-editing-block")};${style.display};${style.position};${style.top},${style.right},${style.bottom},${style.left};${style.transform};${style.alignSelf};${style.alignItems};${style.alignContent};${style.flexDirection};${style.justifyContent};${style.gridTemplateRows};${style.gridTemplateColumns};${style.gridRowStart},${style.gridRowEnd};${rect.x},${rect.y},${rect.width},${rect.height}]`,
+        );
+      }
+      return path;
+    };
     const push = (
       base: string,
       kind: SnapRecord["kind"],
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
+      flow: ReturnType<typeof followsEditedFlow> = false,
+      textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
+      layoutPath?: string[],
+      element?: Element,
     ) => {
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
-      records.push({ key: `${base}#${n}`, kind, inside, props, rect });
+      const recordKind = base.endsWith("::before")
+        ? "before"
+        : base.endsWith("::after")
+          ? "after"
+          : kind;
+      const recordObject = element?.closest("[data-slide-object-id]");
+      const recordParagraph = element?.closest("[data-pptx-paragraph]");
+      const objectId =
+        recordObject?.getAttribute("data-slide-object-id") ?? null;
+      const paragraphId =
+        recordParagraph?.getAttribute("data-pptx-paragraph") ?? null;
+      const path: string[] = [];
+      for (
+        let node: Element | null | undefined = element;
+        node && recordParagraph && node !== recordParagraph;
+        node = node.parentElement
+      ) {
+        const parent = node.parentElement;
+        path.unshift(
+          `${node.tagName.toLowerCase()}:${parent ? Array.from(parent.children).indexOf(node) : 0}`,
+        );
+      }
+      const logicalRecordObjectId =
+        objectId && targetObjectIds.has(objectId) ? logicalObjectId : objectId;
+      const protectedElement = Boolean(
+        element &&
+        protectedMarker &&
+        (protectedMarker === element || protectedMarker.contains(element)),
+      );
+      const markerParent = element?.parentElement;
+      const styledBulletMarker = Boolean(
+        element &&
+        markerParent &&
+        markerParent.firstElementChild === element &&
+        isStyledBulletRow(markerParent),
+      );
+      const visualBlockRect =
+        protectedElement && visualEditBlock
+          ? rectOf(visualEditBlock.getBoundingClientRect(), origin)
+          : null;
+      records.push({
+        key: `${base}#${n}`,
+        ...(element
+          ? {
+              stableKey: `${snapEpoch}:${snapId(element)}:${recordKind}`,
+              slideObjectId: logicalRecordObjectId,
+              pptxParagraph: paragraphId,
+              ...(logicalRecordObjectId && paragraphId
+                ? {
+                    pptxRecordKey: `${logicalRecordObjectId}:${paragraphId}:${path.join("/")}:${recordKind}`,
+                  }
+                : {}),
+            }
+          : {}),
+        kind,
+        inside,
+        ...(protectedElement
+          ? {
+              protectedStyle: true,
+              protectedStructure: true,
+              ...(visualBlockRect
+                ? {
+                    protectedRect: {
+                      x: rect.x - visualBlockRect.x,
+                      y: rect.y - visualBlockRect.y,
+                      width: rect.width,
+                      height: rect.height,
+                    },
+                  }
+                : {}),
+            }
+          : {}),
+        ...(styledBulletMarker
+          ? {
+              styledBulletMarker: true,
+              styledBulletMarkerText: norm(element?.textContent),
+            }
+          : {}),
+        downstreamFlow: !!flow,
+        ...(flow && flow.flexCrossAlignment
+          ? { flexCrossAlignment: flow.flexCrossAlignment }
+          : {}),
+        ...(layoutPath ? { layoutPath } : {}),
+        ...(element
+          ? {
+              className: element.getAttribute("class") ?? "",
+              inlineStyle: element.getAttribute("style") ?? "",
+            }
+          : {}),
+        props,
+        rect,
+        ...textElement,
+      });
     };
     const boxKey = (el: Element) => {
       const cls = (el.getAttribute("class") ?? "")
@@ -776,6 +1571,7 @@ export function installInPageHelpers(chromeSelector: string) {
     };
 
     const visit = (el: Element) => {
+      if (outsideOnly && insideEdited(el)) return;
       if (el.tagName === "STYLE" || el.tagName === "SCRIPT") return;
       if (isChrome(el)) return;
       // The hidden source of a floating editor is represented by the
@@ -783,6 +1579,7 @@ export function installInPageHelpers(chromeSelector: string) {
       if (host && editingBlock && el === editingBlock) return;
       const cs = getComputedStyle(el);
       const inside = insideEdited(el);
+      const flow = followsEditedFlow(el);
       const text = norm(directText(el));
       if (text) {
         const range = document.createRange();
@@ -792,17 +1589,39 @@ export function installInPageHelpers(chromeSelector: string) {
           `text:${text.slice(0, 80)}`,
           "text",
           inside,
-          { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
+          {
+            ...pick(cs, TEXT_PROPS),
+            ...(outsideOnly ? computedStyleProps(cs, customProperties) : {}),
+            visible: String(visible(el)),
+          },
           textRect,
+          flow,
+          {
+            tag: el.tagName.toLowerCase(),
+            inlineStyle: el.getAttribute("style") ?? "",
+          },
+          layoutPathOf(el),
+          el,
         );
       }
-      if (paints(el, cs)) {
+      if (
+        paints(el, cs) ||
+        cs.transform !== "none" ||
+        el.hasAttribute("data-fmd-autofit-content")
+      ) {
         push(
           boxKey(el),
           "box",
           inside,
-          boxProps(el, cs),
+          {
+            ...boxProps(el, cs),
+            ...(outsideOnly ? computedStyleProps(cs, customProperties) : {}),
+          },
           rectOf(el.getBoundingClientRect(), origin),
+          flow,
+          undefined,
+          layoutPathOf(el),
+          el,
         );
       }
       for (const pseudo of ["::before", "::after"]) {
@@ -814,8 +1633,16 @@ export function installInPageHelpers(chromeSelector: string) {
           `${boxKey(el)}${pseudo}`,
           "box",
           inside,
-          { ...pick(ps, BOX_PROPS), content: ps.content },
+          {
+            ...pick(ps, BOX_PROPS),
+            ...(outsideOnly ? computedStyleProps(ps, customProperties) : {}),
+            content: ps.content,
+          },
           { x: 0, y: 0, width: 0, height: 0 },
+          false,
+          undefined,
+          layoutPathOf(el),
+          el,
         );
       }
       if (el.tagName.toUpperCase() === "SVG") return;
@@ -823,6 +1650,49 @@ export function installInPageHelpers(chromeSelector: string) {
     };
     visit(root);
     if (host) visit(host);
+
+    const editedRect = editedBox
+      ? rectOf(paintedRect(editedBox), origin)
+      : null;
+    const editedBoxRect = editedBox
+      ? rectOf(editedBox.getBoundingClientRect(), origin)
+      : null;
+    const editedParagraph = stableEditedTarget?.closest<HTMLElement>(
+      "[data-pptx-paragraph]",
+    );
+    const editedTargetRect = stableEditedTarget
+      ? rectOf(stableEditedTarget.getBoundingClientRect(), origin)
+      : null;
+    const editedFlowAnchor =
+      targetParagraph ?? editedParagraph ?? stableEditedTarget;
+    const editedFlowAnchorRect = editedFlowAnchor
+      ? rectOf(editedFlowAnchor.getBoundingClientRect(), origin)
+      : null;
+    const editedAuthoringFragmentRects = Array.from(authoringFragmentBlocks)
+      .filter((block) => !block.matches("ul,ol"))
+      .map((block) => rectOf(block.getBoundingClientRect(), origin));
+    const editedInFlow = isInNormalFlow(editedBox);
+    if (outsideOnly) {
+      return {
+        records,
+        editedRect,
+        editedInFlow,
+        editedObjectId: logicalObjectId,
+        editedParagraphId:
+          edited.targetPptxParagraph ??
+          editedParagraph?.getAttribute("data-pptx-paragraph") ??
+          null,
+        editedObjectRect: editedObject
+          ? rectOf(editedObject.getBoundingClientRect(), origin)
+          : null,
+        editedTargetRect,
+        editedFlowAnchorRect,
+        editedAuthoringFragmentRects,
+        editedObjectPosition: editedObject
+          ? getComputedStyle(editedObject).position
+          : null,
+      };
+    }
 
     const all = Array.from(root.querySelectorAll("*")).filter(
       (el) => el.tagName !== "STYLE" && !isChrome(el),
@@ -841,14 +1711,51 @@ export function installInPageHelpers(chromeSelector: string) {
       img: root.querySelectorAll("img").length,
       style: root.querySelectorAll("style").length,
     };
-    const editedBox = editingBlock ?? editedEl;
     return {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
-      editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
+      editedRect,
+      editedBoxRect,
+      editedObjectId: logicalObjectId,
+      editedParagraphId:
+        edited.targetPptxParagraph ??
+        editedParagraph?.getAttribute("data-pptx-paragraph") ??
+        null,
+      editedObjectRect: editedObject
+        ? rectOf(editedObject.getBoundingClientRect(), origin)
+        : null,
+      editedTargetRect,
+      editedFlowAnchorRect,
+      editedAuthoringFragmentRects,
+      editedObjectPosition: editedObject
+        ? getComputedStyle(editedObject).position
+        : null,
+      editedInFlow,
       editedText: editedEl ? lines(editedEl) : null,
+      editedLayoutPath: editedBox ? layoutPathOf(editedBox) : undefined,
     };
+  }
+
+  function snapshot(
+    canvasSel: string,
+    edited: {
+      targetIndex?: number;
+      text?: string;
+      marker?: string;
+      targetBuilderId?: string;
+      targetSlideObjectId?: string;
+      targetPptxParagraph?: string;
+      targetTextIncludes?: string;
+      authoringFragmentTexts?: string[];
+      preserveStyledBulletMarker?: boolean;
+    },
+  ): Snapshot {
+    return captureSnapshot(canvasSel, edited) as Snapshot;
+  }
+
+  function outsideSnapshot(canvasSel: string): OutsideSnapshot {
+    return captureSnapshot(canvasSel, {}, true) as OutsideSnapshot;
   }
 
   function backgroundPoint(canvasSel: string) {
@@ -892,8 +1799,15 @@ export function installInPageHelpers(chromeSelector: string) {
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as Element;
+    if (el.hasAttribute("data-fmd-autofit-content")) {
+      for (const child of Array.from(el.childNodes)) {
+        canonicalNode(child, depth, out);
+      }
+      return;
+    }
     const tag = el.tagName.toLowerCase();
     const attrs = Array.from(el.attributes)
+      .filter((attribute) => !TRANSIENT_ATTRS.has(attribute.name))
       .map((a) => {
         if (a.name === "style") {
           const scratch = document.createElement("div").style;
@@ -1046,12 +1960,15 @@ export function installInPageHelpers(chromeSelector: string) {
 
   window.__editFidelity = {
     listTargets,
+    targetSourceHtml,
     takeWriteStacks,
     takeKeepaliveWrites,
     snapshot,
+    outsideSnapshot,
     editorState,
     entryCaretProblem,
     backgroundPoint,
+    customStyleProperties: customPropertiesFor,
     canonical,
     canonicalOutside,
   };

@@ -4,6 +4,7 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 let _fs: typeof import("fs") | undefined;
@@ -70,41 +71,6 @@ export function mergePackageActions(
   }
 }
 
-function splitShellArgs(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let inDouble = false;
-  let inSingle = false;
-  let wasQuoted = false;
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      wasQuoted = true;
-      continue;
-    }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      wasQuoted = true;
-      continue;
-    }
-    if ((ch === " " || ch === "\t") && !inDouble && !inSingle) {
-      if (current.length > 0 || wasQuoted) {
-        tokens.push(current);
-      }
-      current = "";
-      wasQuoted = false;
-      continue;
-    }
-    current += ch;
-  }
-  if (current.length > 0 || wasQuoted) {
-    tokens.push(current);
-  }
-  return tokens;
-}
-
 function wrapDefaultExport(
   name: string,
   defaultFn: (args: string[]) => Promise<void>,
@@ -126,14 +92,10 @@ function wrapDefaultExport(
   return {
     tool,
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      if (args.args && Object.keys(args).length === 1) {
-        cliArgs.push(...splitShellArgs(args.args));
-      } else {
-        for (const [k, v] of Object.entries(args)) {
-          cliArgs.push(`--${k}`, v);
-        }
-      }
+      const cliArgs =
+        args.args && Object.keys(args).length === 1
+          ? normalizeShellArgs(args.args)
+          : serializeCliArgs(args);
       return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
@@ -141,6 +103,13 @@ function wrapDefaultExport(
 
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
+  if (
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+  ) {
+    out.schema = entry.schema;
+  }
   if (
     entry.access &&
     typeof entry.access === "object" &&
@@ -150,6 +119,16 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (
+    entry.mcpAnnotations &&
+    typeof entry.mcpAnnotations === "object" &&
+    !Array.isArray(entry.mcpAnnotations) &&
+    typeof entry.mcpAnnotations.readOnlyHint === "boolean" &&
+    typeof entry.mcpAnnotations.destructiveHint === "boolean" &&
+    typeof entry.mcpAnnotations.openWorldHint === "boolean"
+  ) {
+    out.mcpAnnotations = entry.mcpAnnotations;
+  }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
@@ -169,6 +148,12 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.planMode = entry.planMode;
   }
+  if (typeof entry.changeEvents === "boolean") {
+    out.changeEvents = entry.changeEvents;
+  }
+  if (typeof entry.changeResource === "function") {
+    out.changeResource = entry.changeResource;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
@@ -180,6 +165,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
+  }
+  if (typeof entry.agentDiscoveryAvailable === "function") {
+    out.agentDiscoveryAvailable = entry.agentDiscoveryAvailable;
   }
   if (
     Array.isArray(entry.capabilityScopes) &&
@@ -215,6 +203,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
   if (typeof entry.maxResultChars === "number") {
     out.maxResultChars = entry.maxResultChars;
+  }
+  if (typeof entry.maxBodyBytes === "number") {
+    out.maxBodyBytes = entry.maxBodyBytes;
   }
   if (
     typeof entry.needsApproval === "boolean" ||
@@ -445,9 +436,12 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
+  // The client's same-tick GET batching depends on it, so it cannot be gated.
+  "get-actions-batch",
 ]);
 
 export async function mergeCoreSharingActions(
@@ -462,6 +456,30 @@ export async function mergeCoreSharingActions(
     [
       "list-resource-shares",
       () => import("../sharing/actions/list-resource-shares.js"),
+    ],
+    [
+      "get-resource-access-status",
+      () => import("../sharing/actions/get-resource-access-status.js"),
+    ],
+    [
+      "request-resource-access",
+      () => import("../sharing/actions/request-resource-access.js"),
+    ],
+    [
+      "get-resource-access-request",
+      () => import("../sharing/actions/get-resource-access-request.js"),
+    ],
+    [
+      "list-resource-access-requests",
+      () => import("../sharing/actions/list-resource-access-requests.js"),
+    ],
+    [
+      "approve-resource-access-request",
+      () => import("../sharing/actions/approve-resource-access-request.js"),
+    ],
+    [
+      "decline-resource-access-request",
+      () => import("../sharing/actions/decline-resource-access-request.js"),
     ],
     [
       "set-resource-visibility",
@@ -492,6 +510,10 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/list-workspace-app-access.js"),
     ],
     [
+      "list-workspace-icons",
+      () => import("../org/actions/list-workspace-icons.js"),
+    ],
+    [
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
@@ -501,6 +523,10 @@ export async function mergeCoreSharingActions(
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
+    [
+      "get-agentkit-capabilities",
+      () => import("../agent/actions/get-agentkit-capabilities.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "get-file-storage",
@@ -600,6 +626,7 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
     ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-chatgpt-subscription-status",
@@ -608,6 +635,14 @@ export async function mergeCoreSharingActions(
     [
       "disconnect-chatgpt-subscription",
       () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
+    ],
+    [
+      "list-chatgpt-subscription-accounts",
+      () => import("../agent/actions/list-chatgpt-subscription-accounts.js"),
+    ],
+    [
+      "select-chatgpt-subscription-account",
+      () => import("../agent/actions/select-chatgpt-subscription-account.js"),
     ],
     [
       "preview-secret-removal",
@@ -689,6 +724,11 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-usage-metrics.js"),
     ],
     [
+      "get-usage-insights",
+      () => import("../usage/actions/get-usage-insights.js"),
+    ],
+    ["get-usage-run", () => import("../usage/actions/get-usage-run.js")],
+    [
       "get-builder-credit-usage",
       () => import("../usage/actions/get-builder-credit-usage.js"),
     ],
@@ -765,6 +805,22 @@ export async function mergeCoreSharingActions(
     [
       "export-audit-events",
       () => import("../audit/actions/export-audit-events.js"),
+    ],
+    [
+      "export-audit-ocsf",
+      () => import("../audit/actions/export-audit-ocsf.js"),
+    ],
+    [
+      "export-resource-pack",
+      () => import("../resources/actions/export-resource-pack.js"),
+    ],
+    [
+      "import-resource-pack",
+      () => import("../resources/actions/import-resource-pack.js"),
+    ],
+    [
+      "promote-trace-eval",
+      () => import("../observability/actions/promote-trace-eval.js"),
     ],
     [
       "create-resource-version",
@@ -897,8 +953,17 @@ export async function mergeCoreSharingActions(
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
     ],
+    [
+      "set-service-principal-policy",
+      () => import("../mcp/actions/set-service-principal-policy.js"),
+    ],
+    [
+      "set-service-principal-lifecycle",
+      () => import("../mcp/actions/set-service-principal-lifecycle.js"),
+    ],
     ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
+    ["get-actions-batch", () => import("./get-actions-batch.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

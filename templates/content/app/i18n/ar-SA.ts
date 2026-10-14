@@ -250,7 +250,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder غير متصل. ارجع لاستخدام Builder.io أولاً.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -262,7 +262,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "استخدم حساب Builder لتصفح مساحاته ونماذجه.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -439,7 +439,6 @@ const editor = {
   pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
   pageBodySyncingDescription:
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
-  createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
@@ -639,6 +638,34 @@ const editor = {
     pageCount_few: "صفحات {{count}}",
     pageCount_many: "صفحات {{count}}",
     pageCount_other: "صفحات {{count}}",
+    back: "رجوع",
+    relatedDatabase: "قاعدة البيانات المرتبطة",
+    searchDatabases: "البحث في قواعد البيانات",
+    thisDatabase: "قاعدة البيانات هذه",
+    noDatabases: "لم يتم العثور على قواعد بيانات",
+    searchPages: "البحث في الصفحات",
+    noMatchingPages: "لا توجد صفحات مطابقة",
+    removeRelation: "إزالة {{name}}",
+    openPage: "فتح {{name}}",
+    unavailablePage: "صفحة غير متاحة",
+    unavailablePageCount_zero: "{{count}} غير متاحة",
+    unavailablePageCount_one: "{{count}} غير متاحة",
+    unavailablePageCount_two: "{{count}} غير متاحة",
+    unavailablePageCount_few: "{{count}} غير متاحة",
+    unavailablePageCount_many: "{{count}} غير متاحة",
+    unavailablePageCount_other: "{{count}} غير متاحة",
+    noRelatedDatabase: "لم يتم تعيين قاعدة بيانات مرتبطة",
+    linkAPage: "ربط صفحة أو إنشاؤها…",
+    createPage: "إنشاء «{{name}}»",
+    reorderRelation: "إعادة ترتيب {{name}}",
+    selectMore: "تحديد المزيد",
+    selectAPage: "حدد صفحة",
+    selectedCount_zero: "تم تحديد {{count}}",
+    selectedCount_one: "تم تحديد {{count}}",
+    selectedCount_two: "تم تحديد {{count}}",
+    selectedCount_few: "تم تحديد {{count}}",
+    selectedCount_many: "تم تحديد {{count}}",
+    selectedCount_other: "تم تحديد {{count}}",
     pasteFileOrMediaLink: "الصق الملف أو رابط الوسائط",
     personOrEmail: "الشخص أو البريد الإلكتروني",
     propertyMenuFor: "قائمة الخصائص لـ {{name}}",
@@ -766,6 +793,7 @@ const editor = {
     notifications: "الإخطارات",
     notionSync: "مزامنة الفكرة",
     openInNotion: "فتح في Notion",
+    openInAgentNative: "فتح في Agent-Native",
     orgCanFindAndView: "يمكن لأي شخص في مؤسستك البحث والعرض",
     orgLinkCanView: "يمكن لأي شخص في مؤسستك لديه الرابط العرض",
     pin: "تثبيت",
@@ -911,8 +939,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
-  requestedPageUnavailable:
-    "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
   workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
   workspaceWelcomeUnavailableDescription:
@@ -1030,6 +1056,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "ما زلنا بانتظار {{stage}}. الطلب: {{action}}.",
+    widgetDocumentLoadStage: "محتوى الصفحة المحفوظة",
+    widgetDraftCheckStage: "استعادة مسودة الصفحة",
+    widgetEditorInitStage: "تهيئة محرر النص المنسق",
     iconPickerIcons: "الأيقونات",
     iconPickerEmoji: "الرموز التعبيرية",
     iconPickerRecent: "الأخيرة",
@@ -1039,6 +1069,10 @@ const exactEnglish = {
     iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+    suggestionUnplaceable:
+      "تغيّر النص المحيط بهذا الاقتراح، لذا لا يمكن تطبيقه. لا يزال معلّقًا: ارفضه أو اقترح التعديل مرة أخرى.",
+    proposalUnplaceable:
+      "تغيّر النص المحيط بأحد هذه الاقتراحات فلا يمكن تطبيقه، لذا لم يُطبَّق أي منها. لا تزال جميعها معلّقة: اقبلها أو ارفضها واحدًا تلو الآخر.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
@@ -1072,6 +1106,8 @@ const exactEnglish = {
       openInClaude: "فتح في Claude",
       openInClaudeCode: "فتح في Claude Code",
       openInCodex: "فتح في Codex",
+      connectContent: "ربط Content",
+      otherAgents: "وكلاء آخرون",
       agentCopyAccessNote: "يمكن للوكلاء استخدام Content MCP بأذوناتك الحالية",
       temporaryAgentLink: "رابط مؤقت للوكيل",
       privateLinkCanView: "يمكن للأشخاص المصرح لهم فقط عرض هذا الرابط",
@@ -1158,7 +1194,9 @@ const history = {
 
 const overrides = {
   close: "إغلاق",
-  setup: { checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…" },
+  setup: {
+    providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
+  },
   onboarding: {
     fileStorage: {
       title: "اختر تخزين الملفات",
@@ -1206,6 +1244,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "المحتوى",
+    loadingContent: "جارٍ تحميل المحتوى",
     commandSearchDocuments: "بحث في المستندات",
     searchSince: "منذ {{date}}",
     searchModifiedSince: "عُدّل منذ {{date}}",
@@ -1262,10 +1301,6 @@ const overrides = {
   },
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل في Content.",
-    emailNotifications: "إشعارات البريد الإلكتروني",
-    emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص على مستندك أو يرد أو يذكرك.",
     saveFailed: "فشل الحفظ",
     notificationsEmail: "البريد الإلكتروني",
     commentsRepliesMentions: "التعليقات والردود والإشارات",
@@ -1274,9 +1309,6 @@ const overrides = {
     retry: "إعادة المحاولة",
     mcpAbout:
       "اربط Content بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Content نيابةً عنك: البحث في المستندات وكتابتها وتحريرها. ولا يرى إلا ما يمكنك رؤيته.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription: "إدارة المتعاونين ووصول المستندات المشتركة.",
     openTeamSettings: "فتح وصول مساحة العمل",
@@ -1314,6 +1346,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "لم يتم تحديد صفحة",
+    pageNoAccess: "ليست لديك صلاحية الوصول إلى هذه الصفحة",
+    pageMissing: "هذه الصفحة غير موجودة",
+    pageInTrash: "هذه الصفحة في المهملات",
+    pageInTrashAskOwner: "اطلب من المالك استعادتها.",
+    openTrash: "فتح المهملات",
+    goToMyPages: "الانتقال إلى صفحاتي",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",
     newPage: "صفحة جديدة",
     createFailed: "فشل إنشاء الصفحة",
@@ -1396,6 +1434,9 @@ const overrides = {
     aiUndo: "تراجع",
     aiDone: "تم",
     aiMoreChanges: "+{{count}} أخرى",
+    suggestionReplaced: "تم الاستبدال",
+    suggestionWithdrawn: "تم السحب",
+    suggestedChange: "التغيير المقترح",
     aiUndoUnavailable: "لا يمكن استعادة النص المحذوف تلقائيًا",
     aiUndoFailed: "تعذر التراجع عن التغيير",
     aiResolvedByAi: "حلّه الذكاء الاصطناعي",
@@ -1437,6 +1478,11 @@ const overrides = {
     resize: "تغيير حجم الشريط الجانبي",
     expand: "توسيع الشريط الجانبي",
     failedCreatePage: "فشل إنشاء الصفحة",
+    failedCreatePageDraftDescription:
+      "تم حفظ مسودتك في هذا المتصفح. يمكنك إعادة محاولة إنشاء الصفحة أو حذف المسودة.",
+    discardFailedCreatePageQuestion: "هل تريد إلغاء الإنشاء المعلّق؟",
+    discardFailedCreatePageDescription:
+      "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",

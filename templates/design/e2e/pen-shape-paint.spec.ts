@@ -284,13 +284,13 @@ async function drawClosedTriangle(page: Page, designId: string) {
   return { centroid: { x: card.x + 127, y: card.y + 207 } };
 }
 
-test("a closed pen path starts with a stroke and no fill, like Figma", async ({
+test("a closed pen path starts with a stroke and no fill", async ({
   page,
   request,
 }) => {
   const designId = await createDesign(request);
   try {
-    await drawClosedTriangle(page, designId);
+    const { centroid } = await drawClosedTriangle(page, designId);
 
     const paint = await vectorPaint(page);
     expect(paint).not.toBeNull();
@@ -298,7 +298,11 @@ test("a closed pen path starts with a stroke and no fill, like Figma", async ({
     expect(paint!.strokeAttribute).toBe("#000000");
     expect(paint!.shapeStroke).toBe("rgb(0, 0, 0)");
 
+    await page.keyboard.press("v");
+    await page.waitForTimeout(400);
+    await page.mouse.click(centroid.x, centroid.y);
     const fillSection = inspectorSection(page, /^Fill$/i);
+    await expect(fillSection).toBeVisible();
     await fillSection.getByRole("button", { name: "Add fill" }).last().click();
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeFill)
@@ -508,7 +512,7 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
   }
 });
 
-test("closed rect, ellipse, and circle SVG wrappers expose Position while open vectors do not", async ({
+test("closed SVG shapes enable Position while open vectors keep it disabled", async ({
   page,
   request,
 }) => {
@@ -563,11 +567,13 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
         name: "Position",
       });
       if (!item.position) {
-        await expect(position).toHaveCount(0);
+        await expect(position).toBeVisible();
+        await expect(position).toBeDisabled();
         continue;
       }
 
       await expect(position).toBeVisible();
+      await expect(position).toBeEnabled();
       await position.click();
       await page.getByRole("option", { name: "Outside" }).click();
       await expect

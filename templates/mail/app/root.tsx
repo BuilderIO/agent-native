@@ -1,9 +1,9 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath, appApiPath } from "@agent-native/core/client/api-path";
-import { useDbSync } from "@agent-native/core/client/hooks";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
@@ -18,13 +18,12 @@ import {
   isDynamicImportFailureMessage,
   recoverFromStaleChunkError,
 } from "@agent-native/core/client/route-chunk-recovery";
-import {
-  DefaultSpinner,
-  ErrorReportActions,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -32,6 +31,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -49,11 +49,17 @@ import {
 } from "@/lib/integration-status";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
+import { getThreadCacheOwner, setThreadCacheOwner } from "@/lib/thread-cache";
 
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 configureTracking({
+  sessionReplay: {
+    console: false,
+    network: false,
+    sensitiveQueryParams: ["q"],
+  },
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-mail",
@@ -96,6 +102,7 @@ const MAIL_ERROR_COPY: Record<
     title: string;
     fallback: string;
     back: string;
+    reload: string;
     loading: string;
     sendFeedback: string;
     feedbackPlaceholder: string;
@@ -106,6 +113,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail could not load this view.",
     fallback: "Something went wrong while loading Mail.",
     back: "Back",
+    reload: "Reload",
     loading: "Reloading Mail...",
     sendFeedback: "Send feedback",
     feedbackPlaceholder:
@@ -116,6 +124,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail 无法加载此视图。",
     fallback: "加载 Mail 时出现问题。",
     back: "返回",
+    reload: "重新加载",
     loading: "正在重新加载 Mail...",
     sendFeedback: "发送反馈",
     feedbackPlaceholder: "描述此 Mail 错误出现前发生了什么。",
@@ -125,6 +134,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail 無法載入此檢視。",
     fallback: "載入 Mail 時發生問題。",
     back: "返回",
+    reload: "重新載入",
     loading: "正在重新載入 Mail...",
     sendFeedback: "傳送意見回饋",
     feedbackPlaceholder: "描述此 Mail 錯誤出現前發生了什麼。",
@@ -134,6 +144,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail no pudo cargar esta vista.",
     fallback: "Algo salió mal al cargar Mail.",
     back: "Atrás",
+    reload: "Recargar",
     loading: "Recargando Mail...",
     sendFeedback: "Enviar comentarios",
     feedbackPlaceholder:
@@ -144,6 +155,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail n'a pas pu charger cette vue.",
     fallback: "Un problème est survenu lors du chargement de Mail.",
     back: "Retour",
+    reload: "Recharger",
     loading: "Rechargement de Mail...",
     sendFeedback: "Envoyer un retour",
     feedbackPlaceholder:
@@ -154,6 +166,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail konnte diese Ansicht nicht laden.",
     fallback: "Beim Laden von Mail ist ein Fehler aufgetreten.",
     back: "Zurück",
+    reload: "Neu laden",
     loading: "Mail wird neu geladen...",
     sendFeedback: "Feedback senden",
     feedbackPlaceholder:
@@ -164,6 +177,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail はこのビューを読み込めませんでした。",
     fallback: "Mail の読み込み中に問題が発生しました。",
     back: "戻る",
+    reload: "再読み込み",
     loading: "Mail を再読み込み中...",
     sendFeedback: "フィードバックを送信",
     feedbackPlaceholder:
@@ -174,6 +188,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail에서 이 보기를 불러올 수 없습니다.",
     fallback: "Mail을 불러오는 중 문제가 발생했습니다.",
     back: "뒤로",
+    reload: "새로고침",
     loading: "Mail 새로고침 중...",
     sendFeedback: "피드백 보내기",
     feedbackPlaceholder:
@@ -184,6 +199,7 @@ const MAIL_ERROR_COPY: Record<
     title: "O Mail não conseguiu carregar esta visualização.",
     fallback: "Algo deu errado ao carregar o Mail.",
     back: "Voltar",
+    reload: "Recarregar",
     loading: "Recarregando o Mail...",
     sendFeedback: "Enviar feedback",
     feedbackPlaceholder:
@@ -194,6 +210,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail यह दृश्य लोड नहीं कर सका।",
     fallback: "Mail लोड करते समय कुछ गलत हुआ।",
     back: "वापस",
+    reload: "रीलोड करें",
     loading: "Mail रीलोड हो रहा है...",
     sendFeedback: "फ़ीडबैक भेजें",
     feedbackPlaceholder: "इस Mail त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
@@ -203,6 +220,7 @@ const MAIL_ERROR_COPY: Record<
     title: "تعذر على Mail تحميل هذا العرض.",
     fallback: "حدث خطأ أثناء تحميل Mail.",
     back: "رجوع",
+    reload: "إعادة التحميل",
     loading: "جارٍ إعادة تحميل Mail...",
     sendFeedback: "إرسال الملاحظات",
     feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ Mail هذا.",
@@ -335,8 +353,44 @@ type MailSyncEvent = {
   requestSource?: string;
 };
 
+const MAIL_QUERY_MUTATION_ACTIONS = new Set([
+  "apply-ai-filter",
+  "archive-email",
+  "bulk-archive",
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "manage-draft",
+  "mark-read",
+  "mark-thread-read",
+  "move-email",
+  "resync-inbox",
+  "retry-uncertain-scheduled-email",
+  "send-email",
+  "send-queued-drafts",
+  "send-scheduled-email-now",
+  "star-email",
+  "trash-email",
+  "unarchive-email",
+  "untrash-email",
+  "update-queued-draft",
+]);
+
+const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "retry-uncertain-scheduled-email",
+  "send-scheduled-email-now",
+]);
+
 export function createMailSyncEventHandler(qc: QueryClient) {
   let refreshSignalInvalidationScheduled = false;
+  let actionQueryInvalidationScheduled = false;
+  let settingsInvalidationScheduled = false;
+  const pendingSettingsInvalidations = new Set<
+    "settings" | "mail-inbox" | "agent-engines"
+  >();
 
   return (data: MailSyncEvent) => {
     const isOwnEvent = data.requestSource === TAB_ID;
@@ -389,17 +443,53 @@ export function createMailSyncEventHandler(qc: QueryClient) {
       }
     } else if (data.source === "settings") {
       if (!isOwnEvent) {
-        void qc.invalidateQueries({ queryKey: ["settings"] });
-        void qc.invalidateQueries({ queryKey: ["aliases"] });
-        void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["email"] });
-        invalidateSettingsSurfaces();
+        const key = data.key ?? "";
+        if (!key || key === "*") pendingSettingsInvalidations.add("settings");
+        if (key === "agent-engine" || key.endsWith(":agent-engine")) {
+          pendingSettingsInvalidations.add("agent-engines");
+        }
+        if (key === "mail-settings" || key.endsWith(":mail-settings")) {
+          pendingSettingsInvalidations.add("settings");
+          pendingSettingsInvalidations.add("mail-inbox");
+        }
+        if (
+          pendingSettingsInvalidations.size > 0 &&
+          !settingsInvalidationScheduled
+        ) {
+          settingsInvalidationScheduled = true;
+          queueMicrotask(() => {
+            settingsInvalidationScheduled = false;
+            const invalidations = [...pendingSettingsInvalidations];
+            pendingSettingsInvalidations.clear();
+            if (invalidations.includes("settings")) {
+              void qc.invalidateQueries({ queryKey: ["settings"] });
+            }
+            if (invalidations.includes("mail-inbox")) {
+              void qc.invalidateQueries({
+                queryKey: ["action", "list-inbox-threads"],
+              });
+              void qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] });
+            }
+            if (invalidations.includes("agent-engines")) {
+              void qc.invalidateQueries({ queryKey: ["agent-engines"] });
+            }
+          });
+        }
       }
     } else if (data.source === "action") {
-      // The core sync hook already refreshes action-backed queries for action
-      // events. Email and label reads are refreshed by the explicit
-      // refresh-signal app-state event so generic action changes do not
-      // cancel and restart Gmail list requests.
+      if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
+      if (SCHEDULED_JOB_MUTATION_ACTIONS.has(data.key)) {
+        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      }
+      if (!actionQueryInvalidationScheduled) {
+        actionQueryInvalidationScheduled = true;
+        queueMicrotask(() => {
+          actionQueryInvalidationScheduled = false;
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        });
+      }
     } else if (data.source === "screen-refresh") {
       if (!isOwnEvent) {
         markExternalEmailRefresh();
@@ -413,6 +503,7 @@ export function createMailSyncEventHandler(qc: QueryClient) {
 
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   const onEvent = useMemo(() => createMailSyncEventHandler(qc), [qc]);
 
   useDbSync({
@@ -421,13 +512,45 @@ function DbSyncSetup() {
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     ignoreSource: TAB_ID,
     onEvent,
+    realtime: isPrivateInboxPath(location.pathname)
+      ? { reason: "new mail arrives while the inbox is open" }
+      : undefined,
+    pauseWhenHidden: true,
   });
   return null;
+}
+
+const PRIVATE_MAIL_VIEWS = new Set([
+  "inbox",
+  "unread",
+  "starred",
+  "snoozed",
+  "scheduled",
+  "sent",
+  "drafts",
+  "archive",
+  "trash",
+  "all",
+]);
+
+export function isPrivateInboxPath(pathname: string): boolean {
+  const view = pathname.split("/").filter(Boolean)[0];
+  return view !== undefined && PRIVATE_MAIL_VIEWS.has(view);
 }
 
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 function AppContent() {
+  const { session, status } = useSession();
+  const owner = status === "authenticated" ? (session?.userId ?? null) : null;
+  const [cacheOwner, setCacheOwner] = useState(getThreadCacheOwner);
+  useLayoutEffect(() => {
+    setThreadCacheOwner(owner);
+    setCacheOwner(owner);
+  }, [owner]);
+
+  if (owner !== cacheOwner) return null;
+
   return (
     <>
       <AutoFocus />
@@ -507,20 +630,23 @@ export function ErrorBoundary() {
     if (!recoverFromStaleChunkError(error)) setRecovering(false);
   }, [error, staleChunk]);
 
-  if (recovering) return <DefaultSpinner ariaLabel={copy.loading} />;
+  if (recovering) return <AppShellSkeleton layout="mail" />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
       <div className="w-full max-w-md text-center">
         <p className="text-sm font-semibold">{copy.title}</p>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
-        <div className="mt-5 flex flex-col items-center gap-2">
+        <div className="mt-5 flex items-center justify-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={() => window.history.back()}
           >
             {copy.back}
+          </Button>
+          <Button size="sm" onClick={() => window.location.reload()}>
+            {copy.reload}
           </Button>
         </div>
         <ErrorReportActions

@@ -22,7 +22,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: mocks.org }),
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   BuilderConnectPopover: ({ children }: { children: ReactNode }) => (
     <div data-testid="builder-connect">{children}</div>
   ),

@@ -8,6 +8,7 @@ import {
   createSharesTable,
   uniqueIndex,
   index,
+  sql,
 } from "@agent-native/core/db/schema";
 import { boolean } from "drizzle-orm/pg-core";
 
@@ -131,6 +132,22 @@ export const recordings = table("recordings", {
   filmstripRows: integer("filmstrip_rows").notNull().default(0),
   filmstripFrameWidth: integer("filmstrip_frame_width").notNull().default(0),
   filmstripFrameHeight: integer("filmstrip_frame_height").notNull().default(0),
+
+  // What this row holds. 'video' is a recorded or uploaded clip and owns
+  // `videoUrl`; 'image' is a single screenshot and owns `imageUrl` instead —
+  // it has no duration, transcript, filmstrip or editable timeline, so the
+  // pipelines that produce those skip it rather than failing on a missing
+  // video file.
+  kind: text("kind", { enum: ["video", "image"] })
+    .notNull()
+    .default("video"),
+  imageUrl: text("image_url"),
+  // The screenshot as it stands before the movable marks are drawn on: the
+  // capture with any blur already burned into it, and nothing else. Marks stay
+  // editable because this is what the editor re-renders from, while everyone
+  // else is served `imageUrl` with the marks baked in. It is safe to keep —
+  // redaction has already destroyed the hidden pixels in this file too.
+  baseImageUrl: text("base_image_url"),
 
   durationMs: integer("duration_ms").notNull().default(0),
   videoUrl: text("video_url"),
@@ -608,6 +625,62 @@ export const recordingEvents = table("recording_events", {
   payload: text("payload").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+// Earlier screen time attached to a recording. The window is metadata: the
+// footage lives in `mediaRecordingId`, and the clip's own video is untouched.
+// Access inherits from the recording.
+export const recordingContextItems = table(
+  "recording_context_items",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull().default("screen_history"),
+    label: text("label"),
+    requestedSeconds: integer("requested_seconds").notNull(),
+    // The window as first requested. It bounds every later trim.
+    originalStartedAt: text("original_started_at").notNull(),
+    originalEndedAt: text("original_ended_at").notNull(),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "ready", "failed", "removed"],
+    }).notNull(),
+    mediaRecordingId: text("media_recording_id"),
+    // The footage the current 'processing' claim reserved. 'ready' must name
+    // it, so a worker whose claim was replaced cannot land its footage.
+    pendingMediaRecordingId: text("pending_media_recording_id"),
+    // The desktop device that captured the Clip. NULL (web-requested or
+    // pre-dating device scoping) is claimable by every device.
+    capturedDeviceId: text("captured_device_id"),
+    durationMs: integer("duration_ms"),
+    width: integer("width"),
+    height: integer("height"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (item) => ({
+    // One non-removed item per recording. The database enforces it, so a
+    // retried or concurrent request cannot create a second active item.
+    recordingContextItemsActiveRecordingUnique: uniqueIndex(
+      "recording_context_items_active_recording_unique_idx",
+    )
+      .on(item.recordingId)
+      .where(sql`${item.status} <> 'removed'`),
+    recordingContextItemsPendingIdx: index(
+      "recording_context_items_pending_idx",
+    )
+      .on(item.createdAt)
+      .where(sql`${item.status} = 'pending'`),
+    // The in-use check looks items up by either footage column.
+    recordingContextItemsMediaRecordingIdx: index(
+      "recording_context_items_media_recording_idx",
+    ).on(item.mediaRecordingId),
+    recordingContextItemsPendingMediaRecordingIdx: index(
+      "recording_context_items_pending_media_recording_idx",
+    ).on(item.pendingMediaRecordingId),
+  }),
+);
 
 export const transactionalEmailJobs = table(
   "clips_transactional_email_jobs",

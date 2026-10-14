@@ -8,7 +8,6 @@ export default {
     clipboardUnavailable:
       "O acesso à área de transferência não está disponível",
     disconnect: "Desconectar",
-    notConnected: "Não conectado",
     loadFailed: "Não foi possível carregar estes dados.",
     retry: "Tentar novamente",
     saving: "Salvando...",
@@ -207,10 +206,6 @@ export default {
   },
   settings: {
     title: "Configurações",
-    description: "Configure seu calendário e integrações.",
-    languageTitle: "Idioma",
-    languageDescription: "Escolha o idioma da interface do Calendar.",
-    languageLabel: "Idioma da interface",
     agentTitle: "Gerenciar agente",
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
@@ -224,13 +219,8 @@ export default {
     zoomConnectFailed: "Não foi possível conectar o Zoom",
     zoomDisconnected: "Zoom desconectado",
     zoomDisconnectFailed: "Falha ao desconectar Zoom",
-    general: "Geral",
-    generalDescription: "Padrões do calendário e texto de reserva.",
-    timezone: "Fuso horário",
-    saveSettings: "Salvar configurações",
     saved: "Configurações salvas",
     saveFailed: "Falha ao salvar configurações",
-    appearance: "Aparência",
     appearanceDescription:
       "Escolha um tema de cor para o workspace ou peça ao agente.",
     desktopNotifications: "Notificações da área de trabalho",
@@ -245,20 +235,10 @@ export default {
       "Sincronize eventos e gerencie tudo em um só lugar.",
     zoomDescription:
       "Conecte o Zoom para criar links de reunião para eventos e reservas.",
-    zoomNotConfigured: "Não configurado",
     zoomCredentialsPrompt:
       "Adicione credenciais OAuth do Zoom para habilitar a conexão.",
-    bookingTitleLabel: "Título reserva da página de agendamento",
     bookingTitlePlaceholder: "Agendar uma reunião",
-    bookingTitleHelp:
-      "Usado apenas quando um link de agendamento não tem título. Crie, abra e copie URLs públicas em Links de agendamento.",
-    bookingDescriptionLabel: "Descrição reserva da página de agendamento",
     bookingDescriptionPlaceholder: "Escolha um horário que funcione para você.",
-    bookingDescriptionHelp:
-      "Usado apenas quando um link de agendamento não tem descrição própria.",
-    defaultDurationLabel: "Duração padrão do evento (minutos)",
-    defaultDurationHelp:
-      "Duração padrão para novos eventos e horários de agendamento. Links de agendamento podem substituir isso por link.",
     weekStartLabel: "A semana começa no",
     weekStartSunday: "Domingo - sábado",
     weekStartMonday: "Segunda-feira - domingo",
@@ -267,7 +247,7 @@ export default {
     eventRulesConnectJev: "Conecte o Jev para executar as regras de convite",
     eventRulesFreeBuilderOrApiKey:
       "Grátis com Builder.io ou adicione uma chave de API.",
-    eventRulesConnectBuilder: "Conectar Builder.io",
+    eventRulesConnectBuilder: "Usar Builder.io",
     eventRulesAddJevApiKey: "Adicionar chave de API",
     eventRulesTabRules: "Regras",
     eventRulesHelpLabel: "Sobre as instruções de convite",
@@ -632,6 +612,7 @@ export default {
     fieldRequired: "{{label}} é obrigatório",
     linkDisabled: "{{title}} desativado",
     linkEnabled: "{{title}} habilitado",
+    advanced: "Avançado",
     linkVisibility: "Visibilidade do link",
     linkVisibilityDescription: "Desligue isso para desativar a página pública.",
     loadingMeetingTypes: "Carregando tipos de reunião",
@@ -814,6 +795,7 @@ export default {
     detailCount_many: "{{count}} detalhes",
   },
   calendarView: {
+    resizeAllDaySection: "Redimensionar a seção de eventos de dia inteiro",
     addWorkingLocation: "Adicionar local de trabalho",
     addTitleBeforeCreate: "Adicione um título antes de criar o evento",
     calendarSettingsLoading:
@@ -1007,6 +989,8 @@ export default {
     occurrences: "ocorrências",
     reviewInvite: "Revise o convite",
     reviewProposedTime: "Revisar horário proposto",
+    newTimeProposedBy: "Novo horário sugerido por {{name}}",
+    reviewTimeProposals: "Revisar propostas de horário",
     responseAwaitingCount: "{{count}} aguardando",
     responseMaybeCount: "{{count}} talvez",
     responseNoCount: "{{count}} não",

@@ -3,8 +3,7 @@ import enUS from "./en-US";
 const arSA = {
   agentChat: {
     setup: {
-      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
   },
@@ -670,7 +669,7 @@ const arSA = {
         "ثبّت التخطيط المرئي كمهارة مدعومة بتطبيق. يمكن لوكيل البرمجة فتح خطط منظمة مع رسوم ومخططات أولية ونماذج وتعليقات وروابط مراجعة قابلة للمشاركة.",
     },
     design: {
-      replaces: "يستبدل أو يعزز أدوات نمذجة التصميم",
+      replaces: "استوديو التصميم من Agent-Native",
       description:
         "يحوّل التعليمات إلى تصاميم تفاعلية تتبع نظام التصميم الخاص بك، بينما يحسّن الوكيل كل شاشة بناءً على الملاحظات.",
     },
@@ -1347,7 +1346,7 @@ const arSA = {
       s003: "إنشاء",
       s004: "صقل",
       s005: "جميع القوالب",
-      s006: "استوديو النماذج الأولية AI HTML مفتوح المصدر",
+      s006: "مساحة عمل تصميم مفتوحة المصدر",
       s007: "أنشئ تصاميم ونماذج أولية تفاعلية. حسّنها بأدوات مألوفة أو أجرِ تعديلات المحادثة. صدّرها إلى أي مكان.",
       s008: "صمّم شيئًا",
       s009: "كيف يعمل",
@@ -1804,7 +1803,6 @@ const arSA = {
       heroDescription:
         "Plans أداة مجانية ومفتوحة المصدر للتخطيط المرئي، لمراجعة نهج وكيل الترميز الخاص بك، وتقديم الملاحظات، وفهم تغييرات الكود عبر مخططات وإطارات سلكية وكود مشروح.",
       heroCta: "خطّط بصريًا",
-      heroSecondaryCta: "افتح Plans",
       useCasesHeading: "ماذا يمكنك أن تفعل باستخدام Plans؟",
       useCasesBody:
         "راجع نهج التنفيذ، أو اعمل على واجهة، أو افهم تغييرًا مكتملاً مع وكيل الترميز الخاص بك.",
@@ -2154,6 +2152,8 @@ const arSA = {
     downloadStarted: "بدأ التنزيل",
     downloadAgain: "ألم ينجح؟ حاول التنزيل مرة أخرى",
     loadError: "تعذر تحميل أحدث مثبّت لسطح المكتب.",
+    mountError:
+      "تعذّر على صفحة تنزيل سطح المكتب العثور على مسارها في مساحة العمل. اطلب من مسؤول مساحة العمل التحقق من إعداد مسار التطبيق.",
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
     retry: "إعادة المحاولة",
     unavailable: "المثبّت غير متاح لهذه المنصة",
@@ -2505,6 +2505,7 @@ const arSA = {
     keyConcepts: "المفاهيم الأساسية",
     agentNativeToolkit: "مجموعة الأدوات",
     toolkitOverview: "نظرة عامة",
+    toolkitFoundations: "الأساسيات",
     toolkitUiPrimitives: "بدائيات الواجهة",
     customDesignSystem: "أنظمة تصميم مخصصة",
     toolkitEditorsCanvases: "المحررات واللوحات",
@@ -2517,6 +2518,10 @@ const arSA = {
     toolkitCommandNavigation: "الأوامر والتنقل",
     toolkitResources: "الموارد",
     toolkitAgentUx: "تجربة الوكيل",
+    toolkitDashboard: "لوحة المعلومات",
+    toolkitChatHistory: "سجل المحادثات",
+    toolkitAgentPage: "صفحة الوكيل",
+    toolkitNotifications: "الإشعارات",
     toolkitHistory: "السجل",
     toolkitCommentsReview: "التعليقات والمراجعة",
     toolkitObservability: "قابلية المراقبة",
@@ -2573,11 +2578,12 @@ const arSA = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "منصات أخرى",
     ssrCaching: "تخزين SSR المؤقت",
     deploymentEnvironmentVariables: "النشر: متغيرات البيئة",
@@ -2667,6 +2673,7 @@ const arSA = {
     planAutomations: "الأحداث والأتمتة",
     planLocalAndDesktop: "الملفات المحلية وسطح المكتب",
     planDevelopers: "دليل المطور",
+    turnIntoApp: "تحويل إلى تطبيق",
     prVisualRecap: "ملخص PR بصري",
     planPluginMarketplace: "إضافة Plan والسوق",
     slides: "الشرائح",

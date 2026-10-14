@@ -19,113 +19,109 @@ jobs:
   delete-branches:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - template: analytics
-            neon_project: dry-shadow-75673589
-            netlify_site: ba983662-dac4-478d-a481-5079e67e4d33
-          - template: brain
-            neon_project: lingering-band-25891811
-            netlify_site: af978d13-aa58-44f3-9b5c-f12568467079
-          - template: calendar
-            neon_project: super-fire-75593365
-            netlify_site: 954fe53b-052e-4401-aac2-2e973e498af8
-          - template: clips
-            neon_project: aged-glitter-95425960
-            netlify_site: 7e3f4fee-258d-4d16-9aaf-154a714e87e2
-          - template: content
-            neon_project: quiet-heart-51077706
-            netlify_site: 5c2198f5-bee4-41c3-8a6d-4869f400eec2
-          - template: forms
-            neon_project: curly-glade-91979555
-            netlify_site: aa0b2020-9983-4d6c-8fb0-65462f960fc4
-          - template: mail
-            neon_project: patient-cake-44789837
-            netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5
-          - template: plan
-            neon_project: late-pine-39936033
-            netlify_site: 9d0d7a73-385d-4da1-ba10-1581ffc4d413
-          - template: slides
-            neon_project: hidden-thunder-16834477
-            netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
     steps:
-      - name: Delete Neon branches if present
+      - name: Delete Neon branches and preview DB URL overrides
         env:
-          NEON_PROJECT_ID: ${{ matrix.neon_project }}
           PR_NUMBER: ${{ github.event.number }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ACCOUNT_ID: ${{ secrets.NETLIFY_ACCOUNT_ID }}
         run: |
-          set -euo pipefail
-          API="https://console.neon.tech/api/v2"
+          set -uo pipefail
+          NEON_API="https://console.neon.tech/api/v2"
+          NETLIFY_ENV_API="https://api.netlify.com/api/v1/accounts/$NETLIFY_ACCOUNT_ID/env"
 
-          delete_branch_if_present() {
-            local branch_name="$1"
+          # template neon_project netlify_site
+          TARGETS=(
+            "analytics dry-shadow-75673589 ba983662-dac4-478d-a481-5079e67e4d33"
+            "brain lingering-band-25891811 af978d13-aa58-44f3-9b5c-f12568467079"
+            "calendar super-fire-75593365 954fe53b-052e-4401-aac2-2e973e498af8"
+            "clips aged-glitter-95425960 7e3f4fee-258d-4d16-9aaf-154a714e87e2"
+            "content quiet-heart-51077706 5c2198f5-bee4-41c3-8a6d-4869f400eec2"
+            "forms curly-glade-91979555 aa0b2020-9983-4d6c-8fb0-65462f960fc4"
+            "mail patient-cake-44789837 dee98bb0-6143-4205-8c04-afe7bf83d5b5"
+            "plan late-pine-39936033 9d0d7a73-385d-4da1-ba10-1581ffc4d413"
+            "slides hidden-thunder-16834477 fd5deb5b-5539-47e1-830c-e5fb5e105efd"
+          )
+
+          delete_neon_branch_if_present() {
+            local project="$1" branch_name="$2"
             local response http body branch_id
             response=$(curl -sS -w $'\n%{http_code}' -G \
               -H "Authorization: Bearer $NEON_API_KEY" \
               --data-urlencode "search=$branch_name" \
               --data-urlencode "limit=100" \
-              "$API/projects/$NEON_PROJECT_ID/branches")
+              "$NEON_API/projects/$project/branches")
             http=$(printf '%s' "$response" | tail -n1)
             body=$(printf '%s' "$response" | sed '$d')
             if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
-              echo "::error::Failed to look up Neon branch $branch_name (HTTP $http)"
-              exit 1
+              echo "::error::Failed to look up Neon branch $branch_name in $project (HTTP $http)"
+              return 1
             fi
             branch_id=$(jq -r --arg name "$branch_name" \
-              'first(.branches[]? | select(.name == $name) | .id) // empty' <<< "$body")
+              'first(.branches[]? | select(.name == $name) | .id) // empty' <<< "$body") || {
+              echo "::error::Unreadable Neon branch list for $branch_name in $project"
+              return 1
+            }
             if [[ -z "$branch_id" ]]; then
-              echo "Neon branch $branch_name is already absent"
+              echo "Neon branch $branch_name is already absent in $project"
               return 0
             fi
             http=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
               -H "Authorization: Bearer $NEON_API_KEY" \
-              "$API/projects/$NEON_PROJECT_ID/branches/$branch_id")
+              "$NEON_API/projects/$project/branches/$branch_id")
             if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
-              echo "::error::Failed to delete Neon branch $branch_name (HTTP $http)"
-              exit 1
+              echo "::error::Failed to delete Neon branch $branch_name in $project (HTTP $http)"
+              return 1
             fi
           }
 
-          delete_branch_if_present "preview-schema-only/pr-$PR_NUMBER"
-          delete_branch_if_present "preview/pr-$PR_NUMBER"
-
-      - name: Remove preview DB URL branch overrides
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: |
-          SITE="${{ matrix.netlify_site }}"
-          ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
-          BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
-          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
-
           # Delete only THIS branch's value, never the whole variable (other
-          # branches and production still use it). Look up the branch-scoped
-          # value's id, then delete that single value. curl's 000
-          # transport-failure code and any non-2xx/404 fail the step.
+          # branches and production still use it). curl's 000 transport-failure
+          # code and any non-2xx/404 count as a failure.
           delete_netlify_branch_value() {
-            local key="$1"
+            local site="$1" key="$2"
             local resp http body id
-            resp=$(curl -s -w $'\n%{http_code}' -H "$AUTH" "$BASE/$key?site_id=$SITE")
+            resp=$(curl -s -w $'\n%{http_code}' \
+              -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+              "$NETLIFY_ENV_API/$key?site_id=$site")
             http=$(printf '%s' "$resp" | tail -n1)
             body=$(printf '%s' "$resp" | sed '$d')
             if [[ "$http" == "404" ]]; then return 0; fi
             if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
-              echo "::error::Failed to read Netlify env $key for site $SITE (HTTP $http)"
-              exit 1
+              echo "::error::Failed to read Netlify env $key for site $site (HTTP $http)"
+              return 1
             fi
             id=$(printf '%s' "$body" | jq -r --arg br "$HEAD_BRANCH" \
-              'first(.values[]? | select(.context=="branch" and .context_parameter==$br) | .id) // empty')
+              'first(.values[]? | select(.context=="branch" and .context_parameter==$br) | .id) // empty') || {
+              echo "::error::Unreadable Netlify env $key for site $site"
+              return 1
+            }
             if [[ -z "$id" ]]; then return 0; fi
             http=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-              -H "$AUTH" "$BASE/$key/value/$id?site_id=$SITE")
+              -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+              "$NETLIFY_ENV_API/$key/value/$id?site_id=$site")
             if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
-              echo "::error::Failed to delete Netlify env $key branch value (branch $HEAD_BRANCH) for site $SITE (HTTP $http)"
-              exit 1
+              echo "::error::Failed to delete Netlify env $key branch value (branch $HEAD_BRANCH) for site $site (HTTP $http)"
+              return 1
             fi
           }
 
-          delete_netlify_branch_value "DATABASE_URL"
-          delete_netlify_branch_value "DATABASE_URL_UNPOOLED"
+          failed=()
+          for target in "${TARGETS[@]}"; do
+            read -r template neon_project netlify_site <<< "$target"
+            echo "::group::$template"
+            ok=true
+            delete_neon_branch_if_present "$neon_project" "preview-schema-only/pr-$PR_NUMBER" || ok=false
+            delete_neon_branch_if_present "$neon_project" "preview/pr-$PR_NUMBER" || ok=false
+            delete_netlify_branch_value "$netlify_site" "DATABASE_URL" || ok=false
+            delete_netlify_branch_value "$netlify_site" "DATABASE_URL_UNPOOLED" || ok=false
+            echo "::endgroup::"
+            [[ "$ok" == true ]] || failed+=("$template")
+          done
+
+          if (( ${#failed[@]} )); then
+            echo "::error::Preview cleanup failed for: ${failed[*]}"
+            exit 1
+          fi
+          echo "Cleaned up preview branches for PR #$PR_NUMBER across ${#TARGETS[@]} templates."

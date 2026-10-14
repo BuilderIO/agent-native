@@ -54,6 +54,7 @@ import {
   EXTENSIONS_HIDDEN_BY_COLUMN_SQL,
   EXTENSIONS_HIDDEN_AT_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
+  EXTENSION_SHARES_NOTIFIED_AT_COLUMN_SQL,
   EXTENSION_HIDES_CREATE_SQL,
   EXTENSION_HIDES_UNIQUE_INDEX_SQL,
   EXTENSION_HIDES_OWNER_INDEX_SQL,
@@ -88,6 +89,11 @@ export const extensionsStore = defineStore({
       name: "tool-data-tables",
       run: async () => {
         await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL);
+        await ensureColumnExists(
+          "tool_shares",
+          "notified_at",
+          EXTENSION_SHARES_NOTIFIED_AT_COLUMN_SQL,
+        );
         await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL);
         await ensureExtensionDataItemId();
         await ensureExtensionDataScope();

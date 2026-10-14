@@ -46,12 +46,11 @@ whether `loadMessages` can actually resolve it.
 - Read strings with `useT()` and keep keys stable.
 - Apps expose a `/settings` route without a sidebar item for it: Settings
   opens from the account menu in the sidebar footer and from ⌘, (Ctrl+,
-  elsewhere). Put `<LanguagePicker />` in that settings page, usually in a
-  Language or General section, and keep the header language icon only as a
-  quick-access shortcut. With the `settings-redesign` flag on, core's
-  Account › Preferences page already renders the Interface language row
-  (with Timezone; both are the per-user `localization` record, so a change
-  applies in every app); don't add a second picker to a redesigned page.
+  elsewhere). Core's Account › Preferences page already renders the Interface
+  language row (with Timezone; both are the per-user `localization` record, so
+  a change applies in every app); don't add a second picker to an app's
+  Settings page. Keep the header language icon only as a quick-access
+  shortcut.
 - Don't add an "Agent settings" row to an app's settings page: the Agent
   group's pages are part of Settings. Link to a page with
   `buildSettingsRoute(page, sub?)`, and localize the link's label.

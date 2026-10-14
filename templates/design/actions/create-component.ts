@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { agentUpdateSelection } from "@agent-native/core/collab";
 import {
   accessFilter,
@@ -304,7 +304,8 @@ export default defineAction({
     const db = getDb();
 
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
@@ -357,6 +358,15 @@ export default defineAction({
         connectionId: localSource.connectionId,
         path: localSource.path,
       });
+      if (typeof live.content !== "string") {
+        fail(
+          "The localhost bridge did not return source content; no component was created.",
+          {
+            errorCode: "localhost_source_content_unavailable",
+            statusCode: 502,
+          },
+        );
+      }
       if (
         localSource.expectedVersionHash &&
         live.versionHash !== localSource.expectedVersionHash

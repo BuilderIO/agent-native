@@ -2,9 +2,9 @@ import {
   agentNativePath,
   appApiPath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconExternalLink,
   IconCheck,

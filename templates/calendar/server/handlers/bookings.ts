@@ -3,6 +3,7 @@ import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
   getAppProductionUrl,
+  getForwardedRequestOrigin,
   getRequestContext,
   recordChange,
   readBody,
@@ -19,7 +20,6 @@ import {
   createError,
   defineEventHandler,
   getQuery,
-  getRequestURL,
   getRouterParam,
   setResponseStatus,
   type H3Event,
@@ -1517,8 +1517,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    const reqUrl = getRequestURL(event);
-    const origin = reqUrl.origin;
+    const origin = getForwardedRequestOrigin(event);
     const manageUrl = `${origin}/booking/manage/${cancelToken}`;
 
     if (await googleCalendar.isConnected(hostEmail)) {
@@ -2059,14 +2058,17 @@ export const cancelBookingByToken = defineEventHandler(
       await db
         .update(schema.bookings)
         .set({ status: "cancelled", zoomNeedsReview: false })
-        .where(eq(schema.bookings.id, row.id));
+        .where(
+          and(
+            eq(schema.bookings.id, row.id),
+            eq(schema.bookings.ownerEmail, row.ownerEmail),
+          ),
+        );
 
       const hostEmail = link?.ownerEmail;
       const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
-      const reqUrl = getRequestURL(event);
-      const bookAgainUrl = row.slug
-        ? `${reqUrl.origin}/book/${row.slug}`
-        : undefined;
+      const origin = getForwardedRequestOrigin(event);
+      const bookAgainUrl = row.slug ? `${origin}/book/${row.slug}` : undefined;
       await sendBookingCancellationEmails({
         booking: rowToBooking(row),
         hostEmail,

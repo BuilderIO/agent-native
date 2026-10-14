@@ -1,10 +1,12 @@
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 
+import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
 import { bytesToBase64, utf8ByteLength } from "../../shared/fig-bytes.js";
 import {
   completeFigImport,
   MAX_FIG_FRAME_HTML_BYTES,
   shouldWarnForFigImport,
+  yieldToEventLoop,
   type FigFileImportResult,
   type FigImportSummary,
 } from "../../shared/fig-to-frames.js";
@@ -157,11 +159,16 @@ async function callWithOneRetry<T>(
   }
 }
 
-function packSaveBatches<T>(frames: T[]): T[][] {
+async function packSaveBatches<T>(frames: T[]): Promise<T[][]> {
   const batches: T[][] = [];
   let batch: T[] = [];
   let batchBytes = 0;
+  let sliceStart = Date.now();
   for (const frame of frames) {
+    if (Date.now() - sliceStart > 16) {
+      await yieldToEventLoop();
+      sliceStart = Date.now();
+    }
     const frameBytes = utf8ByteLength(JSON.stringify(frame));
     if (
       batch.length > 0 &&
@@ -225,6 +232,7 @@ export async function importFigInBrowser(
       ownerEmail: "",
       normalizeHtml: (content: string) => content,
       maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
+      limits: BROWSER_FIG_LIMITS,
       uploader: async ({ data, filename, mimeType }) => {
         remoteMutationStarted = true;
         const idempotencyKey = `${importId}:${filename}`;
@@ -278,7 +286,7 @@ export async function importFigInBrowser(
     ...positions?.[index],
     clientImportId: `${importId}:frame:${index}`,
   }));
-  const batches = packSaveBatches(frames);
+  const batches = await packSaveBatches(frames);
   const saved: ImportResult & { files: NonNullable<ImportResult["files"]> } = {
     files: [],
     warnings: converted.warnings,

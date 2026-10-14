@@ -18,6 +18,13 @@ export interface PageDraftJournalSnapshot {
   editGeneration: number;
   saveAttemptId?: string;
   priorSaveAttemptIds?: string[];
+  /**
+   * Other attempts that sent every change in this snapshot, such as a hidden
+   * tab's keepalive copy sent before the flush moved onto a newer base. A
+   * receipt for any of them confirms this snapshot; prior attempt IDs belong
+   * to older snapshots and do not.
+   */
+  equivalentSaveAttemptIds?: string[];
 }
 
 export interface PageDraftJournalEntry {
@@ -33,7 +40,8 @@ export class PageDraftJournalError extends Error {
       | "unavailable"
       | "write_failed"
       | "read_failed"
-      | "invalid_entry",
+      | "invalid_entry"
+      | "rollback_failed",
     readonly cause?: unknown,
   ) {
     super(`Page draft journal ${code.replace(/_/g, " ")}.`);
@@ -42,7 +50,8 @@ export class PageDraftJournalError extends Error {
 }
 
 const PREFIX = "content-page-draft-journal-v1:";
-const RETAINED_PREFIX = "content-page-draft-retained-v1:";
+// Retired: these markers kept a permanent "saved to History" banner on screen.
+const LEGACY_RETAINED_PREFIX = "content-page-draft-retained-v1:";
 
 function storage(): Storage {
   try {
@@ -70,10 +79,6 @@ function key(scope: PageDraftJournalScope): string {
   return PREFIX + parts.map(encodeURIComponent).join(":");
 }
 
-function retainedKey(scope: PageDraftJournalScope): string {
-  return RETAINED_PREFIX + key(scope).slice(PREFIX.length);
-}
-
 function partitionPrefix(
   scope: Omit<PageDraftJournalScope, "writerId">,
 ): string {
@@ -84,12 +89,6 @@ function partitionPrefix(
       .join(":") +
     ":"
   );
-}
-
-function retainedPartitionPrefix(
-  scope: Omit<PageDraftJournalScope, "writerId">,
-): string {
-  return RETAINED_PREFIX + partitionPrefix(scope).slice(PREFIX.length);
 }
 
 function validEntry(value: unknown): value is PageDraftJournalEntry {
@@ -128,6 +127,11 @@ function validEntry(value: unknown): value is PageDraftJournalEntry {
         snapshot.priorSaveAttemptIds.every(
           (value) => typeof value === "string" && value.length > 0,
         ))) &&
+    (snapshot.equivalentSaveAttemptIds === undefined ||
+      (Array.isArray(snapshot.equivalentSaveAttemptIds) &&
+        snapshot.equivalentSaveAttemptIds.every(
+          (value) => typeof value === "string" && value.length > 0,
+        ))) &&
     (entry.recoveryStatus === undefined ||
       entry.recoveryStatus === "retained_in_history") &&
     typeof entry.writtenAt === "number" &&
@@ -150,7 +154,24 @@ function parseEntry(raw: string, expectedKey: string): PageDraftJournalEntry {
 export function writePageDraftJournal(input: {
   scope: PageDraftJournalScope;
   snapshot: PageDraftJournalSnapshot;
-}): PageDraftJournalEntry {
+}): PageDraftJournalEntry;
+export function writePageDraftJournal(input: {
+  scope: PageDraftJournalScope;
+  snapshot: PageDraftJournalSnapshot;
+  currentTitle: string;
+}): PageDraftJournalEntry | null;
+export function writePageDraftJournal(input: {
+  scope: PageDraftJournalScope;
+  snapshot: PageDraftJournalSnapshot;
+  currentTitle?: string;
+}): PageDraftJournalEntry | null {
+  // Peer title adoption does not advance editGeneration.
+  if (
+    input.currentTitle !== undefined &&
+    input.snapshot.title !== input.currentTitle
+  )
+    return null;
+
   const scope = normalizedScope(input.scope);
   if (
     !Number.isSafeInteger(input.snapshot.editGeneration) ||
@@ -167,12 +188,125 @@ export function writePageDraftJournal(input: {
         return current;
     }
     store.setItem(key(scope), JSON.stringify(entry));
-    store.removeItem(retainedKey(scope));
   } catch (cause) {
     if (cause instanceof PageDraftJournalError) throw cause;
     throw new PageDraftJournalError("write_failed", cause);
   }
   return entry;
+}
+
+export function updatePageDraftJournalTitle(
+  scope: PageDraftJournalScope,
+  title: string,
+): boolean {
+  const normalized = normalizedScope(scope);
+  const itemKey = key(normalized);
+  try {
+    const store = storage();
+    const raw = store.getItem(itemKey);
+    if (raw === null) return false;
+    const entry = parseEntry(raw, itemKey);
+    if (entry.snapshot.title === title && entry.snapshot.baseTitle === title)
+      return true;
+    if (entry.snapshot.title !== entry.snapshot.baseTitle) return false;
+    store.setItem(
+      itemKey,
+      JSON.stringify({
+        ...entry,
+        snapshot: { ...entry.snapshot, title, baseTitle: title },
+        writtenAt: Date.now(),
+      }),
+    );
+  } catch (cause) {
+    if (cause instanceof PageDraftJournalError) throw cause;
+    throw new PageDraftJournalError("write_failed", cause);
+  }
+  return true;
+}
+
+export async function syncPageDraftJournalBeforePersistingRecoveryDraft(input: {
+  persist: () => Promise<void>;
+  scope: PageDraftJournalScope | null;
+  title: string;
+  editGeneration: number;
+  content: string;
+}): Promise<boolean> {
+  const scope = input.scope;
+  let synchronized = false;
+  let journalWriteError: unknown;
+  let journalItemKey: string | null = null;
+  let previousRaw: string | null = null;
+  let writtenRaw: string | null = null;
+  if (scope) {
+    try {
+      const normalized = normalizedScope(scope);
+      journalItemKey = key(normalized);
+      const store = storage();
+      previousRaw = store.getItem(journalItemKey);
+      if (previousRaw !== null) {
+        const entry = parseEntry(previousRaw, journalItemKey);
+        if (
+          entry.snapshot.editGeneration === input.editGeneration &&
+          entry.snapshot.title === entry.snapshot.baseTitle
+        ) {
+          const contentChanged = entry.snapshot.content !== input.content;
+          const snapshot = {
+            ...entry.snapshot,
+            title: input.title,
+            baseTitle: input.title,
+            content: input.content,
+            ...(contentChanged
+              ? {
+                  authoredBaseRevision: undefined,
+                  authoredBaseContent: undefined,
+                  authoredCandidateContent: undefined,
+                  saveAttemptId: undefined,
+                  priorSaveAttemptIds: undefined,
+                  equivalentSaveAttemptIds: undefined,
+                }
+              : {}),
+          };
+          writtenRaw = JSON.stringify({
+            ...entry,
+            snapshot,
+            writtenAt: Date.now(),
+          });
+          store.setItem(journalItemKey, writtenRaw);
+          synchronized = true;
+        }
+      }
+    } catch (cause) {
+      journalWriteError =
+        cause instanceof PageDraftJournalError
+          ? cause
+          : new PageDraftJournalError("write_failed", cause);
+    }
+  }
+
+  try {
+    await input.persist();
+  } catch (persistError) {
+    if (
+      synchronized &&
+      journalItemKey !== null &&
+      previousRaw !== null &&
+      writtenRaw !== null
+    ) {
+      try {
+        const store = storage();
+        if (store.getItem(journalItemKey) === writtenRaw)
+          store.setItem(journalItemKey, previousRaw);
+      } catch (rollbackError) {
+        throw new PageDraftJournalError("rollback_failed", {
+          persistError,
+          rollbackError,
+        });
+      }
+    }
+    throw persistError;
+  }
+  if (journalWriteError !== undefined) throw journalWriteError;
+  return synchronized;
 }
 
 export function listPageDraftJournal(
@@ -211,47 +345,19 @@ export function readPageDraftJournal(
   );
 }
 
-export function hasRetainedPageDraftNotice(
-  scope: Omit<PageDraftJournalScope, "writerId">,
-): boolean {
-  const prefix = retainedPartitionPrefix(scope);
+/** Removes every legacy retained-draft marker. Never throws. */
+export function sweepLegacyRetainedPageDraftMarkers(): void {
   try {
     const store = storage();
+    const keys: string[] = [];
     for (let index = 0; index < store.length; index++) {
-      if (store.key(index)?.startsWith(prefix)) return true;
+      const itemKey = store.key(index);
+      if (itemKey?.startsWith(LEGACY_RETAINED_PREFIX)) keys.push(itemKey);
     }
-    return false;
-  } catch (cause) {
-    if (cause instanceof PageDraftJournalError) throw cause;
-    throw new PageDraftJournalError("read_failed", cause);
-  }
-}
-
-export function markPageDraftJournalRetained(
-  scope: PageDraftJournalScope,
-  acknowledged: Pick<
-    PageDraftJournalSnapshot,
-    "editGeneration" | "title" | "content"
-  >,
-): boolean {
-  const itemKey = key(normalizedScope(scope));
-  try {
-    const store = storage();
-    const raw = store.getItem(itemKey);
-    if (raw === null) return false;
-    const entry = parseEntry(raw, itemKey);
-    if (
-      entry.snapshot.editGeneration !== acknowledged.editGeneration ||
-      entry.snapshot.title !== acknowledged.title ||
-      entry.snapshot.content !== acknowledged.content
-    )
-      return false;
-    store.removeItem(itemKey);
-    store.setItem(retainedKey(entry.scope), String(Date.now()));
-    return true;
-  } catch (cause) {
-    if (cause instanceof PageDraftJournalError) throw cause;
-    throw new PageDraftJournalError("write_failed", cause);
+    for (const itemKey of keys) store.removeItem(itemKey);
+  } catch {
+    // coercion-ok: Only obsolete notice markers are being cleaned up.
+    // The markers only drove a notice, so a failed sweep is harmless.
   }
 }
 

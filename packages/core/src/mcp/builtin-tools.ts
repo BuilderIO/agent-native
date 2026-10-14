@@ -1,4 +1,5 @@
-import type { A2AApprovedAction, Task } from "../a2a/types.js";
+import { canonicalA2AAudience } from "../a2a/audience.js";
+import type { Task } from "../a2a/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -62,7 +63,11 @@ class AskAppInlineDeadlineError extends Error {
   }
 }
 
-type AskAppRequestMeta = { origin?: string; basePath?: string };
+type AskAppRequestMeta = {
+  origin?: string;
+  basePath?: string;
+  localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
+};
 
 interface AskAppRoute {
   app: string;
@@ -70,6 +75,18 @@ interface AskAppRoute {
   routedVia: "local" | "a2a";
   requestOrigin?: string;
   note?: string;
+}
+
+function localClientForRoute(
+  config: MCPConfig,
+  route: AskAppRoute,
+  requestMeta?: AskAppRequestMeta,
+): import("../a2a/mcp-task-client.js").McpAgentTaskClient | undefined {
+  return route.routedVia === "local" &&
+    route.app.toLowerCase() === currentAppId(config) &&
+    route.origin === selfA2AEndpointUrl(requestMeta)
+    ? requestMeta?.localAgentTaskClient
+    : undefined;
 }
 
 interface AskAppTaskResult {
@@ -322,13 +339,25 @@ async function createA2AClientForAskApp(
   origin: string,
   requestOrigin?: string,
   deadline?: number,
+  localClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
 ): Promise<{
-  client: import("../a2a/client.js").A2AClient;
+  client: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   metadata: Record<string, unknown>;
 }> {
+  if (localClient && getRequestUserEmail()?.trim()) {
+    return {
+      client: localClient,
+      metadata: {
+        ...(getRequestUserEmail() ? { userEmail: getRequestUserEmail() } : {}),
+        ...(requestOrigin ? { requestOrigin } : {}),
+      },
+    };
+  }
   const { A2AClient } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  const auth = await resolveA2ACallerAuth();
+  const auth = await resolveA2ACallerAuth({
+    audience: canonicalA2AAudience(origin),
+  });
   const metadata: Record<string, unknown> = {};
   if (auth.userEmail) metadata.userEmail = auth.userEmail;
   if (auth.orgDomain) metadata.orgDomain = auth.orgDomain;
@@ -372,7 +401,7 @@ async function runBeforeAskAppDeadline<T>(
 }
 
 async function waitForA2ATask(
-  client: import("../a2a/client.js").A2AClient,
+  client: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
   initialTask: Task,
   deadline: number | undefined,
 ): Promise<Task> {
@@ -406,7 +435,6 @@ async function askAppIdempotencyKey(
   issuerApp: string,
   issuerAudience: string,
   message: string,
-  approvedActions?: A2AApprovedAction[],
 ): Promise<string> {
   const requestId = getRequestContext()?.mcpRequestId;
   if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
@@ -420,7 +448,6 @@ async function askAppIdempotencyKey(
         issuerApp,
         issuerAudience,
         message,
-        approvedActions: approvedActions ?? [],
       }),
     ),
   );
@@ -437,7 +464,7 @@ async function submitAskAppA2ATask(
   issuerAudience: string,
   message: string,
   maxWaitMs: number,
-  approvedActions?: A2AApprovedAction[],
+  localClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
   const submissionDeadline =
@@ -446,13 +473,13 @@ async function submitAskAppA2ATask(
     route.origin,
     route.requestOrigin,
     submissionDeadline,
+    localClient,
   );
   const idempotencyKey = await askAppIdempotencyKey(
     route,
     issuerApp,
     issuerAudience,
     message,
-    approvedActions,
   );
   const task = await client.send(
     {
@@ -464,7 +491,6 @@ async function submitAskAppA2ATask(
       metadata,
       idempotencyKey,
       deadlineMs: submissionDeadline,
-      ...(approvedActions?.length ? { approvedActions } : {}),
     },
   );
   const finalOrRunning = await waitForA2ATask(client, task, deadline);
@@ -485,8 +511,14 @@ async function fetchAskAppA2ATask(
   route: AskAppRoute,
   taskId: string,
   taskHandle?: string,
+  localClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
 ): Promise<AskAppTaskResult> {
-  const { client } = await createA2AClientForAskApp(route.origin);
+  const { client } = await createA2AClientForAskApp(
+    route.origin,
+    undefined,
+    undefined,
+    localClient,
+  );
   const maxAttempts = ASK_APP_STATUS_RETRY_DELAYS_MS.length + 1;
   for (
     let attempt = 0;
@@ -543,6 +575,14 @@ function isTransientAskAppStatusError(err: unknown): boolean {
 function askAppStatusErrorCategory(
   err: unknown,
 ): AskAppStatusErrorCategory | null {
+  const statusCode =
+    err != null && typeof err === "object" && "statusCode" in err
+      ? err.statusCode
+      : undefined;
+  if (statusCode === 429) return "rate_limited";
+  if ([500, 502, 503, 504].includes(statusCode as number))
+    return "upstream_5xx";
+  if (statusCode === 401 || statusCode === 403) return null;
   const message =
     err instanceof Error
       ? err.message
@@ -735,53 +775,53 @@ function openAppTool(
   requestMeta?: { origin?: string },
 ): ActionEntry {
   return {
-    tool: tool(
-      "Build a deep link that opens an app at a specific view/record or " +
-        "focused route/component. No side " +
-        "effects — returns a URL the user can click to land in the running UI. " +
-        "Set embed:true when a UI-capable MCP host should render the live app " +
-        "or focused route/component inline. Omit view and path to land on the " +
-        "app's home page.",
-      {
-        app: { type: "string", description: "App id, e.g. 'mail'" },
-        view: {
-          type: "string",
-          description:
-            "Target view, e.g. 'inbox' (maps to navigate command). Optional — omit (along with path) to open the app's home page.",
+    tool: {
+      ...tool(
+        "Build a deep link that opens an app at a specific view/record or " +
+          "focused route/component. No side " +
+          "effects — returns a URL the user can click to land in the running UI. " +
+          "Set embed:true when a UI-capable MCP host should render the live app " +
+          "or focused route/component inline. Omit view and path to land on the " +
+          "app's home page. Omit app to open this app.",
+        {
+          app: { type: "string", description: "App id, e.g. 'mail'" },
+          view: {
+            type: "string",
+            description:
+              "Target view, e.g. 'inbox' (maps to navigate command). Optional — omit (along with path) to open the app's home page.",
+          },
+          path: {
+            type: "string",
+            description:
+              "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative. Omit (along with view) to open the app's home page.",
+          },
+          params: {
+            type: "object",
+            description:
+              "Optional record-focus / filter params, e.g. { threadId: 'abc' }",
+          },
+          embed: {
+            type: "boolean",
+            description:
+              "Render the full app or focused route/component inline in MCP Apps when the host supports it.",
+          },
+          chrome: {
+            type: "string",
+            enum: ["full", "minimal"],
+            description:
+              "Embed chrome preference for compatible app routes. Defaults to full.",
+          },
         },
-        path: {
-          type: "string",
-          description:
-            "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative. Omit (along with view) to open the app's home page.",
-        },
-        params: {
-          type: "object",
-          description:
-            "Optional record-focus / filter params, e.g. { threadId: 'abc' }",
-        },
-        embed: {
-          type: "boolean",
-          description:
-            "Render the full app or focused route/component inline in MCP Apps when the host supports it.",
-        },
-        chrome: {
-          type: "string",
-          enum: ["full", "minimal"],
-          description:
-            "Embed chrome preference for compatible app routes. Defaults to full.",
-        },
-      },
-      ["app"],
-    ),
+      ),
+      title: `Open ${config.title?.trim() || config.name}`,
+    },
     readOnly: true,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {
-      const app = String(args.app ?? "").trim();
+      const requestedApp = String(args.app ?? "").trim();
+      const app = requestedApp || currentAppId(config);
       const view = String(args.view ?? "").trim();
       const path = safeAppPath(args.path) || (view ? null : "/");
-      if (!app) {
-        throw new Error("open_app requires 'app'.");
-      }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
       if (raw && typeof raw === "object") {
@@ -795,7 +835,10 @@ function openAppTool(
       }
       const embeddedParam = params?.embed;
       const chromeParam = params?.chrome;
-      let embed = args.embed === true || args.embed === "true";
+      let embed =
+        (args.embed == null && !requestedApp && !view && !args.path) ||
+        args.embed === true ||
+        args.embed === "true";
       if (
         args.embed == null &&
         (embeddedParam === true || embeddedParam === "true")
@@ -997,7 +1040,6 @@ async function routeAskOverA2A(
     issuerAudience?: string;
     maxWaitMs?: number;
     requestOrigin?: string;
-    approvedActions?: A2AApprovedAction[];
   },
 ): Promise<
   | {
@@ -1025,19 +1067,20 @@ async function routeAskOverA2A(
       options.issuerAudience,
       message,
       options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
-      options.approvedActions,
     );
   }
   const { callAgent } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  const auth = await resolveA2ACallerAuth();
+  const auth = await resolveA2ACallerAuth({
+    audience: canonicalA2AAudience(origin),
+  });
   const response = await callAgent(origin, message, {
     apiKey: auth.apiKey,
     userEmail: auth.userEmail,
+    orgId: auth.orgId,
     orgDomain: auth.orgDomain,
     orgSecret: auth.orgSecret,
     requestOrigin: options?.requestOrigin,
-    approvedActions: options?.approvedActions,
     timeoutMs: 5 * 60_000,
   });
   return { app: id, routedVia: "a2a", response, verification: "unverified" };
@@ -1128,19 +1171,6 @@ function askAppTool(
           description:
             "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 20000ms.",
         },
-        approvedActions: {
-          type: "array",
-          description:
-            "Exact downstream tool calls the user explicitly authorized in this chat. Never infer authorization or include a different action.",
-          items: {
-            type: "object",
-            properties: {
-              tool: { type: "string" },
-              input: { type: "object", additionalProperties: true },
-            },
-            required: ["tool", "input"],
-          },
-        } as any,
       },
       ["message"],
     ),
@@ -1159,10 +1189,6 @@ function askAppTool(
       const maxWaitMs = isExplicitAsyncAsk(args.async)
         ? 0
         : boundedAskAppWaitMs(args.maxWaitMs);
-      const approvedActions = Array.isArray(args.approvedActions)
-        ? (args.approvedActions as A2AApprovedAction[])
-        : undefined;
-
       const targetApp = await resolveTargetAppOrigin(config, requestedApp);
       if (targetApp) {
         try {
@@ -1176,7 +1202,6 @@ function askAppTool(
               issuerAudience: issuerAudience ?? undefined,
               maxWaitMs,
               requestOrigin: targetApp.origin,
-              approvedActions,
             },
           );
         } catch (err: any) {
@@ -1206,7 +1231,6 @@ function askAppTool(
                 issuerAudience: issuerAudience ?? undefined,
                 maxWaitMs,
                 requestOrigin: dirMatch.url,
-                approvedActions,
               },
             );
           } catch (err: any) {
@@ -1244,7 +1268,7 @@ function askAppTool(
           issuerAudience ?? "",
           message,
           maxWaitMs,
-          approvedActions,
+          requestMeta?.localAgentTaskClient,
         );
       }
 
@@ -1325,7 +1349,12 @@ function askAppStatusTool(
         ) {
           throw new Error("Invalid or expired ask_app task handle.");
         }
-        return fetchAskAppA2ATask(verified.route, verified.taskId, taskHandle);
+        return fetchAskAppA2ATask(
+          verified.route,
+          verified.taskId,
+          taskHandle,
+          localClientForRoute(config, verified.route, requestMeta),
+        );
       }
 
       const taskId = suppliedTaskId;
@@ -1342,7 +1371,12 @@ function askAppStatusTool(
         requestedApp,
         requestMeta,
       );
-      return fetchAskAppA2ATask(route, taskId);
+      return fetchAskAppA2ATask(
+        route,
+        taskId,
+        undefined,
+        localClientForRoute(config, route, requestMeta),
+      );
     },
   };
 }

@@ -1,8 +1,7 @@
-import {
-  McpIntegrationLogo,
-  resolveAgentProviderLogo,
-} from "@agent-native/core/client/resources";
-import { IconDeviceDesktop, IconSparkles } from "@tabler/icons-react";
+import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
+import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
+import { IconDeviceDesktop } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
@@ -138,7 +137,7 @@ export function AgentAvatar({
   if (!logo.logoUrl) {
     return (
       <span className={frame} title={label} aria-hidden>
-        <IconSparkles size={14} />
+        <AgentMark size={14} />
       </span>
     );
   }

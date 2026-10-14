@@ -7,6 +7,7 @@ import {
   resolveMutationAccounts,
   toggleStar,
 } from "../server/lib/email-state.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   gmailBatchModifyByAccount,
   isConnected,
@@ -56,6 +57,15 @@ export default defineAction({
       .map((s) => s.trim());
 
     const results: { id: string; success: boolean; error?: string }[] = [];
+    let batchMutationResult:
+      | {
+          requested: string[];
+          succeeded: string[];
+          failed: Array<{ id: string; error: string }>;
+          remaining: string[];
+          retryAfterSeconds?: number;
+        }
+      | undefined;
 
     if (ids.length > 1 && (await isConnected(ownerEmail))) {
       const targets = ids.map((id, i) => ({
@@ -67,22 +77,18 @@ export default defineAction({
         ownerEmail,
         targets,
       );
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
-        ownerEmail,
-        resolved,
-        isStarred ? ["STARRED"] : undefined,
-        isStarred ? undefined : ["STARRED"],
-      );
+      const { succeeded, failed, remaining, retryAfterSeconds } =
+        await gmailBatchModifyByAccount(
+          ownerEmail,
+          resolved,
+          isStarred ? ["STARRED"] : undefined,
+          isStarred ? undefined : ["STARRED"],
+        );
       const threadIdById = new Map(resolved.map((t) => [t.id, t.threadId]));
       for (const id of succeeded) {
         const tid = threadIdById.get(id);
         if (tid) invalidateThreadCache(ownerEmail, tid);
-        results.push({ id, success: true });
       }
-      for (const f of failed)
-        results.push({ id: f.id, success: false, error: f.error });
-      for (const u of unresolved)
-        results.push({ id: u.id, success: false, error: u.error });
       await syncInboxLabelDeltaForTargets(
         ownerEmail,
         resolved.filter((t) => succeeded.includes(t.id)),
@@ -92,6 +98,16 @@ export default defineAction({
           scope: "message",
         },
       );
+      batchMutationResult = {
+        requested: ids,
+        succeeded,
+        failed: [
+          ...failed,
+          ...unresolved.map(({ id, error }) => ({ id, error })),
+        ],
+        remaining,
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      };
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -104,12 +120,28 @@ export default defineAction({
           });
           results.push({ id, success: true });
         } catch (err: any) {
+          if (err instanceof GmailQuotaCooldownError) {
+            batchMutationResult = {
+              requested: ids,
+              succeeded: results
+                .filter((result) => result.success)
+                .map((result) => result.id),
+              failed: results
+                .filter((result) => !result.success)
+                .map(({ id, error }) => ({ id, error: error ?? "failed" })),
+              remaining: ids.slice(i),
+              retryAfterSeconds: err.details.retryAfterSeconds,
+            };
+            break;
+          }
           results.push({ id, success: false, error: err?.message ?? "failed" });
         }
       }
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (batchMutationResult) return batchMutationResult;
 
     const action = isStarred ? "Starred" : "Unstarred";
     const succeeded = results.filter((r) => r.success).length;

@@ -100,7 +100,47 @@ describe("AnimationsPanel", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /Appear/ })).toBeTruthy();
-    expect(screen.getByText("On click")).toBeTruthy();
+    // The Trigger dropdown is hidden until a trigger other than On click exists.
+    expect(
+      screen.queryByRole("combobox", { name: "animations.trigger" }),
+    ).toBeNull();
+  });
+
+  it("says a refused add was not applied, not that the stored reveals are blocked", () => {
+    const onUpdateSlide = vi.fn();
+    const paragraphSlide = {
+      ...slide,
+      content: `<div class="fmd-slide"><div class="list"><p>First</p><p>Second</p></div></div>`,
+      animations: [
+        {
+          id: "list",
+          elementIndex: 0,
+          elementPath: [0, 0],
+          byParagraph: true,
+          type: "fade" as const,
+        },
+      ],
+    };
+    render(
+      <AnimationsPanel
+        slide={paragraphSlide}
+        selectedTarget={{
+          elementIndex: 0,
+          elementPath: [0],
+          preview: "First",
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    expect(onUpdateSlide).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("animations.issueDuplicate");
+    expect(alert.textContent).toContain("animations.changeNotApplied");
+    expect(alert.textContent).not.toContain("animations.blocked");
   });
 
   it("persists the paragraph setting for an expanded transition", () => {
@@ -131,5 +171,66 @@ describe("AnimationsPanel", () => {
         expect.objectContaining({ id: "animation-1", byParagraph: true }),
       ],
     });
+  });
+
+  it("saves removing one stored unresolved reveal while another stays unresolved", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            { id: "gone-a", elementIndex: 0, elementPath: [7], type: "fade" },
+            { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
+            { id: "ok", elementIndex: 1, elementPath: [1], type: "fade" },
+          ],
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Remove transition" })[0]!,
+    );
+
+    expect(onUpdateSlide).toHaveBeenCalledWith({
+      animations: [
+        expect.objectContaining({ id: "gone-b" }),
+        expect.objectContaining({ id: "ok" }),
+      ],
+    });
+    expect(screen.getByRole("alert").textContent).not.toContain(
+      "animations.changeNotApplied",
+    );
+  });
+
+  it("refuses a new unresolved reveal while stored unresolved reveals remain", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            { id: "gone-a", elementIndex: 0, elementPath: [7], type: "fade" },
+            { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
+          ],
+        }}
+        selectedTarget={{
+          elementIndex: 0,
+          elementPath: [9],
+          preview: "Missing",
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    expect(onUpdateSlide).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("animations.issueStalePath");
+    expect(alert.textContent).toContain("animations.changeNotApplied");
   });
 });

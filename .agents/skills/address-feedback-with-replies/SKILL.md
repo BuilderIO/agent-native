@@ -36,25 +36,19 @@ surprised by a change in their area. Naming them is a courtesy, not a gate.
 Either workflow may complete an upvoted improvement and record the terminal
 **Shipped** disposition. Everything in this file about voice, evidence, and
 verification applies to an upvoted item unchanged.
-Even when invoked alone, this workflow asks at most three new clarification
-questions per run across all threads, ranked by which answer would unblock a
-safe fix.
+For each distinct defect, ask one direct question when reporter input changes
+reproduction or unblocks a safe fix. There is no per-run question cap; keep one
+pending question per thread.
 
-If this workflow earlier added `👀` before recognizing an item was out of
-scope, keep our eye and add no other reaction. Record **Skipped** with one
-brief status reply if the thread lacks it, not a question. If this workflow
-already posted a mistaken reply, edit it to that disposition.
+If this workflow eyed an out-of-scope item, keep the eye and post one concise
+**Skipped** reply if needed. Apply `review-latest-feedback`'s Reaction gate
+before `🎫`. Correct any mistaken reply to **Skipped**.
 New messages must pass the clear-bug gate before any external write.
 
-Use the disposition-specific reaction contract from `review-latest-feedback`:
-add `👀` when claiming and `✅` only after a verified fix. Reactions are never
-removed; newer thread evidence determines the current disposition.
+Follow `review-latest-feedback` for status reactions; never remove reactions.
 
-Every claimed report keeps its `👀`. Follow `review-latest-feedback` for
-ownership and cluster status; add `✅` to each report a verified fix resolves.
-Never remove reactions. An eye without a terminal status is unresolved, not
-available to another workflow; check its thread and linked work before taking
-it over.
+Follow `review-latest-feedback` for ownership and cluster status; a claimed
+report keeps its `👀`, and an unresolved eye cannot be taken over.
 
 ## Prerequisites
 
@@ -124,9 +118,9 @@ the invoking user's assignment; do not override it with a generic UX exclusion.
 New-capability requests still need the invoking identity's `:upvote:`. Once an
 item is in scope, add `👀` before investigation or delegation.
 
-Never post the same sentence into several threads. For shared causes, follow
-the single-owner reply rule in `review-latest-feedback`; answer non-owning
-reports only for a distinct question or update.
+During triage, follow the single-owner rule. After merge, follow
+`review-latest-feedback`: reply once in every affected source thread, including
+clusters.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -134,12 +128,11 @@ disposition per run. **Verified locally**, **Built - live unverified**,
 progress** retain `👀` after the report has been claimed.
 **Asked**, **Clarification needed**, and **Blocked on reporter** retain `👀`
 after the report has been claimed.
-Terminal dispositions: **Fixed**, **Shipped**,
-**Live verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
-**Clustered**, and **Abandoned - no answer in 4 days**, each with required
-evidence and `👀`; add `✅` only for verified fixes. An already-eyed
-out-of-scope item keeps its eye and gets one concise **Skipped** reply if the
-thread lacks that status.
+Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
+**Open - no question**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
+**Abandoned - no answer in 4 days**, each with required evidence and `👀`. Follow
+`review-latest-feedback` for `✅`/`🎫`. An already-eyed skipped item gets one
+concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified
 source fix merges; publication, beta, and live verification follow separately.
 **In progress** is an open ownership state. Do not send an interim progress
@@ -168,9 +161,8 @@ closure; keep the eye while waiting. The next
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
-That obligation expires after four days, standalone runs included: keep our
-`👀`, add no reaction, and post **Abandoned - no answer in 4 days** once if the
-thread lacks that status. Ask nothing further; carry any active bug forward.
+After four days, keep `👀` and post **Abandoned - no answer in 4 days** once.
+Apply `review-latest-feedback`'s Reaction gate; carry active bugs forward.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
@@ -186,14 +178,12 @@ for one specific, non-repeating detail that still blocks a clear-bug fix; never
 ask for a subjective product choice or evidence already present. For an
 inaccessible artifact, request access or a replacement link.
 
-### The standalone question budget
+### One pending question per thread
 
-This workflow inherits the hard cap from `review-latest-feedback`: at most
-three new clarification questions per invocation across all threads. When run
-alone, rank candidates by whether the answer would unblock a safe fix, handle
-existing clarification requests first, and leave candidates below the cut
-open without asking. Never turn the per-item question rule into an unbounded
-batch.
+There is no per-run question cap. After inspecting supplied evidence and
+attempting reproduction, ask for each specific reporter detail or action that
+would change the next step. Do not leave a useful question unasked because
+other threads also need questions.
 
 There may be only one unanswered clarification request per thread. Before
 posting, re-read the complete thread for an earlier question from this
@@ -236,9 +226,9 @@ non-repeating question only if one specific required detail still blocks it.
 5. Prepare one short status for each unclustered clear bug and owning parent
    marked `👀`. Record clustered source links and disposition in the owner
    thread or linked work; do not send duplicate replies:
-   - **Fixed** - say that the verified code change is complete and when it
-     should be live. For today's beta-bound fixes, say explicitly that it will
-     be on beta later today; never send a bare “Fixed”.
+   - **Fixed** - follow `review-latest-feedback` for the post-merge reply:
+     name the fix, say it merged, and give the correct beta or package timing.
+     Never claim it is live without runtime proof.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -313,29 +303,27 @@ identity:
   missing detail that is required to fix and verify it.
 - A clear, valid, repo-owned request is an instruction to fix it. Do not reply
   `valid request` and stop, and do not say `no ship timing yet` as a dead end.
-  Implement the fix first; when code is complete, say it is fixed and should be
-  live after the final ship later today (roughly end of day) only when it is
-  confirmed to be included in that ship.
-- Never claim a fix, live behavior, deployment, or ownership that was not
-  verified. Say “this should be live after the final ship later today” only
-  when the code is complete, included in that ship, and the expected ship
-  window is actually known.
+  Implement the fix first. After its PR merges, follow
+  `review-latest-feedback` to report the fix and give the correct beta or
+  package timing. Do not promise beta timing before merge.
+- Never claim unverified fixes, deployments, live behavior, or ownership. For
+  merged Slack fixes, follow `review-latest-feedback`; a merge is not live
+  proof.
 - If it is not fixed, continue the work or post a concrete **In progress**
-  status when it continues beyond this run. Ask one concrete question only when
-  reporter or product information is
-  genuinely missing, or a needed linked artifact is inaccessible, after
-  exhausting the Slack thread, linked files/transcript/video, app state, run
-  ID, sessions, and history. Internal
-  verification blockers do not justify a reporter question. When an artifact
-  is linked but inaccessible, ask for access or a fresh/replacement artifact,
-  not for its contents as though the evidence were absent. Never ask for a
-  prompt, run ID, session, or file already present or available through an
-  accessible source, and never write “not fixed yet” without a real question
-  that unblocks the fix. If a linked source is inaccessible, ask for access or
-  a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock the work, keep our `👀`, add no reaction,
-  record **Open - no question**, and post that status once if the thread lacks
-  it.
+  status when it continues beyond this run. Ask one concrete reporter question
+  only when a missing reporter-only fact changes the next action; name the fact
+  and why it gates progress. Ask only after exhausting the Slack thread, linked
+  files/transcript/video, app state, run ID, sessions, and history. Internal
+  verification blockers do not justify a reporter question. When a needed
+  artifact is inaccessible, ask for access or a fresh/replacement link, not its
+  contents as though the evidence were absent. Never ask for a prompt, run ID,
+  session, or file already present or available through an accessible source.
+  Never send `Open` or `pending`, a symptom recap, or an evidence/source gap in
+  place of the needed question. If no reporter detail gates progress, keep
+  `👀` and continue internal work; when a progress reply is due, name the
+  concrete next action and owner. **Open - no question** is a ledger-only
+  disposition and must never be sent as a Slack reply. Apply
+  `review-latest-feedback`'s Reaction gate before `🎫`.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
@@ -345,14 +333,20 @@ identity:
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Unclaimed subjective/product/policy items get no reply. If
   an item was claimed before being skipped, preserve its eye and ensure one
-  concise **Skipped** status reply. Add `✅` only for a verified fix.
+  concise **Skipped** status reply. Follow `review-latest-feedback` for
+  `✅`/`🎫`.
 
 A useful reply shape is:
 
 ```text
 ty for the feedback - [short plain-language status].
 
-  [if fixed: this should be live after the final ship later today.]
+  [if the merged app fix's beta publisher is queued or running: say the fix
+  should be on beta within about 24 hours; if it succeeded, say it is published;
+  if it failed or is missing, state the next action without an ETA.]
+  [if the report is mixed: name each unfixed item and why; state the human
+  action or owner still needed, link an existing ticket if available, and ask
+  one targeted question only if its answer would unblock the work.]
   [if in progress: we're already looking into this and will follow up once the
   fix is verified.]
   [if clarification is needed: if you can share the one missing detail, that

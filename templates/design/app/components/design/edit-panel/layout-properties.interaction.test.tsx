@@ -22,6 +22,56 @@ import {
 } from "./layout-properties";
 
 describe("LayoutContextProperties interactions", () => {
+  it("exposes width and height motion keyframes beside their size controls", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggle = vi.fn();
+    const element = {
+      tagName: "span",
+      classes: [],
+      computedStyles: { display: "block", width: "120px", height: "80px" },
+      inlineStyles: { width: "120px", height: "80px" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      hasOwnText: true,
+      childElementCount: 0,
+      sourceId: "motion-size",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          motionKeyframeContext={{
+            hasTimeline: true,
+            keyframedProperties: [],
+            onToggle,
+          }}
+        />,
+      );
+    });
+
+    const widthDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="width"]',
+    );
+    const heightDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="height"]',
+    );
+    expect(widthDiamond).not.toBeNull();
+    expect(heightDiamond).not.toBeNull();
+
+    await act(async () => widthDiamond?.click());
+    await act(async () => heightDiamond?.click());
+    expect(onToggle.mock.calls).toEqual([["width"], ["height"]]);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("re-clicking Grid on an existing grid invokes no command at all, preserving authored custom tracks untouched", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -443,6 +493,67 @@ describe("LayoutContextProperties interactions", () => {
     expect(
       container.querySelector('button[aria-label="Unlink padding"]'),
     ).not.toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("emits an edit for the selected mixed padding side", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStylesChange = vi.fn();
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "flex",
+        flexDirection: "row",
+        flexWrap: "nowrap",
+        width: "200px",
+        height: "100px",
+        paddingTop: "Mixed",
+        paddingRight: "Mixed",
+        paddingBottom: "Mixed",
+        paddingLeft: "Mixed",
+      },
+      boundingRect: { x: 0, y: 0, width: 200, height: 100 },
+      isFlexChild: false,
+      isFlexContainer: true,
+      childElementCount: 1,
+      sourceId: "frame-mixed-padding",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+
+    const topPadding = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top"]',
+    );
+    expect(topPadding).not.toBeNull();
+    await act(async () => {
+      topPadding?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+
+    expect(onStylesChange).toHaveBeenCalledOnce();
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { paddingTop: "1px" },
+      expect.objectContaining({
+        source: "keyboard",
+        phase: "commit",
+        relativeDelta: 1,
+        relativeDeltaProperties: ["paddingTop"],
+      }),
+    );
 
     await act(async () => root.unmount());
     container.remove();

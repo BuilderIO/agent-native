@@ -1,8 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { resolveSecret } from "@agent-native/core/server";
+import { isAgentKitFigmaSourceAvailable } from "@agent-native/core/server";
 import { z } from "zod";
-
-const FIGMA_ACCESS_TOKEN_KEY = "FIGMA_ACCESS_TOKEN";
 
 export default defineAction({
   description:
@@ -11,7 +9,15 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,
-  run: async () => ({
-    available: Boolean(await resolveSecret(FIGMA_ACCESS_TOKEN_KEY)),
-  }),
+  run: async (_args, ctx) => {
+    if (!ctx?.userEmail) return { available: false };
+    const available = await isAgentKitFigmaSourceAvailable({
+      userEmail: ctx.userEmail,
+      orgId: ctx.orgId ?? null,
+      ...(ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
+    });
+    return { available };
+  },
 });

@@ -333,6 +333,13 @@ Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` est
           description: "URL del endpoint de sondeo.",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "Activa la sincronización en segundo plano para esta página. Se requiere un motivo breve para que la decisión y su coste queden visibles. Sin esta opción no se abre ningún transporte en segundo plano.",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -345,7 +352,8 @@ Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` est
           type: "number",
           optional: true,
           default: "2000",
-          description: "Intervalo de sondeo en ms.",
+          description:
+            "Intervalo de sondeo en ms durante una ejecución del agente. En reposo aumenta a 1, 2 y 5 minutos.",
         },
         {
           name: "fallbackInterval",
@@ -353,15 +361,15 @@ Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` est
           optional: true,
           default: "60000",
           description:
-            "Intervalo de sondeo mientras SSE está conectado, como respaldo por si se pierde un evento. Una pestaña desconectada sondea con la `interval` más rápida (o una cadencia fija en inactividad) en su lugar.",
+            "Intervalo mínimo de sondeo en ms mientras SSE está conectado. Los sondeos vacíos correctos aumentan a 1, 2 y 5 minutos.",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
+          default: "true",
           description:
-            "Pausa el sondeo cuando la pestaña del navegador está oculta. Las pestañas ocultas mantienen SSE conectado y sondean como máximo cada 10s mientras están activas, 60s una vez inactivas.",
+            "Pausa la sincronización en segundo plano cuando la pestaña del navegador está oculta.",
         },
         {
           name: "ignoreSource",
@@ -375,7 +383,7 @@ Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` est
           type: "(data) => void",
           optional: true,
           description:
-            "Callback opcional cuando SSE o el sondeo reciben un evento de cambio.",
+            "Callback opcional para eventos de sincronización remotos y finalizaciones locales de herramientas durante el chat.",
         },
         {
           name: "actionInvalidatePredicate",
@@ -404,7 +412,7 @@ Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` est
   returns={{ type: "void" }}
 />
 
-Este hook está pensado para mantener la UI sincronizada con cambios en la base de datos que ocurren fuera de tus propias acciones, como una escritura del agente, un webhook o un cambio hecho desde otra pestaña del navegador. Escucha cambios a través de eventos enviados por el servidor, y recurre al sondeo cuando los eventos enviados por el servidor no están disponibles. En un despliegue serverless de producción, el propio stream `/_agent-native/events` de la app no está disponible por diseño — el servidor responde con un 204 inmediato en lugar de mantener abierta una instancia de función —, así que el sondeo se encarga de toda la sincronización allí, al mismo ritmo, a menos que la app se haya suscrito a la [puerta de enlace de sincronización en tiempo real alojada](/docs/real-time-collaboration#hosted-gateway).
+`useDbSync()` siempre procesa herramientas completadas durante la ejecución local del chat y actualiza al finalizarla. Así, los cambios de un agente individual se reflejan sin solicitudes en segundo plano. Los cambios de otras pestañas, personas, webhooks o tareas no se sincronizan en segundo plano salvo que esta página lo active con un motivo breve. Cada pestaña comparte un transporte, lo pausa cuando está oculta y aumenta el sondeo inactivo a 1, 2 y 5 minutos.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -415,6 +423,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -423,7 +432,7 @@ function App() {
 }
 ```
 
-Para operaciones CRUD normales, prefiere `useActionQuery()` y `useActionMutation()`. Las acciones mutantes emiten `source: "action"`, así que esos hooks se recuperan de inmediato. Los cambios provenientes del agente, un webhook u otra pestaña llegan a través de `useDbSync()` en su lugar, por SSE o el respaldo de sondeo. Si una llamada `useQuery()` sin procesar necesita sincronizarse con una clave personalizada, consulta [Sincronización interna](/docs/client-sync-internals). Si necesitas escribir directamente en `application_state`, consulta [Avanzado](/docs/client-advanced).
+Activa el tiempo real solo si los datos pueden cambiar sin que actúe el usuario actual y este necesita ver el cambio antes de actualizar. La edición colaborativa en Slides y la bandeja de entrada de Mail son buenos ejemplos. Mantén desactivadas las páginas públicas, Docs, ajustes, formularios, listas que cambian poco y cambios de un agente individual; actualiza al recuperar el foco o navegar. Cada pestaña abierta suscrita añade un sondeo por intervalo inactivo.
 
 ## ¿Qué sigue?
 

@@ -106,6 +106,14 @@ Les chemins canoniques qui contrôlent la manière dont l'agent utilise chaque r
 
 Ces chemins s'appliquent aux trois étendues : espace de travail, organisation/application et personnel. La dernière portée l'emporte lorsque le même chemin existe à plusieurs niveaux.
 
+## Emporter vos ressources {#resource-pack}
+
+Exportez un pack JSON avec somme de contrôle des ressources texte que vous pouvez déjà lire (`export-resource-pack`), puis importez-le dans une autre app ou un autre utilisateur (`import-resource-pack`). Les commandes **Export pack** / **Import pack** de l’onglet Ressources appellent les mêmes actions.
+
+- L’export n’inclut que du texte. Les téléversements binaires sont omis. Les chaînes en forme de clé API et les champs de jeton MCP `env` / `headers` sont masqués ; reconnectez MCP après l’import.
+- L’import cible par défaut la portée **personnel** et ignore les conflits. L’import d’organisation exige la même ACL d’écriture admin que l’édition des fichiers d’organisation. L’import d’espace de travail n’est pas disponible.
+- Un pack de plus de 200 fichiers texte ou 1 Mo échoue avec `too_large` au lieu d’être tronqué. Une somme de contrôle incorrecte échoue de façon fermée.
+
 <Diagram id="doc-block-zk5bz1" title="Trois scopes, un fichier efficace" summary={"Le runtime résout le même chemin dans l’espace de travail, l’application et les étendues personnelles en lecture : l’étendue la plus spécifique l’emporte."}>
 
 ```html

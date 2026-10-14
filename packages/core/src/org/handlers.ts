@@ -34,15 +34,16 @@ import { getAppConfig } from "../app-config/index.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/credential-provider.js";
-import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
@@ -68,6 +69,10 @@ import {
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { canManageOrgA2ASecret, canManageOrgDomain } from "./permissions.js";
+import {
+  assertOwnedLocalWorkspaceIcon,
+  requirePrivateWorkspaceIconId,
+} from "./private-icon-handlers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
 import {
@@ -416,8 +421,11 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         statusCode: 503,
         message: "Identity removal succeeded but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     const nextOrg = await e.execute({
       sql: `SELECT org_id AS "orgId" FROM org_members
@@ -436,6 +444,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
       email,
       nextOrgId,
       "completed pending organization removal",
+      event,
     );
 
     return { success: true, orgId };
@@ -487,7 +496,7 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
       const bootstrapped =
         emailVerified &&
         isBootstrapAdmin(email) &&
-        (await bootstrapAdminOrganization(email));
+        (await bootstrapAdminOrganization(email, event));
       if (!bootstrapped) {
         throw createError({
           statusCode: 403,
@@ -505,7 +514,7 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
           message: "Verify your email before bootstrapping this workspace.",
         });
       }
-      if (!(await bootstrapAdminOrganization(email))) {
+      if (!(await bootstrapAdminOrganization(email, event))) {
         throw createError({
           statusCode: 403,
           message:
@@ -531,7 +540,11 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const { id, name: createdName, role } = await createOrganization(name, email);
+  const {
+    id,
+    name: createdName,
+    role,
+  } = await createOrganization(name, email, "owner", { event });
   await syncFederatedOrgBestEffort(event, {
     email,
     orgId: id,
@@ -779,12 +792,15 @@ async function inviteOne(
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
     try {
-      const { subject, html, text } = renderInviteEmail({
-        invitee: email,
-        orgName: ctx.orgName || "your team",
-        acceptUrl: getInviteAppUrl(event),
-        inviter: ctx.email,
-      });
+      const { subject, html, text } = await renderTransactionalEmail(
+        CORE_INVITE_EMAIL_ID,
+        {
+          invitee: email,
+          orgName: ctx.orgName || "your team",
+          acceptUrl: getInviteAppUrl(event),
+          inviter: ctx.email,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
@@ -792,6 +808,7 @@ async function inviteOne(
         text,
         templateId: CORE_INVITE_EMAIL_ID,
         orgId: ctx.orgId,
+        authCritical: true,
       });
       emailSent = true;
     } catch (err) {
@@ -988,7 +1005,7 @@ export const acceptInvitationHandler = defineEventHandler(
           event,
         });
       }
-      await setActiveOrgId(email, invOrgId, "accepted invitation");
+      await setActiveOrgId(email, invOrgId, "accepted invitation", event);
       return {
         orgId: invOrgId,
         orgName,
@@ -1085,7 +1102,7 @@ export const acceptInvitationHandler = defineEventHandler(
       });
     }
 
-    await setActiveOrgId(email, invOrgId, "accepted invitation");
+    await setActiveOrgId(email, invOrgId, "accepted invitation", event);
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -1215,8 +1232,11 @@ export const removeMemberHandler = defineEventHandler(
         message:
           "The member was revoked from the identity authority but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -1381,7 +1401,7 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
 
     const e = await exec();
     const currentResult = await e.execute({
-      sql: `SELECT name, icon_revision, identity_authority, identity_id
+      sql: `SELECT name, icon_revision, identity_authority, identity_id, allowed_domain
             FROM organizations WHERE id = ? LIMIT 1`,
       args: [ctx.orgId],
     });
@@ -1394,6 +1414,36 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
       String(current.identity_authority ?? "").trim() ||
       String(current.identity_id ?? "").trim(),
     );
+    if (icon?.kind === "image") {
+      if (icon.authority !== "private-icon") {
+        throw createError({
+          statusCode: 400,
+          message: "Workspace images must use private icon storage",
+        });
+      }
+      requirePrivateWorkspaceIconId(icon.assetId);
+      if (isFederated) {
+        const owned = await verifyFederatedWorkspaceIconOwner(
+          event,
+          {
+            identityAuthority: String(current.identity_authority ?? "") || null,
+            identityId: String(current.identity_id ?? "") || null,
+            allowedDomain: String(current.allowed_domain ?? "") || null,
+          },
+          ctx.email,
+          icon.assetId,
+        );
+        if (!owned) {
+          throw createError({
+            statusCode: 403,
+            message:
+              "Workspace icon asset is not owned by this organization administrator",
+          });
+        }
+      } else {
+        await assertOwnedLocalWorkspaceIcon(icon.assetId, ctx.email, ctx.orgId);
+      }
+    }
     const updated = await e.execute({
       sql: `UPDATE organizations
             SET icon_json = ?, icon_revision = ?
@@ -1549,7 +1599,12 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
         )
       : null;
 
-  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
+  await setActiveOrgId(
+    ctx.email,
+    nextOrgId,
+    "deleted active organization",
+    event,
+  );
 
   return { success: true, orgId: ctx.orgId, nextOrgId };
 });
@@ -1562,8 +1617,8 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await setActiveOrgId(email, null, "cleared active organization");
-    return { orgId: null, orgName: null, role: null };
+    const ctx = await getOrgContext(event);
+    return { orgId: ctx.orgId, orgName: ctx.orgName, role: ctx.role };
   }
 
   const e = await exec();
@@ -1584,7 +1639,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await setActiveOrgId(email, orgId, "user switched organization");
+  await setActiveOrgId(email, orgId, "user switched organization", event);
 
   const row = membership.rows[0] as any;
   return {
@@ -1660,7 +1715,12 @@ export const joinByDomainHandler = defineEventHandler(
     });
     invalidateMemberOrgCaches();
 
-    await setActiveOrgId(email, orgId, "joined domain-matched organization");
+    await setActiveOrgId(
+      email,
+      orgId,
+      "joined domain-matched organization",
+      event,
+    );
 
     return {
       orgId,
@@ -1828,6 +1888,14 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
+// An org secret equal to the deploy-wide A2A_SECRET makes the receiver treat
+// every verified user call from that org as an organization principal.
+async function isDeploymentA2ASecret(secret: string): Promise<boolean> {
+  const { getGlobalA2ASecret } = await import("../a2a/client.js");
+  const deploymentSecret = getGlobalA2ASecret();
+  return deploymentSecret !== undefined && secret.trim() === deploymentSecret;
+}
+
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1851,6 +1919,13 @@ export const setA2ASecretHandler = defineEventHandler(
     if (!secret) {
       const { randomBytes } = await import("node:crypto");
       secret = randomBytes(32).toString("base64url");
+    }
+    if (await isDeploymentA2ASecret(secret)) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "The organization A2A secret must differ from this app's A2A_SECRET, otherwise verified user calls from this organization are downgraded to organization-level access. Choose a different secret.",
+      });
     }
 
     const e = await exec();
@@ -1926,7 +2001,7 @@ export const syncA2ASecretHandler = defineEventHandler(
     }
     const orgRow = orgRes.rows[0] as any;
     const secret = String(orgRow.a2a_secret ?? "") || null;
-    const orgDomain = String(orgRow.allowed_domain ?? "") || null;
+    const orgDomain = String(orgRow.allowed_domain ?? "");
 
     if (!secret) {
       throw createError({
@@ -1945,7 +2020,11 @@ export const syncA2ASecretHandler = defineEventHandler(
     const signSecret = overrideSignSecret || secret;
 
     const { discoverAgents } = await import("../server/agent-discovery.js");
-    const { signA2AToken } = await import("../a2a/client.js");
+    const [{ signA2AOrganizationToken }, { canonicalA2AAudience }] =
+      await Promise.all([
+        import("../a2a/client.js"),
+        import("../a2a/audience.js"),
+      ]);
 
     const agents = await discoverAgents();
 
@@ -1961,9 +2040,16 @@ export const syncA2ASecretHandler = defineEventHandler(
     await Promise.all(
       agents.map(async (agent) => {
         try {
-          const token = await signA2AToken(ctx.email, orgDomain, signSecret);
-
           const target = `${agent.url.replace(/\/$/, "")}/_agent-native/org/a2a-secret/receive`;
+          const token = await signA2AOrganizationToken(
+            orgDomain,
+            signSecret,
+            undefined,
+            {
+              preferGlobalSecret: false,
+              audience: canonicalA2AAudience(agent.url),
+            },
+          );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
           const res = await ssrfSafeFetch(
@@ -2030,6 +2116,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const { getRequestHeader } = await import("h3");
     const jose = await import("jose");
+    const { verifyA2AToken } = await import("../a2a/server.js");
 
     const authHeader = getRequestHeader(event, "authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -2100,12 +2187,33 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
+    let verified;
     try {
-      await jose.jwtVerify(token, new TextEncoder().encode(existingSecret));
+      verified = await verifyA2AToken(token, event, {
+        globalSecretOnly: true,
+        verificationSecret: existingSecret,
+      });
     } catch {
+      verified = null;
+    }
+    if (
+      !verified ||
+      verified.orgId !== localOrgId ||
+      verified.orgDomain?.trim().toLowerCase() !== orgDomain
+    ) {
       throw createError({
         statusCode: 401,
-        message: "Invalid or expired JWT signature",
+        message: "Invalid or expired organization token",
+      });
+    }
+
+    // Checked only after the caller is verified so an unauthenticated request
+    // cannot probe whether a value equals this deployment's A2A_SECRET.
+    if (await isDeploymentA2ASecret(newSecret)) {
+      throw createError({
+        statusCode: 409,
+        message:
+          "The pushed organization A2A secret equals this app's A2A_SECRET, so verified user calls from this organization would be downgraded to organization-level access. Use a distinct organization secret.",
       });
     }
 

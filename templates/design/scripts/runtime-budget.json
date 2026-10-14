@@ -1,0 +1,45 @@
+{
+  "copies": 6,
+  "iterations": 4,
+  "gates": {
+    "editorHeapAfterLoadMB": {
+      "max": 230,
+      "why": "Editor renderer only. Measured 176-178 MB on the 48-screen board in full Chromium; a pre-fix build loaded at 652 MB."
+    },
+    "editorHeapEndMB": {
+      "max": 600,
+      "why": "Editor renderer only. Measured 472 MB after 4 rounds; a pre-fix build reached 1,982 MB."
+    },
+    "editorHeapGrowthPerIterationMB": {
+      "max": 60,
+      "why": "Editor renderer only. Measured 24 MB per round after warm-up; a pre-fix build grew ~320 MB."
+    },
+    "totalHeapEndMB": {
+      "max": 700,
+      "why": "Every renderer, previews included. Measured 545 MB after 4 rounds, 73 MB of it in the preview renderer."
+    },
+    "visibleRefreshes": {
+      "max": 0,
+      "why": "A visible screen never goes blank while its preview and editor swap."
+    },
+    "liveEditorsAfterSettle": {
+      "max": 4,
+      "why": "At most three warm editors plus the active one; measured 2-3 because only the last visit's editors are running when the session zooms out. More means the pool leaks."
+    }
+  },
+  "reported": [
+    "totalHeapAfterLoadMB",
+    "totalHeapGrowthPerIterationMB",
+    "editorDocumentsEnd",
+    "totalDocumentsEnd",
+    "editorBootsPerZoomCycle",
+    "previewRemountsPerZoomCycle",
+    "editorVisibleMs",
+    "selectWorstFrameMs",
+    "textEditWorstFrameMs",
+    "colorWorstFrameMs",
+    "duplicateWorstFrameMs",
+    "zoomCycleWorstFrameMs",
+    "visitsWorstFrameMs"
+  ]
+}

@@ -188,6 +188,7 @@ const mocks = vi.hoisted(() => {
     rows,
     listWorkspaceConnectionProviderCatalogForApp: vi.fn(),
     discoverAgents: vi.fn(),
+    hybridSearchArtifacts: vi.fn(),
     db: {
       select: vi.fn(() => ({ from })),
     },
@@ -216,6 +217,10 @@ vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: mocks.discoverAgents,
 }));
 
+vi.mock("./hybrid-search.js", () => ({
+  hybridSearchArtifacts: mocks.hybridSearchArtifacts,
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
   desc: (column: Column) => ({ column }),
@@ -241,11 +246,22 @@ import {
   redactSensitiveText,
   scoreSearchText,
   searchEverythingRows,
+  searchEverythingWithLanes,
   sourceUrlFromMetadata,
 } from "./search.js";
 
+const OK_LANES = {
+  fts: { status: "ok" as const },
+  semantic: { status: "ok" as const },
+};
+
 function resetRows() {
   for (const values of Object.values(mocks.rows)) values.length = 0;
+  mocks.hybridSearchArtifacts.mockReset();
+  mocks.hybridSearchArtifacts.mockResolvedValue({
+    results: [],
+    lanes: OK_LANES,
+  });
   mocks.listWorkspaceConnectionProviderCatalogForApp.mockResolvedValue({
     providers: [
       {
@@ -716,5 +732,175 @@ describe("Brain universal search regressions", () => {
         limit: 5,
       }),
     ).resolves.toEqual([]);
+  });
+});
+
+describe("Brain semantic capture hits", () => {
+  const capturedAt = "2026-07-20T09:30:00.000Z";
+
+  function seedSemanticCapture(input: {
+    id: string;
+    sourceId: string;
+    metadata: Record<string, unknown>;
+  }) {
+    mocks.rows.captures.push({
+      id: input.id,
+      sourceId: input.sourceId,
+      externalId: input.id,
+      title: "Onboarding thread",
+      kind: "message",
+      content: "Shorten enterprise onboarding latency. Ping ava@example.com.",
+      contentHash: `hash-${input.id}`,
+      metadataJson: JSON.stringify(input.metadata),
+      capturedAt,
+      importedBy: "owner@example.test",
+      status: "distilled",
+      distilledAt: capturedAt,
+      sensitivityDisposition: "allowed",
+      sensitivityPolicyVersion: "1",
+      audienceAclHash: "acl-hash",
+      createdAt: capturedAt,
+      updatedAt: capturedAt,
+    });
+    mocks.hybridSearchArtifacts.mockResolvedValue({
+      results: [
+        {
+          id: `artifact-${input.id}`,
+          artifactId: `artifact-${input.id}`,
+          captureId: input.id,
+          sourceId: input.sourceId,
+          audienceId: "aud_org",
+          title: "Onboarding thread",
+          text: "Shorten enterprise onboarding latency.",
+          capturedAt,
+          semanticRank: 1,
+          score: 0.02,
+          reasons: ["semantic-match"],
+          lane: "semantic",
+        },
+      ],
+      lanes: OK_LANES,
+    });
+  }
+
+  it("returns Slack channel, content, date and permalink for semantic hits", async () => {
+    seedSemanticCapture({
+      id: "capture-semantic-slack",
+      sourceId: "source-slack",
+      metadata: {
+        provider: "slack",
+        channelName: "eng",
+        permalink: "https://example.slack.com/archives/C1/p1",
+      },
+    });
+
+    const { rows, lanes } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+
+    expect(lanes).toEqual(OK_LANES);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "capture-semantic-slack",
+      provider: "slack",
+      location: "#eng",
+      sourceUrl: "https://example.slack.com/archives/C1/p1",
+      citation: { sourceUrl: "https://example.slack.com/archives/C1/p1" },
+      capturedAt,
+      lane: "semantic",
+    });
+    expect(rows[0]?.content).toContain("Shorten enterprise onboarding latency");
+    expect(rows[0]?.content).not.toContain("ava@example.com");
+  });
+
+  it("uses the Zoom meeting topic as the semantic hit location", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-zoom",
+      title: "Zoom recordings",
+      provider: "zoom",
+    });
+    seedSemanticCapture({
+      id: "capture-semantic-zoom",
+      sourceId: "source-zoom",
+      metadata: {
+        provider: "zoom",
+        meetingTopic: "Weekly onboarding review",
+        sourceUrl: "https://zoom.example.com/rec/share/abc",
+      },
+    });
+
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+
+    expect(rows[0]).toMatchObject({
+      id: "capture-semantic-zoom",
+      provider: "zoom",
+      location: "Weekly onboarding review",
+      sourceUrl: "https://zoom.example.com/rec/share/abc",
+      capturedAt,
+    });
+    expect(rows[0]?.content).toBeTruthy();
+  });
+
+  it("does not enrich semantic hits whose capture is outside the allowed scope", async () => {
+    seedSemanticCapture({
+      id: "capture-semantic-blocked",
+      sourceId: "source-slack",
+      metadata: { channelName: "eng" },
+    });
+    mocks.rows.captures[
+      mocks.rows.captures.length - 1
+    ]!.sensitivityDisposition = "blocked";
+
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("reports lane failures from hybrid search", async () => {
+    mocks.hybridSearchArtifacts.mockResolvedValue({
+      results: [],
+      lanes: {
+        fts: { status: "ok" },
+        semantic: {
+          status: "failed",
+          error: "openai-credential-unavailable",
+        },
+      },
+    });
+
+    await expect(
+      searchEverythingWithLanes({ query: "reduce customer waiting" }),
+    ).resolves.toMatchObject({
+      rows: [],
+      lanes: {
+        fts: { status: "ok" },
+        semantic: {
+          status: "failed",
+          error: "openai-credential-unavailable",
+        },
+      },
+    });
+  });
+
+  it("reports a rejected semantic lane instead of an empty success", async () => {
+    mocks.hybridSearchArtifacts.mockRejectedValue(new Error("pgvector down"));
+
+    await expect(
+      searchEverythingWithLanes({ query: "reduce customer waiting" }),
+    ).resolves.toMatchObject({
+      rows: [],
+      lanes: {
+        fts: { status: "ok" },
+        semantic: { status: "failed", error: "pgvector down" },
+      },
+    });
   });
 });

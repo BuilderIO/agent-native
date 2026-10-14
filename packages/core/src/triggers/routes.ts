@@ -19,6 +19,7 @@ import {
   insertPendingTask,
   isDuplicateEventError,
 } from "../integrations/pending-tasks-store.js";
+import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import {
   nextOccurrence,
   describeCron,
@@ -31,6 +32,7 @@ import {
   type JobFrontmatter,
   type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
+import { automationRunOwnership } from "../jobs/run-history-ownership.js";
 import { getOrgContext } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -249,8 +251,7 @@ async function resourceToAutomationItem(
     owner: resource.owner,
     appId: meta.appId,
     orgId: meta.orgId,
-    scope:
-      resource.owner === userEmail && !meta.orgId ? "personal" : "organization",
+    scope: automationRunOwnership(resource.owner, userEmail, meta.orgId).scope,
     canUpdate,
     triggerType: meta.triggerType,
     event: meta.event,
@@ -363,6 +364,13 @@ export async function setAutomationEnabledForOwner(
 
   parsed.meta.enabled = input.enabled;
   const fields: JobFrontmatterPatch = { enabled: input.enabled };
+  if (
+    input.enabled &&
+    (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+  ) {
+    // Enabling lifts a framework pause and starts a clean failure streak.
+    Object.assign(fields, RESUME_AUTOMATION_PATCH);
+  }
   if (
     parsed.meta.enabled &&
     meta.triggerType === "schedule" &&

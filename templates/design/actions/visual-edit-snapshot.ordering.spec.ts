@@ -30,12 +30,17 @@ vi.mock("@agent-native/core/private-blob", () => ({
   putPrivateBlob: localDb.putPrivateBlob,
   readPrivateBlob: localDb.readPrivateBlob,
 }));
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: localDb.assertAccess,
-  currentAccess: () => ({
-    authCapability: "capability:visual-edit:design:design-one",
-  }),
-}));
+vi.mock("@agent-native/core/sharing", async () => {
+  const { eq } = await import("drizzle-orm");
+  return {
+    accessFilter: (table: { ownerEmail: unknown }) =>
+      eq(table.ownerEmail as never, "owner@example.test"),
+    assertAccess: localDb.assertAccess,
+    currentAccess: () => ({
+      authCapability: "capability:visual-edit:design:design-one",
+    }),
+  };
+});
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: localDb.getRequestUserEmail,
 }));
@@ -141,6 +146,12 @@ vi.mock("../server/db/index.js", async () => {
       createdAt: pgCore.text("created_at").notNull(),
     },
   );
+  const designShares = pgCore.pgTable("design_shares", {
+    resourceId: pgCore.text("resource_id").notNull(),
+    principalType: pgCore.text("principal_type").notNull(),
+    principalId: pgCore.text("principal_id").notNull(),
+    role: pgCore.text("role").notNull(),
+  });
   const pglite = await PGlite.create("memory://");
   await pglite.exec(`
     CREATE TABLE designs (
@@ -175,12 +186,19 @@ vi.mock("../server/db/index.js", async () => {
       blob_handle TEXT PRIMARY KEY,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE design_shares (
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL
+    );
     INSERT INTO design_files (id, design_id, content, file_type)
     VALUES ('screen-one', 'design-one', 'http://localhost:5173/', 'html');
   `);
   localDb.pglite = pglite;
   const schema = {
     designs,
+    designShares,
     designFiles,
     designVisualEditSnapshots,
     designVisualEditSnapshotBlobCleanup,

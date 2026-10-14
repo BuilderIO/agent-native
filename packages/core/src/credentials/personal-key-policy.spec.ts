@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: mocks.readAppSecret,
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: async (key: string) => mocks.settings.get(key) ?? null,
   putSetting: vi.fn(),
   deleteSetting: vi.fn(),

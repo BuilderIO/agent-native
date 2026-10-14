@@ -90,12 +90,11 @@ credentials server-side from the workspace connection or vault. A direct
 `A2AClient` call can pass `cardUrl` and `protocolVersion` while a provider
 adapter is being used, but browser code must never receive the credential.
 
-Five ways to create it, all writing the same row:
+Four ways to create it, all writing the same row:
 
 | Surface | Where |
 | --- | --- |
-| Settings → Agent → Sub-agents → Connect agent (with the `settings-redesign` flag; owners and admins) | any app with the Settings shell |
-| Settings → Manage agent → Connected Agents (A2A) | any app with the settings panel, flag off |
+| Settings → Agent → Sub-agents → Connect agent (owners and admins) | any app with the Settings shell |
 | Agent page → Connections | apps mounting `AgentTabsPage` |
 | Dispatch → Agents → Add external agent | workspace dispatch |
 | The agent itself | `resources` tool, `action: "write"`, `--scope shared` |
@@ -125,25 +124,56 @@ section calls this on add and on open.
 ## Authentication
 
 A2A authenticates with a **short-lived JWT the caller signs**, not a stored
-bearer key. `Authorization: Bearer <jwt>`; claims carry the caller's email and
-org domain; HS256; 15-minute default TTL. There is no per-peer API key
-anywhere in the system, which is why the manifest has no field for one.
+bearer key. `Authorization: Bearer <jwt>`; HS256; 15-minute default TTL.
+There is no per-peer API key anywhere in the system, which is why the manifest
+has no field for one. A user identity assertion carries the authenticated
+caller's email and is signed only with the deployment `A2A_SECRET`. Mint it
+from authenticated request context; never accept an email from message params
+or metadata as identity.
+`verifyA2AToken` rejects MCP connect and OAuth tokens even though they can be
+signed with the same secret: they are long-lived MCP credentials, never A2A
+tokens. Callers bind signed tokens to the receiving endpoint with `aud`; every
+receiver, including a custom JWT verifier, must check that claim against its
+own canonical endpoint URL. Preserve compatibility for old tokens without
+`aud`, but reject an audience-bearing token when the receiver cannot derive or
+match its expected audience. A scoped resource route may require `aud` even
+for legacy callers; document and test that boundary when adding such a route.
 
-Two secrets can sign it:
+The framework supports two credential scopes:
 
 | Secret | Scope | How it is set |
 | --- | --- | --- |
-| `A2A_SECRET` | whole deployment | env var, **never auto-generated** |
-| org `a2a_secret` | one organization | auto-generated on org creation; Team page UI |
+| `A2A_SECRET` | User identity across a deployment | env var, **never auto-generated** |
+| org `a2a_secret` | Organization principal only | auto-generated on org creation; Team page UI |
 
-The org secret is the managed path: **Team page → A2A secret** (owner only)
-reveals, copies, regenerates, and pushes it to every discovered peer. Rotation
-is tolerated — the caller tries both secrets in order and sticks to whichever
-worked.
+An org-secret JWT proves only that the caller holds the organization's shared
+credential. Its `sub` or email claims are ignored; do not use it to read
+person-owned data, claim a user's task, invoke a user-scoped action, or carry a
+human approval. Organization-scoped operations can run with this principal.
+Use an `A2A_SECRET`-signed user identity for user-owned operations and
+approval continuations. MCP applies the same distinction.
+
+Organization IDs are local to each app's database. For calls to a peer app,
+bind the token to the trusted `org_domain` and the peer's canonical audience;
+do not put the caller app's local `org_id` in the token. The receiver resolves
+the domain to its own organization row and binds authorization to that local
+ID. An ID-only token is valid only when both sides intentionally share the same
+local organization ID, such as a credential scoped to one local database.
+
+The org secret is managed at **Team page → A2A secret** (owner only), where it
+can be revealed, copied, regenerated, and pushed to discovered peers. It is a
+fallback for organization-scoped calls, not a fallback user identity.
 
 `A2A_SECRET` is the deploy-level path. `workspace-deploy` refuses a production
 workspace deploy without it and prints the generator command. Peers that must
-trust each other need the *same* value on both sides.
+trust user identity assertions need the *same* value on both sides. Keep it
+different from every org `a2a_secret`; a shared value cannot distinguish a
+user assertion from an organization credential. An org secret equal to
+`A2A_SECRET`, or a user token signed only with the org secret, is verified as an
+organization principal and reaches the caller as the typed
+`permanent_precondition` error ("no verified user"): an admin/ops fix, never a
+retry. Mismatched `A2A_SECRET` values are rejected with `401`
+(`a2a_auth_rejected`).
 
 With no secret configured at all:
 
@@ -432,8 +462,12 @@ Messages contain typed parts:
 | Part type | Fields                              | Use for                    |
 | --------- | ----------------------------------- | -------------------------- |
 | `text`    | `{ type: "text", text: "..." }`     | Natural language messages  |
-| `file`    | `{ type: "file", file: { ... } }`   | Files (bytes or URI)       |
+| `file`    | `{ type: "file", file: { ... } }`   | Stored file URI            |
 | `data`    | `{ type: "data", data: { ... } }`   | Structured JSON data       |
+
+The receiver rejects inline file bytes and `data:` URLs before creating a task:
+task history, status messages, artifacts, and approval inputs are durable SQL
+records. Upload files to configured storage first, then send the returned URI.
 
 ## Custom mount
 

@@ -1,7 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import { docsUrl } from "@agent-native/core/shared";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
@@ -47,7 +47,11 @@ export default function HomePage() {
 
         <div className="grid grid-cols-2 gap-3 text-left">
           <a
-            href={docsUrl("getting-started")}
+            href={docsUrl("getting-started", {
+              source: "app",
+              campaign: null,
+              content: "docs-card",
+            })}
             target="_blank"
             rel="noopener noreferrer"
             className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"

@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour cette app.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
@@ -470,7 +465,10 @@ const messages = {
     automationSourceSentryHint: "Erreurs non résolues.",
     automationSlackChannel: "Identifiant du canal Slack",
     automationSlackChannelDescription:
-      "Canal interrogé par ce job. Commence par C.",
+      "Canal Slack que ce job lit ou utilise pour publier des résultats groupés. Commence par C.",
+    automationFindingsSlackChannel: "Canal Slack des résultats",
+    automationFindingsSlackChannelDescription:
+      "Les résultats GitHub et Sentry admissibles sont regroupés en un seul message dans ce canal.",
     automationRepository: "Dépôt GitHub",
     automationRepositoryDescription: "owner/repo interrogé par ce job.",
     automationSentryOrg: "Organisation Sentry",

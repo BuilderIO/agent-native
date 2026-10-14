@@ -183,7 +183,10 @@ export async function resolveComposeAttachments(
   ownerEmail?: string,
   options?: ResolveComposeAttachmentOptions,
 ): Promise<ResolvedComposeAttachment[]> {
-  if (!Array.isArray(attachments)) return [];
+  if (attachments == null) return [];
+  if (!Array.isArray(attachments)) {
+    throw new Error("Attachments must be an array");
+  }
 
   const resolved: ResolvedComposeAttachment[] = [];
   for (const raw of attachments) {

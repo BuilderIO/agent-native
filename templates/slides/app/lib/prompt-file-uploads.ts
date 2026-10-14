@@ -8,6 +8,11 @@ import {
 } from "@/lib/image-drop-to-agent";
 
 import { MAX_REFERENCE_FILES } from "../../shared/upload-types";
+import {
+  UPLOAD_SERVICE_UNAVAILABLE_CODE,
+  isUploadGatewayStatus,
+  looksLikeMarkup,
+} from "./upload-response";
 
 export interface UploadedFile {
   path: string;
@@ -19,6 +24,42 @@ export interface UploadedFile {
   size: number;
 }
 
+/**
+ * A failure that says "the service did not answer properly", never "this file
+ * is bad": a gateway or timeout status, an error page where JSON should be, a
+ * client-side timeout, or storage that reports it will recover by itself.
+ * Storage that someone must connect or fix is not this; it has its own copy.
+ */
+export function isPromptUploadServiceUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const typed = error as {
+    code?: unknown;
+    errorCode?: unknown;
+    status?: unknown;
+    timedOut?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  };
+  if (
+    typed.code === UPLOAD_SERVICE_UNAVAILABLE_CODE ||
+    typed.errorCode === UPLOAD_SERVICE_UNAVAILABLE_CODE ||
+    typed.timedOut === true
+  ) {
+    return true;
+  }
+  // The uploader already named its own failure (auth, size, storage status);
+  // a status alone must not re-label it.
+  if (typeof typed.code === "string" && typed.code.startsWith("reference_")) {
+    return false;
+  }
+  if (typed.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "self_resolving";
+  }
+  if (typeof typed.status === "number" && isUploadGatewayStatus(typed.status)) {
+    return true;
+  }
+  return looksLikeMarkup(error.message);
+}
+
 export function isPromptUploadNetworkError(error: unknown): boolean {
   return (
     error instanceof TypeError ||
@@ -26,7 +67,8 @@ export function isPromptUploadNetworkError(error: unknown): boolean {
       (error.name === "AbortError" ||
         ("code" in error &&
           (error.code === "reference_storage_network_failed" ||
-            error.code === "reference_upload_network_failed"))))
+            error.code === "reference_upload_network_failed")) ||
+        isPromptUploadServiceUnavailableError(error)))
   );
 }
 
@@ -43,6 +85,16 @@ export function isPromptUploadLimitError(error: unknown): boolean {
     error instanceof Error &&
     "code" in error &&
     error.code === "reference_storage_limit_exceeded"
+  );
+}
+
+export function isPromptUploadUnsupportedFileTypeError(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof Error &&
+    "failureReason" in error &&
+    error.failureReason === "unsupported-file-type"
   );
 }
 
@@ -248,6 +300,7 @@ function promptUploadNetworkError(cause: unknown, fileName?: string): Error {
 export function promptUploadHttpError(
   status: number,
   fileName?: string,
+  failureReason?: "unsupported-file-type",
 ): Error {
   return Object.assign(new Error("Reference file upload failed"), {
     code:
@@ -255,10 +308,45 @@ export function promptUploadHttpError(
         ? "reference_storage_auth_required"
         : status === 413
           ? "reference_storage_limit_exceeded"
-          : "reference_storage_http_failed",
+          : status === 408 || status === 502 || status === 504
+            ? UPLOAD_SERVICE_UNAVAILABLE_CODE
+            : "reference_storage_http_failed",
     status,
     ...(fileName ? { fileName } : {}),
+    ...(failureReason ? { failureReason } : {}),
   });
+}
+
+async function parsePromptUploadFailure(
+  response: Response,
+  files: readonly File[],
+): Promise<Error> {
+  let body: Record<string, unknown> | undefined;
+  try {
+    const value: unknown = await response.json();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      body = value as Record<string, unknown>;
+    }
+  } catch {
+    // coercion-ok: the HTTP status remains a typed upload failure when its body is malformed.
+  }
+
+  const failedFileName =
+    typeof body?.failedFileName === "string" ? body.failedFileName : undefined;
+  const fileName =
+    files.find((file) => file.name === failedFileName)?.name ??
+    (failedFileName?.trim()
+      ? failedFileName
+      : files.length === 1
+        ? files[0]?.name
+        : undefined);
+  const failureReason =
+    typeof body?.error === "string" &&
+    body.error.includes("Unsupported file type. Allowed: ")
+      ? "unsupported-file-type"
+      : undefined;
+
+  return promptUploadHttpError(response.status, fileName, failureReason);
 }
 
 async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
@@ -281,23 +369,7 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
     throw cause;
   }
   if (!response.ok) {
-    let failedFileName: unknown;
-    try {
-      const error = (await response.json()) as {
-        failedFileName?: unknown;
-      };
-      failedFileName = error?.failedFileName;
-    } catch {
-      failedFileName = undefined;
-    }
-    const matchedFileName =
-      typeof failedFileName === "string"
-        ? files.find((file) => file.name === failedFileName)?.name
-        : undefined;
-    throw promptUploadHttpError(
-      response.status,
-      matchedFileName ?? (files.length === 1 ? files[0]?.name : undefined),
-    );
+    throw await parsePromptUploadFailure(response, files);
   }
   const data = await readUploadJson(response);
   return parseUploadedFiles(data, files.length);
@@ -345,7 +417,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
     },
   );
   if (!startResponse.ok) {
-    throw promptUploadHttpError(startResponse.status, file.name);
+    throw await parsePromptUploadFailure(startResponse, [file]);
   }
   const startData = await readUploadJson(startResponse);
   if (
@@ -382,7 +454,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
       },
     );
     if (!chunkResponse.ok) {
-      throw promptUploadHttpError(chunkResponse.status, file.name);
+      throw await parsePromptUploadFailure(chunkResponse, [file]);
     }
     const chunkData = await readUploadJson(chunkResponse);
     if (isFinal) {

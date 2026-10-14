@@ -332,6 +332,30 @@ agents.example.com {
 
 </Callout>
 
+## إعداد Dispatch لمساحة عمل مستضافة ذاتيًا {#dispatch-workspace-apps}
+
+غالبًا ما تحتوي صور Dispatch الإنتاجية على `.output/` فقط، لذلك لا يستطيع الخادم اكتشاف مجلدات التطبيقات أثناء التشغيل. اضبط هذا البيان في خدمة Dispatch. استخدم JSON نفسه في المتغيرين: يُقرأ متغير Vite عند بناء Dispatch، ويُقرأ الآخر عند تشغيل الخادم. أدرج تطبيقات مساحة العمل هذه فقط، واجعل كل `path` مطابقًا لـ `APP_BASE_PATH` ومسار الوكيل. اضبط APP_URL أيضًا على الأصل العام الذي يقدّمه الوكيل العكسي.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## تفعيل الدعوات في مساحة عمل جديدة {#workspace-invites}
+
+إذا كان التسجيل في مساحة العمل يتطلب دعوة، فاضبط متغيرات الوصول التالية في كل حاوية تطبيق تشارك قاعدة البيانات والمصادقة:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+استبدل عنوان المثال بعنوان البريد الموثّق لأول مسؤول في كل مساحة عمل. في قاعدة بيانات فارغة، يسجّل هذا المسؤول الدخول أولًا، ويصبح مالك المؤسسة الأولية، ثم يدعو الفريق من Settings → Organization → Members. راجع [عمليات النشر المُدارة](/docs/administered-deployments) للاطلاع على خطوات التهيئة كاملة.
+
 ## ما هي الخطوة التالية
 
 - [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة، وإعدادًا مسبقًا لـ Nitro، ومنصة قبل نشر مساحة عمل

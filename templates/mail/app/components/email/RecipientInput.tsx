@@ -178,6 +178,7 @@ function AliasPopover({
   return createPortal(
     <div
       ref={panelRef}
+      data-an-block
       className="fixed z-[9999] w-72 rounded-xl border border-border bg-popover shadow-xl"
       style={{ top: pos.top, left: pos.left }}
     >
@@ -607,6 +608,7 @@ export function RecipientInput({
               {filteredAliases.slice(0, 4).map((alias, i) => (
                 <button
                   key={`alias-${alias.id}`}
+                  data-an-mask
                   id={`${suggestionListId}-option-${i}`}
                   role="option"
                   aria-selected={i === selectedIndex}
@@ -641,6 +643,7 @@ export function RecipientInput({
                   return (
                     <button
                       key={contact.email}
+                      data-an-block
                       id={`${suggestionListId}-option-${globalIndex}`}
                       role="option"
                       aria-selected={globalIndex === selectedIndex}
@@ -657,11 +660,17 @@ export function RecipientInput({
                         addRecipient(contact);
                       }}
                     >
-                      <span className="truncate font-medium text-foreground">
+                      <span
+                        data-an-mask
+                        className="truncate font-medium text-foreground"
+                      >
                         {contact.name}
                       </span>
                       {contact.name !== contact.email && (
-                        <span className="truncate text-[12px] text-muted-foreground/60 shrink-0">
+                        <span
+                          data-an-mask
+                          className="truncate text-[12px] text-muted-foreground/60 shrink-0"
+                        >
                           {contact.email}
                         </span>
                       )}
@@ -698,6 +707,7 @@ export function RecipientInput({
             return (
               <span
                 key={`${r}-${i}`}
+                data-an-block
                 draggable={canDrag}
                 onDragStart={
                   canDrag ? (e) => handleChipDragStart(e, r) : undefined
@@ -744,6 +754,7 @@ export function RecipientInput({
           return (
             <span
               key={`${r}-${i}`}
+              data-an-block
               draggable={canDrag}
               onDragStart={
                 canDrag ? (e) => handleChipDragStart(e, r) : undefined

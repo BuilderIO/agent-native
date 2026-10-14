@@ -1,6 +1,8 @@
 import type { TweakDefinition } from "@shared/api";
 import {
+  nextCanvasFramePosition,
   parseCanvasFrameGeometryById,
+  type CanvasResponsiveLayout,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { parseLayoutGridById, type LayoutGridById } from "@shared/layout-grid";
@@ -116,14 +118,9 @@ export function staleGeometryFrameIds(
 
 export function nextLocalhostScreenPosition(
   framesById: CanvasFrameGeometryById,
+  responsiveLayout?: CanvasResponsiveLayout,
 ): { x: number; y: number } {
-  const frames = Object.values(framesById);
-  if (frames.length === 0) return { x: 0, y: 0 };
-  const maxRight = Math.max(
-    ...frames.map((frame) => (frame.x ?? 0) + (frame.width ?? 0)),
-  );
-  const minTop = Math.min(...frames.map((frame) => frame.y ?? 0));
-  return { x: maxRight + 160, y: minTop };
+  return nextCanvasFramePosition(framesById, undefined, { responsiveLayout });
 }
 
 export function viewportChangedFrameIds(

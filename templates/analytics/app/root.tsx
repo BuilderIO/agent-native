@@ -1,13 +1,13 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   callAction,
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -32,6 +32,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
+import { isReplayFrameRequest } from "./pages/sessions/session-replay-frame";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -135,8 +136,14 @@ export default function Root() {
 
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
+  // Frame mode renders one replay for a headless browser holding a signed,
+  // recording-scoped agent link: no session, no app chrome.
+  const isReplayFramePath = isReplayFrameRequest(
+    location.pathname,
+    location.search,
+  );
 
-  if (isPublicStatusPath) {
+  if (isPublicStatusPath || isReplayFramePath) {
     return (
       <AppToolkitProvider>
         <AppProviders
@@ -177,4 +184,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

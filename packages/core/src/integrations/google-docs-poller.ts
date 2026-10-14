@@ -794,7 +794,7 @@ async function processComment(
     threadId = thread.id;
   }
 
-  await setThreadSourceIfMissing(threadId, source);
+  await setThreadSourceIfMissing(threadId, options.ownerEmail, source);
 
   const thread = await getThread(threadId);
   const existingMessages: EngineMessage[] = [];

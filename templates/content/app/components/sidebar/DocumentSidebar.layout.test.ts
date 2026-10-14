@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
 
 function readSidebarSource(relativePath: string) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(
+    /\r\n/g,
+    "\n",
+  );
 }
 
 function treeNode(
@@ -72,11 +75,11 @@ describe("document sidebar layout", () => {
   });
 
   it("keeps deeply nested page rows within the sidebar viewport", () => {
-    const layout = readSidebarSource("../layout/Layout.tsx");
+    const preferences = readSidebarSource("../layout/sidebar-preferences.ts");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
-    expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
+    expect(preferences).toContain("export const MIN_SIDEBAR_WIDTH = 240");
     expect(sidebar).toContain(
       "[&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden",
     );
@@ -226,7 +229,8 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).not.toContain("const documentsQuery = useDocuments();");
     expect(sidebar).toContain("useDocuments({ enabled: localFileMode })");
-    expect(sidebar).toContain('"get-content-navigation-context"');
+    expect(sidebar).toContain("useContentNavigationContext(activeDocumentId)");
+    expect(documentsHook).toContain('"get-content-navigation-context"');
     expect(sidebar).toContain("limit: 50");
     expect(sidebar).not.toContain("limit: Math.max(contentSpaces.length, 1)");
     expect(sidebar).toContain("useContentSpaces()");
@@ -275,12 +279,12 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("const handleCreateDatabase = useCallback");
     expect(sidebar).toContain("newDocumentId: id");
     expect(sidebar).toContain("navigateToDocument(id)");
-    expect(sidebar).toContain(
-      "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
+    expect(sidebar).toMatch(
+      /rollbackOptimisticCreatedDocument\(\s+queryClient,\s+id,/,
     );
     expect(sidebar).toContain("navigate(previousPath, {");
     expect(sidebar).toContain(
-      "if (window.location.pathname === `/page/${id}`)",
+      "if (locationRef.current.pathname === `/page/${id}`)",
     );
     expect(sidebar).toContain(
       "pendingOptimisticCreationIdsRef.current.add(id)",
@@ -330,19 +334,35 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
-  it("replaces an optimistic page with the persisted document before conversion", () => {
+  it("settles optimistic page and collection creation before the first read", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const collectionCreate = sidebar.slice(
+      sidebar.indexOf("const handleCreateDatabase = useCallback"),
+      sidebar.indexOf("const selectSpaceForCreation = useCallback"),
+    );
 
     expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
     expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
-    expect(sidebar).toContain("markDocumentCreationPending({");
-    expect(sidebar).toContain(
-      '["action", "get-document", { id: nextId }],\n          created',
+    expect(sidebar).toContain("markDocumentCreationPending(queryClient, {");
+    expect(sidebar).toMatch(
+      /const confirmed = markDocumentCreationConfirmed\(\s*queryClient,\s*created,\s*\);/,
+    );
+    expect(sidebar).toMatch(
+      /queryClient\.setQueryData\(\s*\[\s*"action",\s*"get-document",\s*\{\s*id:\s*nextId\s*\}\s*\],\s*confirmed,\s*\);/,
     );
     expect(sidebar).toContain(
       "return withDocumentsCacheShape(old, [...docs, tempDoc])",
     );
     expect(sidebar).toContain("rollbackOptimisticCreatedDocument(");
+    expect(collectionCreate).toContain(
+      "clearDocumentCreationPending(queryClient, { id });",
+    );
+    expect(collectionCreate).toContain(
+      "startPageOpenDocumentReads(queryClient, nextId);",
+    );
+    expect(
+      collectionCreate.indexOf("clearDocumentCreationPending"),
+    ).toBeLessThan(collectionCreate.indexOf("startPageOpenDocumentReads"));
   });
 
   it("restores deleted list and page snapshots before refetching on failure", () => {
@@ -363,7 +383,7 @@ describe("document sidebar layout", () => {
       "expandedDocumentIds={visibleExpandedDocumentIds}",
     );
     expect(sidebar).toContain(
-      "new Set([...expandedDocumentIds, ...activeAncestorIds])",
+      "openFilesFolderIds(activeAncestorIds, expandedDocumentIds)",
     );
     expect(sidebar).toContain("createContentSidebarStateWriteQueue");
     expect(sidebar).toContain(
@@ -385,7 +405,7 @@ describe("document sidebar layout", () => {
       "return handleSelectContentSpace(space, null, true)",
     );
     expect(sidebar).toContain(
-      'import { OrgSwitcher } from "@agent-native/core/client/org";',
+      'import { OrgSwitcher } from "@agent-native/toolkit/app/org";',
     );
     expect(sidebar).toContain("reserveSpace");
     expect(sidebar).toContain("<OrgSwitcher");
@@ -422,8 +442,12 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("contentSpaceActionArgs(selectedSpace?.id)");
     expect(sidebar).toContain("enabled: Boolean(sidebarStateArgs)");
-    expect(sidebar).toContain("{selectedSpace ? (");
-    expect(sidebar).toContain("spaceId={selectedSpace.id}");
+    // The sections draw their placeholders without a space; their reads wait.
+    expect(sidebar).toContain("spaceId={selectedSpaceId}");
+    expect(sections).toContain("enabled: Boolean(stateArgs)");
+    expect(sections).toMatch(
+      /useContentRecent\(spaceId \?\? undefined, \{\s+enabled: Boolean\(spaceId\),/,
+    );
     expect(sidebar).not.toContain("key={selectedSpace.id}");
     expect(sidebar).toContain('t("sidebar.contentSpace")');
     expect(sections).toContain("contentSpaceActionArgs(spaceId)");
@@ -463,7 +487,7 @@ describe("document sidebar layout", () => {
       'className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"',
     );
     expect(databaseSidebar).toMatch(
-      /key=\{navigationItem\.membershipId\}\s+className="grid min-w-0 gap-0\.5"/,
+      /key=\{navigationItem\.membershipId\}[\s\S]{0,160}?className="grid min-w-0 gap-0\.5"/,
     );
     expect(rowActions).toContain("pointer-events-none absolute end-0 top-1/2");
     expect(databaseSidebar).toContain("<SidebarRowActions>");
@@ -534,8 +558,17 @@ describe("document sidebar layout", () => {
 
     expect(sidebar).toContain("<PersonalSidebarSections");
     expect(sidebar).toContain("renderFiles={renderWorkspaceNavigation}");
+    // Without a space Recent never loads, so its placeholder would never leave.
+    expect(sidebar).toMatch(
+      /\{selectedSpace \|\| contentSpaceState === "loading" \? \(\s*<PersonalSidebarSections/,
+    );
     expect(sidebar).toContain("renderPinned={(limit) =>");
     expect(sections).toContain("sections[id].visible");
+    expect(sections).toContain(
+      "const hideEmptyPinned = pinnedCount === 0 && !pinnedError;",
+    );
+    expect(sections).toContain('(id) => id !== "pinned" || !hideEmptyPinned');
+    expect(sidebar).toContain("pinnedError={");
     expect(sections).toContain("expanded={sections[id].expanded}");
     expect(sections).toContain(
       "change(id, { expanded: !sections[id].expanded });",
@@ -686,19 +719,26 @@ describe("document sidebar layout", () => {
     expect(databaseSidebar).toContain("<SidebarDepthGuides depth={depth} />");
   });
 
-  it("aligns the expanded sidebar controls to one trailing grid", () => {
+  it("aligns expanded sidebar labels and controls to shared columns", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
     expect(sidebar).toContain(
-      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2",
+      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-2 pe-2",
     );
     expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_auto]");
+    expect(sidebar).toContain(
+      "grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-0 p-0",
+    );
+    expect(sidebar).toContain('className="shrink-0 ps-2 pe-2 py-2"');
+    expect(sidebar.match(/!px-0/g)).toHaveLength(2);
+    expect(sections).toContain('className="mb-4 min-w-0 px-2"');
     expect(sidebar).not.toContain('variant="outline"');
     expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
     expect(sidebar).toContain("max-w-[calc(100vw-1rem)]");
     expect(sidebar).toContain('className="min-w-0 flex-1 truncate"');
-    expect(sidebar).toContain('className="shrink-0 ps-3 pe-2 py-2"');
+    expect(sidebar).toContain("col-start-2 min-w-0 truncate text-start");
+    expect(sidebar).toContain('className="min-w-0 truncate text-start"');
     expect(sections).toContain(
       "size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground",
     );
@@ -725,7 +765,7 @@ describe("document sidebar layout", () => {
     );
     expect(menuTrigger).not.toContain("aria-label={reorderLabels.drag(label)}");
     expect(sections).toContain("seeAllHrefs:");
-    expect(sections).toContain("seeAllHref={seeAllHrefs[id]}");
+    expect(sections).toContain("seeAllHref={seeAllHrefs?.[id]}");
     expect(sections).toContain(
       '<Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>',
     );

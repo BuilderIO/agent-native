@@ -4,7 +4,7 @@ An open-source, agent-native digital asset manager (DAM) and brand-image/video
 generation workspace — a self-hostable alternative to tools like Brandfolder and
 Air, with generation built in.
 
-**Live app: [assets.agent-native.com](https://assets.agent-native.com)**
+**Live app: [assets.agent-native.com](https://assets.agent-native.com?utm_source=github&utm_medium=referral&utm_content=assets-readme)**
 
 Organize uploaded and generated media into libraries and folders, then route
 image and video generation through the agent chat so every asset can be reviewed,
@@ -31,4 +31,4 @@ pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-assets](https://agent-native.com/docs/template-assets).
+Full docs: [agent-native.com/docs/template-assets](https://agent-native.com/docs/template-assets?utm_source=github&utm_medium=referral&utm_content=assets-readme).

@@ -53,14 +53,29 @@ export class SlideSourceMapError extends Error {
   }
 }
 
-/** Attributes the editor adds to live nodes; never content. */
+/** Live editor attributes are not user-authored source changes. */
 const TRANSIENT_ATTRS = new Set([
   SOURCE_STAMP_ATTR,
   "data-builder-id",
   "data-slide-text-block",
+  "data-video-autoplay",
   "contenteditable",
   "data-editing-block",
   "spellcheck",
+  "role",
+  "aria-expanded",
+  "aria-autocomplete",
+  "aria-controls",
+  "aria-activedescendant",
+  "aria-haspopup",
+]);
+const SOURCE_ACCESSIBILITY_ATTRS = new Set([
+  "role",
+  "aria-expanded",
+  "aria-autocomplete",
+  "aria-controls",
+  "aria-activedescendant",
+  "aria-haspopup",
 ]);
 /** Renderer wrappers whose children belong to the wrapper's parent. */
 const TRANSPARENT = "[data-fmd-autofit-content]";
@@ -277,8 +292,19 @@ const escapeAttr = (value: string) =>
 
 function attrMap(el: Element): Map<string, string> {
   const map = new Map<string, string>();
+  const isVideo = el.tagName.toLowerCase() === "video";
   for (const attr of Array.from(el.attributes)) {
-    if (!TRANSIENT_ATTRS.has(attr.name)) map.set(attr.name, attr.value);
+    if (TRANSIENT_ATTRS.has(attr.name)) {
+      if (
+        isVideo &&
+        attr.name === "data-video-autoplay" &&
+        attr.value === "true"
+      ) {
+        map.set("autoplay", "");
+      }
+      continue;
+    }
+    map.set(attr.name, attr.value);
   }
   return map;
 }
@@ -620,7 +646,13 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         }
         // The rendered <style> is the scoped copy; the stored one is
         // written from its source bytes.
-        if (el.tagName === "STYLE" && stampOf(el) === null) return;
+        if (
+          el.tagName === "STYLE" &&
+          stampOf(el) === null &&
+          !el.hasAttribute("data-fmd-crop-keyframes")
+        ) {
+          return;
+        }
         out.push(el);
       } else if (child.nodeType === 3) {
         const text = (child as Text).data;
@@ -764,7 +796,9 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         if (value === null) storedAttrs.delete(name);
         else storedAttrs.set(name, value);
       }
-      for (const name of TRANSIENT_ATTRS) storedAttrs.delete(name);
+      for (const name of TRANSIENT_ATTRS) {
+        if (!SOURCE_ACCESSIBILITY_ATTRS.has(name)) storedAttrs.delete(name);
+      }
       return openTag(tag, storedAttrs);
     }
     const loc = node.sourceCodeLocation!;

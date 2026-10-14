@@ -1,11 +1,5 @@
-/**
- * Real-browser edit-fidelity harness for the Slides editor: clicking into
- * text, typing, pressing Enter or just leaving an edit must not change any
- * styling or layout of the slide. See README.md.
- *
- * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
- */
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -20,11 +14,30 @@ import { fileURLToPath } from "node:url";
 
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
+import { IN_PLACE_TEXT_UNDO_LIMIT } from "../../app/components/editor/in-place-text-session.ts";
 import {
   pick,
   resolvePnpmEntry,
   WORKTREE_ROOT,
 } from "../export-fidelity/resolve-pkg.ts";
+import {
+  assertAuthoringPersistence,
+  authoringFuzzBrowserSessionCorsHeaders,
+  authoringFuzzBrowserSessionResponse,
+  authoringFuzzUnavailableExitCode,
+  authoringFuzzProfileIndex,
+  canonicalizeAuthoringFuzzPersistence,
+  formatAuthoringFuzzCleanupIssue,
+  formatAuthoringFuzzUnavailable,
+  isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
+  isFirefoxBrowserSessionConsoleError,
+  lineNavigationKeys,
+  normalizeFirefoxBrowserSessionConsoleError,
+  recordCleanupRequestOutcome,
+  retryAuthoringFuzzScratchDeckLookup,
+  runAuthoringFuzz,
+  type AuthoringFuzzPersistence,
+} from "./authoring-fuzz.ts";
 import {
   CHROME_SELECTOR,
   installInPageHelpers,
@@ -45,7 +58,9 @@ import {
   keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
+  outsideChangesFor,
   padRect,
+  p95IndexFromThresholdedSamples,
   ratchetBaselineEntry,
   resized,
   restyledAddedText,
@@ -58,7 +73,30 @@ import {
   type Status,
   type StyleDiff,
 } from "./lib/metrics.ts";
+import { isRetryableInfraError } from "./retry-infra.ts";
+import { authoringFilterError, readValueOption } from "./run-options.ts";
+import {
+  ActionTransportError,
+  ActionRequestTimeoutError,
+  ActionHttpError,
+  canReuseAuthoringFuzzCleanupPage,
+  CouldNotRun,
+  getHarnessUnavailableError,
+  isPlaywrightTargetTransportFailure,
+  runSetupActionAsCouldNotRun,
+  runSetupAsCouldNotRun,
+  shouldLookUpAuthoringFuzzScratchDeck,
+  shouldUseFreshBrowserPageForCleanup,
+  withTimeout,
+} from "./run-outcomes.ts";
 
+/**
+ * Real-browser edit-fidelity harness for the Slides editor: clicking into
+ * text, typing, pressing Enter or just leaving an edit must not change any
+ * styling or layout of the slide. See README.md.
+ *
+ * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
+ */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = [
   "noop",
@@ -70,8 +108,22 @@ const SCENARIOS = [
 type Scenario = (typeof SCENARIOS)[number];
 /** Scenarios whose net text change is zero: nothing may change at all. */
 const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
-
-class CouldNotRun extends Error {}
+const getSlashListbox = async (page: any, editor: any) => {
+  const editorHandle = await editor.elementHandle();
+  if (!editorHandle) throw new Error("slash menu editor is unavailable");
+  await page.waitForFunction(
+    (element: HTMLElement) => {
+      const listboxId = element.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      return listbox?.getAttribute("role") === "listbox";
+    },
+    editorHandle,
+    { timeout: 5_000 },
+  );
+  const listboxId = await editor.getAttribute("aria-controls");
+  if (!listboxId) throw new Error("slash menu did not expose its listbox");
+  return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
+};
 
 // ------------------------------------------------------------------- cli ---
 
@@ -87,12 +139,23 @@ const VALUE_FLAGS = new Set([
   "--targets",
   "--scenarios",
   "--concurrency",
+  "--browser",
   "--resume",
   "--cpu-throttle",
+  "--seed",
+  "--steps",
+  "--seeds",
+  "--authoring-source",
+  "--authoring-flow",
+  "--authoring-case",
+  "--line-key-platform",
 ]);
 const opt = (name: string) => {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
+  try {
+    return readValueOption(argv, name);
+  } catch (error) {
+    fatal((error as Error).message);
+  }
 };
 const numOpt = (name: string, fallback: number) => {
   const raw = opt(name);
@@ -135,6 +198,67 @@ const update = argv.includes("--update");
 const acceptFailing = argv.includes("--accept-failing");
 const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
+const caretQaOnly = argv.includes("--caret-qa");
+const imeEscapeOnly = argv.includes("--ime-escape");
+const textSurfaceQaOnly = argv.includes("--text-surface-qa");
+const mobileImportStatusOnly = argv.includes("--mobile-import-status");
+const lineKeyPlatform = opt("--line-key-platform") ?? process.platform;
+if (!["darwin", "linux", "win32"].includes(lineKeyPlatform)) {
+  fatal("--line-key-platform must be one of: darwin, linux, win32");
+}
+const { start: lineStartKey, end: lineEndKey } =
+  lineNavigationKeys(lineKeyPlatform);
+const authoringOnly = argv.includes("--authoring");
+const authoringCorpusOnly = argv.includes("--authoring-corpus");
+const authoringFuzzOnly = argv.includes("--authoring-fuzz");
+const authoringSourceFilter = opt("--authoring-source");
+const authoringFlowFilter = opt("--authoring-flow");
+const authoringCaseFilter = opt("--authoring-case");
+const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
+const incompatibleAuthoringFilters = authoringFilterError(
+  authoringSourceFilter,
+  authoringFlowFilter,
+);
+if (incompatibleAuthoringFilters) fatal(incompatibleAuthoringFilters);
+if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
+  fatal("--authoring-source and --authoring-flow require --authoring-corpus");
+}
+if (authoringCaseFilter && !authoringOnly) {
+  fatal("--authoring-case requires --authoring");
+}
+if (
+  authoringFlowFilter &&
+  !authoringFlows.includes(
+    authoringFlowFilter as (typeof authoringFlows)[number],
+  )
+) {
+  fatal(`--authoring-flow must be one of: ${authoringFlows.join(", ")}`);
+}
+const fuzzSeed = Number(opt("--seed") ?? 1);
+if (!Number.isSafeInteger(fuzzSeed) || fuzzSeed < 0) {
+  fatal(`--seed expects a non-negative safe integer, got ${opt("--seed")}`);
+}
+const fuzzSteps = numOpt("--steps", 500);
+const fuzzSeeds = numOpt("--seeds", 1);
+if (fuzzSeed + fuzzSeeds - 1 > Number.MAX_SAFE_INTEGER) {
+  fatal("--seed plus --seeds exceeds the safe integer range");
+}
+const browserName = opt("--browser") ?? "chromium";
+if (!["chromium", "webkit", "firefox"].includes(browserName)) {
+  fatal(`--browser expects chromium, webkit, or firefox, got ${browserName}`);
+}
+if (
+  browserName !== "chromium" &&
+  !caretQaOnly &&
+  !textSurfaceQaOnly &&
+  !authoringOnly &&
+  !authoringCorpusOnly &&
+  !authoringFuzzOnly
+) {
+  fatal(
+    "--browser webkit|firefox is supported with --caret-qa, --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
+  );
+}
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
     fatal(`unknown scenario ${s}; expected ${SCENARIOS.join(",")}`);
@@ -171,6 +295,23 @@ interface CorpusCase {
   expectStyles?: ExpectedStyle[];
 }
 
+interface CorpusAuthoringSource {
+  id: string;
+  kind:
+    | "absolute"
+    | "fractional-absolute-wrapper"
+    | "fractional-absolute-root"
+    | "flex-grid"
+    | "styled-list"
+    | "styled-flex-bullet-row"
+    | "styled-paragraph-bullet-row"
+    | "scaled"
+    | "largest";
+  testTarget: "absolute" | "flex-grid" | "list" | "bullet-row" | "any";
+  corpusCase: CorpusCase;
+  slide: CorpusSlide;
+}
+
 function loadCorpus(): CorpusCase[] {
   if (!existsSync(corpusDir))
     fatal(`corpus directory ${corpusDir} does not exist`);
@@ -205,6 +346,232 @@ function loadCorpus(): CorpusCase[] {
     );
   }
   return cases;
+}
+
+function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
+  const allSlides = cases.flatMap((corpusCase) =>
+    corpusCase.slides.map((slide) => ({ corpusCase, slide })),
+  );
+  const eligible = allSlides.filter(
+    ({ slide }) =>
+      // Keep blob-bearing imports out of authoring decks in the scratch database.
+      !/data:/i.test(slide.content) &&
+      Buffer.byteLength(slide.content, "utf8") <= 512_000,
+  );
+  const orderedEligible = [...eligible].sort(
+    (a, b) =>
+      Number(a.slide.content.toLowerCase().includes("<style")) -
+        Number(b.slide.content.toLowerCase().includes("<style")) ||
+      Buffer.byteLength(a.slide.content, "utf8") -
+        Buffer.byteLength(b.slide.content, "utf8"),
+  );
+  const find = (predicate: (content: string) => boolean) =>
+    orderedEligible.find(({ slide }) => predicate(slide.content));
+  const inlineStyles = (content: string) =>
+    Array.from(
+      content.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi),
+      (match) => match[1] ?? match[2] ?? "",
+    );
+  const hasAbsoluteTextBox = (content: string, expectedClass: string) => {
+    const visit = (node: P5.Node): boolean => {
+      if (!("childNodes" in node)) return false;
+      if ("tagName" in node) {
+        const element = node as P5.Element;
+        const className =
+          element.attrs.find((attribute) => attribute.name === "class")
+            ?.value ?? "";
+        const style =
+          element.attrs.find((attribute) => attribute.name === "style")
+            ?.value ?? "";
+        if (
+          className.split(/\s+/).includes(expectedClass) &&
+          /position\s*:\s*absolute\b/i.test(style) &&
+          visibleTextOf(element).trim()
+        ) {
+          return true;
+        }
+      }
+      return (node as P5.ParentNode).childNodes.some(visit);
+    };
+    return parse(content).childNodes.some(visit);
+  };
+  const absolute =
+    find((content) => hasAbsoluteTextBox(content, "fmd-pptx-text")) ??
+    find((content) => hasAbsoluteTextBox(content, "fmd-text-box"));
+  const flexGrid = find((content) => {
+    if (/text-transform\s*:\s*uppercase\b/i.test(content)) return false;
+    const styles = inlineStyles(content);
+    return (
+      styles.some((style) => /display\s*:\s*flex\b/i.test(style)) &&
+      styles.some(
+        (style) =>
+          /display\s*:\s*grid\b/i.test(style) &&
+          /grid-template-(?:columns|rows)\s*:/i.test(style),
+      )
+    );
+  });
+  const styledList = find(
+    (content) =>
+      /<(?:ul|ol)\b[^>]*\bstyle\s*=/i.test(content) &&
+      /<li\b[\s\S]*?(?:<span\b[^>]*\bstyle\s*=|<li\b[^>]*\bstyle\s*=)/i.test(
+        content,
+      ),
+  );
+  const styledBulletRows = (content: string) => {
+    const rows: { tag: string; flex: boolean; glyph: boolean }[] = [];
+    const visit = (node: P5.Node): void => {
+      if (!("childNodes" in node)) return;
+      if ("tagName" in node) {
+        const element = node as P5.Element;
+        if (/^(?:div|li|p)$/i.test(element.tagName)) {
+          const marker = element.childNodes.find(
+            (child) => "tagName" in child,
+          ) as P5.Element | undefined;
+          if (marker?.tagName === "span") {
+            const markerText = visibleTextOf(marker).trim();
+            const style =
+              marker.attrs.find((attribute) => attribute.name === "style")
+                ?.value ?? "";
+            const glyphMarker = /^[-*•●◦▪‣·⁃–—]+$/u.test(markerText);
+            const width = Number(
+              /(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)(?:px)?/i.exec(style)?.[1],
+            );
+            const height = Number(
+              /(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)(?:px)?/i.exec(style)?.[1],
+            );
+            const shapeMarker =
+              !markerText &&
+              width > 0 &&
+              width <= 48 &&
+              height > 0 &&
+              height <= 48 &&
+              width / height >= 0.5 &&
+              width / height <= 2 &&
+              /(?:border|background|border-radius)\s*:/i.test(style);
+            const rowText = visibleTextOf(element).trim();
+            if (
+              (glyphMarker && rowText.slice(markerText.length).trim()) ||
+              (shapeMarker && rowText)
+            ) {
+              rows.push({
+                tag: element.tagName.toLowerCase(),
+                glyph: glyphMarker || shapeMarker,
+                flex: /display\s*:\s*flex\b/i.test(
+                  element.attrs.find((attribute) => attribute.name === "style")
+                    ?.value ?? "",
+                ),
+              });
+            }
+          }
+        }
+      }
+      (node as P5.ParentNode).childNodes.forEach(visit);
+    };
+    parse(content).childNodes.forEach(visit);
+    return rows;
+  };
+  const styledFlexBulletRow = find((content) =>
+    styledBulletRows(content).some(
+      (row) => row.tag === "div" && row.flex && row.glyph,
+    ),
+  );
+  const styledParagraphBulletRow = find((content) =>
+    styledBulletRows(content).some((row) => row.tag === "p" && row.glyph),
+  );
+  const selected = [
+    absolute,
+    flexGrid,
+    styledList,
+    styledFlexBulletRow,
+    styledParagraphBulletRow,
+  ].filter(Boolean);
+  const scaled =
+    orderedEligible.find(
+      (entry) =>
+        !selected.some((candidate) => candidate === entry) &&
+        entry.slide.content.length > 200 &&
+        /<(?:div|p|h[1-4]|li)\b/i.test(entry.slide.content),
+    ) ?? selected[0];
+  const largestEntry = [...allSlides].sort(
+    (a, b) =>
+      Buffer.byteLength(b.slide.content, "utf8") -
+      Buffer.byteLength(a.slide.content, "utf8"),
+  )[0];
+  const largest = largestEntry
+    ? {
+        ...largestEntry,
+        slide: {
+          ...largestEntry.slide,
+          // Preserve source geometry but never store embedded image bytes in SQL.
+          content: largestEntry.slide.content.replace(
+            /data:[^"'\s)<>]+/gi,
+            "about:blank",
+          ),
+        },
+      }
+    : undefined;
+  const fractionalWrapperSlide: CorpusSlide = {
+    id: "fractional-absolute-wrapper",
+    content:
+      '<div data-authoring-layout-wrapper="fractional" style="position:absolute;left:48px;bottom:3.3125px;width:270px;transform:translateY(-50%);transform-origin:50% 50%"><div style="height:42px;margin-bottom:26px">Anchored label</div><div style="position:absolute;left:0;top:0;width:220px;height:42px">Decorative text</div><ul class="fmd-pptx-text" style="margin:0;padding:0 0 0 18px;font-size:16px;line-height:19.25px;list-style-type:disc"><li style="margin-bottom:12px">Anchored root row<ul><li>Anchored nested alpha</li><li>Anchored nested beta</li></ul></li></ul></div><div style="position:absolute;left:420px;top:160px;width:220px;height:30px">Stationary sibling</div>',
+  };
+  const fractionalWrapperCase: CorpusCase = {
+    id: "fractional-absolute-wrapper",
+    title: "Fractional absolute wrapper authoring regression",
+    aspectRatio: "16:9",
+    slides: [fractionalWrapperSlide],
+  };
+  const fractionalWrapper = {
+    corpusCase: fractionalWrapperCase,
+    slide: fractionalWrapperSlide,
+  };
+  const fractionalRootSlide: CorpusSlide = {
+    id: "fractional-absolute-root",
+    content:
+      '<ul class="fmd-pptx-text" style="position:absolute;left:48px;bottom:3.3125px;width:270px;margin:0;padding:0 0 0 18px;font-size:16px;line-height:19.25px;list-style-type:disc;transform:rotate(2deg);transform-origin:50% 50%"><li style="margin-bottom:12px">Anchored root row<ul><li>Anchored nested alpha</li><li>Anchored nested beta</li></ul></li></ul><div style="position:absolute;left:420px;top:160px;width:220px;height:30px">Stationary sibling</div>',
+  };
+  const fractionalRootCase: CorpusCase = {
+    id: "fractional-absolute-root",
+    title: "Fractional absolute text root authoring regression",
+    aspectRatio: "16:9",
+    slides: [fractionalRootSlide],
+  };
+  const fractionalRoot = {
+    corpusCase: fractionalRootCase,
+    slide: fractionalRootSlide,
+  };
+  const required: Array<
+    [
+      CorpusAuthoringSource["kind"],
+      CorpusAuthoringSource["testTarget"],
+      { corpusCase: CorpusCase; slide: CorpusSlide } | undefined,
+    ]
+  > = [
+    ["absolute", "absolute", absolute],
+    ["fractional-absolute-wrapper", "list", fractionalWrapper],
+    ["fractional-absolute-root", "absolute", fractionalRoot],
+    ["flex-grid", "flex-grid", flexGrid],
+    ["styled-list", "list", styledList],
+    ["styled-flex-bullet-row", "bullet-row", styledFlexBulletRow],
+    ["styled-paragraph-bullet-row", "bullet-row", styledParagraphBulletRow],
+    ["scaled", "any", scaled],
+    ["largest", "any", largest],
+  ];
+  const missing = required
+    .filter(([, , source]) => !source)
+    .map(([kind]) => kind);
+  if (missing.length) {
+    throw new CouldNotRun(
+      `authoring corpus lacks safe source slides for: ${missing.join(", ")}`,
+    );
+  }
+  return required.map(([kind, testTarget, source]) => ({
+    id: kind,
+    kind,
+    testTarget,
+    corpusCase: source!.corpusCase,
+    slide: source!.slide,
+  }));
 }
 
 // ---------------------------------------------------------------- server ---
@@ -248,6 +615,7 @@ async function startServer(): Promise<{
       "dev",
       "--port",
       String(port),
+      "--inspect=0",
     ],
     { cwd: WORKTREE_ROOT, detached: true, stdio: ["ignore", log, log] },
   );
@@ -292,9 +660,16 @@ async function startServer(): Promise<{
       throw new CouldNotRun(`dev server exited with ${exited}; see ${logPath}`);
     }
     try {
-      const res = await fetch(`${base}/`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      let res: Response;
+      try {
+        res = await fetch(`${base}/`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (res.status < 500) return { base, stop };
-      // coercion-ok: connection refused while the server boots; the loop's deadline fails loudly.
+      // coercion-ok: connection refusal or a slow cold start retries until the deadline fails loudly.
     } catch {
       // not listening yet
     }
@@ -321,29 +696,88 @@ async function action<T = any>(
   page: Page,
   name: string,
   body: Record<string, unknown>,
-  method: "GET" | "POST" = "POST",
+  method: "DELETE" | "GET" | "POST" = "POST",
+  timeoutMs = 30_000,
 ): Promise<T> {
-  const res = await page.evaluate(
-    async ({ name, body, method }: any) => {
+  const evaluation = page.evaluate(
+    async ({ name, body, method, timeoutMs }: any) => {
       const url =
         method === "GET"
           ? `/_agent-native/actions/${name}?${new URLSearchParams(body)}`
           : `/_agent-native/actions/${name}`;
-      const r = await fetch(url, {
+      const controller = new AbortController();
+      let timeoutId: number | undefined;
+      const request = fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: method === "GET" ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      })
+        .then(async (response) => ({
+          kind: "response" as const,
+          ok: response.ok,
+          status: response.status,
+          text: await response.text(),
+        }))
+        .catch((error) => ({
+          kind: "transport" as const,
+          ok: false,
+          status: 0,
+          text: `transport failure: ${String(error)}`,
+        }));
+      const timeout = new Promise<{
+        kind: "timeout";
+        ok: false;
+        status: 0;
+        text: string;
+      }>((resolve) => {
+        timeoutId = window.setTimeout(() => {
+          controller.abort();
+          resolve({
+            kind: "timeout" as const,
+            ok: false,
+            status: 0,
+            text: `timed out after ${timeoutMs}ms`,
+          });
+        }, timeoutMs);
       });
-      return { ok: r.ok, status: r.status, text: await r.text() };
+      try {
+        return await Promise.race([request, timeout]);
+      } finally {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      }
     },
-    { name, body, method },
+    { name, body, method, timeoutMs },
   );
-  if (!res.ok)
-    throw new Error(`${name} ${res.status}: ${res.text.slice(0, 400)}`);
-  return JSON.parse(res.text);
+  const res = await evaluation.catch((error: unknown) => {
+    if (isPlaywrightTargetTransportFailure(error)) {
+      throw new ActionTransportError(
+        `${name} action evaluation failed: ${String(error)}`,
+      );
+    }
+    throw error;
+  });
+  if (!res.ok) {
+    if (res.status === 0) {
+      if (res.kind === "timeout") {
+        throw new ActionRequestTimeoutError(
+          `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
+        );
+      }
+      throw new ActionTransportError(
+        `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
+      );
+    }
+    throw new ActionHttpError(name, res.status);
+  }
+  try {
+    return JSON.parse(res.text);
+  } catch {
+    throw new Error(`${name} returned a non-JSON response`);
+  }
 }
 
-async function getSlideContent(page: Page, deckId: string, slideId: string) {
+async function getSlideState(page: Page, deckId: string, slideId: string) {
   const deck = await action(
     page,
     "get-deck",
@@ -351,20 +785,52 @@ async function getSlideContent(page: Page, deckId: string, slideId: string) {
     "GET",
   );
   const slide = deck.slides?.find((s: any) => s.id === slideId);
-  if (!slide) throw new Error(`get-deck returned no slide ${slideId}`);
-  return String(slide.content);
+  if (!slide || typeof slide.contentHash !== "string") {
+    throw new Error(`get-deck returned no hashed slide ${slideId}`);
+  }
+  return { content: String(slide.content), contentHash: slide.contentHash };
+}
+
+async function getSlideContent(page: Page, deckId: string, slideId: string) {
+  return (await getSlideState(page, deckId, slideId)).content;
 }
 
 async function ensureSignedIn(page: Page) {
-  const status = () =>
-    page.evaluate(
-      async () =>
-        (await fetch("/_agent-native/actions/list-decks?limit=1")).status,
+  const requestStatus = async (url: string, method = "GET") => {
+    const timeoutMs = 30_000;
+    const result = await page.evaluate(
+      async ({ url, method, timeoutMs }: any) => {
+        const controller = new AbortController();
+        let timeoutId: number | undefined;
+        const request = fetch(url, {
+          method,
+          signal: controller.signal,
+        }).then((response) => ({ status: response.status }));
+        const timeout = new Promise<{ timedOut: true }>((resolve) => {
+          timeoutId = window.setTimeout(() => {
+            controller.abort();
+            resolve({ timedOut: true });
+          }, timeoutMs);
+        });
+        try {
+          return await Promise.race([request, timeout]);
+        } finally {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        }
+      },
+      { url, method, timeoutMs },
     );
+    if ("timedOut" in result) {
+      throw new CouldNotRun(
+        `${method === "GET" ? "GET " : "POST "}${url} timed out after ${timeoutMs}ms`,
+      );
+    }
+    return result.status;
+  };
+  const status = () =>
+    requestStatus("/_agent-native/actions/list-decks?limit=1");
   if ((await status()) === 200) return;
-  await page.evaluate(() =>
-    fetch("/_agent-native/auth/local-dev", { method: "POST" }),
-  );
+  await requestStatus("/_agent-native/auth/local-dev", "POST");
   const after = await status();
   if (after !== 200)
     throw new CouldNotRun(
@@ -373,7 +839,7 @@ async function ensureSignedIn(page: Page) {
 }
 
 async function settle(page: Page) {
-  await page.evaluate(async (css: string) => {
+  const settleState = await page.evaluate(async (css: string) => {
     if (!document.querySelector("style[data-edit-fidelity-mask]")) {
       const style = document.createElement("style");
       style.setAttribute("data-edit-fidelity-mask", "");
@@ -383,19 +849,61 @@ async function settle(page: Page) {
     // The renderer injects a webfont stylesheet per slide font, and a face
     // starts loading only once text using it lays out, so `fonts.ready` can
     // resolve before the slide's font was even requested (display=swap then
-    // paints the fallback). Bounded: an offline stylesheet never loads.
+    // paints the fallback). A failed font request can also leave it pending.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const stylesheetState = () => {
+      const links = Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      );
+      const failed = links.filter(
+        (link) => link.dataset.editFidelityLoadError === "true",
+      );
+      const pending = links.filter(
+        (link) => !link.sheet && !failed.includes(link),
+      );
+      return { failed, pending };
+    };
+    const currentState = (settled: boolean) => {
+      const stylesheets = stylesheetState();
+      return {
+        settled,
+        fonts: document.fonts.status,
+        pendingFontFaces: Array.from(document.fonts)
+          .filter((font) => font.status !== "loaded")
+          .slice(0, 10)
+          .map(
+            (font) =>
+              `${font.family} ${font.style} ${font.weight} (${font.status})`,
+          ),
+        pendingStylesheets: stylesheets.pending.length,
+        failedStylesheets: stylesheets.failed.map((link) => link.href),
+      };
+    };
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
+    let ready = false;
     for (let i = 0; i < 20; i++) {
-      await document.fonts.ready;
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
       await frame();
-      const sheetPending = Array.from(
-        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
-      ).some((link) => !link.sheet);
-      if (!sheetPending && document.fonts.status === "loaded") break;
+      const stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) {
+        return currentState(false);
+      }
+      if (
+        stylesheets.pending.length === 0 &&
+        document.fonts.status === "loaded"
+      ) {
+        ready = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!ready) {
+      return currentState(false);
     }
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
     // A broken image fires "error", never "load"; both views see the same one.
@@ -419,7 +927,20 @@ async function settle(page: Page) {
     await new Promise((r) =>
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
+    const finalState = currentState(true);
+    return {
+      ...finalState,
+      settled:
+        finalState.fonts === "loaded" &&
+        finalState.pendingStylesheets === 0 &&
+        finalState.failedStylesheets.length === 0,
+    };
   }, MASK_CSS);
+  if (!settleState.settled) {
+    throw new CouldNotRun(
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+    );
+  }
   // Autofit measures after paint; give it one more beat.
   await sleep(300);
 }
@@ -430,22 +951,74 @@ async function openSlide(
   deckId: string,
   index: number,
   slideId: string,
+  options: {
+    canvasTimeoutMs?: number;
+    initialOpenAsSetup?: boolean;
+    onNavigationStart?: () => void;
+    skipPointerMove?: boolean;
+  } = {},
 ) {
   for (let attempt = 0; ; attempt++) {
+    let failedStage: "navigation" | "canvas" = "navigation";
     try {
-      await page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
+      options.onNavigationStart?.();
+      const navigate = () =>
+        page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 90_000,
+        });
+      if (options.initialOpenAsSetup) {
+        await runSetupAsCouldNotRun(
+          "could not navigate to authoring fuzz slide",
+          navigate,
+        );
+      } else {
+        await navigate();
+      }
+      failedStage = "canvas";
+      await page.waitForSelector(canvasSelector(slideId), {
+        timeout: options.canvasTimeoutMs ?? 45_000,
       });
-      await page.waitForSelector(canvasSelector(slideId), { timeout: 45_000 });
       break;
     } catch (error) {
-      // A first load can 504 "Outdated Optimize Dep" and full-reload, and a
-      // loaded dev server can miss the navigation deadline.
-      if (attempt >= 2) throw error;
+      // The first route can race Vite dependency optimization; navigating
+      // again after its full reload uses the completed optimized dependency set.
+      if (attempt < 2) continue;
+      let pageState: unknown;
+      try {
+        pageState = await withTimeout(
+          "canvas wait diagnostics",
+          2_000,
+          page.evaluate(() => ({
+            url: location.href,
+            readyState: document.readyState,
+            title: document.title,
+            bodyText: document.body.innerText.slice(0, 500),
+            mainCanvasCount: document.querySelectorAll(
+              '[data-main-slide-canvas="true"]',
+            ).length,
+            slideCanvases: Array.from(
+              document.querySelectorAll<HTMLElement>(
+                '[data-main-slide-canvas="true"] [data-slide-canvas]',
+              ),
+            ).map((element) => ({
+              id: element.dataset.slideCanvas,
+              width: element.getBoundingClientRect().width,
+              height: element.getBoundingClientRect().height,
+            })),
+          })),
+        );
+      } catch (diagnosticError) {
+        pageState = `unavailable: ${String(diagnosticError)}`;
+      }
+      const detail = `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`;
+      if (error instanceof CouldNotRun && failedStage === "navigation") {
+        throw new CouldNotRun(`${error.message}\n${detail}`);
+      }
+      throw new Error(detail);
     }
   }
-  await page.mouse.move(0, 0);
+  if (!options.skipPointerMove) await page.mouse.move(0, 0);
   await settle(page);
 }
 
@@ -500,9 +1073,18 @@ async function enterEdit(
         window.__editFidelity.entryCaretProblem(p, how),
       [point, name] as const,
     );
-    if (entry)
+    // Some engines leave a click-aligned caret instead of selecting a word.
+    const caretFallback =
+      entry && name === "dblclick"
+        ? await page.evaluate(
+            (p: { x: number; y: number }) =>
+              window.__editFidelity.entryCaretProblem(p, "click"),
+            point,
+          )
+        : null;
+    if (entry && caretFallback)
       violations.push(
-        `entering edit put the caret away from the click (${entry})`,
+        `entering edit put the caret away from the click (${caretFallback})`,
       );
     // A double-click enters edit with its word selected, and typing would
     // replace that word; every scenario edits at a caret.
@@ -534,6 +1116,21 @@ async function exitEdit(
 }
 
 async function runChatTypingRegression(page: Page, base: string) {
+  const problems: string[] = [];
+  const submitRoute = /\/_agent-native\/agent-chat(?:\?.*)?$/;
+  let submitRequestSeen = false;
+  let resolveSubmitRequested!: () => void;
+  let releaseSubmit!: () => void;
+  let resolveSubmitRouteFinished!: () => void;
+  const submitRequested = new Promise<void>((resolve) => {
+    resolveSubmitRequested = resolve;
+  });
+  const submitGate = new Promise<void>((resolve) => {
+    releaseSubmit = resolve;
+  });
+  const submitRouteFinished = new Promise<void>((resolve) => {
+    resolveSubmitRouteFinished = resolve;
+  });
   await page.route("**/_agent-native/agent-engine/status", (route: any) =>
     route.fulfill({
       status: 200,
@@ -541,8 +1138,50 @@ async function runChatTypingRegression(page: Page, base: string) {
       body: JSON.stringify({ configured: true, chatEligible: true }),
     }),
   );
+  await page.route(submitRoute, async (route: any) => {
+    if (route.request().method() !== "POST") return route.continue();
+    submitRequestSeen = true;
+    resolveSubmitRequested();
+    try {
+      await submitGate;
+      await route.abort();
+    } finally {
+      resolveSubmitRouteFinished();
+    }
+  });
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
+  const initialSelection = await page.evaluate(async () => {
+    const target = document.createElement("div");
+    target.style.cssText =
+      "position:fixed;left:-10000px;top:0;pointer-events:none";
+    target.textContent = "abc def";
+    document.body.append(target);
+    const text = target.firstChild as Text;
+    const selection = window.getSelection();
+    selection?.setBaseAndExtent(text, 6, text, 1);
+    const source = "/app/components/editor/in-place-text-session.ts";
+    const { startInPlaceTextSession } = await import(source);
+    const session = startInPlaceTextSession(target);
+    const result = {
+      anchor: selection?.anchorOffset,
+      focus: selection?.focusOffset,
+      text: selection?.toString(),
+    };
+    session.end();
+    selection?.removeAllRanges();
+    target.remove();
+    return result;
+  });
+  if (
+    initialSelection.text !== "bc de" ||
+    initialSelection.anchor !== 6 ||
+    initialSelection.focus !== 1
+  ) {
+    problems.push(
+      `entering edit changed an initial backward selection (${JSON.stringify(initialSelection)})`,
+    );
+  }
   const created = await action(page, "create-deck", {
     title: "[edit-fidelity] chat typing regression",
     slides: [
@@ -554,77 +1193,4824 @@ async function runChatTypingRegression(page: Page, base: string) {
     ],
   });
   const deckId = String(created.id ?? created.deckId);
-  await openSlide(page, base, deckId, 0, "chat-typing-slide");
-  const [target] = await listTargets(page, "chat-typing-slide");
-  if (!target) throw new Error("synthetic slide has no editable text target");
-  if (!(await enterEdit(page, "chat-typing-slide", target.point, []))) {
-    throw new Error("could not open the synthetic slide text edit session");
-  }
+  try {
+    await openSlide(page, base, deckId, 0, "chat-typing-slide");
+    const [target] = await listTargets(page, "chat-typing-slide");
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    if (!(await enterEdit(page, "chat-typing-slide", target.point, []))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
 
-  await page.evaluate(() =>
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:open", { detail: { focus: true } }),
-    ),
-  );
-  const selector =
-    '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="editor-input"]';
-  const composer = page.locator(selector);
-  await composer.waitFor({ state: "visible", timeout: 45_000 });
-  if (!(await editorState(page, "chat-typing-slide")).editing) {
-    throw new Error(
-      "opening the Agent sidebar ended the slide text edit session",
+    await page.evaluate(() =>
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+      ),
     );
-  }
-  await page.waitForFunction(
-    (inputSelector: string) =>
-      document
-        .querySelector<HTMLElement>(inputSelector)
-        ?.getAttribute("contenteditable") === "true",
-    selector,
-    { timeout: 20_000 },
-  );
-  await composer.focus();
+    const selector =
+      '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="editor-input"]';
+    const composer = page.locator(selector);
+    await composer.waitFor({ state: "visible", timeout: 45_000 });
+    if (!(await editorState(page, "chat-typing-slide")).editing) {
+      throw new Error(
+        "opening the Agent sidebar ended the slide text edit session",
+      );
+    }
+    await page.waitForFunction(
+      (inputSelector: string) =>
+        document
+          .querySelector<HTMLElement>(inputSelector)
+          ?.getAttribute("contenteditable") === "true",
+      selector,
+      { timeout: 20_000 },
+    );
+    await composer.focus();
 
-  await composer.evaluate((element: HTMLElement) => {
-    (window as any).__typingRegressionComposer = element;
+    await composer.evaluate((element: HTMLElement) => {
+      (window as any).__typingRegressionComposer = element;
+    });
+
+    const first = "Fast typing should keep every character in order.";
+    const second = " A pause must not reset the caret either.";
+    await composer.pressSequentially(first);
+    await sleep(400);
+    await composer.pressSequentially(second);
+
+    const expected = first + second;
+    const result = await page.evaluate((selector: string) => {
+      const editor = document.querySelector<HTMLElement>(selector);
+      const selection = window.getSelection();
+      const focusNode = selection?.focusNode;
+      return {
+        text: editor?.innerText ?? null,
+        sameNode: editor === (window as any).__typingRegressionComposer,
+        focused: document.activeElement === editor,
+        caretOffset:
+          editor && focusNode && editor.contains(focusNode)
+            ? (selection?.focusOffset ?? null)
+            : null,
+      };
+    }, selector);
+    const editAfterTyping = await editorState(page, "chat-typing-slide");
+    if (result.text !== expected) {
+      problems.push(`text mismatch: ${JSON.stringify(result.text)}`);
+    }
+    if (!result.sameNode) problems.push("composer remounted while typing");
+    if (!result.focused) problems.push("composer lost focus while typing");
+    if (result.caretOffset !== expected.length) {
+      problems.push(
+        `caret ended at ${result.caretOffset}, expected ${expected.length}`,
+      );
+    }
+    if (!editAfterTyping.editing) {
+      problems.push("slide text edit session ended while typing in chat");
+    }
+
+    await composer.press(
+      process.platform === "darwin" ? "Meta+A" : "Control+A",
+    );
+    await composer.press("Backspace");
+    await composer.pressSequentially(
+      "Reply only with: local chat input lock check complete. Do not edit the deck.",
+    );
+    const sendButton = page.locator('[data-agent-composer-slot="send-button"]');
+    if (!(await sendButton.isEnabled())) {
+      problems.push("chat send button was disabled before submission");
+    } else {
+      await sendButton.click();
+      const requestStarted = await Promise.race([
+        submitRequested.then(() => true),
+        sleep(10_000).then(() => false),
+      ]);
+      if (!requestStarted) {
+        problems.push("chat submission did not reach the chat request");
+      } else {
+        if ((await composer.getAttribute("contenteditable")) !== "true") {
+          problems.push(
+            "chat editor was disabled while submission was pending",
+          );
+        }
+        const pendingDraft = "Draft typed while the first send is pending.";
+        try {
+          await composer.pressSequentially(pendingDraft, { delay: 100 });
+        } catch {
+          problems.push(
+            "keyboard input was rejected while submission was pending",
+          );
+        }
+        await sleep(250);
+        if ((await composer.getAttribute("contenteditable")) !== "true") {
+          problems.push("chat editor became disabled while typing was pending");
+        }
+        const pendingText = await composer.innerText();
+        if (pendingText !== pendingDraft) {
+          problems.push(
+            `pending draft mismatch: ${JSON.stringify(pendingText)}`,
+          );
+        }
+        if (await sendButton.isEnabled()) {
+          problems.push("chat send button stayed enabled during submission");
+        }
+        await page.screenshot({
+          path: path.join(outRoot, "chat-input-lock-pending.png"),
+        });
+      }
+    }
+    return problems;
+  } finally {
+    releaseSubmit();
+    if (submitRequestSeen) {
+      const routeDrained = await Promise.race([
+        submitRouteFinished.then(() => true),
+        sleep(5000).then(() => false),
+      ]);
+      if (routeDrained) await page.unroute(submitRoute);
+    }
+    // Keep interception installed if preflight timed out; the delayed send must not escape.
+    await action(page, "delete-deck", { id: deckId }, "DELETE");
+  }
+}
+
+async function runMobileImportStatusRegression(page: Page, base: string) {
+  const problems: string[] = [];
+  const importedDeckId = "mobile-import-status-success";
+  const importedDeck = {
+    id: importedDeckId,
+    title: "Mobile import status regression",
+    createdAt: "2026-10-08T00:00:00.000Z",
+    updatedAt: "2026-10-08T00:00:00.000Z",
+    visibility: "private",
+    createdByMe: true,
+    aspectRatio: "16:9",
+    slides: [
+      {
+        id: "mobile-import-status-slide",
+        content: "<div>Imported slide</div>",
+        layout: "title",
+        notes: "",
+      },
+    ],
+  };
+  const fixturePath = path.join(
+    WORKTREE_ROOT,
+    "packages/creative-context/src/eval/fixtures/launch-system-v1.pptx",
+  );
+  if (!existsSync(fixturePath)) {
+    throw new CouldNotRun(`PowerPoint fixture is missing: ${fixturePath}`);
+  }
+
+  let uploadRequestSeen = false;
+  let importRequestSeen = false;
+  let releaseUpload!: () => void;
+  let releaseImport!: () => void;
+  let finishUploadRoute!: () => void;
+  let finishImportRoute!: () => void;
+  let resolveUploadStarted!: () => void;
+  let resolveImportStarted!: () => void;
+  const uploadGate = new Promise<void>((resolve) => {
+    releaseUpload = resolve;
+  });
+  const importGate = new Promise<void>((resolve) => {
+    releaseImport = resolve;
+  });
+  const uploadRouteFinished = new Promise<void>((resolve) => {
+    finishUploadRoute = resolve;
+  });
+  const importRouteFinished = new Promise<void>((resolve) => {
+    finishImportRoute = resolve;
+  });
+  const uploadStarted = new Promise<void>((resolve) => {
+    resolveUploadStarted = resolve;
+  });
+  const importStarted = new Promise<void>((resolve) => {
+    resolveImportStarted = resolve;
   });
 
-  const first = "Fast typing should keep every character in order.";
-  const second = " A pause must not reset the caret either.";
-  await composer.pressSequentially(first);
-  await sleep(400);
-  await composer.pressSequentially(second);
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.route("**/_agent-native/actions/*", async (route: any) => {
+    const request = route.request();
+    if (request.method() !== "GET") return route.continue();
+    const actionPath = new URL(request.url()).pathname;
+    const body =
+      actionPath === "/_agent-native/actions/list-decks"
+        ? { count: 1, decks: [importedDeck] }
+        : actionPath === "/_agent-native/actions/get-deck"
+          ? importedDeck
+          : actionPath === "/_agent-native/actions/get-deck-access-status"
+            ? {
+                exists: true,
+                hasAccess: true,
+                signedIn: true,
+                viewerEmail: null,
+                viewerName: null,
+                role: "owner",
+                visibility: "private",
+              }
+            : null;
+    if (body === null) return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+  await page.route("**/api/uploads", async (route: any) => {
+    if (route.request().method() !== "POST") return route.continue();
+    uploadRequestSeen = true;
+    resolveUploadStarted();
+    try {
+      await uploadGate;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            path: "uploads/mobile-import-status.pptx",
+            originalName: path.basename(fixturePath),
+            filename: "mobile-import-status.pptx",
+            type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 10_352,
+          },
+        ]),
+      });
+    } finally {
+      finishUploadRoute();
+    }
+  });
+  await page.route(
+    "**/_agent-native/actions/import-pptx",
+    async (route: any) => {
+      if (route.request().method() !== "POST") return route.continue();
+      importRequestSeen = true;
+      resolveImportStarted();
+      try {
+        await importGate;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: importedDeckId,
+            imported: true,
+            slideCount: 1,
+          }),
+        });
+      } finally {
+        finishImportRoute();
+      }
+    },
+  );
 
-  const expected = first + second;
-  const result = await page.evaluate((selector: string) => {
-    const editor = document.querySelector<HTMLElement>(selector);
-    const selection = window.getSelection();
-    const focusNode = selection?.focusNode;
-    return {
-      text: editor?.innerText ?? null,
-      sameNode: editor === (window as any).__typingRegressionComposer,
-      focused: document.activeElement === editor,
-      caretOffset:
-        editor && focusNode && editor.contains(focusNode)
-          ? (selection?.focusOffset ?? null)
-          : null,
-    };
-  }, selector);
-  const editAfterTyping = await editorState(page, "chat-typing-slide");
-  const problems: string[] = [];
-  if (result.text !== expected) {
-    problems.push(`text mismatch: ${JSON.stringify(result.text)}`);
+  try {
+    await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await ensureSignedIn(page);
+    await page.getByRole("button", { name: "Import" }).waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.getByRole("status").first().waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    const idleStatus = page.locator(
+      ".slides-home-mobile-toolbar .slides-home-import-status",
+    );
+    await idleStatus.waitFor({ state: "attached", timeout: 10_000 });
+    const idleStatusLayout = await idleStatus.evaluate((element: Element) => {
+      const style = getComputedStyle(element);
+      return {
+        position: style.position,
+        width: element.getBoundingClientRect().width,
+      };
+    });
+    if (
+      idleStatusLayout.position !== "absolute" ||
+      idleStatusLayout.width > 1
+    ) {
+      problems.push(
+        "empty mobile live region took space beside the import button",
+      );
+    }
+    const fileChooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Import" }).click();
+    await page.getByRole("menuitem", { name: "PPT" }).click();
+    await (await fileChooser).setFiles(fixturePath);
+
+    const uploadReached = await Promise.race([
+      uploadStarted.then(() => true),
+      sleep(10_000).then(() => false),
+    ]);
+    if (!uploadReached) {
+      throw new Error("PowerPoint import did not begin a file upload");
+    }
+
+    const status = page.locator(
+      ".slides-home-mobile-toolbar .slides-home-import-status",
+    );
+    const importButton = page.getByRole("button", { name: "Importing..." });
+    let statusVisible = false;
+    try {
+      await status.waitFor({ state: "visible", timeout: 10_000 });
+      statusVisible = true;
+    } catch {
+      problems.push(
+        "mobile import status was not visible while the upload was pending",
+      );
+    }
+    if (statusVisible && (await status.innerText()) !== "Importing...") {
+      problems.push("mobile import status did not show Importing...");
+    }
+    if (statusVisible) {
+      const visibleStatusLayout = await status.evaluate((element: Element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          position: style.position,
+          clip: style.clip,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+      if (
+        visibleStatusLayout.position === "absolute" ||
+        visibleStatusLayout.clip !== "auto" ||
+        visibleStatusLayout.width <= 1 ||
+        visibleStatusLayout.height <= 1
+      ) {
+        problems.push("mobile import status remained visually clipped");
+      }
+    }
+    if (
+      await page
+        .locator(".slides-home-mobile-toolbar .slides-home-import-label")
+        .isVisible()
+    ) {
+      problems.push("mobile import button label remained visible while busy");
+    }
+    if (!(await importButton.isDisabled())) {
+      problems.push(
+        "import button was not disabled while the upload was pending",
+      );
+    }
+
+    releaseUpload();
+    await uploadRouteFinished;
+    const actionReached = await Promise.race([
+      importStarted.then(() => true),
+      sleep(10_000).then(() => false),
+    ]);
+    if (!actionReached) {
+      throw new Error("PowerPoint import did not reach the import action");
+    }
+    if (!(await status.isVisible())) {
+      problems.push(
+        "mobile import status disappeared while the import action was pending",
+      );
+    }
+    if (!(await importButton.isDisabled())) {
+      problems.push(
+        "import button was enabled while the import action was pending",
+      );
+    }
+
+    const importResponsePromise = page.waitForResponse(
+      (response: { url(): string; request(): { method(): string } }) =>
+        response.url().includes("/_agent-native/actions/import-pptx") &&
+        response.request().method() === "POST",
+      { timeout: 10_000 },
+    );
+    releaseImport();
+    await importRouteFinished;
+    const importResponse = await importResponsePromise;
+    if (!importResponse.ok()) {
+      problems.push("PowerPoint import action did not return success");
+    } else {
+      const result = await importResponse.json();
+      if (
+        result?.id !== importedDeckId ||
+        result?.imported !== true ||
+        result?.slideCount !== 1
+      ) {
+        problems.push(
+          "PowerPoint import action returned an invalid success result",
+        );
+      }
+    }
+    try {
+      await page.waitForURL(`**/deck/${importedDeckId}`, { timeout: 10_000 });
+    } catch {
+      problems.push("successful import did not open its new deck");
+    }
+    try {
+      await page.locator("[data-slides-editor-root]").waitFor({
+        state: "visible",
+        timeout: 10_000,
+      });
+    } catch {
+      problems.push(
+        "imported deck editor did not load after successful import",
+      );
+    }
+    return problems;
+  } finally {
+    releaseUpload();
+    releaseImport();
+    for (const [seen, finished, label] of [
+      [uploadRequestSeen, uploadRouteFinished, "upload"],
+      [importRequestSeen, importRouteFinished, "import action"],
+    ] as const) {
+      if (seen) {
+        const routeDrained = await Promise.race([
+          finished.then(() => true),
+          sleep(5000).then(() => false),
+        ]);
+        if (!routeDrained) {
+          throw new Error(`PowerPoint ${label} interception did not finish`);
+        }
+      }
+    }
+    await page.unroute("**/_agent-native/actions/import-pptx");
+    await page.unroute("**/_agent-native/actions/*");
+    await page.unroute("**/api/uploads");
   }
-  if (!result.sameNode) problems.push("composer remounted while typing");
-  if (!result.focused) problems.push("composer lost focus while typing");
-  if (result.caretOffset !== expected.length) {
+}
+
+async function runImeEscapeRegression(
+  page: Page,
+  base: string,
+  outRoot: string,
+) {
+  await page.addInitScript(() => {
+    const events: any[] = [];
+    (window as any).__imeEscapeEvents = events;
+    for (const type of [
+      "compositionstart",
+      "beforeinput",
+      "input",
+      "compositionend",
+      "keydown",
+    ]) {
+      window.addEventListener(
+        type,
+        (event) => {
+          const input = event as InputEvent;
+          const key = event as KeyboardEvent;
+          events.push({
+            type,
+            key: key.key,
+            keyCode: key.keyCode,
+            data: input.data,
+            inputType: input.inputType,
+            isComposing: input.isComposing,
+            trusted: event.isTrusted,
+            targetIsEditingBlock:
+              event.target instanceof Element &&
+              event.target.matches(
+                '[contenteditable="true"][data-editing-block="true"]',
+              ),
+          });
+        },
+        true,
+      );
+    }
+  });
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const slideId = "ime-escape-slide";
+  const created = await action(page, "create-deck", {
+    title: "[edit-fidelity] IME Escape regression",
+    slides: [
+      {
+        id: slideId,
+        content: '<div class="fmd-slide"><p>Composition target</p></div>',
+      },
+    ],
+  });
+  const deckId = String(created.id ?? created.deckId);
+  let detach: (() => Promise<void>) | undefined;
+  try {
+    await openSlide(page, base, deckId, 0, slideId);
+    const [target] = await listTargets(page, slideId);
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    const entryProblems: string[] = [];
+    if (!(await enterEdit(page, slideId, target.point, entryProblems))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
+    const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+    const editor = page.locator(selector);
+    await editor.focus();
+    await page.keyboard.press(lineEndKey);
+    const cdp = await page.context().newCDPSession(page);
+    detach = () => cdp.detach();
+    await cdp.send("Input.imeSetComposition", {
+      text: "に",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    const composingText = await editor.innerText();
+    await page.screenshot({
+      path: path.join(outRoot, "ime-composition-active.png"),
+    });
+    await page.keyboard.press("Escape");
+    const editingAfterComposingEscape = await editorState(page, slideId);
+    if (!editingAfterComposingEscape.editing) {
+      throw new Error(
+        "Escape during IME composition exited inline text editing",
+      );
+    }
+    // Headless Chromium has no platform IME to consume Escape. Cancel through
+    // the same CDP input domain after checking that Escape left editing active.
+    await cdp.send("Input.imeSetComposition", {
+      text: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    });
+    await waitFor(
+      () =>
+        page.evaluate(() =>
+          (window as any).__imeEscapeEvents.some(
+            (event: any) =>
+              event.type === "compositionend" && event.targetIsEditingBlock,
+          ),
+        ),
+      2000,
+    );
+    await sleep(100);
+    const editState = await editorState(page, slideId);
+    const afterEscapeText = await page
+      .locator(`${canvasSelector(slideId)} [data-slide-text-block="true"]`)
+      .first()
+      .innerText();
+    const events = await page.evaluate(() => (window as any).__imeEscapeEvents);
+    const editorEvents = events.filter(
+      (event: any) => event.targetIsEditingBlock,
+    );
+    const escape = editorEvents.find(
+      (event: any) => event.type === "keydown" && event.key === "Escape",
+    );
+    const problems = [...entryProblems];
+    if (
+      !editorEvents.some(
+        (event: any) => event.type === "compositionstart" && event.trusted,
+      )
+    ) {
+      problems.push(
+        "Chromium did not deliver a trusted compositionstart event",
+      );
+    }
+    if (
+      !editorEvents.some(
+        (event: any) =>
+          event.type === "beforeinput" &&
+          event.inputType === "insertCompositionText" &&
+          event.isComposing &&
+          event.trusted,
+      )
+    ) {
+      problems.push("Chromium did not deliver trusted composing beforeinput");
+    }
+    if (!escape?.isComposing && escape?.keyCode !== 229) {
+      problems.push(
+        "Escape was not delivered while Chromium reported composition active",
+      );
+    }
+    if (!events.some((event: any) => event.type === "compositionend")) {
+      problems.push("composition Escape did not end the active composition");
+    }
+    if (!composingText.endsWith("に")) {
+      problems.push(
+        `IME candidate was not visible in the editor: ${JSON.stringify(composingText)}`,
+      );
+    }
+    if (!editState.editing || !editingAfterComposingEscape.editing) {
+      problems.push("Escape during IME composition exited inline text editing");
+    }
+    if (afterEscapeText !== "Composition target") {
+      problems.push(
+        `composing Escape did not cancel the candidate: ${JSON.stringify(afterEscapeText)}`,
+      );
+    }
+    await page.screenshot({
+      path: path.join(outRoot, "ime-composition-after-escape.png"),
+    });
+    if (editState.editing) {
+      await page.keyboard.press("Escape");
+      if (
+        !(await waitFor(
+          async () => !(await editorState(page, slideId)).editing,
+          5000,
+        ))
+      ) {
+        problems.push(
+          "a non-composing Escape did not exit inline text editing",
+        );
+      }
+    }
+    return problems;
+  } finally {
+    try {
+      await detach?.();
+    } finally {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    }
+  }
+}
+
+async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
+  const problems: string[] = [];
+  const usesChromiumIme = browserName === "chromium";
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const normalizeText = (text: string) =>
+    text
+      .replace(/\u200b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const slideText = (html: string) =>
+    page.evaluate((content: string) => {
+      const element = document.createElement("div");
+      element.innerHTML = content;
+      for (const lineBreak of element.querySelectorAll("br")) {
+        lineBreak.replaceWith(" ");
+      }
+      element.style.cssText = "position:fixed;left:-100000px;top:0";
+      document.body.append(element);
+      try {
+        return element.innerText;
+      } finally {
+        element.remove();
+      }
+    }, html);
+  const slideOne = "text-surface-slide-one";
+  const slideTwo = "text-surface-slide-two";
+  if (browserName === "chromium") {
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(base).origin,
+      });
+  }
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const blockText = await slideText("<p>First<br>line</p><p>Second</p>");
+  if (normalizeText(blockText) !== "First line Second") {
     problems.push(
-      `caret ended at ${result.caretOffset}, expected ${expected.length}`,
+      `slide text: saved block markup produced ${JSON.stringify(blockText)}`,
     );
   }
-  if (!editAfterTyping.editing) {
-    problems.push("slide text edit session ended while typing in chat");
+  const title = `[edit-fidelity] text surface QA ${Date.now()}`;
+  const created = await action(page, "create-deck", {
+    title,
+    slides: [
+      {
+        id: slideOne,
+        content: '<div class="fmd-slide"><p>Rapid typing target</p></div>',
+      },
+      {
+        id: slideTwo,
+        content: '<div class="fmd-slide"><p>Second slide target</p></div>',
+      },
+    ],
+  });
+  const deckId = String(created.id ?? created.deckId);
+  const readDeck = () =>
+    action<any>(page, "get-deck", { id: deckId, compact: "false" }, "GET");
+  const surfaceText = (locator: any) => locator.inputValue();
+  const waitForText = (locator: any, expected: string) =>
+    waitFor(async () => (await surfaceText(locator)) === expected, 4000, 50);
+  const emitComposition = async (
+    locator: any,
+    type:
+      | "compositionstart"
+      | "compositionupdate"
+      | "compositionend"
+      | "beforeinput",
+    data: string,
+  ) =>
+    locator.evaluate(
+      (element: HTMLElement, event: { type: string; data: string }) => {
+        const input = new InputEvent(event.type, {
+          bubbles: true,
+          cancelable: event.type === "beforeinput",
+          data: event.data,
+          inputType:
+            event.type === "beforeinput" ? "insertCompositionText" : "",
+          isComposing:
+            event.type === "beforeinput" || event.type !== "compositionend",
+        });
+        if (event.type.startsWith("composition")) {
+          element.dispatchEvent(
+            new CompositionEvent(event.type, {
+              bubbles: true,
+              data: event.data,
+            }),
+          );
+        } else {
+          element.dispatchEvent(input);
+        }
+      },
+      { type, data },
+    );
+  const emitComposingEscape = async (locator: any) =>
+    locator.evaluate((element: HTMLElement) => {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Escape",
+        code: "Escape",
+        isComposing: true,
+        keyCode: 229,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  const composingEscape = async (locator: any, label: string) => {
+    const cdp = usesChromiumIme
+      ? await page.context().newCDPSession(page)
+      : null;
+    const before = await surfaceText(locator);
+    await locator.focus();
+    await locator.evaluate(
+      (element: HTMLInputElement | HTMLTextAreaElement) => {
+        element.setSelectionRange(element.value.length, element.value.length);
+      },
+    );
+    await locator.evaluate((element: HTMLElement) => {
+      (window as any).__textSurfaceCompositionEvents = [];
+      for (const type of [
+        "compositionstart",
+        "beforeinput",
+        "compositionend",
+        "keydown",
+      ]) {
+        element.addEventListener(type, (event) => {
+          const input = event as InputEvent;
+          const key = event as KeyboardEvent;
+          (window as any).__textSurfaceCompositionEvents.push({
+            type,
+            key: key.key,
+            keyCode: key.keyCode,
+            data: input.data,
+            inputType: input.inputType,
+            isComposing: input.isComposing,
+            trusted: event.isTrusted,
+          });
+        });
+      }
+    });
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "に",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+    } else {
+      await emitComposition(locator, "compositionstart", "に");
+      await locator.fill(`${before}に`);
+      await emitComposition(locator, "beforeinput", "に");
+    }
+    const candidateVisible = await waitForText(locator, `${before}に`);
+    if (!candidateVisible) {
+      const failedCandidate = await locator.evaluate(
+        (element: HTMLInputElement | HTMLTextAreaElement) => ({
+          value: element.value,
+          caret: element.selectionStart,
+          focused: document.activeElement === element,
+        }),
+      );
+      const events = await page.evaluate(
+        () => (window as any).__textSurfaceCompositionEvents ?? [],
+      );
+      problems.push(
+        `${label}: Chromium did not show the active IME candidate ${JSON.stringify({ before, failedCandidate, events })}`,
+      );
+      if (cdp) {
+        await cdp.send("Input.imeSetComposition", {
+          text: "",
+          selectionStart: 0,
+          selectionEnd: 0,
+        });
+      } else {
+        await locator.fill(before);
+        await emitComposition(locator, "compositionend", "");
+      }
+      await waitFor(
+        () =>
+          page.evaluate(() =>
+            (window as any).__textSurfaceCompositionEvents?.some(
+              (event: any) => event.type === "compositionend",
+            ),
+          ),
+        2000,
+      );
+      await cdp?.detach();
+      return await locator.isVisible();
+    }
+    if (cdp) await locator.press("Escape");
+    else await emitComposingEscape(locator);
+    const remainsOpen = await locator.isVisible();
+    if (!remainsOpen) {
+      problems.push(
+        `${label}: Escape closed the editor during IME composition`,
+      );
+      await cdp?.detach();
+      return false;
+    }
+    const escape = await page.evaluate(() =>
+      (window as any).__textSurfaceCompositionEvents?.find(
+        (event: any) => event.type === "keydown" && event.key === "Escape",
+      ),
+    );
+    if (!escape?.isComposing && escape?.keyCode !== 229) {
+      problems.push(`${label}: Escape was not delivered during composition`);
+    }
+    // Headless Chromium has no platform IME to consume Escape. Cancel through
+    // the same CDP input domain after asserting the app left the field mounted.
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+      });
+    } else {
+      await locator.fill(before);
+      await emitComposition(locator, "compositionend", "");
+    }
+    await waitFor(
+      () =>
+        page.evaluate(() =>
+          (window as any).__textSurfaceCompositionEvents?.some(
+            (event: any) => event.type === "compositionend",
+          ),
+        ),
+      2000,
+    );
+    const after = await surfaceText(locator);
+    if (after !== before) {
+      problems.push(`${label}: Escape did not cancel the candidate cleanly`);
+    }
+    const events = await page.evaluate(
+      () => (window as any).__textSurfaceCompositionEvents ?? [],
+    );
+    if (
+      !events.some(
+        (event: any) =>
+          event.type === "compositionstart" &&
+          (usesChromiumIme ? event.trusted : !event.trusted),
+      ) ||
+      !events.some(
+        (event: any) =>
+          event.type === "beforeinput" &&
+          event.isComposing &&
+          (usesChromiumIme ? event.trusted : !event.trusted),
+      ) ||
+      !events.some((event: any) => event.type === "compositionend")
+    ) {
+      problems.push(`${label}: Escape did not end the active composition`);
+    }
+    await cdp?.detach();
+    return remainsOpen;
+  };
+  const exerciseControl = async (
+    locator: any,
+    label: string,
+    multiline: boolean,
+  ) => {
+    await locator.waitFor({ state: "visible", timeout: 10_000 });
+    await locator.focus();
+    const key = `text-surface-${label}`;
+    await locator.evaluate(
+      (element: HTMLInputElement | HTMLTextAreaElement, ref: string) => {
+        (window as any).__textSurfaceRefs ??= {};
+        (window as any).__textSurfaceRefs[ref] = element;
+        element.setSelectionRange(element.value.length, element.value.length);
+      },
+      key,
+    );
+    const start = await surfaceText(locator);
+    await page.evaluate(
+      (text: string) => navigator.clipboard.writeText(text),
+      " paste",
+    );
+    await locator.press(`${modifier}+V`);
+    let expected = `${start} paste`;
+    if (!(await waitForText(locator, expected))) {
+      problems.push(
+        `${label}: native clipboard paste did not land at the caret`,
+      );
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, start))) {
+      problems.push(
+        `${label}: undo produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(start)}`,
+      );
+    }
+    await locator.press(`${modifier}+Shift+Z`);
+    if (!(await waitForText(locator, expected))) {
+      problems.push(`${label}: redo did not restore the paste`);
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, start))) {
+      problems.push(`${label}: undo did not restore the pre-paste text`);
+    }
+
+    await locator.evaluate((element: HTMLInputElement | HTMLTextAreaElement) =>
+      element.setSelectionRange(element.value.length, element.value.length),
+    );
+    expected = start;
+    await locator.pressSequentially(" fast");
+    await sleep(600);
+    await locator.pressSequentially(" pause");
+    expected = `${start} fast pause`;
+    if (!(await waitForText(locator, expected))) {
+      problems.push(
+        `${label}: rapid typing produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
+      );
+    }
+    if (multiline) {
+      await locator.press("Enter");
+      await locator.pressSequentially("lineX");
+      await locator.press("Backspace");
+      await locator.pressSequentially("2");
+      expected += "\nline2";
+      if (!(await waitForText(locator, expected))) {
+        problems.push(
+          `${label}: Enter or Backspace produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
+        );
+      }
+    } else {
+      await locator.press("Backspace");
+      expected = expected.slice(0, -1);
+      await locator.pressSequentially("e");
+      expected += "e";
+      if (!(await waitForText(locator, expected))) {
+        problems.push(
+          `${label}: Backspace sequence produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(expected)}`,
+        );
+      }
+    }
+
+    const cdp = usesChromiumIme
+      ? await page.context().newCDPSession(page)
+      : null;
+    await locator.press(lineEndKey);
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "に",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+    } else {
+      await emitComposition(locator, "compositionstart", "に");
+      await locator.fill(`${expected}に`);
+      await emitComposition(locator, "beforeinput", "に");
+    }
+    if (!(await waitForText(locator, `${expected}に`))) {
+      problems.push(`${label}: IME composition did not update the text`);
+    }
+    if (cdp) {
+      await cdp.send("Input.insertText", { text: "日" });
+    } else {
+      await locator.fill(`${expected}日`);
+      await emitComposition(locator, "compositionend", "日");
+    }
+    expected += "日";
+    if (!(await waitForText(locator, expected))) {
+      problems.push(`${label}: IME commit changed the text unexpectedly`);
+    }
+    const state = await locator.evaluate(
+      (element: HTMLInputElement | HTMLTextAreaElement, ref: string) => ({
+        value: element.value,
+        caret: element.selectionStart,
+        focused: document.activeElement === element,
+        sameNode: element === (window as any).__textSurfaceRefs?.[ref],
+      }),
+      key,
+    );
+    if (state.value !== expected)
+      problems.push(`${label}: final value did not match the typed text`);
+    if (state.caret !== expected.length)
+      problems.push(
+        `${label}: caret ended at ${state.caret}, expected ${expected.length}`,
+      );
+    if (!state.focused) problems.push(`${label}: typing lost focus`);
+    if (!state.sameNode)
+      problems.push(`${label}: input DOM node was replaced while typing`);
+    await cdp?.detach();
+    return expected;
+  };
+
+  try {
+    await openSlide(page, base, deckId, 0, slideOne);
+    const [target] = await listTargets(page, slideOne);
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    if (!(await enterEdit(page, slideOne, target.point, []))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
+    const editorSelector = `${canvasSelector(slideOne)} [contenteditable="true"][data-editing-block="true"]`;
+    const editor = page.locator(editorSelector);
+    const original = await editor.innerText();
+    await editor.evaluate((element: HTMLElement) => {
+      (window as any).__textSurfaceSlideEditor = element;
+    });
+    await editor.press(lineEndKey);
+    await editor.pressSequentially(" fast");
+    await sleep(400);
+    await editor.pressSequentially(" pause");
+    let expectedSlideText = `${original} fast pause`;
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: rapid typing and debounce pause changed the text",
+      );
+    }
+    const beforeCaretKeys = expectedSlideText;
+    await editor.press(lineStartKey);
+    await editor.pressSequentially("Caret start ");
+    expectedSlideText = `Caret start ${beforeCaretKeys}`;
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-start key did not put the caret at the line start",
+      );
+    }
+    const caretInside = async () =>
+      editor.evaluate((element: HTMLElement) => {
+        const focus = window.getSelection()?.focusNode;
+        return Boolean(focus && element.contains(focus));
+      });
+    if (!(await caretInside())) {
+      problems.push(
+        "slide text: line-start key moved the caret outside the editor",
+      );
+    }
+    await editor.press(lineEndKey);
+    await editor.pressSequentially(" caret end");
+    expectedSlideText += " caret end";
+    if ((await editor.innerText()) !== expectedSlideText) {
+      problems.push(
+        "slide text: line-end key did not put the caret at the line end",
+      );
+    }
+    if (!(await caretInside())) {
+      problems.push(
+        "slide text: line-end key moved the caret outside the editor",
+      );
+    }
+    const titleInput = page
+      .locator('[data-slides-editor-root="true"] input[type="text"]')
+      .first();
+    await titleInput.focus();
+    await editor.focus();
+    await editor.pressSequentially(" focus");
+    expectedSlideText += " focus";
+    const afterRefocus = await editor.innerText();
+    if (afterRefocus !== expectedSlideText) {
+      problems.push(
+        `slide text: focus loss and return changed it to ${JSON.stringify(afterRefocus)}`,
+      );
+    }
+    await page.screenshot({
+      path: path.join(outRoot, "slide-text-focus-return.png"),
+      fullPage: true,
+    });
+    const backwardsSelection = await editor.evaluate((element: HTMLElement) => {
+      const nodes: Text[] = [];
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        nodes.push(node as Text);
+      }
+      const pointAt = (offset: number): [Text, number] | null => {
+        let remaining = offset;
+        for (const node of nodes) {
+          if (remaining <= node.length) return [node, remaining];
+          remaining -= node.length;
+        }
+        return null;
+      };
+      const length = nodes.reduce((total, node) => total + node.length, 0);
+      const end = pointAt(length);
+      const start = pointAt(length - 5);
+      if (!start || !end) return false;
+      const [endNode, endOffset] = end;
+      const [startNode, startOffset] = start;
+      const selection = window.getSelection();
+      selection?.setBaseAndExtent(endNode, endOffset, startNode, startOffset);
+      return selection?.toString() === "focus";
+    });
+    if (!backwardsSelection) {
+      problems.push(
+        "slide text: could not make the backwards selection target",
+      );
+    } else {
+      await titleInput.focus();
+      await editor.focus();
+      const restoredSelection = await editor.evaluate(
+        (element: HTMLElement) => {
+          const selection = window.getSelection();
+          if (!selection?.anchorNode || !selection.focusNode) return null;
+          const offset = (node: Node, nodeOffset: number) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.setEnd(node, nodeOffset);
+            return range.toString().length;
+          };
+          return {
+            anchor: offset(selection.anchorNode, selection.anchorOffset),
+            focus: offset(selection.focusNode, selection.focusOffset),
+            text: selection.toString(),
+          };
+        },
+      );
+      if (
+        !restoredSelection ||
+        restoredSelection.anchor <= restoredSelection.focus ||
+        restoredSelection.text !== "focus"
+      ) {
+        problems.push(
+          `slide text: refocus changed backwards selection direction (${JSON.stringify(restoredSelection)})`,
+        );
+      } else {
+        await editor.press("Shift+ArrowLeft");
+        const extendedSelection = await editor.evaluate(
+          (element: HTMLElement) => {
+            const selection = window.getSelection();
+            if (!selection?.anchorNode || !selection.focusNode) return null;
+            const offset = (node: Node, nodeOffset: number) => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              range.setEnd(node, nodeOffset);
+              return range.toString().length;
+            };
+            return {
+              anchor: offset(selection.anchorNode, selection.anchorOffset),
+              focus: offset(selection.focusNode, selection.focusOffset),
+              text: selection.toString(),
+            };
+          },
+        );
+        if (
+          !extendedSelection ||
+          extendedSelection.anchor <= extendedSelection.focus ||
+          extendedSelection.text !== " focus"
+        ) {
+          problems.push(
+            `slide text: Shift+ArrowLeft did not extend the backwards selection (${JSON.stringify(extendedSelection)})`,
+          );
+        }
+      }
+    }
+    const clickPoint = await editor.evaluate((element: HTMLElement) => {
+      const text = document
+        .createTreeWalker(element, NodeFilter.SHOW_TEXT)
+        .nextNode() as Text | null;
+      if (!text || text.length < 4) return null;
+      const range = document.createRange();
+      range.setStart(text, 2);
+      range.setEnd(text, 3);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.right - 0.5, y: rect.top + rect.height / 2 };
+    });
+    await titleInput.focus();
+    if (clickPoint) {
+      await page.mouse.click(clickPoint.x, clickPoint.y);
+      const caretOffset = await editor.evaluate((element: HTMLElement) => {
+        const selection = window.getSelection();
+        const range =
+          selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
+        if (!range || !element.contains(range.startContainer)) return null;
+        const before = document.createRange();
+        before.selectNodeContents(element);
+        before.setEnd(range.startContainer, range.startOffset);
+        return before.toString().length;
+      });
+      if (caretOffset === null || caretOffset < 1 || caretOffset > 4) {
+        problems.push(
+          `slide text: pointer re-entry landed at ${caretOffset}, outside the clicked word`,
+        );
+      }
+      await editor.pressSequentially(" click");
+      if (caretOffset !== null) {
+        const pointerExpected =
+          expectedSlideText.slice(0, caretOffset) +
+          " click" +
+          expectedSlideText.slice(caretOffset);
+        const afterPointerClick = await editor.innerText();
+        if (afterPointerClick !== pointerExpected) {
+          problems.push(
+            `slide text: pointer re-entry inserted at the wrong caret (${JSON.stringify(afterPointerClick)})`,
+          );
+        }
+        expectedSlideText = pointerExpected;
+      }
+    } else {
+      problems.push("slide text: could not locate the pointer re-entry target");
+    }
+    await editor.press(lineEndKey);
+    await page.evaluate(
+      (text: string) => navigator.clipboard.writeText(text),
+      " paste",
+    );
+    await editor.press(`${modifier}+V`);
+    expectedSlideText += " paste";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: paste produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await editor.press(`${modifier}+Z`);
+    expectedSlideText = expectedSlideText.slice(0, -6);
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: undo produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await editor.press(`${modifier}+Shift+Z`);
+    expectedSlideText += " paste";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: redo produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await editor.press(lineEndKey);
+    await editor.press("Enter");
+    await editor.pressSequentially("lineX");
+    await editor.press("Backspace");
+    await editor.pressSequentially("2");
+    expectedSlideText += "\nline2";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: Enter/Backspace produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    const cdp = usesChromiumIme
+      ? await page.context().newCDPSession(page)
+      : null;
+    await editor.press(lineEndKey);
+    if (cdp) {
+      await cdp.send("Input.imeSetComposition", {
+        text: "に",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+    } else {
+      await emitComposition(editor, "compositionstart", "に");
+      await editor.pressSequentially("に");
+      await emitComposition(editor, "beforeinput", "に");
+    }
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === `${expectedSlideText}に`,
+        3000,
+      ))
+    ) {
+      problems.push("slide text: IME composition did not update the text");
+    }
+    if (cdp) {
+      await cdp.send("Input.insertText", { text: "日" });
+    } else {
+      await editor.pressSequentially("日");
+      await emitComposition(editor, "compositionend", "日");
+    }
+    expectedSlideText += usesChromiumIme ? "日" : "に日";
+    if (
+      !(await waitFor(
+        async () => (await editor.innerText()) === expectedSlideText,
+        3000,
+      ))
+    ) {
+      problems.push(
+        `slide text: IME commit produced ${JSON.stringify(await editor.innerText())}`,
+      );
+    }
+    await cdp?.detach();
+    await editor.pressSequentially(" switch");
+    expectedSlideText += " switch";
+    await page.locator(`[data-slide-thumbnail-id="${slideTwo}"]`).click();
+    if (
+      !(await waitFor(
+        async () => !(await editorState(page, slideTwo)).editing,
+        5000,
+      ))
+    ) {
+      problems.push("slide switching left the old text session active");
+    }
+    let savedContent: string | undefined;
+    const switchedTextSaved = await waitFor(
+      async () => {
+        const saved = await action<any>(
+          page,
+          "get-deck",
+          {
+            id: deckId,
+            slideId: slideOne,
+            compact: "false",
+          },
+          "GET",
+        );
+        savedContent = saved.slides?.find(
+          (slide: any) => slide.id === slideOne,
+        )?.content;
+        if (!savedContent) return false;
+        const savedText = await slideText(savedContent);
+        return normalizeText(savedText) === normalizeText(expectedSlideText);
+      },
+      5000,
+      100,
+    );
+    if (!switchedTextSaved) {
+      const savedText = savedContent ? await slideText(savedContent) : "";
+      problems.push(
+        `slide switching saved ${JSON.stringify(savedText)}, expected ${JSON.stringify(expectedSlideText)}`,
+      );
+    }
+
+    await page.getByRole("button", { name: "Speaker Notes" }).click();
+    const notes = page.getByPlaceholder("Add speaker notes...");
+    const expectedNotes = await exerciseControl(notes, "speaker notes", true);
+    let notesSlide: { notes?: string } | undefined;
+    const notesSaved = await waitFor(
+      async () => {
+        const notesDeck = await action<any>(
+          page,
+          "get-deck",
+          {
+            id: deckId,
+            slideId: slideTwo,
+            compact: "false",
+          },
+          "GET",
+        );
+        notesSlide = notesDeck.slides?.find(
+          (slide: any) => slide.id === slideTwo,
+        );
+        return (
+          normalizeText(notesSlide?.notes ?? "") ===
+          normalizeText(expectedNotes)
+        );
+      },
+      5000,
+      100,
+    );
+    if (!notesSaved) {
+      problems.push(
+        `speaker notes: saved ${JSON.stringify(notesSlide?.notes)}, expected ${JSON.stringify(expectedNotes)}`,
+      );
+    }
+
+    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("menuitem", { name: "Comments", exact: true }).click();
+    const commentsHeading = page.getByText("Comments", { exact: true }).last();
+    const addComment = commentsHeading.locator("..").locator("button").first();
+    await addComment.click();
+    const comment = page.getByPlaceholder("Add a comment...");
+    if (!(await composingEscape(comment, "comment composer"))) {
+      await addComment.click();
+    }
+    await exerciseControl(comment, "comment composer", true);
+    await comment.press("Escape");
+    await addComment.click();
+    const rootComposer = page.getByPlaceholder("Add a comment...");
+    await rootComposer.fill("Text surface QA root");
+    await rootComposer.press(`${modifier}+Enter`);
+    const rootComment = page.getByText("Text surface QA root", {
+      exact: true,
+    });
+    await rootComment.waitFor({ state: "visible", timeout: 5000 });
+    const threadCard = page
+      .locator("[data-slide-comment-thread]")
+      .filter({ has: rootComment });
+    await threadCard.waitFor({ state: "visible", timeout: 5000 });
+    await threadCard.hover();
+    const replyButton = threadCard.getByRole("button", {
+      name: "Reply",
+      exact: true,
+    });
+    await replyButton.waitFor({ state: "visible", timeout: 5000 });
+    await replyButton.click();
+    const reply = page.getByPlaceholder("Reply...");
+    if (!(await composingEscape(reply, "comment reply"))) {
+      await replyButton.click();
+      await reply.waitFor({ state: "visible", timeout: 5000 });
+    }
+    await exerciseControl(reply, "comment reply", true);
+    await reply.press("Escape");
+    await rootComment.hover();
+    await page.getByRole("button", { name: "Edit comment" }).click();
+    const editComment = page.getByRole("textbox", { name: "Edit comment" });
+    if (!(await composingEscape(editComment, "comment edit"))) {
+      await rootComment.hover();
+      await page.getByRole("button", { name: "Edit comment" }).click();
+    }
+    await exerciseControl(editComment, "comment edit", true);
+    await editComment.press("Escape");
+    await page.getByRole("button", { name: "More" }).click();
+    await page.locator("[data-toolbar-pin-button]").click();
+    const [pinTarget] = await listTargets(page, slideTwo);
+    if (!pinTarget)
+      throw new Error("second slide has no comment anchor target");
+    await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
+    const pinComment = page.locator("[data-pin-popover] textarea");
+    await pinComment.waitFor({ state: "visible", timeout: 5000 });
+    if (!(await composingEscape(pinComment, "pinned comment composer"))) {
+      await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
+      await pinComment.waitFor({ state: "visible", timeout: 5000 });
+    }
+    await exerciseControl(pinComment, "pinned comment composer", true);
+    await pinComment.press("Escape");
+    await page.getByRole("button", { name: "More" }).click();
+    await page.locator("[data-toolbar-pin-button]").click();
+
+    const deckTitle = page
+      .locator('[data-slides-editor-root="true"] input[type="text"]')
+      .first();
+    await exerciseControl(deckTitle, "deck title", false);
+    const titleAfterTyping = await deckTitle.inputValue();
+    await sleep(900);
+    const titledDeck = await readDeck();
+    if (titledDeck.title !== titleAfterTyping) {
+      problems.push("deck title: the debounced title was not saved");
+    }
+
+    await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("tab", { name: "Recent" }).click();
+    const card = page
+      .locator(".agent-template-library-card")
+      .filter({ has: page.locator(`a[href="/deck/${deckId}"]`) })
+      .first();
+    await card.waitFor({ state: "visible", timeout: 20_000 });
+    await card.hover();
+    await card.locator('button[aria-label="Deck options"]').click();
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    let rename = card.locator("input");
+    await rename.waitFor({ state: "visible", timeout: 5000 });
+    if (!(await composingEscape(rename, "deck-card rename"))) {
+      await card.hover();
+      await card.locator('button[aria-label="Deck options"]').click();
+      await page.getByRole("menuitem", { name: "Rename" }).click();
+      rename = card.locator("input");
+      await rename.waitFor({ state: "visible", timeout: 5000 });
+    }
+    const renameAfterTyping = await exerciseControl(
+      rename,
+      "deck-card rename",
+      false,
+    );
+    await rename.press("Enter");
+    await sleep(900);
+    const renamedDeck = await readDeck();
+    if (renamedDeck.title !== renameAfterTyping) {
+      problems.push("deck-card rename: the committed title was not saved");
+    }
+  } catch (error) {
+    problems.push(`text-surface QA could not finish: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `text-surface QA could not delete its synthetic deck: ${String(error)}`,
+      );
+    }
   }
+  return problems;
+}
+
+async function runCaretQa(page: Page, base: string) {
+  const problems: string[] = [];
+  const slideId = "caret-qa-wrapped-row";
+  let deckId = "";
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+
+  try {
+    await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await ensureSignedIn(page);
+    const created = await action(page, "create-deck", {
+      title: `[edit-fidelity] caret QA ${Date.now()}`,
+      slides: [
+        {
+          id: slideId,
+          content:
+            '<div class="fmd-slide"><p style="width: 118px; margin: 0"><span aria-hidden="true" style="display:inline-block;width:14px">•</span><span class="qa-wrapped-row-text">Alpha beta gamma delta epsilon zeta eta</span></p></div>',
+        },
+      ],
+    });
+    deckId = String(created.id ?? created.deckId);
+    await openSlide(page, base, deckId, 0, slideId);
+    const [target] = await listTargets(page, slideId);
+    const entryProblems: string[] = [];
+    if (
+      !target ||
+      !(await enterEdit(page, slideId, target.point, entryProblems))
+    ) {
+      throw new Error(
+        `could not open wrapped bullet text for editing${entryProblems.length ? `: ${entryProblems.join("; ")}` : ""}`,
+      );
+    }
+
+    const editor = page.locator(
+      `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`,
+    );
+    const lines = await editor.evaluate((element: HTMLElement) => {
+      const text = element.querySelector(".qa-wrapped-row-text")?.firstChild;
+      if (!(text instanceof Text)) return [];
+      const byTop = new Map<number, { start: number; end: number }>();
+      for (let offset = 0; offset < text.length; offset += 1) {
+        const range = document.createRange();
+        range.setStart(text, offset);
+        range.setEnd(text, offset + 1);
+        const rect = range.getBoundingClientRect();
+        if (!rect.height) continue;
+        const key = Math.round(rect.top);
+        const line = byTop.get(key);
+        if (line) {
+          line.start = Math.min(line.start, offset);
+          line.end = Math.max(line.end, offset + 1);
+        } else {
+          byTop.set(key, { start: offset, end: offset + 1 });
+        }
+      }
+      return [...byTop.values()]
+        .map(({ start, end }) => {
+          while (start < end && /[\t\n\v\f\r ]/.test(text.data[start])) {
+            start += 1;
+          }
+          while (end > start && /[\t\n\v\f\r ]/.test(text.data[end - 1])) {
+            end -= 1;
+          }
+          return { start, end };
+        })
+        .filter(({ start, end }) => end > start);
+    });
+    if (lines.length < 2) {
+      problems.push("wrapped bullet: fixture did not produce two visual lines");
+      return problems;
+    }
+
+    const setCaret = async (offset: number) => {
+      await editor.focus();
+      return editor.evaluate((element: HTMLElement, targetOffset: number) => {
+        const text = element.querySelector(".qa-wrapped-row-text")?.firstChild;
+        if (!(text instanceof Text)) return false;
+        const selection = window.getSelection();
+        if (!selection || targetOffset < 0 || targetOffset > text.length) {
+          return false;
+        }
+        const range = document.createRange();
+        range.setStart(text, targetOffset);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }, offset);
+    };
+    const caretState = () =>
+      editor.evaluate((element: HTMLElement) => {
+        const span = element.querySelector(".qa-wrapped-row-text");
+        const text = span?.firstChild;
+        const selection = window.getSelection();
+        if (
+          !(span instanceof HTMLElement) ||
+          !(text instanceof Text) ||
+          !selection?.focusNode
+        ) {
+          return null;
+        }
+        let offset = selection.focusNode === text ? selection.focusOffset : -1;
+        const row = span.parentNode;
+        const index = row ? Array.from(row.childNodes).indexOf(span) : -1;
+        if (selection.focusNode === span && selection.focusOffset === 0)
+          offset = 0;
+        if (selection.focusNode === row && selection.focusOffset === index)
+          offset = 0;
+        if (selection.focusNode === row && selection.focusOffset === index + 1)
+          offset = text.length;
+        return {
+          offset,
+          inside: element.contains(selection.focusNode),
+          focused: document.activeElement === element,
+        };
+      });
+
+    for (const [index, line] of lines.entries()) {
+      const innerOffset = line.start + Math.min(1, line.end - line.start - 1);
+      if (!(await setCaret(innerOffset))) {
+        problems.push(
+          `wrapped bullet: could not place caret inside visual line ${index + 1}`,
+        );
+        continue;
+      }
+      await page.keyboard.press(lineStartKey);
+      const start = await caretState();
+      if (!start?.inside || !start.focused || start.offset !== line.start) {
+        problems.push(
+          `wrapped bullet: line-start key landed at ${start?.offset ?? "outside"}, expected ${line.start} on visual line ${index + 1}`,
+        );
+      }
+      await page.keyboard.press(lineEndKey);
+      const end = await caretState();
+      if (!end?.inside || !end.focused || end.offset !== line.end) {
+        problems.push(
+          `wrapped bullet: line-end key landed at ${end?.offset ?? "outside"}, expected ${line.end} on visual line ${index + 1}`,
+        );
+      }
+    }
+
+    const [firstLine] = lines;
+    if (!(await setCaret(firstLine.start + 1))) {
+      problems.push("wrapped bullet: could not place caret before typing");
+    } else {
+      await page.keyboard.press(lineEndKey);
+      const beforeText = await editor
+        .locator(".qa-wrapped-row-text")
+        .textContent();
+      await page.keyboard.type("!");
+      const afterText = await editor
+        .locator(".qa-wrapped-row-text")
+        .textContent();
+      if (beforeText === null) {
+        problems.push("wrapped bullet: text disappeared before typing");
+      } else if (
+        afterText !==
+        `${beforeText.slice(0, firstLine.end)}!${beforeText.slice(firstLine.end)}`
+      ) {
+        problems.push(
+          "wrapped bullet: typing after line-end moved from the caret",
+        );
+      }
+    }
+    const marker = await editor.locator('[aria-hidden="true"]').innerText();
+    if (marker !== "•")
+      problems.push("wrapped bullet: line navigation edited its marker");
+  } catch (error) {
+    problems.push(`caret QA could not finish: ${String(error)}`);
+  } finally {
+    if (deckId) {
+      try {
+        await action(page, "delete-deck", { id: deckId }, "DELETE");
+      } catch (error) {
+        problems.push(
+          `caret QA could not delete its synthetic deck: ${String(error)}`,
+        );
+      }
+    }
+  }
+  return problems;
+}
+
+async function runAuthoringParityQa(
+  page: Page,
+  base: string,
+  outRoot: string,
+  caseFilter?: string,
+) {
+  const problems: string[] = [];
+  let firstMarkupMismatch = "";
+  const shortcuts = [
+    ["- ", "bullet"],
+    ["* ", "bullet"],
+    ["+ ", "bullet"],
+    ["1. ", "ordered"],
+    ["# ", "H1"],
+    ["## ", "H2"],
+    ["### ", "H3"],
+    ["#### ", "H4"],
+    ["> ", "BLOCKQUOTE"],
+    ["--- ", "divider"],
+    ["___ ", "divider"],
+    ["*** ", "divider"],
+    ["**bold**", "bold"],
+    ["__bold__", "bold"],
+    ["*italic*", "italic"],
+    ["_italic_", "italic"],
+    ["~~strike~~", "strike"],
+    ["`code`", "code"],
+  ] as const;
+  const slashCommands = [
+    ["paragraph", "paragraph", "H2", "P"],
+    ["heading1", "heading1", "P", "H1"],
+    ["heading2", "heading2", "P", "H2"],
+    ["heading3", "heading3", "P", "H3"],
+    ["bulletList", "bulletList", "P", "UL"],
+    ["orderedList", "orderedList", "P", "OL"],
+    ["quote", "quote", "P", "BLOCKQUOTE"],
+    ["divider", "divider", "P", "DIV"],
+  ] as const;
+  const allCases = [
+    ...shortcuts.flatMap(([shortcut, result], index) =>
+      (["start", "after-enter"] as const).map((position) => ({
+        id: `authoring-shortcut-${index}-${position}`,
+        kind: "shortcut" as const,
+        shortcut,
+        result,
+        position,
+      })),
+    ),
+    ...slashCommands.map(([kind, command, initialTag, resultTag]) => ({
+      id: `authoring-slash-${kind}`,
+      kind: "slash" as const,
+      command,
+      initialTag,
+      resultTag,
+    })),
+    { id: "authoring-list-ul", kind: "ul-flow" as const },
+    { id: "authoring-list-ol", kind: "ol-flow" as const },
+    { id: "authoring-list-styled", kind: "styled-flow" as const },
+    {
+      id: "authoring-list-boundary-delete",
+      kind: "styled-boundary-delete" as const,
+    },
+    {
+      id: "authoring-list-boundary-backspace",
+      kind: "styled-boundary-backspace" as const,
+    },
+    {
+      id: "authoring-empty-soft-break-delete",
+      kind: "empty-soft-break-delete" as const,
+    },
+    {
+      id: "authoring-paragraph-bullet-delete",
+      kind: "paragraph-bullet-delete" as const,
+    },
+    {
+      id: "authoring-empty-paragraph-bullet-delete",
+      kind: "empty-paragraph-bullet-delete" as const,
+    },
+    { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
+  ];
+  const cases = allCases.filter(
+    (test) => !caseFilter || test.id.includes(caseFilter),
+  );
+  if (!cases.length) {
+    throw new Error(`no authoring parity cases match ${caseFilter}`);
+  }
+
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const created = await action(page, "create-deck", {
+    title: `[edit-fidelity] authoring parity ${Date.now()}`,
+    slides: cases.map((test) => {
+      if (test.kind === "ul-flow") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><ul style="list-style-type: disc"><li><p>Alpha</p></li></ul></div>',
+        };
+      }
+      if (test.kind === "ol-flow") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><ol style="list-style-type: decimal"><li><p>Alpha</p></li></ol></div>',
+        };
+      }
+      if (test.kind === "soft-break-slash") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><div class="fmd-text-box"><p style="color: red">Before</p></div></div>',
+        };
+      }
+      if (test.kind === "empty-soft-break-delete") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><div class="fmd-text-box"><p>Alpha<br></p><p></p></div></div>',
+        };
+      }
+      if (test.kind === "paragraph-bullet-delete") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><section><p>Before</p><p data-slide-plain-row="true" style="color:red"><span>●</span>old<span>After</span></p><blockquote><p></p></blockquote></section></div>',
+        };
+      }
+      if (test.kind === "empty-paragraph-bullet-delete") {
+        return {
+          id: test.id,
+          content:
+            '<div class="fmd-slide"><section><p></p><p data-slide-plain-row="true" style="color:red"><span>●</span><span>After</span></p><blockquote><p></p></blockquote></section></div>',
+        };
+      }
+      if (
+        test.kind === "styled-boundary-delete" ||
+        test.kind === "styled-boundary-backspace"
+      ) {
+        const adjacentText =
+          test.kind === "styled-boundary-backspace" ? "\u200b" : "Beta";
+        return {
+          id: test.id,
+          content: `<div class="fmd-slide"><div class="fmd-text-box" style="display: flex; flex-direction: column"><div style="display: flex; gap: 12px"><span>●</span><span>Alpha</span></div><div style="display: flex; gap: 12px"><span>●</span><span>${adjacentText}</span></div><p>Following text</p></div></div>`,
+        };
+      }
+      const tag = "initialTag" in test ? test.initialTag : "div";
+      return {
+        id: test.id,
+        content: `<div class="fmd-slide"><${tag}>Alpha</${tag}></div>`,
+      };
+    }),
+  });
+  const deckId = String(created.id ?? created.deckId);
+  const initialMarkup = new Map(
+    await Promise.all(
+      cases.map(
+        async ({ id }) =>
+          [id, await getSlideContent(page, deckId, id)] as const,
+      ),
+    ),
+  );
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const getEditor = (slideId: string) => page.locator(selectorFor(slideId));
+  let currentCaseId = "setup";
+  const waitForSlashOption = async (editor: any, caseId: string) => {
+    let listboxId: string | null = null;
+    try {
+      const listbox = await getSlashListbox(page, editor);
+      listboxId = await listbox.getAttribute("id");
+      const option = listbox.locator('[role="option"]').first();
+      await option.waitFor({ state: "visible", timeout: 3_000 });
+    } catch {
+      const state = await editor.evaluate(
+        (element: HTMLElement, id: string | null) => {
+          const selection = window.getSelection();
+          const range = selection?.rangeCount
+            ? selection.getRangeAt(0)
+            : undefined;
+          const listbox = id ? document.getElementById(id) : null;
+          return {
+            html: element.innerHTML,
+            focused: document.activeElement === element,
+            ariaExpanded: element.getAttribute("aria-expanded"),
+            ariaActiveDescendant: element.getAttribute("aria-activedescendant"),
+            selection: range
+              ? {
+                  text: range.startContainer.textContent,
+                  offset: range.startOffset,
+                  collapsed: range.collapsed,
+                }
+              : null,
+            listbox: listbox?.outerHTML ?? null,
+          };
+        },
+        listboxId,
+      );
+      throw new Error(
+        `${caseId}: slash menu did not open: ${JSON.stringify(state)}`,
+      );
+    }
+  };
+
+  async function begin(index: number) {
+    const { id } = cases[index];
+    await openSlide(page, base, deckId, index, id);
+    const [target] = await listTargets(page, id);
+    if (!target) throw new Error(`${id}: no editable text target`);
+    const entryProblems: string[] = [];
+    if (!(await enterEdit(page, id, target.point, entryProblems))) {
+      throw new Error(`${id}: could not open in-place text editing`);
+    }
+    problems.push(...entryProblems.map((problem) => `${id}: ${problem}`));
+    return getEditor(id);
+  }
+
+  async function finish(index: number, assertion: () => Promise<void>) {
+    const { id } = cases[index];
+    await assertion();
+    if (!(await exitEdit(page, id, "escape"))) {
+      throw new Error(`${id}: Escape did not exit in-place text editing`);
+    }
+    const live = await page
+      .locator(`${canvasSelector(id)} .slide-content`)
+      .innerHTML();
+    const stored = await settleSaved(page, deckId, id, () => 0, 1400);
+    const changedFromSource = await page.evaluate(
+      ({ original, stored }: { original: string; stored: string }) =>
+        JSON.stringify(window.__editFidelity.canonical(original)) !==
+        JSON.stringify(window.__editFidelity.canonical(stored)),
+      { original: initialMarkup.get(id) ?? "", stored },
+    );
+    if (!changedFromSource) {
+      problems.push(`${id}: authoring changes were not persisted`);
+    }
+    const matchesLive = await page.evaluate(
+      ({ live, stored }: { live: string; stored: string }) =>
+        JSON.stringify(window.__editFidelity.canonical(live)) ===
+        JSON.stringify(window.__editFidelity.canonical(stored)),
+      { live, stored },
+    );
+    if (!matchesLive) {
+      problems.push(`${id}: saved markup differs from the rendered slide`);
+      if (!firstMarkupMismatch) {
+        const detail = await page.evaluate(
+          ({ live, stored }: { live: string; stored: string }) => {
+            const left = window.__editFidelity.canonical(live);
+            const right = window.__editFidelity.canonical(stored);
+            let index = 0;
+            while (
+              index < left.length &&
+              index < right.length &&
+              left[index] === right[index]
+            ) {
+              index += 1;
+            }
+            const from = Math.max(0, index - 2);
+            const to = index + 3;
+            return {
+              index,
+              live: left.slice(from, to),
+              saved: right.slice(from, to),
+              liveHtml: live.slice(0, 700),
+              savedHtml: stored.slice(0, 700),
+            };
+          },
+          { live, stored },
+        );
+        firstMarkupMismatch = `${id}: first canonical mismatch ${JSON.stringify(detail)}`;
+      }
+    }
+    await openSlide(page, base, deckId, index, id);
+    const reloaded = await page
+      .locator(`${canvasSelector(id)} .slide-content`)
+      .innerHTML();
+    const matchesReload = await page.evaluate(
+      ({ stored, reloaded }: { stored: string; reloaded: string }) =>
+        JSON.stringify(window.__editFidelity.canonical(stored)) ===
+        JSON.stringify(window.__editFidelity.canonical(reloaded)),
+      { stored, reloaded },
+    );
+    if (!matchesReload) {
+      problems.push(`${id}: reloaded markup differs from the saved slide`);
+      if (!firstMarkupMismatch) {
+        const detail = await page.evaluate(
+          ({ stored, reloaded }: { stored: string; reloaded: string }) => {
+            const left = window.__editFidelity.canonical(stored);
+            const right = window.__editFidelity.canonical(reloaded);
+            let index = 0;
+            while (
+              index < left.length &&
+              index < right.length &&
+              left[index] === right[index]
+            ) {
+              index += 1;
+            }
+            const from = Math.max(0, index - 2);
+            const to = index + 3;
+            return {
+              index,
+              saved: left.slice(from, to),
+              reloaded: right.slice(from, to),
+              savedHtml: stored.slice(0, 700),
+              reloadedHtml: reloaded.slice(0, 700),
+            };
+          },
+          { stored, reloaded },
+        );
+        firstMarkupMismatch = `${id}: first canonical mismatch ${JSON.stringify(detail)}`;
+      }
+    }
+  }
+
+  const assertTag = async (editor: any, tag: string) => {
+    const actual = await editor.evaluate(
+      (element: HTMLElement) => element.tagName,
+    );
+    if (actual !== tag) {
+      const html = await editor.evaluate(
+        (element: HTMLElement) => element.outerHTML,
+      );
+      throw new Error(`expected ${tag}, got ${actual} in ${html}`);
+    }
+  };
+  const assertBlock = async (editor: any, selector: string) => {
+    const found = await editor.evaluate(
+      (element: HTMLElement, query: string) => {
+        const rootQuery = query.replace(
+          new RegExp(`^${element.tagName.toLowerCase()}(?=\\s|>|$)`),
+          ":scope",
+        );
+        return (
+          element.matches(query) ||
+          element.querySelector(query) !== null ||
+          element.querySelector(rootQuery) !== null
+        );
+      },
+      selector,
+    );
+    if (!found) {
+      const html = await editor.evaluate(
+        (element: HTMLElement) => element.outerHTML,
+      );
+      throw new Error(`expected authoring markup ${selector} in ${html}`);
+    }
+  };
+  const assertBulletShortcut = async (editor: any) => {
+    const state = await editor.evaluate((root: HTMLElement) => {
+      const listItems = Array.from(root.querySelectorAll("ul > li"));
+      const rows = [
+        ...(root.matches("div") ? [root] : []),
+        ...Array.from(root.querySelectorAll<HTMLElement>("div")),
+      ];
+      const bulletRows = rows.filter((row) => {
+        const marker = row.firstElementChild;
+        const text = row.lastElementChild;
+        return (
+          getComputedStyle(row).display === "flex" &&
+          marker?.tagName === "SPAN" &&
+          /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+          text?.tagName === "SPAN"
+        );
+      });
+      const authoredListText = [
+        ...listItems.map((item) => item.textContent ?? ""),
+        ...bulletRows.map((row) => row.textContent ?? ""),
+      ];
+      const text = root.textContent ?? "";
+      return {
+        bulletCount: listItems.length + bulletRows.length,
+        tailInBullet: authoredListText.some((value) => value.includes("Tail")),
+        retainedSourceText: text.includes("Alpha"),
+        hasTypedText: text.includes("Tail"),
+        html: root.innerHTML,
+      };
+    });
+    if (
+      state.bulletCount === 0 ||
+      !state.tailInBullet ||
+      !state.retainedSourceText ||
+      !state.hasTypedText
+    ) {
+      throw new Error(
+        `bullet shortcut did not create a new bullet containing the inserted text: ${JSON.stringify(state)}`,
+      );
+    }
+  };
+  const assertPlainLine = async (editor: any) => {
+    const found = await editor.evaluate((element: HTMLElement) =>
+      Array.from(element.querySelectorAll("p, div")).some(
+        (line) =>
+          line.textContent?.replaceAll("\u200b", "").trim() === "Plain" &&
+          !line.querySelector("span"),
+      ),
+    );
+    if (!found) throw new Error("empty list Enter did not create a plain line");
+  };
+  const setCaretAtChildBoundary = async (editor: any, offset: number) => {
+    await editor.evaluate((element: HTMLElement, childOffset: number) => {
+      const range = document.createRange();
+      range.setStart(element, childOffset);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+    }, offset);
+  };
+
+  try {
+    for (let index = 0; index < cases.length; index += 1) {
+      const test = cases[index];
+      currentCaseId = test.id;
+      const editor = await begin(index);
+      if (test.kind === "shortcut") {
+        if (test.position === "after-enter") {
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+        } else {
+          await editor.press(lineStartKey);
+        }
+        await editor.pressSequentially(test.shortcut);
+        if (
+          !(["bold", "italic", "strike", "code"] as string[]).includes(
+            test.result,
+          )
+        )
+          await editor.pressSequentially("Tail");
+        await finish(index, async () => {
+          const result = test.result;
+          if (result === "bullet") {
+            await assertBulletShortcut(editor);
+          } else if (result === "ordered") {
+            await assertBlock(editor, "ol > li");
+          } else if (result === "bold") {
+            await assertBlock(editor, 'span[style*="font-weight"]');
+          } else if (result === "italic") {
+            await assertBlock(editor, 'span[style*="font-style"]');
+          } else if (result === "strike") {
+            await assertBlock(editor, 'span[style*="text-decoration"]');
+          } else if (result === "code") {
+            await assertBlock(editor, "code");
+          } else if (result === "divider") {
+            await assertBlock(editor, "hr");
+          } else if (test.position === "start") {
+            await assertTag(editor, result);
+          } else {
+            await assertBlock(editor, result.toLowerCase());
+          }
+        });
+      } else if (test.kind === "slash") {
+        await editor.press(lineStartKey);
+        if (test.command === "heading2") {
+          await editor.pressSequentially("/");
+          await waitForSlashOption(editor, test.id);
+          await editor.pressSequentially("heading 2");
+          const listbox = await getSlashListbox(page, editor);
+          const headingOption = listbox.locator(
+            '[role="option"][data-value="heading2"]',
+          );
+          await headingOption.waitFor({ state: "visible", timeout: 3_000 });
+          const active = await editor.getAttribute("aria-activedescendant");
+          const headingOptionId = await headingOption.getAttribute("id");
+          if (!headingOptionId || active !== headingOptionId) {
+            throw new Error(
+              `/heading 2 did not select Heading 2 (active: ${active})`,
+            );
+          }
+          await page.screenshot({
+            path: path.join(outRoot, "slide-authoring-slash-menu.png"),
+            fullPage: true,
+          });
+        } else {
+          await editor.pressSequentially("/");
+          await waitForSlashOption(editor, test.id);
+          const listbox = await getSlashListbox(page, editor);
+          const options = listbox.locator('[role="option"]');
+          if ((await options.count()) !== slashCommands.length) {
+            throw new Error(
+              `slash menu showed ${await options.count()} commands`,
+            );
+          }
+          const commandIndex = slashCommands.findIndex(
+            ([, kind]) => kind === test.command,
+          );
+          for (let step = 0; step < commandIndex; step += 1) {
+            await page.keyboard.press("ArrowDown");
+          }
+        }
+        await page.keyboard.press("Enter");
+        await finish(index, async () => {
+          if (test.command === "divider") await assertBlock(editor, "hr");
+          if (test.command === "bulletList")
+            await assertBlock(editor, "ul > li");
+          else if (test.command === "orderedList")
+            await assertBlock(editor, "ol > li");
+          else await assertTag(editor, test.resultTag);
+          const text = await editor.innerText();
+          if (text.includes("/"))
+            throw new Error("slash token remained in slide text");
+        });
+      } else if (test.kind === "empty-soft-break-delete") {
+        await editor.evaluate((element: HTMLElement) => {
+          const paragraph = element.querySelector(":scope > p");
+          if (!paragraph) throw new Error("first paragraph is missing");
+          const range = document.createRange();
+          range.setStart(paragraph, paragraph.childNodes.length);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        });
+        await editor.press("Delete");
+        await editor.pressSequentially("x");
+        await finish(index, async () => {
+          const state = await editor.evaluate((element: HTMLElement) => {
+            const selection = window.getSelection();
+            const paragraph = element.firstElementChild;
+            return {
+              blockCount: element.children.length,
+              tagName: paragraph?.tagName ?? null,
+              lineParts: Array.from(paragraph?.childNodes ?? [], (node) =>
+                node instanceof HTMLBRElement ? "BR" : (node.textContent ?? ""),
+              ),
+              anchorText: selection?.anchorNode?.textContent ?? null,
+              anchorOffset: selection?.anchorOffset ?? null,
+              caretInside: Boolean(
+                selection?.anchorNode && element.contains(selection.anchorNode),
+              ),
+            };
+          });
+          if (
+            state.blockCount !== 1 ||
+            state.tagName !== "P" ||
+            JSON.stringify(state.lineParts) !==
+              JSON.stringify(["Alpha", "BR", "x"]) ||
+            state.anchorText !== "x" ||
+            state.anchorOffset !== 1 ||
+            !state.caretInside
+          ) {
+            throw new Error(
+              `Delete after a trailing soft break misplaced the caret: ${JSON.stringify(state)}`,
+            );
+          }
+        });
+      } else if (test.kind === "paragraph-bullet-delete") {
+        await editor.evaluate((element: HTMLElement) => {
+          const paragraph = element.querySelector(
+            ':scope > p:not([data-slide-plain-row="true"])',
+          );
+          const text = paragraph?.firstChild;
+          if (!(text instanceof Text))
+            throw new Error(
+              `plain paragraph text is missing in ${element.parentElement?.outerHTML ?? element.outerHTML}`,
+            );
+          const range = document.createRange();
+          range.setStart(text, text.length);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        });
+        await editor.press("Delete");
+        await editor.pressSequentially("x");
+        await finish(index, async () => {
+          const state = await editor.evaluate((element: HTMLElement) => ({
+            blockCount: element.children.length,
+            rowTag: element.firstElementChild?.tagName ?? null,
+            rowText:
+              element.firstElementChild?.textContent?.replace(/^●/u, "") ??
+              null,
+            rowStyle:
+              (element.firstElementChild as HTMLElement | null)?.style.color ??
+              null,
+            rowAttribute:
+              element.firstElementChild?.getAttribute("data-slide-plain-row") ??
+              null,
+            retainedSentinel: Boolean(
+              element.querySelector(":scope > blockquote > p"),
+            ),
+            markerText:
+              element.firstElementChild?.firstElementChild?.textContent ?? null,
+            markup: element.innerHTML,
+            anchorText: window.getSelection()?.anchorNode?.textContent ?? null,
+            anchorOffset: window.getSelection()?.anchorOffset ?? null,
+            caretInside: Boolean(
+              window.getSelection()?.anchorNode &&
+              element.contains(window.getSelection()!.anchorNode),
+            ),
+            markerCount: Array.from(element.querySelectorAll("span")).filter(
+              (span) => /^[●•]$/u.test(span.textContent?.trim() ?? ""),
+            ).length,
+          }));
+          if (
+            state.blockCount !== 2 ||
+            state.rowTag !== "P" ||
+            state.rowText !== "BeforexoldAfter" ||
+            state.rowStyle !== "red" ||
+            state.rowAttribute !== "true" ||
+            !state.retainedSentinel ||
+            state.markerText !== "●" ||
+            state.markerCount !== 1 ||
+            state.anchorText !== "Beforex" ||
+            state.anchorOffset !== "Beforex".length ||
+            !state.caretInside
+          ) {
+            throw new Error(
+              `Delete failed to preserve the receiving bullet row: ${JSON.stringify(state)}`,
+            );
+          }
+        });
+      } else if (test.kind === "empty-paragraph-bullet-delete") {
+        await editor.evaluate((element: HTMLElement) => {
+          const paragraph = element.querySelector(":scope > p");
+          if (!paragraph) throw new Error("empty paragraph is missing");
+          const range = document.createRange();
+          range.setStart(paragraph, 0);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        });
+        await editor.press("Delete");
+        await editor.pressSequentially("x");
+        await finish(index, async () => {
+          const state = await editor.evaluate((element: HTMLElement) => ({
+            blockCount: element.children.length,
+            rowText: element.firstElementChild?.textContent ?? null,
+            rowStyle:
+              (element.firstElementChild as HTMLElement | null)?.style.color ??
+              null,
+            markerText:
+              element.firstElementChild?.firstElementChild?.textContent ?? null,
+            anchorText: window.getSelection()?.anchorNode?.textContent ?? null,
+            anchorOffset: window.getSelection()?.anchorOffset ?? null,
+            caretInside: Boolean(
+              window.getSelection()?.anchorNode &&
+              element.contains(window.getSelection()!.anchorNode),
+            ),
+          }));
+          if (
+            state.blockCount !== 2 ||
+            state.rowText !== "●xAfter" ||
+            state.rowStyle !== "red" ||
+            state.markerText !== "●" ||
+            state.anchorText !== "xAfter" ||
+            state.anchorOffset !== 1 ||
+            !state.caretInside
+          ) {
+            throw new Error(
+              `Delete from an empty paragraph misplaced the caret in the receiving bullet row: ${JSON.stringify(state)}`,
+            );
+          }
+        });
+      } else if (test.kind === "soft-break-slash") {
+        await editor.press(lineEndKey);
+        await editor.press("Shift+Enter");
+        await editor.pressSequentially("After /heading 2");
+        const listbox = await getSlashListbox(page, editor);
+        const option = listbox.locator(
+          '[role="option"][data-value="heading2"]',
+        );
+        await option.waitFor({ state: "visible" });
+        await page.keyboard.press("Enter");
+        await finish(index, async () => {
+          const lines = await editor.evaluate((element: HTMLElement) => ({
+            blocks: Array.from(element.children, (child) => ({
+              tag: child.tagName,
+              text: child.textContent?.replaceAll("\u200b", "").trim(),
+              color: (child as HTMLElement).style.color,
+            })),
+          }));
+          if (
+            lines.blocks.length !== 2 ||
+            lines.blocks[0]?.tag !== "P" ||
+            lines.blocks[0]?.text !== "Before" ||
+            lines.blocks[0]?.color !== "red" ||
+            lines.blocks[1]?.tag !== "H2" ||
+            lines.blocks[1]?.text !== "After"
+          ) {
+            throw new Error(
+              `slash heading did not isolate the soft-break line: ${JSON.stringify(lines.blocks)}`,
+            );
+          }
+        });
+      } else if (test.kind === "styled-boundary-delete") {
+        await setCaretAtChildBoundary(editor, 1);
+        await editor.press("Delete");
+        await finish(index, async () => {
+          const children = await editor.evaluate((element: HTMLElement) =>
+            Array.from(element.children, (child) =>
+              child.textContent?.replaceAll("\u200b", ""),
+            ),
+          );
+          if (
+            children.length !== 3 ||
+            children[0] !== "●Alpha" ||
+            children[1] !== "●eta" ||
+            children[2] !== "Following text"
+          ) {
+            throw new Error(
+              `Delete at the mixed-content boundary changed the wrong row: ${JSON.stringify(children)}`,
+            );
+          }
+        });
+      } else if (test.kind === "styled-boundary-backspace") {
+        await setCaretAtChildBoundary(editor, 2);
+        await editor.press("Backspace");
+        await finish(index, async () => {
+          const children = await editor.evaluate((element: HTMLElement) =>
+            Array.from(element.children, (child) =>
+              child.textContent?.replaceAll("\u200b", ""),
+            ),
+          );
+          if (
+            children.length !== 2 ||
+            children[0] !== "●Alpha" ||
+            children[1] !== "Following text"
+          ) {
+            throw new Error(
+              `Backspace at the mixed-content boundary lost a row: ${JSON.stringify(children)}`,
+            );
+          }
+        });
+      } else if (test.kind === "ul-flow" || test.kind === "ol-flow") {
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.pressSequentially("Beta");
+        if (test.kind === "ul-flow") {
+          await editor.press("Tab");
+          await assertBlock(editor, "ul > li ul > li");
+          await editor.press("Shift+Tab");
+          await editor.press(lineStartKey);
+          await editor.press("Backspace");
+          await editor.press("Backspace");
+          const joined = await editor.innerText();
+          if (!joined.includes("AlphaBeta") && !joined.includes("Alpha Beta")) {
+            throw new Error(
+              `Backspace did not join list text: ${JSON.stringify(joined)}`,
+            );
+          }
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await editor.press("Enter");
+          await editor.pressSequentially("Plain");
+          await assertPlainLine(editor);
+        } else {
+          await assertBlock(editor, "ol > li:nth-child(2)");
+          await editor.press("Tab");
+          await assertBlock(editor, "ol > li ol > li");
+          await editor.press("Shift+Tab");
+          await editor.press(lineStartKey);
+          await editor.press("Backspace");
+          await editor.press("Backspace");
+          const text = await editor.innerText();
+          if (!text.includes("AlphaBeta") && !text.includes("Alpha Beta")) {
+            throw new Error(
+              `ordered-list Backspace lost text: ${JSON.stringify(text)}`,
+            );
+          }
+          await editor.press(lineEndKey);
+          await editor.press("Enter");
+          await editor.press("Enter");
+          await editor.pressSequentially("Plain");
+          await assertPlainLine(editor);
+        }
+        await finish(index, async () => {});
+      } else {
+        await editor.press(lineStartKey);
+        await editor.pressSequentially("- ");
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.pressSequentially("Beta");
+        await editor.press("Tab");
+        await editor.press("Shift+Tab");
+        await editor.press(lineStartKey);
+        await editor.press("Backspace");
+        await editor.press("Backspace");
+        const merged = await editor.innerText();
+        if (!merged.includes("AlphaBeta") && !merged.includes("Alpha Beta")) {
+          throw new Error(
+            `styled bullet Backspace lost text: ${JSON.stringify(merged)}`,
+          );
+        }
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.press("Enter");
+        await editor.pressSequentially("Plain");
+        await finish(index, async () => {
+          await assertBlock(editor, 'div[style*="display: flex"] > span');
+          const text = await editor.innerText();
+          if (!text.includes("Plain")) {
+            throw new Error("styled bullet list exit lost the plain line");
+          }
+        });
+      }
+    }
+  } catch (error) {
+    problems.push(`authoring parity ${currentCaseId}: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `authoring parity could not delete its synthetic deck: ${String(error)}`,
+      );
+    }
+  }
+  if (firstMarkupMismatch) problems.push(firstMarkupMismatch);
+  return problems;
+}
+
+async function runAuthoringCorpusQa(
+  page: Page,
+  base: string,
+  cases: CorpusCase[],
+) {
+  const problems: string[] = [];
+  const allSources = corpusAuthoringSources(cases);
+  const sources = authoringSourceFilter
+    ? allSources.filter((source) => source.id === authoringSourceFilter)
+    : allSources;
+  if (authoringSourceFilter && sources.length === 0) {
+    throw new CouldNotRun(
+      `no authoring corpus source named ${authoringSourceFilter}; available: ${allSources.map((source) => source.id).join(", ")}`,
+    );
+  }
+  const flows = authoringFlowFilter
+    ? [authoringFlowFilter as (typeof authoringFlows)[number]]
+    : authoringFlows;
+  const slideIdFor = (source: CorpusAuthoringSource) =>
+    `authoring-corpus-${source.id}`;
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const editorHas = (editor: any, selector: string) =>
+    editor.evaluate((element: HTMLElement, query: string) => {
+      const rootQuery = query.replace(
+        new RegExp(`^${element.tagName.toLowerCase()}(?=\\s|>|$)`),
+        ":scope",
+      );
+      return (
+        element.matches(query) ||
+        element.querySelector(query) !== null ||
+        element.querySelector(rootQuery) !== null
+      );
+    }, selector);
+  const normalized = (value: string) =>
+    value.replace(/[\s\u200b\ufeff]+/g, " ").trim();
+  const editorDetails = async (editor: any) =>
+    editor.evaluate((element: HTMLElement) => ({
+      textLength: element.textContent?.length ?? 0,
+      renderedTextLength: element.innerText?.length ?? 0,
+      htmlLength: element.innerHTML.length,
+      tags: Array.from(element.querySelectorAll<HTMLElement>("*"))
+        .map((child) => child.tagName.toLowerCase())
+        .slice(0, 20),
+    }));
+  const editorText = async (editor: any) =>
+    normalized(
+      await editor.evaluate(
+        (element: HTMLElement) => element.textContent ?? "",
+      ),
+    );
+  const placeCaretAtBlockStart = async (editor: any) =>
+    editor.evaluate((element: HTMLElement) => {
+      const selection = window.getSelection();
+      const focus = selection?.focusNode;
+      if (!focus || !element.contains(focus)) return false;
+      const blockTags = new Set([
+        "ADDRESS",
+        "ARTICLE",
+        "ASIDE",
+        "BLOCKQUOTE",
+        "DD",
+        "DIV",
+        "DL",
+        "DT",
+        "FIGCAPTION",
+        "FIGURE",
+        "FOOTER",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "HEADER",
+        "LI",
+        "OL",
+        "P",
+        "PRE",
+        "SECTION",
+        "TABLE",
+        "TBODY",
+        "TD",
+        "TFOOT",
+        "TH",
+        "THEAD",
+        "TR",
+        "UL",
+      ]);
+      let block: HTMLElement | null;
+      if (focus === element) {
+        const caretChild =
+          element.childNodes[selection.focusOffset] ??
+          element.childNodes[selection.focusOffset - 1];
+        if (!(caretChild instanceof HTMLElement)) return false;
+        block = caretChild;
+      } else {
+        block = focus instanceof HTMLElement ? focus : focus.parentElement;
+      }
+      let scope = element;
+      while (block && block !== element) {
+        const display = getComputedStyle(block).display;
+        if (
+          blockTags.has(block.tagName) &&
+          display !== "contents" &&
+          display !== "none" &&
+          !display.startsWith("inline")
+        ) {
+          scope = block;
+          break;
+        }
+        block = block.parentElement;
+      }
+      const markerSpans = Array.from(scope.querySelectorAll("span")).filter(
+        (span) => /^[-*•●◦▪‣·⁃–—]+$/u.test(span.textContent?.trim() ?? ""),
+      );
+      const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        if (markerSpans.some((marker) => marker.contains(text))) continue;
+        if (!text.parentElement?.isContentEditable) continue;
+        const offset = /^[\u200b\ufeff]/u.test(text.data) ? 1 : 0;
+        const range = document.createRange();
+        range.setStart(text, offset);
+        range.collapse(true);
+        if (!selection) return false;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }
+      return false;
+    });
+  const canonicalMarkup = async (html: string) =>
+    page.evaluate(
+      (value: string) => JSON.stringify(window.__editFidelity.canonical(value)),
+      html,
+    );
+  const assertSlashPopoverGeometry = async (editor: any) => {
+    const geometry = await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount !== 1) {
+        throw new Error("slash menu has no caret selection");
+      }
+      const caretRange = selection.getRangeAt(0);
+      let anchor = caretRange.getBoundingClientRect();
+      if (!anchor.width && !anchor.height) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          const slash = text.data.lastIndexOf("/");
+          if (slash < 0) continue;
+          const slashRange = document.createRange();
+          slashRange.setStart(text, slash);
+          slashRange.setEnd(text, slash + 1);
+          anchor = slashRange.getBoundingClientRect();
+        }
+      }
+      const listboxId = root.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      if (listbox?.getAttribute("role") !== "listbox") {
+        throw new Error("slash menu is not the active editor's listbox");
+      }
+      const popover = listbox?.closest<HTMLElement>(
+        "[data-radix-popper-content-wrapper]",
+      );
+      const content = listbox?.closest<HTMLElement>("[data-side]");
+      if (
+        !listbox ||
+        !popover ||
+        !content ||
+        (!anchor.width && !anchor.height)
+      ) {
+        throw new Error("slash menu or its caret geometry is unavailable");
+      }
+      const caret = {
+        left: anchor.left,
+        top: anchor.top,
+        right: anchor.right,
+        bottom: anchor.bottom,
+      };
+      const rect = popover.getBoundingClientRect();
+      return {
+        caret,
+        popover: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+        side: content.getAttribute("data-side"),
+        viewport: { width: innerWidth, height: innerHeight },
+        focused: document.activeElement === root,
+      };
+    });
+    const { caret, popover, side, viewport } = geometry;
+    const viewportContained =
+      popover.left >= 0 &&
+      popover.top >= 0 &&
+      popover.right <= viewport.width &&
+      popover.bottom <= viewport.height;
+    if (!viewportContained) {
+      throw new Error(
+        `slash popover escaped the viewport: ${JSON.stringify(geometry)}`,
+      );
+    }
+    if (!geometry.focused) {
+      throw new Error("slash popover stole focus from the editing caret");
+    }
+    const verticalGap =
+      side === "top" ? caret.top - popover.bottom : popover.top - caret.bottom;
+    if (side !== "top" && side !== "bottom") {
+      throw new Error(`slash popover has unknown side ${String(side)}`);
+    }
+    if (Math.abs(verticalGap - 4) > 2) {
+      throw new Error(
+        `slash popover is not anchored 4px from the caret: ${JSON.stringify({ ...geometry, verticalGap })}`,
+      );
+    }
+    const alignedAtStart = Math.abs(popover.left - caret.left) <= 2;
+    const collisionShifted =
+      caret.left >= popover.left - 2 &&
+      caret.left <= popover.right + 2 &&
+      (Math.abs(popover.left - 8) <= 2 ||
+        Math.abs(popover.right - (viewport.width - 8)) <= 2);
+    if (!alignedAtStart && !collisionShifted) {
+      throw new Error(
+        `slash popover is not horizontally anchored to the caret: ${JSON.stringify(geometry)}`,
+      );
+    }
+    return geometry;
+  };
+  const targetHints = async (slideId: string) =>
+    page.evaluate(
+      ({ selector, chrome }: { selector: string; chrome: string }) => {
+        const root = document.querySelector(selector);
+        if (!root) throw new Error(`canvas not found: ${selector}`);
+        const normalizeText = (value: string | null) =>
+          (value ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
+        const isStyledBulletRow = (element: HTMLElement) => {
+          if (!/^(DIV|LI|P)$/.test(element.tagName)) return false;
+          const marker = element.firstElementChild as HTMLElement | null;
+          if (!marker || marker.tagName !== "SPAN") return false;
+          const text = marker.textContent?.trim() ?? "";
+          if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+          const style = getComputedStyle(marker);
+          const width = Number.parseFloat(style.width);
+          const height = Number.parseFloat(style.height);
+          const colorParts = style.backgroundColor
+            .replace(/[(),/]/g, " ")
+            .trim()
+            .split(/\s+/);
+          const alpha =
+            colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+          return (
+            width > 0 &&
+            height > 0 &&
+            width <= 48 &&
+            height <= 48 &&
+            (Number.parseFloat(style.borderTopWidth) > 0 ||
+              Number.parseFloat(style.borderLeftWidth) > 0 ||
+              (style.backgroundColor !== "transparent" && alpha !== 0) ||
+              Number.parseFloat(style.borderRadius) > 0)
+          );
+        };
+        const textPoint = (
+          element: HTMLElement,
+          excluded: HTMLElement | null = null,
+        ) => {
+          const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+          );
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const text = node as Text;
+            if (excluded?.contains(text)) continue;
+            const offset = text.data.search(/\S/);
+            if (offset < 0) continue;
+            const range = document.createRange();
+            range.setStart(text, offset);
+            range.setEnd(text, offset + 1);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+              };
+            }
+          }
+          return null;
+        };
+        const rowTextPoint = (row: HTMLElement) => {
+          const marker = isStyledBulletRow(row)
+            ? (row.firstElementChild as HTMLElement)
+            : null;
+          const content = marker
+            ? Array.from(row.children).find(
+                (child) =>
+                  child !== marker && normalizeText(child.textContent) !== "",
+              )
+            : null;
+          return textPoint(
+            (content as HTMLElement | undefined) ?? row,
+            content ? null : marker,
+          );
+        };
+        const listItemFor = (element: HTMLElement) =>
+          element.closest<HTMLElement>("li") ??
+          element.querySelector<HTMLElement>("li");
+        const bulletRowFor = (element: HTMLElement) => {
+          for (
+            let ancestor: HTMLElement | null = element;
+            ancestor && root.contains(ancestor);
+            ancestor = ancestor.parentElement
+          ) {
+            if (isStyledBulletRow(ancestor)) return ancestor;
+          }
+          return (
+            Array.from(element.querySelectorAll<HTMLElement>("div,li,p")).find(
+              isStyledBulletRow,
+            ) ?? null
+          );
+        };
+        return Array.from(
+          root.querySelectorAll<HTMLElement>('[data-slide-text-block="true"]'),
+        )
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return (
+              !/^(STYLE|SCRIPT)$/.test(element.tagName) &&
+              !element.closest(chrome) &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              normalizeText(element.textContent) !== ""
+            );
+          })
+          .map((element, index) => {
+            let absolute = false;
+            let grid = false;
+            const listItem = listItemFor(element);
+            const bulletRow = bulletRowFor(element);
+            for (
+              let ancestor: HTMLElement | null = element;
+              ancestor && root.contains(ancestor);
+              ancestor = ancestor.parentElement
+            ) {
+              const style = getComputedStyle(ancestor);
+              absolute ||= style.position === "absolute";
+              grid ||= style.display === "grid";
+            }
+            return {
+              index,
+              textLength: normalizeText(element.textContent).length,
+              textTransform: getComputedStyle(element).textTransform,
+              absolute,
+              grid,
+              list: !!listItem,
+              bulletRow: !!bulletRow,
+              listPoint: listItem ? rowTextPoint(listItem) : null,
+              bulletPoint: bulletRow ? rowTextPoint(bulletRow) : null,
+            };
+          });
+      },
+      { selector: canvasSelector(slideId), chrome: CHROME_SELECTOR },
+    );
+  const chooseTarget = async (
+    slideId: string,
+    requirement: CorpusAuthoringSource["testTarget"],
+  ) => {
+    const targets: TextTarget[] = await listTargets(page, slideId);
+    const hints = await targetHints(slideId);
+    const hint = hints.find(
+      (candidate: any) =>
+        candidate.textLength >= 4 &&
+        !(
+          requirement === "flex-grid" && candidate.textTransform === "uppercase"
+        ) &&
+        (requirement === "any" ||
+          (requirement === "absolute" && candidate.absolute) ||
+          (requirement === "flex-grid" && candidate.grid) ||
+          (requirement === "list" && candidate.list && candidate.listPoint) ||
+          (requirement === "bullet-row" &&
+            candidate.bulletRow &&
+            candidate.bulletPoint)),
+    );
+    const target = hint
+      ? targets.find((candidate) => candidate.index === hint.index)
+      : undefined;
+    if (!target) return undefined;
+    const point =
+      requirement === "list"
+        ? hint.listPoint
+        : requirement === "bullet-row"
+          ? hint.bulletPoint
+          : null;
+    return point ? { ...target, point } : target;
+  };
+  const assertReloadMarkup = async (
+    slideId: string,
+    stored: string,
+  ): Promise<boolean> =>
+    page.evaluate(
+      ({ selector, source }: { selector: string; source: string }) => {
+        const root = document
+          .querySelector(selector)
+          ?.querySelector(".slide-content") as HTMLElement | null;
+        if (!root) return false;
+        const clone = root.cloneNode(true) as HTMLElement;
+        for (const element of [
+          clone,
+          ...Array.from(clone.querySelectorAll<HTMLElement>("*")),
+        ]) {
+          for (const attribute of [
+            "data-builder-id",
+            "data-slide-text-block",
+            "data-editing-block",
+            "contenteditable",
+            "data-src-i",
+            "data-slide-content-scope",
+            "spellcheck",
+            "aria-expanded",
+            "aria-controls",
+            "aria-activedescendant",
+            "aria-haspopup",
+          ]) {
+            element.removeAttribute(attribute);
+          }
+        }
+        return (
+          JSON.stringify(window.__editFidelity.canonical(source)) ===
+          JSON.stringify(window.__editFidelity.canonical(clone.innerHTML))
+        );
+      },
+      { selector: canvasSelector(slideId), source: stored },
+    );
+
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  for (const source of sources.filter((source) => source.kind !== "largest")) {
+    const slideId = slideIdFor(source);
+    let deckId: string | null = null;
+    let original = "";
+    try {
+      const created = await action(page, "create-deck", {
+        title: `[edit-fidelity] corpus authoring ${Date.now()}`,
+        ...(source.corpusCase.aspectRatio
+          ? { aspectRatio: source.corpusCase.aspectRatio }
+          : {}),
+        slides: [
+          {
+            id: slideId,
+            content: source.slide.content,
+            ...(source.slide.layout ? { layout: source.slide.layout } : {}),
+          },
+        ],
+      });
+      deckId = String(created.id ?? created.deckId);
+      original = await getSlideContent(page, deckId, slideId);
+      const originalCanonical = await canonicalMarkup(original);
+      for (const flow of flows) {
+        const scaled = source.kind === "scaled";
+        const preserveStyledBulletMarker =
+          source.testTarget === "bullet-row" &&
+          flow !== "list" &&
+          flow !== "slash";
+        await page.setViewportSize(
+          scaled ? { width: 850, height: 650 } : { width: 1600, height: 1000 },
+        );
+        try {
+          await restoreSlide(page, deckId, slideId, original);
+          await openSlide(page, base, deckId, 0, slideId);
+          if (scaled) {
+            const scale = await page
+              .locator(canvasSelector(slideId))
+              .evaluate((element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                return element.offsetWidth > 0
+                  ? rect.width / element.offsetWidth
+                  : 1;
+              });
+            if (!(scale > 0 && scale < 0.99)) {
+              throw new Error(
+                `scaled fixture did not scale below 1 (scale ${scale.toFixed(3)})`,
+              );
+            }
+          }
+          const target = await chooseTarget(slideId, source.testTarget);
+          if (!target) {
+            throw new Error(`no visible ${source.testTarget} text target`);
+          }
+          const viewBefore = await snapshot(page, slideId, {
+            targetIndex: target.index,
+            targetBuilderId: target.builderId ?? undefined,
+            targetSlideObjectId: target.slideObjectId ?? undefined,
+            targetPptxParagraph: target.pptxParagraph ?? undefined,
+            preserveStyledBulletMarker,
+          });
+          if (!(await enterEdit(page, slideId, target.point, []))) {
+            throw new Error("could not enter in-place text editing");
+          }
+          const editor = page.locator(selectorFor(slideId));
+          const editedBuilderId =
+            (await editor.getAttribute("data-builder-id")) ??
+            target.builderId ??
+            undefined;
+          const before = await snapshot(page, slideId, {
+            targetIndex: target.index,
+            targetBuilderId: editedBuilderId,
+            targetSlideObjectId: target.slideObjectId ?? undefined,
+            targetPptxParagraph: target.pptxParagraph ?? undefined,
+            preserveStyledBulletMarker,
+          });
+          const wrapperRectBefore =
+            source.kind === "fractional-absolute-wrapper"
+              ? await editor.evaluate((element: HTMLElement) => {
+                  const wrapper = element.closest<HTMLElement>(
+                    '[data-authoring-layout-wrapper="fractional"]',
+                  );
+                  if (!wrapper) throw new Error("anchored wrapper disappeared");
+                  const { x, y, width, height } =
+                    wrapper.getBoundingClientRect();
+                  return { x, y, width, height };
+                })
+              : null;
+          if (flow === "shortcut") {
+            if (!(await placeCaretAtBlockStart(editor))) {
+              throw new Error(
+                "shortcut flow could not place the caret at the block start",
+              );
+            }
+            await page.keyboard.press("Enter");
+            await page.keyboard.type("**bold** next");
+            const shortcutState = await editor.evaluate(
+              (element: HTMLElement) => {
+                const marks = Array.from(
+                  element.querySelectorAll<HTMLElement>(
+                    'strong, b, span[style*="font-weight"]',
+                  ),
+                ).filter((mark) => mark.textContent === "bold");
+                const mark = marks[0];
+                const following = document.createRange();
+                following.selectNodeContents(element);
+                if (mark) following.setStartAfter(mark);
+                const followingText = following
+                  .toString()
+                  .replaceAll("\u00a0", " ");
+                return {
+                  markCount: marks.length,
+                  computedBold:
+                    Number.parseInt(
+                      mark ? getComputedStyle(mark).fontWeight : "",
+                      10,
+                    ) >= 600,
+                  followingTextStartsAfterMark:
+                    followingText.startsWith(" next"),
+                };
+              },
+            );
+            if (
+              shortcutState.markCount !== 1 ||
+              !shortcutState.computedBold ||
+              !shortcutState.followingTextStartsAfterMark
+            ) {
+              throw new Error(
+                `the strong Markdown shortcut did not bold the inserted run and leave following text outside it: ${JSON.stringify(shortcutState)}`,
+              );
+            }
+          } else if (flow === "slash") {
+            if (!(await placeCaretAtBlockStart(editor))) {
+              throw new Error(
+                "slash flow could not place the caret at the block start",
+              );
+            }
+            await page.keyboard.type("/heading 2");
+            const listbox = await getSlashListbox(page, editor);
+            const options = listbox.locator('[role="option"]');
+            await options.first().waitFor({ state: "visible" });
+            const active = await editor.getAttribute("aria-activedescendant");
+            const headingOptionId = await listbox
+              .locator('[role="option"][data-value="heading2"]')
+              .getAttribute("id");
+            if (!headingOptionId || active !== headingOptionId) {
+              throw new Error(
+                `slash filter selected ${active ?? "no command"}`,
+              );
+            }
+            if (scaled) await assertSlashPopoverGeometry(editor);
+            await page.keyboard.press("Enter");
+            const expectedTag = target.tag.toLowerCase() === "h2" ? "p" : "h2";
+            if (!(await editorHas(editor, expectedTag))) {
+              const actualTag = await editor.evaluate(
+                (element: HTMLElement) => ({
+                  root: element.tagName.toLowerCase(),
+                  descendants: Array.from(
+                    element.querySelectorAll<HTMLElement>("*"),
+                  )
+                    .map((child) => child.tagName.toLowerCase())
+                    .slice(0, 20),
+                }),
+              );
+              throw new Error(
+                `the Heading 2 slash command expected <${expectedTag}> from <${target.tag}>; got ${JSON.stringify(actualTag)}`,
+              );
+            }
+          } else if (flow === "paste") {
+            if (!(await placeCaretAtBlockStart(editor))) {
+              throw new Error(
+                "paste flow could not place the caret at the block start",
+              );
+            }
+            const slideContent = page.locator(
+              `${canvasSelector(slideId)} .slide-content`,
+            );
+            const beforePaste = await slideContent.innerHTML();
+            await editor.evaluate((element: HTMLElement) => {
+              const clipboard = new DataTransfer();
+              clipboard.setData(
+                "text/html",
+                // guard:allow-raw-color — foreign paste styles must be stripped from slide text.
+                '<p><strong style="font-weight: normal">Docs paragraph</strong></p><p>Second paragraph</p><ul><li><span style="color: rgb(255, 0, 0); font-size: 48px">Docs list item</span></li></ul>',
+              );
+              clipboard.setData(
+                "text/plain",
+                "Docs paragraph\nSecond paragraph\nDocs list item",
+              );
+              const event = new ClipboardEvent("paste", {
+                clipboardData: clipboard,
+                bubbles: true,
+                cancelable: true,
+              });
+              // Firefox ignores ClipboardEventInit.clipboardData.
+              if (event.clipboardData !== clipboard)
+                Object.defineProperty(event, "clipboardData", {
+                  value: clipboard,
+                });
+              element.dispatchEvent(event);
+              if (!event.defaultPrevented) {
+                throw new Error(
+                  "the editor did not handle rich clipboard paste",
+                );
+              }
+            });
+            const pasted = await slideContent.innerHTML();
+            const pastedText = await slideContent.innerText();
+            for (const token of [
+              "Docs paragraph",
+              "Second paragraph",
+              "Docs list item",
+            ]) {
+              if (!pastedText.includes(token)) {
+                throw new Error(
+                  `Docs-shaped paste lost ${token}: ${JSON.stringify(await editorDetails(editor))}`,
+                );
+              }
+            }
+            const pastedStructure = await slideContent.evaluate(
+              (element: HTMLElement) => {
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                let pastedText: Text | null = null;
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  if (node.textContent?.trim() === "Docs list item") {
+                    pastedText = node as Text;
+                    break;
+                  }
+                }
+                const pastedItem = pastedText?.parentElement?.closest("li");
+                const pastedRun = pastedText?.parentElement;
+                return {
+                  paragraphCount: Array.from([
+                    ...(element.tagName === "P" ? [element] : []),
+                    ...Array.from(element.querySelectorAll("p")),
+                  ]).filter((paragraph) =>
+                    /Docs paragraph|Second paragraph/.test(
+                      paragraph.textContent ?? "",
+                    ),
+                  ).length,
+                  unorderedListItem:
+                    pastedItem?.closest("ul, ol")?.tagName === "UL",
+                  foreignStyle:
+                    !pastedRun ||
+                    Boolean(pastedRun.style.color || pastedRun.style.fontSize),
+                };
+              },
+            );
+            if (
+              pastedStructure.paragraphCount !== 2 ||
+              !pastedStructure.unorderedListItem ||
+              pastedStructure.foreignStyle
+            ) {
+              throw new Error(
+                `Docs-shaped paste structure/style mismatch: ${JSON.stringify(pastedStructure)}`,
+              );
+            }
+            if (corpusDir === path.join(HERE, "corpus")) {
+              await page.screenshot({
+                path: path.join(outRoot, "slide-authoring-docs-paste.png"),
+                fullPage: true,
+              });
+            }
+            await page.keyboard.press(
+              `${process.platform === "darwin" ? "Meta" : "Control"}+Z`,
+            );
+            if (
+              (await canonicalMarkup(await slideContent.innerHTML())) !==
+              (await canonicalMarkup(beforePaste))
+            ) {
+              throw new Error("undo did not restore the pre-paste markup");
+            }
+            await page.keyboard.press(
+              `${process.platform === "darwin" ? "Meta" : "Control"}+Shift+Z`,
+            );
+            if (
+              (await canonicalMarkup(await slideContent.innerHTML())) !==
+              (await canonicalMarkup(pasted))
+            ) {
+              throw new Error("redo did not restore the Docs-shaped paste");
+            }
+          } else {
+            const listHint = (await targetHints(slideId)).find(
+              (candidate: any) => candidate.index === target.index,
+            );
+            const inList = listHint?.list || listHint?.bulletRow;
+            if (inList) {
+              await editor.press(lineEndKey);
+              await editor.press("Enter");
+              await editor.pressSequentially("Corpus row");
+            } else {
+              await editor.press(lineStartKey);
+              await editor.pressSequentially("- ");
+              await editor.press(lineEndKey);
+              await editor.press("Enter");
+              await editor.pressSequentially("Corpus row");
+            }
+            const hasListStructure = await editor.evaluate(
+              (element: HTMLElement) => {
+                const normalizeText = (value: string | null) =>
+                  (value ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
+                const listElements = [
+                  ...(element.matches("ul, ol") ? [element] : []),
+                  ...Array.from(
+                    element.querySelectorAll<HTMLElement>("ul, ol"),
+                  ),
+                ];
+                const isStyledBulletRow = (row: HTMLElement) => {
+                  if (!/^(DIV|LI|P)$/.test(row.tagName)) return false;
+                  const marker = row.firstElementChild as HTMLElement | null;
+                  if (!marker || marker.tagName !== "SPAN") return false;
+                  const text = marker.textContent?.trim() ?? "";
+                  if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+                  const style = getComputedStyle(marker);
+                  const width = Number.parseFloat(style.width);
+                  const height = Number.parseFloat(style.height);
+                  const colorParts = style.backgroundColor
+                    .replace(/[(),/]/g, " ")
+                    .trim()
+                    .split(/\s+/);
+                  const alpha =
+                    colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+                  return (
+                    width > 0 &&
+                    height > 0 &&
+                    width <= 48 &&
+                    height <= 48 &&
+                    (Number.parseFloat(style.borderTopWidth) > 0 ||
+                      Number.parseFloat(style.borderLeftWidth) > 0 ||
+                      (style.backgroundColor !== "transparent" &&
+                        alpha !== 0) ||
+                      Number.parseFloat(style.borderRadius) > 0)
+                  );
+                };
+                const bulletRows = [
+                  ...(isStyledBulletRow(element) ? [element] : []),
+                  ...Array.from(
+                    element.querySelectorAll<HTMLElement>("div,li,p"),
+                  ).filter(isStyledBulletRow),
+                ];
+                const corpusListRow = listElements.some((list) =>
+                  Array.from(list.children).some(
+                    (row) =>
+                      row.tagName === "LI" &&
+                      normalizeText(row.textContent).includes("Corpus row"),
+                  ),
+                );
+                const corpusBulletRow = bulletRows.some((row) =>
+                  normalizeText(row.textContent).includes("Corpus row"),
+                );
+                return {
+                  hasStructure:
+                    listElements.length > 0 || bulletRows.length > 0,
+                  hasCorpusRow: corpusListRow || corpusBulletRow,
+                  listCount: listElements.length,
+                  bulletRowCount: bulletRows.length,
+                };
+              },
+            );
+            if (
+              !hasListStructure.hasStructure ||
+              !hasListStructure.hasCorpusRow
+            ) {
+              throw new Error(
+                `list entry did not create the Corpus row: ${JSON.stringify(hasListStructure)}`,
+              );
+            }
+            await editor.press("Tab");
+            await editor.press("Shift+Tab");
+            const selectedRowStart = await editor.evaluate(
+              (element: HTMLElement) => {
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  const text = node as Text;
+                  const offset = text.data.indexOf("Corpus row");
+                  if (offset < 0) continue;
+                  const range = document.createRange();
+                  range.setStart(text, offset);
+                  range.collapse(true);
+                  const selection = window.getSelection();
+                  if (!selection) return false;
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                  return true;
+                }
+                return false;
+              },
+            );
+            if (!selectedRowStart) {
+              throw new Error(
+                "list flow could not place the caret at the new row start",
+              );
+            }
+            await page.keyboard.press("Backspace");
+            if (!(await editorText(editor)).includes("Corpus row")) {
+              throw new Error(
+                `first Backspace after list indentation lost the new row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
+            }
+            await page.keyboard.press("Backspace");
+            const joined = await editorText(editor);
+            if (!joined.includes("Corpus row")) {
+              throw new Error(
+                `Backspace after list indentation lost the new row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
+            }
+            await editor.press(lineEndKey);
+            await editor.press("Enter");
+            await editor.press("Enter");
+            await editor.pressSequentially("Plain");
+            if (!(await editorText(editor)).includes("Plain")) {
+              throw new Error(
+                `empty-list exit lost the plain text row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
+            }
+          }
+          await editor.evaluate(
+            () =>
+              new Promise<void>((resolve) =>
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => resolve()),
+                ),
+              ),
+          );
+          const authoredText = await editorText(editor);
+          const stableParagraphAfterFlow =
+            source.kind === "styled-paragraph-bullet-row" &&
+            (flow === "shortcut" || flow === "paste") &&
+            target.slideObjectId !== null &&
+            target.pptxParagraph !== null;
+          const authoredTarget = {
+            text: authoredText,
+            targetBuilderId: editedBuilderId,
+            ...(stableParagraphAfterFlow
+              ? {
+                  targetSlideObjectId: target.slideObjectId!,
+                  targetPptxParagraph: target.pptxParagraph!,
+                  targetTextIncludes:
+                    flow === "shortcut" ? "bold next" : "Docs paragraph",
+                  ...(flow === "paste"
+                    ? {
+                        authoringFragmentTexts: [
+                          "Docs paragraph",
+                          "Second paragraph",
+                          "Docs list item",
+                        ],
+                      }
+                    : {}),
+                }
+              : {}),
+            preserveStyledBulletMarker,
+          };
+          const editingAfter = await snapshot(page, slideId, {
+            ...authoredTarget,
+          });
+          if (wrapperRectBefore) {
+            const wrapperRectAfter = await editor.evaluate(
+              (element: HTMLElement) => {
+                const wrapper = element.closest<HTMLElement>(
+                  '[data-authoring-layout-wrapper="fractional"]',
+                );
+                if (!wrapper) throw new Error("anchored wrapper disappeared");
+                const { x, y, width, height } = wrapper.getBoundingClientRect();
+                return { x, y, width, height };
+              },
+            );
+            if (
+              (["x", "y", "width", "height"] as const).some(
+                (key) =>
+                  Math.abs(wrapperRectBefore[key] - wrapperRectAfter[key]) >
+                  1 / 64,
+              )
+            ) {
+              throw new Error(
+                `anchored wrapper moved while editing: ${JSON.stringify({ before: wrapperRectBefore, after: wrapperRectAfter })}`,
+              );
+            }
+          }
+          if (source.kind === "fractional-absolute-root") {
+            const beforeRect = before.editedBoxRect;
+            const afterRect = editingAfter.editedBoxRect;
+            if (
+              !beforeRect ||
+              !afterRect ||
+              (["x", "y", "width", "height"] as const).some(
+                (key) => Math.abs(beforeRect[key] - afterRect[key]) > 0.5,
+              )
+            ) {
+              throw new Error(
+                `absolute text root moved or resized while editing: ${JSON.stringify({ before: beforeRect, after: afterRect })}`,
+              );
+            }
+          }
+          if (!(await exitEdit(page, slideId, "escape"))) {
+            throw new Error("Escape did not leave in-place text editing");
+          }
+          await settle(page);
+          const viewAfterExit = await snapshot(page, slideId, {
+            ...authoredTarget,
+          });
+          const live = await page
+            .locator(`${canvasSelector(slideId)} .slide-content`)
+            .innerHTML();
+          const saved = await settleSaved(page, deckId, slideId, () => 0, 1500);
+          await openSlide(page, base, deckId, 0, slideId);
+          const reloaded = await page
+            .locator(`${canvasSelector(slideId)} .slide-content`)
+            .innerHTML();
+          assertAuthoringPersistence({
+            originalHtml: originalCanonical,
+            liveHtml: await canonicalMarkup(live),
+            savedHtml: await canonicalMarkup(saved),
+            reloadedHtml: await canonicalMarkup(reloaded),
+          });
+          if (!(await assertReloadMarkup(slideId, saved))) {
+            throw new Error(
+              "saved HTML did not match the reloaded slide markup",
+            );
+          }
+          const after = await snapshot(page, slideId, {
+            ...authoredTarget,
+          });
+          const beforeToAfter = outsideChangesFor(before, after);
+          const phases = [
+            {
+              name: "edit entry",
+              before: viewBefore,
+              after: before,
+              ...outsideChangesFor(viewBefore, before),
+            },
+            {
+              name: "in-place authoring",
+              before,
+              after: editingAfter,
+              ...outsideChangesFor(before, editingAfter),
+            },
+            {
+              name: "edit exit",
+              before: viewBefore,
+              after: viewAfterExit,
+              ...outsideChangesFor(viewBefore, viewAfterExit),
+            },
+          ];
+          const valueProps = new Set([
+            "bottom",
+            "transform",
+            "transform-origin",
+          ]);
+          const phaseProblems = phases.flatMap(
+            ({ name, before: phaseBefore, after: phaseAfter, changes }) => {
+              if (!changes.length) return [];
+              const beforeRecords = new Map(
+                phaseBefore.records.map((record) => [record.key, record]),
+              );
+              const afterRecords = new Map(
+                phaseAfter.records.map((record) => [record.key, record]),
+              );
+              const details = changes.slice(0, 4).map((change) => {
+                const previous = beforeRecords.get(change.key);
+                const current = afterRecords.get(change.key);
+                const record = previous ?? current;
+                const index = Number(/#(\d+)$/.exec(change.key)?.[1]);
+                return {
+                  kind:
+                    "prop" in change
+                      ? "property"
+                      : previous
+                        ? "missing"
+                        : "added",
+                  element: record?.kind,
+                  tag: record?.tag,
+                  index: Number.isFinite(index) ? index : undefined,
+                  prop: "prop" in change ? change.prop : undefined,
+                  from: "a" in change ? change.a : undefined,
+                  to: "b" in change ? change.b : undefined,
+                  beforeFlow: previous?.downstreamFlow,
+                  afterFlow: current?.downstreamFlow,
+                  beforeRect: previous?.rect,
+                  afterRect: current?.rect,
+                  beforeParagraph: previous?.pptxParagraph,
+                  afterParagraph: current?.pptxParagraph,
+                  beforePptxRecordKey: previous?.pptxRecordKey,
+                  afterPptxRecordKey: current?.pptxRecordKey,
+                  beforeStableKey: previous?.stableKey,
+                  afterStableKey: current?.stableKey,
+                  beforeYStyle: previous?.props.y,
+                  afterYStyle: current?.props.y,
+                  beforeLayout: previous?.layoutPath?.slice(0, 4),
+                  afterLayout: current?.layoutPath?.slice(0, 4),
+                };
+              });
+              const props = new Set(
+                changes.flatMap((change) => {
+                  if (!("prop" in change) || typeof change.prop !== "string")
+                    return [];
+                  const detail =
+                    valueProps.has(change.prop) &&
+                    "a" in change &&
+                    "b" in change
+                      ? ` ${String(change.a)} -> ${String(change.b)}`
+                      : "";
+                  return [`${change.prop}${detail}`];
+                }),
+              );
+              return [
+                `${name}: ${changes.length} outside style/geometry changes (${[...props].join(", ")}); target=${JSON.stringify({ before: phaseBefore.editedRect, after: phaseAfter.editedRect, beforeObject: phaseBefore.editedObjectRect, afterObject: phaseAfter.editedObjectRect, objectId: phaseBefore.editedObjectId, paragraphId: phaseBefore.editedParagraphId, beforeTarget: phaseBefore.editedTargetRect, afterTarget: phaseAfter.editedTargetRect, beforeFlowAnchor: phaseBefore.editedFlowAnchorRect, afterFlowAnchor: phaseAfter.editedFlowAnchorRect, afterAuthoringFragments: phaseAfter.editedAuthoringFragmentRects, beforeInFlow: phaseBefore.editedInFlow, afterInFlow: phaseAfter.editedInFlow })}; ${JSON.stringify(details)}`,
+              ];
+            },
+          );
+          const outside = beforeToAfter.outside;
+          const outsideChanges = beforeToAfter.changes;
+          const beforeRecords = new Map(
+            before.records.map((record) => [record.key, record]),
+          );
+          const afterRecords = new Map(
+            after.records.map((record) => [record.key, record]),
+          );
+          if (outsideChanges.length) {
+            const records = new Map(
+              [...before.records, ...after.records].map((record) => [
+                record.key,
+                record,
+              ]),
+            );
+            const describe = (key: string) => {
+              const record = records.get(key);
+              const tag =
+                record?.kind === "box"
+                  ? /^box:([^.#]+)/.exec(key)?.[1]
+                  : undefined;
+              const index = /#(\d+)$/.exec(key)?.[1];
+              return {
+                element: record?.kind ?? "unknown",
+                tag,
+                index: index === undefined ? undefined : Number(index),
+              };
+            };
+            const outsideSamples = [
+              ...outside.geometry
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key, prop, a, b }) => {
+                  const beforeRecord = beforeRecords.get(key);
+                  const afterRecord = afterRecords.get(key);
+                  return {
+                    kind: "geometry",
+                    ...describe(key),
+                    prop,
+                    a,
+                    b,
+                    beforeFlow: beforeRecord?.downstreamFlow,
+                    afterFlow: afterRecord?.downstreamFlow,
+                    beforeDisplay: beforeRecord?.props.display,
+                    afterDisplay: afterRecord?.props.display,
+                    beforeRect: beforeRecord?.rect,
+                    afterRect: afterRecord?.rect,
+                    beforeFlex: beforeRecord?.flexCrossAlignment,
+                    afterFlex: afterRecord?.flexCrossAlignment,
+                  };
+                }),
+              ...outside.deltas
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key, prop }) => ({
+                  kind: "style",
+                  ...describe(key),
+                  prop,
+                })),
+              ...outside.missing
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key }) => {
+                  const record = beforeRecords.get(key);
+                  return {
+                    kind: "missing",
+                    element: record?.kind,
+                    tag: record?.tag,
+                    objectId: record?.slideObjectId,
+                    paragraph: record?.pptxParagraph,
+                    className: record?.className,
+                    inlineStyle: record?.inlineStyle,
+                    rect: record?.rect,
+                    protectedStyle: record?.protectedStyle,
+                    protectedStructure: record?.protectedStructure,
+                  };
+                }),
+              ...outside.added
+                .filter((change) => !change.inside)
+                .slice(0, 4)
+                .map(({ key }) => {
+                  const record = afterRecords.get(key);
+                  return {
+                    kind: "added",
+                    element: record?.kind,
+                    tag: record?.tag,
+                    objectId: record?.slideObjectId,
+                    paragraph: record?.pptxParagraph,
+                    className: record?.className,
+                    inlineStyle: record?.inlineStyle,
+                    rect: record?.rect,
+                    protectedStyle: record?.protectedStyle,
+                    protectedStructure: record?.protectedStructure,
+                  };
+                }),
+            ].slice(0, 12);
+            phaseProblems.push(
+              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect, beforeInFlow: before.editedInFlow, afterInFlow: after.editedInFlow })}): ${JSON.stringify(outsideSamples)}`,
+            );
+          }
+          if (phaseProblems.length) throw new Error(phaseProblems.join("; "));
+          console.log(
+            `[edit-fidelity] corpus ${source.id}/${flow}: save-reload markup and outside-block snapshot passed`,
+          );
+        } catch (error) {
+          problems.push(`${source.id}/${flow}: ${String(error)}`);
+        } finally {
+          try {
+            if (deckId && (await editorState(page, slideId)).editing) {
+              await exitEdit(page, slideId, "escape");
+            }
+            if (deckId) await restoreSlide(page, deckId, slideId, original);
+          } catch (error) {
+            problems.push(
+              `${source.id}/${flow}: could not restore source slide (${String(error)})`,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      problems.push(
+        `${source.id}: corpus authoring setup failed (${String(error)})`,
+      );
+    } finally {
+      if (deckId) {
+        try {
+          await action(page, "delete-deck", { id: deckId }, "DELETE");
+        } catch (error) {
+          problems.push(
+            `${source.id}: could not delete scratch deck (${String(error)})`,
+          );
+        }
+      }
+    }
+  }
+
+  if (
+    authoringFlowFilter ||
+    (authoringSourceFilter && authoringSourceFilter !== "largest")
+  ) {
+    return problems;
+  }
+
+  if (authoringSourceFilter !== "largest") {
+    let edgeDeckId: string | null = null;
+    const edgeSlideId = "authoring-slash-viewport-edge";
+    try {
+      await page.setViewportSize({ width: 800, height: 520 });
+      const edgeDeck = await action(page, "create-deck", {
+        title: `[edit-fidelity] slash viewport edge ${Date.now()}`,
+        slides: [
+          {
+            id: edgeSlideId,
+            content:
+              '<div class="fmd-slide" style="padding:0"><p style="position:absolute;right:8px;bottom:8px;margin:0;text-align:right;white-space:nowrap">Edge anchor&nbsp;</p></div>',
+          },
+        ],
+      });
+      edgeDeckId = String(edgeDeck.id ?? edgeDeck.deckId);
+      await openSlide(page, base, edgeDeckId, 0, edgeSlideId);
+      const [target] = await listTargets(page, edgeSlideId);
+      if (!target) throw new Error("viewport-edge slide has no text target");
+      if (!(await enterEdit(page, edgeSlideId, target.point, []))) {
+        throw new Error("could not edit the viewport-edge text target");
+      }
+      const editor = page.locator(selectorFor(edgeSlideId));
+      await editor.press(lineEndKey);
+      await editor.pressSequentially("/");
+      const listbox = await getSlashListbox(page, editor);
+      await listbox
+        .locator('[role="option"]')
+        .first()
+        .waitFor({ state: "visible" });
+      const geometry = await assertSlashPopoverGeometry(editor);
+      const horizontalCollision =
+        geometry.caret.left + geometry.popover.width + 8 >
+        geometry.viewport.width;
+      const verticalCollision =
+        geometry.viewport.height - geometry.caret.bottom <
+        geometry.popover.height + 12;
+      if (!horizontalCollision || !verticalCollision) {
+        throw new Error(
+          `viewport-edge fixture did not pressure both popover edges: ${JSON.stringify({ geometry, horizontalCollision, verticalCollision })}`,
+        );
+      }
+      if (
+        geometry.side !== "top" ||
+        geometry.popover.left >= geometry.caret.left ||
+        Math.abs(geometry.popover.right - (geometry.viewport.width - 8)) > 2
+      ) {
+        throw new Error(
+          `viewport-edge popover did not shift left and flip above the caret: ${JSON.stringify(geometry)}`,
+        );
+      }
+      await page.keyboard.press("Escape");
+      await listbox.waitFor({ state: "hidden" });
+      await exitEdit(page, edgeSlideId, "escape");
+    } catch (error) {
+      problems.push(`slash viewport-edge geometry: ${String(error)}`);
+    } finally {
+      if (edgeDeckId) {
+        try {
+          await action(page, "delete-deck", { id: edgeDeckId }, "DELETE");
+        } catch (error) {
+          problems.push(`slash viewport-edge cleanup failed: ${String(error)}`);
+        }
+      }
+      await page.setViewportSize({ width: 1600, height: 1000 });
+    }
+  }
+
+  const largest = sources.find((source) => source.kind === "largest");
+  if (!largest) return problems;
+  const latencyDeck = await action(page, "create-deck", {
+    title: `[edit-fidelity] corpus latency ${Date.now()}`,
+    ...(largest.corpusCase.aspectRatio
+      ? { aspectRatio: largest.corpusCase.aspectRatio }
+      : {}),
+    slides: [
+      {
+        id: "authoring-corpus-largest-latency",
+        content: largest.slide.content,
+        ...(largest.slide.layout ? { layout: largest.slide.layout } : {}),
+      },
+    ],
+  });
+  const latencyDeckId = String(latencyDeck.id ?? latencyDeck.deckId);
+  try {
+    const latencySlideId = "authoring-corpus-largest-latency";
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await openSlide(page, base, latencyDeckId, 0, latencySlideId);
+    const target = await chooseTarget(latencySlideId, "any");
+    if (!target)
+      throw new Error("largest corpus slide has no editable text target");
+    if (!(await enterEdit(page, latencySlideId, target.point, []))) {
+      throw new Error("could not enter the largest corpus text target");
+    }
+    const editor = page.locator(selectorFor(latencySlideId));
+    await editor.press(lineEndKey);
+    const eventTimingThreshold = 16;
+    await editor.evaluate((element: HTMLElement, threshold: number) => {
+      const metrics = {
+        mode: "first-rAF-layout-proxy" as
+          | "first-rAF-layout-proxy"
+          | "event-timing",
+        keydowns: 0,
+        sampleWindow: null as { start: number; end: number } | null,
+        eventSamples: [] as Array<{
+          duration: number;
+          inputDelay: number;
+          handlerDuration: number;
+          presentationDelay: number;
+        }>,
+        operationSamples: [] as Array<{ type: string; duration: number }>,
+        frameSamples: [] as number[],
+        observer: null as PerformanceObserver | null,
+        cleanup: null as (() => void) | null,
+      };
+      const supportsEventTiming =
+        PerformanceObserver.supportedEntryTypes?.includes("event") ?? false;
+      if (supportsEventTiming) {
+        try {
+          metrics.observer = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              const event = entry as PerformanceEntry & {
+                duration: number;
+                processingStart: number;
+                processingEnd: number;
+                target: Node | null;
+              };
+              const sampleWindow = metrics.sampleWindow;
+              if (
+                entry.name === "keydown" &&
+                event.target &&
+                (event.target === element || element.contains(event.target)) &&
+                sampleWindow &&
+                entry.startTime >= sampleWindow.start &&
+                entry.startTime < sampleWindow.end
+              ) {
+                metrics.eventSamples.push({
+                  duration: event.duration,
+                  inputDelay: event.processingStart - entry.startTime,
+                  handlerDuration: event.processingEnd - event.processingStart,
+                  presentationDelay:
+                    entry.startTime + event.duration - event.processingEnd,
+                });
+              }
+            }
+          });
+          metrics.observer.observe({
+            type: "event",
+            buffered: false,
+            durationThreshold: threshold,
+          } as PerformanceObserverInit);
+          metrics.mode = "event-timing";
+        } catch {
+          metrics.observer?.disconnect();
+          metrics.observer = null;
+        }
+      }
+      (window as any).__slideKeyPaintMetrics = metrics;
+      const operationStarts = new WeakMap<Event, number>();
+      const operationTypes = ["beforeinput", "input"];
+      const eventRoot: HTMLElement | Document =
+        element.parentElement ?? document;
+      const startOperation = (event: Event) => {
+        if (event.target === element) {
+          operationStarts.set(event, performance.now());
+        }
+      };
+      const endOperation = (event: Event) => {
+        const started = operationStarts.get(event);
+        if (started === undefined) return;
+        metrics.operationSamples.push({
+          type: event.type,
+          duration: performance.now() - started,
+        });
+      };
+      for (const type of operationTypes) {
+        eventRoot.addEventListener(type, startOperation, true);
+        eventRoot.addEventListener(type, endOperation);
+      }
+      metrics.cleanup = () => {
+        for (const type of operationTypes) {
+          eventRoot.removeEventListener(type, startOperation, true);
+          eventRoot.removeEventListener(type, endOperation);
+        }
+      };
+      element.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key.length !== 1) return;
+          metrics.keydowns += 1;
+          const started = performance.now();
+          requestAnimationFrame(() => {
+            if (metrics.mode !== "event-timing") {
+              element.getBoundingClientRect();
+            }
+            metrics.frameSamples.push(performance.now() - started);
+          });
+        },
+        true,
+      );
+    }, eventTimingThreshold);
+    await page.evaluate(() => {
+      const metrics = (window as any).__slideKeyPaintMetrics;
+      metrics.sampleWindow = {
+        start: performance.now(),
+        end: Number.POSITIVE_INFINITY,
+      };
+    });
+    for (let index = 0; index < 64; index += 1) {
+      await editor.press("x");
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+    }
+    await page.evaluate(() => {
+      const metrics = (window as any).__slideKeyPaintMetrics;
+      if (metrics.sampleWindow) metrics.sampleWindow.end = performance.now();
+    });
+    await page.waitForTimeout(50);
+    const metrics = (await page.evaluate(() => {
+      const value = (window as any).__slideKeyPaintMetrics;
+      value?.observer?.disconnect();
+      value?.cleanup?.();
+      return value
+        ? {
+            mode: value.mode as string,
+            keydowns: value.keydowns as number,
+            eventSamples: value.eventSamples as Array<{
+              duration: number;
+              inputDelay: number;
+              handlerDuration: number;
+              presentationDelay: number;
+            }>,
+            operationSamples: value.operationSamples as Array<{
+              type: string;
+              duration: number;
+            }>,
+            frameSamples: value.frameSamples as number[],
+          }
+        : null;
+    })) as {
+      mode: string;
+      keydowns: number;
+      eventSamples: Array<{
+        duration: number;
+        inputDelay: number;
+        handlerDuration: number;
+        presentationDelay: number;
+      }>;
+      operationSamples: Array<{ type: string; duration: number }>;
+      frameSamples: number[];
+    } | null;
+    if (!metrics || metrics.keydowns < 32) {
+      throw new Error(
+        `only captured ${metrics?.keydowns ?? 0} keydown samples`,
+      );
+    }
+    if (metrics.mode === "event-timing") {
+      const operationP95 = (type: string) => {
+        const values = metrics.operationSamples
+          .filter((sample) => sample.type === type)
+          .map((sample) => sample.duration)
+          .sort((a, b) => a - b);
+        return values.length
+          ? values[Math.ceil(values.length * 0.95) - 1]
+          : null;
+      };
+      const beforeInputP95 = operationP95("beforeinput");
+      const inputP95 = operationP95("input");
+      console.log(
+        `[edit-fidelity] largest corpus slide editor event handler p95 (beforeinput=${beforeInputP95?.toFixed(2) ?? "n/a"}ms input=${inputP95?.toFixed(2) ?? "n/a"}ms)`,
+      );
+      const sortedFrames = [...metrics.frameSamples].sort((a, b) => a - b);
+      if (sortedFrames.length < 32) {
+        throw new Error(
+          `only captured ${sortedFrames.length} frame-layout proxy samples`,
+        );
+      }
+      const frameP95 = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
+      const sortedEvents = [...metrics.eventSamples].sort(
+        (a, b) => a.duration - b.duration,
+      );
+      const eventP95 = p95IndexFromThresholdedSamples(
+        metrics.keydowns,
+        sortedEvents.length,
+        eventTimingThreshold,
+      );
+      if (eventP95.kind === "below-threshold") {
+        console.log(
+          `[edit-fidelity] largest corpus slide keydown-to-paint p95<=${eventP95.bound.toFixed(2)}ms (Event Timing threshold bound; observed=${sortedEvents.length}/${metrics.keydowns}, threshold=${eventTimingThreshold}ms)`,
+        );
+      } else {
+        const p95Event = sortedEvents[eventP95.index];
+        if (!p95Event)
+          throw new Error("Event Timing p95 sample was not captured");
+        console.log(
+          `[edit-fidelity] largest corpus slide keydown-to-paint p95=${p95Event.duration.toFixed(2)}ms (input=${p95Event.inputDelay.toFixed(2)}ms handler=${p95Event.handlerDuration.toFixed(2)}ms presentation=${p95Event.presentationDelay.toFixed(2)}ms, observed=${sortedEvents.length}/${metrics.keydowns}, threshold=${eventTimingThreshold}ms)`,
+        );
+        if (p95Event.duration > eventTimingThreshold) {
+          console.warn(
+            `[edit-fidelity] warning: largest corpus slide keydown-to-paint p95 ${p95Event.duration.toFixed(2)}ms exceeds ${eventTimingThreshold}ms`,
+          );
+        }
+      }
+      console.log(
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
+      );
+    } else {
+      const sorted = [...metrics.frameSamples].sort((a, b) => a - b);
+      if (sorted.length < 32) {
+        throw new Error(
+          `only captured ${sorted.length} frame-layout proxy samples`,
+        );
+      }
+      const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
+      console.log(
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${p95.toFixed(2)}ms (proxy, not paint; Event Timing unavailable, n=${sorted.length})`,
+      );
+      if (p95 > 16) {
+        problems.push(
+          `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${p95.toFixed(2)}ms exceeds 16ms`,
+        );
+      }
+    }
+  } catch (error) {
+    problems.push(`largest corpus latency sample failed: ${String(error)}`);
+  } finally {
+    try {
+      await action(page, "delete-deck", { id: latencyDeckId }, "DELETE");
+    } catch (error) {
+      problems.push(
+        `largest corpus latency deck cleanup failed: ${String(error)}`,
+      );
+    }
+  }
+  return problems;
+}
+
+async function runAuthoringFuzzQa(
+  createPage: () => Promise<Page>,
+  stableCleanupPage: Page,
+  base: string,
+  cases: CorpusCase[],
+  firstSeed: number,
+  steps: number,
+  seeds: number,
+) {
+  const sources = corpusAuthoringSources(cases).filter(
+    (source) => source.kind !== "largest",
+  );
+  const profiles = [
+    ...sources.filter((source) => source.kind === "absolute"),
+    ...sources.filter((source) => source.kind === "flex-grid"),
+    ...sources.filter((source) => source.kind === "styled-list"),
+    ...sources.filter((source) => source.kind === "styled-flex-bullet-row"),
+    ...sources.filter(
+      (source) => source.kind === "styled-paragraph-bullet-row",
+    ),
+    ...sources.filter((source) => source.kind === "scaled"),
+  ];
+  if (profiles.length !== 6) {
+    throw new CouldNotRun(
+      "authoring fuzz requires committed absolute, flex/grid, semantic-list, flex bullet-row, paragraph bullet-row, and scaled slides",
+    );
+  }
+
+  const selectorFor = (slideId: string) =>
+    `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+  const canonicalMarkup = async (page: Page, html: string) =>
+    JSON.stringify(
+      await page.evaluate(
+        (value: string) => window.__editFidelity.canonical(value),
+        html,
+      ),
+    );
+  const profileFor = (seed: number) => {
+    const index = authoringFuzzProfileIndex(seed);
+    return index === null ? null : profiles[index];
+  };
+  const sourceTarget = async (
+    page: Page,
+    slideId: string,
+    source: CorpusAuthoringSource | null,
+  ) => {
+    const targets = await listTargets(page, slideId);
+    if (!source) return targets[0];
+    const hints = await page.evaluate(
+      ({ selector, chrome }: { selector: string; chrome: string }) => {
+        const canvas = document.querySelector(selector);
+        if (!canvas) return [];
+        const isStyledBulletRow = (element: HTMLElement) => {
+          if (!/^(DIV|LI|P)$/.test(element.tagName)) return false;
+          const marker = element.firstElementChild as HTMLElement | null;
+          if (!marker || marker.tagName !== "SPAN") return false;
+          const text = marker.textContent?.trim() ?? "";
+          if (text) return /^[-*•●◦▪‣·⁃–—]+$/u.test(text);
+          const style = getComputedStyle(marker);
+          const width = Number.parseFloat(style.width);
+          const height = Number.parseFloat(style.height);
+          const colorParts = style.backgroundColor
+            .replace(/[(),/]/g, " ")
+            .trim()
+            .split(/\s+/);
+          const alpha =
+            colorParts.length === 4 ? Number(colorParts[3]) : undefined;
+          return (
+            width > 0 &&
+            height > 0 &&
+            width <= 48 &&
+            height <= 48 &&
+            (Number.parseFloat(style.borderTopWidth) > 0 ||
+              Number.parseFloat(style.borderLeftWidth) > 0 ||
+              (style.backgroundColor !== "transparent" && alpha !== 0) ||
+              Number.parseFloat(style.borderRadius) > 0)
+          );
+        };
+        const containsStyledBulletRow = (element: HTMLElement) =>
+          isStyledBulletRow(element) ||
+          Array.from(element.querySelectorAll<HTMLElement>("div,li,p")).some(
+            isStyledBulletRow,
+          );
+        return Array.from(
+          canvas.querySelectorAll<HTMLElement>(
+            '[data-slide-text-block="true"]',
+          ),
+        )
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return (
+              !/^(STYLE|SCRIPT)$/.test(element.tagName) &&
+              !element.closest(chrome) &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              !!element.textContent?.replace(/[\s\u200b\ufeff]+/g, " ").trim()
+            );
+          })
+          .map((element, index) => {
+            let absolute = false;
+            let grid = false;
+            let list =
+              /^(LI|UL|OL)$/.test(element.tagName) ||
+              element.querySelector("li,ul,ol") !== null;
+            let bulletRow = containsStyledBulletRow(element);
+            for (
+              let ancestor: HTMLElement | null = element;
+              ancestor && canvas.contains(ancestor);
+              ancestor = ancestor.parentElement
+            ) {
+              const style = getComputedStyle(ancestor);
+              absolute ||= style.position === "absolute";
+              grid ||= style.display === "grid";
+              list ||=
+                ancestor.tagName === "LI" || /^(UL|OL)$/.test(ancestor.tagName);
+              bulletRow ||= isStyledBulletRow(ancestor);
+            }
+            return { index, absolute, grid, list, bulletRow };
+          });
+      },
+      { selector: canvasSelector(slideId), chrome: CHROME_SELECTOR },
+    );
+    const hint = hints.find((candidate: any) =>
+      source.testTarget === "absolute"
+        ? candidate.absolute
+        : source.testTarget === "flex-grid"
+          ? candidate.grid
+          : source.testTarget === "list"
+            ? candidate.list
+            : source.testTarget === "bullet-row"
+              ? candidate.bulletRow
+              : true,
+    );
+    return targets.find((target) => target.index === hint?.index);
+  };
+
+  const problems: string[] = [];
+  const cleanupProblems: string[] = [];
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const exercisedProfiles = new Set<string>();
+  let harnessUnavailable: CouldNotRun | null = null;
+
+  for (let round = 0; round < seeds; round += 1) {
+    const seed = firstSeed + round;
+    const profile = profileFor(seed);
+    exercisedProfiles.add(profile?.kind ?? "synthetic");
+    const slideId = `authoring-fuzz-${round}`;
+    let page: Page | null = null;
+    let deckId: string | null = null;
+    let authoringSucceeded = false;
+    let createAttempted = false;
+    let createError: unknown = null;
+    let seedHarnessUnavailable: CouldNotRun | null = null;
+    const unavailableCleanupPages = new Set<Page>();
+    const cleanupRequestStartTimes = new Map<
+      any,
+      { page: Page; startedAt: number }
+    >();
+    const cleanupRequestFinishedAt = new WeakMap<any, number>();
+    let cleanupNavigationStarted = false;
+    let cleanupNavigationCompetingClaimStarted = false;
+    let cleanupNavigationCompetingRegistrationStarted = false;
+    const cleanupNavigationCompetingRequestUrls = new Set<string>();
+    const isBrowserSessionRequest = (request: any) =>
+      /^\/_agent-native\/browser-sessions(?:\/|$)/.test(
+        new URL(request.url()).pathname,
+      );
+    const isBrowserSessionClaimRequest = (request: any) =>
+      request.method() === "POST" &&
+      /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+        new URL(request.url()).pathname,
+      );
+    const isBrowserSessionRegistrationRequest = (request: any) =>
+      request.method() === "POST" &&
+      (/^\/_agent-native\/browser-sessions$/.test(
+        new URL(request.url()).pathname,
+      ) ||
+        /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/.test(
+          new URL(request.url()).pathname,
+        ));
+    const cleanupRequestTrackingPages = new Map<
+      Page,
+      {
+        onRequest: (request: any) => void;
+        onRequestFinished: (request: any) => void;
+        onRequestFailed: (request: any) => void;
+      }
+    >();
+    const trackCleanupRequests = (target: Page) => {
+      if (cleanupRequestTrackingPages.has(target)) return;
+      const onRequest = (request: any) => {
+        if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
+          cleanupNavigationCompetingRequestUrls.add(request.url());
+          if (isBrowserSessionClaimRequest(request)) {
+            cleanupNavigationCompetingClaimStarted = true;
+          }
+          if (isBrowserSessionRegistrationRequest(request)) {
+            cleanupNavigationCompetingRegistrationStarted = true;
+          }
+        }
+        cleanupRequestStartTimes.set(request, {
+          page: target,
+          startedAt: Date.now(),
+        });
+      };
+      const onRequestFinished = (request: any) => {
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "finished",
+          Date.now(),
+        );
+        cleanupRequestStartTimes.delete(request);
+      };
+      const onRequestFailed = (request: any) => {
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "failed",
+          Date.now(),
+        );
+        cleanupRequestStartTimes.delete(request);
+      };
+      target.on("request", onRequest);
+      target.on("requestfinished", onRequestFinished);
+      target.on("requestfailed", onRequestFailed);
+      cleanupRequestTrackingPages.set(target, {
+        onRequest,
+        onRequestFinished,
+        onRequestFailed,
+      });
+    };
+    const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
+    try {
+      const activePage = await runSetupAsCouldNotRun(
+        "could not create authoring fuzz page",
+        createPage,
+      );
+      page = activePage;
+      trackCleanupRequests(activePage);
+      activePage.on("crash", () => {
+        unavailableCleanupPages.add(activePage);
+      });
+      activePage.on("close", () => {
+        unavailableCleanupPages.add(activePage);
+      });
+      await runSetupAsCouldNotRun(
+        "could not navigate to authoring fuzz setup page",
+        () =>
+          activePage.goto(`${base}/home`, { waitUntil: "domcontentloaded" }),
+      );
+      await runSetupAsCouldNotRun("could not sign in authoring fuzz page", () =>
+        ensureSignedIn(activePage),
+      );
+      await runSetupAsCouldNotRun("could not size authoring fuzz page", () =>
+        activePage.setViewportSize(
+          profile?.kind === "scaled"
+            ? { width: 850, height: 650 }
+            : { width: 1600, height: 1000 },
+        ),
+      );
+      const created = await runSetupActionAsCouldNotRun(
+        "could not create authoring fuzz deck",
+        () => {
+          createAttempted = true;
+          return action(activePage, "create-deck", {
+            title: scratchTitle,
+            ...(profile?.corpusCase.aspectRatio
+              ? { aspectRatio: profile.corpusCase.aspectRatio }
+              : {}),
+            slides: [
+              {
+                id: slideId,
+                content:
+                  profile?.slide.content ??
+                  `<div class="fmd-slide"><p>Fuzz seed ${seed} starts here.</p></div>`,
+                ...(profile?.slide.layout
+                  ? { layout: profile.slide.layout }
+                  : {}),
+              },
+            ],
+          }).catch((error: unknown) => {
+            createError = error;
+            throw error;
+          });
+        },
+      );
+      deckId = String(created.id ?? created.deckId);
+      await openSlide(activePage, base, deckId, 0, slideId, {
+        initialOpenAsSetup: true,
+      });
+      if (profile?.kind === "scaled") {
+        const scale = await activePage
+          .locator(canvasSelector(slideId))
+          .evaluate((element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            return element.offsetWidth > 0
+              ? rect.width / element.offsetWidth
+              : 1;
+          });
+        if (!(scale > 0 && scale < 0.99)) {
+          throw new Error(
+            `scaled fuzz fixture did not scale below 1 (scale ${scale.toFixed(3)})`,
+          );
+        }
+      }
+      const target = await sourceTarget(activePage, slideId, profile);
+      if (!target) throw new Error("no target matched the authoring profile");
+      const editorSelector = selectorFor(slideId);
+      const rootSelector = `${canvasSelector(slideId)} .slide-content`;
+      const originalSlideHtml = await activePage
+        .locator(rootSelector)
+        .innerHTML();
+      if (!(await enterEdit(activePage, slideId, target.point, []))) {
+        throw new Error("could not enter in-place text editing");
+      }
+      const originalHtml = await activePage.locator(editorSelector).innerHTML();
+      const slideHtml = () => activePage.locator(rootSelector).innerHTML();
+      const result = await runAuthoringFuzz(activePage, {
+        seed,
+        steps,
+        editorSelector,
+        slideSelector: canvasSelector(slideId),
+        slideContentSelector: rootSelector,
+        originalHtml,
+        originalSlideHtml,
+        initialPendingWatchedRequests: new Map(
+          [...cleanupRequestStartTimes.entries()]
+            .filter(([, request]) => request.page === activePage)
+            .map(([request, { startedAt }]) => [request, startedAt]),
+        ),
+        modifier,
+        historyLimit: IN_PLACE_TEXT_UNDO_LIMIT,
+        expectScaledSlide: profile?.kind === "scaled",
+        browser: browserName as "chromium" | "webkit" | "firefox",
+        lineKeys: { start: lineStartKey, end: lineEndKey },
+        finishAndReload: async (
+          markReloadNavigationStart,
+        ): Promise<AuthoringFuzzPersistence> => {
+          const trace = (phase: string) => {
+            if (process.env.SLIDES_AUTHORING_FUZZ_TRACE === "1") {
+              console.log(`[edit-fidelity] save/reload ${phase}`);
+            }
+          };
+          trace("exit-edit:start");
+          if (!(await exitEdit(activePage, slideId, "escape"))) {
+            throw new Error("Escape did not leave in-place text editing");
+          }
+          trace("exit-edit:end");
+          trace("read-live-html:start");
+          const liveHtml = await slideHtml();
+          trace("read-live-html:end");
+          trace("settle-saved:start");
+          const stored = await settleSaved(
+            activePage,
+            deckId!,
+            slideId,
+            () => 0,
+            2500,
+          );
+          trace("settle-saved:end");
+          trace("open-reloaded-slide:start");
+          await openSlide(activePage, base, deckId!, 0, slideId, {
+            onNavigationStart: markReloadNavigationStart,
+            skipPointerMove: true,
+          });
+          trace("open-reloaded-slide:end");
+          trace("read-reloaded-html:start");
+          const reloadedHtml = await slideHtml();
+          trace("read-reloaded-html:end");
+          return canonicalizeAuthoringFuzzPersistence(
+            {
+              originalHtml: originalSlideHtml,
+              liveHtml,
+              savedHtml: stored,
+              reloadedHtml,
+            },
+            (html) => canonicalMarkup(activePage, html),
+          );
+        },
+      });
+      authoringSucceeded = true;
+      console.log(
+        `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
+      );
+    } catch (error) {
+      seedHarnessUnavailable = getHarnessUnavailableError(error);
+      if (
+        page &&
+        shouldUseFreshBrowserPageForCleanup(error, Boolean(page.isClosed()))
+      ) {
+        unavailableCleanupPages.add(page);
+      }
+      if (!seedHarnessUnavailable) {
+        const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
+        problems.push(problem);
+        console.error(`[edit-fidelity] ${problem}`);
+      }
+    } finally {
+      const cleanupErrors: string[] = [];
+      const pendingCleanupConsoleInspections = new Set<Promise<void>>();
+      const monitoredPages = new Set<Page>();
+      const recoveryPages = new Set<Page>();
+      let cleanupNavigationCandidates: Array<{
+        request: any;
+        url: string;
+        pathname: string;
+        method: string;
+        startedAt: number;
+        sameOrigin: boolean;
+        requestWasPendingAtNavigation: true;
+      }> = [];
+      let recoveryPage: Page | null = stableCleanupPage;
+      let lastCleanupPage: Page | null = null;
+      const recordCleanupFailure = (
+        label: string,
+        error: unknown,
+        target: Page | null = lastCleanupPage,
+      ) => {
+        cleanupErrors.push(
+          formatAuthoringFuzzCleanupIssue(label, deckId, error),
+        );
+        if (
+          target &&
+          shouldUseFreshBrowserPageForCleanup(error, Boolean(target.isClosed()))
+        ) {
+          unavailableCleanupPages.add(target);
+        }
+        const unavailable = getHarnessUnavailableError(error);
+        if (unavailable) {
+          seedHarnessUnavailable ??= unavailable;
+        }
+      };
+      const getCleanupNavigationCandidates = () => {
+        const now = Date.now();
+        return cleanupNavigationCandidates.map(
+          ({ request, startedAt, ...candidate }) => {
+            const finishedAt = cleanupRequestFinishedAt.get(request);
+            return {
+              ...candidate,
+              ageMs: now - startedAt,
+              ...(finishedAt === undefined
+                ? {}
+                : {
+                    requestFinishedSuccessfully: true,
+                    settledAgeMs: now - finishedAt,
+                  }),
+              competingRequestStartedAfterNavigation:
+                cleanupNavigationCompetingRequestUrls.has(candidate.url),
+              competingClaimStartedAfterNavigation:
+                cleanupNavigationCompetingClaimStarted,
+              competingRegistrationStartedAfterNavigation:
+                cleanupNavigationCompetingRegistrationStarted,
+            };
+          },
+        );
+      };
+      const isExpectedCleanupNavigationError = (
+        message: string,
+        candidates = getCleanupNavigationCandidates(),
+        navigationStarted = cleanupNavigationStarted,
+      ) => {
+        return isExpectedCleanupNavigationRequestError(
+          message,
+          candidates,
+          navigationStarted,
+        );
+      };
+      if (authoringSucceeded && page && !page.isClosed()) {
+        unavailableCleanupPages.add(page);
+        try {
+          await page.close();
+        } catch (error) {
+          recordCleanupFailure(
+            "could not close authoring page before cleanup",
+            error,
+            page,
+          );
+        }
+      }
+      const onConsole = (message: any) => {
+        if (message.type() === "error") {
+          const text = message.text();
+          if (
+            !cleanupNavigationStarted ||
+            !isFirefoxBrowserSessionConsoleError(text)
+          ) {
+            if (isExpectedCleanupNavigationError(text)) return;
+            cleanupErrors.push(`console: ${text}`);
+            return;
+          }
+          const candidatesAtEvent = getCleanupNavigationCandidates();
+          const navigationStartedAtEvent = cleanupNavigationStarted;
+          let inspection: Promise<void>;
+          inspection = normalizeFirefoxBrowserSessionConsoleError(message)
+            .then((normalized) => {
+              if (
+                isExpectedCleanupNavigationError(
+                  normalized,
+                  candidatesAtEvent,
+                  navigationStartedAtEvent,
+                )
+              ) {
+                return;
+              }
+              cleanupErrors.push(`console: ${normalized}`);
+            })
+            .catch((error: unknown) => {
+              cleanupErrors.push(`console: ${text} (${String(error)})`);
+            })
+            .finally(() => pendingCleanupConsoleInspections.delete(inspection));
+          pendingCleanupConsoleInspections.add(inspection);
+        }
+      };
+      const onPageError = (error: Error) => {
+        if (isExpectedCleanupNavigationError(error.message)) return;
+        cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
+      };
+      const onResponse = (response: { status(): number; url(): string }) => {
+        if (response.status() >= 400) {
+          cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
+        }
+      };
+      const monitorCleanupPage = (target: Page) => {
+        if (!authoringSucceeded || monitoredPages.has(target)) return;
+        trackCleanupRequests(target);
+        target.on("console", onConsole);
+        target.on("pageerror", onPageError);
+        target.on("response", onResponse);
+        monitoredPages.add(target);
+      };
+      const getCleanupPage = async (): Promise<Page> => {
+        if (
+          page &&
+          canReuseAuthoringFuzzCleanupPage(
+            page.isClosed(),
+            unavailableCleanupPages.has(page),
+          )
+        ) {
+          lastCleanupPage = page;
+          monitorCleanupPage(page);
+          return page;
+        }
+        if (
+          recoveryPage &&
+          canReuseAuthoringFuzzCleanupPage(
+            recoveryPage.isClosed(),
+            unavailableCleanupPages.has(recoveryPage),
+          )
+        ) {
+          lastCleanupPage = recoveryPage;
+          monitorCleanupPage(recoveryPage);
+          return recoveryPage;
+        }
+        const createdRecoveryPage = await runSetupAsCouldNotRun(
+          "could not create a fresh authoring fuzz cleanup page",
+          createPage,
+        );
+        recoveryPage = createdRecoveryPage;
+        recoveryPages.add(createdRecoveryPage);
+        lastCleanupPage = createdRecoveryPage;
+        trackCleanupRequests(createdRecoveryPage);
+        createdRecoveryPage.on("crash", () => {
+          unavailableCleanupPages.add(createdRecoveryPage);
+        });
+        createdRecoveryPage.on("close", () => {
+          unavailableCleanupPages.add(createdRecoveryPage);
+        });
+        try {
+          await runSetupAsCouldNotRun(
+            "could not navigate the fresh authoring fuzz cleanup page",
+            () =>
+              createdRecoveryPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+              }),
+          );
+          await runSetupAsCouldNotRun(
+            "could not sign in the fresh authoring fuzz cleanup page",
+            () => ensureSignedIn(createdRecoveryPage),
+          );
+        } catch (error) {
+          unavailableCleanupPages.add(createdRecoveryPage);
+          recoveryPage = null;
+          if (!createdRecoveryPage.isClosed()) {
+            try {
+              await createdRecoveryPage.close();
+            } catch (closeError) {
+              recordCleanupFailure(
+                "could not close a failed recovery page",
+                closeError,
+                createdRecoveryPage,
+              );
+            }
+          }
+          throw error;
+        }
+        monitorCleanupPage(createdRecoveryPage);
+        return createdRecoveryPage;
+      };
+      try {
+        if (
+          shouldLookUpAuthoringFuzzScratchDeck(
+            createAttempted,
+            deckId,
+            createError,
+          )
+        ) {
+          try {
+            // A timed-out create can commit after the client stops waiting.
+            const recovery = await retryAuthoringFuzzScratchDeckLookup(
+              async () => {
+                const lookupPage = await getCleanupPage();
+                return action(
+                  lookupPage,
+                  "list-decks",
+                  {
+                    createdBy: "me",
+                    search: scratchTitle,
+                    light: "true",
+                    limit: "10",
+                  },
+                  "GET",
+                  5_000,
+                );
+              },
+              scratchTitle,
+            );
+            if (recovery.status === "found") {
+              deckId = recovery.deckId;
+            } else {
+              cleanupErrors.push(
+                recovery.status === "missing-decks"
+                  ? "list-decks response omitted its decks array after ambiguous creation"
+                  : "list-decks found no exact scratch deck after ambiguous creation",
+              );
+            }
+          } catch (error) {
+            recordCleanupFailure(
+              "could not look up scratch deck after ambiguous creation",
+              error,
+            );
+          }
+        }
+        if (deckId) {
+          try {
+            const cleanupPage = await getCleanupPage();
+            if (
+              cleanupPage === page &&
+              (await editorState(cleanupPage, slideId)).editing
+            ) {
+              await exitEdit(cleanupPage, slideId, "escape");
+            }
+          } catch (error) {
+            recordCleanupFailure("could not exit editing", error);
+          }
+          if (authoringSucceeded) {
+            try {
+              const cleanupPage = await getCleanupPage();
+              await settleSaved(cleanupPage, deckId, slideId, () => 0);
+            } catch (error) {
+              recordCleanupFailure("could not settle saves", error);
+            }
+          }
+          try {
+            const cleanupPage = await getCleanupPage();
+            const cleanupUrl = new URL(cleanupPage.url());
+            cleanupNavigationCandidates = [
+              ...cleanupRequestStartTimes.entries(),
+            ]
+              .filter(([, request]) => request.page === cleanupPage)
+              .map(([request, { startedAt }]) => {
+                const url = request.url();
+                const requestUrl = new URL(url);
+                return {
+                  request,
+                  url,
+                  pathname: requestUrl.pathname,
+                  method: request.method(),
+                  startedAt,
+                  sameOrigin: requestUrl.origin === cleanupUrl.origin,
+                  requestWasPendingAtNavigation: true as const,
+                };
+              });
+            const homeUrl = new URL(`${base}/home`);
+            if (
+              cleanupUrl.origin !== homeUrl.origin ||
+              cleanupUrl.pathname !== homeUrl.pathname
+            ) {
+              cleanupNavigationStarted = true;
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
+            }
+          } catch (error) {
+            recordCleanupFailure("could not leave scratch deck", error);
+          }
+          try {
+            const cleanupPage = await getCleanupPage();
+            await action(cleanupPage, "delete-deck", { id: deckId }, "DELETE");
+          } catch (error) {
+            recordCleanupFailure("could not delete scratch deck", error);
+          }
+        }
+      } finally {
+        for (const monitoredPage of monitoredPages) {
+          if (monitoredPage.isClosed()) continue;
+          monitoredPage.off("console", onConsole);
+          monitoredPage.off("pageerror", onPageError);
+          monitoredPage.off("response", onResponse);
+        }
+        for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
+          if (trackedPage.isClosed()) continue;
+          trackedPage.off("request", listeners.onRequest);
+          trackedPage.off("requestfinished", listeners.onRequestFinished);
+          trackedPage.off("requestfailed", listeners.onRequestFailed);
+        }
+      }
+      const closePage = async (target: Page, label: string) => {
+        if (target.isClosed()) return;
+        try {
+          await target.close();
+        } catch (error) {
+          recordCleanupFailure(label, error, target);
+        }
+      };
+      while (pendingCleanupConsoleInspections.size) {
+        await Promise.all([...pendingCleanupConsoleInspections]);
+      }
+      cleanupNavigationCandidates = [];
+      if (page) await closePage(page, "could not close authoring page");
+      for (const cleanupPage of recoveryPages) {
+        await closePage(cleanupPage, "could not close recovery page");
+      }
+      if (cleanupErrors.length) {
+        const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
+        cleanupProblems.push(problem);
+        console.error(`[edit-fidelity] ${problem}`);
+      }
+    }
+    if (seedHarnessUnavailable) {
+      harnessUnavailable = seedHarnessUnavailable;
+      break;
+    }
+  }
+  if (harnessUnavailable) {
+    const report = formatAuthoringFuzzUnavailable(
+      harnessUnavailable.message,
+      problems,
+      cleanupProblems,
+    );
+    if (authoringFuzzUnavailableExitCode(problems.length) === 1) {
+      console.error(`[edit-fidelity] authoring fuzz incomplete:\n${report}`);
+      return problems;
+    }
+    throw new CouldNotRun(report);
+  }
+  if (problems.length || cleanupProblems.length) {
+    return [...problems, ...cleanupProblems];
+  }
+  console.log(
+    `[edit-fidelity] ${seeds} seeded authoring runs of ${steps} steps passed in ${browserName}; profiles: ${Array.from(exercisedProfiles).join(", ")}`,
+  );
   return problems;
 }
 
@@ -674,10 +6060,18 @@ async function restoreSlide(
   slideId: string,
   stored: string,
 ) {
-  if ((await getSlideContent(page, deckId, slideId)) === stored) return;
+  const current = await getSlideState(page, deckId, slideId);
+  if (current.content === stored) return;
   await action(page, "patch-deck", {
     deckId,
-    operations: [{ op: "patch-slide", slideId, fields: { content: stored } }],
+    operations: [
+      {
+        op: "patch-slide",
+        slideId,
+        fields: { content: stored },
+        baseContentHash: current.contentHash,
+      },
+    ],
   });
   if ((await getSlideContent(page, deckId, slideId)) !== stored) {
     throw new Error(
@@ -689,7 +6083,17 @@ async function restoreSlide(
 async function snapshot(
   page: Page,
   slideId: string,
-  edited: { targetIndex?: number; text?: string },
+  edited: {
+    targetIndex?: number;
+    text?: string;
+    marker?: string;
+    targetBuilderId?: string;
+    targetSlideObjectId?: string;
+    targetPptxParagraph?: string;
+    targetTextIncludes?: string;
+    authoringFragmentTexts?: string[];
+    preserveStyledBulletMarker?: boolean;
+  },
 ): Promise<Snapshot> {
   return page.evaluate(
     ({ sel, edited }: any) => window.__editFidelity.snapshot(sel, edited),
@@ -1098,10 +6502,10 @@ async function runScenario(
       await page.keyboard.type("x");
       await page.keyboard.press("Backspace");
     } else if (scenario === "append") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       await page.keyboard.type(" ok");
     } else if (scenario === "enter3") {
-      await page.keyboard.press("End");
+      await page.keyboard.press(lineEndKey);
       let prevPng = editing;
       // End keeps the caret's line, but at a soft wrap a Range measures the
       // next line; read after End only when entry left no measurable caret.
@@ -1525,7 +6929,12 @@ async function runScenario(
         v.push(
           `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
         );
-      const restyled = restyledAddedText(snapView, snapReload);
+      // Heading Enter and list exit intentionally create a plain paragraph.
+      const restyled = restyledAddedText(
+        snapView,
+        snapReload,
+        scenario === "enter3" ? state0.caretConvertibleTag : null,
+      );
       if (restyled.length)
         v.push(
           `typed text on the reloaded slide has a style no text of the element had (${restyled.slice(0, 3).join("; ")})`,
@@ -1776,14 +7185,15 @@ async function runCase(
             continue;
           }
           let r = await runScenario(ctx, target, scenario);
-          if (r.status === "error" && INFRA.test(r.error ?? "")) {
+          if (r.status === "error" && isRetryableInfraError(r.error ?? "")) {
             const first = r.error;
             await worker.reopen();
             ctx.page = worker.page;
             ctx.sheetPage = worker.sheetPage;
             r = await runScenario(ctx, target, scenario);
             r.retriedAfter = first;
-            r.infra = r.status === "error" && INFRA.test(r.error ?? "");
+            r.infra =
+              r.status === "error" && isRetryableInfraError(r.error ?? "");
             if (r.infra) rewriteResult(dir, r);
           }
           results.push(r);
@@ -1792,7 +7202,7 @@ async function runCase(
       }
     } catch (error) {
       report.error = String((error as Error).message ?? error).slice(0, 500);
-      report.infra = INFRA.test(report.error);
+      report.infra = isRetryableInfraError(report.error);
       console.error(`[edit-fidelity] ${c.id} slide ${i + 1}: ${report.error}`);
     }
     writeFileSync(
@@ -1816,14 +7226,11 @@ function rewriteResult(dir: string, r: ScenarioResult) {
  * or selector deadline, and a crashed page closes. Each is retried once on a
  * fresh page; one that repeats is reported apart from editor failures.
  */
-const INFRA =
-  /Execution context was destroyed|canvas not found|frame was detached|Target page, context or browser has been closed|Target crashed|net::ERR_ABORTED|Timeout \d+ms exceeded/;
-
 async function retryInfra<T>(worker: Worker, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (error) {
-    if (!INFRA.test(String((error as Error).message ?? error))) throw error;
+    if (!isRetryableInfraError(error)) throw error;
     await worker.reopen();
     return fn();
   }
@@ -1906,8 +7313,16 @@ async function main() {
   }
 
   const playwright: any = await import(resolvePnpmEntry("playwright", "1.63"));
-  const chromium = pick<any>(playwright, "chromium");
-  const browser = await chromium.launch({ headless: !headed });
+  const browserType = pick<any>(playwright, browserName);
+  let browser: any;
+  try {
+    browser = await browserType.launch({ headless: !headed });
+  } catch (error) {
+    await cleanup();
+    fatal(
+      `could not launch ${browserName}; install it with pnpm exec playwright install ${browserName}: ${String(error)}`,
+    );
+  }
   const results: ScenarioResult[] = [];
   const slides: SlideReport[] = [];
   const envelope = new Map<string, Set<string>>();
@@ -1918,6 +7333,69 @@ async function main() {
       viewport: { width: 1600, height: 1000 },
       deviceScaleFactor: 1,
     });
+    if (authoringFuzzOnly) {
+      // Fuzz covers slide authoring, not an idle host session's long poll.
+      await context.route(
+        "**/_agent-native/browser-sessions**",
+        async (route: any) => {
+          const request = route.request();
+          const corsHeaders = authoringFuzzBrowserSessionCorsHeaders(
+            request.headers().origin,
+          );
+          if (request.method() === "OPTIONS") {
+            await route.fulfill({ status: 204, headers: corsHeaders });
+            return;
+          }
+          const requestBody =
+            request.method() === "POST" && request.postData()
+              ? request.postDataJSON()
+              : undefined;
+          const response = authoringFuzzBrowserSessionResponse(
+            request.method(),
+            new URL(request.url()).pathname,
+            requestBody,
+          );
+          await route.fulfill({
+            status: response ? (response.ok ? 200 : 400) : 501,
+            contentType: "application/json",
+            headers: corsHeaders,
+            body: JSON.stringify(
+              response ?? {
+                ok: false,
+                error: "Unexpected browser-session request in authoring fuzz",
+              },
+            ),
+          });
+        },
+      );
+    }
+    // The local app can still be compiling when a new page first opens /home.
+    context.setDefaultNavigationTimeout(120_000);
+    // Observe link failures before the app starts injecting slide stylesheets.
+    await context.addInitScript(() => {
+      window.addEventListener(
+        "error",
+        (event) => {
+          const target = event.target;
+          if (
+            target instanceof HTMLLinkElement &&
+            target.relList.contains("stylesheet")
+          ) {
+            target.dataset.editFidelityLoadError = "true";
+          }
+        },
+        true,
+      );
+    });
+    const navigatorPlatform =
+      lineKeyPlatform === "darwin"
+        ? "MacIntel"
+        : lineKeyPlatform === "win32"
+          ? "Win32"
+          : "Linux x86_64";
+    await context.addInitScript(
+      `Object.defineProperty(navigator, "platform", { configurable: true, get: () => ${JSON.stringify(navigatorPlatform)} });`,
+    );
     // tsx compiles with keepNames; the page has no __name helper.
     await context.addInitScript("globalThis.__name ||= (fn) => fn;");
     await context.addInitScript(installInPageHelpers, CHROME_SELECTOR);
@@ -1925,10 +7403,13 @@ async function main() {
     const warm = await context.newPage();
     // `/` serves the sign-in shell to a cookieless request and the client,
     // already signed in, keeps replacing it with itself; `/home` is stable.
-    await warm.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await warm.goto(`${base}/home`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000,
+    });
     await ensureSignedIn(warm);
     await warmUp(warm, base);
-    await warm.close();
+    if (!authoringFuzzOnly) await warm.close();
 
     if (typingChatOnly) {
       const page = await context.newPage();
@@ -1941,7 +7422,125 @@ async function main() {
         return 1;
       }
       console.log(
-        "[edit-fidelity] chat typing regression passed with a slide edit session open",
+        "[edit-fidelity] selection direction and chat typing regressions passed",
+      );
+      return 0;
+    }
+
+    if (caretQaOnly) {
+      const page = await context.newPage();
+      const problems = await runCaretQa(page, base);
+      await page.close();
+      if (problems.length) {
+        console.error(`[edit-fidelity] text caret QA: ${problems.join("; ")}`);
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] slide text caret stayed at line edges and in the editor in ${browserName}`,
+      );
+      return 0;
+    }
+
+    if (imeEscapeOnly) {
+      const page = await context.newPage();
+      const problems = await runImeEscapeRegression(page, base, outRoot);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] IME Escape regression: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] composition Escape kept inline text editing active",
+      );
+      return 0;
+    }
+
+    if (textSurfaceQaOnly) {
+      const page = await context.newPage();
+      const problems = await runTextSurfaceQa(page, base, browserName);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] text-surface QA: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] Slides text surfaces passed typing, composition, paste, undo/redo, and switching checks in ${browserName}`,
+      );
+      return 0;
+    }
+
+    if (mobileImportStatusOnly) {
+      const page = await context.newPage();
+      const problems = await runMobileImportStatusRegression(page, base);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] mobile import status: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] mobile PowerPoint import status stayed visible while pending and the successful result opened its deck",
+      );
+      return 0;
+    }
+
+    if (authoringCorpusOnly) {
+      const page = await context.newPage();
+      const problems = await runAuthoringCorpusQa(page, base, cases);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] corpus authoring: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] corpus authoring passed in ${browserName}; representative committed/private layouts and save/reload markup were checked`,
+      );
+      return 0;
+    }
+
+    if (authoringFuzzOnly) {
+      const problems = await runAuthoringFuzzQa(
+        () => context.newPage(),
+        warm,
+        base,
+        cases,
+        fuzzSeed,
+        fuzzSteps,
+        fuzzSeeds,
+      );
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] authoring fuzz stopped with ${problems.length} failed seed or cleanup check(s); details are printed above`,
+        );
+        return 1;
+      }
+      return 0;
+    }
+
+    if (authoringOnly) {
+      const page = await context.newPage();
+      const problems = await runAuthoringParityQa(
+        page,
+        base,
+        outRoot,
+        authoringCaseFilter,
+      );
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] authoring parity: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] Slides slash commands, Markdown shortcuts, and list authoring passed in ${browserName}`,
       );
       return 0;
     }
@@ -1988,7 +7587,7 @@ async function main() {
               openMutatesContent: false,
               targets: 0,
               error: message,
-              infra: INFRA.test(message),
+              infra: isRetryableInfraError(message),
             });
             console.error(`[edit-fidelity] ${c.id}: ${message}`);
           }
@@ -2142,6 +7741,22 @@ async function main() {
   return exitCode;
 }
 
+function installWarmUpNavigationTrace() {
+  const report = (kind: string, stack?: string) =>
+    console.debug(
+      "[edit-fidelity-navigation]",
+      JSON.stringify({ kind, url: location.href, stack }),
+    );
+  report("document");
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = window.history[method];
+    window.history[method] = function (...args) {
+      original.apply(this, args);
+      report(method, new Error().stack);
+    };
+  }
+}
+
 /** Load the editor chunks once so Vite's optimize-dep reload happens here. */
 async function warmUp(page: Page, base: string) {
   const created = await action(page, "create-deck", {
@@ -2151,7 +7766,79 @@ async function warmUp(page: Page, base: string) {
     ],
   });
   const deckId = String(created.id ?? created.deckId);
-  await openSlide(page, base, deckId, 0, "warm-1");
+  // The first editor route can trigger Vite dependency optimization and a
+  // full-page reload; let that cold browser warm-up finish before retrying.
+  const browserErrors: string[] = [];
+  const navigationTrace: string[] = [];
+  const traceStartedAt = Date.now();
+  const trace = (message: string) => {
+    navigationTrace.push(`${Date.now() - traceStartedAt}ms ${message}`);
+    if (navigationTrace.length > 60) navigationTrace.shift();
+  };
+  const onConsole = (message: any) => {
+    if (
+      message.text().startsWith("[edit-fidelity-navigation]") ||
+      message.text().includes("[agent-native] Vite re-bundled deps")
+    ) {
+      trace(message.text());
+    }
+    if (message.type() === "error") {
+      browserErrors.push(
+        `${message.text()} (${JSON.stringify(message.location())})`,
+      );
+    }
+  };
+  const onPageError = (error: Error) =>
+    browserErrors.push(error.stack ?? error.message);
+  const onResponse = (response: any) => {
+    const request = response.request();
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      const headers = response.headers();
+      trace(
+        JSON.stringify({
+          kind: "document-response",
+          url: response.url(),
+          status: response.status(),
+          location: headers.location,
+          retryAfter: headers["retry-after"],
+          redirectedFrom: request.redirectedFrom()?.url(),
+        }),
+      );
+    }
+    if (response.status() >= 500) {
+      browserErrors.push(
+        `${response.request().method()} ${response.url()} returned ${response.status()}`,
+      );
+    }
+  };
+  const onFrameNavigated = (frame: any) => {
+    if (frame === page.mainFrame()) trace(`main-frame ${frame.url()}`);
+  };
+  page.on("console", onConsole);
+  page.on("pageerror", onPageError);
+  page.on("response", onResponse);
+  page.on("framenavigated", onFrameNavigated);
+  try {
+    await page.addInitScript(installWarmUpNavigationTrace);
+    await openSlide(page, base, deckId, 0, "warm-1", {
+      canvasTimeoutMs: 120_000,
+    });
+  } catch (error) {
+    if (browserErrors.length) {
+      console.error(
+        `[edit-fidelity] warm-up browser errors: ${browserErrors.slice(-20).join(" | ")}`,
+      );
+    }
+    console.error(
+      `[edit-fidelity] warm-up navigation trace:\n${navigationTrace.join("\n")}`,
+    );
+    throw error;
+  } finally {
+    page.off("console", onConsole);
+    page.off("pageerror", onPageError);
+    page.off("response", onResponse);
+    page.off("framenavigated", onFrameNavigated);
+  }
   const [target] = await listTargets(page, "warm-1");
   if (target && (await enterEdit(page, "warm-1", target.point, []))) {
     await exitEdit(page, "warm-1", "escape");
@@ -2165,6 +7852,18 @@ main().then(
     console.error(
       `[edit-fidelity] could not run: ${(error as Error).stack ?? error}`,
     );
+    const serverLogPath = path.join(outRoot, "server.log");
+    if (existsSync(serverLogPath)) {
+      try {
+        console.error(
+          `[edit-fidelity] scratch server log tail:\n${readFileSync(serverLogPath, "utf8").slice(-16_000)}`,
+        );
+      } catch (logError) {
+        console.error(
+          `[edit-fidelity] could not read scratch server log: ${String(logError)}`,
+        );
+      }
+    }
     process.exit(2);
   },
 );

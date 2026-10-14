@@ -21,6 +21,11 @@ export default defineAction({
   schema: z.object({}),
   readOnly: true,
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async () => {
     const defaults = await getWorkspaceDefaults();
 

@@ -10,7 +10,7 @@ import {
   resolveMutationAccounts,
 } from "../server/lib/email-state.js";
 import {
-  gmailBatchModifyByAccount,
+  gmailBatchArchiveByAccount,
   isConnected,
 } from "../server/lib/google-auth.js";
 import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
@@ -76,12 +76,10 @@ export default defineAction({
       accountEmailList?.[i] || args.accountEmail;
 
     const results: { id: string; success: boolean; error?: string }[] = [];
+    let remainingIds: string[] = [];
+    let retryAfterSeconds: number | undefined;
 
-    if (
-      ids.length > 1 &&
-      !args.removeLabel &&
-      (await isConnected(ownerEmail))
-    ) {
+    if (await isConnected(ownerEmail)) {
       const targets = ids.map((id, i) => ({
         id,
         threadId: threadIdFor(i),
@@ -91,15 +89,22 @@ export default defineAction({
         ownerEmail,
         targets,
       );
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
+      const {
+        succeeded,
+        failed,
+        threadIdsByTarget,
+        removeLabelIdsByAccount,
+        remaining,
+        retryAfterSeconds: retryDelay,
+      } = await gmailBatchArchiveByAccount(
         ownerEmail,
         resolved,
-        undefined,
-        ["INBOX"],
+        args.removeLabel,
       );
-      const threadIdById = new Map(resolved.map((t) => [t.id, t.threadId]));
+      remainingIds = remaining;
+      retryAfterSeconds = retryDelay;
       for (const id of succeeded) {
-        const tid = threadIdById.get(id);
+        const tid = threadIdsByTarget[id];
         if (tid) invalidateThreadCache(ownerEmail, tid);
         results.push({ id, success: true });
       }
@@ -107,11 +112,25 @@ export default defineAction({
         results.push({ id: f.id, success: false, error: f.error });
       for (const u of unresolved)
         results.push({ id: u.id, success: false, error: u.error });
-      await syncInboxLabelDeltaForTargets(
-        ownerEmail,
-        resolved.filter((t) => succeeded.includes(t.id)),
-        { remove: ["INBOX"] },
-      );
+      const succeededIds = new Set(succeeded);
+      const succeededTargets = resolved
+        .filter((target) => succeededIds.has(target.id))
+        .map((target) => ({
+          ...target,
+          threadId: threadIdsByTarget[target.id] || target.threadId,
+        }));
+      const targetsByAccount = new Map<string, typeof succeededTargets>();
+      for (const target of succeededTargets) {
+        const accountEmail = target.accountEmail.toLowerCase();
+        const group = targetsByAccount.get(accountEmail) ?? [];
+        group.push(target);
+        targetsByAccount.set(accountEmail, group);
+      }
+      for (const [accountEmail, accountTargets] of targetsByAccount) {
+        await syncInboxLabelDeltaForTargets(ownerEmail, accountTargets, {
+          remove: removeLabelIdsByAccount[accountEmail] ?? ["INBOX"],
+        });
+      }
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -131,6 +150,18 @@ export default defineAction({
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (remainingIds.length > 0) {
+      return {
+        requested: ids,
+        succeeded: results.filter((result) => result.success).map((r) => r.id),
+        failed: results
+          .filter((result) => !result.success)
+          .map(({ id, error }) => ({ id, error: error ?? "Archive failed" })),
+        remaining: [...new Set(remainingIds)],
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      };
+    }
 
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success);

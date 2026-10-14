@@ -53,6 +53,7 @@ const MESSAGES = {
     latestOccurrence: "Latest occurrence",
     message: "Message",
     url: "URL",
+    chatThread: "Chat thread",
     occurrenceTime: "Occurred",
     stackTrace: "Stack trace",
     stackFrameCount: "{count} frames",

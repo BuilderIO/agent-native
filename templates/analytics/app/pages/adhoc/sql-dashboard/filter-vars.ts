@@ -1,5 +1,18 @@
 import type { DashboardFilter, FilterType } from "./types";
 
+export const FILTER_PARAM_PREFIX = "f_";
+
+// URL marker for a multi-select with every option unchecked. An absent param
+// falls back to the filter default, so an empty selection needs its own value.
+export const MULTI_SELECT_EMPTY = "__empty__";
+
+// The one reduction of a multi-select value: the page, saved reports, and
+// save-time validation all read the selection through it.
+export function normalizeMultiSelectValue(raw: string): string {
+  if (raw === MULTI_SELECT_EMPTY) return "";
+  return raw.split(",").filter(Boolean).join(",");
+}
+
 const ALL_TIME_START = "1970-01-01";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -7,10 +20,11 @@ const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date-range",
   "toggle-date",
 ]);
-const FILTER_TYPES: DashboardFilter["type"][] = [
+export const FILTER_TYPES: DashboardFilter["type"][] = [
   "date",
   "date-range",
   "select",
+  "multi-select",
   "toggle",
   "text",
   "toggle-date",
@@ -47,6 +61,20 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
           typeof option.value === "string" &&
           typeof option.label === "string",
       ))
+  );
+}
+
+export function isDateRangePresetFilter(filter: DashboardFilter): boolean {
+  if (filter.type !== "select" || !filter.options?.length) return false;
+  const isRange = (value: string) => /^\d+d$/.test(value);
+  return (
+    filter.options.some((option) => isRange(option.value)) &&
+    filter.options.every(
+      (option) =>
+        isRange(option.value) ||
+        option.value === "all" ||
+        option.value === "custom",
+    )
   );
 }
 
@@ -99,7 +127,27 @@ function resolveDateValue(
   if (value.toLowerCase() === "all") return allTimeValue;
 
   const resolved = resolveDefault(value, "date");
-  return ISO_DATE_RE.test(resolved) ? resolved : "";
+  if (!ISO_DATE_RE.test(resolved)) return "";
+  const parsed = new Date(`${resolved}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === resolved
+    ? resolved
+    : "";
+}
+
+function resolveDateParam(
+  raw: string,
+  fallback: string,
+  allTimeValue: string,
+): string {
+  return raw.trim()
+    ? resolveDateValue(raw, allTimeValue)
+    : resolveDateValue(fallback, allTimeValue);
+}
+
+function dateRangeStart(range: string): string {
+  const days = /^(\d+)d$/.exec(range);
+  return days ? daysAgo(Number(days[1])) : daysAgo(30);
 }
 
 export function resolveDefaultFilterVars(
@@ -120,25 +168,48 @@ export function resolveFilterVars(
     if (filter.type === "date-range") {
       const startKey = `${filter.id}Start`;
       const endKey = `${filter.id}End`;
-      out[startKey] =
-        resolveDateValue(getParam(startKey), ALL_TIME_START) ||
-        resolveDateValue(
-          resolveDefault(filter.default, filter.type),
-          ALL_TIME_START,
-        );
-      out[endKey] =
-        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
+      out[startKey] = resolveDateParam(
+        getParam(startKey),
+        resolveDefault(filter.default, filter.type),
+        ALL_TIME_START,
+      );
+      out[endKey] = resolveDateParam(getParam(endKey), daysAgo(0), daysAgo(0));
     } else if (filter.type === "toggle" || filter.type === "toggle-date") {
       out[filter.id] =
         filter.type === "toggle-date"
           ? resolveDateValue(getParam(filter.id), ALL_TIME_START)
           : getParam(filter.id);
+    } else if (isDateRangePresetFilter(filter)) {
+      const value =
+        getParam(filter.id) || resolveDefault(filter.default, filter.type);
+      const startKey = filter.id + "Start";
+      const endKey = filter.id + "End";
+      const defaultRange = value === "custom" ? filter.default || "30d" : value;
+      const fallbackStart =
+        value === "custom" ? "" : dateRangeStart(defaultRange);
+      const fallbackEnd = value === "custom" ? "" : daysAgo(0);
+      out[filter.id] = value;
+      out[startKey] = resolveDateParam(
+        getParam(startKey),
+        fallbackStart,
+        fallbackStart,
+      );
+      out[endKey] = resolveDateParam(
+        getParam(endKey),
+        fallbackEnd,
+        fallbackEnd,
+      );
+    } else if (filter.type === "multi-select") {
+      const value = getParam(filter.id);
+      out[filter.id] = normalizeMultiSelectValue(
+        value || resolveDefault(filter.default, filter.type),
+      );
     } else {
       const value = getParam(filter.id);
       out[filter.id] =
         filter.type === "date"
-          ? resolveDateValue(value, ALL_TIME_START) ||
-            resolveDateValue(
+          ? resolveDateParam(
+              value,
               resolveDefault(filter.default, filter.type),
               ALL_TIME_START,
             )

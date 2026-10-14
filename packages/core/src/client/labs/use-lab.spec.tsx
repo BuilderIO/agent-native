@@ -11,7 +11,7 @@ vi.mock("../use-session.js", () => sessionMocks);
 const analyticsMocks = vi.hoisted(() => ({ trackEvent: vi.fn() }));
 vi.mock("../analytics.js", () => analyticsMocks);
 
-import { useLab, useLabState, useLabs } from "./use-lab.js";
+import { useLab, useLabState, useLabStates, useLabs } from "./use-lab.js";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -71,9 +71,11 @@ describe("useLabState / useLab / useLabs session gating", () => {
 
   it("fires get-labs once the session is authenticated", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ "beta-editor": true }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        "beta-editor": { enabled: true, source: "choice", mixed: false },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     let lab: boolean | undefined;
@@ -87,6 +89,31 @@ describe("useLabState / useLab / useLabs session gating", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(lab).toBe(true);
+  });
+
+  it("keeps per-Lab read errors distinct while preserving readable choices", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        "bad-lab": { error: "invalid-choice" },
+        "good-lab": { enabled: true, source: "choice", mixed: false },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let states: Record<string, any> | undefined;
+    function Probe() {
+      states = useLabStates();
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(states).toEqual({
+      "bad-lab": { error: "invalid-choice" },
+      "good-lab": { enabled: true, source: "choice", mixed: false },
+    });
   });
 
   it("does not fire while the session is still loading", async () => {
@@ -137,7 +164,11 @@ describe("useLabState / useLab / useLabs session gating", () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ voice: false })),
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          voice: { enabled: false, source: "choice", mixed: false },
+        }),
+      ),
     );
 
     let lab: boolean | undefined;
@@ -150,6 +181,42 @@ describe("useLabState / useLab / useLabs session gating", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 
     expect(lab).toBe(false);
+  });
+
+  it("reads a Lab state again after it failed to load", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "bad request" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValue(
+          jsonResponse({
+            voice: { enabled: true, source: "choice", mixed: false },
+          }),
+        ),
+    );
+
+    let state: ReturnType<typeof useLabState> | undefined;
+    function Probe() {
+      state = useLabState("voice");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(state?.isError).toBe(true);
+
+    await act(async () => {
+      state?.refetch();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(state).toMatchObject({ isError: false, enabled: true });
   });
 
   it("reports isLoading while the session itself is still resolving", async () => {

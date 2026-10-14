@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
-import { SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsRow } from "@agent-native/toolkit/app/settings";
 import { toast } from "sonner";
 
 import {

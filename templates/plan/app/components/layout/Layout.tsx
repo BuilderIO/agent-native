@@ -1,18 +1,17 @@
 import {
-  AgentSidebar,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
+import { immersiveReaderSegmentPattern } from "@shared/plan-routes";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
@@ -23,6 +22,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { isPlanChatPath } from "@/lib/chat-route";
 
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
@@ -37,8 +37,15 @@ function routeOwnsToolbar(pathname: string): boolean {
   return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
+// A kind missing from this pattern never owns its toolbar, never goes
+// immersive, and its full-screen toggle does nothing — so the pattern is
+// derived from `immersiveReaderSegmentPattern` rather than hand-listed here.
+const PLAN_DETAIL_ROUTE_PATTERN = new RegExp(
+  `^\\/(${immersiveReaderSegmentPattern()}|local-plans)\\/[^/]+`,
+);
+
 function isPlanDetailRoute(pathname: string): boolean {
-  return /^\/(plans|recaps|local-plans)\/[^/]+/.test(pathname);
+  return PLAN_DETAIL_ROUTE_PATTERN.test(pathname);
 }
 
 export function Layout({ children }: LayoutProps) {
@@ -84,7 +91,7 @@ export function Layout({ children }: LayoutProps) {
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
-  const chatRoute = pathname === "/chat";
+  const chatRoute = isPlanChatPath(pathname);
   const planScope = useMemo(() => {
     if (!planDetailRoute || pathname.startsWith("/local-plans/")) {
       return undefined;
@@ -108,7 +115,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -130,18 +137,14 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
     chatPath: "/chat",
-    isChatPath: (path) => (path.replace(/\/+$/, "") || "/") === "/chat",
+    isChatPath: isPlanChatPath,
     requireActiveHandoff: true,
   });
-  // The redesigned Settings brings its own navigation, header, and agent
-  // toggle, so it renders full width. While the flag loads it shows the
-  // shell's skeleton, which needs the same frame.
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const isRedesignedSettingsRoute =
-    isSettingsPathname(pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(pathname);
   const hideAppNavigation =
-    (planDetailRoute && planReaderImmersive) || isRedesignedSettingsRoute;
+    (planDetailRoute && planReaderImmersive) || isSettingsRoute;
   const hideAppHeader = pathname === "/plans" && !sessionLoading && !session;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
@@ -194,7 +197,7 @@ export function Layout({ children }: LayoutProps) {
 
   const pageContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      {chatRoute || isRedesignedSettingsRoute ? null : ownsToolbar ? (
+      {chatRoute || isSettingsRoute ? null : ownsToolbar ? (
         hideAppNavigation ? null : (
           <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
             <button

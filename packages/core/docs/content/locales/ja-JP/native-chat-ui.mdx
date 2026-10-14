@@ -92,7 +92,7 @@ Claude、ChatGPT、Copilot、Cursor などの外部ホストがレンダリン�
 
 サーバー actions は、サーバーセーフなヘルパーとスキーマを次からインポートする必要があります
 `@agent-native/core/data-widgets`;クライアント コードは、
-`@agent-native/core/client/chat` または `@agent-native/core/client`。
+`@agent-native/core/client/widgets` または `@agent-native/core/client`。
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -226,7 +226,7 @@ truthful data, it can call the framework `render-data-widget` action with the
 アクションについて:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -360,15 +360,13 @@ when: (args, result) => {
 
 </Diagram>
 
-すべてのコネクタは `@agent-native/core/client/chat` (およびルート) からエクスポートされます
+すべてのコネクタは `@agent-native/core/client/agent-chat` (およびルート) からエクスポートされます
 `@agent-native/core/client` エントリ)。エージェント
 SSE または NDJSON ランタイム イベントを返す POST エンドポイントを公開できます:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -394,7 +392,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -437,7 +435,7 @@ iframe。
 組み込みの Agent-Native トランスポートをランタイム オブジェクトとして使用する場合は、次を使用します。
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -446,6 +444,8 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 カスタム AgentKit transport には `<AssistantChat createTransport={...} />` を使用し、ホストがターンを実行する場合は `runtime` を渡します。既存の `assistant-ui ChatModelAdapter` 実装を AgentKit の transcript と composer で使うには、`AgentTransport` または `AgentChatRuntime` に移植してください。製品側で外部 transcript 全体を管理し、Agent-Native の composer field だけが必要な場合は `PromptComposer` を単独で使用します。
+
+旧 API と新 API の対応表と移行手順は、[AgentKit チャット移行ガイド](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md)を参照してください。
 
 OpenAI、AG-UI、Claude エージェント SDK、および Vercel AI SDK ストリームは標準を使用できます
 コネクタヘルパー。 ACP は、

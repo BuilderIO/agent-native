@@ -1,46 +1,89 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentPanelShortcutSelectionText } from "@agent-native/toolkit/app/chat/agent-sidebar-events";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useShellSettled } from "./shell-ready";
+import { useAssistantReady, useShellSettled } from "./shell-ready";
 
 const {
+  agentSidebarProps,
   agentSidebarSpy,
   docsWebMcpActions,
   navigateMock,
   revalidateMock,
   routerRootHref,
+  deliveredPanelEvents,
+  deliveredShortcutSelections,
+  assistantReadySpy,
 } = vi.hoisted(() => ({
+  agentSidebarProps: [] as Array<Record<string, unknown>>,
   agentSidebarSpy: vi.fn(),
   docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
   navigateMock: vi.fn(),
   revalidateMock: vi.fn(),
   routerRootHref: { value: "/" },
+  deliveredPanelEvents: [] as string[],
+  deliveredShortcutSelections: [] as string[],
+  assistantReadySpy: vi.fn(),
 }));
 
 function ShellSettledProbe() {
   const settled = useShellSettled();
+  const ensureAssistantReady = useAssistantReady();
   return (
     <p data-testid="page">
       <span data-testid="settled">{String(settled)}</span>
+      <button
+        onClick={() => void ensureAssistantReady().then(assistantReadySpy)}
+      >
+        Prepare assistant
+      </button>
     </p>
   );
 }
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: React.ReactNode }) => {
-    agentSidebarSpy();
-    return <div data-testid="real-sidebar">{children}</div>;
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  focusAgentChat: vi.fn(),
+  AgentSidebar: (props: {
+    children: React.ReactNode;
+    defaultOpen?: boolean;
+    screenRefreshEnabled?: boolean;
+  }) => {
+    agentSidebarSpy(props);
+    agentSidebarProps.push(props);
+    useEffect(() => {
+      const events = [
+        "agent-panel:toggle",
+        "agent-panel:open",
+        "agent-panel:prepare",
+        "agent-panel:close",
+      ];
+      const receive = (event: Event) => deliveredPanelEvents.push(event.type);
+      const receiveShortcut = (event: KeyboardEvent) =>
+        deliveredShortcutSelections.push(
+          agentPanelShortcutSelectionText(event),
+        );
+      for (const event of events) window.addEventListener(event, receive);
+      document.addEventListener("keydown", receiveShortcut);
+      return () => {
+        for (const event of events) window.removeEventListener(event, receive);
+        document.removeEventListener("keydown", receiveShortcut);
+      };
+    }, []);
+    return <div data-testid="real-sidebar">{props.children}</div>;
   },
 }));
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/route-warmup", () => ({
   AgentNativeRouteWarmup: () => null,
-  defineClientAction: (action: unknown) => action,
   isClientRouteUrl: (url: { pathname: string }) =>
     !url.pathname.startsWith("/cdn-cgi/"),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/host", () => ({
+  defineClientAction: (action: unknown) => action,
+}));
+vi.mock("@agent-native/toolkit/app/providers", () => ({
   AgentNativeWebMcpActionRegistration: () => null,
 }));
 vi.mock("@agent-native/core/client/webmcp", () => ({
@@ -97,14 +140,27 @@ vi.mock("./components/website-redesign/site-header", () => ({
 }));
 vi.mock("./components/website-redesign/footer", () => ({ Footer: () => null }));
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: false })),
+  );
+});
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+  agentSidebarProps.length = 0;
+  deliveredPanelEvents.length = 0;
+  deliveredShortcutSelections.length = 0;
   agentSidebarSpy.mockClear();
+  assistantReadySpy.mockClear();
   docsWebMcpActions.length = 0;
   navigateMock.mockClear();
   revalidateMock.mockClear();
   routerRootHref.value = "/";
+  window.history.replaceState(null, "", "/");
 });
 
 describe("RootShell tree stability", () => {
@@ -116,6 +172,101 @@ describe("RootShell tree stability", () => {
     rerender(<RootShell mounted />);
 
     expect(screen.getAllByTestId("page")[0]).toBe(before);
+  });
+
+  it("keeps Docs sidebars out of screen-refresh sync", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+    expect(agentSidebarProps).toHaveLength(0);
+    fireEvent(window, new Event("agent-panel:toggle"));
+    await vi.dynamicImportSettled();
+
+    await vi.waitFor(() => expect(agentSidebarProps.length).toBeGreaterThan(0));
+    expect(agentSidebarProps.at(-1)).toMatchObject({
+      defaultOpen: false,
+      screenRefreshEnabled: false,
+    });
+  });
+
+  it("leaves the assistant unloaded on a passive visit", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+    await vi.dynamicImportSettled();
+    expect(agentSidebarProps).toHaveLength(0);
+    expect(screen.getByTestId("settled").textContent).toBe("true");
+  });
+
+  it("resolves submission readiness after listeners can prepare the panel", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare assistant" }));
+    expect(assistantReadySpy).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(assistantReadySpy).toHaveBeenCalledTimes(1));
+    expect(deliveredPanelEvents).toEqual(["agent-panel:prepare"]);
+  });
+
+  it("keeps page state and DOM mounted when the assistant activates", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+    const before = screen.getByTestId("page");
+    fireEvent(window, new Event("agent-panel:toggle"));
+    await vi.waitFor(() => expect(agentSidebarProps.length).toBeGreaterThan(0));
+    expect(screen.getByTestId("page")).toBe(before);
+  });
+
+  it.each(["agent-panel:open", "agent-panel:prepare"])(
+    "loads the assistant on %s",
+    async (event) => {
+      const { RootShell } = await import("./root");
+      render(<RootShell mounted />);
+      fireEvent(window, new Event(event));
+      await vi.waitFor(() =>
+        expect(agentSidebarProps.length).toBeGreaterThan(0),
+      );
+      expect(deliveredPanelEvents).toEqual([event]);
+    },
+  );
+
+  it("replays the first chat shortcut with selection still attached to the page", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+    const selected = screen.getByTestId("settled").firstChild!;
+    const range = document.createRange();
+    range.selectNodeContents(selected);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    fireEvent.keyDown(document, { ctrlKey: true, key: "i" });
+    await vi.waitFor(() =>
+      expect(deliveredShortcutSelections).toEqual(["true"]),
+    );
+    expect(document.contains(selected)).toBe(true);
+  });
+
+  it.each(["?agentSidebar=open", "?threadId=example-thread"])(
+    "loads chat deep links %s",
+    async (search) => {
+      window.history.replaceState(null, "", search);
+      const { RootShell } = await import("./root");
+      render(<RootShell mounted />);
+      await vi.waitFor(() =>
+        expect(agentSidebarProps.length).toBeGreaterThan(0),
+      );
+    },
+  );
+
+  it("does not capture the chat shortcut in text inputs", async () => {
+    const { RootShell } = await import("./root");
+    render(
+      <>
+        <RootShell mounted />
+        <input data-testid="input" />
+      </>,
+    );
+    fireEvent.keyDown(screen.getByTestId("input"), { ctrlKey: true, key: "i" });
+    await vi.dynamicImportSettled();
+    expect(agentSidebarProps).toHaveLength(0);
+    fireEvent.keyDown(document, { ctrlKey: true, key: "\\" });
+    await vi.waitFor(() => expect(agentSidebarProps.length).toBeGreaterThan(0));
   });
 
   it("only marks the shell settled inside the real sidebar subtree", async () => {

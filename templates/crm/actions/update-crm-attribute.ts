@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -91,13 +92,28 @@ export default defineAction({
       await db
         .update(schema.crmFieldPolicies)
         .set({ ...patch, updatedAt: new Date().toISOString() })
-        .where(eq(schema.crmFieldPolicies.id, args.attributeId));
+        .where(
+          and(
+            eq(schema.crmFieldPolicies.id, args.attributeId),
+            accessFilter(
+              schema.crmFieldPolicies,
+              schema.crmFieldPolicyShares,
+              undefined,
+              "editor",
+            ),
+          ),
+        );
     }
 
     const [row] = await db
       .select()
       .from(schema.crmFieldPolicies)
-      .where(eq(schema.crmFieldPolicies.id, args.attributeId))
+      .where(
+        and(
+          eq(schema.crmFieldPolicies.id, args.attributeId),
+          accessFilter(schema.crmFieldPolicies, schema.crmFieldPolicyShares),
+        ),
+      )
       .limit(1);
     if (!row) {
       throw new Error("CRM attribute could not be verified after saving.");

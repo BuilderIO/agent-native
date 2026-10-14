@@ -1,5 +1,7 @@
 import { runMigrations } from "@agent-native/core/db";
+import { searchIndexMigration } from "@agent-native/core/search";
 
+import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
@@ -1377,6 +1379,79 @@ export const runContentMigrations = runMigrations(
           ON document_comment_reactions (comment_id, actor_email, reaction);
         CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
           ON document_comment_reactions (owner_email, document_id)`,
+    },
+    {
+      version: 115,
+      name: "content-access-and-page-link-indexes",
+      // Built CONCURRENTLY so writes to these large shared tables continue
+      // during the build. The runner executes each statement on its own over
+      // the unpooled migration connection, which CONCURRENTLY requires. A
+      // failed build leaves an invalid index and no migration record, so the
+      // rerun drops it first rather than letting IF NOT EXISTS keep it.
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS documents_owner_email_lower_idx;
+        CREATE INDEX CONCURRENTLY documents_owner_email_lower_idx ON documents (lower(owner_email));
+        DROP INDEX CONCURRENTLY IF EXISTS document_shares_principal_lower_idx;
+        CREATE INDEX CONCURRENTLY document_shares_principal_lower_idx ON document_shares (principal_type, lower(principal_id), resource_id);
+        DROP INDEX CONCURRENTLY IF EXISTS document_sync_links_remote_page_idx;
+        CREATE INDEX CONCURRENTLY document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
+      },
+    },
+    {
+      version: 116,
+      name: "content-private-icon-references",
+      sql: `CREATE TABLE IF NOT EXISTS content_private_icon_references (
+        element_type TEXT NOT NULL,
+        element_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_private_icon_reference_element_unique
+        ON content_private_icon_references (element_type, element_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_asset_idx
+        ON content_private_icon_references (asset_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_document_idx
+        ON content_private_icon_references (document_id)`,
+    },
+    // Creates the core search tables and installs the triggers that keep
+    // the document index fresh (docs/search-architecture.md).
+    searchIndexMigration(documentSearchIndex, {
+      version: 117,
+      name: "search-index-documents",
+    }),
+    {
+      version: 118,
+      name: "content-document-create-request-digest",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_request_digest TEXT`,
+    },
+    {
+      version: 119,
+      name: "content-document-create-context-snapshot",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_creative_context TEXT`,
+    },
+    {
+      version: 120,
+      name: "content-document-imports",
+      sql: `CREATE TABLE IF NOT EXISTS document_imports (
+          document_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          import_id TEXT NOT NULL,
+          request_sha256 TEXT NOT NULL,
+          source_name TEXT NOT NULL,
+          source_format TEXT NOT NULL,
+          source_bytes INTEGER NOT NULL,
+          source_sha256 TEXT NOT NULL,
+          original_blob TEXT NOT NULL,
+          imported_title TEXT NOT NULL,
+          imported_state_sha256 TEXT NOT NULL,
+          report_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_imports_import_idx
+          ON document_imports (import_id)`,
     },
   ],
   { table: "content_migrations" },

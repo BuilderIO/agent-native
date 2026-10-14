@@ -43,10 +43,10 @@ re-host existing components.
 
 ## Settings Resource Pages
 
-With the `settings-redesign` flag on, Settings › Agent › Instructions, Memory,
-Skills, and Files (`packages/core/src/client/settings/shell/pages/`) render the
-same `ResourcesPanel` with `settingsGroups`: Personal, {Org name}, and From
-Dispatch groups (Memory swaps From Dispatch for Learnings). Add a group or an
+Settings › Agent › Instructions, Memory, Skills, and Files
+(`packages/core/src/client/settings/shell/pages/`) render the same
+`ResourcesPanel` with `settingsGroups`: Personal, {Org name}, and From Dispatch
+groups (Memory swaps From Dispatch for Learnings). Add a group or an
 add action there, not a second panel. Row read-only state comes from the scope:
 organization rows for members and Dispatch rows for everyone; the server still
 enforces it. Resource trees refetch on `action` change events, which is how an
@@ -78,7 +78,7 @@ First-party templates don't mount `AgentTabsPage`. Their `/agent` route
 redirects into Settings with `buildLegacyAgentSettingsRoute(hash, search)`, so
 `/agent#files`, `#jobs`, `#connections`, and `#access` land on the matching
 Settings page, and they pass `agentPageHref="/settings/agent"` to
-`AgentSidebar` (Settings › Agent › Model with the `settings-redesign` flag on).
+`AgentSidebar` (Settings › Agent › Model).
 New agent-configuration UI belongs on a Settings page, not a new tab here.
 
 For an app that wants the whole surface on one page:

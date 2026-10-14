@@ -19,7 +19,51 @@ function commandPaletteFocusSource(): string {
   );
 }
 
+function mailGlobalCss(): string {
+  return readFileSync(new URL("../../global.css", import.meta.url), "utf8");
+}
+
+describe("Mail Inbox Zero chat contrast", () => {
+  it("sets a dark control surface for its white foreground", () => {
+    const panelTheme = mailGlobalCss().match(
+      /\.inbox-zero \.agent-sidebar-panel\s*\{([^}]+)\}/,
+    )?.[1];
+
+    expect(panelTheme).toContain(
+      "--agent-kit-nav-surface: rgba(0, 0, 0, 0.72);",
+    );
+    expect(panelTheme).toContain("--background: 240 5.9% 10%;");
+    expect(panelTheme).toContain("--foreground: 0 0% 95%;");
+    expect(panelTheme).toContain("--muted-foreground: 0 0% 85%;");
+  });
+});
+
 describe("AppLayout inbox tab bar", () => {
+  it("clears in-memory thread bodies when the session or mailbox scope changes", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("setThreadCacheSessionScope(");
+    expect(source).toContain("session?.authUserId");
+    expect(source).toContain("setThreadCacheAccountScope(");
+    expect(source).toContain("connected:");
+    expect(source).toContain("selected:");
+    expect(source).toContain("useEffect(() => () => clearThreadCache(), []);");
+  });
+
+  it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      'const useInboxThreadsForActionTargets = view === "inbox" && hasAccounts && activeSearchQuery === null && activeSavedFilterQuery === undefined && activeLabel === null',
+    );
+    expect(source).toContain(
+      'enabled: isMailboxView && (view !== "inbox" || (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady))',
+    );
+    expect(source).toContain(
+      "const currentViewEmails = useInboxThreadsForActionTargets ? (inboxThreads.data?.items ?? []) : legacyCurrentViewEmails",
+    );
+  });
+
   it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
     const source = appLayoutSource();
 
@@ -34,7 +78,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { NotificationsBell } from "@agent-native/core/client/notifications"',
+      'import { NotificationsBell } from "@agent-native/toolkit/app/notifications"',
     );
     expect(
       source.match(/<NotificationsBell browserNotifications \/>/g),
@@ -83,6 +127,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(tabBar).toContain("sm:overflow-x-auto sm:hide-scrollbar");
     expect(source).toContain(
       'cn("relative shrink-0", tabsLoading && "invisible")',
+    );
+  });
+
+  it("shows inbox category tabs only in the inbox view", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
     );
   });
 
@@ -163,29 +215,47 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
   });
 
-  it("keeps Mail navigation in a hamburger-controlled drawer", () => {
+  it("keeps Mail navigation in a mobile drawer and supports desktop pinning", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
       "const [sidebarOpen, setSidebarOpen] = useState(false)",
     );
     expect(source).toContain(
-      "<Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>",
+      "const [sidebarPinned, setSidebarPinned] = useState(false)",
     );
+    expect(source).toContain(
+      'window.localStorage.getItem("mail-sidebar-pinned") === "true"',
+    );
+    expect(source).toContain("if (!sidebarPinPreferenceLoaded) return;");
+    expect(source).toContain(
+      'localStorage.setItem("mail-sidebar-pinned", "true")',
+    );
+    expect(source).toContain("open={sidebarOpen || isPinnedSidebarVisible}");
+    expect(source).toContain("modal={!isPinnedSidebarVisible}");
     expect(source).toContain("<DialogTrigger asChild>");
+    expect(source).toContain(
+      "if (isPinnedSidebarVisible) event.preventDefault();",
+    );
+    expect(source).toMatch(
+      /overlayClassName=\{\s*isPinnedSidebarVisible\s*\?\s*"hidden"\s*:\s*"bg-background\/20 backdrop-blur-none"\s*\}/,
+    );
     expect(source).toContain("<DialogContent");
-    expect(source).toContain('aria-modal="true"');
+    expect(source).toContain("aria-modal={!isPinnedSidebarVisible}");
     expect(source).toContain('<DialogTitle className="sr-only">');
     expect(source).toContain("start-0 left-0 right-auto flex h-dvh w-[260px]");
-    expect(source).not.toContain("mail-sidebar-pinned");
+    expect(source).toContain('t("mail.toolbar.pinSidebar")');
+    expect(source).toContain('t("mail.toolbar.unpinSidebar")');
     expect(source).not.toContain("railNavItems");
     expect(source).not.toContain("showCollapsedSidebar");
   });
 
-  it("reserves desktop content space while the drawer is open", () => {
+  it("reserves desktop content space while the drawer is open or pinned", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain('!isMobile && sidebarOpen && "ps-[260px]"');
+    expect(source).toContain(
+      '!isMobile && (sidebarOpen || sidebarPinned) && "ps-[260px]"',
+    );
   });
 
   it("resolves every tab from the server response and links through inboxTabHref", () => {
@@ -264,11 +334,13 @@ describe("AppLayout inbox tab bar", () => {
       "utf8",
     );
 
+    expect(source).toContain("onFullscreenRequest={(threadId?: string) =>");
     expect(source).toContain(
-      'onFullscreenRequest={() => void navigate("/chat")}',
+      '`/chat/${encodeURIComponent(threadId)}` : "/chat"',
     );
     expect(source).toContain("enabled={!isAgentChatRoute}");
     expect(source).toContain('pathname === "/chat"');
+    expect(source).toContain('pathname.startsWith("/chat/")');
     expect(chatRoute).toContain("<AgentChatSurface");
     expect(chatRoute).toContain("browserTabId={TAB_ID}");
     expect(chatRoute).toContain("showTabBar");
@@ -507,7 +579,9 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
-    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+    );
   });
 
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {
@@ -518,14 +592,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("data: labelsData");
   });
 
-  it("shows a compact inline indicator only while the inbox is syncing", () => {
+  it("shows an accessible spinner only while the inbox is syncing", () => {
     const source = appLayoutSource();
 
+    expect(source).toContain("const inboxSyncing =");
+    expect(source).toContain("inboxMetadata?.syncing === true");
     expect(source).toContain(
-      "const inboxSyncing = inboxMetadata?.syncing === true;",
+      'account.state === "ready" && account.backfillPending === true',
     );
     expect(source).toContain("{inboxSyncing && (");
-    expect(source).toContain('{t("mail.inbox.syncing")}');
+    expect(source).toContain('aria-label={t("mail.inbox.syncing")}');
+    expect(source).toContain('title={t("mail.inbox.syncing")}');
+    expect(source).toMatch(/<IconRefresh\s+aria-hidden="true"/);
+    expect(source).not.toContain('>{t("mail.inbox.syncing")}</span>');
   });
 
   it("reuses the existing Google reconnect UI for a needs_reauth account", () => {

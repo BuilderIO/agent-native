@@ -1,10 +1,11 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
+  type ComposerDraftSnapshot,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   IconArrowLeft,
   IconBrandGoogle,
@@ -35,6 +36,7 @@ import {
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -149,6 +151,10 @@ export interface PromptPopoverHandle {
     files: File[],
     sourceContext?: string,
   ): Promise<boolean>;
+  /** Send the current draft, with its attachments, as if send were pressed. */
+  submitDraft(): Promise<boolean>;
+  /** The draft a send would take right now, to compare with one that was held back. */
+  getDraftSnapshot(): ComposerDraftSnapshot | null;
 }
 
 interface PromptPopoverProps {
@@ -165,11 +171,16 @@ interface PromptPopoverProps {
     attachments: PromptAttachmentActions,
     options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   loading?: boolean;
   disabled?: boolean;
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
   modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
+  showMissingApiKeySetup?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
   presentation?: "popover" | "inline";
@@ -186,7 +197,7 @@ interface PromptPopoverProps {
     files: File[],
     context?: string,
     attachments?: ReadonlyArray<PromptChatAttachment>,
-    options?: PromptComposerSubmitOptions,
+    options?: SlidesPromptSubmitOptions,
   ) => boolean | void;
   onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
@@ -204,11 +215,14 @@ export default function PromptPopover({
   title,
   placeholder = "Describe what you want...",
   onSubmit,
+  onBeforeSubmit,
   loading = false,
   disabled = false,
   submissionDisabled = false,
   showModelSelector,
   modelStatusChecksEnabled,
+  requireAgentEngine,
+  showMissingApiKeySetup,
   anchorRef,
   centered = false,
   presentation = "popover",
@@ -410,11 +424,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
       });
@@ -541,11 +557,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
         throw error;
@@ -590,6 +608,22 @@ export default function PromptPopover({
           sourceFilesRef.current = [];
           sourceContextRef.current = undefined;
         }
+      },
+      async submitDraft() {
+        if (
+          !open ||
+          disabled ||
+          submissionDisabled ||
+          loading ||
+          uploading ||
+          submittingRef.current ||
+          !composerRef.current?.submit
+        )
+          return false;
+        return composerRef.current.submit();
+      },
+      getDraftSnapshot() {
+        return composerRef.current?.getDraftSnapshot?.() ?? null;
       },
     }),
     [open, disabled, submissionDisabled, loading, uploading, promptText],
@@ -770,6 +804,8 @@ export default function PromptPopover({
                 attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
+                requireAgentEngine={requireAgentEngine}
+                showMissingApiKeySetup={showMissingApiKeySetup}
                 submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
@@ -780,8 +816,10 @@ export default function PromptPopover({
                   submitting ||
                   Boolean(importMode)
                 }
+                submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onBeforeSubmit={onBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}

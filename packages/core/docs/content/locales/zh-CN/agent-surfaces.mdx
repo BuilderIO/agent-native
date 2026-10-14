@@ -99,7 +99,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 最简单的全页聊天：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -109,12 +109,11 @@ export default function ChatRoute() {
 当应用同时包含全页聊天标签页和 `AgentSidebar` 时，请在两个界面上使用相同的 `storageKey`，启用 `chatViewTransition`，并在布局中安装 chat-home 切换助手。这样，聊天页面中的普通应用内链接就可以将全屏聊天变形为边栏，同时保持当前活跃的会话：
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -147,7 +146,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 使用自定义外壳的最简嵌入式聊天：
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -248,7 +247,7 @@ Agent 可以动态创建内联控件，并在工作流需要持久化时保存�
 官方模板不会挂载它：Settings 覆盖了相同的内容（Agent › Model、Instructions、Memory、Skills、Files 和 Sub-agents，以及应用的 Automations 和 MCP server 页面），`/agent` 会重定向到 Settings，`AgentSidebar` 上的 `agentPageHref="/settings/agent"` 会打开 Settings › Agent › Model。当应用希望在一个页面上展示完整的代理界面时，请将 `AgentTabsPage` 挂载到它自己的路由。
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -509,10 +508,8 @@ GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next act
 当你的 Agent 已经用其他框架或运行时构建好，并且你想用 Agent-Native 的聊天 UI 包裹它时，请选择此路径。`AgentChatRuntime` 是边界所在：你的运行时流式传输归一化的事件，Agent-Native 负责渲染输入框、对话记录、工具调用、审批、原生控件和应用布局。
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

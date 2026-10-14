@@ -29,6 +29,14 @@ export const workspaceConfig = z.object({
       ],
       doc: "Serialized workspace app manifest used by mounted app runtimes.",
     }),
+  builtinAgentsJson: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_BUILTIN_AGENTS_JSON"],
+      doc: "Serialized agent-native.builtinAgents config passed to workspace app runtimes.",
+    }),
   gatewayUrl: z
     .string()
     .min(1)

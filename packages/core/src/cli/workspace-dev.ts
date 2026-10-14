@@ -7,8 +7,10 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
 
-import * as Sentry from "@sentry/node";
-
+import {
+  BUILTIN_AGENTS_ENV_KEY,
+  workspaceBuiltinAgentsJson,
+} from "../server/builtin-agents.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -27,7 +29,9 @@ import {
   rewriteRedirectLocation,
   escapeHtml,
 } from "./gateway-helpers.js";
+import { openUrlInBrowser } from "./open-url.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
+import { captureSentryException } from "./sentry-telemetry.js";
 
 export interface WorkspaceApp {
   id: string;
@@ -152,6 +156,37 @@ export function shouldPrewarmWorkspaceApps(
     env.WORKSPACE_PREWARM === "1" ||
     env.WORKSPACE_PREWARM === "true"
   );
+}
+
+export function shouldOpenWorkspaceBrowser(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (args.includes("--no-open")) return false;
+  if (env.WORKSPACE_NO_OPEN === "1" || env.AGENT_NATIVE_NO_OPEN === "1") {
+    return false;
+  }
+  if (env.CI === "1" || env.CI === "true") return false;
+  if (
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER
+  ) {
+    return false;
+  }
+  if (
+    platform !== "darwin" &&
+    platform !== "win32" &&
+    !env.DISPLAY &&
+    !env.WAYLAND_DISPLAY
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function workspacePrewarmConcurrency(
@@ -290,6 +325,7 @@ function shouldCaptureDiscoverAppsReadFailure(
 async function discoverApps(
   appsDir: string,
   appPortStart: number,
+  stderr: Pick<NodeJS.WriteStream, "write">,
 ): Promise<WorkspaceApp[]> {
   if (!fs.existsSync(appsDir)) return [];
   let entries: fs.Dirent[];
@@ -303,10 +339,14 @@ async function discoverApps(
           `${(err as Error).message}`,
       );
       if (shouldCaptureDiscoverAppsReadFailure(code)) {
-        Sentry.captureException(err, {
-          tags: { handled: "dev-discover-readdir" },
-          level: "warning",
-        });
+        void captureSentryException(
+          err,
+          {
+            tags: { handled: "dev-discover-readdir" },
+            level: "warning",
+          },
+          stderr,
+        );
       }
     }
     return [];
@@ -667,7 +707,7 @@ export async function runWorkspaceDev(
   );
   let gatewayUrl = workspaceGatewayUrl(gatewayHost, requestedPort);
 
-  const apps = await discoverApps(appsDir, appPortStart);
+  const apps = await discoverApps(appsDir, appPortStart, stderr);
   if (apps.length === 0) {
     throw new Error("[workspace] No apps found under ./apps");
   }
@@ -736,6 +776,11 @@ export async function runWorkspaceDev(
     readyResolve = resolve;
   });
 
+  function builtinAgentsEnv(): Record<string, string> {
+    const json = workspaceBuiltinAgentsJson(root);
+    return json ? { [BUILTIN_AGENTS_ENV_KEY]: json } : {};
+  }
+
   function workspaceAppsJson(): string {
     return JSON.stringify(
       apps.map((workspaceApp) => ({
@@ -755,7 +800,7 @@ export async function runWorkspaceDev(
   async function syncApps(): Promise<void> {
     if (syncInFlight) return syncInFlight;
     const run = (async () => {
-      const discovered = await discoverApps(appsDir, appPortStart);
+      const discovered = await discoverApps(appsDir, appPortStart, stderr);
       for (const app of discovered) {
         const existing = appById.get(app.id);
         if (existing) {
@@ -861,6 +906,7 @@ export async function runWorkspaceDev(
           AGENT_NATIVE_WORKSPACE: "1",
           AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          ...builtinAgentsEnv(),
           AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
             app.publicPaths,
@@ -1261,10 +1307,14 @@ export async function runWorkspaceDev(
       `[workspace] Recursive file watcher failed (${err.code ?? "unknown"}): ${err.message}. ` +
         `Falling back to polling.\n`,
     );
-    Sentry.captureException(err, {
-      tags: { handled: "dev-watch-unknown" },
-      level: "warning",
-    });
+    void captureSentryException(
+      err,
+      {
+        tags: { handled: "dev-watch-unknown" },
+        level: "warning",
+      },
+      stderr,
+    );
   }
 
   function startWorkspaceProcesses(): void {
@@ -1333,20 +1383,12 @@ export async function runWorkspaceDev(
   }
 
   function openBrowser(url: string): void {
-    if (options.openBrowser === false || env.WORKSPACE_NO_OPEN === "1") return;
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "cmd"
-          : "xdg-open";
-    const openArgs =
-      process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const child = spawnProcess(command, openArgs, {
-      stdio: "ignore",
-      detached: true,
+    if (options.openBrowser === false) return;
+    if (!shouldOpenWorkspaceBrowser(args, env)) return;
+    openUrlInBrowser(url, {
+      spawnProcess,
+      warn: (message) => stderr.write("[workspace] " + message + "\n"),
     });
-    child.unref();
   }
 
   const server = http.createServer(async (req, res) => {

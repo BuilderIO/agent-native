@@ -3,8 +3,7 @@ import enUS from "./en-US";
 const zhCN = {
   agentChat: {
     setup: {
-      checkingProvider: "正在检查 AI 连接…",
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
     common: { retry: "重试" },
   },
@@ -655,7 +654,7 @@ const zhCN = {
         "把可视化计划作为 app-backed skill 安装。你的编码代理可以打开包含图表、线框、原型、注释、评论和可共享评审链接的结构化计划。",
     },
     design: {
-      replaces: "替代或增强设计原型工具",
+      replaces: "Agent-Native 设计工作室",
       description:
         "将提示转化为符合你的设计系统的交互式设计，同时由代理根据反馈完善每个界面。",
     },
@@ -1324,7 +1323,7 @@ const zhCN = {
       s003: "生成",
       s004: "精炼",
       s005: "所有模板",
-      s006: "开源 AI HTML 原型工作室",
+      s006: "开源设计工作区",
       s007: "创建交互式设计和原型。使用熟悉的工具进行优化，或进行对话编辑。可导出到任何地方。",
       s008: "设计点什么",
       s009: "它是如何运作的",
@@ -1774,7 +1773,6 @@ const zhCN = {
       heroDescription:
         "Plans 是一款免费开源的可视化规划工具，通过图表、线框图和带注释的代码，帮助你审阅编码代理的方案、给出反馈并理解代码改动。",
       heroCta: "可视化规划",
-      heroSecondaryCta: "打开 Plans",
       useCasesHeading: "用 Plans 能做什么？",
       useCasesBody:
         "和你的 AI 编码代理一起审阅实现方案、梳理界面细节，或理解一次已完成的改动。",
@@ -2118,6 +2116,8 @@ const zhCN = {
     downloadStarted: "下载已开始",
     downloadAgain: "没有成功？再次尝试下载",
     loadError: "无法加载最新桌面安装程序。",
+    mountError:
+      "桌面下载页无法找到其在此工作区中的路径。请联系工作区管理员检查应用挂载配置。",
     checkingRelease: "正在检查最新桌面版...",
     retry: "重试",
     unavailable: "此平台暂无安装程序",
@@ -2462,6 +2462,7 @@ const zhCN = {
     keyConcepts: "核心概念",
     agentNativeToolkit: "工具包",
     toolkitOverview: "概览",
+    toolkitFoundations: "基础",
     toolkitUiPrimitives: "UI 原语",
     customDesignSystem: "自定义设计系统",
     toolkitEditorsCanvases: "编辑器与画布",
@@ -2474,6 +2475,10 @@ const zhCN = {
     toolkitCommandNavigation: "命令与导航",
     toolkitResources: "资源",
     toolkitAgentUx: "智能体体验",
+    toolkitDashboard: "仪表板",
+    toolkitChatHistory: "聊天记录",
+    toolkitAgentPage: "智能体页面",
+    toolkitNotifications: "通知",
     toolkitHistory: "历史",
     toolkitCommentsReview: "评论与审核",
     toolkitObservability: "可观测性",
@@ -2530,11 +2535,12 @@ const zhCN = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 缓存",
     deploymentEnvironmentVariables: "部署：环境变量",
@@ -2624,6 +2630,7 @@ const zhCN = {
     planAutomations: "事件与自动化",
     planLocalAndDesktop: "本地文件与桌面端",
     planDevelopers: "开发者指南",
+    turnIntoApp: "转换为应用",
     prVisualRecap: "PR 可视化回顾",
     planPluginMarketplace: "Plan 插件与市场",
     slides: "幻灯片",

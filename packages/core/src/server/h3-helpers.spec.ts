@@ -5,6 +5,7 @@ import {
   DEFAULT_CHAT_MAX_BODY_BYTES,
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   MAX_CHAT_ATTACHMENTS_PER_MESSAGE,
+  readBodyWithSizeLimit,
 } from "./h3-helpers.js";
 
 describe("isAllowedUploadMimeType", () => {
@@ -64,5 +65,36 @@ describe("size constants", () => {
   it("max chat attachments per message is a positive integer", () => {
     expect(MAX_CHAT_ATTACHMENTS_PER_MESSAGE).toBeGreaterThan(0);
     expect(Number.isInteger(MAX_CHAT_ATTACHMENTS_PER_MESSAGE)).toBe(true);
+  });
+});
+
+describe("readBodyWithSizeLimit", () => {
+  function eventWithJsonBody(body: string) {
+    const request = new Request("http://localhost/test", {
+      method: "POST",
+      body,
+    });
+    return {
+      req: request,
+      res: { status: 200, statusText: "", headers: new Headers() },
+    } as any;
+  }
+
+  it("measures a streamed JSON body when Content-Length is absent", async () => {
+    const event = eventWithJsonBody('{"ok":true}');
+    expect(event.req.headers.has("content-length")).toBe(false);
+
+    await expect(readBodyWithSizeLimit(event, 8)).rejects.toMatchObject({
+      statusCode: 413,
+    });
+    expect(event.res.status).toBe(413);
+  });
+
+  it("parses a streamed JSON body within the byte cap", async () => {
+    const event = eventWithJsonBody('{"ok":true}');
+
+    await expect(readBodyWithSizeLimit(event, 32)).resolves.toEqual({
+      ok: true,
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import {
   resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential,
@@ -7,7 +8,10 @@ import {
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
 
-const BUILDER_MODEL = "gpt-5-6-luna";
+// Typed against the Builder catalog so a retired id fails typecheck instead of
+// every generation call.
+const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 const GEMINI_MODEL = "gemini-2.0-flash";
 
 export default defineAction({
@@ -62,7 +66,7 @@ Rules:
 - Content should be concise and presentation-ready (not paragraphs)
 - Use bullet points for lists, keep each point brief
 - Keep title, section, statement, and call-to-action slides centered with generous, even margins
-- Do not use emoji as decorative icons or bullets; use plain text bullets or HTML/CSS shapes instead
+- Do not use emoji as decorative icons or bullets; use plain text or numbered bullets
 - Do not invent factual numbers, metrics, URLs, source attributions, dates, success rates, benchmarks, customer names, or case-study results. Only include concrete factual claims if they are present in the topic/context. If a useful metric is unknown, use qualitative wording, [metric TBD], or clearly label it as a draft assumption.
 - ${imageInstruction}
 
@@ -87,7 +91,7 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
         throw (
           builderError ??
           new Error(
-            "Slides outline generation needs Builder.io Connect (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
+            "Slides outline generation needs Builder.io (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
           )
         );
       }

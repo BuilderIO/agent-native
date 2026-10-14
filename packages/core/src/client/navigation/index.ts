@@ -7,34 +7,20 @@ export {
 export {
   useAgentRouteState,
   useSemanticNavigationState,
+  type AgentRouteTarget,
   type AgentRouteLocation,
   type SemanticNavigationCommandEnvelope,
   type UseAgentRouteStateOptions,
   type UseAgentRouteStateResult,
   type UseSemanticNavigationStateOptions,
   type UseSemanticNavigationStateResult,
+  type WorkspaceAppRouteTarget,
 } from "../route-state.js";
 export {
   AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
   postAgentNativeWorkspaceAppRoute,
   type AgentNativeWorkspaceAppRouteMessage,
 } from "../workspace-app-navigation.js";
-export {
-  COMMAND_MENU_OPEN_EVENT,
-  CommandMenu,
-  openAgentSidebar,
-  openAgentSettings,
-  openCommandMenu,
-  submitToAgent,
-  useCommandMenuNestedDialog,
-  useCommandMenuShortcut,
-  type CommandMenuProps,
-  type CommandMenuDoc,
-  type CommandDocsGroupProps,
-  type CommandGroupProps,
-  type CommandItemProps,
-  type CommandShortcutProps,
-} from "../CommandMenu.js";
 export {
   buildOpenRouteLink,
   buildOpenRoutePath,
@@ -71,7 +57,6 @@ export {
   openSettingsPage,
   SETTINGS_SHORTCUT_PAGE,
   settingsPagePath,
-  SettingsShortcut,
   useSettingsShortcut,
   type OpenSettingsPageDetail,
 } from "../use-settings-shortcut.js";

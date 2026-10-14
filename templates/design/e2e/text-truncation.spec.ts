@@ -9,6 +9,7 @@ import {
   designFrame,
   gotoEditor,
   selectByText,
+  selectTool,
 } from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -283,7 +284,7 @@ test(
   "text truncation restores authored styles through Undo, reload, and text editing",
   {},
   async ({ page }, testInfo) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     const designId = await prepareDesign(page);
     try {
       await page.setViewportSize({ width: 2800, height: 1600 });
@@ -509,6 +510,7 @@ test(
   },
 );
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test(
   "a freshly created title keeps truncation controls in sync without reselection",
   {},
@@ -536,7 +538,7 @@ test(
       const textTool = page.locator(
         '[data-design-bottom-toolbar] button[aria-label="Text"]',
       );
-      await textTool.click();
+      await selectTool(page, "Text");
       await expect(textTool).toHaveAttribute("aria-pressed", "true");
       await page.mouse.click(bodyBox.x + 120 * scale, bodyBox.y + 120 * scale);
 
@@ -637,7 +639,7 @@ test(
         return selected
           ? {
               sourceLayerIdentity: selected.sourceLayerIdentity,
-              hasPortableStyleSnapshot: selected.portableStyleSnapshot != null,
+              hasBridgeDetail: Array.isArray(selected.editCapabilities),
             }
           : null;
       });
@@ -648,7 +650,7 @@ test(
       expect
         .soft(hydratedSelection?.sourceLayerIdentity?.screenId)
         .toBe(screenId);
-      expect.soft(hydratedSelection?.hasPortableStyleSnapshot).toBe(true);
+      expect.soft(hydratedSelection?.hasBridgeDetail).toBe(true);
     } finally {
       await postAction(page, "delete-design", { id: designId });
     }

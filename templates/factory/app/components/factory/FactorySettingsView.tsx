@@ -4,8 +4,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { ActionQueryError } from "@agent-native/dispatch/components";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import { IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";

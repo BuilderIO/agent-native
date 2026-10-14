@@ -176,7 +176,8 @@ async function previewFrame(page: Page) {
     );
 }
 
-test("Layers reparent keeps a nested absolute child anchored to its Frame through resize and reload", async ({
+// Covers auto-layout movement and persistence through resize and reload.
+test("Layers moves a Frame into auto layout while keeping nested content anchored through resize and reload", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -199,8 +200,6 @@ test("Layers reparent keeps a nested absolute child anchored to its Frame throug
       badgeBottomGap: 13,
     });
 
-  const initialFrame = await previewFrame(page);
-  expect(initialFrame).not.toBeNull();
   const artworkBounds = await artworkRow.boundingBox();
   const workspaceBounds = await workspaceRow.boundingBox();
   if (!artworkBounds || !workspaceBounds) {
@@ -233,23 +232,26 @@ test("Layers reparent keeps a nested absolute child anchored to its Frame throug
     body: JSON.stringify(await previewFrame(page), null, 2),
     contentType: "application/json",
   });
-  expect(frameStyleAfterMove).toMatch(/position:\s*absolute/i);
-  expect(frameStyleAfterMove).toMatch(/left:\s*480px/i);
-  expect(frameStyleAfterMove).toMatch(/top:\s*280px/i);
+  expect(frameStyleAfterMove).toMatch(/position:\s*relative\s*!important/i);
+  expect(frameStyleAfterMove).toMatch(/left:\s*auto\s*!important/i);
+  expect(frameStyleAfterMove).toMatch(/top:\s*auto\s*!important/i);
   const frameAfterMove = await previewFrame(page);
   expect(frameAfterMove).toMatchObject({
-    frameLeft: initialFrame!.frameLeft,
-    frameTop: initialFrame!.frameTop,
+    frameCount: 1,
+    frameParentId: WORKSPACE_ID,
+    framePosition: "relative",
+    framePrimitive: "frame",
+    badgeOffsetParentId: FRAME_ID,
+    badgeRightGap: 10,
+    badgeBottomGap: 13,
   });
   await expect
     .poll(() => previewFrame(page))
     .toMatchObject({
       frameCount: 1,
       frameParentId: WORKSPACE_ID,
-      framePosition: "absolute",
+      framePosition: "relative",
       framePrimitive: "frame",
-      frameLeft: initialFrame!.frameLeft,
-      frameTop: initialFrame!.frameTop,
       badgeOffsetParentId: FRAME_ID,
       badgeRightGap: 10,
       badgeBottomGap: 13,
@@ -257,7 +259,7 @@ test("Layers reparent keeps a nested absolute child anchored to its Frame throug
 
   expect(sourceAfterMove).toContain('data-an-primitive="frame"');
   expect(sourceAfterMove).toMatch(
-    /data-agent-native-node-id="frame-containment-artwork"[^>]*style="[^"]*position:\s*absolute/i,
+    /data-agent-native-node-id="frame-containment-artwork"[^>]*style="[^"]*position:\s*relative\s*!important/i,
   );
 
   await artworkRow.click({ force: true });
@@ -305,9 +307,7 @@ test("Layers reparent keeps a nested absolute child anchored to its Frame throug
     .toMatchObject({
       frameCount: 1,
       frameParentId: WORKSPACE_ID,
-      framePosition: "absolute",
-      frameLeft: initialFrame!.frameLeft,
-      frameTop: initialFrame!.frameTop,
+      framePosition: "relative",
       frameWidth: 120,
       frameHeight: 90,
       badgeOffsetParentId: FRAME_ID,

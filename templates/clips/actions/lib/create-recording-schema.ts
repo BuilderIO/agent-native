@@ -85,6 +85,14 @@ export const createRecordingSchema = z.object({
     .describe(
       "Request the resumable streaming upload path. Hosted deployments use it automatically because SQL chunk buffering is unavailable; local deployments can opt in with CLIPS_ENABLE_STREAMING_UPLOAD.",
     ),
+  expectedOwnerEmail: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      "Refuse to create the recording unless the signed-in account is this one. Recorders pass the account a local copy was recorded under, so it never uploads into another account.",
+    ),
   streamingUploadClient: z
     .enum(["desktop-native"])
     .optional()

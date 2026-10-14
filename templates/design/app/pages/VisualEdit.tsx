@@ -1,5 +1,5 @@
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { IconCircleCheck, IconCopy } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

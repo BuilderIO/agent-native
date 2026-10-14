@@ -1,3 +1,4 @@
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
 import { getLaunchDarklyClient } from "./client.js";
 import { buildLaunchDarklyContext, type LaunchDarklyActor } from "./context.js";
 
@@ -12,6 +13,7 @@ export async function getLaunchDarklyVariation<T>(
     const context = buildLaunchDarklyContext(actor);
     return (await client.variation(flagKey, context, defaultValue)) as T;
   } catch (error) {
+    if (error instanceof OptionalPeerDependencyError) throw error;
     console.warn(`[launchdarkly] failed to evaluate flag "${flagKey}"`, error);
     return defaultValue;
   }
@@ -28,6 +30,7 @@ export async function isLaunchDarklyFlagEnabled(
     const context = buildLaunchDarklyContext(actor);
     return await client.boolVariation(flagKey, context, defaultValue);
   } catch (error) {
+    if (error instanceof OptionalPeerDependencyError) throw error;
     console.warn(`[launchdarkly] failed to evaluate flag "${flagKey}"`, error);
     return defaultValue;
   }
@@ -43,6 +46,7 @@ export async function getAllLaunchDarklyFlags(
     const state = await client.allFlagsState(context);
     return state.valid ? state.allValues() : {};
   } catch (error) {
+    if (error instanceof OptionalPeerDependencyError) throw error;
     console.warn("[launchdarkly] failed to evaluate all flags", error);
     return {};
   }

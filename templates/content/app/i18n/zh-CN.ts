@@ -236,7 +236,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder 尚未连接。请返回并先使用 Builder.io。",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -248,7 +248,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "使用 Builder 账户浏览其空间和模型。",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -423,7 +423,6 @@ const editor = {
   pageBodySyncing: "此页面的内容仍在同步",
   pageBodySyncingDescription:
     "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
-  createCollection: "创建集合",
   creatingDatabase: "正在创建内联集合...",
   databaseCreated: "集合已创建",
   emptyBlockPlaceholder: "按“/”使用命令",
@@ -623,6 +622,34 @@ const editor = {
     pageCount_few: "{{count}} 页面",
     pageCount_many: "{{count}} 页面",
     pageCount_other: "{{count}} 页面",
+    back: "返回",
+    relatedDatabase: "关联数据库",
+    searchDatabases: "搜索数据库",
+    thisDatabase: "此数据库",
+    noDatabases: "未找到数据库",
+    searchPages: "搜索页面",
+    noMatchingPages: "没有匹配的页面",
+    removeRelation: "移除 {{name}}",
+    openPage: "打开 {{name}}",
+    unavailablePage: "不可用的页面",
+    unavailablePageCount_zero: "{{count}} 个不可用",
+    unavailablePageCount_one: "{{count}} 个不可用",
+    unavailablePageCount_two: "{{count}} 个不可用",
+    unavailablePageCount_few: "{{count}} 个不可用",
+    unavailablePageCount_many: "{{count}} 个不可用",
+    unavailablePageCount_other: "{{count}} 个不可用",
+    noRelatedDatabase: "未配置关联数据库",
+    linkAPage: "关联或创建页面…",
+    createPage: "创建“{{name}}”",
+    reorderRelation: "重新排序 {{name}}",
+    selectMore: "选择更多",
+    selectAPage: "选择页面",
+    selectedCount_zero: "已选择 {{count}} 个",
+    selectedCount_one: "已选择 {{count}} 个",
+    selectedCount_two: "已选择 {{count}} 个",
+    selectedCount_few: "已选择 {{count}} 个",
+    selectedCount_many: "已选择 {{count}} 个",
+    selectedCount_other: "已选择 {{count}} 个",
     pasteFileOrMediaLink: "粘贴文件或媒体链接",
     personOrEmail: "个人或电子邮件",
     propertyMenuFor: "{{name}} 的属性菜单",
@@ -749,6 +776,7 @@ const editor = {
     notifications: "通知",
     notionSync: "概念同步",
     openInNotion: "在概念中打开",
+    openInAgentNative: "在 Agent-Native 中打开",
     orgCanFindAndView: "您组织中的任何人都可以查找和查看",
     orgLinkCanView: "您组织中知道该链接的任何人都可以查看",
     pin: "固定",
@@ -1010,7 +1038,6 @@ const rawLiterals = {
 
 const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
-  requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
   workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
   workspaceWelcomeUnavailableDescription:
@@ -1117,6 +1144,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。请求：{{action}}。",
+    widgetDocumentLoadStage: "已保存的页面正文",
+    widgetDraftCheckStage: "页面草稿恢复",
+    widgetEditorInitStage: "富文本编辑器初始化",
     iconPickerIcons: "图标",
     iconPickerEmoji: "表情符号",
     iconPickerRecent: "最近",
@@ -1125,6 +1156,10 @@ const exactEnglish = {
     iconPickerUpload: "上传",
     iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+    suggestionUnplaceable:
+      "此建议周围的文本已更改，因此无法应用。它仍处于待处理状态：请拒绝它，或重新建议此修改。",
+    proposalUnplaceable:
+      "其中一条建议周围的文本已更改，无法应用，因此所有建议均未应用。它们仍处于待处理状态：请逐条接受或拒绝。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
@@ -1157,6 +1192,8 @@ const exactEnglish = {
       openInClaude: "在 Claude 中打开",
       openInClaudeCode: "在 Claude Code 中打开",
       openInCodex: "在 Codex 中打开",
+      connectContent: "连接 Content",
+      otherAgents: "其他智能体",
       agentCopyAccessNote: "智能体可以通过现有权限使用 Content MCP",
       temporaryAgentLink: "临时智能体链接",
       privateLinkCanView: "只有有权限的人可以查看",
@@ -1243,7 +1280,9 @@ const history = {
 
 const overrides = {
   close: "关闭",
-  setup: { checkingProvider: "正在检查 AI 连接…" },
+  setup: {
+    providerStatusUnavailable: "无法确认 AI 是否已就绪。",
+  },
   onboarding: {
     fileStorage: {
       title: "连接存储以上传文件",
@@ -1291,6 +1330,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "内容",
+    loadingContent: "正在加载内容",
     commandSearchDocuments: "搜索文档",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改时间自 {{date}} 起",
@@ -1342,10 +1382,6 @@ const overrides = {
   },
   settings: {
     title: "设置",
-    description: "Content 的语言和工作区偏好设置。",
-    emailNotifications: "邮件通知",
-    emailNotificationsDescription:
-      "当有人评论你的文档、在讨论串中回复或提到你时，收到邮件通知。",
     saveFailed: "保存失败",
     notificationsEmail: "电子邮件",
     commentsRepliesMentions: "评论、回复和提及",
@@ -1354,9 +1390,6 @@ const overrides = {
     retry: "重试",
     mcpAbout:
       "将 Content 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。该应用随后可以代你在 Content 中工作：搜索、撰写和编辑文档。它只能看到你能看到的内容。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     workspaceTitle: "工作区",
     workspaceDescription: "管理协作者和共享文档访问权限。",
     openTeamSettings: "打开工作区访问设置",
@@ -1389,6 +1422,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
+    pageNoAccess: "你没有此页面的访问权限",
+    pageMissing: "此页面不存在",
+    pageInTrash: "此页面在回收站中",
+    pageInTrashAskOwner: "请让所有者恢复它。",
+    openTrash: "打开回收站",
+    goToMyPages: "前往我的页面",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",
@@ -1471,6 +1510,9 @@ const overrides = {
     aiUndo: "撤销",
     aiDone: "完成",
     aiMoreChanges: "另外 {{count}} 处",
+    suggestionReplaced: "已替换",
+    suggestionWithdrawn: "已撤回",
+    suggestedChange: "建议的更改",
     aiUndoUnavailable: "已删除的文本无法自动恢复",
     aiUndoFailed: "无法撤销更改",
     aiResolvedByAi: "已由 AI 解决",
@@ -1511,6 +1553,11 @@ const overrides = {
     resize: "调整侧边栏宽度",
     expand: "展开侧边栏",
     failedCreatePage: "创建页面失败",
+    failedCreatePageDraftDescription:
+      "草稿已保存在此浏览器中。你可以重试创建页面，或丢弃草稿。",
+    discardFailedCreatePageQuestion: "丢弃待处理的创建？",
+    discardFailedCreatePageDescription:
+      "这会清除待处理的创建和任何未保存的草稿。如果页面已经保存，它仍会保留在你的工作区中。",
     failedDeletePage: "删除页面失败",
     failedPermanentDeletePage: "永久删除页面失败",
     failedRestorePage: "恢复页面失败",

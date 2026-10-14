@@ -4,18 +4,7 @@ import {
   IconPlugConnectedX,
   IconX,
 } from "@tabler/icons-react";
-import { useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,7 +30,6 @@ export function LocalNetworkAccessPrompt({
   proactive?: boolean;
 }) {
   const t = useT();
-  const [confirmClose, setConfirmClose] = useState(false);
   // "unreachable" is the one confident case (permission is confirmed
   // granted, so it's confirmed NOT the cause) — every other kind is
   // deliberately hedged copy, never a diagnosed permission claim. See
@@ -81,19 +69,27 @@ export function LocalNetworkAccessPrompt({
     "designCanvas.localBridge.permissionPromptSettingsInstructions",
     {
       defaultValue:
-        "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+        "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
     },
   );
   const permissionHelp = showPermissionHelp ? (
     <details className="text-xs text-muted-foreground">
       <summary className="cursor-pointer">{noPromptLabel}</summary>
+      <img
+        src="/local-network-access-prompt.png"
+        alt={permissionSettingsInstructions}
+        className="mt-3 block w-full rounded-md border border-border"
+        width={1300}
+        height={780}
+        loading="lazy"
+      />
       <p className="mt-2 leading-relaxed">{permissionSettingsInstructions}</p>
       <img
         src="/local-network-access-settings.png"
         alt={permissionSettingsInstructions}
         className="mt-3 block w-full rounded-md border border-border"
-        width={1000}
-        height={620}
+        width={1660}
+        height={948}
         loading="lazy"
       />
     </details>
@@ -102,13 +98,25 @@ export function LocalNetworkAccessPrompt({
   if (proactive) {
     return (
       <>
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setConfirmClose(true);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
+        <Dialog defaultOpen>
+          <DialogContent
+            className="sm:max-w-md"
+            overlayClassName="backdrop-blur-[4px]"
+            hideClose
+            onInteractOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => event.preventDefault()}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("designEditor.close")}
+              className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={onDismiss}
+            >
+              <IconX className="size-4" />
+              <span className="sr-only">{t("designEditor.close")}</span>
+            </Button>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <IconPlugConnected className="size-4" />
@@ -120,44 +128,12 @@ export function LocalNetworkAccessPrompt({
               src="/local-network-access-permission.png"
               alt={description}
               className="block w-full rounded-md border border-border"
-              width={1050}
-              height={664}
+              width={1460}
+              height={850}
             />
             {permissionHelp}
           </DialogContent>
         </Dialog>
-        <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {t("designCanvas.localBridge.permissionCloseTitle", {
-                  defaultValue: "Close setup?",
-                })}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {t("designCanvas.localBridge.permissionCloseDescription", {
-                  defaultValue:
-                    "Live editing won't work until you allow access in Chrome.",
-                })}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>
-                {t("designCanvas.localBridge.permissionCloseStay", {
-                  defaultValue: "Keep setup open",
-                })}
-              </AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={onDismiss}
-              >
-                {t("designCanvas.localBridge.permissionCloseAnyway", {
-                  defaultValue: "Close anyway",
-                })}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </>
     );
   }

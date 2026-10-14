@@ -108,6 +108,8 @@ export interface OnboardingCapability {
   service?: WorkspaceServiceId;
   /** Only Builder.io provides it; there is no bring-your-own path. */
   builderOnly?: boolean;
+  /** Already satisfied by the provider used to sign in to this workspace. */
+  satisfiedBySignIn?: boolean;
   labelKey?: string;
   keySummaryKey?: string;
   whyKey?: string;

@@ -1,4 +1,7 @@
-import { isDefaultWorkspaceAppHiddenId } from "./workspace-apps";
+import {
+  defaultWorkspaceAppUrl,
+  isDefaultWorkspaceAppHiddenId,
+} from "./workspace-apps";
 
 export interface ConnectedAppSummary {
   id: string;
@@ -52,5 +55,40 @@ export function filterOtherApps(
       seen.add(id);
       return true;
     })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function filterBuiltInApps(
+  connectedApps: ConnectedAppSummary[],
+  workspaceApps: WorkspaceAppId[],
+): ConnectedAppSummary[] {
+  const workspaceAppIds = new Set([
+    "dispatch",
+    ...workspaceApps.map((app) => app.id.trim().toLowerCase()),
+  ]);
+  const seen = new Set<string>();
+
+  return connectedApps
+    .filter((app) => {
+      const id = app.id.trim().toLowerCase();
+      const url = app.homeUrl?.trim() || app.url;
+      if (
+        !id ||
+        app.source !== "builtin" ||
+        isDefaultWorkspaceAppHiddenId(id) ||
+        workspaceAppIds.has(id) ||
+        seen.has(id) ||
+        !isHttpUrl(url)
+      ) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    })
+    .map((app) => ({
+      ...app,
+      url: defaultWorkspaceAppUrl(app.url),
+      ...(app.homeUrl ? { homeUrl: defaultWorkspaceAppUrl(app.homeUrl) } : {}),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

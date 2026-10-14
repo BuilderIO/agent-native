@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   deployFusionProject,
   getFusionHostingUrl,
@@ -9,13 +8,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
-import {
-  FULL_APP_BUILDING,
-  readFusionApp,
-  writeFusionApp,
-} from "../shared/full-app.js";
+import "../server/db/index.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import { readFusionApp, writeFusionApp } from "../shared/full-app.js";
 
 const MAX_SLUG_LENGTH = 40;
 
@@ -48,7 +44,7 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, slug }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

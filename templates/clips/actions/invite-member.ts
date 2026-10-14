@@ -152,6 +152,7 @@ export default defineAction({
           }),
           to: args.email,
           templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
+          authCritical: true,
         });
         notified = true;
       } catch (err) {

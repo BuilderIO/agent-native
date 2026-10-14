@@ -250,6 +250,18 @@ Ajoutez-le au pipeline qui s'exécute avant un déploiement :
 
 Une régression qui fait tomber un score en dessous du seuil fait échouer l'étape et bloque le déploiement. Une application sans fichiers d'évaluation quitte `0`. L'adoption des évaluations est donc facultative par application.
 
+## Depuis une trace de production {#from-trace}
+
+Quand une exécution réelle surprend — elle a échoué en production après avoir marché en démo, ou elle a appelé le mauvais outil — promouvez cette trace terminée en cas CI au lieu d'inventer une invite.
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+Cette commande persiste une ligne `EvalDataset` (le même helper que le tableau de bord et l'action `promote-trace-eval`) et écrit un fixture `defineEval` que la porte `agent-native eval` découvre déjà. Les scorers par défaut sont `usesTool(...)` pour chaque outil réussi, plus une sous-chaîne optionnelle `--must-contain`. Les exécutions tronquées, abandonnées ou sans message utilisateur échouent de façon fermée.
+
+L'action hébergée et `POST /_agent-native/observability/traces/:runId/promote` n'écrivent jamais l'arbre de l'application. Utilisez `--write` pour que CI bloque sur le cas. Le détail de trace du tableau de bord Observability a un contrôle **Promote to eval**.
+
 ## Quelle est la prochaine étape
 
 - [**Observability**](/docs/observability) — notation post-hoc des cycles de production réels (la couche complémentaire)

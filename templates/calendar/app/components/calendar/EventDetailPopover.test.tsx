@@ -32,7 +32,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       key,
 }));
 
-vi.mock("@agent-native/core/client/extensions", () => ({
+vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 

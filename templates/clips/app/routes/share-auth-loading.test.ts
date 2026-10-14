@@ -12,7 +12,7 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
     expect(route).toContain(
-      "if (playerDataQ.isLoading || playerDataForbidden)",
+      "if (playerDataQ.isPending || playerDataForbidden)",
     );
     expect(route).toContain("<RecordingWorkspaceSkeleton />");
     expect(route).not.toContain("buildSignInReturnHref");
@@ -226,8 +226,8 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
-    expect(route).toContain(
-      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
+    expect(route).toMatch(
+      /recording\.enableComments &&\s+viewerCanUseFullscreenInteractions/,
     );
     expect(route).toContain("recording.enableReactions &&");
     expect(route).toContain("viewerCanUseFullscreenInteractions");
@@ -246,6 +246,9 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("pendingAccountActionRef");
     expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
     expect(route).toContain("onReact={reactToRecording}");
+    expect(route).toMatch(
+      /portalContainer={\s*isPlayerFullscreen \? playerRef\.current\?\.container : undefined\s*}/,
+    );
   });
 
   it("keeps public comments in flow and consolidates recording insights", () => {
@@ -294,12 +297,14 @@ describe("authenticated recording route loading", () => {
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');
 
-    const publicControlsStart = shareRoute.indexOf("<header");
-    expect(publicControlsStart).toBeGreaterThan(-1);
-    const publicControls = shareRoute.slice(publicControlsStart);
-    expect(shareRoute.indexOf("const shareControl")).toBeLessThan(
-      publicControlsStart,
+    const shareControlStart = shareRoute.indexOf("const shareControl");
+    expect(shareControlStart).toBeGreaterThan(-1);
+    const publicControlsStart = shareRoute.indexOf(
+      "<header",
+      shareControlStart,
     );
+    expect(publicControlsStart).toBeGreaterThan(shareControlStart);
+    const publicControls = shareRoute.slice(publicControlsStart);
     expect(publicControls.indexOf("{shareControl}")).toBeGreaterThan(-1);
     expect(publicControls.indexOf("{shareControl}")).toBeLessThan(
       publicControls.indexOf("<RecordingOptionsMenu"),
@@ -338,12 +343,18 @@ describe("authenticated recording route loading", () => {
       "if (recording && !recording.enableComments) {",
     );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    // Window widened when the screenshot fallback was added to this branch.
+    const effect = shareRoute.slice(effectStart, effectStart + 900);
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
     expect(effect).toContain(
-      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+      'setPanel((current) => (current === "comments" ? fallback : current));',
+    );
+    // ...and a screenshot has no transcript tab either, so its fallback is
+    // the agent rather than a tab that is never rendered for it.
+    expect(effect).toContain(
+      'const fallback = isImageRecording(recording) ? "agent" : "transcript";',
     );
   });
 

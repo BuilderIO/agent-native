@@ -63,7 +63,6 @@ export interface KnowledgeRow {
   topic?: string;
   status: KnowledgeStatus | "published" | "redacted" | "archived";
   confidence?: number;
-  citations?: number;
   evidence?: Array<{
     captureId?: string | null;
     captureTitle?: string | null;
@@ -133,7 +132,6 @@ export interface BrainSource {
   lastSyncAt?: string | null;
   lastSyncedAt?: string | null;
   nextSyncAt?: string | null;
-  reviewRequired?: boolean;
   visibility?: "private" | "org" | "public";
   config?: Record<string, unknown>;
   cursor?: Record<string, unknown>;
@@ -305,7 +303,6 @@ export interface BrainHealthResponse {
       health: BrainSourceHealthState;
       demo?: boolean;
       autoSync?: boolean;
-      reviewRequired?: boolean;
       hasChannelAllowList?: boolean | null;
       lastSyncedAt?: string | null;
       nextSyncAt?: string | null;
@@ -619,6 +616,7 @@ export interface BrainConnectionProvider {
 export interface ConnectionProvidersResponse {
   count?: number;
   appId?: "brain";
+  canManageZoom?: boolean;
   workspaceConnections?: {
     appId: "brain";
     available: boolean;
@@ -1090,6 +1088,32 @@ export const defaultSettings: BrainSettings = {
   quarantineRetentionHours: 72,
 };
 
+/** `/home` is the blank Ask page; `/home/<threadId>` is one saved thread. */
+export function isBrainAskPath(pathname: string): boolean {
+  return pathname === "/home" || pathname.startsWith("/home/");
+}
+
+export function brainAskThreadPath(threadId: string | null): string {
+  return threadId ? `/home/${encodeURIComponent(threadId)}` : "/home";
+}
+
+// Decodes the segment the way React Router's useParams does, so the sidebar's
+// active id matches the route's id for ids that need percent-encoding.
+export function brainAskThreadIdFromPath(pathname: string): string | null {
+  const segment = /^\/home\/([^/]+)\/?$/.exec(pathname)?.[1];
+  return segment === undefined ? null : decodeThreadSegment(segment);
+}
+
+// A hand-typed malformed escape such as /home/% stays literal, as it does in
+// React Router, instead of throwing during render.
+function decodeThreadSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/search")) return "search";
@@ -1155,6 +1179,8 @@ export function sourceDescription(source: BrainSource) {
       return "Granola Team-space notes and transcripts imported through the Enterprise API.";
     case "github":
       return "GitHub repository issues and pull requests imported as company context.";
+    case "zoom":
+      return "Zoom cloud-recording transcripts imported through a Server-to-Server OAuth app.";
     case "clips":
       return "Meeting recordings and transcripts exported from Clips into Brain.";
     case "generic":
@@ -1185,19 +1211,14 @@ export function sourceEnabled(source: BrainSource) {
   return source.status !== "paused" && source.status !== "archived";
 }
 
-export function sourceReviewRequired(source: BrainSource) {
-  if (typeof source.reviewRequired === "boolean") return source.reviewRequired;
-  const value = source.config?.reviewRequired;
-  return typeof value === "boolean" ? value : true;
-}
-
 export function sourceAutoSync(source: BrainSource) {
   const value = source.config?.autoSync;
   if (typeof value === "boolean") return value;
   return (
     source.provider === "slack" ||
     source.provider === "granola" ||
-    source.provider === "github"
+    source.provider === "github" ||
+    source.provider === "zoom"
   );
 }
 

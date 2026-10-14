@@ -5,10 +5,12 @@
 
 :root {
   --dispatch-brand-blue: 200 97% 39%;
+  --dispatch-search-match: 50 100% 66%;
 }
 
 .dark {
   --dispatch-brand-blue: 197 100% 50%;
+  --dispatch-search-match: 40 85% 30%;
 }
 
 .dispatch-chat-first-chats .an-chat-history-rail__new-chat {
@@ -49,17 +51,7 @@
   width: 100%;
   max-width: min(750px, 90%);
   gap: 0.5rem;
-  margin: 0 auto 1rem;
-  text-align: center;
-}
-
-.dispatch-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
-  .dispatch-chat-intro {
-  display: grid;
-  width: 100%;
-  max-width: min(750px, 90%);
-  gap: 0.5rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 
@@ -124,7 +116,6 @@
   .dispatch-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .dispatch-chat-intro {
     width: 100%;
-    margin-bottom: 0.875rem;
   }
 
   .dispatch-chat-intro h1 {

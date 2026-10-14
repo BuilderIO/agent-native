@@ -48,7 +48,7 @@ export function connectRequiredResult(input: {
       provider: input.provider,
       providerLabel,
       reason,
-      message: `${reason} Connect ${providerLabel} to continue: use the Connect button shown here, or connect ${providerLabel} in Settings.`,
+      message: `${reason} Use ${providerLabel} to continue: choose the button shown here, or set up ${providerLabel} in Settings.`,
       ...(connectUrl ? { connectUrl } : {}),
       ...(settingsPath ? { settingsPath } : {}),
     },

@@ -585,6 +585,31 @@ describe("runScript package actions", () => {
     ]);
   });
 
+  it("passes Windows handoff URLs to Explorer as data", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=trusted-only&state=example",
+      {
+        env: { APP_URL: "http://localhost:8140" },
+        platform: "win32",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "explorer.exe",
+        args: [
+          "http://localhost:8140/_agent-native/embed/start?ticket=trusted-only&state=example",
+        ],
+      },
+    ]);
+  });
+
   it("uses a verified discovery origin for a relative handoff", () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const result = openCliHandoff(

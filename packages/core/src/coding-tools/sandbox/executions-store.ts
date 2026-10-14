@@ -118,35 +118,35 @@ export const sandboxExecutionsStore = defineStore({
       name: "baseline",
       run: async () => {
         const createSql = `
-          CREATE TABLE IF NOT EXISTS ${TABLE} (
-            id TEXT PRIMARY KEY,
-            owner TEXT NOT NULL,
-            org_id TEXT,
-            thread_id TEXT,
-            runtime TEXT NOT NULL DEFAULT 'node',
-            code TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'queued',
-            timeout_ms BIGINT NOT NULL,
-            max_output_chars BIGINT NOT NULL,
-            attempt_count BIGINT NOT NULL DEFAULT 0,
-            max_attempts BIGINT NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
-            claim_token TEXT,
-            lease_expires_at BIGINT,
-            stdout TEXT NOT NULL DEFAULT '',
-            stderr TEXT NOT NULL DEFAULT '',
-            stdout_truncated BIGINT NOT NULL DEFAULT 0,
-            stderr_truncated BIGINT NOT NULL DEFAULT 0,
-            exit_code BIGINT,
-            timed_out BIGINT NOT NULL DEFAULT 0,
-            error TEXT,
-            bridge_tools_used TEXT,
-            allowed_action_names TEXT,
-            created_at BIGINT NOT NULL,
-            started_at BIGINT,
-            finished_at BIGINT,
-            updated_at BIGINT NOT NULL
-          )
-        `;
+    CREATE TABLE IF NOT EXISTS ${TABLE} (
+      id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      org_id TEXT,
+      thread_id TEXT,
+      runtime TEXT NOT NULL DEFAULT 'node',
+      code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      timeout_ms BIGINT NOT NULL,
+      max_output_chars BIGINT NOT NULL,
+      attempt_count BIGINT NOT NULL DEFAULT 0,
+      max_attempts BIGINT NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
+      claim_token TEXT,
+      lease_expires_at BIGINT,
+      stdout TEXT NOT NULL DEFAULT '',
+      stderr TEXT NOT NULL DEFAULT '',
+      stdout_truncated BIGINT NOT NULL DEFAULT 0,
+      stderr_truncated BIGINT NOT NULL DEFAULT 0,
+      exit_code BIGINT,
+      timed_out BIGINT NOT NULL DEFAULT 0,
+      error TEXT,
+      bridge_tools_used TEXT,
+      allowed_action_names TEXT,
+      created_at BIGINT NOT NULL,
+      started_at BIGINT,
+      finished_at BIGINT,
+      updated_at BIGINT NOT NULL
+    )
+  `;
         const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
         const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
 

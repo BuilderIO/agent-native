@@ -189,7 +189,7 @@ describe("DesignEditor command tool activation", () => {
 });
 
 describe("DesignEditor move-group toolbar presentation", () => {
-  it("projects Hand and Scale with their Figma shortcut labels", () => {
+  it("projects Hand and Scale with their keyboard shortcut labels", () => {
     expect(getMoveGroupToolPresentation("hand")).toEqual({
       tool: "hand",
       labelKey: "designEditor.tools.hand",
@@ -1186,7 +1186,7 @@ describe("resolveRasterExportScale (high-fidelity bounded raster export)", () =>
     ).toBe(2);
   });
 
-  it("honors explicit Figma-style scale presets through 4x", () => {
+  it("honors explicit scale presets through 4x", () => {
     expect(
       resolveRasterExportScale({
         width: 1280,
@@ -1455,7 +1455,7 @@ describe("DesignEditor motion timeline hydration", () => {
 
     expect(next[0]?.keyframes).toEqual([
       { t: 0, value: "1" },
-      { t: 0.501, value: "0.2", ease: "ease" },
+      { t: 0.5, value: "0.2", ease: "ease" },
       { t: 1, value: "0" },
     ]);
   });

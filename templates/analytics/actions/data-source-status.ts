@@ -61,6 +61,21 @@ function summarizeWorkspaceConnections(
   });
 }
 
+function workspaceConnectionsForProviderStatus(
+  providerId: string,
+  connections: SerializedWorkspaceConnection[],
+  userEmail: string,
+): SerializedWorkspaceConnection[] {
+  if (providerId !== "bigquery") return connections;
+  const ownerEmail = userEmail.trim().toLowerCase();
+  return connections.filter(
+    (connection) =>
+      connection.provider !== "bigquery" ||
+      connection.config.credentialMode !== "oauth" ||
+      connection.ownerEmail.trim().toLowerCase() === ownerEmail,
+  );
+}
+
 async function listWorkspaceConnectionsForStatus(): Promise<{
   connections: SerializedWorkspaceConnection[];
   grants: SerializedWorkspaceConnectionGrant[];
@@ -86,7 +101,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; each provider also includes a focused `setupLink`. When a requested provider is unavailable, use its focused link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "Report available Analytics sources without exposing secrets, including first-party events and granted workspace connections. Use `query-agent-native-analytics` for first-party events. Each provider includes a setup link; key accepts a credential name or provider alias.",
   schema: z.object({
     key: z
       .string()
@@ -96,6 +111,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   run: async (args) => {
     const ctx = tryRequestCredentialContext();
     if (!ctx) {
@@ -138,7 +154,11 @@ export default defineAction({
           catalogProvider?.recommendedTemplateUses.includes(APP_ID) ?? false,
         ...summarizeWorkspaceConnections(
           providerId,
-          workspace.connections,
+          workspaceConnectionsForProviderStatus(
+            providerId,
+            workspace.connections,
+            ctx.userEmail,
+          ),
           workspace.grants,
         ),
       };
@@ -184,27 +204,53 @@ export default defineAction({
       .map((provider) => {
         const optionalKeys = provider.optionalKeys ?? [];
         const requiredMode = provider.requiredMode ?? "all";
-        const hasRequiredCredentials =
-          requiredMode === "any"
-            ? provider.requiredKeys.some((key) => configuredKeys.has(key))
-            : provider.requiredKeys.every((key) => configuredKeys.has(key));
-        const missingRequiredKeys = hasRequiredCredentials
-          ? []
-          : provider.requiredKeys.filter((key) => !configuredKeys.has(key));
-        const configuredProviderKeys = [
-          ...provider.requiredKeys,
-          ...optionalKeys,
-        ].filter((key) => configuredKeys.has(key));
         const workspaceConnection =
           workspaceProviderStatusById.get(provider.provider) ??
           summarizeWorkspaceConnections(
             provider.provider,
-            workspace.connections,
+            workspaceConnectionsForProviderStatus(
+              provider.provider,
+              workspace.connections,
+              ctx.userEmail,
+            ),
             workspace.grants,
           );
+        const hasRequiredCredentials =
+          provider.provider === "bigquery"
+            ? configuredKeys.has("BIGQUERY_PROJECT_ID") &&
+              (configuredKeys.has("GOOGLE_APPLICATION_CREDENTIALS_JSON") ||
+                workspaceConnection.grantState === "connected")
+            : requiredMode === "any"
+              ? provider.requiredKeys.some((key) => configuredKeys.has(key))
+              : provider.requiredKeys.every((key) => configuredKeys.has(key));
+        const missingRequiredKeys =
+          provider.provider === "bigquery"
+            ? [
+                ...(!configuredKeys.has("BIGQUERY_PROJECT_ID")
+                  ? ["BIGQUERY_PROJECT_ID"]
+                  : []),
+                ...(!configuredKeys.has(
+                  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+                ) &&
+                workspaceConnection.grantState !== "connected" &&
+                !workspace.error
+                  ? [
+                      "GOOGLE_APPLICATION_CREDENTIALS_JSON or BigQuery OAuth connection",
+                    ]
+                  : []),
+              ]
+            : hasRequiredCredentials
+              ? []
+              : provider.requiredKeys.filter((key) => !configuredKeys.has(key));
+        const configuredProviderKeys = [
+          ...provider.requiredKeys,
+          ...optionalKeys,
+        ].filter((key) => configuredKeys.has(key));
         const configured =
-          hasRequiredCredentials ||
-          workspaceConnection.grantState === "connected";
+          provider.provider === "bigquery"
+            ? hasRequiredCredentials
+            : hasRequiredCredentials ||
+              workspaceConnection.grantState === "connected";
         return {
           provider: provider.provider,
           label: provider.label,

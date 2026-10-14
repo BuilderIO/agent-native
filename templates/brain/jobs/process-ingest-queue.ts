@@ -43,12 +43,12 @@ const HEADLESS_DISTILLATION_SYSTEM_PROMPT = `You are the Brain distillation work
 Convert raw company captures into durable, cited institutional knowledge.
 Use only Brain actions. Never invent facts. Start by calling get-capture with
 includeRawContent=true for the provided capture id when exact quote validation
-is needed. Write supported durable entries with write-knowledge;
-that action will route uncertain, sensitive, or low-confidence items through
-the review queue when needed. Preserve exact short evidence quotes from the
-capture. Exclude personal or out-of-scope material. Always finish by calling
-mark-capture-distilled with status distilled, or status ignored when the capture
-should not become company knowledge.`;
+is needed. Write supported durable entries with write-knowledge. Preserve exact
+short evidence quotes from the capture. A brief, dated company or product
+go-live announcement can become knowledge about the announced plan, not proof
+that the launch happened. Exclude personal or out-of-scope material. Always
+finish by calling mark-capture-distilled with status distilled after writing
+knowledge, or status ignored only when no company-relevant fact remains.`;
 
 function recheckAt(now: string) {
   return new Date(Date.parse(now) + DISTILLATION_RECHECK_MS).toISOString();
@@ -266,17 +266,12 @@ function buildDistillationMessage(
     `Tone: ${guidance.response.toneInstruction}`,
     `Citation policy: ${guidance.response.citationInstruction}`,
     `Default publish tier: ${guidance.distillation.defaultPublishTier}`,
-    `Review policy: ${
-      guidance.distillation.requireApprovalForCompanyKnowledge
-        ? "company-tier knowledge normally requires review"
-        : "company-tier knowledge can publish directly when write-knowledge allows it"
-    }`,
     `Workspace distillation instructions: ${guidance.distillation.instructions}`,
     instructions,
     "Required workflow:",
     "1. Call get-capture with includeRawContent=true for this capture id when exact quote validation is needed.",
     "2. Extract only durable company knowledge with exact source quotes.",
-    "3. Call write-knowledge for supported entries or proposals.",
+    "3. Call write-knowledge for supported entries.",
     `4. Call mark-capture-distilled with captureId=${context.capture.id}, queueId=${context.queue.id}, and claimToken=${context.claimToken} when finished, or mark ignored if excluded.`,
   ]
     .filter(Boolean)

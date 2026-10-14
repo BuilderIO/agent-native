@@ -1,6 +1,7 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { IconAlertTriangle, IconCheck, IconLock } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -151,7 +152,9 @@ export default function ApproveRecordingAccessRequestRoute() {
     t,
   ]);
 
-  const signInHref = buildSignInReturnHref({ returnTo: signInReturnTo });
+  const signInHref = buildSignInReturnHref({
+    returnTo: appPath(signInReturnTo),
+  });
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 text-foreground">

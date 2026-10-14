@@ -418,6 +418,7 @@ async function resolveOwnedMonitorRefs(
   if (requested.length === 0) return [];
 
   const db = getDb() as any;
+  // guard:allow-unscoped — monitorsOwnerWhere adds the caller's owner_email and org_id predicates
   const ownedRows = await db
     .select({ id: schema.monitors.id })
     .from(schema.monitors)
@@ -451,6 +452,7 @@ async function slugIsTaken(slug: string, exceptId?: string): Promise<boolean> {
 
 export async function listStatusPages(ctx: AccessCtx): Promise<StatusPage[]> {
   const db = getDb() as any;
+  // guard:allow-unscoped — pageOwnerWhere adds the caller's owner_email and org_id predicates
   const rows = await db
     .select()
     .from(schema.statusPages)
@@ -464,6 +466,7 @@ export async function getStatusPage(
   ctx: AccessCtx,
 ): Promise<StatusPage | null> {
   const db = getDb() as any;
+  // guard:allow-unscoped — pageOwnerWhere adds the caller's owner_email and org_id predicates
   const [row] = await db
     .select()
     .from(schema.statusPages)

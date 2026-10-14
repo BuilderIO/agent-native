@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 
 import { readResponseBytesWithLimit } from "./video-download-limits.js";
@@ -70,8 +71,9 @@ export async function downloadDirectVideo(
   );
 
   if (!response.ok) {
-    throw new Error(
+    fail(
       `Could not download that link (${response.status} ${response.statusText}). Make sure the URL is public and points directly to a video file.`,
+      { errorCode: "video_link_unreachable", statusCode: 422 },
     );
   }
 
@@ -80,14 +82,18 @@ export async function downloadDirectVideo(
     url,
   );
   if (!mimeType) {
-    throw new Error(
+    fail(
       "That link doesn't point to a video file Clips can import. Paste a Loom link, or a direct link to an MP4/WebM file.",
+      { errorCode: "video_link_unsupported", statusCode: 422 },
     );
   }
 
   const bytes = await readResponseBytesWithLimit(response);
   if (bytes.byteLength <= 0) {
-    throw new Error("That link returned an empty file.");
+    fail("That link returned an empty file.", {
+      errorCode: "video_link_empty",
+      statusCode: 422,
+    });
   }
 
   return { bytes, mimeType, sizeBytes: bytes.byteLength };

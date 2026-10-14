@@ -31,6 +31,7 @@ function rowToEventType(row: any): EventType {
     position: row.position,
     schedulingType: row.schedulingType,
     ownerEmail: row.ownerEmail ?? undefined,
+    orgId: row.orgId ?? undefined,
     teamId: row.teamId ?? undefined,
     scheduleId: row.scheduleId ?? undefined,
     locations: parseJson<Location[]>(row.locations) ?? [],
@@ -297,10 +298,23 @@ export async function updateEventType(
 
   dbPatch.updatedAt = new Date().toISOString();
 
-  await db
+  const updatedRows = await db
     .update(schema.eventTypes)
     .set(dbPatch)
-    .where(eq(schema.eventTypes.id, id));
+    .where(
+      and(
+        eq(schema.eventTypes.id, id),
+        accessFilter(
+          schema.eventTypes,
+          schema.eventTypeShares,
+          undefined,
+          "editor",
+        ),
+      ),
+    )
+    .returning({ id: schema.eventTypes.id });
+  if (updatedRows.length === 0)
+    throw new Error("Event type not found or not editable");
   const updated = await getEventTypeById(id);
   if (!updated) throw new Error("Failed to update event type");
   return updated;

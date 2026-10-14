@@ -1,29 +1,42 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { sendAndWaitMock, signA2ATokenMock } = vi.hoisted(() => ({
+const {
+  A2AClientMock,
+  sendAndWaitMock,
+  signA2AOrganizationTokenMock,
+  signA2ATokenMock,
+  resolveA2ACallerAuthMock,
+} = vi.hoisted(() => ({
+  A2AClientMock: vi.fn(function A2AClient() {
+    return { sendAndWait: sendAndWaitMock };
+  }),
   sendAndWaitMock: vi.fn(),
+  signA2AOrganizationTokenMock: vi.fn(async () => "signed-org-token"),
   signA2ATokenMock: vi.fn(async () => "signed-token"),
+  resolveA2ACallerAuthMock: vi.fn(async () => ({
+    apiKey: "resolved-key" as string | undefined,
+    apiKeyFallbacks: ["org-fallback-key"],
+    userEmail: "author@example.com",
+    orgDomain: "example.com" as string | undefined,
+    orgId: "sender-local-org",
+    orgSecret: "org-secret" as string | undefined,
+    metadata: {},
+  })),
 }));
 
 vi.mock("@agent-native/core/a2a", () => ({
-  A2AClient: vi.fn(function A2AClient() {
-    return { sendAndWait: sendAndWaitMock };
-  }),
+  A2AClient: A2AClientMock,
   buildAgentInvocationPrompt: (prompt: string) => prompt,
-  resolveA2ACallerAuth: vi.fn(async () => ({
-    apiKey: "resolved-key",
-    apiKeyFallbacks: ["org-fallback-key"],
-    userEmail: "author@example.com",
-    orgDomain: "example.com",
-    orgSecret: "org-secret",
-    metadata: {},
-  })),
+  canonicalA2AAudience: (url: string) => url.replace(/\/+$/, ""),
+  getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
+  resolveA2ACallerAuth: resolveA2ACallerAuthMock,
   resolveAgentInvocationTarget: vi.fn(async () => ({
     kind: "discovered",
     name: "Assets",
     url: "https://assets.example.com",
   })),
   signA2AToken: signA2ATokenMock,
+  signA2AOrganizationToken: signA2AOrganizationTokenMock,
 }));
 
 import {
@@ -49,6 +62,9 @@ function task(state: string, text?: string) {
 describe("delegateImageGenerationToAssets", () => {
   beforeEach(() => {
     sendAndWaitMock.mockReset();
+    A2AClientMock.mockClear();
+    signA2AOrganizationTokenMock.mockClear();
+    signA2ATokenMock.mockClear();
   });
 
   it("reports a completed run as delegated", async () => {
@@ -144,16 +160,103 @@ describe("delegateImageGenerationToAssets", () => {
   });
 
   it("prefers audience-bound signed tokens over the static override", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    delete process.env.A2A_SECRET;
     process.env.IMAGES_A2A_KEY = "static-override";
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
-    await delegateImageGenerationToAssets({ prompt: "a hero" });
-    expect(signA2ATokenMock).toHaveBeenCalledWith(
-      "author@example.com",
-      "example.com",
-      "org-secret",
-      expect.objectContaining({ audience: "https://assets.example.com" }),
-    );
-    delete process.env.IMAGES_A2A_KEY;
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+      expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
+        "example.com",
+        "org-secret",
+        undefined,
+        { audience: "https://assets.example.com" },
+      );
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        "signed-org-token",
+        {
+          fallbackApiKeys: [
+            "resolved-key",
+            "org-fallback-key",
+            "static-override",
+          ],
+        },
+      );
+    } finally {
+      delete process.env.IMAGES_A2A_KEY;
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("uses audience-bound user and org tokens without local org IDs", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.A2A_SECRET = "deployment-secret";
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+
+      expect(signA2ATokenMock).toHaveBeenCalledWith(
+        "author@example.com",
+        "example.com",
+        undefined,
+        {
+          preferGlobalSecret: true,
+          audience: "https://assets.example.com",
+        },
+      );
+      expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
+        "example.com",
+        "org-secret",
+        undefined,
+        { audience: "https://assets.example.com" },
+      );
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        "signed-token",
+        {
+          fallbackApiKeys: [
+            "signed-org-token",
+            "resolved-key",
+            "org-fallback-key",
+          ],
+        },
+      );
+    } finally {
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not mint a user token when an active org has no domain", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.A2A_SECRET = "deployment-secret";
+    resolveA2ACallerAuthMock.mockResolvedValueOnce({
+      apiKey: undefined,
+      apiKeyFallbacks: [],
+      userEmail: "author@example.com",
+      orgId: "sender-local-org",
+      orgDomain: undefined,
+      orgSecret: undefined,
+      metadata: {},
+    });
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+      expect(signA2AOrganizationTokenMock).not.toHaveBeenCalled();
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        undefined,
+        { fallbackApiKeys: [] },
+      );
+    } finally {
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
   });
 });
 

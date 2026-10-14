@@ -3,16 +3,24 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authSessionHandler: vi.fn(),
   autoMountAuth: vi.fn(),
   getSession: vi.fn(),
   markFrameworkRoutesReadyBeforeBootstrap: vi.fn(),
   getH3App: vi.fn(),
   markDefaultPluginProvided: vi.fn(),
+  migrateOrgSchema: vi.fn(),
   runBetterAuthMigrations: vi.fn(),
+  runMigrations: vi.fn(),
   trackPluginInit: vi.fn(),
 }));
 
+vi.mock("../db/migrations.js", () => ({
+  runMigrations: mocks.runMigrations,
+}));
+
 vi.mock("./auth.js", () => ({
+  authSessionHandler: mocks.authSessionHandler,
   autoMountAuth: mocks.autoMountAuth,
   getSession: mocks.getSession,
 }));
@@ -39,12 +47,15 @@ vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
 
+import { ORG_MIGRATIONS } from "../org/migrations.js";
 import { createAuthPlugin } from "./auth-plugin.js";
 
 describe("createAuthPlugin", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.migrateOrgSchema.mockResolvedValue(undefined);
+    mocks.runMigrations.mockReturnValue(mocks.migrateOrgSchema);
     mocks.autoMountAuth.mockResolvedValue(true);
   });
 
@@ -123,6 +134,34 @@ describe("createAuthPlugin", () => {
     expect(mocks.autoMountAuth).toHaveBeenCalled();
   });
 
+  it("provisions the org schema before mounting, because Better Auth's sign-up hooks read it", async () => {
+    const nitroApp = {};
+    const h3App = { use: vi.fn() };
+    mocks.getH3App.mockReturnValue(h3App);
+    let resolveOrgSchema!: () => void;
+    mocks.migrateOrgSchema.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveOrgSchema = resolve;
+      }),
+    );
+
+    createAuthPlugin()(nitroApp);
+    const initPromise = mocks.trackPluginInit.mock.calls[0]?.[1];
+
+    expect(mocks.runMigrations).toHaveBeenCalledWith(ORG_MIGRATIONS, {
+      table: "_org_migrations",
+    });
+    await vi.waitFor(() =>
+      expect(mocks.migrateOrgSchema).toHaveBeenCalledWith(nitroApp),
+    );
+    expect(mocks.autoMountAuth).not.toHaveBeenCalled();
+
+    resolveOrgSchema();
+    await initPromise;
+
+    expect(mocks.autoMountAuth).toHaveBeenCalled();
+  });
+
   it("mounts BYOA auth before Better Auth migrations, and never runs migrations for BYOA", async () => {
     const nitroApp = {};
     const h3App = { use: vi.fn() };
@@ -152,6 +191,7 @@ describe("createAuthPlugin", () => {
       ],
     );
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+    expect(mocks.migrateOrgSchema).not.toHaveBeenCalled();
   });
 
   it("marks BYOA routes before an asynchronous mount promise settles", async () => {

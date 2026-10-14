@@ -1,4 +1,3 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import { buildResourceSocialMeta } from "@agent-native/core/shared";
 
@@ -45,7 +44,7 @@ export const meta: Route.MetaFunction = ({ loaderData }) => {
 };
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <PlansPage />;
 }
 
 export default function RecapRoute() {

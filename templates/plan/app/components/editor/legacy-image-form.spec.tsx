@@ -1,9 +1,6 @@
 // @vitest-environment happy-dom
-
-import {
-  SchemaBlockEditor,
-  type BlockRenderContext,
-} from "@agent-native/core/blocks";
+import { type BlockRenderContext } from "@agent-native/core/blocks/server";
+import { SchemaBlockEditor } from "@agent-native/toolkit/app/blocks";
 import { imageDataSchema } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

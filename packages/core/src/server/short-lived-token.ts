@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const DEFAULT_TTL_SECONDS = 600;
+const MAX_COMPACT_AGENT_LABEL_ENCODED_BYTES = 16;
 
 export interface ShortLivedTokenClaims {
   resourceId: string;
@@ -137,6 +138,94 @@ export function verifyShortLivedToken(
     viewerEmail: claims.viewerEmail,
     agentLabel: claims.agentLabel,
   };
+}
+
+// ── Compact scoped tokens ────────────────────────────────────────────────────
+//
+// Agent-access tokens ride in URLs that Anthropic's web fetch tool refuses once
+// they pass 250 characters. The legacy payload carries the resource id (up to
+// ~110 characters for Clips), so here the signature covers the id instead and
+// the verifier supplies it. Both formats are `<payload>.<sig>`, so a verifier
+// tries this one first and falls back to `verifyShortLivedToken` for legacy
+// tokens, which stay valid for as long as they live (up to seven days).
+//
+// The HMAC input starts with a domain tag and contains a newline, which a
+// legacy signature input (base64url text) can never contain, so neither format
+// can be replayed as the other.
+
+interface DecodedCompactClaims {
+  e: number;
+  v?: string;
+  l?: string;
+}
+
+function compactSignature(resourceId: string, payloadStr: string): string {
+  return hmacB64(`agent-access\n${resourceId}\n${payloadStr}`, getSigningKey());
+}
+
+export function signCompactShortLivedToken(
+  claims: ShortLivedTokenClaims,
+): string {
+  const ttl = claims.ttlSeconds ?? DEFAULT_TTL_SECONDS;
+  const payload: DecodedCompactClaims = {
+    e: Math.floor(Date.now() / 1000) + ttl,
+  };
+  if (claims.viewerEmail) payload.v = claims.viewerEmail;
+  if (claims.agentLabel) {
+    let label = "";
+    let encodedBytes = 0;
+    for (const character of claims.agentLabel) {
+      const characterBytes = Buffer.byteLength(JSON.stringify(character)) - 2;
+      if (encodedBytes + characterBytes > MAX_COMPACT_AGENT_LABEL_ENCODED_BYTES)
+        break;
+      label += character;
+      encodedBytes += characterBytes;
+    }
+    if (label) payload.l = label;
+  }
+
+  const payloadStr = base64UrlEncode(JSON.stringify(payload));
+  return `${payloadStr}.${compactSignature(claims.resourceId, payloadStr)}`;
+}
+
+/**
+ * Verify a token produced by {@link signCompactShortLivedToken}. A token for a
+ * different resource, and any legacy token, fails as `bad_signature` — the id
+ * is not in the payload, so a mismatch is indistinguishable from tampering.
+ */
+export function verifyCompactShortLivedToken(
+  token: string,
+  expectedResourceId: string,
+): VerifyResult {
+  if (typeof token !== "string" || !token.includes(".")) {
+    return { ok: false, reason: "malformed" };
+  }
+  const [payloadStr, sig] = token.split(".", 2);
+  if (!payloadStr || !sig) return { ok: false, reason: "malformed" };
+
+  if (
+    !timingSafeEqualB64(sig, compactSignature(expectedResourceId, payloadStr))
+  ) {
+    return { ok: false, reason: "bad_signature" };
+  }
+
+  let claims: DecodedCompactClaims;
+  try {
+    claims = JSON.parse(base64UrlDecode(payloadStr).toString("utf8"));
+  } catch {
+    return { ok: false, reason: "bad_payload" };
+  }
+
+  if (typeof claims.e !== "number") return { ok: false, reason: "bad_payload" };
+  if (
+    (claims.v !== undefined && typeof claims.v !== "string") ||
+    (claims.l !== undefined && typeof claims.l !== "string")
+  ) {
+    return { ok: false, reason: "bad_payload" };
+  }
+  if (claims.e * 1000 < Date.now()) return { ok: false, reason: "expired" };
+
+  return { ok: true, viewerEmail: claims.v, agentLabel: claims.l };
 }
 
 // ── Realtime subscribe tokens ────────────────────────────────────────────────

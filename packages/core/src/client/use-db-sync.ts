@@ -17,6 +17,7 @@ import {
   isHostSurfaceHidden,
   isSurfaceHidden,
 } from "../shared/surface-visibility.js";
+import { actionQueryAffectedByResources } from "./action-query-scope.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
@@ -24,7 +25,11 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
-import { bumpChangeVersion } from "./use-change-version.js";
+import {
+  bumpChangeVersion,
+  bumpActiveLocalChangeVersions,
+  bumpLocalChangeVersion,
+} from "./use-change-version.js";
 
 interface Query {
   queryKey: readonly unknown[];
@@ -64,7 +69,162 @@ const LOCAL_SSE_REFUSAL_MAX_MS = 60 * 60_000;
 const ACTIVE_CHAT_TTL_MS = 5 * 60 * 1_000;
 const ACTIVE_CHAT_MAX = 1_000;
 const INVALIDATE_COALESCE_MS = 250;
+const IDLE_POLL_BACKOFF = [1, 2, 5] as const;
 const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
+const COLLAB_POLL_INTERVAL_MS = 2_500;
+const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
+const COLLAB_ACTIVITY_WINDOW_MS = 60_000;
+
+// Collab poll boost: a page that knows another person is on the same resource
+// holds a lease, and every transport with no live stream (serverless refuses
+// /events) polls at COLLAB_POLL_INTERVAL_MS instead of the 1-5 minute idle
+// cadence. Module-level because the lease is about the tab, not one transport.
+let collabBoostLeases = 0;
+let collabBoostActivityAt = 0;
+// Presence only covers people on the same collab doc, and a design or deck has
+// one doc per screen or slide: two people editing different ones never see each
+// other. A resource-scoped action event that another tab or an agent caused
+// proves someone is editing the resource right now, so it boosts on its own.
+const collabActivityUntilByResource = new Map<string, number>();
+const openCollabResources = new Map<string, number>();
+
+function collabResourceKey(resourceType: string, resourceId: string): string {
+  return `${resourceType}\0${resourceId}`;
+}
+
+export function registerCollabActivityResource(resource: {
+  resourceType: string;
+  resourceId: string;
+}): () => void {
+  const key = collabResourceKey(resource.resourceType, resource.resourceId);
+  openCollabResources.set(key, (openCollabResources.get(key) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (openCollabResources.get(key) ?? 1) - 1;
+    if (remaining > 0) openCollabResources.set(key, remaining);
+    else {
+      openCollabResources.delete(key);
+      collabActivityUntilByResource.delete(key);
+    }
+    notifyCollabBoostChange();
+  };
+}
+
+function collabBoostWanted(): boolean {
+  const now = Date.now();
+  let hasRecentResourceActivity = false;
+  for (const [key, until] of collabActivityUntilByResource) {
+    if (until <= now || !openCollabResources.has(key)) {
+      collabActivityUntilByResource.delete(key);
+    } else {
+      hasRecentResourceActivity = true;
+    }
+  }
+  return (
+    (collabBoostLeases > 0 && collabBoostFresh()) || hasRecentResourceActivity
+  );
+}
+
+type CollabActivityEvent = {
+  source?: string;
+  resourceType?: string;
+  resourceId?: string;
+  requestSource?: string;
+};
+
+// The server mirrors every saved file into its Yjs doc under the "agent"
+// source, so a lone editor's own save comes back as a collab event that is not
+// from anyone else. Only an event a browser tab posted names its sender: a Yjs
+// update, or a resource event such as Slides' `deck` carrying the writing tab.
+function namesHumanSender(event: CollabActivityEvent): boolean {
+  return (
+    (event.source === "collab" || event.source === "deck") &&
+    typeof event.requestSource === "string" &&
+    event.requestSource !== "" &&
+    event.requestSource !== "agent"
+  );
+}
+
+function noteCollaboratorActivity(
+  events: readonly CollabActivityEvent[],
+): void {
+  const ownSource = getBrowserTabId();
+  const until = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
+  for (const event of events) {
+    if (
+      (event.source !== "action" && !namesHumanSender(event)) ||
+      typeof event.resourceType !== "string" ||
+      event.resourceType === "" ||
+      typeof event.resourceId !== "string" ||
+      event.requestSource === ownSource
+    ) {
+      continue;
+    }
+    const key = collabResourceKey(event.resourceType, event.resourceId);
+    if (openCollabResources.has(key)) {
+      collabActivityUntilByResource.set(key, until);
+    }
+  }
+}
+
+/**
+ * For a collab connection's own ~12 s poll. A viewer on a screen nobody else
+ * is on has no presence to notice, but that poll still carries the design's
+ * resource-scoped events from the other screens, and the shared transport is
+ * asleep on the 1-5 minute idle cadence until something wakes it.
+ */
+export function noteCollabPollActivity(
+  events: readonly CollabActivityEvent[],
+): void {
+  const wasWanted = collabBoostWanted();
+  noteCollaboratorActivity(events);
+  if (!wasWanted && collabBoostWanted()) notifyCollabBoostChange();
+}
+
+function collabBoostFresh(): boolean {
+  return Date.now() - collabBoostActivityAt <= COLLAB_BOOST_IDLE_CEILING_MS;
+}
+
+function notifyCollabBoostChange(): void {
+  for (const transport of transportRegistry.values()) {
+    transport.onCollabBoostChange();
+  }
+}
+
+// Local input, an arriving remote event, or a new lease keeps the boost alive;
+// three minutes of silence on both sides lets it lapse so an abandoned shared tab
+// stops costing a poll every 2.5 s.
+function touchCollabBoost(): void {
+  const lapsed = collabBoostLeases > 0 && !collabBoostFresh();
+  collabBoostActivityAt = Date.now();
+  if (lapsed) notifyCollabBoostChange();
+}
+
+/**
+ * Declare that another person is working on the same resource as this tab.
+ * While any lease is held, the shared transport polls every 2.5 s whenever no
+ * stream (local SSE or the hosted gateway) is connected, so their edits land in
+ * seconds instead of at the idle cadence. A no-op while a stream is live.
+ * Returns the release function; callers must release when the other person
+ * leaves or the page unmounts.
+ */
+export function acquireCollabPollBoost(): () => void {
+  const lapsed = !collabBoostFresh();
+  collabBoostLeases += 1;
+  collabBoostActivityAt = Date.now();
+  if (collabBoostLeases === 1 || lapsed) notifyCollabBoostChange();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    collabBoostLeases = Math.max(0, collabBoostLeases - 1);
+    if (collabBoostLeases === 0) notifyCollabBoostChange();
+  };
+}
+const processedRunToolEvents = new WeakSet<Event>();
+const processedRunEndEvents = new WeakSet<Event>();
 
 class HttpStatusError extends Error {
   status: number;
@@ -253,6 +413,24 @@ function hasTerminalAuthFailure(query: Query): boolean {
   return isTerminalAuthFailure(query.state?.error);
 }
 
+/**
+ * The resource types the batch's action events changed. `undefined` when one
+ * event names none: its affected queries are unknown, so the batch refreshes
+ * every action query, as an event without a resource always has.
+ */
+function changedActionResourceTypes(
+  actionEvents: readonly SyncEvent[],
+): ReadonlySet<string> | undefined {
+  const types = new Set<string>();
+  for (const evt of actionEvents) {
+    if (typeof evt.resourceType !== "string" || !evt.resourceType) {
+      return undefined;
+    }
+    types.add(evt.resourceType);
+  }
+  return types;
+}
+
 const INTERACTION_CRITICAL_APP_STATE_KEYS = [
   "navigate",
   "show-questions",
@@ -337,6 +515,8 @@ interface TransportSubscription {
 class SyncTransport {
   private subscribers = new Map<symbol, TransportSubscription>();
   private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+  // The first batch replays history, which says nothing about who is here now.
+  private deliveredFirstBatch = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private refreshRequested = false;
   private removeVisibilityListener?: () => void;
@@ -350,7 +530,9 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
+  private idlePollBackoffIndex = 0;
   private activeChatIds = new Map<string, number>();
+  private idleActivityGeneration = 0;
   // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
   // flips to "local" on health-gate revert; `token` is the current subscribe
   // token (minted from the app, rotated over the stream), never part of any
@@ -529,6 +711,25 @@ class SyncTransport {
     return this.activeChatIds.size > 0;
   }
 
+  // Only the local poll fallback is boosted: a connected stream (local SSE or
+  // the hosted gateway) already delivers within a second, and a hosted
+  // transport that is mid-reconnect has its own jittered retry.
+  private collabBoostInterval(): number | undefined {
+    if (!collabBoostWanted()) return undefined;
+    if (this.mode !== "local" || this.sseConnected) return undefined;
+    return COLLAB_POLL_INTERVAL_MS;
+  }
+
+  onCollabBoostChange(): void {
+    if (this.stopped) return;
+    if (this.collabBoostInterval() !== undefined) {
+      this.idlePollBackoffIndex = 0;
+      this.pollNow();
+    } else {
+      this.reschedule();
+    }
+  }
+
   private get effectiveFallbackInterval(): number {
     let min = Infinity;
     for (const sub of this.subscribers.values()) {
@@ -537,11 +738,37 @@ class SyncTransport {
     return isFinite(min) ? min : SSE_FALLBACK_INTERVAL_MS;
   }
 
+  private get idlePollInterval(): number {
+    const base = Math.max(
+      this.effectiveIdleInterval,
+      this.effectiveFallbackInterval,
+    );
+    const multiplier =
+      IDLE_POLL_BACKOFF[
+        Math.min(this.idlePollBackoffIndex, IDLE_POLL_BACKOFF.length - 1)
+      ];
+    return base * multiplier;
+  }
+
   private fan(
     events: SyncEvent[],
     version: number | undefined,
     cursor: SyncCursor = this.cursorRef,
   ): void {
+    if (typeof window !== "undefined") {
+      for (const event of events) {
+        if (event.source === "screen-refresh") {
+          window.dispatchEvent(
+            new CustomEvent("agentNative:syncEvent", { detail: event }),
+          );
+        }
+      }
+    }
+    if (events.length) {
+      touchCollabBoost();
+      if (this.deliveredFirstBatch) noteCollaboratorActivity(events);
+    }
+    this.deliveredFirstBatch = true;
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version, cursor);
     }
@@ -576,15 +803,17 @@ class SyncTransport {
     if (authDelay > 0) {
       this.timer = setTimeout(() => {
         this.timer = null;
-        void this.poll();
+        void this.poll(false, true);
       }, authDelay);
       return;
     }
-    const visibleBase = this.isActive
+    const normalBase = this.isActive
       ? this.effectiveInterval
-      : this.sseConnected
-        ? this.effectiveFallbackInterval
-        : this.effectiveIdleInterval;
+      : this.idlePollInterval;
+    const visibleBase = Math.min(
+      normalBase,
+      this.collabBoostInterval() ?? normalBase,
+    );
     const base = isDocumentHidden()
       ? Math.max(visibleBase, HIDDEN_POLL_INTERVAL_MS)
       : visibleBase;
@@ -595,7 +824,7 @@ class SyncTransport {
     const delay = this.gateway ? applyReconnectJitter(backoff) : backoff;
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.poll();
+      void this.poll(false, true);
     }, delay);
   }
 
@@ -898,9 +1127,10 @@ class SyncTransport {
     }
   }
 
-  private async poll(force = false): Promise<void> {
+  private async poll(force = false, scheduled = false): Promise<void> {
     if (this.stopped || this.inFlight) return;
     if (!force && this.shouldStayIdle()) return;
+    const idleActivityGenerationAtStart = this.idleActivityGeneration;
     this.inFlight = true;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
@@ -920,6 +1150,19 @@ class SyncTransport {
         this.connectEvents();
       }
       const events = data.events ?? [];
+      if (events.length) {
+        this.idlePollBackoffIndex = 0;
+      } else if (
+        scheduled &&
+        !this.isActive &&
+        this.collabBoostInterval() === undefined &&
+        idleActivityGenerationAtStart === this.idleActivityGeneration
+      ) {
+        this.idlePollBackoffIndex = Math.min(
+          this.idlePollBackoffIndex + 1,
+          IDLE_POLL_BACKOFF.length - 1,
+        );
+      }
       const responseCursor = decodeSyncCursor(data.cursor);
       this.applyVersion(events, responseCursor ? undefined : data.version);
       this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
@@ -982,7 +1225,17 @@ class SyncTransport {
   };
 
   private handleFocus = (): void => {
+    this.idleActivityGeneration++;
+    this.idlePollBackoffIndex = 0;
     this.pollNow();
+  };
+
+  private handleActivity = (): void => {
+    this.idleActivityGeneration++;
+    touchCollabBoost();
+    if (this.idlePollBackoffIndex === 0) return;
+    this.idlePollBackoffIndex = 0;
+    this.reschedule();
   };
 
   private handleRefreshData = (): void => {
@@ -1015,6 +1268,7 @@ class SyncTransport {
         : "__default__";
     const wasActive = this.isActive;
     if (running) {
+      this.idlePollBackoffIndex = 0;
       this.activeChatIds.delete(id);
       this.activeChatIds.set(id, Date.now());
       while (this.activeChatIds.size > ACTIVE_CHAT_MAX) {
@@ -1037,17 +1291,20 @@ class SyncTransport {
   private start(): void {
     ensureEmbedAuthFetchInterceptor();
     ensureDemoModeFetchInterceptor();
-
-    if (!this.shouldStayIdle()) {
-      this.connectEvents();
-      void this.poll();
-    }
     window.addEventListener("focus", this.handleFocus);
+    window.addEventListener("pointerdown", this.handleActivity, true);
+    window.addEventListener("keydown", this.handleActivity, true);
+    window.addEventListener("input", this.handleActivity, true);
+    window.addEventListener("agentNative:syncActivity", this.handleActivity);
     window.addEventListener("agentNative:refresh-data", this.handleRefreshData);
     window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
     this.removeVisibilityListener = addSurfaceVisibilityListener(
       this.handleVisibilityChange,
     );
+    if (!this.shouldStayIdle()) {
+      this.connectEvents();
+      void this.poll();
+    }
   }
 
   private teardown(): void {
@@ -1069,6 +1326,10 @@ class SyncTransport {
       this.localReconnectTimer = null;
     }
     window.removeEventListener("focus", this.handleFocus);
+    window.removeEventListener("pointerdown", this.handleActivity, true);
+    window.removeEventListener("keydown", this.handleActivity, true);
+    window.removeEventListener("input", this.handleActivity, true);
+    window.removeEventListener("agentNative:syncActivity", this.handleActivity);
     window.removeEventListener(
       "agentNative:refresh-data",
       this.handleRefreshData,
@@ -1114,6 +1375,10 @@ export function _resetSyncTransportRegistryForTests(): void {
     transport["teardown"]();
   }
   transportRegistry.clear();
+  collabBoostLeases = 0;
+  collabBoostActivityAt = 0;
+  collabActivityUntilByResource.clear();
+  openCollabResources.clear();
 }
 
 export interface SubscribeSyncEventsOptions {
@@ -1160,6 +1425,7 @@ export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
+    realtime?: { reason: string };
     pollUrl?: string;
     sseUrl?: string | false;
     /** @deprecated Use pollUrl instead */
@@ -1176,6 +1442,13 @@ export function useDbSync(
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
+  const realtimeReason =
+    typeof options.realtime?.reason === "string"
+      ? options.realtime.reason.trim()
+      : "";
+  if (options.realtime && !realtimeReason) {
+    throw new Error("useDbSync realtime opt-in requires a short reason.");
+  }
   const {
     queryClient,
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
@@ -1185,7 +1458,7 @@ export function useDbSync(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
-    pauseWhenHidden = false,
+    pauseWhenHidden = true,
   } = options;
   const idleInterval =
     options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
@@ -1373,14 +1646,26 @@ export function useDbSync(
             );
           }
         };
-        const hasActionEvent = invalidating.some(
+        const actionEvents = invalidating.filter(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
+        const hasActionEvent = actionEvents.length > 0;
         if (hasActionEvent) {
           const appPredicate = actionInvalidatePredicateRef.current;
-          const predicate = appPredicate
-            ? (query: Query) => appPredicate(query, invalidating)
+          // Narrowing is only sound when nothing else in the batch changed data:
+          // a db or collab change in the same batch has an unknown affected set.
+          const changedResources = invalidating.every(
+            (evt) => evt.source === "action" || evt.source === "app-state",
+          )
+            ? changedActionResourceTypes(actionEvents)
             : undefined;
+          const predicate =
+            appPredicate || changedResources
+              ? (query: Query) =>
+                  (!appPredicate || appPredicate(query, invalidating)) &&
+                  (changedResources === undefined ||
+                    actionQueryAffectedByResources(query, changedResources))
+              : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
           );
@@ -1525,29 +1810,154 @@ export function useDbSync(
       if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
     }
 
-    const transport = getOrCreateTransport(
-      pollUrl,
-      sseUrl,
-      resolveGatewayBinding(sseUrl),
-    );
-    transport.add(id, {
-      onEvents,
-      pauseWhenHidden,
-      interval,
-      idleInterval,
-      fallbackInterval,
-    });
+    const sideEffectToolsByTab = new Map<string, Map<string, boolean>>();
+    const eventsForTool = (
+      tool: string,
+      completedSideEffect: boolean,
+      failed: boolean,
+    ) => {
+      const events: SyncEvent[] = [];
+      if (completedSideEffect) {
+        events.push({ source: "action", key: tool, version: 0 });
+      }
+      if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
+        events.push({ source: "app-state", key: "__set_url__", version: 0 });
+      }
+      if (tool === "refresh-screen" && !failed) {
+        events.push({ source: "screen-refresh", key: tool, version: 0 });
+      }
+      return events;
+    };
+    const applyRunEvents = (
+      event: Event,
+      events: SyncEvent[],
+      processedEvents: WeakSet<Event>,
+    ) => {
+      if (events.length === 0) return;
+      if (processedEvents.has(event)) {
+        for (const syncEvent of events) onEventRef.current?.(syncEvent);
+        return;
+      }
+      processedEvents.add(event);
+      const sources = events
+        .map((syncEvent) => syncEvent.source)
+        .filter((source): source is string => typeof source === "string");
+      for (const source of new Set(sources)) {
+        bumpLocalChangeVersion(source);
+      }
+      if (
+        events.some((syncEvent) => syncEvent.source === "action") &&
+        events.every(
+          (syncEvent) =>
+            syncEvent.source === "action" ||
+            syncEvent.source === "app-state" ||
+            syncEvent.source === "screen-refresh",
+        )
+      ) {
+        // Tool completion has no domain scope, so wake mounted raw-query counters too.
+        bumpActiveLocalChangeVersions(sources);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agentNative:syncActivity"));
+      }
+      queueInvalidateBatch(events);
+    };
+    const handleRunToolDone = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          tool?: unknown;
+          completedSideEffect?: unknown;
+          isError?: unknown;
+          tabId?: unknown;
+        }>
+      ).detail;
+      if (typeof detail?.tool !== "string") return;
+      const tool = detail.tool;
+      const completedSideEffect = detail.completedSideEffect === true;
+      const events = eventsForTool(
+        tool,
+        completedSideEffect,
+        detail.isError === true,
+      );
+      if (events.length === 0) return;
+      if (completedSideEffect) {
+        const tabId =
+          typeof detail.tabId === "string" && detail.tabId
+            ? detail.tabId
+            : "__default__";
+        const tools =
+          sideEffectToolsByTab.get(tabId) ?? new Map<string, boolean>();
+        const previouslyFailed = tools.get(tool);
+        tools.set(
+          tool,
+          previouslyFailed === false ? false : detail.isError === true,
+        );
+        sideEffectToolsByTab.set(tabId, tools);
+      }
+      applyRunEvents(event, events, processedRunToolEvents);
+    };
+    const handleRunStatus = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ isRunning?: unknown; tabId?: unknown }>
+      ).detail;
+      if (detail?.isRunning === true) {
+        const tabId =
+          typeof detail.tabId === "string" && detail.tabId
+            ? detail.tabId
+            : "__default__";
+        sideEffectToolsByTab.delete(tabId);
+        return;
+      }
+      if (detail?.isRunning !== false) return;
+      const tabId =
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      const tools = sideEffectToolsByTab.get(tabId);
+      if (!tools?.size) return;
+      sideEffectToolsByTab.delete(tabId);
+      applyRunEvents(
+        event,
+        [...tools].flatMap(([tool, failed]) =>
+          eventsForTool(tool, true, failed),
+        ),
+        processedRunEndEvents,
+      );
+    };
+
+    window.addEventListener("agent-native:tool-done", handleRunToolDone);
+    window.addEventListener("agentNative.chatRunning", handleRunStatus);
+
+    let transport: SyncTransport | undefined;
+    if (realtimeReason) {
+      transport = getOrCreateTransport(
+        pollUrl,
+        sseUrl,
+        resolveGatewayBinding(sseUrl),
+      );
+      transport.add(id, {
+        onEvents,
+        pauseWhenHidden,
+        interval,
+        idleInterval,
+        fallbackInterval,
+      });
+    }
 
     return () => {
+      window.removeEventListener("agent-native:tool-done", handleRunToolDone);
+      window.removeEventListener("agentNative.chatRunning", handleRunStatus);
       disposed = true;
       if (invalidateTimer) {
         clearTimeout(invalidateTimer);
         flushInvalidateBatch();
       }
       pendingTrailingRefreshes.length = 0;
-      transport.remove(id);
-      if (!transport["subscribers"].size) {
-        releaseTransport(pollUrl, sseUrl);
+      if (transport) {
+        transport.remove(id);
+        if (!transport["subscribers"].size) {
+          releaseTransport(pollUrl, sseUrl);
+        }
       }
     };
   }, [
@@ -1558,6 +1968,7 @@ export function useDbSync(
     idleInterval,
     fallbackInterval,
     pauseWhenHidden,
+    realtimeReason,
   ]);
 }
 
@@ -1574,90 +1985,34 @@ export function useScreenRefreshKey(
     pauseWhenHidden?: boolean;
   } = {},
 ): number {
-  const {
-    enabled = true,
-    pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
-    sseUrl = resolveSseUrl(options.sseUrl),
-    interval = 2000,
-    fallbackInterval = Math.max(
-      options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
-      interval,
-    ),
-    pauseWhenHidden = false,
-  } = options;
-  const idleInterval =
-    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
+  const enabled = options.enabled ?? true;
   const [key, setKey] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
 
-    const id = Symbol("useScreenRefreshKey");
-    let subscriberVersion = 0;
-    let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
-
-    function onEvents(
-      events: SyncEvent[],
-      version: number | undefined,
-      cursor: SyncCursor | undefined,
-    ): void {
-      const freshEvents = events.filter((event) => {
-        return isSyncEventAfterCursor(
-          event,
-          subscriberCursor,
-          subscriberVersion,
-        );
-      });
-      if (freshEvents.some((e) => e.source === "screen-refresh")) {
-        setKey((k) => k + 1);
-      }
-      const maxEventVersion = freshEvents.reduce(
-        (max, event) =>
-          Math.max(max, typeof event.version === "number" ? event.version : 0),
-        0,
-      );
-      subscriberVersion = Math.max(
-        subscriberVersion,
-        version ?? 0,
-        maxEventVersion,
-      );
-      for (const event of freshEvents) {
-        subscriberCursor = maxSyncCursor(
-          subscriberCursor,
-          syncEventCursor(event),
-        );
-      }
-      if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
-    }
-
-    const transport = getOrCreateTransport(
-      pollUrl,
-      sseUrl,
-      resolveGatewayBinding(sseUrl),
-    );
-    transport.add(id, {
-      onEvents,
-      pauseWhenHidden,
-      interval,
-      idleInterval,
-      fallbackInterval,
-    });
-
-    return () => {
-      transport.remove(id);
-      if (!transport["subscribers"].size) {
-        releaseTransport(pollUrl, sseUrl);
+    const handleToolDone = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ tool?: unknown; isError?: unknown }>
+      ).detail;
+      if (detail?.tool === "refresh-screen" && detail.isError !== true) {
+        setKey((current) => current + 1);
       }
     };
-  }, [
-    enabled,
-    pollUrl,
-    sseUrl,
-    interval,
-    idleInterval,
-    fallbackInterval,
-    pauseWhenHidden,
-  ]);
+    const handleSyncEvent = (event: Event) => {
+      const detail = (event as CustomEvent<SyncEvent>).detail;
+      if (detail?.source === "screen-refresh") {
+        setKey((current) => current + 1);
+      }
+    };
+    window.addEventListener("agent-native:tool-done", handleToolDone);
+    window.addEventListener("agentNative:syncEvent", handleSyncEvent);
+
+    return () => {
+      window.removeEventListener("agent-native:tool-done", handleToolDone);
+      window.removeEventListener("agentNative:syncEvent", handleSyncEvent);
+    };
+  }, [enabled]);
 
   return key;
 }

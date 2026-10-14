@@ -2,27 +2,76 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  bundledCoreMigrationManifestPath,
+  readMigrationManifest,
+} from "../package-lifecycle/migration-manifest.js";
 import {
   buildUpgradeDoctorReport,
   detectUpgradeProject,
   isPinnedOrLocalVersion,
   parseUpgradeArgs,
+  planMigrationDependencyAdditions,
   pinResolvedAgentNativeVersions,
   runUpgrade,
+  selectMigrationDependencies,
   shouldBumpAgentNativeVersion,
   type UpgradeIo,
 } from "./upgrade.js";
 
 const tmpRoots: string[] = [];
+const toolkitVersionRange = ">=0.23.0";
+const upgradeEnvKeys = [
+  "APP_NAME",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
+  "DATABASE_URL",
+  "SENTRY_SERVER_DSN",
+  "SENTRY_CLIENT_DSN",
+  "SENTRY_DSN",
+  "VITE_SENTRY_CLIENT_DSN",
+  "VITE_SENTRY_DSN",
+  "SENTRY_CLIENT_KEY",
+  "VITE_SENTRY_CLIENT_KEY",
+  "SENTRY_PROJECT_ID",
+  "VITE_SENTRY_PROJECT_ID",
+  "SENTRY_INGEST_HOST",
+  "VITE_SENTRY_INGEST_HOST",
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_ORG",
+  "SENTRY_ORG_SLUG",
+  "SENTRY_PROJECT",
+  "SENTRY_CLIENT_PROJECT",
+  "AUTH_SSO",
+  "AUTH_SCIM",
+  "VITE_AMPLITUDE_API_KEY",
+  "MICROSOFT_TEAMS_APP_ID",
+  "MICROSOFT_TEAMS_APP_PASSWORD",
+] as const;
+const savedUpgradeEnv = new Map<string, string | undefined>();
+
+function clearUpgradeEnvironment(): void {
+  for (const key of upgradeEnvKeys) {
+    if (!savedUpgradeEnv.has(key)) savedUpgradeEnv.set(key, process.env[key]);
+    delete process.env[key];
+  }
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
+  for (const [key, value] of savedUpgradeEnv) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  savedUpgradeEnv.clear();
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+beforeEach(clearUpgradeEnvironment);
 
 function makeTempProject(layout: {
   kind?: "standalone" | "workspace";
@@ -76,6 +125,43 @@ function writeInstalledPackage(
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
     `${JSON.stringify({ name, version })}\n`,
+  );
+}
+
+function writeToolkitMigrationManifest(toolkitDir: string): void {
+  const packagePath = path.join(toolkitDir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(packagePath, "utf-8")) as {
+    exports?: Record<string, string>;
+  };
+  fs.writeFileSync(
+    packagePath,
+    `${JSON.stringify({
+      ...pkg,
+      exports: {
+        ...pkg.exports,
+        "./migration-manifest.json": "./migration-manifest.json",
+      },
+    })}\n`,
+  );
+  fs.writeFileSync(
+    path.join(toolkitDir, "migration-manifest.json"),
+    `${JSON.stringify({ sinceVersion: "0.110.0", moves: {} })}\n`,
+  );
+}
+
+function writeInstalledToolkitPackage(
+  dir: string,
+  exports: Record<string, string>,
+): void {
+  const packageDir = path.join(dir, "node_modules/@agent-native/toolkit");
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    `${JSON.stringify({
+      name: "@agent-native/toolkit",
+      version: "0.5.2",
+      exports,
+    })}\n`,
   );
 }
 
@@ -334,6 +420,137 @@ describe("pinResolvedAgentNativeVersions", () => {
   });
 });
 
+describe("migration dependency selection", () => {
+  const dependencies =
+    readMigrationManifest(bundledCoreMigrationManifestPath())?.dependencies ??
+    [];
+
+  it("selects optional peers from the actual feature configuration", () => {
+    expect(
+      selectMigrationDependencies(dependencies, {}).map(({ name }) => name),
+    ).toEqual(["@electric-sql/pglite"]);
+
+    expect(
+      selectMigrationDependencies(dependencies, {
+        DATABASE_URL: "postgres://database",
+        SENTRY_CLIENT_DSN: "https://key@example/123",
+        SENTRY_AUTH_TOKEN: "source-map-token",
+        SENTRY_ORG: "agent-native",
+        SENTRY_PROJECT: "framework",
+        AUTH_SSO: " yes ",
+        AUTH_SCIM: "off",
+        VITE_AMPLITUDE_API_KEY: "amplitude-key",
+      }).map(({ name }) => name),
+    ).toEqual([
+      "@sentry/browser",
+      "@sentry/vite-plugin",
+      "@better-auth/sso",
+      "@amplitude/analytics-browser",
+    ]);
+
+    expect(
+      selectMigrationDependencies(dependencies, {
+        DATABASE_URL: "pglite://memory",
+        SENTRY_CLIENT_KEY: "key",
+        VITE_SENTRY_PROJECT_ID: "project",
+        SENTRY_INGEST_HOST: "host",
+        AUTH_SCIM: "1",
+      }).map(({ name }) => name),
+    ).toEqual([
+      "@electric-sql/pglite",
+      "@sentry/node",
+      "@sentry/browser",
+      "@better-auth/scim",
+    ]);
+
+    expect(
+      selectMigrationDependencies(dependencies, {
+        APP_NAME: "mail-app",
+        MAIL_APP_DATABASE_URL: "pglite://memory",
+        DATABASE_URL: "postgres://database",
+      }).map(({ name }) => name),
+    ).toContain("@electric-sql/pglite");
+    expect(
+      selectMigrationDependencies(dependencies, {
+        APP_NAME: "mail-app",
+        MAIL_APP_DATABASE_URL: "postgres://database",
+        DATABASE_URL: "pglite://memory",
+      }).map(({ name }) => name),
+    ).not.toContain("@electric-sql/pglite");
+
+    expect(
+      selectMigrationDependencies(dependencies, {
+        MICROSOFT_TEAMS_APP_ID: "teams-app-id",
+        MICROSOFT_TEAMS_APP_PASSWORD: "teams-app-password",
+      }).map(({ name }) => name),
+    ).toContain("botframework-connector");
+    expect(
+      selectMigrationDependencies(dependencies, {
+        MICROSOFT_TEAMS_APP_ID: "teams-app-id",
+      }).map(({ name }) => name),
+    ).not.toContain("botframework-connector");
+  });
+
+  it("plans peers per Core app using app and workspace env without secrets", () => {
+    clearUpgradeEnvironment();
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "workspace",
+        dependencies: { "@agent-native/core": "latest" },
+      },
+      apps: {
+        enabled: {
+          name: "enabled",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+        pglite: {
+          name: "pglite",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+        unrelated: { name: "unrelated" },
+      },
+    });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://workspace-secret\nAUTH_SSO=false\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "apps", "enabled", ".env"),
+      "AUTH_SSO=false\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "apps", "enabled", ".env.local"),
+      "AUTH_SSO=true\nVITE_AMPLITUDE_API_KEY=amplitude-secret\nMICROSOFT_TEAMS_APP_ID=teams-app-id\nMICROSOFT_TEAMS_APP_PASSWORD=teams-app-password\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "apps", "pglite", ".env"),
+      [
+        "APP_NAME=pglite",
+        "PGLITE_DATABASE_URL=pglite://memory",
+        "DATABASE_URL=postgres://database",
+        "",
+      ].join("\n"),
+    );
+
+    const additions = planMigrationDependencyAdditions(
+      detectUpgradeProject(root)!,
+      {},
+    );
+    expect(
+      additions.map(({ file, name }) => [path.relative(root, file), name]),
+    ).toEqual([
+      ["apps/enabled/package.json", "@better-auth/sso"],
+      ["apps/enabled/package.json", "@amplitude/analytics-browser"],
+      ["apps/enabled/package.json", "botframework-connector"],
+      ["apps/pglite/package.json", "@electric-sql/pglite"],
+    ]);
+    expect(JSON.stringify(additions)).not.toContain("secret");
+    expect(process.env.AUTH_SSO).toBeUndefined();
+    expect(process.env.DATABASE_URL).toBeUndefined();
+  });
+});
+
 describe("runUpgrade", () => {
   it("check exits non-zero when overrides are present", async () => {
     const root = makeTempProject({
@@ -398,6 +615,122 @@ describe("runUpgrade", () => {
     expect(pkg.dependencies["@agent-native/core"]).toBe("^0.8.0");
   });
 
+  it("dry-run reports feature peers without writing package manifests", async () => {
+    clearUpgradeEnvironment();
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "latest" },
+      },
+    });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://database\nAUTH_SSO=true\n",
+    );
+    const packageFile = path.join(root, "package.json");
+    const before = fs.readFileSync(packageFile, "utf-8");
+    const { io, out } = captureIo();
+
+    expect(
+      await runUpgrade(
+        ["--cwd", root, "--dry-run", "--skip-skills", "--skip-verify"],
+        io,
+      ),
+    ).toBe(0);
+
+    expect(out.join("\n")).toContain("[planned] feature-dependencies");
+    expect(out.join("\n")).toContain("@better-auth/sso 1.7.6");
+    expect(out.join("\n")).toContain(
+      "Remote deployment environment and database-backed feature settings cannot be inspected",
+    );
+    expect(out.join("\n")).toContain("botframework-connector");
+    expect(out.join("\n")).not.toContain(
+      "Would align add package.json @electric-sql/pglite",
+    );
+    expect(fs.readFileSync(packageFile, "utf-8")).toBe(before);
+  });
+
+  it("adds feature peers idempotently", async () => {
+    clearUpgradeEnvironment();
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        devDependencies: { "@agent-native/core": "latest" },
+      },
+    });
+    const { io, out } = captureIo();
+    const args = [
+      "--cwd",
+      root,
+      "--skip-install",
+      "--skip-skills",
+      "--skip-verify",
+    ];
+
+    expect(await runUpgrade(args, io)).toBe(0);
+    const afterFirstRun = fs.readFileSync(
+      path.join(root, "package.json"),
+      "utf-8",
+    );
+    expect(await runUpgrade(args, io)).toBe(0);
+
+    const packageJson = JSON.parse(afterFirstRun) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    expect(packageJson.dependencies?.["@electric-sql/pglite"]).toBe("^0.5.8");
+    expect(
+      packageJson.devDependencies?.["@electric-sql/pglite"],
+    ).toBeUndefined();
+    expect(fs.readFileSync(path.join(root, "package.json"), "utf-8")).toBe(
+      afterFirstRun,
+    );
+    expect(out.join("\n")).toContain("[skipped] feature-dependencies");
+    expect(out.join("\n")).toContain(
+      "Remote deployment environment and database-backed feature settings cannot be inspected",
+    );
+    expect(out.join("\n")).toContain("botframework-connector");
+  });
+
+  it("promotes compatible feature peers from devDependencies", async () => {
+    clearUpgradeEnvironment();
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "latest" },
+        devDependencies: {
+          "@electric-sql/pglite": "0.5.1",
+          "@sentry/node": "^10.60.0",
+        },
+      },
+    });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=pglite://memory\nSENTRY_SERVER_DSN=https://key@example/123\n",
+    );
+    const { io } = captureIo();
+
+    expect(
+      await runUpgrade(
+        ["--cwd", root, "--skip-install", "--skip-skills", "--skip-verify"],
+        io,
+      ),
+    ).toBe(0);
+
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf-8"),
+    ) as {
+      dependencies: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    expect(packageJson.dependencies["@electric-sql/pglite"]).toBe("^0.5.8");
+    expect(packageJson.dependencies["@sentry/node"]).toBe("^10.60.0");
+    expect(
+      packageJson.devDependencies?.["@electric-sql/pglite"],
+    ).toBeUndefined();
+    expect(packageJson.devDependencies?.["@sentry/node"]).toBeUndefined();
+  });
+
   it("runs install + skills + verify through injected io", async () => {
     const root = makeTempProject({
       rootPkg: {
@@ -442,6 +775,10 @@ describe("runUpgrade", () => {
         dependencies: { "@agent-native/core": "0.110.2" },
       },
     });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://db.example/test\n",
+    );
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     fs.writeFileSync(
@@ -460,23 +797,16 @@ describe("runUpgrade", () => {
           ) as { dependencies: Record<string, string> };
           installDependencies.push({ ...packageJson.dependencies });
           writeInstalledPackage(root, "0.131.4");
+          writeInstalledToolkitPackage(root, { "./editor": "./editor.js" });
           const toolkitDir = path.join(
             root,
             "node_modules/@agent-native/toolkit",
-          );
-          fs.mkdirSync(toolkitDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(toolkitDir, "package.json"),
-            `${JSON.stringify({
-              name: "@agent-native/toolkit",
-              version: "0.5.2",
-              exports: { "./editor": "./editor.js" },
-            })}\n`,
           );
           fs.writeFileSync(
             path.join(toolkitDir, "editor.js"),
             "export const RichMarkdownEditor = {};\n",
           );
+          writeToolkitMigrationManifest(toolkitDir);
         }
         return {
           status: 0,
@@ -498,7 +828,7 @@ describe("runUpgrade", () => {
     expect(installDependencies).toEqual([
       expect.objectContaining({
         "@agent-native/core": "latest",
-        "@agent-native/toolkit": "latest",
+        "@agent-native/toolkit": toolkitVersionRange,
       }),
     ]);
     expect(fs.readFileSync(source, "utf-8")).toContain(
@@ -523,16 +853,9 @@ describe("runUpgrade", () => {
     fs.writeFileSync(source, original);
     writeInstalledPackage(root, "0.131.4");
     const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
-    fs.mkdirSync(toolkitDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(toolkitDir, "package.json"),
-      `${JSON.stringify({
-        name: "@agent-native/toolkit",
-        version: "0.5.2",
-        exports: { ".": "./index.js" },
-      })}\n`,
-    );
+    writeInstalledToolkitPackage(root, { ".": "./index.js" });
     fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+    writeToolkitMigrationManifest(toolkitDir);
     const { io, err } = captureIo();
 
     const code = await runUpgrade(
@@ -552,6 +875,10 @@ describe("runUpgrade", () => {
         dependencies: { "@agent-native/core": "0.110.2" },
       },
     });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://db.example/test\n",
+    );
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     const original =
@@ -565,16 +892,9 @@ describe("runUpgrade", () => {
             root,
             "node_modules/@agent-native/toolkit",
           );
-          fs.mkdirSync(toolkitDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(toolkitDir, "package.json"),
-            `${JSON.stringify({
-              name: "@agent-native/toolkit",
-              version: "0.5.2",
-              exports: { ".": "./index.js" },
-            })}\n`,
-          );
+          writeInstalledToolkitPackage(root, { ".": "./index.js" });
           fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+          writeToolkitMigrationManifest(toolkitDir);
         }
         return {
           status: 0,
@@ -599,7 +919,7 @@ describe("runUpgrade", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     ) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies["@agent-native/toolkit"]).toBe("0.5.2");
+    expect(pkg.dependencies["@agent-native/toolkit"]).toBe(toolkitVersionRange);
   });
 
   it("reports dependency changes when installation fails before source rewrites", async () => {
@@ -609,6 +929,10 @@ describe("runUpgrade", () => {
         dependencies: { "@agent-native/core": "0.110.2" },
       },
     });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://db.example/test\n",
+    );
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     const original =
@@ -644,10 +968,12 @@ describe("runUpgrade", () => {
       codemod: { files: string[]; diff: string };
     };
     expect(result.codemod.files).toEqual(["package.json"]);
-    expect(result.codemod.diff).toContain('"@agent-native/toolkit": "latest"');
+    expect(result.codemod.diff).toContain(
+      `"@agent-native/toolkit": "${toolkitVersionRange}"`,
+    );
   });
 
-  it("reports codemods applied while dependency installation is skipped", async () => {
+  it("applies codemods by default while dependency installation is skipped", async () => {
     const root = makeTempProject({
       rootPkg: {
         name: "old-app",
@@ -667,7 +993,6 @@ describe("runUpgrade", () => {
         "--cwd",
         root,
         "--codemods",
-        "--yes",
         "--skip-install",
         "--skip-skills",
         "--skip-verify",
@@ -677,6 +1002,9 @@ describe("runUpgrade", () => {
 
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("without installing dependencies");
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/editor"',
+    );
   });
 
   it("prints failure guidance when install fails", async () => {

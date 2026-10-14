@@ -1,7 +1,7 @@
 import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { IconAlertTriangle, IconUser } from "@tabler/icons-react";
 import { lazy, Suspense, useState } from "react";
 

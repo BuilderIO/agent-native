@@ -76,14 +76,14 @@ Workspace resources are user-facing by default. If you need temporary working fi
     "inline embeds (`embed` fenced code block)",
     groupOn("chat") ? "chat history search (`chat-history`)" : "",
     groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
-    "connecting Builder.io (`connect-builder`)",
+    "using Builder.io (`connect-builder`)",
     "browser automation (`set-browser-control`/`activate-browser`)",
     "structured memory (`save-memory`/`delete-memory`)",
   ].filter(Boolean);
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
+**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there.
 `
     : "";
 

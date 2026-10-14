@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} entfernen",
+    removeReference: "Referenz {{name}} entfernen",
+  },
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -36,6 +35,10 @@ const messages = {
     recents: "Kürzlich",
     retryPreviousRequest:
       "Wiederhole meine vorherige Anfrage, jetzt wo der KI-Anbieter verbunden ist.",
+    invalidHandoffOptions:
+      "Die Eingabe wurde als Entwurf gespeichert, aber ihre Chateinstellungen konnten nicht wiederhergestellt werden. Prüfe Eingabe, Kontext und Modell, bevor du sie erneut sendest.",
+    recoveryDraftUnsaved:
+      "Diese Änderungen am Entwurf sind nicht gespeichert. Beim Neuladen dieses Chats können sie verloren gehen.",
     retryAttachmentUnavailable:
       "Chat kann diesen Anhang für einen erneuten Versuch nicht öffnen. Füge eine zugängliche Datei-URL hinzu und versuche es erneut.",
     renameChat: "Chat umbenennen",
@@ -47,12 +50,29 @@ const messages = {
     unpinChat: "Chat lösen",
     untitledChat: "Unbenannter Chat",
   },
+  home: {
+    communityDescription: "Tritt der Agent-Native-Community bei",
+    composerPlaceholder: "Ruf die Aktion hello für Alex auf",
+    communityTitle: "Mach mit",
+    docsAddAction: "Aktion hinzufügen",
+    docsAddPage: "Seite hinzufügen",
+    docsDescription: "Anleitungen zu Aktionen, Seiten und Agenten",
+    docsGettingStarted: "Erste Schritte",
+    docsKeyConcepts: "Grundkonzepte",
+    docsTitle: "Dokumentation",
+    editHint:
+      "Bearbeite {{file}}, speichere und frag erneut, um die neue Begrüßung zu sehen.",
+    lead: "Die Oberfläche deiner App und ihr Agent nutzen dieselben Aktionen.",
+    leadTry: "Bitte den Agenten, die Aktion hello aufzurufen.",
+    title: "Loslegen",
+  },
   navigation: {
     chat: "Chat",
     collapseSidebar: "Seitenleiste einklappen",
     database: "Datenbank",
     expandSidebar: "Seitenleiste ausklappen",
     extensions: "Erweiterungen",
+    home: "Start",
     navigation: "Navigation",
     navigationDescription: "Hauptnavigation",
     observability: "Beobachtbarkeit",

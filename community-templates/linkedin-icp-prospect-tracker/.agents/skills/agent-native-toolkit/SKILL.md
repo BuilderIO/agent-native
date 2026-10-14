@@ -136,9 +136,9 @@ against `@agent-native/toolkit/conformance` in customer CI before adopting it.
 ## Settings Direction
 
 Durable settings belong in Settings. The agent sidebar should not become a
-second settings app; it can show contextual quick controls and deep links. The
-redesigned Settings (`settings-redesign` flag) has the same groups in every app,
-and page ids are stable URL segments (`/settings/<page>/<sub>`):
+second settings app; it can show contextual quick controls and deep links.
+Settings has the same groups in every app, and page ids are stable URL segments
+(`/settings/<page>/<sub>`):
 
 - Account: `profile`, `preferences`, `security`
 - Connections: `integrations` (`integrations/builder`), `api-keys`

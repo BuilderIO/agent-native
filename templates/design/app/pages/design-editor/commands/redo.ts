@@ -35,7 +35,11 @@ import {
   isPersistedFilePresent,
   reconcileCreatedFile,
 } from "@/pages/design-editor/commands/file-creation-recovery";
-import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import {
+  prepareContentHistoryReplay,
+  STALE_CONTENT_HISTORY_REPLAY,
+} from "@/pages/design-editor/commands/prepare-content-history-replay";
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
@@ -168,6 +172,7 @@ export interface RedoArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      allowPreviewNodeSwap?: boolean;
       immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
@@ -180,7 +185,9 @@ export interface RedoArgs {
   allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
+  codeLayerOwnerByNodeIdRef: RefObject<
+    ReadonlyMap<string, { node: CodeLayerNode }>
+  >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
     (GeometryHistorySelection | undefined)[]
@@ -251,7 +258,12 @@ export interface RedoArgs {
   pendingLocalFileContentsRef: RefObject<
     Map<
       string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+      {
+        content: string;
+        startedAt: number;
+        baseUpdatedAt?: string | null;
+        deferCollabReconcile?: boolean;
+      }
     >
   >;
   pendingStructureRedoReplayRef: RefObject<
@@ -305,7 +317,7 @@ export interface RedoArgs {
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
-    options?: { forceFullDocument?: boolean },
+    options?: { forceFullDocument?: boolean; allowSourceNodeSwap?: boolean },
   ) => PreviewContentReplaceResult;
   restoreSelectionSnapshot: (
     selection: GeometryHistorySelection | undefined,
@@ -502,6 +514,7 @@ export function runRedo({
   writeFrameGeometrySnapshot,
   ydoc,
 }: RedoArgs) {
+  flushCommitsAfterPaint();
   const restoreHistorySelection = (
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
@@ -909,9 +922,13 @@ export function runRedo({
         clipboardPasteRedoStackRef.current.length - 1
       ];
     if (!clipboardPasteRedo) return false;
+    const pendingPasteContent = pendingLocalFileContentsRef.current.get(
+      clipboardPasteRedo.fileId,
+    );
     const currentContent =
-      pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
-        ?.content ??
+      (pendingPasteContent?.deferCollabReconcile
+        ? undefined
+        : pendingPasteContent?.content) ??
       (clipboardPasteRedo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
@@ -935,6 +952,7 @@ export function runRedo({
         ? applyLocalContentUpdate(clipboardPasteRedo.after, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            allowPreviewNodeSwap: true,
             immediateSave: true,
             clipboardMutation,
           })
@@ -996,6 +1014,7 @@ export function runRedo({
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
               forceFullDocument: true,
+              allowSourceNodeSwap: true,
             }),
           )
         ) {
@@ -1078,6 +1097,7 @@ export function runRedo({
             applyLocalContentUpdate(entry.after, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
+              allowPreviewNodeSwap: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -1141,6 +1161,13 @@ export function runRedo({
       liveScreenSnapshotsById,
       t,
     });
+    if (preparedReplay === STALE_CONTENT_HISTORY_REPLAY) {
+      contentRedoStackRef.current.pop();
+      contentRedoSelectionStackRef.current.pop();
+      prunedRedoHistory += 1;
+      toast.info(t("designEditor.toasts.redoSkippedConcurrentEdit"));
+      return false;
+    }
     if (!preparedReplay) {
       contentReplayRefused = true;
       return false;
@@ -1165,14 +1192,15 @@ export function runRedo({
           }
           const result =
             change.fileId === activeFile?.id
-              ? applyLocalContentUpdate(change.after, {
+              ? applyLocalContentUpdate(prepared.nextContent, {
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
+                  allowPreviewNodeSwap: true,
                   immediateSave: true,
                   recordHistory: false,
                 })
-              : applyFileContentUpdate(change.fileId, change.after, {
+              : applyFileContentUpdate(change.fileId, prepared.nextContent, {
                   historyBeforeContent: prepared.historyBeforeContent,
                   recordHistory: false,
                   refreshPreview: false,

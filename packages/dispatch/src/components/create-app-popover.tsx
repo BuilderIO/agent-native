@@ -4,16 +4,16 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
-import { BuilderConnectPopover } from "@agent-native/core/client/settings";
-import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
   docsUrl,
   getWorkspaceAppIdValidationError,
   titleFromChatFirstAppPrompt,
 } from "@agent-native/core/shared";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { BuilderConnectPopover } from "@agent-native/toolkit/app/settings";
+import { useBuilderConnectFlow } from "@agent-native/toolkit/app/settings/useBuilderStatus";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -363,6 +363,7 @@ export function CreateAppFlow({
           </div>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             disabled={isSubmitting}
             placeholder="Describe the app your teammate should be able to use..."
             draftScope="dispatch:create-app"
@@ -595,7 +596,9 @@ export function CreateAppFlow({
                   disabled={connectFlow.connecting}
                   className="w-fit"
                 >
-                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+                  {connectFlow.connecting
+                    ? "Setting up Builder.io…"
+                    : "Use Builder.io"}
                 </Button>
               </BuilderConnectPopover>
               <a

@@ -161,8 +161,8 @@ export function parseCrmNavigationSelection(
 }
 
 /**
- * `/settings/app/<area>` in either Settings, plus today's `/settings/<section>`
- * links, which the redesigned shell rewrites to the area.
+ * `/settings/app/<area>`, plus older `/settings/<section>` links, which the
+ * Settings shell rewrites to the area.
  */
 function settingsSectionFromPath(pathname: string): string | undefined {
   const segments = pathname.split("/settings/")[1]?.split("/") ?? [];

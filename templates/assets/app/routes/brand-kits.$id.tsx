@@ -11,13 +11,13 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import {
   IconCheck,
   IconClipboard,

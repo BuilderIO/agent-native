@@ -1,11 +1,9 @@
 import {
-  BuilderSetupCard,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   useActionQuery,
   useActionMutation,
@@ -16,6 +14,8 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import { EmbeddedExtension } from "@agent-native/toolkit/app/extensions";
 import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
   IconAdjustmentsHorizontal,
@@ -123,6 +123,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
 
 interface DesignExtensionsPanelProps {
   context: DesignExtensionSlotContext;
+  motionLabEnabled: boolean;
   className?: string;
   hideAssetLibrary?: boolean;
   title?: string;
@@ -1315,14 +1316,14 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   const handleAskAgent = () => {
     sendToDesignAgentChat({
       message:
-        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to write the keyframes atomically.",
+        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to save the keyframes to the Design source.",
       context: [
         `Design id: ${context.designId}`,
         context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
         context.selectedElement
           ? `Selected element: ${JSON.stringify({ selector: context.selectedElement.selector, sourceId: context.selectedElement.sourceId }, null, 2)}`
           : "No element selected — ask the user to click an element first.",
-        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame first, then apply-motion-edit for the atomic write.",
+        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame, and call apply-motion-edit to save the timeline and generated CSS to the inline Design source.",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -1360,6 +1361,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
 
 export function DesignExtensionsPanel({
   context,
+  motionLabEnabled,
   className,
   hideAssetLibrary = false,
   title,
@@ -1459,25 +1461,31 @@ export function DesignExtensionsPanel({
       icon: <IconAssembly className="size-3.5" />,
       panel: <TokenAuditorPanel context={context} />,
     },
-    {
-      id: "design.motion-presets",
-      label: "Motion Presets",
-      description: "One-click animation presets for elements",
-      category: "motion",
-      icon: <IconPlayerPlay className="size-3.5" />,
-      panel: <MotionPresetsPanel context={context} />,
-    },
+    ...(motionLabEnabled
+      ? [
+          {
+            id: "design.motion-presets" as const,
+            label: "Motion Presets",
+            description: "One-click animation presets for elements",
+            category: "motion" as const,
+            icon: <IconPlayerPlay className="size-3.5" />,
+            panel: <MotionPresetsPanel context={context} />,
+          },
+        ]
+      : []),
   ];
   const firstPartyRows = allFirstPartyRows.filter(
     (row) => !hideAssetLibrary || row.id !== "design.asset-library",
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const visibleCategoryFilter =
+    !motionLabEnabled && categoryFilter === "motion" ? "all" : categoryFilter;
   const sourceMatches = (source: ToolSourceFilter) =>
     !enableExtensionDiscovery ||
     sourceFilter === "all" ||
     sourceFilter === source;
   const categoryMatches = (category: ToolCategoryFilter) =>
-    categoryFilter === "all" || categoryFilter === category;
+    visibleCategoryFilter === "all" || visibleCategoryFilter === category;
   const textMatches = (name: string, description?: string | null) => {
     if (!normalizedSearch) return true;
     return `${name} ${description ?? ""}`
@@ -1559,13 +1567,15 @@ export function DesignExtensionsPanel({
           ) : null}
           <ToolFilterMenu
             label="Category"
-            value={categoryFilter}
+            value={visibleCategoryFilter}
             onChange={setCategoryFilter}
             options={[
               { value: "all", label: "Category" },
               { value: "shader", label: "Shaders" },
               { value: "tokens", label: "Tokens" },
-              { value: "motion", label: "Motion" },
+              ...(motionLabEnabled
+                ? [{ value: "motion" as const, label: "Motion" }]
+                : []),
               ...(enableExtensionDiscovery
                 ? [{ value: "plugins" as const, label: "Plugins" }]
                 : []),
@@ -1741,27 +1751,21 @@ function CreateExtensionPopover({
               layout="sidebar"
               onConnected={onProviderConnected}
             />
-          ) : (
+          ) : providerStatus === "unavailable" ? (
             <div
               className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
               role="status"
             >
-              <span>
-                {providerStatus === "unknown"
-                  ? t("agentChat.setup.checkingProvider")
-                  : t("agentChat.setup.providerStatusUnavailable")}
-              </span>
-              {providerStatus === "unavailable" ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={onRetryProvider}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+              <button
+                type="button"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={onRetryProvider}
+              >
+                {t("agentChat.common.retry")}
+              </button>
             </div>
-          )}
+          ) : null}
           <form onSubmit={handleSubmit} className="space-y-3">
             <p className="px-0.5 text-sm font-semibold text-foreground">
               {t("designEditor.extensionsPromptTitle")}
@@ -1771,7 +1775,7 @@ function CreateExtensionPopover({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t("designEditor.extensionsPlaceholder")}
-              disabled={!providerReady}
+              disabled={!providerReady && providerStatus !== "unknown"}
               className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
             />
             <div className="flex justify-end gap-2">

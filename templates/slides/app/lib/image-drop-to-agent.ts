@@ -1,7 +1,8 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
 import {
   estimateAttachmentBodyBytes,
   MAX_ESTIMATED_BODY_BYTES,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/toolkit/composer/attachment-accept";
 
 import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 
@@ -36,11 +37,23 @@ export function isMissingUploadProviderError(
     lower.includes("no object storage is connected") ||
     lower.includes("no file upload provider") ||
     lower.includes("registerfileuploadprovider") ||
-    lower.includes("connect builder.io")
+    lower.includes("connect builder.io") ||
+    lower.includes("use builder.io")
   );
 }
 
 export function isStorageSetupRequiredError(error: unknown): boolean {
+  // Typed first: the server says who can fix storage, and "nobody connected
+  // it" is the workspace admin's setup, whatever the message says.
+  const typed = error as {
+    errorCode?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  } | null;
+  if (typed?.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "workspace_admin";
+  }
+  // Producers that do not carry a typed code yet (image assets, image
+  // generation) still word this as "No object storage is connected".
   const message =
     error instanceof Error
       ? error.message
@@ -101,7 +114,7 @@ export function buildImageDropAgentPayload(args: {
   if (!inlineDataUrl) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io (free) or configure your own S3-compatible storage keys.",
+        "Image upload failed. Use Builder.io (free) or configure your own S3-compatible storage keys.",
     );
   }
 
@@ -133,14 +146,12 @@ export function canInlineImageFile(file: File): boolean {
 }
 
 export function canInlineImageDataUrl(dataUrl: string): boolean {
-  const match = /^data:(image\/[^;]+);base64,(.*)$/is.exec(dataUrl);
-  const mediaType = match?.[1]?.trim().toLowerCase();
+  const parsed = parseBase64DataUrl(dataUrl);
   return Boolean(
-    match &&
-    mediaType &&
-    mediaType !== "image/svg+xml" &&
-    match[2].length + `data:${mediaType};base64,`.length <=
-      MAX_INLINE_IMAGE_BASE64_CHARS,
+    parsed &&
+    parsed.mediaType.startsWith("image/") &&
+    parsed.mediaType !== "image/svg+xml" &&
+    dataUrl.length <= MAX_INLINE_IMAGE_BASE64_CHARS,
   );
 }
 

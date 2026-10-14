@@ -30,23 +30,3 @@ function isPgCatalogRace(e: any): boolean {
     /relation .* already exists/i.test(msg)
   );
 }
-
-export function isProductionServerlessFunctionRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY === "true" ||
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_VERSION ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION ||
-    env.VERCEL === "1",
-  );
-}

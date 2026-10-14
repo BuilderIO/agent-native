@@ -67,7 +67,7 @@ function Location() {
     </output>
   );
 }
-function mount({ entry = "/templates", page = false } = {}) {
+function mount({ entry = "/templates", page = false, search = "" } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -78,7 +78,9 @@ function mount({ entry = "/templates", page = false } = {}) {
         <Routes>
           <Route
             path="/templates"
-            element={page ? <Templates /> : <DeckTemplateLibrary />}
+            element={
+              page ? <Templates /> : <DeckTemplateLibrary search={search} />
+            }
           />
           <Route
             path="/home"
@@ -118,7 +120,9 @@ beforeEach(() => {
         const filtered = catalog.filter(
           (item) =>
             typeof args.search !== "string" ||
-            item.title.toLowerCase().includes(args.search.toLowerCase()),
+            `${item.title} ${item.description} ${item.category}`
+              .toLowerCase()
+              .includes(args.search.toLowerCase()),
         );
         return {
           data:
@@ -168,6 +172,12 @@ afterEach(() => {
 });
 
 describe("real starter template library", () => {
+  it("shows the category for results matched by category search", () => {
+    mount({ search: first.category });
+
+    expect(screen.getAllByText(first.category).length).toBeGreaterThan(0);
+  });
+
   it("shows every home template, without fetching template details", () => {
     const view = mount({ entry: "/home" });
     expect(

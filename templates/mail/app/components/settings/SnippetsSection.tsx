@@ -215,7 +215,7 @@ function SnippetRow({
   );
 }
 
-export function SnippetsSection({ embedded = false }: { embedded?: boolean }) {
+export function SnippetsSection() {
   const t = useT();
   const { data, isLoading } = useSnippets();
   const snippets = data?.snippets ?? [];
@@ -245,23 +245,9 @@ export function SnippetsSection({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div>
-      {embedded ? (
-        <div className="mb-4 flex justify-end">{newSnippetButton}</div>
-      ) : (
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-[16px] font-semibold text-foreground">
-              {t("settings.snippets")}
-            </h2>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              {t("settings.snippetsDescription")}
-            </p>
-          </div>
-          {newSnippetButton}
-        </div>
-      )}
+      <div className="mb-4 flex justify-end">{newSnippetButton}</div>
 
-      <div className={embedded ? "space-y-2" : "max-w-2xl space-y-2"}>
+      <div className="space-y-2">
         {showNewForm && (
           <SnippetEditRow
             onSave={handleCreate}

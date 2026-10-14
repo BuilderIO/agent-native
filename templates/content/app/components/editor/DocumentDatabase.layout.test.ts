@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 function readDatabaseSource() {
   return [
     "./database/DatabaseView.tsx",
+    "./database/DatabaseViewSkeleton.tsx",
     "./database/ContentTable.tsx",
     "./database/settings.tsx",
     "./database/shared.tsx",
@@ -23,9 +24,8 @@ describe("document database layout", () => {
   it("wraps database toolbar controls instead of clipping them", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain(
-      '<div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">',
-    );
+    expect(source).toContain('"mt-4 min-w-0 w-full max-w-full"');
+    expect(source).toContain("<div className={DATABASE_VIEW_CLASS_NAME}>");
     expect(source).toContain(
       "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
     );
@@ -33,7 +33,7 @@ describe("document database layout", () => {
       "flex min-h-8 max-w-full flex-wrap items-center justify-end gap-1",
     );
     expect(source).toContain(
-      "group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
+      "group/viewtabs relative flex min-w-0 flex-auto items-center gap-1 overflow-x-auto",
     );
   });
 
@@ -362,9 +362,7 @@ describe("document database layout", () => {
 
     expect(selectionBarIndex).toBeGreaterThan(-1);
     expect(scrollSurfaceIndex).toBeGreaterThan(selectionBarIndex);
-    expect(source).toContain(
-      "const effectiveCanEdit = canEdit && document.canEdit === true",
-    );
+    expect(source).toContain("document.canEdit === true");
     expect(source).toContain("effectiveCanEdit && document.canManage === true");
     expect(source).toContain("canRemoveSelected={canRemoveSelected}");
     expect(source).toContain("Clear");

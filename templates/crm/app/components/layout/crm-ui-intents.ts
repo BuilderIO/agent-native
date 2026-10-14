@@ -1,4 +1,4 @@
-import { openCommandMenu } from "@agent-native/core/client/navigation";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 
 export const CRM_NEW_RECORD_EVENT = "crm:new-record";
 export const CRM_NEW_TASK_EVENT = "crm:new-task";

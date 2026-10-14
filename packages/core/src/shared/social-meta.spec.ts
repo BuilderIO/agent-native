@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { APP_STATUS, DEFAULT_APP_STATUS } from "./app-status.js";
-import { AUTH_MARKETING_PRESENTATION } from "./auth-marketing-presentation.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   agentNativeSocialImageCacheBusterFor,
@@ -9,16 +7,12 @@ import {
 } from "./social-meta.js";
 
 describe("social image cache buster", () => {
-  it("is derived from the sign-in copy and status badges the image renders", () => {
+  it("versions the simple default app image format", () => {
     expect(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER).toBe(
-      agentNativeSocialImageCacheBusterFor([
-        AUTH_MARKETING_PRESENTATION,
-        DEFAULT_APP_STATUS,
-        APP_STATUS,
-      ]),
+      agentNativeSocialImageCacheBusterFor("app-default-v3"),
     );
     expect(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER).toMatch(
-      /^signin-brand-v2-[0-9a-z]+$/,
+      /^app-default-v3-[0-9a-z]+$/,
     );
   });
 

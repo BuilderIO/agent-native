@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOpToDeck,
-  applyUndoOpToDecks,
+  deriveDeckDiffOps,
   deriveInverseOp,
   reorderSlidesById,
   type Deck,
@@ -85,7 +85,8 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
       {
         op: "patch-slide",
         slideId: "a",
-        fields: { background: undefined },
+        fields: { background: null },
+        baseFields: { background: { present: true, value: "bg-red" } },
       },
     ]);
     expectRoundTrip(before, op);
@@ -220,7 +221,7 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
   });
 
   it("clears imported source provenance only for structural changes", () => {
-    const before = deck([slide("a"), slide("b")], {
+    const before = deck([slide("a", { background: "blue" }), slide("b")], {
       sourceImport: { mode: "source-preserving" },
     });
     const contentEdit = applyOpToDeck(before, {
@@ -240,23 +241,68 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     }
   });
 
-  it("restores imported source provenance through a replacement undo", () => {
-    const before = deck([slide("a"), slide("b")], {
+  it("keeps imported-deck undo granular and preserves concurrent edits", () => {
+    const before = deck([slide("a", { background: "blue" }), slide("b")], {
+      aspectRatio: "4:3",
+      starred: true,
       sourceImport: { mode: "source-preserving", slideIds: ["a", "b"] },
     });
-    const after = applyOpToDeck(before, {
-      op: "delete-slide",
-      slideId: "a",
-    });
+    const after = {
+      ...before,
+      title: "Updated",
+      starred: undefined,
+      sourceImport: undefined,
+      slides: [
+        slide("a", { content: "updated", background: undefined }),
+        slide("c"),
+      ],
+    };
+    const undoOps: PatchDeckOp[] = [];
+    let state = before;
+    const redoOps = deriveDeckDiffOps(before, after);
+    for (const op of redoOps) {
+      const inverse = deriveInverseOp(state, op);
+      if (inverse) undoOps.unshift(...inverse);
+      state = applyOpToDeck(state, op);
+    }
 
-    expect(after.sourceImport).toBeUndefined();
-    expect(
-      applyUndoOpToDecks([after], {
-        op: "replace-deck",
-        deckId: before.id,
-        deck: before,
-      }),
-    ).toEqual([before]);
+    state = {
+      ...state,
+      designSystemId: "peer-brand",
+      slides: [...state.slides, slide("peer")],
+    };
+    for (const op of undoOps) state = applyOpToDeck(state, op);
+
+    expect(state.title).toBe("Deck");
+    expect(state.starred).toBe(true);
+    expect(state.designSystemId).toBe("peer-brand");
+    expect(state.slides.map((entry) => entry.id)).toEqual(["a", "b", "peer"]);
+    expect(state.slides[0]?.content).toBe(before.slides[0]?.content);
+    expect(state.slides[0]?.background).toBe("blue");
+    expect(state.sourceImport).toBeUndefined();
+  });
+
+  it("clears optional slide fields with inverse patch operations", () => {
+    const before = deck([slide("a", { background: "blue" })]);
+    const op: PatchDeckOp = {
+      op: "patch-slide",
+      slideId: "a",
+      fields: { background: null },
+    };
+    const cleared = applyOpToDeck(before, op);
+    const inverse = deriveInverseOp(before, op);
+    expect(cleared.slides[0]?.background).toBeUndefined();
+    expect(inverse).toEqual([
+      {
+        op: "patch-slide",
+        slideId: "a",
+        fields: { background: "blue" },
+        baseFields: { background: { present: false } },
+      },
+    ]);
+    expect(applyOpToDeck(cleared, inverse![0]!)).toEqual(
+      expect.objectContaining({ slides: [slide("a", { background: "blue" })] }),
+    );
   });
 
   it("patch-deck-fields: inverse restores prior deck fields", () => {
@@ -295,5 +341,25 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
       fields: { content: "<div>dup</div>" },
     };
     expect(applyOpToDeck(before, op)).toBe(before);
+  });
+});
+
+describe("deriveDeckDiffOps transition speed", () => {
+  it("saves a speed-only change as a patch-slide", () => {
+    const before = deck([slide("a", { transition: "fade" })]);
+    const after = deck([
+      slide("a", { transition: "fade", transitionSpeed: 30 }),
+    ]);
+    expect(deriveDeckDiffOps(before, after)).toEqual([
+      { op: "patch-slide", slideId: "a", fields: { transitionSpeed: 30 } },
+    ]);
+  });
+
+  it("clears the stored speed with null when it is removed", () => {
+    const before = deck([slide("a", { transitionSpeed: 30 })]);
+    const after = deck([slide("a")]);
+    expect(deriveDeckDiffOps(before, after)).toEqual([
+      { op: "patch-slide", slideId: "a", fields: { transitionSpeed: null } },
+    ]);
   });
 });

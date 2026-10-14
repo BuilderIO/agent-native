@@ -3,7 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import type { SlidesNotificationPreferences } from "@shared/slides-user-prefs";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -76,7 +76,7 @@ function CommentEmailsControl({ label }: { label: string }): ReactNode {
   );
 }
 
-/** Slides' Notifications page in the redesigned Settings. */
+/** Slides' Notifications page in Settings. */
 export function NotificationSettings() {
   const t = useT();
   const label = t("settings.commentsAndReplies");
@@ -89,19 +89,5 @@ export function NotificationSettings() {
         control={<CommentEmailsControl label={label} />}
       />
     </SettingsGroup>
-  );
-}
-
-/** Today's Email notifications row on the General tab. */
-export function LegacyEmailNotificationsRow() {
-  const t = useT();
-  const label = t("settings.emailNotifications");
-  return (
-    <SettingsRow
-      id="notifications"
-      label={label}
-      description={t("settings.emailNotificationsDescription")}
-      control={<CommentEmailsControl label={label} />}
-    />
   );
 }

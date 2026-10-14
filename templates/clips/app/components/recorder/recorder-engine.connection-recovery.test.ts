@@ -8,10 +8,14 @@ import { uploadChunkRequest } from "@/lib/upload-request";
 
 import { RecorderEngine } from "./recorder-engine";
 
-vi.mock("@/lib/recording-backup", () => ({
+vi.mock("@/lib/recording-backup", async (importOriginal) => ({
+  verifyServerCopy: (
+    await importOriginal<typeof import("@/lib/recording-backup")>()
+  ).verifyServerCopy,
   deleteRecordingBackup: vi.fn(async () => {}),
   putRecordingBackupChunk: vi.fn(async () => {}),
   putRecordingBackupMeta: vi.fn(async () => {}),
+  updateRecordingBackupMeta: vi.fn(async () => ({})),
 }));
 
 vi.mock("@/lib/upload-request", () => ({
@@ -1065,6 +1069,10 @@ describe("RecorderEngine streaming connection recovery", () => {
     });
     expect(internals.localChunks).toEqual([source]);
     expect(onError).not.toHaveBeenCalled();
-    expect(putRecordingBackupMeta).not.toHaveBeenCalled();
+    // Only the copy's starting metadata; the failed chunk wrote nothing more.
+    expect(putRecordingBackupMeta).toHaveBeenCalledOnce();
+    expect(putRecordingBackupMeta).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1", chunkCount: 0 }),
+    );
   });
 });

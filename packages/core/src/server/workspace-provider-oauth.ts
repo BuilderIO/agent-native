@@ -46,6 +46,7 @@ import {
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
 } from "./google-oauth.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import { runWithRequestContext } from "./request-context.js";
 
 export type GenericWorkspaceOAuthProvider =
@@ -54,6 +55,7 @@ export type GenericWorkspaceOAuthProvider =
   | "google_calendar"
   | "google_docs"
   | "google_drive"
+  | "bigquery"
   | "google_sheets"
   | "google_slides"
   | "github"
@@ -69,6 +71,7 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "google_calendar",
   "google_docs",
   "google_drive",
+  "bigquery",
   "google_sheets",
   "google_slides",
   "github",
@@ -102,6 +105,7 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
     provider === "google_calendar" ||
     provider === "google_docs" ||
     provider === "google_drive" ||
+    provider === "bigquery" ||
     provider === "google_sheets" ||
     provider === "google_slides"
   );
@@ -130,6 +134,7 @@ export interface WorkspaceProviderOAuthFlow {
   orgId?: string;
   appId: string;
   scope: WorkspaceProviderOAuthScope;
+  returnUrl?: string;
   salesforceLoginUrl?: string;
   expiresAt: number;
 }
@@ -154,6 +159,7 @@ function isWorkspaceProviderOAuthFlow(
     typeof flow.appId === "string" &&
     flow.appId.length > 0 &&
     isWorkspaceProviderOAuthScope(flow.scope) &&
+    (flow.returnUrl === undefined || typeof flow.returnUrl === "string") &&
     (flow.salesforceLoginUrl === undefined ||
       typeof flow.salesforceLoginUrl === "string") &&
     typeof flow.expiresAt === "number" &&
@@ -308,7 +314,6 @@ export async function handleWorkspaceProviderOAuthStart(
         app: appId,
         scope: orgContext.oauthScope,
         ...(useRootGoogleCallback ? { provider: providerId } : {}),
-        returnUrl,
         flowId,
       });
       const flow: WorkspaceProviderOAuthFlow = {
@@ -320,6 +325,7 @@ export async function handleWorkspaceProviderOAuthStart(
         orgId,
         appId,
         scope: orgContext.oauthScope,
+        ...(returnUrl ? { returnUrl } : {}),
         ...(salesforceLoginUrl ? { salesforceLoginUrl } : {}),
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
@@ -342,7 +348,8 @@ export async function handleWorkspaceProviderOAuthStart(
         state,
         challenge,
         loginHint: session.email,
-        includeGrantedScopes: providerId !== "google_calendar",
+        includeGrantedScopes:
+          providerId !== "google_calendar" && providerId !== "google_sheets",
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -510,8 +517,8 @@ export async function handleWorkspaceProviderOAuthCallback(
                   )),
         );
         const scopes = mergeWorkspaceOAuthValues(
-          existing?.scopes ?? [],
-          identity.scopes ?? tokenScopes(tokens, provider.oauth!.scopes),
+          identity.scopes ?? [],
+          tokenScopes(tokens, provider.oauth!.scopes),
         );
         const connectionConfig = {
           credentialMode: "oauth",
@@ -555,9 +562,13 @@ export async function handleWorkspaceProviderOAuthCallback(
         });
       }
       const returnPath =
+        flow.returnUrl ??
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
-      return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, getAppUrl(event, returnPath)),
+      );
     },
   );
 }

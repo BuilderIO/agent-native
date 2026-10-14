@@ -2,8 +2,7 @@ import path from "node:path";
 
 import {
   assertHostedRuntimeDatabase,
-  getRuntimeDatabaseUrl,
-  toPostgresParams,
+  getLocalDatabaseUrl,
 } from "../../db/client.js";
 import {
   getRequestOrgId,
@@ -13,8 +12,9 @@ import { parseArgs, fail } from "../utils.js";
 import { tryForwardDbQueryToDevServer } from "./dev-query-proxy.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
 import {
-  assertNoSchemaQualifiedTables,
-  assertNoSensitiveFrameworkTables,
+  finalRawDbSql,
+  readRawDbReadStatement,
+  verifyRawDbStatement,
 } from "./safety.js";
 import { buildScopingPostgres } from "./scoping.js";
 
@@ -82,57 +82,53 @@ export interface RunDbQueryResult {
   sql: string;
 }
 
+// Thrown to end db-query's transaction with a rollback. The per-user views
+// are created inside it, and the read-only switch blocks dropping them.
+const READ_ONLY_ROLLBACK = Symbol("db-query rollback");
+
 export async function runDbQuery(
   options: RunDbQueryOptions,
 ): Promise<RunDbQueryResult> {
   const sqlArgs = options.sqlArgs ?? [];
-  const stripped = options.sql
-    .replace(/^\s*--[^\n]*\n/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
-  const upper = stripped.toUpperCase();
-  if (
-    !upper.startsWith("SELECT") &&
-    !upper.startsWith("WITH") &&
-    !upper.startsWith("EXPLAIN")
-  ) {
-    fail(
-      "Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.",
-    );
-  }
-  assertNoSensitiveFrameworkTables(stripped, "read");
-  assertNoSchemaQualifiedTables(stripped, "read");
+  const statement = readRawDbReadStatement(options.sql);
 
-  let query = options.sql;
+  let query = statement.sql;
   if (
     options.limit &&
-    (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
-    !/\bLIMIT\b/i.test(stripped)
+    (statement.keyword === "select" || statement.keyword === "with") &&
+    !statement.tokens.some(
+      (token) => token.kind === "word" && token.value === "limit",
+    )
   ) {
-    query = `${options.sql} LIMIT ${options.limit}`;
+    query = `${statement.sql}\nLIMIT ${options.limit}`;
   }
+  const executed = finalRawDbSql(query, "read");
 
   if (!options.databaseUrl) assertHostedRuntimeDatabase();
 
   const url =
-    options.databaseUrl ?? getRuntimeDatabaseUrl("pglite:./data/pglite");
+    options.databaseUrl ?? getLocalDatabaseUrl("pglite:./data/pglite");
   const client = await createPostgresScriptClient(url);
   try {
     let rows: Record<string, unknown>[] = [];
-    const finalSql = toPostgresParams(query);
-    await client.begin(async (tx) => {
-      const scoping = await buildScopingPostgres(tx);
-      for (const statement of scoping.setup) await tx.unsafe(statement);
-      try {
-        const result = await tx.unsafe(finalSql, sqlArgs);
+    try {
+      await client.begin(async (tx) => {
+        const scoping = await buildScopingPostgres(tx);
+        for (const setup of scoping.setup) await tx.unsafe(setup);
+        // From here on the transaction cannot write, so a data-modifying CTE,
+        // SELECT INTO, or EXPLAIN ANALYZE of a write fails instead of running.
+        await tx.unsafe("SET TRANSACTION READ ONLY");
+        await verifyRawDbStatement(tx, executed.statement);
+        const result = await tx.unsafe(executed.sql, sqlArgs, {
+          singleStatement: true,
+        });
         rows = Array.from(result);
-      } finally {
-        for (const statement of scoping.teardown) {
-          await tx.unsafe(statement).catch(() => {});
-        }
-      }
-    });
-    return { rows, sql: finalSql };
+        throw READ_ONLY_ROLLBACK;
+      });
+    } catch (error) {
+      if (error !== READ_ONLY_ROLLBACK) throw error;
+    }
+    return { rows, sql: executed.sql };
   } finally {
     await client.end();
   }

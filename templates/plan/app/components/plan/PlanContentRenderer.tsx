@@ -1,17 +1,16 @@
-import {
-  BlockRegistryProvider,
-  type BlockRenderContext,
-} from "@agent-native/core/blocks";
+import { type BlockRenderContext } from "@agent-native/core/blocks/server";
 import {
   type AttributedRecentEdit,
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import {
   PresenceBar,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { nextAutosaveRetryDelayMs } from "@shared/plan-autosave-retry";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -37,6 +36,10 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
+import {
+  PlanBlocksOverlapError,
+  type PlanBlocksRevision,
+} from "@/lib/plan-block-save";
 import { cn } from "@/lib/utils";
 
 import {
@@ -46,6 +49,13 @@ import {
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
+import {
+  findPlanBlock,
+  hasPlanBlockStructureChange,
+  isWideLayoutBlock,
+  updatePlanBlocks,
+  visitPlanBlocks,
+} from "./plan-block-structure";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { collectPlanTocItems } from "./PlanTableOfContents.utils";
@@ -75,7 +85,10 @@ type PlanContentRendererProps = {
   fallbackTitle: string;
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
-  onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  onContentPatch?: (
+    patch: PlanContentPatch,
+    options?: { base?: PlanBlocksRevision | null },
+  ) => Promise<void> | void;
   onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
     title?: string;
@@ -103,26 +116,6 @@ type PlanContentRendererProps = {
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
-
-function blockStructureSignature(blocks: PlanBlock[]): string {
-  const walk = (list: PlanBlock[]): string =>
-    list
-      .map((block) => {
-        if (block.type === "tabs") {
-          return `tabs:${block.id}[${block.data.tabs
-            .map((tab) => `${tab.id}(${walk(tab.blocks)})`)
-            .join(",")}]`;
-        }
-        if (block.type === "columns") {
-          return `columns:${block.id}[${block.data.columns
-            .map((column) => `${column.id}(${walk(column.blocks)})`)
-            .join(",")}]`;
-        }
-        return `${block.type}:${block.id}`;
-      })
-      .join("|");
-  return walk(blocks);
-}
 
 export function getPlanCodeAnnotationLayout({
   isRecap,
@@ -220,7 +213,7 @@ export function PlanContentRenderer({
     if (
       onContentPatch &&
       nextBlock.type === "rich-text" &&
-      findBlock(content.blocks, id)?.type === "rich-text"
+      findPlanBlock(content.blocks, id)?.type === "rich-text"
     ) {
       await onContentPatch({
         op: "update-rich-text",
@@ -243,13 +236,13 @@ export function PlanContentRenderer({
     }
     const next = {
       ...content,
-      blocks: updateBlocks(content.blocks, id, () => nextBlock),
+      blocks: updatePlanBlocks(content.blocks, id, () => nextBlock),
     };
     await onContentChange?.(next);
   };
 
   const updateRichTextBlock = async (blockId: string, markdown: string) => {
-    const block = findBlock(content.blocks, blockId);
+    const block = findPlanBlock(content.blocks, blockId);
     if (!block || block.type !== "rich-text") return;
     if (onContentPatch) {
       await onContentPatch({
@@ -302,20 +295,30 @@ export function PlanContentRenderer({
   );
 
   const AUTOSAVE_DEBOUNCE_MS = 600;
-  const AUTOSAVE_MAX_RETRIES = 5;
-  const AUTOSAVE_MAX_BACKOFF_MS = 30_000;
   const pendingBlocksRef = useRef<PlanBlock[] | null>(null);
   const savingRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  // An overlapping edit by someone else is not fixed by trying again later.
+  const awaitingManualRetryRef = useRef(false);
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
+  const editorBlocksRef = useRef<
+    ((pending: PlanBlock[]) => PlanBlock[] | null) | null
+  >(null);
+  // The saved revision the pending blocks were edited on top of.
+  const pendingBaseRef = useRef<PlanBlocksRevision | null>(null);
+  const flushCollabUpdatesRef = useRef(collabDoc.flushUpdates);
+  flushCollabUpdatesRef.current = collabDoc.flushUpdates;
   const persistBlocksRef = useRef<
-    (blocks: PlanBlock[]) => void | Promise<void>
+    (
+      blocks: PlanBlock[],
+      base: PlanBlocksRevision | null,
+    ) => void | Promise<void>
   >(() => {});
-  persistBlocksRef.current = (nextBlocks: PlanBlock[]) =>
+  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) =>
     onContentPatch
-      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks })
+      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks }, { base })
       : onContentChange?.({ ...content, blocks: nextBlocks });
   const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
   scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
@@ -331,15 +334,36 @@ export function PlanContentRenderer({
     if (savingRef.current) return;
     const next = pendingBlocksRef.current;
     if (next === null) return;
+    const base = pendingBaseRef.current;
     pendingBlocksRef.current = null;
     savingRef.current = true;
     let failed = false;
-    void Promise.resolve(persistBlocksRef.current(next))
+    // Collaborators' editors must receive these edits through the live document
+    // before the saved copy reaches them, or they insert the text twice. The
+    // document, not the snapshot taken at the last local keystroke, is also what
+    // a collaborator's concurrent typing has been merged into.
+    void flushCollabUpdatesRef
+      .current()
+      .then((delivered) => {
+        if (!delivered) {
+          throw new Error("Live edits have not reached the server yet.");
+        }
+        const liveBlocks = editorBlocksRef.current?.(next);
+        if (collabDoc.ydoc && !liveBlocks) {
+          throw new Error(
+            "The live plan editor is unavailable; retry autosave.",
+          );
+        }
+        return persistBlocksRef.current(liveBlocks ?? next, base);
+      })
       .catch((error) => {
         failed = true;
         consecutiveFailuresRef.current += 1;
+        awaitingManualRetryRef.current =
+          error instanceof PlanBlocksOverlapError;
         if (pendingBlocksRef.current === null) {
           pendingBlocksRef.current = next;
+          pendingBaseRef.current = base;
         }
         // eslint-disable-next-line no-console
         console.error("Failed to autosave plan document:", error);
@@ -353,13 +377,11 @@ export function PlanContentRenderer({
         }
         if (pendingBlocksRef.current !== null) {
           if (failed) {
-            if (consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES) {
-              const backoffMs = Math.min(
-                1_000 * 2 ** (consecutiveFailuresRef.current - 1),
-                AUTOSAVE_MAX_BACKOFF_MS,
-              );
-              scheduleSaveRef.current(backoffMs);
-            }
+            const retryMs = nextAutosaveRetryDelayMs(
+              consecutiveFailuresRef.current,
+              awaitingManualRetryRef.current,
+            );
+            if (retryMs !== null) scheduleSaveRef.current(retryMs);
           } else {
             flushSaveRef.current();
           }
@@ -369,18 +391,32 @@ export function PlanContentRenderer({
 
   const retryAutosave = () => {
     consecutiveFailuresRef.current = 0;
+    awaitingManualRetryRef.current = false;
     setAutosaveFailed(false);
     flushSaveRef.current();
   };
-  const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+  const retryAutosaveRef = useRef(retryAutosave);
+  retryAutosaveRef.current = retryAutosave;
+  // The next scheduled retry can be half a minute away; the edits are still
+  // pending, so save them as soon as we are back.
+  useEffect(() => {
+    if (!autosaveFailed) return;
+    const onOnline = () => retryAutosaveRef.current();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [autosaveFailed]);
+  const replaceBlocks = async (
+    nextBlocks: PlanBlock[],
+    base: PlanBlocksRevision | null = null,
+  ) => {
     if (
       onOptimisticBlocks &&
-      blockStructureSignature(nextBlocks) !==
-        blockStructureSignature(content.blocks)
+      hasPlanBlockStructureChange(content.blocks, nextBlocks)
     ) {
       onOptimisticBlocks(nextBlocks);
     }
     pendingBlocksRef.current = nextBlocks;
+    pendingBaseRef.current = base;
     scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
   useEffect(
@@ -558,20 +594,7 @@ export function PlanContentRenderer({
   ]);
   const blockLookup = useMemo(() => {
     const blocks = new Map<string, PlanBlock>();
-    const visit = (block: PlanBlock) => {
-      blocks.set(block.id, block);
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) {
-          for (const child of tab.blocks) visit(child);
-        }
-      }
-      if (block.type === "columns") {
-        for (const column of block.data.columns) {
-          for (const child of column.blocks) visit(child);
-        }
-      }
-    };
-    for (const block of content.blocks) visit(block);
+    visitPlanBlocks(content.blocks, (block) => blocks.set(block.id, block));
     return blocks;
   }, [content.blocks]);
   const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
@@ -805,6 +828,7 @@ export function PlanContentRenderer({
                           collabUser={collabUser}
                           editable
                           onBlocksChange={replaceBlocks}
+                          blocksReaderRef={editorBlocksRef}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                           sharedCollabDoc={collabDoc}
                         />
@@ -875,38 +899,6 @@ function renderFlowBlockFrame(block: PlanBlock, node: ReactNode) {
       {node}
     </div>
   );
-}
-
-function isWideLayoutBlock(block: PlanBlock): boolean {
-  switch (block.type) {
-    case "diff":
-    case "annotated-code":
-      return true;
-    case "tabs":
-      return (
-        block.data.orientation === "vertical" ||
-        block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks))
-      );
-    default:
-      return false;
-  }
-}
-
-function blocksContainDiffLike(blocks: PlanBlock[]): boolean {
-  return blocks.some(blockContainsDiffLike);
-}
-
-function blockContainsDiffLike(block: PlanBlock): boolean {
-  if (block.type === "diff" || block.type === "annotated-code") return true;
-  if (block.type === "tabs") {
-    return block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks));
-  }
-  if (block.type === "columns") {
-    return block.data.columns.some((column) =>
-      blocksContainDiffLike(column.blocks),
-    );
-  }
-  return false;
 }
 
 function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
@@ -1079,58 +1071,6 @@ function EditableHeaderText({
   ) : (
     <p {...commonProps}>{value}</p>
   );
-}
-
-function updateBlocks(
-  blocks: PlanBlock[],
-  id: string,
-  updater: (block: PlanBlock) => PlanBlock,
-): PlanBlock[] {
-  return blocks.map((block) => {
-    if (block.id === id) return updater(block);
-    if (block.type === "tabs") {
-      return {
-        ...block,
-        data: {
-          tabs: block.data.tabs.map((tab) => ({
-            ...tab,
-            blocks: updateBlocks(tab.blocks, id, updater),
-          })),
-        },
-      };
-    }
-    if (block.type === "columns") {
-      return {
-        ...block,
-        data: {
-          columns: block.data.columns.map((column) => ({
-            ...column,
-            blocks: updateBlocks(column.blocks, id, updater),
-          })),
-        },
-      };
-    }
-    return block;
-  });
-}
-
-function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === id) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const match = findBlock(tab.blocks, id);
-        if (match) return match;
-      }
-    }
-    if (block.type === "columns") {
-      for (const column of block.data.columns) {
-        const match = findBlock(column.blocks, id);
-        if (match) return match;
-      }
-    }
-  }
-  return null;
 }
 
 function computeRecapStats(

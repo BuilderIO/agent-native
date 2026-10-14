@@ -19,6 +19,12 @@ describe("app config store", () => {
     process.env = { ...originalEnv };
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.DISPATCH_ADMIN_EMAILS;
+    delete process.env.WORKSPACE_OWNER_EMAIL;
+    delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
   });
 
   afterEach(() => {
@@ -30,11 +36,30 @@ describe("app config store", () => {
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(true);
     expect(getAppConfig().privateBlob.provider).toBeUndefined();
     expect(getAppConfig().app.homePath).toBeUndefined();
+    expect(getAppConfig().analytics.authSessionReplay).toBe(false);
+  });
+
+  it("opts auth-page replay in through app config", () => {
+    defineAppConfig({ analytics: { authSessionReplay: true } });
+
+    expect(getAppConfig().analytics.authSessionReplay).toBe(true);
   });
 
   it("reads a declared environment alias", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(false);
+  });
+
+  it("reads the mounted app path from its declared aliases", () => {
+    process.env.APP_BASE_PATH = "/server";
+    process.env.VITE_APP_BASE_PATH = "/vite";
+
+    expect(getAppConfig().app.basePath).toBe("/vite");
+  });
+
+  it("reads the MCP static-token owner from its declared alias", () => {
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    expect(getAppConfig().auth.mcpOwnerEmail).toBe("owner@example.com");
   });
 
   it("reads early liveness configuration from declared aliases", () => {
@@ -72,6 +97,18 @@ describe("app config store", () => {
       bootstrapAdmins: ["Admin@example.com", "owner@example.com"],
       sso: { enabled: true },
       scim: { enabled: true },
+    });
+  });
+
+  it("resolves Dispatch admin emails from their declared environment aliases", () => {
+    process.env.DISPATCH_ADMIN_EMAILS = "admin@example.com,ops@example.com";
+    process.env.WORKSPACE_OWNER_EMAIL = "owner@example.com";
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "default@example.com";
+
+    expect(getAppConfig().dispatch).toEqual({
+      adminEmails: ["admin@example.com", "ops@example.com"],
+      workspaceOwnerEmails: ["owner@example.com"],
+      defaultOwnerEmail: "default@example.com",
     });
   });
 
@@ -211,6 +248,8 @@ describe("app identity", () => {
       "AGENT_NATIVE_WORKSPACE_APP_ID",
       "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
       "APP_NAME",
+      "APP_BASE_PATH",
+      "VITE_APP_BASE_PATH",
     ]) {
       delete process.env[key];
     }

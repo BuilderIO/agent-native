@@ -1,7 +1,16 @@
 import {
+  callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { useOrg } from "@agent-native/core/client/org";
+import type { RecordingKind } from "@shared/recording-kind";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
@@ -13,6 +22,8 @@ export interface RecordingSummary {
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   description: string;
+  /** "image" rows are screenshots: no duration, no transcript, no player. */
+  kind: RecordingKind;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   durationMs: number;
@@ -44,6 +55,8 @@ export interface RecordingSummary {
 
 export interface ListRecordingsArgs {
   view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" is the Screenshots view; omitted means clips and screenshots. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -51,6 +64,74 @@ export interface ListRecordingsArgs {
   sort?: "recent" | "views" | "oldest";
   limit?: number;
   offset?: number;
+  recordingIds?: string[];
+}
+
+interface RecordingPage {
+  recordings: RecordingSummary[];
+}
+
+interface InfiniteRecordingsData {
+  pages: RecordingPage[];
+  pageParams: unknown[];
+}
+
+const MAX_LIVE_RECORDING_STATUS_IDS = 100;
+
+export function dedupeRecordingsById<T extends { id: string }>(
+  recordings: readonly T[],
+): T[] {
+  const seen = new Set<string>();
+  return recordings.filter((recording) => {
+    if (seen.has(recording.id)) return false;
+    seen.add(recording.id);
+    return true;
+  });
+}
+
+export function getLiveRecordingBatch(
+  data: InfiniteRecordingsData | undefined,
+): { recordingIds: string[]; recordings: RecordingSummary[] } {
+  const recordings = dedupeRecordingsById(
+    (data?.pages.flatMap((page) => page.recordings) ?? []).filter((recording) =>
+      isLiveRecordingUpload(recording),
+    ),
+  ).slice(0, MAX_LIVE_RECORDING_STATUS_IDS);
+  return {
+    recordingIds: recordings.map((recording) => recording.id),
+    recordings,
+  };
+}
+
+export function patchRecordingTitleInListData(
+  data: any,
+  recordingId: string,
+  title: string,
+  updatedAt: string,
+) {
+  const patchRecordings = (recordings: any[]) =>
+    recordings.map((recording) =>
+      recording?.id === recordingId
+        ? { ...recording, title, updatedAt }
+        : recording,
+    );
+
+  if (Array.isArray(data?.recordings)) {
+    return { ...data, recordings: patchRecordings(data.recordings) };
+  }
+
+  if (Array.isArray(data?.pages)) {
+    return {
+      ...data,
+      pages: data.pages.map((page: any) =>
+        Array.isArray(page?.recordings)
+          ? { ...page, recordings: patchRecordings(page.recordings) }
+          : page,
+      ),
+    };
+  }
+
+  return data;
 }
 
 export function recordingsRefetchInterval(
@@ -82,6 +163,95 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
   );
 }
 
+export function useInfiniteRecordings(
+  args: ListRecordingsArgs,
+  totalCount?: number,
+) {
+  const limit = args.limit ?? 20;
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ["action", "list-recordings", args, "infinite"] as const,
+    [args],
+  );
+  const query = useInfiniteQuery<RecordingPage>({
+    queryKey,
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      callAction<{ recordings: RecordingSummary[] }>(
+        "list-recordings",
+        { ...args, offset: pageParam },
+        { method: "GET", signal },
+      ),
+    getNextPageParam: (lastPage, pages) => {
+      const nextOffset = pages.length * limit;
+      if (typeof totalCount === "number") {
+        return nextOffset < totalCount ? nextOffset : undefined;
+      }
+      return lastPage.recordings.length >= limit ? nextOffset : undefined;
+    },
+  });
+
+  const liveRecordingBatch = useMemo(
+    () => getLiveRecordingBatch(query.data),
+    [query.data],
+  );
+  const liveRecordingQuery = useQuery({
+    queryKey: [
+      "action",
+      "list-recordings",
+      args,
+      "live-recordings",
+      liveRecordingBatch.recordingIds,
+    ],
+    enabled: liveRecordingBatch.recordingIds.length > 0,
+    queryFn: ({ signal }) =>
+      callAction<{ recordings: RecordingSummary[] }>(
+        "list-recordings",
+        {
+          ...args,
+          offset: 0,
+          limit: liveRecordingBatch.recordingIds.length,
+          recordingIds: liveRecordingBatch.recordingIds,
+        },
+        { method: "GET", signal },
+      ),
+    initialData: liveRecordingBatch.recordingIds.length
+      ? { recordings: liveRecordingBatch.recordings }
+      : undefined,
+    refetchInterval: (current) =>
+      recordingsRefetchInterval(current.state.data?.recordings),
+  });
+
+  useEffect(() => {
+    if (!liveRecordingQuery.isFetchedAfterMount) return;
+    const recordingsById = new Map(
+      (liveRecordingQuery.data?.recordings ?? []).map(
+        (recording) => [recording.id, recording] as const,
+      ),
+    );
+    if (recordingsById.size === 0) return;
+    queryClient.setQueryData<InfiniteRecordingsData>(queryKey, (current) => {
+      if (!current) return current;
+      let changed = false;
+      const pages = current.pages.map((page) => {
+        let pageChanged = false;
+        const recordings = page.recordings.map((recording) => {
+          const updated = recordingsById.get(recording.id);
+          if (!updated || updated === recording) return recording;
+          pageChanged = true;
+          return updated;
+        });
+        if (!pageChanged) return page;
+        changed = true;
+        return { ...page, recordings };
+      });
+      return changed ? { ...current, pages } : current;
+    });
+  }, [liveRecordingQuery, queryClient, queryKey]);
+
+  return query;
+}
+
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
 ) {
@@ -92,7 +262,8 @@ export function useRecordingsCount(
     "list-recordings",
     { ...normalizedArgs, countOnly: true } as any,
     {
-      select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
+      select: (data: any) =>
+        typeof data?.total === "number" ? data.total : undefined,
       retry: false,
       throwOnError: false,
     },
@@ -104,6 +275,7 @@ export interface SearchHit {
   title: string;
   description: string;
   thumbnailUrl: string | null;
+  trashedAt: string | null;
   durationMs: number;
   matchType:
     | "title-description"
@@ -150,6 +322,22 @@ export function useCreateSpace() {
       iconEmoji?: string | null;
     }
   >("create-space");
+}
+
+export function useCreateScreenshot() {
+  return useActionMutation<
+    { id: string; kind: "image"; imageUrl: string | null },
+    {
+      dataUrl: string;
+      width: number;
+      height: number;
+      title?: string;
+      sourceAppName?: string | null;
+      sourceWindowTitle?: string | null;
+      folderId?: string | null;
+      spaceIds?: string[];
+    }
+  >("create-screenshot");
 }
 
 export function useRenameFolder() {
@@ -199,24 +387,24 @@ export function useTagRecording() {
   >("tag-recording");
 }
 
-export function useOrganizationState(
+/**
+ * Keyed by the org id, defaulting to the caller's active org, so every caller
+ * shares one request per org. An unscoped key would keep serving the previous
+ * org's cached state across an org switch or after the last org is left.
+ */
+export function useOrganizationState<T = any>(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
-  const enabled = options.enabled ?? true;
-  const active = useActionQuery<any>("list-organization-state", undefined, {
-    enabled,
-  });
-  const needsOtherOrganization =
-    Boolean(organizationId) &&
-    active.isFetched &&
-    active.data?.organization?.id !== organizationId;
-  const other = useActionQuery<any>(
+  const { data: org } = useOrg();
+  const scopedOrganizationId = organizationId ?? org?.orgId ?? undefined;
+  return useActionQuery<T>(
     "list-organization-state",
-    { organizationId },
-    { enabled: enabled && needsOtherOrganization },
+    { organizationId: scopedOrganizationId },
+    {
+      enabled: (options.enabled ?? true) && Boolean(scopedOrganizationId),
+    },
   );
-  return needsOtherOrganization ? other : active;
 }
 
 export function useFolders(

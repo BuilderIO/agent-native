@@ -9,6 +9,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
     var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
     var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
+    var interactionMode = __INTERACTION_MODE__;
     var leftButtonEnabled = false;
     var temporarySpacePanEnabled = false;
     var forwardedSpaceKeyDown = false;
@@ -73,6 +74,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }
     }
     function onWheel(e) {
+      if (interactionMode) return;
       var zoomIntent = !!(e.ctrlKey || e.metaKey);
       if (!wheelEnabled && !zoomIntent) return;
       stopNativeInteraction(e);
@@ -138,7 +140,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }, 0);
     }
     function onPointerDown(e) {
-      if (activePointerId !== null || !shouldStartPan(e)) return;
+      if (interactionMode || activePointerId !== null || !shouldStartPan(e)) {
+        return;
+      }
       activePointerId = e.pointerId;
       activeButton = e.button === 1 ? 1 : 0;
       suppressClick = true;
@@ -188,7 +192,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       return !spaceKeyForwardingEnabled && editingSafetyEnabled && !!document.querySelector("[data-agent-native-editor-chrome-host]");
     }
     function onKeyDown(e) {
-      if (e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
+      if (interactionMode || e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
         return;
       }
       temporarySpacePanEnabled = true;
@@ -235,6 +239,17 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }
       if (e.data.type === "embedded-canvas-pan-mode") {
         leftButtonEnabled = !!e.data.leftButtonEnabled;
+        return;
+      }
+      if (e.data.type === "set-interaction-mode") {
+        interactionMode = e.data.interact === true;
+        if (interactionMode) {
+          cancelActivePan();
+          if (forwardedSpaceKeyDown) {
+            forwardedSpaceKeyDown = false;
+            postToParent({ type: "design-hotkey-up", key: " ", code: "Space" });
+          }
+        }
         return;
       }
       if (e.data.type === "embedded-canvas-gesture-mode") {

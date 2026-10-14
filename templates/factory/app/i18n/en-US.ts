@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -458,7 +453,10 @@ const messages = {
     automationSourceSentryHint: "Unresolved errors.",
     automationSlackChannel: "Slack channel id",
     automationSlackChannelDescription:
-      "The channel this job polls. Starts with C.",
+      "The Slack channel this job reads from or posts grouped findings to. Starts with C.",
+    automationFindingsSlackChannel: "Slack findings channel",
+    automationFindingsSlackChannelDescription:
+      "Eligible GitHub and Sentry findings are grouped into one message in this channel.",
     automationRepository: "GitHub repository",
     automationRepositoryDescription: "owner/repo this job polls.",
     automationSentryOrg: "Sentry organization",

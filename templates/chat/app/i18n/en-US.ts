@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "Remove {{name}}",
+    removeReference: "Remove {{name}} reference",
+  },
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -35,6 +34,10 @@ const messages = {
     recents: "Recents",
     retryPreviousRequest:
       "Retry my previous request now that the model provider is connected.",
+    invalidHandoffOptions:
+      "The prompt was saved as a draft, but its chat settings could not be restored. Review the prompt, context, and model before sending it again.",
+    recoveryDraftUnsaved:
+      "These draft changes aren't saved. Reloading this chat may lose them.",
     retryAttachmentUnavailable:
       "Chat can't reopen this attachment for retry. Add an accessible file URL, then retry.",
     renameChat: "Rename Chat",
@@ -46,12 +49,28 @@ const messages = {
     unpinChat: "Unpin Chat",
     untitledChat: "Untitled chat",
   },
+  home: {
+    communityDescription: "Join the Agent-Native community",
+    composerPlaceholder: "Call the hello action for Alex",
+    communityTitle: "Connect with us",
+    docsAddAction: "Add an action",
+    docsAddPage: "Add a page",
+    docsDescription: "Guides for actions, pages, and agents",
+    docsGettingStarted: "Getting started",
+    docsKeyConcepts: "Key concepts",
+    docsTitle: "Documentation",
+    editHint: "Edit {{file}} and save, then ask again to see the new greeting.",
+    lead: "Your app's UI and its agent share one set of actions.",
+    leadTry: "Ask the agent to call the hello action.",
+    title: "Get started",
+  },
   navigation: {
     chat: "Chat",
     collapseSidebar: "Collapse Sidebar",
     database: "Database",
     expandSidebar: "Expand Sidebar",
     extensions: "Extensions",
+    home: "Home",
     navigation: "Navigation",
     navigationDescription: "Main navigation",
     observability: "Observability",

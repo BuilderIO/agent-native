@@ -829,6 +829,7 @@ describe("calendar event listing", () => {
       "access-token",
       "team@example.com",
       "team-event",
+      undefined,
     );
     expect(result).toMatchObject({
       id: `google-${sourceKey}-team-event`,
@@ -2258,6 +2259,78 @@ describe("calendar RSVP updates", () => {
     ]);
   });
 
+  it("responds only to the supplied recurring occurrence for single scope", async () => {
+    await rsvpEvent(
+      "series-1_20261009T150000Z",
+      "declined",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "single",
+    );
+
+    expect(calendarGetEventMock).not.toHaveBeenCalled();
+    expect(calendarListEventsMock).not.toHaveBeenCalled();
+    expect(calendarPatchEventMock).toHaveBeenCalledExactlyOnceWith(
+      "access-token",
+      "primary",
+      "series-1_20261009T150000Z",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "declined",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+      undefined,
+    );
+  });
+
+  it("responds to the recurring series resolved from an occurrence for all scope", async () => {
+    calendarGetEventMock.mockResolvedValueOnce({
+      id: "series-1_20261009T150000Z",
+      recurringEventId: "series-1",
+    });
+
+    await rsvpEvent(
+      "series-1_20261009T150000Z",
+      "accepted",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "all",
+    );
+
+    expect(calendarGetEventMock).toHaveBeenCalledExactlyOnceWith(
+      "access-token",
+      "primary",
+      "series-1_20261009T150000Z",
+      undefined,
+    );
+    expect(calendarListEventsMock).not.toHaveBeenCalled();
+    expect(calendarPatchEventMock).toHaveBeenCalledExactlyOnceWith(
+      "access-token",
+      "primary",
+      "series-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+      undefined,
+    );
+  });
+
   it("includes the attendee response note when RSVP-ing", async () => {
     await rsvpEvent(
       "event-1",
@@ -2285,6 +2358,7 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "none" },
+      undefined,
     );
   });
 
@@ -2315,6 +2389,7 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "all" },
+      undefined,
     );
   });
 
@@ -2345,6 +2420,7 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "none" },
+      undefined,
     );
   });
 });

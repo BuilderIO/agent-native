@@ -24,6 +24,7 @@ import {
   saveProviderApiKey,
 } from "@/lib/agent-chat/api";
 import {
+  DEFAULT_CHAT_SETTINGS,
   formatMobileModelLabel,
   getMobileAgentId,
   getMobileModelGroups,
@@ -35,12 +36,9 @@ import type { ChatModelCatalog } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 
-const SETTINGS_KEY = "agent-native:chat-settings";
+export { DEFAULT_CHAT_SETTINGS };
 
-export const DEFAULT_CHAT_SETTINGS: AgentChatSettings = {
-  model: "gpt-5-6-luna",
-  effort: "high",
-};
+const SETTINGS_KEY = "agent-native:chat-settings";
 
 const EFFORT_OPTIONS: Array<{
   value: string | undefined;

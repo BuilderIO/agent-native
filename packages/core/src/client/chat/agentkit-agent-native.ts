@@ -1,3 +1,4 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
@@ -8,17 +9,40 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentRequestContext,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  agentEventSequenceEnd,
   isAgentKitProtocolVersion,
+  parseAgentQueuedMessage,
+  parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
+import {
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
+  projectRootAssistantMessages,
+} from "../../agent/thread-message-projection.js";
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  retryContextFromRequest,
+} from "../../shared/agent-chat-run-not-started.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../../shared/inline-bytes.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
+import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
   appendChatThreadScopeParams,
@@ -31,8 +55,11 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
+import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
+import { runOutcomeForCode } from "./run-outcome.js";
 import {
   createAgentNativeChatRuntime,
+  isAgentNativeChatRuntime,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -63,16 +90,76 @@ interface ActiveRunStatus {
   status?: unknown;
   runId?: unknown;
   awaitingRedispatch?: unknown;
+  terminalReason?: unknown;
+  turnId?: unknown;
 }
 
-const RUN_SLOT_TIMEOUT_MS = 5_000;
+interface SnapshotAnnotationConflict {
+  messageId: string;
+  annotationId?: string;
+  operation: "upsert" | "remove";
+}
+
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_READINESS_SOURCES = 128;
+const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_THREAD_SNAPSHOT_RETRIES = 2;
+const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function mergeStoredReasoningParts(
+  messageParts: AgentMessagePart[],
+  storedParts: AgentMessagePart[],
+): AgentMessagePart[] {
+  const storedReasoning = storedParts.filter(
+    (part): part is Extract<AgentMessagePart, { type: "reasoning" }> =>
+      part.type === "reasoning",
+  );
+  if (storedReasoning.length === 0) return messageParts;
+  const reasoningText = (parts: AgentMessagePart[]) =>
+    parts
+      .filter(
+        (part): part is Extract<AgentMessagePart, { type: "reasoning" }> =>
+          part.type === "reasoning",
+      )
+      .map((part) => part.text)
+      .join("");
+  if (reasoningText(messageParts) === reasoningText(storedReasoning)) {
+    return messageParts;
+  }
+  const withoutReasoning = messageParts.filter(
+    (part) => part.type !== "reasoning",
+  );
+  const firstTextIndex = withoutReasoning.findIndex(
+    (part) => part.type === "text",
+  );
+  const insertionIndex =
+    firstTextIndex < 0 ? withoutReasoning.length : firstTextIndex;
+  return [
+    ...withoutReasoning.slice(0, insertionIndex),
+    ...storedReasoning,
+    ...withoutReasoning.slice(insertionIndex),
+  ];
+}
+
+function latestSnapshotRunRecord(
+  runs: unknown,
+): Record<string, unknown> | undefined {
+  if (!Array.isArray(runs)) return undefined;
+  return runs.reduce<Record<string, unknown> | undefined>((latest, run) => {
+    const record = asRecord(run);
+    if (typeof record?.id !== "string") return latest;
+    if (!latest) return record;
+    const latestTime = latest.startedAt ?? latest.completedAt;
+    const runTime = record.startedAt ?? record.completedAt;
+    return latestTime && runTime && runTime < latestTime ? latest : record;
+  }, undefined);
 }
 
 function protocolTurnId(metadata: unknown): string | undefined {
@@ -82,6 +169,16 @@ function protocolTurnId(metadata: unknown): string | undefined {
   const observability = asRecord(native?.observability);
   return typeof observability?.turnId === "string"
     ? observability.turnId
+    : undefined;
+}
+
+function protocolInterruptedRunId(metadata: unknown): string | undefined {
+  const native = asRecord(
+    asRecord(metadata)?.[AGENT_NATIVE_PROTOCOL_METADATA_KEY],
+  );
+  const observability = asRecord(native?.observability);
+  return typeof observability?.interruptedRunId === "string"
+    ? observability.interruptedRunId
     : undefined;
 }
 
@@ -193,12 +290,66 @@ function messagePart(
         : typeof part.mimeType === "string"
           ? { mediaType: part.mimeType }
           : {}),
+      ...(part.omitted === "inline-bytes"
+        ? { omitted: "inline-bytes" as const }
+        : {}),
     };
   }
   return {
     type: "data",
     data: part,
     mediaType: "application/x-agent-native-repository-part",
+  };
+}
+
+function attachmentReferenceUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? value
+      : undefined;
+  } catch {
+    return value.startsWith("/") && !value.startsWith("//") ? value : undefined;
+  }
+}
+
+function storedAttachmentPart(value: unknown): AgentMessagePart | null {
+  const attachment = asRecord(value);
+  if (
+    !attachment ||
+    (attachment.type !== "file" && attachment.type !== "image")
+  ) {
+    return null;
+  }
+  const contentParts = Array.isArray(attachment.content)
+    ? attachment.content.map(asRecord).filter((part) => part !== null)
+    : [];
+  const reference = contentParts.find(
+    (part) =>
+      (part.type === "file" && typeof part.url === "string") ||
+      (part.type === "image" && typeof part.image === "string"),
+  );
+  const metadata = asRecord(attachment.metadata);
+  const url =
+    attachmentReferenceUrl(metadata?.uploadUrl) ??
+    attachmentReferenceUrl(reference?.url ?? reference?.image);
+  const name =
+    (typeof attachment.name === "string" && attachment.name) ||
+    (typeof reference?.filename === "string" && reference.filename) ||
+    attachment.type;
+  const fileId =
+    (typeof attachment.id === "string" && attachment.id) ||
+    (typeof reference?.fileId === "string" && reference.fileId);
+  const mediaType =
+    (typeof attachment.contentType === "string" && attachment.contentType) ||
+    (typeof reference?.mimeType === "string" && reference.mimeType);
+  return {
+    type: "file",
+    name,
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(mediaType ? { mediaType } : {}),
   };
 }
 
@@ -242,6 +393,11 @@ function storedMessages(
               .map((part) => messagePart(part, textFormat))
               .filter((part) => part !== null)
           : [];
+    const attachmentParts = Array.isArray(message.attachments)
+      ? message.attachments
+          .map(storedAttachmentPart)
+          .filter((part) => part !== null)
+      : [];
     return [
       {
         id:
@@ -249,7 +405,7 @@ function storedMessages(
             ? message.id
             : `repository-message-${index}`,
         role,
-        parts,
+        parts: [...parts, ...attachmentParts],
         createdAt: timestamp(message.createdAt, now()),
         ...(asRecord(message.metadata)
           ? { metadata: asRecord(message.metadata)! }
@@ -262,13 +418,347 @@ function storedMessages(
   });
 }
 
-function reconcileDurableAssistantText(
+function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
+  if (
+    left.role !== "user" ||
+    right.role !== "user" ||
+    !left.createdAt ||
+    !right.createdAt ||
+    Date.parse(left.createdAt) !== Date.parse(right.createdAt) ||
+    left.parts.length !== right.parts.length
+  ) {
+    return false;
+  }
+  return left.parts.every((part, index) => {
+    const other = right.parts[index];
+    if (!other || part.type !== other.type) return false;
+    if (part.type === "text" && other.type === "text") {
+      return part.text === other.text;
+    }
+    if (part.type !== "file" || other.type !== "file") return false;
+    const sameReference =
+      (part.fileId && other.fileId && part.fileId === other.fileId) ||
+      (part.url && other.url && part.url === other.url);
+    if (sameReference) return true;
+    if ((part.fileId && other.fileId) || (part.url && other.url)) return false;
+    return (
+      Boolean(part.name) &&
+      part.name === other.name &&
+      part.mediaType === other.mediaType
+    );
+  });
+}
+
+function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        message.status === "complete" &&
+        custom?.continued !== true &&
+        custom?.userStopped !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function userStoppedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        custom?.userStopped === true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
+  return new Map(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const error = asRecord(
+        asRecord(asRecord(message.metadata)?.custom)?.runError,
+      );
+      if (
+        message.role !== "assistant" ||
+        message.status !== "error" ||
+        typeof runId !== "string" ||
+        !error ||
+        typeof error.message !== "string"
+      ) {
+        return [];
+      }
+      return [
+        [
+          runId,
+          {
+            code:
+              typeof error.errorCode === "string"
+                ? error.errorCode
+                : "run_failed",
+            message: error.message,
+            ...(error.details !== undefined ? { details: error.details } : {}),
+            ...(typeof error.recoverable === "boolean"
+              ? { retryable: error.recoverable }
+              : {}),
+          },
+        ] as const,
+      ];
+    }),
+  );
+}
+
+/** The turn each durable prompt started, keyed by the run it was submitted to. */
+function durableSubmittedTurns(messages: AgentMessage[]): Map<string, string> {
+  return new Map(
+    messages.flatMap((message) => {
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "user" &&
+        typeof custom?.submittedRunId === "string" &&
+        typeof custom.submittedTurnId === "string"
+        ? [[custom.submittedRunId, custom.submittedTurnId] as const]
+        : [];
+    }),
+  );
+}
+
+/** The runs that left a durable reply on each turn. */
+function durableReplyRunsByTurn(
+  messages: AgentMessage[],
+): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>();
+  for (const message of messages) {
+    const turnId = asRecord(asRecord(message.metadata)?.custom)?.turnId;
+    if (message.role !== "assistant" || typeof turnId !== "string") continue;
+    const runIds = result.get(turnId) ?? new Set<string>();
+    for (const runId of durableRunIds(message)) runIds.add(runId);
+    result.set(turnId, runIds);
+  }
+  return result;
+}
+
+/** A durable reply's terminal run plus every continuation run folded into it. */
+function durableRunIds(message: AgentMessage): string[] {
+  const metadata = asRecord(message.metadata);
+  const folded = asRecord(metadata?.custom)?.foldedRunIds;
+  return [
+    ...new Set(
+      [metadata?.runId, ...(Array.isArray(folded) ? folded : [])].filter(
+        (id): id is string => typeof id === "string",
+      ),
+    ),
+  ];
+}
+
+const REFUSED_TURN_CUSTOM_KEYS = [
+  RUN_NOT_STARTED_METADATA_KEY,
+  "submittedRunId",
+  "submittedTurnId",
+] as const;
+
+/** The retry context of a refused prompt, bounded the way the server stores it. */
+function refusedTurnRetryContext(
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  return retryContextFromRequest({
+    metadata,
+    model: metadata?.model,
+    engine: metadata?.engine,
+    effort: metadata?.effort,
+    mode: metadata?.requestMode,
+  });
+}
+
+/**
+ * A snapshot copy of a prompt the server refused stands in for the durable one,
+ * and a client save keeps only a few markers of it, so the refusal marker and
+ * the retry context come from the durable message when the copy lacks them.
+ */
+function withRefusedTurnMetadata(
+  message: AgentMessage,
+  stored: AgentMessage,
+): AgentMessage {
+  const storedMetadata = asRecord(stored.metadata);
+  const storedCustom = asRecord(storedMetadata?.custom);
+  if (storedCustom?.[RUN_NOT_STARTED_METADATA_KEY] !== true) return message;
+  const metadata = asRecord(message.metadata);
+  const custom = asRecord(metadata?.custom);
+  return {
+    ...message,
+    metadata: {
+      ...refusedTurnRetryContext(storedMetadata),
+      ...metadata,
+      custom: {
+        ...Object.fromEntries(
+          REFUSED_TURN_CUSTOM_KEYS.flatMap((key) =>
+            storedCustom[key] === undefined ? [] : [[key, storedCustom[key]]],
+          ),
+        ),
+        ...custom,
+      },
+    },
+  };
+}
+
+function orderMessagesByDurableSequence(
+  snapshotMessages: AgentMessage[],
+  missingMessages: AgentMessage[],
+  durableMessages: AgentMessage[],
+  durableIndexById: Map<string, number>,
+  durableIdBySnapshotId: Map<string, string>,
+): AgentMessage[] {
+  const messageByDurableId = new Map(
+    missingMessages.map((message) => [message.id, message]),
+  );
+  const snapshotIdByDurableId = new Map<string, string>();
+  const durableIndexBySnapshotId = new Map<string, number>();
+  for (const message of snapshotMessages) {
+    const durableId =
+      durableIdBySnapshotId.get(message.id) ??
+      (durableIndexById.has(message.id) ? message.id : undefined);
+    const durableIndex = durableId
+      ? durableIndexById.get(durableId)
+      : undefined;
+    if (
+      !durableId ||
+      durableIndex === undefined ||
+      snapshotIdByDurableId.has(durableId)
+    ) {
+      continue;
+    }
+    snapshotIdByDurableId.set(durableId, message.id);
+    durableIndexBySnapshotId.set(message.id, durableIndex);
+    messageByDurableId.set(durableId, message);
+  }
+
+  if (snapshotIdByDurableId.size === 0) {
+    return [...snapshotMessages, ...missingMessages]
+      .map((message, index) => ({ message, index }))
+      .sort((left, right) => {
+        const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
+        const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
+        if (
+          Number.isFinite(leftCreatedAt) &&
+          Number.isFinite(rightCreatedAt) &&
+          leftCreatedAt !== rightCreatedAt
+        ) {
+          return leftCreatedAt - rightCreatedAt;
+        }
+        return left.index - right.index;
+      })
+      .map(({ message }) => message);
+  }
+
+  const insertions = new Map<number, AgentMessage[]>();
+  for (let index = 0; index < snapshotMessages.length; index += 1) {
+    const message = snapshotMessages[index]!;
+    if (durableIndexBySnapshotId.has(message.id)) continue;
+
+    let insertionIndex: number | undefined;
+    for (let next = index + 1; next < snapshotMessages.length; next += 1) {
+      const durableIndex = durableIndexBySnapshotId.get(
+        snapshotMessages[next]!.id,
+      );
+      if (durableIndex !== undefined) {
+        insertionIndex = durableIndex;
+        break;
+      }
+    }
+    if (insertionIndex === undefined) {
+      for (let previous = index - 1; previous >= 0; previous -= 1) {
+        const durableIndex = durableIndexBySnapshotId.get(
+          snapshotMessages[previous]!.id,
+        );
+        if (durableIndex !== undefined) {
+          insertionIndex = durableIndex + 1;
+          break;
+        }
+      }
+    }
+    if (insertionIndex === undefined) continue;
+    const messages = insertions.get(insertionIndex) ?? [];
+    messages.push(message);
+    insertions.set(insertionIndex, messages);
+  }
+
+  const ordered: AgentMessage[] = [];
+  for (let index = 0; index <= durableMessages.length; index += 1) {
+    ordered.push(...(insertions.get(index) ?? []));
+    const durableMessage = durableMessages[index];
+    if (!durableMessage) continue;
+    const projected = messageByDurableId.get(durableMessage.id);
+    if (projected) ordered.push(projected);
+  }
+  return ordered;
+}
+
+function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
   events: AgentThreadSnapshot["events"],
+  runs: AgentThreadSnapshot["runs"],
+  toolCalls: AgentThreadSnapshot["toolCalls"],
 ): AgentMessage[] {
+  const submittedRunId = (message: AgentMessage) => {
+    const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const submittedAgentKitMessageId = (message: AgentMessage) => {
+    const value = asRecord(
+      asRecord(message.metadata)?.custom,
+    )?.agentKitMessageId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const sameSubmittedPrompt = (
+    snapshot: AgentMessage,
+    stored: AgentMessage,
+  ) => {
+    const storedMessageId = submittedAgentKitMessageId(stored);
+    return (
+      (storedMessageId === undefined || storedMessageId === snapshot.id) &&
+      sameUserPrompt(snapshot, stored)
+    );
+  };
+  const submittedUsers = durable.filter(
+    (message) =>
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true &&
+      submittedRunId(message) !== undefined,
+  );
+  const submittedIds = new Set(submittedUsers.map((message) => message.id));
+  const durableIndexById = new Map(
+    durable.map((message, index) => [message.id, index]),
+  );
+  const submittedUsersByRun = new Map<string, AgentMessage | null>();
+  for (const stored of submittedUsers) {
+    const runId = submittedRunId(stored)!;
+    submittedUsersByRun.set(
+      runId,
+      submittedUsersByRun.has(runId) ? null : stored,
+    );
+  }
+  const submittedUsersByAgentKitMessageId = new Map<
+    string,
+    AgentMessage | null
+  >();
+  for (const stored of submittedUsers) {
+    const messageId = submittedAgentKitMessageId(stored);
+    if (!messageId) continue;
+    submittedUsersByAgentKitMessageId.set(
+      messageId,
+      submittedUsersByAgentKitMessageId.has(messageId) ? null : stored,
+    );
+  }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
+  const completedAssistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
     if (
       (event.type !== "message.created" &&
@@ -280,6 +770,24 @@ function reconcileDurableAssistantText(
     const ids = assistantIdsByRun.get(event.runId) ?? new Set<string>();
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
+    if (event.type === "message.completed") {
+      const completedIds =
+        completedAssistantIdsByRun.get(event.runId) ?? new Set<string>();
+      completedIds.add(event.message.id);
+      completedAssistantIdsByRun.set(event.runId, completedIds);
+    }
+  }
+  for (const value of runs ?? []) {
+    const run = asRecord(value);
+    if (
+      typeof run?.id !== "string" ||
+      typeof run.activeMessageId !== "string"
+    ) {
+      continue;
+    }
+    const ids = assistantIdsByRun.get(run.id) ?? new Set<string>();
+    ids.add(run.activeMessageId);
+    assistantIdsByRun.set(run.id, ids);
   }
   const runByAssistantId = new Map<string, string>();
   for (const [runId, ids] of assistantIdsByRun) {
@@ -292,44 +800,511 @@ function reconcileDurableAssistantText(
     if (typeof runId !== "string") continue;
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
+  const durableByFoldedRun = new Map<string, AgentMessage | null>();
+  for (const message of durable) {
+    if (message.role !== "assistant") continue;
+    for (const runId of durableRunIds(message)) {
+      durableByFoldedRun.set(
+        runId,
+        durableByFoldedRun.has(runId) ? null : message,
+      );
+    }
+  }
+  const textOf = (parts: AgentMessage["parts"]) =>
+    parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+  // A run that recovered an interrupted turn records only itself on its reply,
+  // while an open page streamed it into the run the prompt was submitted to.
+  // The recovering run's events open their own message, so the reply is on
+  // screen only when one of that run's messages is exactly it; anything less
+  // keeps the saved reply, so the answer is never dropped.
+  const submittedRunByTurn = new Map<string, string | null>();
+  for (const stored of submittedUsers) {
+    const turnId = asRecord(asRecord(stored.metadata)?.custom)?.submittedTurnId;
+    if (typeof turnId !== "string") continue;
+    submittedRunByTurn.set(
+      turnId,
+      submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
+    );
+  }
+  // A completed successor owns its turn, so discard a different completed
+  // answer from the submitted run while leaving partial output and other turns.
+  const supersededCompletedAssistantIds = new Set<string>();
+  for (const reply of durable) {
+    const metadata = asRecord(reply.metadata);
+    const custom = asRecord(metadata?.custom);
+    const turnId = custom?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    const replyRunId = metadata?.runId;
+    const replyText = textOf(reply.parts);
+    if (
+      reply.role !== "assistant" ||
+      reply.status !== "complete" ||
+      custom?.continued === true ||
+      typeof submitted !== "string" ||
+      typeof replyRunId !== "string" ||
+      replyRunId === submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted) ||
+      !replyText
+    ) {
+      continue;
+    }
+    for (const id of completedAssistantIdsByRun.get(submitted) ?? []) {
+      const snapshot = messages.find(
+        (message) => message.role === "assistant" && message.id === id,
+      );
+      if (snapshot && textOf(snapshot.parts) !== replyText) {
+        supersededCompletedAssistantIds.add(id);
+      }
+    }
+  }
+  const shownByInterruptedRun = (reply: AgentMessage) => {
+    const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    if (
+      !submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted)
+    ) {
+      return false;
+    }
+    const ids = assistantIdsByRun.get(submitted);
+    const replyText = textOf(reply.parts);
+    if (!ids || !replyText) return false;
+    return messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        ids.has(message.id) &&
+        textOf(message.parts) === replyText,
+    );
+  };
 
-  return messages.map((message) => {
+  const rootAssistantProjection = projectRootAssistantMessages({
+    rootMessages: durable,
+    snapshotMessages: messages,
+    events,
+    runs,
+    toolCalls,
+  });
+  const representedDurableAssistantIds =
+    rootAssistantProjection.representedRootMessageIds;
+  const snapshotRunIdsByMessageId =
+    rootAssistantProjection.snapshotRunIdsByMessageId;
+  const supersededSnapshotMessageIds =
+    rootAssistantProjection.supersededSnapshotMessageIds;
+  const snapshotRunId = (message: AgentMessage) => {
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    return (
+      runByAssistantId.get(message.id) ??
+      snapshotRunIdsByMessageId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined)
+    );
+  };
+  const snapshotAssistantsByRun = new Map<string, AgentMessage[]>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const runId = snapshotRunId(message);
+    if (!runId) continue;
+    const candidates = snapshotAssistantsByRun.get(runId) ?? [];
+    candidates.push(message);
+    snapshotAssistantsByRun.set(runId, candidates);
+  }
+  for (const [runId, candidates] of snapshotAssistantsByRun) {
+    const durableReply = durableByRun.get(runId);
+    const snapshotReply = candidates[0];
+    const eventMessageIds = assistantIdsByRun.get(runId);
+    const terminalRun = runs?.some(
+      (run) =>
+        run.id === runId &&
+        ["completed", "failed", "cancelled"].includes(run.status),
+    );
+    const durableMetadata = asRecord(durableReply?.metadata);
+    const snapshotText = snapshotReply ? textOf(snapshotReply.parts) : "";
+    const durableText =
+      durableReply?.role === "assistant" ? textOf(durableReply.parts) : "";
+    // A single event-associated message ID is the only safe identity when text diverges.
+    if (
+      durableReply?.role === "assistant" &&
+      durableReply.status === "complete" &&
+      durableMetadata?.runId === runId &&
+      durableRunIds(durableReply).length === 1 &&
+      asRecord(durableMetadata.custom)?.continued !== true &&
+      submittedUsersByRun.get(runId)?.role === "user" &&
+      terminalRun &&
+      candidates.length === 1 &&
+      snapshotReply &&
+      snapshotReply.id !== durableReply.id &&
+      eventMessageIds?.size === 1 &&
+      eventMessageIds.has(snapshotReply.id) &&
+      snapshotReply.parts.length > 0 &&
+      snapshotReply.parts.every((part) => part.type === "text") &&
+      durableReply.parts.length > 0 &&
+      durableReply.parts.every((part) => part.type === "text") &&
+      snapshotText.length > 0 &&
+      durableText.length > 0 &&
+      snapshotText !== durableText &&
+      !representedDurableAssistantIds.has(durableReply.id)
+    ) {
+      supersededSnapshotMessageIds.add(snapshotReply.id);
+    }
+  }
+  const rootMessageIdsBySnapshotMessageId = new Map(
+    [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
+      ([rootId, snapshotId]) => [snapshotId, rootId],
+    ),
+  );
+  const snapshotUserIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "user" ? [message.id] : [],
+    ),
+  );
+  const representedDurableUserIds = new Set(
+    [...submittedUsersByAgentKitMessageId].flatMap(([snapshotId, stored]) =>
+      stored && snapshotId !== stored.id && snapshotUserIds.has(snapshotId)
+        ? [stored.id]
+        : [],
+    ),
+  );
+  const deduplicatedMessages = messages.filter(
+    (message) =>
+      !(message.role === "user" && representedDurableUserIds.has(message.id)) &&
+      !representedDurableAssistantIds.has(message.id) &&
+      !supersededSnapshotMessageIds.has(message.id) &&
+      !supersededCompletedAssistantIds.has(message.id),
+  );
+
+  const representedSubmittedUserIds = new Set<string>();
+  const storedUserBySnapshotId = new Map<string, AgentMessage>();
+  const unmatchedSnapshotUsers: AgentMessage[] = [];
+  const representedAssistantIds = new Set(
+    deduplicatedMessages.flatMap((message) =>
+      message.role === "assistant" ? [message.id] : [],
+    ),
+  );
+  const snapshotAssistantRunIds = new Set<string>();
+  for (const message of deduplicatedMessages) {
+    if (
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true
+    ) {
+      const runId = submittedRunId(message);
+      const hasAgentKitMessageId = submittedUsersByAgentKitMessageId.has(
+        message.id,
+      );
+      const represented = hasAgentKitMessageId
+        ? submittedUsersByAgentKitMessageId.get(message.id)
+        : submittedIds.has(message.id)
+          ? durableById.get(message.id)
+          : runId
+            ? submittedUsersByRun.get(runId)
+            : undefined;
+      if (represented?.role === "user") {
+        representedSubmittedUserIds.add(represented.id);
+        storedUserBySnapshotId.set(message.id, represented);
+      } else if (!runId) {
+        unmatchedSnapshotUsers.push(message);
+      }
+    } else if (message.role === "assistant") {
+      const metadataRunId = asRecord(message.metadata)?.runId;
+      const runId =
+        typeof metadataRunId === "string"
+          ? metadataRunId
+          : (snapshotRunIdsByMessageId.get(message.id) ??
+            runByAssistantId.get(message.id));
+      if (runId) snapshotAssistantRunIds.add(runId);
+    }
+  }
+  const matchedSnapshotUserIds = new Set<string>();
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameSubmittedPrompt(snapshotUser, message),
+    );
+    if (candidates.length !== 1) continue;
+    const stored = candidates[0]!;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        sameSubmittedPrompt(message, stored),
+    );
+    if (matchingSnapshots.length !== 1) continue;
+    representedSubmittedUserIds.add(stored.id);
+    matchedSnapshotUserIds.add(snapshotUser.id);
+    storedUserBySnapshotId.set(snapshotUser.id, stored);
+  }
+  // ponytail: only collapse balanced indistinguishable prompt groups; use
+  // stable message IDs when the client exposes them for unequal groups.
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    if (matchedSnapshotUserIds.has(snapshotUser.id)) continue;
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameSubmittedPrompt(snapshotUser, message),
+    );
+    if (candidates.length < 2) continue;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        candidates.every((candidate) =>
+          sameSubmittedPrompt(message, candidate),
+        ),
+    );
+    if (matchingSnapshots.length !== candidates.length) continue;
+    for (const candidate of candidates) {
+      representedSubmittedUserIds.add(candidate.id);
+    }
+    for (const message of matchingSnapshots) {
+      matchedSnapshotUserIds.add(message.id);
+    }
+    for (let index = 0; index < matchingSnapshots.length; index += 1) {
+      storedUserBySnapshotId.set(
+        matchingSnapshots[index]!.id,
+        candidates[index]!,
+      );
+    }
+  }
+
+  const missingMessages: AgentMessage[] = submittedUsers.filter(
+    (message) => !representedSubmittedUserIds.has(message.id),
+  );
+  const completedRunIds = new Set([
+    ...(runs ?? [])
+      .filter((run) =>
+        ["completed", "failed", "cancelled"].includes(run.status),
+      )
+      .map((run) => run.id),
+    ...completedDurableRunIds(durable),
+  ]);
+  const durableAssistantRunIds = new Set(
+    durable.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        ["complete", "error"].includes(message.status ?? "") &&
+        custom?.continued !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+  const recoverableAssistantRunIds = new Set([
+    ...completedRunIds,
+    ...durableAssistantRunIds,
+  ]);
+  for (const message of durable) {
+    if (
+      message.role !== "assistant" ||
+      representedDurableAssistantIds.has(message.id) ||
+      representedAssistantIds.has(message.id)
+    ) {
+      continue;
+    }
+    const runId = asRecord(message.metadata)?.runId;
+    if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
+      continue;
+    }
+    if (shownByInterruptedRun(message)) continue;
+    missingMessages.push(message);
+    representedAssistantIds.add(message.id);
+  }
+
+  const durableIdBySnapshotId = new Map<string, string>();
+  for (const [snapshotId, stored] of storedUserBySnapshotId) {
+    durableIdBySnapshotId.set(snapshotId, stored.id);
+  }
+  for (const [snapshotId, rootId] of rootMessageIdsBySnapshotMessageId) {
+    durableIdBySnapshotId.set(snapshotId, rootId);
+  }
+  const projectedMessages = orderMessagesByDurableSequence(
+    deduplicatedMessages,
+    missingMessages.sort(
+      (left, right) =>
+        (durableIndexById.get(left.id) ?? 0) -
+        (durableIndexById.get(right.id) ?? 0),
+    ),
+    durable,
+    durableIndexById,
+    durableIdBySnapshotId,
+  );
+  const reconciledMessages = projectedMessages.map((message) => {
+    if (message.role === "user") {
+      const stored = storedUserBySnapshotId.get(message.id);
+      if (!stored) return message;
+      const createdAt = message.createdAt ?? stored.createdAt;
+      const reconciled =
+        createdAt === message.createdAt
+          ? message
+          : { ...message, ...(createdAt ? { createdAt } : {}) };
+      return withRefusedTurnMetadata(reconciled, stored);
+    }
     if (message.role !== "assistant") return message;
-    const runId = runByAssistantId.get(message.id);
-    const stored =
+    const representedRootId = rootMessageIdsBySnapshotMessageId.get(message.id);
+    const representedRoot = representedRootId
+      ? durableById.get(representedRootId)
+      : undefined;
+    if (representedRoot?.role === "assistant") {
+      const parts = mergeStoredReasoningParts(
+        message.parts,
+        representedRoot.parts,
+      );
+      const terminalStatus =
+        representedRoot.status === "complete" ||
+        representedRoot.status === "error"
+          ? representedRoot.status
+          : undefined;
+      const createdAt = message.createdAt ?? representedRoot.createdAt;
+      if (
+        parts !== message.parts ||
+        terminalStatus !== undefined ||
+        createdAt !== message.createdAt
+      ) {
+        message = {
+          ...message,
+          ...(parts !== message.parts ? { parts } : {}),
+          ...(createdAt ? { createdAt } : {}),
+          ...(terminalStatus ? { status: terminalStatus } : {}),
+        };
+      }
+    }
+    const runId = snapshotRunId(message);
+    const sameRunRoot = runId ? durableByRun.get(runId) : undefined;
+    if (
+      sameRunRoot &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.has(
+        sameRunRoot.id,
+      ) &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.get(
+        sameRunRoot.id,
+      ) !== message.id &&
+      !durableById.has(message.id)
+    ) {
+      return message;
+    }
+    const matched =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
+    // An earlier run of a folded reply is completed with the continuation text
+    // the page never saw, unless the page saved that continuation as its own
+    // message (folding it in would show it twice).
+    const folded =
+      matched || !runId ? undefined : durableByFoldedRun.get(runId);
+    const foldedTerminalRunId = asRecord(folded?.metadata)?.runId;
+    const stored =
+      matched ??
+      (typeof foldedTerminalRunId === "string" &&
+      snapshotAssistantRunIds.has(foldedTerminalRunId)
+        ? undefined
+        : folded);
     if (stored?.role !== "assistant") return message;
-    const lastPart = message.parts.at(-1);
-    if (lastPart && lastPart.type !== "text") return message;
-    const currentText = message.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
-    const storedText = stored.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
+    const foldedRunIds = durableRunIds(stored);
+    const spansRuns = foldedRunIds.length > 1;
+    const foldedGroup = spansRuns
+      ? projectedMessages.filter(
+          (candidate) =>
+            candidate.role === "assistant" &&
+            foldedRunIds.includes(snapshotRunId(candidate) ?? ""),
+        )
+      : [message];
+    const isFoldedTerminalProjection =
+      !spansRuns || foldedGroup.at(-1) === message;
+    const messageMetadata = asRecord(message.metadata);
+    const storedMetadata = asRecord(stored.metadata);
+    const messageCustom = asRecord(messageMetadata?.custom);
+    const storedCustom = asRecord(storedMetadata?.custom);
+    const metadata = storedMetadata
+      ? {
+          ...messageMetadata,
+          ...storedMetadata,
+          ...(messageCustom || storedCustom
+            ? { custom: { ...messageCustom, ...storedCustom } }
+            : {}),
+        }
+      : message.metadata;
+    const reconciledParts = isFoldedTerminalProjection
+      ? mergeStoredReasoningParts(message.parts, stored.parts)
+      : message.parts;
+    const reconciled =
+      stored === matched
+        ? {
+            ...message,
+            ...(reconciledParts !== message.parts
+              ? { parts: reconciledParts }
+              : {}),
+            ...(stored.status === "complete" || stored.status === "error"
+              ? { status: stored.status }
+              : {}),
+            ...(metadata ? { metadata } : {}),
+          }
+        : reconciledParts !== message.parts
+          ? { ...message, parts: reconciledParts }
+          : message;
+    const lastPart = reconciled.parts.at(-1);
+    if (lastPart && lastPart.type !== "text" && !spansRuns) return reconciled;
+    // Only the last message the page saved for a folded reply takes the
+    // continuation, and it is measured against everything the page saved.
+    if (spansRuns && foldedGroup.at(-1) !== message) return reconciled;
+    const currentText = textOf(foldedGroup.flatMap((entry) => entry.parts));
+    const storedText = textOf(stored.parts);
+    const orderedFoldedRunIds = [
+      ...new Set(
+        [
+          ...(Array.isArray(storedCustom?.foldedRunIds)
+            ? storedCustom.foldedRunIds
+            : []),
+          asRecord(stored.metadata)?.runId,
+        ].filter((id): id is string => typeof id === "string"),
+      ),
+    ];
+    const hasEarlierFoldedRun = orderedFoldedRunIds
+      .slice(0, -1)
+      .some((id) => snapshotAssistantRunIds.has(id));
+    if (
+      spansRuns &&
+      runId === asRecord(stored.metadata)?.runId &&
+      !hasEarlierFoldedRun &&
+      currentText.length > 0 &&
+      storedText.endsWith(currentText) &&
+      storedText.length > currentText.length
+    ) {
+      let replacedText = false;
+      const parts = reconciled.parts.map((part) => {
+        if (part.type !== "text") return part;
+        if (replacedText) return { ...part, text: "" };
+        replacedText = true;
+        return { ...part, text: storedText };
+      });
+      if (!replacedText) parts.push({ type: "text", text: storedText });
+      return { ...reconciled, parts };
+    }
     if (
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length
     ) {
-      return message;
+      return reconciled;
     }
     const suffix = storedText.slice(currentText.length);
-    const parts = [...message.parts];
-    if (!lastPart) {
-      parts.push({ type: "text", text: suffix });
-    } else {
+    const parts = [...reconciled.parts];
+    if (lastPart?.type === "text") {
       parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
+    } else {
+      parts.push({ type: "text", text: suffix });
     }
-    return { ...message, parts };
+    return { ...reconciled, parts };
   });
+  return reconciledMessages;
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
-  return value === "streaming" || value === "complete" || value === "error"
-    ? value
+  const status = asRecord(value)?.type ?? value;
+  if (status === "incomplete") return "error";
+  return status === "streaming" || status === "complete" || status === "error"
+    ? status
     : undefined;
 }
 
@@ -361,15 +1336,34 @@ function storedQueue(
               part?.type === "file",
           )
       : undefined;
+    const requestAttachments =
+      queued.requestAttachments === undefined
+        ? undefined
+        : parseAgentQueuedMessage({
+            id: queued.id,
+            threadId,
+            text: queued.text,
+            createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
+            requestAttachments: queued.requestAttachments,
+          }).requestAttachments;
     return {
       id: queued.id,
       threadId,
       text: queued.text,
       createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
       ...(attachments?.length ? { attachments } : {}),
+      ...(requestAttachments?.length ? { requestAttachments } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
+      ...(queued.options === undefined
+        ? {}
+        : {
+            options: parseAgentRunOptions(
+              queued.options,
+              `queuedMessages[${index}].options`,
+            ),
+          }),
     };
   });
 }
@@ -463,37 +1457,198 @@ function persistedAnnotations(
   );
 }
 
-function persistedFileUrl(url?: string): string | undefined {
-  return url && !/^\s*data:/i.test(url) ? url : undefined;
+function assistantMessageIdsByRun(
+  events: AgentThreadSnapshot["events"],
+): Map<string, string> {
+  const messageIdsByRun = new Map<string, Set<string>>();
+  for (const event of events ?? []) {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "assistant"
+    ) {
+      continue;
+    }
+    const messageIds = messageIdsByRun.get(event.runId) ?? new Set<string>();
+    messageIds.add(event.message.id);
+    messageIdsByRun.set(event.runId, messageIds);
+  }
+  const uniqueMessageIdsByRun = new Map<string, string>();
+  for (const [runId, messageIds] of messageIdsByRun) {
+    if (messageIds.size === 1) {
+      uniqueMessageIdsByRun.set(runId, [...messageIds][0]!);
+    }
+  }
+  return uniqueMessageIdsByRun;
 }
 
+function persistedFileUrl(url?: string): string | undefined {
+  if (
+    !url ||
+    /[\u0000-\u0020\u007f]/.test(url) ||
+    /[?#]/.test(url) ||
+    !URL.canParse(url)
+  ) {
+    return undefined;
+  }
+  const parsed = new URL(url);
+  if (
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    return undefined;
+  }
+  return parsed.href;
+}
+
+function persistedRetryRequestAttachments(value: unknown): Array<{
+  type: "image";
+  name: string;
+  contentType?: string;
+  url: string;
+  referenceUrl?: string;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    const attachment = asRecord(candidate);
+    if (
+      attachment?.type !== "image" ||
+      typeof attachment.name !== "string" ||
+      !attachment.name.trim()
+    ) {
+      return [];
+    }
+    const primaryUrl = persistedFileUrl(
+      typeof attachment.url === "string" ? attachment.url : undefined,
+    );
+    const referenceUrl = persistedFileUrl(
+      typeof attachment.referenceUrl === "string"
+        ? attachment.referenceUrl
+        : undefined,
+    );
+    const url = primaryUrl ?? referenceUrl;
+    if (!url) return [];
+    const contentType =
+      typeof attachment.contentType === "string" &&
+      /^image\/[a-z0-9.+-]+$/i.test(attachment.contentType)
+        ? attachment.contentType
+        : undefined;
+    return [
+      {
+        type: "image",
+        name: attachment.name,
+        ...(contentType ? { contentType } : {}),
+        url,
+        ...(referenceUrl && referenceUrl !== url ? { referenceUrl } : {}),
+      },
+    ];
+  });
+}
+
+const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
+const MAX_PERSISTED_EVENT_PREFIX_RANGES = 4_096;
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
-  const sequenceByRun = new Map<string, number>();
-  return events.flatMap((event): AgentEvent[] => {
+  const persisted: AgentEvent[] = [];
+  const seenRuns = new Set<string>();
+  let generatedPrefixRanges = 0;
+  const lastOmissionByRun = new Map<
+    string,
+    { index: number; firstSequence: number; lastSequence: number }
+  >();
+  for (const event of events) {
+    if (!seenRuns.has(event.runId)) {
+      seenRuns.add(event.runId);
+      const prefixRangeCount = Math.ceil(
+        Math.max(0, event.sequence - 1) / MAX_PERSISTED_EVENT_OMISSION_RANGE,
+      );
+      if (
+        generatedPrefixRanges + prefixRangeCount >
+        MAX_PERSISTED_EVENT_PREFIX_RANGES
+      ) {
+        throw new RangeError(
+          "Agent chat retained history prefix exceeds the supported omission range count.",
+        );
+      }
+      generatedPrefixRanges += prefixRangeCount;
+      for (
+        let firstSequence = 1;
+        firstSequence < event.sequence;
+        firstSequence += MAX_PERSISTED_EVENT_OMISSION_RANGE
+      ) {
+        const lastSequence = Math.min(
+          event.sequence - 1,
+          firstSequence + MAX_PERSISTED_EVENT_OMISSION_RANGE - 1,
+        );
+        const index = persisted.length;
+        persisted.push({
+          id: `persisted-history-prefix:${event.runId}:${firstSequence}`,
+          threadId: event.threadId,
+          runId: event.runId,
+          sequence: firstSequence,
+          occurredAt: event.occurredAt,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            lastSequence,
+            sourceType: "runtime_history_prefix",
+          },
+        } as AgentEvent);
+        lastOmissionByRun.set(event.runId, {
+          index,
+          firstSequence,
+          lastSequence,
+        });
+      }
+    }
     const base = () => {
-      const sequence = (sequenceByRun.get(event.runId) ?? 0) + 1;
-      sequenceByRun.set(event.runId, sequence);
       return {
         id: event.id,
         threadId: event.threadId,
         runId: event.runId,
-        sequence,
+        sequence: event.sequence,
         occurredAt: event.occurredAt,
       };
     };
     if (event.type === "run.started") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.completed" || event.type === "run.cancelled") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.failed") {
-      return [
-        { ...base(), type: event.type, error: persistedError(event.error) },
-      ];
+      persisted.push({
+        ...base(),
+        type: event.type,
+        error: persistedError(event.error),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.status") {
-      return [{ ...base(), type: event.type, status: event.status }];
+      persisted.push({ ...base(), type: event.type, status: event.status });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "x-agent-native.persisted-event-omission" ||
+      event.type === "x-agent-native.persisted-event-omission-range"
+    ) {
+      const index = persisted.length;
+      persisted.push(event);
+      lastOmissionByRun.set(event.runId, {
+        index,
+        firstSequence: event.sequence,
+        lastSequence: agentEventSequenceEnd(event),
+      });
+      continue;
     }
     if (
       event.type === "activity.started" ||
@@ -501,47 +1656,80 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       event.type === "activity.completed"
     ) {
       const activity = event.activity;
-      return [
-        {
-          ...base(),
-          type: event.type,
-          activity: {
-            id: activity.id,
-            kind: activity.kind,
-            label: activity.label,
-            status: activity.status,
-            ...(activity.runId ? { runId: activity.runId } : {}),
-            ...(activity.agentId ? { agentId: activity.agentId } : {}),
-            ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
-            ...(activity.completedAt
-              ? { completedAt: activity.completedAt }
-              : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        activity: {
+          id: activity.id,
+          kind: activity.kind,
+          label: activity.label,
+          status: activity.status,
+          ...(activity.runId ? { runId: activity.runId } : {}),
+          ...(activity.agentId ? { agentId: activity.agentId } : {}),
+          ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
+          ...(activity.completedAt
+            ? { completedAt: activity.completedAt }
+            : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (
       event.type === "message.completed" &&
       event.message.role === "assistant"
     ) {
-      return [
-        {
-          ...base(),
-          type: event.type,
-          message: {
-            id: event.message.id,
-            role: event.message.role,
-            parts: event.message.parts.filter((part) => part.type === "text"),
-            ...(event.message.createdAt
-              ? { createdAt: event.message.createdAt }
-              : {}),
-            ...(event.message.status ? { status: event.message.status } : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        message: {
+          id: event.message.id,
+          role: event.message.role,
+          parts: event.message.parts.filter((part) => part.type === "text"),
+          ...(event.message.createdAt
+            ? { createdAt: event.message.createdAt }
+            : {}),
+          ...(event.message.status ? { status: event.message.status } : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
-    return [];
-  });
+    const previous = lastOmissionByRun.get(event.runId);
+    if (
+      previous &&
+      event.sequence === previous.lastSequence + 1 &&
+      event.sequence - previous.firstSequence + 1 <=
+        MAX_PERSISTED_EVENT_OMISSION_RANGE
+    ) {
+      const omitted = persisted[previous.index];
+      if (omitted) {
+        persisted[previous.index] = {
+          ...omitted,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            ...(asRecord("payload" in omitted ? omitted.payload : undefined) ??
+              {}),
+            lastSequence: event.sequence,
+          },
+        } as AgentEvent;
+      }
+      previous.lastSequence = event.sequence;
+      continue;
+    }
+    const index = persisted.length;
+    persisted.push({
+      ...base(),
+      type: "x-agent-native.persisted-event-omission",
+      payload: { sourceType: event.type },
+    });
+    lastOmissionByRun.set(event.runId, {
+      index,
+      firstSequence: event.sequence,
+      lastSequence: event.sequence,
+    });
+  }
+  return persisted;
 }
 
 function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
@@ -577,15 +1765,16 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
         ];
       }
       if (part.type === "file") {
-        const url = persistedFileUrl(part.url);
-        if (!url && !part.fileId) return [];
+        const stored = persistableFilePart(part);
+        if (!stored.url && !stored.fileId && !stored.omitted) return [];
         return [
           {
             type: "file",
-            name: part.name,
-            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(url ? { url } : {}),
-            ...(part.fileId ? { fileId: part.fileId } : {}),
+            name: stored.name,
+            ...(stored.mediaType ? { mediaType: stored.mediaType } : {}),
+            ...(stored.url ? { url: stored.url } : {}),
+            ...(stored.fileId ? { fileId: stored.fileId } : {}),
+            ...(stored.omitted ? { omitted: stored.omitted } : {}),
           },
         ];
       }
@@ -593,10 +1782,218 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
     }),
     ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     ...(message.status ? { status: message.status } : {}),
-    ...(asRecord(message.metadata)?.hideUserMessage === true
-      ? { metadata: { hideUserMessage: true } }
-      : {}),
+    ...persistedMessageMetadata(message.metadata),
   }));
+}
+
+function queuedMessageFileParts(
+  queued: AgentQueuedMessage,
+): Extract<AgentMessagePart, { type: "file" }>[] {
+  const files = (queued.attachments ?? []).map(persistableFilePart);
+  const seenUrls = new Set(
+    files.flatMap((part) => (part.url ? [part.url] : [])),
+  );
+  for (const attachment of queued.requestAttachments ?? []) {
+    const url =
+      persistedFileUrl(attachment.referenceUrl) ??
+      persistedFileUrl(attachment.url);
+    if (url) {
+      if (!seenUrls.has(url)) {
+        files.push({
+          type: "file",
+          name: attachment.name,
+          ...(attachment.contentType
+            ? { mediaType: attachment.contentType }
+            : {}),
+          url,
+        });
+        seenUrls.add(url);
+      }
+      continue;
+    }
+    if (
+      attachment.data &&
+      !files.some(
+        (part) =>
+          part.name === attachment.name &&
+          part.mediaType === attachment.contentType,
+      )
+    ) {
+      files.push({
+        type: "file",
+        name: attachment.name,
+        ...(attachment.contentType
+          ? { mediaType: attachment.contentType }
+          : {}),
+        omitted: "inline-bytes",
+      });
+    }
+  }
+  return files;
+}
+
+function withQueuedMessageHistory(
+  messages: AgentMessage[],
+  queued: AgentQueuedMessage,
+): AgentMessage[] {
+  const existing = messages.find((message) => message.id === queued.id);
+  const parts = existing ? [...existing.parts] : [];
+  if (!parts.some((part) => part.type === "text")) {
+    parts.unshift({ type: "text", text: queued.text });
+  }
+  for (const file of queuedMessageFileParts(queued)) {
+    const alreadyPresent = parts.some(
+      (part) =>
+        part.type === "file" &&
+        (part.url === file.url ||
+          (part.name === file.name && part.mediaType === file.mediaType)),
+    );
+    if (!alreadyPresent) parts.push(file);
+  }
+  const message: AgentMessage = existing
+    ? { ...existing, role: "user", parts }
+    : {
+        id: queued.id,
+        role: "user",
+        parts,
+        createdAt: queued.createdAt,
+      };
+  return existing
+    ? messages.map((candidate) =>
+        candidate.id === queued.id ? message : candidate,
+      )
+    : [...messages, message];
+}
+
+/**
+ * Keep only fields needed to resume a failed or continued request after reload.
+ */
+function persistedMessageMetadata(
+  value: unknown,
+): { metadata: Record<string, unknown> } | Record<string, never> {
+  const metadata = asRecord(value);
+  const custom = asRecord(metadata?.custom);
+  const answeredRunId = custom?.agentNativeRecoveryOfRunId;
+  const refused = custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+  const refusedCustom = refused
+    ? Object.fromEntries(
+        REFUSED_TURN_CUSTOM_KEYS.flatMap((key) =>
+          custom[key] === undefined ? [] : [[key, custom[key]]],
+        ),
+      )
+    : {};
+  const retryRequestAttachments = persistedRetryRequestAttachments(
+    custom?.agentNativeRetryRequestAttachments,
+  );
+  const keptCustom = {
+    ...refusedCustom,
+    ...(typeof answeredRunId === "string" && answeredRunId
+      ? { agentNativeRecoveryOfRunId: answeredRunId }
+      : {}),
+    ...(retryRequestAttachments.length > 0
+      ? {
+          agentNativeRetryRequestAttachments: retryRequestAttachments,
+        }
+      : {}),
+  };
+  const selectionValue = (candidate: unknown): string | undefined => {
+    if (
+      typeof candidate !== "string" ||
+      candidate.length === 0 ||
+      candidate.length > 256 ||
+      /[\u0000-\u001f]/.test(candidate) ||
+      /^data:/i.test(candidate.trim())
+    ) {
+      return undefined;
+    }
+    return candidate;
+  };
+  const model = selectionValue(metadata?.model);
+  const engine = selectionValue(metadata?.engine);
+  const effort =
+    typeof metadata?.effort === "string" &&
+    [
+      "auto",
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ].includes(metadata.effort)
+      ? metadata.effort
+      : undefined;
+  const requestMode =
+    metadata?.requestMode === "act" || metadata?.requestMode === "plan"
+      ? metadata.requestMode
+      : undefined;
+  const kept = {
+    ...(refused ? refusedTurnRetryContext(metadata) : {}),
+    ...(metadata?.hideUserMessage === true ? { hideUserMessage: true } : {}),
+    ...(model ? { model } : {}),
+    ...(engine ? { engine } : {}),
+    ...(effort ? { effort } : {}),
+    ...(requestMode ? { requestMode } : {}),
+    ...(Object.keys(keptCustom).length > 0 ? { custom: keptCustom } : {}),
+  };
+  return Object.keys(kept).length > 0 ? { metadata: kept } : {};
+}
+
+function mergeStoredAndIncomingMessages(
+  stored: AgentMessage[],
+  incoming: AgentMessage[],
+): AgentMessage[] {
+  const messages = new Map(stored.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    messages.set(message.id, message);
+  }
+  return [...messages.values()];
+}
+
+function mergeLegacyRootMessages(
+  snapshotMessages: AgentMessage[],
+  legacyMessages: AgentMessage[],
+): AgentMessage[] {
+  const merged = [...snapshotMessages];
+  for (const message of legacyMessages) {
+    const createdAt = Date.parse(message.createdAt ?? "");
+    const index = merged.findIndex((candidate) => {
+      const candidateCreatedAt = Date.parse(candidate.createdAt ?? "");
+      return (
+        Number.isFinite(createdAt) &&
+        Number.isFinite(candidateCreatedAt) &&
+        candidateCreatedAt > createdAt
+      );
+    });
+    if (index === -1) merged.push(message);
+    else merged.splice(index, 0, message);
+  }
+  return merged;
+}
+
+function mergeStoredAndIncomingToolCalls(
+  stored: AgentToolCall[],
+  incoming: AgentToolCall[],
+): AgentToolCall[] {
+  const toolCalls = new Map(stored.map((toolCall) => [toolCall.id, toolCall]));
+  for (const toolCall of incoming) {
+    toolCalls.set(toolCall.id, toolCall);
+  }
+  return [...toolCalls.values()];
+}
+
+function mergeStoredAndIncomingWidgets(
+  stored: AgentWidgetSnapshot[],
+  incoming: AgentWidgetSnapshot[],
+): AgentWidgetSnapshot[] {
+  const widgets = new Map(
+    stored.map((snapshot) => [snapshot.widget.id, snapshot]),
+  );
+  for (const snapshot of incoming) {
+    widgets.set(snapshot.widget.id, snapshot);
+  }
+  return [...widgets.values()];
 }
 
 function persistedActionWidgets(
@@ -655,6 +2052,88 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
       },
     ];
   });
+}
+
+function changedSnapshotEntries<T>(
+  incoming: T[],
+  previous: unknown,
+  getId: (entry: T) => string | undefined,
+): T[] {
+  const previousById = new Map<string, unknown>();
+  for (const entry of Array.isArray(previous) ? previous : []) {
+    const id = getId(entry as T);
+    if (id) previousById.set(id, entry);
+  }
+  return incoming.filter((entry) => {
+    const id = getId(entry);
+    if (!id || !previousById.has(id)) return true;
+    return JSON.stringify(previousById.get(id)) !== JSON.stringify(entry);
+  });
+}
+
+function samePersistedMessageContent(
+  left: AgentMessage,
+  right: AgentMessage,
+): boolean {
+  return (
+    left.role === right.role &&
+    JSON.stringify(left.parts) === JSON.stringify(right.parts) &&
+    JSON.stringify(left.status) === JSON.stringify(right.status) &&
+    JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
+  );
+}
+
+function snapshotEntryId(value: unknown): string | undefined {
+  const entry = asRecord(value);
+  return typeof entry?.id === "string" ? entry.id : undefined;
+}
+
+function snapshotWidgetId(value: unknown): string | undefined {
+  const entry = asRecord(value);
+  const widget = asRecord(entry?.widget);
+  return typeof widget?.id === "string" ? widget.id : undefined;
+}
+
+function snapshotAnnotationKey(value: unknown): string {
+  const entry = asRecord(value);
+  const annotation = asRecord(entry?.annotation);
+  return typeof annotation?.id === "string"
+    ? JSON.stringify(["id", annotation.id])
+    : JSON.stringify(["value", value]);
+}
+
+function persistedChatJson(
+  value: unknown,
+  label: string,
+  policy: "placeholder" | "reject" = "placeholder",
+): string {
+  const safe = stripInlineBytes(value, policy);
+  assertNoInlineImageBytes(safe, label);
+  return JSON.stringify(safe);
+}
+
+function threadSnapshotBody(input: {
+  stored: StoredThread;
+  title?: string;
+  snapshotMessages: AgentMessage[];
+  agentKit: Record<string, unknown>;
+}): string {
+  const threadData = persistedChatJson(
+    { messages: [], agentKit: input.agentKit },
+    "thread snapshot thread_data",
+  );
+  return persistedChatJson(
+    {
+      threadData,
+      title:
+        input.title ??
+        (typeof input.stored.title === "string" ? input.stored.title : ""),
+      preview:
+        typeof input.stored.preview === "string" ? input.stored.preview : "",
+      messageCount: input.snapshotMessages.length,
+    },
+    "thread snapshot request",
+  );
 }
 
 function storedMessageId(value: unknown): string | undefined {
@@ -722,6 +2201,14 @@ function storedActionWidgets(value: unknown): {
 }
 
 async function responseError(response: Response): Promise<Error> {
+  if (response.status === 413) {
+    return Object.assign(new Error(CHAT_REQUEST_TOO_LARGE_MESSAGE), {
+      code: "http_413",
+      status: response.status,
+      retryable: false,
+    });
+  }
+
   let body: string;
   try {
     body = await response.text();
@@ -760,22 +2247,35 @@ async function responseError(response: Response): Promise<Error> {
               : undefined;
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
-  const error = new Error(
-    nestedMessage ??
-      (body.trim() || `Agent chat request failed with ${response.status}.`),
-  );
+  const activeRunId =
+    (typeof data?.activeRunId === "string" && data.activeRunId) ||
+    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
+    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+  const code =
+    (typeof data?.code === "string" && data.code) ||
+    (typeof payload?.code === "string" && payload.code) ||
+    (typeof payload?.errorCode === "string" && payload.errorCode) ||
+    (typeof nestedError?.code === "string" && nestedError.code) ||
+    (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
+    httpErrorCode(response.status);
+  const runSlotBusy = response.status === 409 && code === "run_slot_busy";
+  const error = runSlotBusy
+    ? new AgentKitRunSlotBusyError(
+        typeof activeRunId === "string" ? activeRunId : undefined,
+      )
+    : new Error(
+        nestedMessage ??
+          (body.trim() || `Agent chat request failed with ${response.status}.`),
+      );
   Object.assign(error, {
-    code:
-      (typeof data?.code === "string" && data.code) ||
-      (typeof payload?.code === "string" && payload.code) ||
-      (typeof payload?.errorCode === "string" && payload.errorCode) ||
-      (typeof nestedError?.code === "string" && nestedError.code) ||
-      httpErrorCode(response.status),
+    ...(nestedMessage ? { message: nestedMessage } : {}),
+    code,
     status: response.status,
     retryable:
       typeof explicitRetryable === "boolean"
         ? explicitRetryable
         : isRetryableHttpStatus(response.status),
+    ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -797,6 +2297,70 @@ function httpErrorCode(status: number): string {
 
 function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
+}
+
+function throwIfRequestAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The AgentKit request was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
+function waitForSnapshotRetry(
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfRequestAborted(signal);
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      const error = new Error("The AgentKit request was aborted.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    timer = setTimeout(
+      () => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      100 * 2 ** attempt,
+    );
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+function snapshotAnnotationConflicts(
+  value: unknown,
+): SnapshotAnnotationConflict[] {
+  const response = asRecord(value);
+  if (!response || response.ok !== true) {
+    throw new TypeError("Agent chat thread save response must be an object.");
+  }
+  if (response.annotationConflicts === undefined) return [];
+  if (!Array.isArray(response.annotationConflicts)) {
+    throw new TypeError("Agent chat annotation conflicts must be an array.");
+  }
+  return response.annotationConflicts.map((value) => {
+    const conflict = asRecord(value);
+    if (
+      typeof conflict?.messageId !== "string" ||
+      (conflict.operation !== "upsert" && conflict.operation !== "remove") ||
+      (conflict.annotationId !== undefined &&
+        typeof conflict.annotationId !== "string")
+    ) {
+      throw new TypeError("Agent chat annotation conflict is invalid.");
+    }
+    return {
+      messageId: conflict.messageId,
+      ...(typeof conflict.annotationId === "string"
+        ? { annotationId: conflict.annotationId }
+        : {}),
+      operation: conflict.operation,
+    };
+  });
 }
 
 function scopedThreadEndpoint(
@@ -823,7 +2387,63 @@ export function createAgentNativeAgentKitTransport(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
+  const promotionClaimIds = new Map<string, string>();
+  const durableAssistantMessageIdsByRun = new Map<string, string | null>();
+  const assistantHistoryMessageIdsByRun = new Map<string, string>();
+  const readinessSourcesBySession = new Map<
+    string,
+    {
+      statusUrl: string;
+      fetch: typeof fetch;
+      headers: () => Promise<Headers>;
+    }
+  >();
   let transport: AgentKitProtocolAdapter;
+
+  function promotionClaimId(threadId: string, messageId: string): string {
+    const key = JSON.stringify([threadId, messageId]);
+    let claimId = promotionClaimIds.get(key);
+    if (!claimId) {
+      const suffix =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      claimId = `queue-claim-${suffix}`;
+      promotionClaimIds.set(key, claimId);
+    }
+    return claimId;
+  }
+
+  function clearPromotionClaimId(threadId: string, messageId: string): void {
+    promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
+  }
+
+  async function assertAiSetupReady(
+    input: { engine?: string; threadId?: string },
+    _context?: AgentRequestContext,
+  ): Promise<void> {
+    const sessionId = input.threadId ?? options.threadId;
+    const sessionKey = sessionId ?? "";
+    let source = readinessSourcesBySession.get(sessionKey);
+    if (!source) {
+      if (readinessSourcesBySession.size >= MAX_READINESS_SOURCES) {
+        const oldestSession = readinessSourcesBySession.keys().next().value;
+        if (oldestSession !== undefined) {
+          readinessSourcesBySession.delete(oldestSession);
+        }
+      }
+      source = {
+        statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+        fetch: fetcher,
+        headers: () => headers({ sessionId }),
+      };
+      readinessSourcesBySession.set(sessionKey, source);
+    }
+    return requireAgentEngineConfiguredForDispatch({
+      engine: input.engine ?? options.engine,
+      source,
+    });
+  }
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
@@ -833,14 +2453,21 @@ export function createAgentNativeAgentKitTransport(
     return new Headers(configured);
   }
 
-  async function fetchThread(threadId: string): Promise<StoredThread | null> {
+  async function fetchThread(
+    threadId: string,
+    signal?: AbortSignal,
+  ): Promise<StoredThread | null> {
+    throwIfRequestAborted(signal);
+    const requestHeaders = await headers({ sessionId: threadId });
+    throwIfRequestAborted(signal);
     const response = await fetcher(
       scopedThreadEndpoint(
         `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
         options,
       ),
-      { headers: await headers({ sessionId: threadId }) },
+      { headers: requestHeaders, signal },
     );
+    throwIfRequestAborted(signal);
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
@@ -858,17 +2485,51 @@ export function createAgentNativeAgentKitTransport(
     const createdAt = timestamp(stored.createdAt, projectedAt);
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
+    const agentKit = asRecord(repository.agentKit);
+    const failedRunIds = failedRunIdsWithError(agentKit?.runs);
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
       options.adapter?.textFormat,
+    ).filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
     );
     const queuedMessages = storedQueue(
       repository.queuedMessages,
       threadId,
       updatedAt,
     );
-    const agentKit = asRecord(repository.agentKit);
+    const agentKitMessages = Array.isArray(agentKit?.messages)
+      ? (agentKit.messages as AgentMessage[])
+      : undefined;
+    const agentKitMessageIds = new Set(
+      agentKitMessages?.map((message) => message.id) ?? [],
+    );
+    const legacyRootMessages = storedMessageProjection.filter((message) => {
+      if (agentKitMessageIds.has(message.id)) return false;
+      const metadata = asRecord(message.metadata);
+      const custom = asRecord(metadata?.custom);
+      if (
+        typeof metadata?.runId === "string" ||
+        typeof custom?.submittedRunId === "string" ||
+        typeof custom?.agentKitMessageId === "string"
+      ) {
+        return false;
+      }
+      return !message.parts.some((part) => {
+        if (part.type !== "data") return false;
+        const repositoryPart = asRecord(part.data);
+        return repositoryPart?.type === "tool-call";
+      });
+    });
+    const mergeAllStoredMessages =
+      agentKit?._mergeRootMessages === true || agentKitMessages?.length === 0;
+    const messagesWithLegacyRoot =
+      agentKitMessages &&
+      agentKit?._mergeRootMessages !== true &&
+      agentKitMessages.length > 0
+        ? mergeLegacyRootMessages(agentKitMessages, legacyRootMessages)
+        : undefined;
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
           id: threadId,
@@ -876,8 +2537,13 @@ export function createAgentNativeAgentKitTransport(
           createdAt,
           updatedAt,
           metadata: asRecord(stored.metadata) ?? undefined,
-          messages: Array.isArray(agentKit.messages)
-            ? agentKit.messages
+          messages: agentKitMessages
+            ? mergeAllStoredMessages
+              ? mergeStoredAndIncomingMessages(
+                  storedMessageProjection,
+                  agentKitMessages,
+                )
+              : (messagesWithLegacyRoot ?? agentKitMessages)
             : storedMessageProjection,
           events: agentKit.events,
           runs: agentKit.runs,
@@ -889,16 +2555,14 @@ export function createAgentNativeAgentKitTransport(
           annotations: agentKit.annotations,
         })
       : undefined;
-    const durableMessages = storedMessages(
-      repository.messages,
-      now,
-      options.adapter?.textFormat,
-    );
+    const durableMessages = storedMessageProjection;
     const messages = protocolSnapshot?.messages
-      ? reconcileDurableAssistantText(
+      ? reconcileDurableMessages(
           protocolSnapshot.messages,
           durableMessages,
           protocolSnapshot.events,
+          protocolSnapshot.runs,
+          protocolSnapshot.toolCalls ?? [],
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -1012,9 +2676,7 @@ export function createAgentNativeAgentKitTransport(
     return stored ? projectThread(threadId, stored) : null;
   }
 
-  async function activeRunSnapshot(
-    threadId: string,
-  ): Promise<AgentRunSnapshot | undefined> {
+  async function activeRunStatus(threadId: string): Promise<ActiveRunStatus> {
     const response = await fetcher(
       `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       { headers: await headers({ sessionId: threadId }) },
@@ -1024,84 +2686,391 @@ export function createAgentNativeAgentKitTransport(
     if (!value) {
       throw new TypeError("Agent chat active-run response must be an object.");
     }
+    return value;
+  }
+
+  async function activeRunSnapshot(
+    threadId: string,
+    value: ActiveRunStatus,
+  ): Promise<AgentRunSnapshot | null | undefined> {
     const status = value.status;
-    if (
-      value.active !== true ||
-      typeof value.runId !== "string" ||
-      !value.runId ||
-      status === "completed" ||
-      status === "complete" ||
-      status === "failed" ||
-      status === "cancelled"
-    ) {
-      return undefined;
+    if (typeof value.active !== "boolean") return undefined;
+    // An idle thread has no run; a run that just finished keeps its id and
+    // status for replay even though it is no longer `active`.
+    if (value.active === false && (status === "idle" || !value.runId)) {
+      return null;
     }
-    const runStatus: AgentRunSnapshot["status"] =
+    if (typeof value.runId !== "string" || !value.runId) {
+      throw new TypeError(
+        "Agent chat active-run response must include an active run ID.",
+      );
+    }
+    let runStatus: AgentRunSnapshot["status"];
+    let error: AgentRunSnapshot["error"];
+    const terminalReason =
+      typeof value.terminalReason === "string"
+        ? value.terminalReason
+        : undefined;
+    const legacyTruncated =
+      status === "truncated" ||
+      (["complete", "completed"].includes(String(status)) &&
+        terminalReason !== undefined &&
+        terminalReason !== "done");
+    if (legacyTruncated && value.awaitingRedispatch === true) {
+      runStatus = "running";
+    } else if (legacyTruncated) {
+      runStatus = "failed";
+      error = {
+        code:
+          terminalReason && terminalReason !== "done"
+            ? terminalReason.startsWith("error:")
+              ? terminalReason.slice("error:".length)
+              : terminalReason
+            : "run_truncated",
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server stopped the run before it confirmed completion.",
+        retryable: true,
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
+    } else if (status === "complete" || status === "completed") {
+      runStatus = "completed";
+    } else if (status === "failed" || status === "errored") {
+      runStatus = "failed";
+      error = {
+        code: terminalReason?.startsWith("error:")
+          ? terminalReason.slice("error:".length)
+          : (terminalReason ?? "run_failed"),
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server reported that this run failed.",
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
+    } else if (status === "cancelled" || status === "aborted") {
+      runStatus = "cancelled";
+    } else if (status === "truncated") {
+      runStatus = "failed";
+      error = {
+        code: "run_truncated",
+        message: "The server stopped the run before it confirmed completion.",
+        retryable: true,
+      };
+    } else if (
       status === "queued" ||
       status === "running" ||
       status === "awaiting_approval" ||
       status === "awaiting_input"
-        ? status
-        : "running";
+    ) {
+      runStatus = status;
+    } else {
+      throw new TypeError(
+        "Agent chat active-run response has an invalid status.",
+      );
+    }
+    const localRun = await protocolTransport.getRun?.({
+      threadId,
+      runId: value.runId,
+    });
+    if (
+      localRun?.status === "awaiting_approval" ||
+      localRun?.status === "awaiting_input"
+    ) {
+      // The Core turn can be terminal while the protocol run still owns a
+      // pending approval or input request and its resumable event stream.
+      runStatus = localRun.status;
+      error = undefined;
+    }
     return {
-      id: value.runId,
+      id: localRun?.id ?? value.runId,
       threadId,
       status: runStatus,
       // The durable SSE endpoint replays from its first event when a browser
       // has no saved AgentKit cursor; the protocol adapter rebuilds the log.
       lastSequence: 0,
+      ...(error ? { error } : {}),
     };
   }
 
   async function threadSnapshotWithActiveRun(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
-    const thread = await snapshot(threadId);
-    if (!thread || options.runtime) return thread;
-    const activeRun = await activeRunSnapshot(threadId);
-    if (!activeRun) return thread;
-    const runs = [
-      ...(thread.runs ?? []).filter((entry) => entry.id !== activeRun.id),
-      activeRun,
-    ];
+    const stored = await fetchThread(threadId);
+    const thread = stored ? projectThread(threadId, stored) : null;
+    if (!stored || !thread) return thread;
+    const repository = storedRepository(stored);
+    const durableMessages = storedMessages(
+      repository.messages,
+      now,
+      options.adapter?.textFormat,
+    );
+    for (const message of durableMessages) {
+      if (message.role !== "assistant") continue;
+      const foldedRunIds = durableRunIds(message);
+      if (foldedRunIds.length < 2) continue;
+      for (const runId of foldedRunIds) {
+        const previous = durableAssistantMessageIdsByRun.get(runId);
+        durableAssistantMessageIdsByRun.set(
+          runId,
+          previous === undefined || previous === message.id ? message.id : null,
+        );
+      }
+    }
+    for (const [runId, messageId] of assistantMessageIdsByRun(thread.events)) {
+      assistantHistoryMessageIdsByRun.set(runId, messageId);
+    }
+    const runsWithAssistantHistory = (thread.runs ?? []).map((run) => {
+      const activeMessageId =
+        run.activeMessageId ?? assistantHistoryMessageIdsByRun.get(run.id);
+      return activeMessageId ? { ...run, activeMessageId } : run;
+    });
+    const assistantMessageIds = new Set(
+      thread.messages.flatMap((message) =>
+        message.role === "assistant" ? [message.id] : [],
+      ),
+    );
+    for (const run of runsWithAssistantHistory) {
+      if (
+        typeof run.activeMessageId === "string" &&
+        assistantMessageIds.has(run.activeMessageId)
+      ) {
+        assistantHistoryMessageIdsByRun.set(run.id, run.activeMessageId);
+      }
+    }
+    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
+      return thread;
+    }
+    const completedRunIds = completedDurableRunIds(durableMessages);
+    const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
+    const durableFailures = durableRunFailures(durableMessages);
+    const activeStatus = await activeRunStatus(threadId);
+    const activeRun = await activeRunSnapshot(threadId, activeStatus);
+    if (activeRun === undefined) return thread;
+    let discoveredRun = activeRun;
+    if (discoveredRun && !discoveredRun.activeMessageId) {
+      const activeMessageId = assistantHistoryMessageIdsByRun.get(
+        discoveredRun.id,
+      );
+      if (activeMessageId) {
+        discoveredRun = { ...discoveredRun, activeMessageId };
+      }
+    }
+    if (discoveredRun?.status === "failed") {
+      const durableFailure = durableFailures.get(discoveredRun.id);
+      if (durableFailure) {
+        discoveredRun = {
+          ...discoveredRun,
+          error: { ...discoveredRun.error, ...durableFailure },
+        };
+      }
+    }
+    const knownActiveRunId =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? discoveredRun.id
+        : undefined;
+    const submittedTurns = durableSubmittedTurns(durableMessages);
+    const replyRunsByTurn = durableReplyRunsByTurn(durableMessages);
+    const discoveredTurnId =
+      typeof activeStatus.turnId === "string" ? activeStatus.turnId : undefined;
+    // The stale-run reaper hands an interrupted turn to a successor run, which
+    // then owns the turn's outcome: the server reports it, or it completed a
+    // reply. A successor that failed or was stopped leaves the failure showing.
+    const carriedOnByNewerRun = (runId: string) => {
+      const turnId = submittedTurns.get(runId);
+      if (!turnId) return false;
+      if (discoveredRun && discoveredTurnId === turnId) return true;
+      return [...(replyRunsByTurn.get(turnId) ?? [])].some(
+        (id) => id !== runId && completedRunIds.has(id),
+      );
+    };
+    const runs = runsWithAssistantHistory
+      .filter((entry) => entry.id !== discoveredRun?.id)
+      .map((run) => {
+        if (
+          (["queued", "running"].includes(run.status) ||
+            (run.status === "failed" &&
+              runOutcomeForCode(run.error?.code) === "interrupted")) &&
+          carriedOnByNewerRun(run.id)
+        ) {
+          const { error: _error, ...attempt } = run;
+          return { ...attempt, status: "completed" as const };
+        }
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          userStoppedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "cancelled" as const };
+        }
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          completedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "completed" as const };
+        }
+        if (
+          activeRun !== undefined &&
+          run.id !== knownActiveRunId &&
+          ![
+            "completed",
+            "failed",
+            "cancelled",
+            "awaiting_approval",
+            "awaiting_input",
+          ].includes(run.status)
+        ) {
+          return {
+            ...run,
+            status: "failed" as const,
+            error: {
+              ...(durableFailures.get(run.id) ?? {
+                code: "run_state_unavailable",
+                message:
+                  "The server no longer reports this run as active, so its final result could not be confirmed.",
+                retryable: true,
+              }),
+            },
+          };
+        }
+        return run;
+      });
+    if (discoveredRun) runs.push(discoveredRun);
+    const activeRunIds =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? [discoveredRun.id]
+        : activeRun === null
+          ? runs
+              .filter((run) =>
+                ["awaiting_approval", "awaiting_input"].includes(run.status),
+              )
+              .map((run) => run.id)
+          : [];
+    const failedRunIds = failedRunIdsWithError(runs);
+    const messages = reconcileDurableMessages(
+      thread.messages,
+      durableMessages.filter(
+        (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+      ),
+      thread.events,
+      runs,
+      thread.toolCalls,
+    );
+    const replayFromStart = [
+      "running",
+      "awaiting_approval",
+      "awaiting_input",
+    ].includes(discoveredRun?.status ?? "");
+    const replayedMessageIds = new Set<string>();
+    for (const event of thread.events ?? []) {
+      if (
+        event.runId === discoveredRun?.id &&
+        (event.type === "message.created" ||
+          event.type === "message.completed") &&
+        event.message.role === "assistant"
+      ) {
+        replayedMessageIds.add(event.message.id);
+      }
+    }
+    const messagesForReplay = replayFromStart
+      ? messages.filter((message) => {
+          if (message.role !== "assistant") return true;
+          return !(
+            durableRunIds(message).includes(discoveredRun?.id ?? "") ||
+            replayedMessageIds.has(message.id) ||
+            (message.status === "streaming" &&
+              typeof asRecord(message.metadata)?.runId !== "string")
+          );
+        })
+      : messages;
     return {
       ...thread,
+      // Replay starts at sequence zero, so rebuild an active assistant instead
+      // of appending the same prefix to its persisted partial projection.
+      messages: messagesForReplay,
       runs,
-      activeRunIds: [
-        ...new Set([...(thread.activeRunIds ?? []), activeRun.id]),
-      ],
+      activeRunIds,
     };
   }
 
-  async function persistThreadSnapshot(input: {
-    threadId: string;
-    snapshot: AgentThreadSnapshot;
-  }): Promise<void> {
-    const stored = await fetchThread(input.threadId);
+  async function persistThreadSnapshot(
+    input: {
+      threadId: string;
+      snapshot: AgentThreadSnapshot;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    const signal = context?.signal;
+    throwIfRequestAborted(signal);
+    let stored = await fetchThread(input.threadId, signal);
+    let createdByAnotherRequest = false;
     if (!stored) {
-      throw new Error(`Agent chat thread ${input.threadId} does not exist.`);
+      const requestHeaders = await headers({ sessionId: input.threadId });
+      throwIfRequestAborted(signal);
+      requestHeaders.set("content-type", "application/json");
+      const response = await fetcher(
+        scopedThreadEndpoint(`${apiUrl}/threads`, options),
+        {
+          method: "POST",
+          headers: requestHeaders,
+          body: JSON.stringify({
+            id: input.threadId,
+            title: input.snapshot.title ?? "",
+          }),
+          signal,
+        },
+      );
+      throwIfRequestAborted(signal);
+      if (response.status === 409) {
+        const racedThread = await fetchThread(input.threadId, signal);
+        if (!racedThread) throw await responseError(response);
+        stored = racedThread;
+        createdByAnotherRequest = true;
+      } else {
+        if (!response.ok) throw await responseError(response);
+        const value = await response.json();
+        if (!asRecord(value)) {
+          throw new TypeError("Agent chat thread response must be an object.");
+        }
+        stored = value as StoredThread;
+      }
     }
     const repository = storedRepository(stored);
     const previousAgentKit = asRecord(repository.agentKit) ?? {};
+    const storedSnapshot = createdByAnotherRequest
+      ? projectThread(input.threadId, stored)
+      : null;
+    const snapshotMessages = storedSnapshot
+      ? mergeStoredAndIncomingMessages(
+          mergeStoredAndIncomingMessages(
+            storedSnapshot.messages,
+            storedMessages(
+              repository.messages,
+              now,
+              options.adapter?.textFormat,
+            ),
+          ),
+          input.snapshot.messages,
+        )
+      : input.snapshot.messages;
+    const snapshotToolCalls = storedSnapshot
+      ? mergeStoredAndIncomingToolCalls(
+          storedSnapshot.toolCalls ?? [],
+          input.snapshot.toolCalls ?? [],
+        )
+      : input.snapshot.toolCalls;
+    const snapshotWidgets = createdByAnotherRequest
+      ? mergeStoredAndIncomingWidgets(
+          Array.isArray(previousAgentKit.widgets)
+            ? (previousAgentKit.widgets as AgentWidgetSnapshot[])
+            : [],
+          input.snapshot.widgets ?? [],
+        )
+      : input.snapshot.widgets;
     const compactEvents = persistedHistoryEvents(input.snapshot.events);
-    const compactRunIds = new Set(compactEvents.map((event) => event.runId));
-    const eventsById = new Map<string, unknown>();
-    const previousEvents = Array.isArray(previousAgentKit.events)
-      ? previousAgentKit.events
-      : [];
-    for (const event of previousEvents) {
-      const record = asRecord(event);
-      if (
-        typeof record?.id === "string" &&
-        typeof record.runId === "string" &&
-        !compactRunIds.has(record.runId)
-      ) {
-        eventsById.set(record.id, event);
-      }
-    }
-    for (const event of compactEvents) {
-      eventsById.set(event.id, event);
-    }
     const runsById = new Map<string, unknown>();
     const previousRuns = Array.isArray(previousAgentKit.runs)
       ? previousAgentKit.runs
@@ -1111,63 +3080,572 @@ export function createAgentNativeAgentKitTransport(
       if (typeof record?.id === "string") runsById.set(record.id, run);
     }
     const snapshotMessageIds = new Set(
-      input.snapshot.messages.map((message) => message.id),
+      snapshotMessages.map((message) => message.id),
     );
+    const previousAgentKitMessageIds = new Set(
+      (Array.isArray(previousAgentKit.messages)
+        ? previousAgentKit.messages
+        : []
+      ).flatMap((message) => {
+        const id = snapshotEntryId(message);
+        return id ? [id] : [];
+      }),
+    );
+    const topLevelMessageProjections = new Map(
+      persistedMessages(
+        Array.isArray(repository.messages)
+          ? storedMessages(
+              repository.messages,
+              now,
+              options.adapter?.textFormat,
+            )
+          : [],
+      ).map((message) => [message.id, message]),
+    );
+    const persistedSnapshotMessages = persistedMessages(snapshotMessages);
+    const changedMessages = changedSnapshotEntries(
+      persistedSnapshotMessages,
+      previousAgentKit.messages,
+      snapshotEntryId,
+    ).filter((message) => {
+      if (previousAgentKitMessageIds.has(message.id)) return true;
+      const topLevelMessage = topLevelMessageProjections.get(message.id);
+      return (
+        !topLevelMessage ||
+        !samePersistedMessageContent(topLevelMessage, message)
+      );
+    });
+    const mergeRootMessages =
+      previousAgentKit._mergeRootMessages === true ||
+      persistedSnapshotMessages.some((message) => {
+        const topLevelMessage = topLevelMessageProjections.get(message.id);
+        return (
+          !previousAgentKitMessageIds.has(message.id) &&
+          topLevelMessage !== undefined &&
+          samePersistedMessageContent(topLevelMessage, message)
+        );
+      });
+    const changedWidgets = changedSnapshotEntries(
+      persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
+      previousAgentKit.widgets,
+      snapshotWidgetId,
+    );
+    const changedToolCalls = changedSnapshotEntries(
+      persistedToolCalls(snapshotToolCalls),
+      previousAgentKit.toolCalls,
+      snapshotEntryId,
+    );
+    const previousEventsByRun = new Map<string, unknown[]>();
+    for (const event of Array.isArray(previousAgentKit.events)
+      ? previousAgentKit.events
+      : []) {
+      const runId = asRecord(event)?.runId;
+      if (typeof runId !== "string") continue;
+      const events = previousEventsByRun.get(runId);
+      if (events) events.push(event);
+      else previousEventsByRun.set(runId, [event]);
+    }
+    const incomingEventsByRun = new Map<string, AgentEvent[]>();
+    for (const event of compactEvents) {
+      const events = incomingEventsByRun.get(event.runId);
+      if (events) events.push(event);
+      else incomingEventsByRun.set(event.runId, [event]);
+    }
+    const changedEventRunIds = new Set<string>();
+    for (const [runId, events] of incomingEventsByRun) {
+      if (
+        JSON.stringify(previousEventsByRun.get(runId) ?? []) ===
+        JSON.stringify(events)
+      ) {
+        continue;
+      }
+      changedEventRunIds.add(runId);
+    }
+    const changedEvents = compactEvents.filter((event) =>
+      changedEventRunIds.has(event.runId),
+    );
+    const eventRunLastSequenceById = new Map<string, number>();
+    for (const event of input.snapshot.events ?? []) {
+      const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
+      const sequenceEnd = agentEventSequenceEnd(event);
+      if (Number.isSafeInteger(sequenceEnd)) {
+        eventRunLastSequenceById.set(
+          event.runId,
+          Math.max(previousSequence, sequenceEnd),
+        );
+      }
+    }
+    const changedEventsByRun = new Map<string, AgentEvent[]>();
+    for (const event of changedEvents) {
+      const runEvents = changedEventsByRun.get(event.runId);
+      if (runEvents) runEvents.push(event);
+      else changedEventsByRun.set(event.runId, [event]);
+    }
+    const eventRunSnapshotBatches = new Map<
+      string,
+      {
+        runId: string;
+        snapshotId: string;
+        lastSequence: number;
+        expectedEventCount: number;
+      }
+    >();
+    for (const [runId, events] of changedEventsByRun) {
+      const lastSequence = eventRunLastSequenceById.get(runId) ?? events.length;
+      const snapshotId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      eventRunSnapshotBatches.set(runId, {
+        runId,
+        snapshotId,
+        lastSequence,
+        expectedEventCount: new Set(events.map((event) => event.id)).size,
+      });
+    }
+    const lastChangedEventIndexByRun = new Map<string, number>();
+    changedEvents.forEach((event, index) => {
+      lastChangedEventIndexByRun.set(event.runId, index);
+    });
+    const changedEventUpdates = changedEvents.map((event, index) => {
+      return {
+        key: "events",
+        entry: event,
+        eventRunSnapshotBatch: eventRunSnapshotBatches.get(event.runId),
+        completesEventRunSnapshot:
+          lastChangedEventIndexByRun.get(event.runId) === index,
+      };
+    });
+    const persistedRuns = [...runsById.values()].map((run) => {
+      const record = asRecord(run);
+      return record && record.error !== undefined
+        ? { ...record, error: persistedError(record.error) }
+        : run;
+    });
+    const changedRuns = changedSnapshotEntries(
+      persistedRuns,
+      previousAgentKit.runs,
+      snapshotEntryId,
+    );
+    const latestRun = latestSnapshotRunRecord(persistedRuns);
+    const latestRunId = latestRun?.id;
+    const previousLatestRun = latestSnapshotRunRecord(previousAgentKit.runs);
+    const latestRunSequence =
+      typeof latestRun?.lastSequence === "number" &&
+      Number.isSafeInteger(latestRun.lastSequence) &&
+      latestRun.lastSequence >= 0
+        ? latestRun.lastSequence
+        : undefined;
+    const previousLatestRunSequence =
+      typeof previousLatestRun?.lastSequence === "number" &&
+      Number.isSafeInteger(previousLatestRun.lastSequence) &&
+      previousLatestRun.lastSequence >= 0
+        ? previousLatestRun.lastSequence
+        : undefined;
+    const latestRunIsNew = latestRun?.id !== previousLatestRun?.id;
+    const latestRunJustCompleted =
+      latestRun?.id === previousLatestRun?.id &&
+      previousLatestRun?.status !== "completed" &&
+      latestRunSequence !== undefined &&
+      previousLatestRunSequence !== undefined &&
+      latestRunSequence >= previousLatestRunSequence;
+    const latestRunSuggestionsChanged =
+      input.snapshot.suggestions !== undefined &&
+      JSON.stringify(input.snapshot.suggestions) !==
+        JSON.stringify(previousAgentKit.suggestions);
+    const shouldPersistLatestRunSuggestions =
+      latestRun?.status === "completed" &&
+      (latestRunIsNew ||
+        latestRunJustCompleted ||
+        (latestRunSuggestionsChanged &&
+          latestRunSequence !== undefined &&
+          previousLatestRunSequence !== undefined &&
+          latestRunSequence > previousLatestRunSequence));
     const annotations =
       input.snapshot.annotations ??
       (Array.isArray(previousAgentKit.annotations)
         ? (previousAgentKit.annotations as AgentAnnotationSnapshot[])
         : []);
-    const agentKit = {
-      ...previousAgentKit,
-      messages: persistedMessages(input.snapshot.messages),
-      widgets: persistedActionWidgets(
-        input.snapshot.widgets,
-        new Set(input.snapshot.messages.map((message) => message.id)),
-      ),
-      toolCalls: persistedToolCalls(input.snapshot.toolCalls),
-      events: [...eventsById.values()],
-      runs: [...runsById.values()].map((run) => {
-        const record = asRecord(run);
-        return record && record.error !== undefined
-          ? { ...record, error: persistedError(record.error) }
-          : run;
-      }),
-      activeRunIds: input.snapshot.activeRunIds ?? [],
-      suggestions: input.snapshot.suggestions ?? previousAgentKit.suggestions,
-      annotations: persistedAnnotations(annotations, snapshotMessageIds),
+    const persistedSnapshotAnnotations = persistedAnnotations(
+      annotations,
+      snapshotMessageIds,
+    );
+    const previousAnnotationsByMessage = new Map<string, unknown[]>();
+    for (const annotation of Array.isArray(previousAgentKit.annotations)
+      ? previousAgentKit.annotations
+      : []) {
+      const messageId = asRecord(annotation)?.messageId;
+      if (typeof messageId !== "string") continue;
+      const messageAnnotations = previousAnnotationsByMessage.get(messageId);
+      if (messageAnnotations) messageAnnotations.push(annotation);
+      else previousAnnotationsByMessage.set(messageId, [annotation]);
+    }
+    const incomingAnnotationsByMessage = new Map<
+      string,
+      AgentAnnotationSnapshot[]
+    >();
+    for (const annotation of persistedSnapshotAnnotations) {
+      const messageAnnotations = incomingAnnotationsByMessage.get(
+        annotation.messageId,
+      );
+      if (messageAnnotations) messageAnnotations.push(annotation);
+      else incomingAnnotationsByMessage.set(annotation.messageId, [annotation]);
+    }
+    const annotationMessageIdsToReplace: Array<{
+      messageId: string;
+      annotationsToRemove: Array<{ key: string; baseline: unknown }>;
+    }> = [];
+    const changedAnnotations: Array<{
+      entry: AgentAnnotationSnapshot;
+      baseline: unknown | null;
+    }> = [];
+    const annotationMessageIds = new Set([
+      ...previousAnnotationsByMessage.keys(),
+      ...incomingAnnotationsByMessage.keys(),
+    ]);
+    for (const messageId of annotationMessageIds) {
+      const previous = previousAnnotationsByMessage.get(messageId) ?? [];
+      const incoming = incomingAnnotationsByMessage.get(messageId) ?? [];
+      const previousByKey = new Map(
+        previous.map((annotation) => [
+          snapshotAnnotationKey(annotation),
+          annotation,
+        ]),
+      );
+      const incomingKeys = new Set(incoming.map(snapshotAnnotationKey));
+      const annotationsToRemove = previous.flatMap((annotation) => {
+        const key = snapshotAnnotationKey(annotation);
+        return incomingKeys.has(key) ? [] : [{ key, baseline: annotation }];
+      });
+      const changedIncoming = incoming.flatMap((annotation) => {
+        const previousAnnotation = previousByKey.get(
+          snapshotAnnotationKey(annotation),
+        );
+        if (
+          previousAnnotation !== undefined &&
+          JSON.stringify(previousAnnotation) === JSON.stringify(annotation)
+        ) {
+          return [];
+        }
+        return [
+          {
+            entry: annotation,
+            baseline: previousAnnotation ?? null,
+          },
+        ];
+      });
+      if (annotationsToRemove.length === 0 && changedIncoming.length === 0) {
+        continue;
+      }
+      if (annotationsToRemove.length > 0) {
+        let removals: typeof annotationsToRemove = [];
+        for (const removal of annotationsToRemove) {
+          const candidate = {
+            messageId,
+            annotationsToRemove: [...removals, removal],
+          };
+          if (
+            new TextEncoder().encode(JSON.stringify(candidate)).byteLength <=
+            MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+          ) {
+            removals.push(removal);
+            continue;
+          }
+          if (removals.length === 0) {
+            throw new RangeError(
+              "An annotation removal exceeds the persistence request size limit.",
+            );
+          }
+          annotationMessageIdsToReplace.push({
+            messageId,
+            annotationsToRemove: removals,
+          });
+          removals = [removal];
+          const singleRemoval = { messageId, annotationsToRemove: removals };
+          if (
+            new TextEncoder().encode(JSON.stringify(singleRemoval)).byteLength >
+            MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+          ) {
+            throw new RangeError(
+              "An annotation removal exceeds the persistence request size limit.",
+            );
+          }
+        }
+        if (removals.length > 0) {
+          annotationMessageIdsToReplace.push({
+            messageId,
+            annotationsToRemove: removals,
+          });
+        }
+      }
+      changedAnnotations.push(...changedIncoming);
+    }
+    type SnapshotUpdate = {
+      key: string;
+      entry: unknown;
+      eventRunSnapshotBatch?: {
+        runId: string;
+        snapshotId: string;
+        lastSequence: number;
+        expectedEventCount: number;
+      };
+      completesEventRunSnapshot?: boolean;
+      includeSuggestions?: boolean;
+    };
+    const updates: SnapshotUpdate[] = [
+      ...changedMessages.map((entry) => ({ key: "messages", entry })),
+      ...changedWidgets.map((entry) => ({ key: "widgets", entry })),
+      ...changedToolCalls.map((entry) => ({ key: "toolCalls", entry })),
+      ...changedEventUpdates,
+      ...changedAnnotations.map((entry) => ({
+        key: "annotationUpserts",
+        entry,
+      })),
+      ...annotationMessageIdsToReplace.map((entry) => ({
+        key: "annotationMessageIdsToReplace",
+        entry,
+      })),
+      ...changedRuns.map((entry) => ({
+        key: "runs",
+        entry,
+        ...(shouldPersistLatestRunSuggestions &&
+        asRecord(entry)?.id === latestRunId
+          ? { includeSuggestions: true }
+          : {}),
+      })),
+    ];
+    const fixedAgentKit = {
+      _snapshotDelta: true,
+      ...(mergeRootMessages ? { _mergeRootMessages: true } : {}),
+      messages: [],
+      widgets: [],
+      toolCalls: [],
+      events: [],
+      eventRunSnapshotBatches: [],
+      annotationMessageIdsToReplace: [],
+      annotations: [],
+      annotationUpserts: [],
+      runs: [],
     };
     const requestHeaders = await headers({ sessionId: input.threadId });
     requestHeaders.set("content-type", "application/json");
-    const snapshotRepository = { ...repository };
-    delete snapshotRepository.queuedMessages;
-    const response = await fetcher(
-      scopedThreadEndpoint(
-        `${apiUrl}/threads/${encodeURIComponent(input.threadId)}`,
-        options,
-      ),
-      {
-        method: "PUT",
-        headers: requestHeaders,
-        body: JSON.stringify({
-          threadData: JSON.stringify({ ...snapshotRepository, agentKit }),
-          title:
-            input.snapshot.title ??
-            (typeof stored.title === "string" ? stored.title : ""),
-          preview: typeof stored.preview === "string" ? stored.preview : "",
-          messageCount: input.snapshot.messages.length,
-        }),
-      },
+    const bodyFor = (entries: typeof updates) => {
+      const agentKit: Record<string, unknown> = { ...fixedAgentKit };
+      for (const key of [
+        "messages",
+        "widgets",
+        "toolCalls",
+        "events",
+        "eventRunSnapshotBatches",
+        "annotationMessageIdsToReplace",
+        "annotations",
+        "annotationUpserts",
+        "runs",
+      ]) {
+        agentKit[key] = [];
+      }
+      const eventSnapshotBatchRunIds = new Set<string>();
+      const completedEventRunIds = new Set(
+        entries.flatMap((update) =>
+          update.key === "events" &&
+          update.completesEventRunSnapshot &&
+          update.eventRunSnapshotBatch
+            ? [update.eventRunSnapshotBatch.runId]
+            : [],
+        ),
+      );
+      for (const {
+        key,
+        entry,
+        eventRunSnapshotBatch,
+        includeSuggestions,
+      } of entries) {
+        if (key === "events") {
+          (agentKit.events as unknown[]).push(entry);
+          if (
+            eventRunSnapshotBatch &&
+            !eventSnapshotBatchRunIds.has(eventRunSnapshotBatch.runId)
+          ) {
+            eventSnapshotBatchRunIds.add(eventRunSnapshotBatch.runId);
+            (agentKit.eventRunSnapshotBatches as unknown[]).push({
+              ...eventRunSnapshotBatch,
+              complete: completedEventRunIds.has(eventRunSnapshotBatch.runId),
+            });
+          }
+          continue;
+        }
+        if (key === "runs") {
+          (agentKit.runs as unknown[]).push(entry);
+          if (includeSuggestions && input.snapshot.suggestions !== undefined) {
+            agentKit.suggestions = input.snapshot.suggestions;
+          }
+        } else {
+          (agentKit[key] as unknown[]).push(entry);
+        }
+      }
+      return threadSnapshotBody({
+        stored,
+        title: input.snapshot.title,
+        snapshotMessages,
+        agentKit,
+      });
+    };
+    const chunks: Array<typeof updates> = [];
+    let chunk: typeof updates = [];
+    const encoder = new TextEncoder();
+    const baseBodyBytes = encoder.encode(bodyFor([])).byteLength;
+    let chunkBytes = baseBodyBytes;
+    const chunkKeyCounts = new Map<string, number>();
+    for (const update of updates) {
+      const duplicateAnnotationRemoval =
+        update.key === "annotationMessageIdsToReplace" &&
+        chunk.some(
+          (entry) =>
+            entry.key === "annotationMessageIdsToReplace" &&
+            asRecord(entry.entry)?.messageId ===
+              asRecord(update.entry)?.messageId,
+        );
+      if (duplicateAnnotationRemoval) {
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = baseBodyBytes;
+        chunkKeyCounts.clear();
+      }
+      const entryBytes =
+        encoder.encode(bodyFor([update])).byteLength - baseBodyBytes;
+      const addition = entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
+      if (chunkBytes + addition > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        if (chunk.length === 0) {
+          throw new RangeError(
+            "An Agent chat snapshot entry exceeds the persistence request size limit.",
+          );
+        }
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = baseBodyBytes;
+        chunkKeyCounts.clear();
+      }
+      const firstEntryBytes =
+        entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
+      if (chunkBytes + firstEntryBytes > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        throw new RangeError(
+          "An Agent chat snapshot entry exceeds the persistence request size limit.",
+        );
+      }
+      chunk.push(update);
+      chunkBytes += firstEntryBytes;
+      chunkKeyCounts.set(update.key, (chunkKeyCounts.get(update.key) ?? 0) + 1);
+    }
+    if (chunk.length > 0 || chunks.length === 0) chunks.push(chunk);
+
+    const threadUrl = scopedThreadEndpoint(
+      apiUrl + "/threads/" + encodeURIComponent(input.threadId),
+      options,
     );
-    if (!response.ok) throw await responseError(response);
+    const persistChunk = async (
+      entries: typeof updates,
+    ): Promise<SnapshotAnnotationConflict[]> => {
+      throwIfRequestAborted(signal);
+      const body = bodyFor(entries);
+      if (encoder.encode(body).byteLength > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        if (entries.length > 1) {
+          const middle = Math.floor(entries.length / 2);
+          return [
+            ...(await persistChunk(entries.slice(0, middle))),
+            ...(await persistChunk(entries.slice(middle))),
+          ];
+        }
+        throw new RangeError(
+          "An Agent chat snapshot entry exceeds the persistence request size limit.",
+        );
+      }
+      for (let attempt = 0; ; attempt += 1) {
+        const retryAfterReadFailure = async (error: unknown) => {
+          if (
+            asRecord(error)?.name === "AbortError" ||
+            attempt >= MAX_THREAD_SNAPSHOT_RETRIES
+          ) {
+            throw error;
+          }
+          await waitForSnapshotRetry(attempt, signal);
+        };
+        throwIfRequestAborted(signal);
+        let response: Response;
+        try {
+          response = await fetcher(threadUrl, {
+            method: "PUT",
+            headers: requestHeaders,
+            body,
+            signal,
+          });
+          throwIfRequestAborted(signal);
+        } catch (error) {
+          await retryAfterReadFailure(error);
+          continue;
+        }
+        if (response.status === 413 && entries.length > 1) {
+          const middle = Math.floor(entries.length / 2);
+          return [
+            ...(await persistChunk(entries.slice(0, middle))),
+            ...(await persistChunk(entries.slice(middle))),
+          ];
+        }
+        if (!response.ok) {
+          let error: Error;
+          try {
+            error = await responseError(response);
+          } catch (readError) {
+            await retryAfterReadFailure(readError);
+            continue;
+          }
+          throwIfRequestAborted(signal);
+          if (
+            asRecord(error)?.retryable !== true ||
+            attempt >= MAX_THREAD_SNAPSHOT_RETRIES
+          ) {
+            throw error;
+          }
+          await waitForSnapshotRetry(attempt, signal);
+          continue;
+        }
+        try {
+          const result = snapshotAnnotationConflicts(await response.json());
+          throwIfRequestAborted(signal);
+          return result;
+        } catch (readError) {
+          await retryAfterReadFailure(readError);
+        }
+      }
+    };
+    const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();
+    for (const entries of chunks) {
+      throwIfRequestAborted(signal);
+      for (const conflict of await persistChunk(entries)) {
+        annotationConflicts.set(
+          JSON.stringify([
+            conflict.messageId,
+            conflict.annotationId ?? null,
+            conflict.operation,
+          ]),
+          conflict,
+        );
+      }
+    }
+    if (annotationConflicts.size > 0) {
+      const error = new Error(
+        "An annotation changed in another save. The latest saved value was preserved; reload the thread before retrying.",
+      );
+      error.name = "AgentAnnotationSaveConflictError";
+      throw error;
+    }
   }
 
   type QueueMutation =
     | { type: "append"; message: AgentQueuedMessage }
     | { type: "remove"; messageId: string }
     | { type: "moveToTop"; messageId: string }
-    | { type: "claim"; messageId: string }
-    | { type: "restore"; message: AgentQueuedMessage; index: number };
+    | { type: "claim"; messageId: string; claimId: string }
+    | { type: "release"; messageId: string; claimId: string };
 
   async function persistQueueMutation(
     threadId: string,
@@ -1175,9 +3653,19 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<{
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
-    removedMessage?: AgentQueuedMessage;
-    index?: number;
+    claimedMessage?: AgentQueuedMessage;
   }> {
+    if (mutation.type === "append") {
+      assertNoInlineImageBytes(
+        { type: "file", metadata: mutation.message.metadata },
+        "queuedMessage.metadata",
+      );
+    }
+    const body = persistedChatJson(
+      { mutation },
+      "queued message request",
+      "reject",
+    );
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
     const response = await fetcher(
@@ -1188,7 +3676,7 @@ export function createAgentNativeAgentKitTransport(
       {
         method: "POST",
         headers: requestHeaders,
-        body: JSON.stringify({ mutation }),
+        body,
       },
     );
     if (!response.ok) throw await responseError(response);
@@ -1199,54 +3687,101 @@ export function createAgentNativeAgentKitTransport(
     const message = value.message
       ? storedQueue([value.message], threadId, now())[0]
       : undefined;
-    const removedMessage = value.removedMessage
-      ? storedQueue([value.removedMessage], threadId, now())[0]
+    const claimedMessage = value.claimedMessage
+      ? storedQueue([value.claimedMessage], threadId, now())[0]
       : undefined;
     return {
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
-      ...(removedMessage ? { removedMessage } : {}),
-      ...(typeof value.index === "number" ? { index: value.index } : {}),
+      ...(claimedMessage ? { claimedMessage } : {}),
     };
   }
 
-  async function waitForRunSlot(threadId: string): Promise<void> {
-    const deadline = Date.now() + RUN_SLOT_TIMEOUT_MS;
-    let consecutiveClearPolls = 0;
-    while (Date.now() < deadline) {
-      const response = await fetcher(
-        `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        { headers: await headers({ sessionId: threadId }) },
-      );
-      if (!response.ok) throw await responseError(response);
-      const status = asRecord(await response.json()) as ActiveRunStatus | null;
-      if (!status) {
-        throw new TypeError(
-          "Agent chat active-run response must be an object.",
-        );
-      }
-      if (status.awaitingRedispatch === true) {
-        throw new Error(
-          "The agent runtime owns a continuation for this thread; the queued message remains pending.",
-        );
-      }
-      const clear =
-        status.active !== true ||
-        status.status === "completed" ||
-        status.status === "complete" ||
-        status.status === "failed" ||
-        status.status === "cancelled" ||
-        status.status === "errored" ||
-        status.status === "aborted";
-      consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
-      if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
-      await new Promise((resolve) =>
-        setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
-      );
-    }
-    throw new Error(
-      "The current agent run did not release the thread; the queued message remains pending.",
+  // A server that predates `active` meaning "in flight" reports a run inside
+  // its reconnect window as `active` with a terminal status.
+  function runIsInFlight(status: ActiveRunStatus): boolean {
+    return (
+      status.active === true &&
+      ![
+        "completed",
+        "complete",
+        "failed",
+        "cancelled",
+        "errored",
+        "aborted",
+      ].includes(String(status.status ?? ""))
     );
+  }
+
+  function runSlotIsClear(status: ActiveRunStatus): boolean {
+    return status.awaitingRedispatch !== true && !runIsInFlight(status);
+  }
+
+  async function waitForRunSlot(
+    threadId: string,
+    maxPolls = RUN_SLOT_STABLE_POLLS * 2,
+  ): Promise<void> {
+    let consecutiveClearPolls = 0;
+    let status: ActiveRunStatus | undefined;
+    let lastError: unknown;
+    for (let poll = 0; poll < maxPolls; poll += 1) {
+      try {
+        status = await activeRunStatus(threadId);
+        lastError = undefined;
+        consecutiveClearPolls = runSlotIsClear(status)
+          ? consecutiveClearPolls + 1
+          : 0;
+        if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
+      } catch (error) {
+        if (asRecord(error)?.retryable !== true) throw error;
+        lastError = error;
+        consecutiveClearPolls = 0;
+      }
+      if (poll + 1 < maxPolls) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
+        );
+      }
+    }
+    if (lastError) throw lastError;
+    const activeRunId =
+      typeof status?.runId === "string" ? status.runId : undefined;
+    const localRun = activeRunId
+      ? await protocolTransport.getRun?.({ threadId, runId: activeRunId })
+      : null;
+    throw new AgentKitRunSlotBusyError(localRun?.id ?? activeRunId);
+  }
+
+  async function startRunTrackingRunningState(
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
+    dispatchAgentChatRunning({
+      isRunning: true,
+      phase: "working",
+      threadId: input.threadId,
+      tabId: input.threadId,
+    });
+    try {
+      const run = await startRun(input, context);
+      dispatchAgentChatRunning({
+        isRunning: true,
+        phase: "working",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        runId: run.runId,
+      });
+      return run;
+    } catch (error) {
+      dispatchAgentChatRunning({
+        isRunning: false,
+        phase: "idle",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        reason: "start_failed",
+      });
+      throw error;
+    }
   }
 
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
@@ -1259,12 +3794,37 @@ export function createAgentNativeAgentKitTransport(
     return thread.queuedMessages ? [...thread.queuedMessages] : [];
   }
 
+  function submittedQueueMessage(
+    thread: AgentThreadSnapshot,
+    messageId: string,
+  ): AgentMessage | undefined {
+    const isSubmitted = (message: AgentMessage) =>
+      message.id === messageId ||
+      asRecord(message.metadata?.custom)?.agentNativeQueuedMessageId ===
+        messageId;
+    const messageEvent = thread.events?.find(
+      (event) => event.type === "message.created" && isSubmitted(event.message),
+    );
+    return (
+      thread.messages.find(isSubmitted) ??
+      (messageEvent?.type === "message.created"
+        ? messageEvent.message
+        : undefined)
+    );
+  }
+
   const runtime = options.runtime ?? createAgentNativeChatRuntime(options);
   const feedbackUrl =
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
+  const onRunOutcome = options.adapter?.onRunOutcome ?? trackRunOutcome;
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     ...options.adapter,
+    onRunOutcome,
+    // A spread would freeze the host's label at its locale when this was built.
+    get autoContinueLabel() {
+      return options.adapter?.autoContinueLabel;
+    },
     metadata: adapterMetadata(options),
     capabilities: {
       ...options.adapter?.capabilities,
@@ -1276,9 +3836,6 @@ export function createAgentNativeAgentKitTransport(
       connectionRequests: true,
     },
     operations: {
-      ...options.operations,
-      persistThreadSnapshot:
-        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
       getThread: async ({ threadId }) => {
         const thread = await snapshot(threadId);
         if (!thread) return null;
@@ -1292,9 +3849,18 @@ export function createAgentNativeAgentKitTransport(
       getThreadSnapshot: ({ threadId }) =>
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
-      queueMessage: async ({ threadId, text, attachments, metadata }) => {
+      queueMessage: async ({
+        threadId,
+        id,
+        text,
+        attachments,
+        requestAttachments,
+        metadata,
+        options: runOptions,
+      }) => {
         const message: AgentQueuedMessage = {
           id:
+            id ??
             options.adapter?.createId?.("queued-message") ??
             `queued-message-${
               typeof crypto !== "undefined" && crypto.randomUUID
@@ -1305,7 +3871,9 @@ export function createAgentNativeAgentKitTransport(
           text,
           createdAt: now(),
           attachments,
+          requestAttachments,
           metadata,
+          options: runOptions,
         };
         const result = await persistQueueMutation(threadId, {
           type: "append",
@@ -1322,51 +3890,133 @@ export function createAgentNativeAgentKitTransport(
       moveQueuedMessageToTop: async ({ threadId, messageId }) => {
         await persistQueueMutation(threadId, { type: "moveToTop", messageId });
       },
-      steerQueuedMessage: async ({ threadId, messageId }) => {
-        const current = await readQueue(threadId);
-        if (!current.some((message) => message.id === messageId)) {
-          throw new Error(`Unknown queued message: ${messageId}`);
+      steerQueuedMessage: async ({
+        threadId,
+        messageId,
+        interruptActiveRun,
+      }) => {
+        const initial = await snapshot(threadId);
+        if (!initial) throw new Error(`Unknown agent chat thread: ${threadId}`);
+        const queued = (initial.queuedMessages ?? []).find(
+          (message) => message.id === messageId,
+        );
+        if (!queued) {
+          const submitted = submittedQueueMessage(initial, messageId);
+          const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+          if (submitted && typeof runId === "string") {
+            clearPromotionClaimId(threadId, messageId);
+            return { runId, alreadySubmitted: true };
+          }
+          return { alreadyRemoved: true as const };
         }
-        await waitForRunSlot(threadId);
-        const thread = await snapshot(threadId);
-        if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
-        const claim = await persistQueueMutation(threadId, {
-          type: "claim",
-          messageId,
-        });
-        const queued = claim.removedMessage;
-        if (!queued || typeof claim.index !== "number") {
-          throw new TypeError("Agent chat queue claim response is invalid.");
+        const claimId = promotionClaimId(threadId, messageId);
+        let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
+        try {
+          claim = await persistQueueMutation(threadId, {
+            type: "claim",
+            messageId,
+            claimId,
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.includes(`Unknown queued message: ${messageId}`)
+          ) {
+            const latest = await snapshot(threadId);
+            const submitted =
+              latest && submittedQueueMessage(latest, messageId);
+            const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+            if (submitted && typeof runId === "string") {
+              clearPromotionClaimId(threadId, messageId);
+              return { runId, alreadySubmitted: true };
+            }
+            if (
+              latest &&
+              !(latest.queuedMessages ?? []).some(
+                (message) => message.id === messageId,
+              )
+            ) {
+              clearPromotionClaimId(threadId, messageId);
+              return { alreadyRemoved: true as const };
+            }
+          }
+          throw error;
         }
         try {
-          return await transport.startRun({
-            threadId,
-            messages: [
-              ...thread.messages,
-              {
-                id: queued.id,
-                role: "user",
-                parts: [
-                  { type: "text", text: queued.text },
-                  ...(queued.attachments ?? []),
-                ],
-                createdAt: queued.createdAt,
-                metadata: queued.metadata,
+          if (!claim.claimedMessage) {
+            throw new TypeError("Agent chat queue claim response is invalid.");
+          }
+          if (interruptActiveRun) {
+            const activeRun = await activeRunStatus(threadId);
+            if (runIsInFlight(activeRun)) {
+              if (typeof activeRun.runId !== "string" || !activeRun.runId) {
+                throw new TypeError(
+                  "Agent chat active-run response must include an active run ID.",
+                );
+              }
+              await transport.cancelRun({
+                threadId,
+                runId: activeRun.runId,
+              });
+              await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+            }
+          }
+          const thread = await snapshot(threadId);
+          if (!thread)
+            throw new Error(`Unknown agent chat thread: ${threadId}`);
+          const run = await startRunTrackingRunningState(
+            {
+              threadId,
+              messages: [
+                ...thread.messages.filter(
+                  (message) => message.id !== queued.id,
+                ),
+                {
+                  id: queued.id,
+                  role: "user",
+                  parts: [
+                    { type: "text", text: queued.text },
+                    ...(queued.attachments ?? []),
+                  ],
+                  createdAt: queued.createdAt,
+                  metadata: queued.metadata,
+                },
+              ],
+              requestAttachments: queued.requestAttachments,
+              options: queued.options,
+              metadata: queued.metadata,
+              queuePromotion: {
+                messageId,
+                claimId,
+                turnId: `queue-${messageId}`,
               },
-            ],
-            metadata: queued.metadata,
+            },
+            undefined,
+          );
+          const latestThread = await snapshot(threadId);
+          if (!latestThread) {
+            throw new Error(`Unknown agent chat thread: ${threadId}`);
+          }
+          await persistThreadSnapshot({
+            threadId,
+            snapshot: {
+              ...latestThread,
+              messages: withQueuedMessageHistory(latestThread.messages, queued),
+            },
           });
+          clearPromotionClaimId(threadId, messageId);
+          return run;
         } catch (error) {
           try {
             await persistQueueMutation(threadId, {
-              type: "restore",
-              message: queued,
-              index: claim.index,
+              type: "release",
+              messageId,
+              claimId,
             });
-          } catch (restoreError) {
+          } catch (releaseError) {
             throw new AggregateError(
-              [error, restoreError],
-              "Queue promotion failed and its durable rollback also failed.",
+              [error, releaseError],
+              "Queue promotion failed and its lease could not be released.",
             );
           }
           throw error;
@@ -1389,8 +4039,8 @@ export function createAgentNativeAgentKitTransport(
         if (fromMessageId) {
           const repository = storedRepository(source);
           const agentKit = asRecord(repository.agentKit);
-          const sourceMessages = Array.isArray(agentKit?.messages)
-            ? agentKit.messages
+          const sourceMessages = agentKit
+            ? projectThread(threadId, source).messages
             : repository.messages;
           if (!Array.isArray(sourceMessages)) {
             throw new Error(
@@ -1457,6 +4107,19 @@ export function createAgentNativeAgentKitTransport(
             fromMessageId,
           };
         }
+        let safeForkSource: Record<string, unknown> | undefined;
+        if (forkSource) {
+          if (typeof forkSource.threadData !== "string") {
+            throw new TypeError("Fork source thread_data must be JSON text.");
+          }
+          safeForkSource = {
+            ...forkSource,
+            threadData: persistedChatJson(
+              JSON.parse(forkSource.threadData),
+              "fork source thread_data",
+            ),
+          };
+        }
         const requestHeaders = await headers({ sessionId: threadId });
         requestHeaders.set("content-type", "application/json");
         const response = await fetcher(
@@ -1464,11 +4127,14 @@ export function createAgentNativeAgentKitTransport(
           {
             method: "POST",
             headers: requestHeaders,
-            body: JSON.stringify({
-              id: forkId,
-              ...(forkSource ? { source: forkSource } : {}),
-              ...(metadata ? { metadata } : {}),
-            }),
+            body: persistedChatJson(
+              {
+                id: forkId,
+                ...(safeForkSource ? { source: safeForkSource } : {}),
+                ...(metadata ? { metadata } : {}),
+              },
+              "fork request",
+            ),
           },
         );
         if (!response.ok) throw await responseError(response);
@@ -1496,52 +4162,101 @@ export function createAgentNativeAgentKitTransport(
         const response = await fetcher(feedbackUrl, {
           method: "POST",
           headers: requestHeaders,
-          body: JSON.stringify({
-            threadId,
-            ...(runId ? { runId } : {}),
-            ...(messageSeq !== undefined ? { messageSeq } : {}),
-            feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
-            value: { messageId, value, reason, metadata },
-          }),
+          body: persistedChatJson(
+            {
+              threadId,
+              ...(runId ? { runId } : {}),
+              ...(messageSeq !== undefined ? { messageSeq } : {}),
+              feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
+              value: { messageId, value, reason, metadata },
+            },
+            "feedback request",
+          ),
         });
         if (!response.ok) throw await responseError(response);
+        trackRunFeedback({ runId, threadId, positive: value === "positive" });
       },
       ...options.operations,
+      persistThreadSnapshot:
+        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
     },
   });
-  const startRun = protocolTransport.startRun.bind(protocolTransport);
+  const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);
+  // The adapter reports a run once it has started. A turn refused at its
+  // start, such as a chat with no model connected, would go unreported.
+  const reportStartFailure = (threadId: string, error: unknown) => {
+    const record = asRecord(error);
+    if (typeof record?.turnId !== "string" || record.name === "AbortError") {
+      return;
+    }
+    const code = typeof record.code === "string" ? record.code : undefined;
+    try {
+      onRunOutcome({
+        runId: record.turnId,
+        threadId,
+        outcome: runOutcomeForCode(code),
+        ...(code ? { code } : {}),
+        ...(error instanceof Error && error.message
+          ? { message: error.message }
+          : {}),
+        ...(typeof record.retryable === "boolean"
+          ? { retryable: record.retryable }
+          : {}),
+        terminalSource: "local",
+        verifiedAfterPipeClosed: false,
+        resumeAttempts: 0,
+        quietReads: 0,
+        drainAttempts: 0,
+      });
+    } catch {
+      // coercion-ok: telemetry must never change how a start fails.
+    }
+  };
+  const startRun: typeof protocolTransport.startRun = async (
+    input,
+    context,
+  ) => {
+    try {
+      return await protocolStartRun(input, context);
+    } catch (error) {
+      const record = asRecord(error);
+      const serverActiveRunId =
+        typeof record?.activeRunId === "string"
+          ? record.activeRunId
+          : undefined;
+      const localRun = serverActiveRunId
+        ? await protocolTransport.getRun?.({
+            threadId: input.threadId,
+            runId: serverActiveRunId,
+          })
+        : null;
+      const activeRunId = localRun?.id ?? serverActiveRunId;
+      const explicitNonSlotCode =
+        typeof record?.code === "string" &&
+        record.code !== "run_slot_busy" &&
+        record.code !== "http_409";
+      if (
+        record?.status === 409 &&
+        (error instanceof AgentKitRunSlotBusyError ||
+          record.code === "run_slot_busy" ||
+          (typeof activeRunId === "string" && !explicitNonSlotCode))
+      ) {
+        const busy = new AgentKitRunSlotBusyError(
+          typeof activeRunId === "string" ? activeRunId : undefined,
+        );
+        Object.assign(busy, { status: 409 });
+        throw busy;
+      }
+      reportStartFailure(input.threadId, error);
+      throw error;
+    }
+  };
   const subscribeToRun =
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
-    async startRun(input, context) {
-      dispatchAgentChatRunning({
-        isRunning: true,
-        phase: "working",
-        threadId: input.threadId,
-        tabId: input.threadId,
-      });
-      try {
-        const run = await startRun(input, context);
-        dispatchAgentChatRunning({
-          isRunning: true,
-          phase: "working",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          runId: run.runId,
-        });
-        return run;
-      } catch (error) {
-        dispatchAgentChatRunning({
-          isRunning: false,
-          phase: "idle",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          reason: "start_failed",
-        });
-        throw error;
-      }
-    },
+    assertAiSetupReady,
+    startRun: (input, context) => startRunTrackingRunningState(input, context),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,
@@ -1551,9 +4266,101 @@ export function createAgentNativeAgentKitTransport(
         runId: input.runId,
       });
       const assistantMessageIds = new Set<string>();
+      // Continuation runs keep the durable identity of their folded reply.
+      let durableAssistantMessageId =
+        durableAssistantMessageIdsByRun.get(input.runId) ?? undefined;
+      let foldedAssistantSourceMessageId: string | undefined;
+      const foldedMessageIdFor = (sourceMessageId?: string) => {
+        if (!durableAssistantMessageId || !sourceMessageId) return undefined;
+        foldedAssistantSourceMessageId ??= sourceMessageId;
+        return foldedAssistantSourceMessageId === sourceMessageId
+          ? durableAssistantMessageId
+          : undefined;
+      };
       let responseStarted = false;
       let turnId: string | undefined;
-      for await (const event of subscribeToRun(input)) {
+      for await (const sourceEvent of subscribeToRun(input)) {
+        const interruptedRunId = protocolInterruptedRunId(sourceEvent.metadata);
+        const inheritedMessageId = interruptedRunId
+          ? (durableAssistantMessageIdsByRun.get(interruptedRunId) ??
+            assistantHistoryMessageIdsByRun.get(interruptedRunId))
+          : undefined;
+        if (inheritedMessageId) {
+          if (durableAssistantMessageId !== inheritedMessageId) {
+            foldedAssistantSourceMessageId = undefined;
+          }
+          durableAssistantMessageId = inheritedMessageId;
+          durableAssistantMessageIdsByRun.set(input.runId, inheritedMessageId);
+        }
+        let event = sourceEvent;
+        if (isAgentNativeChatRuntime(runtime)) {
+          switch (sourceEvent.type) {
+            case "message.created":
+            case "message.completed":
+              if (sourceEvent.message.role === "assistant") {
+                const messageId = foldedMessageIdFor(sourceEvent.message.id);
+                if (messageId && messageId !== sourceEvent.message.id) {
+                  event = {
+                    ...sourceEvent,
+                    message: { ...sourceEvent.message, id: messageId },
+                  };
+                }
+              }
+              break;
+            case "message.delta":
+            case "reasoning.delta": {
+              const messageId = foldedMessageIdFor(sourceEvent.messageId);
+              if (messageId && messageId !== sourceEvent.messageId) {
+                event = { ...sourceEvent, messageId };
+              }
+              break;
+            }
+            case "tool.started":
+            case "tool.updated": {
+              if (sourceEvent.toolCall.messageId) {
+                const messageId = foldedMessageIdFor(
+                  sourceEvent.toolCall.messageId,
+                );
+                if (messageId && messageId !== sourceEvent.toolCall.messageId) {
+                  event = {
+                    ...sourceEvent,
+                    toolCall: { ...sourceEvent.toolCall, messageId },
+                  };
+                }
+              }
+              break;
+            }
+            case "widget.created":
+            case "widget.updated":
+            case "annotation.created":
+            case "annotation.updated": {
+              if (sourceEvent.messageId) {
+                const messageId = foldedMessageIdFor(sourceEvent.messageId);
+                if (messageId && messageId !== sourceEvent.messageId) {
+                  event = { ...sourceEvent, messageId };
+                }
+              }
+              break;
+            }
+            case "action.started": {
+              if (sourceEvent.invocation.messageId) {
+                const messageId = foldedMessageIdFor(
+                  sourceEvent.invocation.messageId,
+                );
+                if (
+                  messageId &&
+                  messageId !== sourceEvent.invocation.messageId
+                ) {
+                  event = {
+                    ...sourceEvent,
+                    invocation: { ...sourceEvent.invocation, messageId },
+                  };
+                }
+              }
+              break;
+            }
+          }
+        }
         turnId ??= protocolTurnId(event.metadata);
         if (event.type === "run.started" && turnId) {
           dispatchAgentChatRunning({

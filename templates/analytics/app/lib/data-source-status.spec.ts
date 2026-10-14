@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canConnectWorkspaceOAuth,
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
+  getGoogleSheetsConnection,
+  getSharedConnectionStatus,
   getConfiguredDataSources,
   isSourceConfigured,
   isSourceLocallyConfigured,
@@ -16,6 +19,64 @@ import {
 import { dataSources } from "./data-sources";
 
 describe("data source status", () => {
+  it("only offers personal BigQuery OAuth inside an organization", () => {
+    const bigquery = dataSources.find((source) => source.id === "bigquery")!;
+    const notion = dataSources.find((source) => source.id === "notion")!;
+
+    expect(canConnectWorkspaceOAuth(bigquery, false, false)).toBe(false);
+    expect(canConnectWorkspaceOAuth(bigquery, false, true)).toBe(true);
+    expect(canConnectWorkspaceOAuth(notion, false, true)).toBe(false);
+    expect(canConnectWorkspaceOAuth(notion, true, true)).toBe(true);
+  });
+
+  it("uses the Google Sheets connection for Sheets exports", () => {
+    const status: DataSourceStatusResponse = {
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        error: null,
+        providers: [
+          {
+            provider: "google_sheets",
+            id: "google_sheets",
+            label: "Google Sheets",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+          {
+            provider: "google_drive",
+            id: "google_drive",
+            label: "Google Drive",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+        ],
+      },
+    };
+
+    expect(getGoogleSheetsConnection(status)?.grantState).toBe("connected");
+    expect(
+      getGoogleSheetsConnection({
+        workspaceConnections: {
+          ...status.workspaceConnections!,
+          providers: status.workspaceConnections!.providers.filter(
+            (provider) => provider.id === "google_drive",
+          ),
+        },
+      }),
+    ).toBeUndefined();
+  });
+
   it("does not require the optional BigQuery app events alias", () => {
     const bigquery = dataSources.find((source) => source.id === "bigquery");
 
@@ -39,6 +100,68 @@ describe("data source status", () => {
           label: "BigQuery Events Table",
           required: false,
           configured: false,
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("requires a project and either personal OAuth or a service account for BigQuery", () => {
+    const bigquery = dataSources.find((source) => source.id === "bigquery")!;
+    const projectOnly: EnvKeyStatus[] = [
+      {
+        key: "BIGQUERY_PROJECT_ID",
+        label: "BigQuery Project ID",
+        required: true,
+        configured: true,
+      },
+    ];
+    const oauthStatus: DataSourceStatusResponse = {
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        error: null,
+        providers: [
+          {
+            provider: "bigquery",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+        ],
+      },
+    };
+
+    expect(isSourceReady(bigquery, undefined, projectOnly)).toBe(false);
+    expect(isSourceConfigured(bigquery, projectOnly)).toBe(false);
+    expect(isSourceReady(bigquery, oauthStatus, projectOnly)).toBe(true);
+    expect(isSourceLocallyConfigured(bigquery, oauthStatus, projectOnly)).toBe(
+      false,
+    );
+    expect(
+      shouldOfferWorkspaceOAuthReconnect(
+        bigquery,
+        {
+          kind: "ready",
+          label: "Ready",
+          providerId: "bigquery",
+          providerLabel: "BigQuery",
+        },
+        false,
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isSourceReady(bigquery, undefined, [
+        ...projectOnly,
+        {
+          key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+          label: "Google Cloud",
+          required: false,
+          configured: true,
         },
       ]),
     ).toBe(true);
@@ -161,6 +284,57 @@ describe("data source status", () => {
     expect(isSourceReady(hubspot!, status, envStatus)).toBe(true);
     expect(isSourceLocallyConfigured(hubspot!, status, envStatus)).toBe(false);
     expect(getConfiguredDataSources(envStatus, status)).toContain(hubspot);
+  });
+
+  it("surfaces unhealthy shared Sentry connection states separately", () => {
+    const sentry = dataSources.find((source) => source.id === "sentry")!;
+    const envStatus: EnvKeyStatus[] = [
+      {
+        key: "SENTRY_AUTH_TOKEN",
+        label: "Sentry token",
+        required: true,
+        configured: false,
+      },
+    ];
+    const connection = {
+      provider: "sentry",
+      grantState: "granted" as const,
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+    };
+
+    expect(
+      getSharedConnectionStatus(
+        sentry,
+        {
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [{ ...connection, statuses: ["needs_reauth"] }],
+          },
+        },
+        envStatus,
+      )?.kind,
+    ).toBe("needs_reauth");
+    expect(
+      getSharedConnectionStatus(
+        sentry,
+        {
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [{ ...connection, statuses: ["error"] }],
+          },
+        },
+        envStatus,
+      )?.kind,
+    ).toBe("error");
   });
 
   it("offers shared HubSpot OAuth for setup and grants, but not when ready or local", () => {

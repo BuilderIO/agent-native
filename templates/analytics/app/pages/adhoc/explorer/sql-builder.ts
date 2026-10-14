@@ -65,7 +65,7 @@ function escapeSql(s: string): string {
   return s.replace(/'/g, "\\'");
 }
 
-function dateRangeToDays(range: string): number {
+export function dateRangeToDays(range: string): number {
   switch (range) {
     case "7d":
       return 7;
@@ -97,12 +97,19 @@ export function buildSql(config: ExplorerConfig): string {
   const isMetric = config.chartType === "metric";
 
   let dateClause: string;
-  if (
-    config.dateRange === "custom" &&
-    config.customDateStart &&
-    config.customDateEnd
-  ) {
-    dateClause = `createdDate >= TIMESTAMP('${config.customDateStart}') AND createdDate <= TIMESTAMP('${config.customDateEnd}')`;
+  if (config.dateRange === "custom") {
+    const start = config.customDateStart;
+    const end = config.customDateEnd;
+    const isDate = (value: string | undefined): value is string => {
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return (
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.toISOString().startsWith(value)
+      );
+    };
+    if (!isDate(start) || !isDate(end) || start > end) return "";
+    dateClause = `createdDate >= TIMESTAMP('${start}') AND createdDate < TIMESTAMP(DATE_ADD(DATE('${end}'), INTERVAL 1 DAY))`;
   } else {
     const days = dateRangeToDays(config.dateRange);
     dateClause = `createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY) AND createdDate <= CURRENT_TIMESTAMP()`;

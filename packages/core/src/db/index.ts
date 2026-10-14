@@ -7,6 +7,7 @@ export {
   deferMigration,
   MIGRATION_DEFERRED,
   runMigrations,
+  withMigrationExecutionRuntime,
   withMigrationRuntime,
   type MigrationEntry,
   type MigrationRunResult,
@@ -24,6 +25,7 @@ export {
   isSchemaMutationStatement,
   isProductionServerlessFunctionRuntime,
   closeDbExec,
+  isUniqueViolation,
   type DbExec,
   type DbExecConfig,
   type DbExecQuery,
@@ -36,4 +38,5 @@ export {
   type EnsureAdditiveColumnsResult,
   type EnsureAdditiveColumnsLogger,
 } from "./ensure-additive-columns.js";
+export { ensureIndexExistsConcurrently } from "./ddl-guard.js";
 export { widenIntColumnsToBigInt } from "./widen-columns.js";

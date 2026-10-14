@@ -1,7 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   useDbSync,
   getBrowserTabId,
@@ -12,11 +11,10 @@ import {
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowsMaximize,
   IconHierarchy2,
@@ -43,12 +41,15 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { useDesignVariantPickTracking } from "@/lib/design-funnel-tracking";
+import { shouldInvalidateDesignQueryForSync } from "@/lib/design-sync-invalidation";
 import {
   requestDesignHistoryOpen,
   requestDesignUiToggle,
 } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
+import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import { i18nCatalog } from "./i18n";
 import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
@@ -61,12 +62,22 @@ configureTracking({
   llmConnectionStatus:
     typeof window === "undefined" ||
     !isPublicDesignAppPath(window.location.pathname),
-  getDefaultProps: (_name, properties) => ({
-    ...properties,
-    app: "design",
-    app_name: "design",
-    template_name: "design",
-  }),
+  getDefaultProps: (name, properties) => {
+    const provenance =
+      name === "pageview"
+        ? getDesignGenerationPageviewProvenanceFromProperties(
+            properties,
+            appBasePath(),
+          )
+        : null;
+    return {
+      ...(provenance?.kind === "design-output" ? provenance.properties : {}),
+      ...properties,
+      app: "design",
+      app_name: "design",
+      template_name: "design",
+    };
+  },
 });
 
 export const links: LinksFunction = () => [
@@ -116,12 +127,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function DbSyncSetup() {
+export function isPrivateDesignEditorPath(pathname: string): boolean {
+  return pathname.startsWith("/design/");
+}
+
+export function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   useDbSync({
     queryClient: qc,
     queryKeys: ["designs", "design-systems", "design-files"],
     ignoreSource: getBrowserTabId(),
+    actionInvalidatePredicate: shouldInvalidateDesignQueryForSync,
+    realtime: isPrivateDesignEditorPath(location.pathname)
+      ? { reason: "collaborators can edit this design while it is open" }
+      : undefined,
   });
   return null;
 }
@@ -165,7 +185,7 @@ function DesignCommandMenu({
         location.pathname.startsWith("/templates") ||
         location.pathname.startsWith("/design-systems") ? (
           <CommandMenu.Item onSelect={() => navigate("/home")}>
-            {t("navigation.designs")}
+            {t("navigation.home")}
           </CommandMenu.Item>
         ) : null}
         {location.pathname === "/home" ? (
@@ -220,11 +240,15 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  useDesignVariantPickTracking();
+  // The home prompt composer takes focus on load, and without this the shortcut
+  // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(
     useCallback(() => {
       if (!hasSession || isPublicVisualEdit) return;
       setCmdkOpen(true);
     }, [hasSession, isPublicVisualEdit]),
+    { allowContentEditable: true },
   );
 
   const content = isPublicVisualEdit ? (
@@ -277,4 +301,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

@@ -4,6 +4,13 @@ export {
   type BlockPlacement,
   type BlockMdxConfig,
   type BlockAttrReader,
+  type BlockRenderContext,
+  type BlockReadProps,
+  type BlockEditProps,
+  type BlockAiFieldActionProps,
+  type BlockContainerRegion,
+  type BlockContainerSpec,
+  type BlockDataChangeMeta,
   type MdxAttrValue,
   type NestedBlock,
 } from "./types.js";
@@ -88,6 +95,48 @@ export {
   type CalloutData,
   type CalloutTone,
 } from "./library/callout.config.js";
+
+export { codeSchema, codeMdx, type CodeData } from "./library/code.config.js";
+export {
+  diagramSchema,
+  diagramMdx,
+  type DiagramData,
+  type DiagramNode,
+  type DiagramEdge,
+  type DiagramNote,
+} from "./library/diagram.config.js";
+export {
+  questionFormSchema,
+  questionFormMdx,
+  visualQuestionsSchema,
+  visualQuestionsMdx,
+  type QuestionFormData,
+  type QuestionFormOption,
+  type QuestionFormQuestion,
+  type QuestionMode,
+  type VisualQuestionsData,
+} from "./library/question-form.config.js";
+export {
+  wireframeSchema,
+  wireframeMdx,
+  createStableWireframeNodeId,
+  WIREFRAME_SURFACES,
+  WIREFRAME_EL_NAMES,
+  type WireframeData,
+  type WireframeNode,
+  type WireframeElName,
+  type WireframeTone,
+  type WireframeSurface,
+  type WireframeRenderMode,
+} from "./library/wireframe.config.js";
+export {
+  DATA_MODEL_CHANGES,
+  type DataModelChange,
+} from "./library/data-model.config.js";
+export {
+  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
+  JSON_EXPLORER_MAX_COLLAPSED_DEPTH,
+} from "./library/json-explorer.config.js";
 
 export {
   mermaidSchema,

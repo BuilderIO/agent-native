@@ -141,7 +141,7 @@ function dependencyNames(pkg: PackageJson): string[] {
   ].flatMap((deps) => (deps ? Object.keys(deps) : []));
 }
 
-function packageDependsOn(
+export function packageDependsOn(
   packages: Map<string, WorkspacePackage>,
   fromName: string,
   targetName: string,
@@ -157,7 +157,7 @@ function packageDependsOn(
   );
 }
 
-function packageNameForDir(
+export function packageNameForDir(
   packages: Map<string, WorkspacePackage>,
   dir: string,
 ): string | undefined {

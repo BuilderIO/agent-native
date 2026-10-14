@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 
 import { resolveDefaultFilterVars } from "../app/pages/adhoc/sql-dashboard/filter-vars";
-import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../app/pages/adhoc/sql-dashboard/panel-sql";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import {
@@ -99,9 +99,11 @@ export default defineAction({
     if (!variables) {
       fail("Dashboard filters cannot be read.", { statusCode: 422 });
     }
-    const resolvedSql = interpolate(serializePanelSql(panel.sql), variables, {
-      failClosedTimeVariables: true,
-    });
+    const resolvedSql = interpolateDashboardPanelSql(
+      serializePanelSql(panel.sql),
+      variables,
+      panel,
+    );
     const query = normalizeDashboardPanelQuery(source, resolvedSql);
     const crossOrganizationPreview =
       scope.kind === "super-organization" && dashboard.orgId !== activeOrgId;

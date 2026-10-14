@@ -1,9 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
 import {
   IconBackground,
   IconBlur,
@@ -19,7 +15,13 @@ import {
   IconSun,
   IconWaveSine,
 } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -235,12 +237,11 @@ export function remapIndexedShadowStash(
 }
 
 function shadowColorWithOpacity(color: string, opacity: number): string {
-  const parsed = parseCssColor(color);
-  return parsed
-    ? rgbaToCss(withColorOpacity(parsed, opacity))
-    : opacity <= 0
-      ? "rgba(0, 0, 0, 0)"
-      : color;
+  return (
+    withCssColorOpacity(color, opacity) ??
+    // guard:allow-raw-color — a shadow with no readable color falls back to concrete transparent black.
+    (opacity <= 0 ? "rgba(0, 0, 0, 0)" : color)
+  );
 }
 
 export function effectsSelectionIsMixed(styles: {
@@ -366,6 +367,20 @@ function EffectPopoverRow({
 function useNumericEffectDraft(value: number, min?: number) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
+  // Escape closes the popover and unmounts the input without a blur, so a
+  // previewed value would stay on canvas but never reach the file.
+  const uncommittedRef = useRef<{
+    value: number;
+    onChange: (value: number, meta: StyleChangeMeta) => void;
+  } | null>(null);
+  useEffect(
+    () => () => {
+      const uncommitted = uncommittedRef.current;
+      if (uncommitted)
+        uncommitted.onChange(uncommitted.value, { phase: "commit" });
+    },
+    [],
+  );
 
   const parse = (raw: string) => {
     const parsed = raw === "" ? 0 : Number(raw);
@@ -381,12 +396,18 @@ function useNumericEffectDraft(value: number, min?: number) {
     ) {
       setDraft(raw);
       const next = parse(raw);
-      if (next !== null) onChange(next, { phase: "preview" });
+      if (next === null) return;
+      uncommittedRef.current = { value: next, onChange };
+      onChange(next, { phase: "preview" });
     },
     commit(onChange: (value: number, meta: StyleChangeMeta) => void) {
       const next = parse(draft) ?? value;
+      uncommittedRef.current = null;
       setDraft(String(next));
       onChange(next, { phase: "commit" });
+    },
+    blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+      if (event.key === "Enter") event.currentTarget.blur();
     },
   };
 }
@@ -414,6 +435,7 @@ export function BlurControl({
           numberDraft.preview(event.currentTarget.value, onChange)
         }
         onBlur={() => numberDraft.commit(onChange)}
+        onKeyDown={numberDraft.blurOnEnter}
       />
     </InspectorControlField>
   );
@@ -449,6 +471,7 @@ export function ShadowNumberControl({
           numberDraft.preview(event.currentTarget.value, onChange)
         }
         onBlur={() => numberDraft.commit(onChange)}
+        onKeyDown={numberDraft.blurOnEnter}
       />
     </div>
   );
@@ -585,6 +608,7 @@ function ShadowEffectRow({
           label={t("editPanel.labels.color")}
           value={cssColorOrFallback(layer.color, DEFAULT_DROP_SHADOW_COLOR)}
           onChange={(value, meta) => onChange({ color: value }, meta)}
+          bindTokens
         />
       </InspectorControlField>
     </EffectPopoverRow>
@@ -755,7 +779,7 @@ export function EffectsProperties({
           {effectsAreMixed ? (
             <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
               {
-                "Click + to replace mixed content" /* i18n-ignore figma mixed effects hint */
+                "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
               }
             </p>
           ) : (

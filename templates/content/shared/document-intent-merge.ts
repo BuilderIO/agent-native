@@ -39,6 +39,15 @@ function parseStableBlocks(content: string): PMNode[] | null {
   }
 }
 
+function parsedForm(content: string): string | null {
+  try {
+    return docToNfm(nfmToDoc(content));
+  } catch {
+    // coercion-ok: null is a typed preservation-required parse result, never a successful merge.
+    return null;
+  }
+}
+
 function hasAmbiguousIdentity(
   base: readonly string[],
   candidate: readonly string[],
@@ -102,6 +111,108 @@ function textHunks(before: string, after: string): TextHunk[] {
   return grouped;
 }
 
+const EMPTY_BLOCK = "<empty-block/>";
+
+// Typing into an empty paragraph replaces its marker, so empty paragraphs
+// compare as empty lines. Null when the blocks don't serialize on their own.
+function comparableText(content: string, blocks: PMNode[]): string | null {
+  const serialized = blocks.map((block) =>
+    docToNfm({ type: "doc", content: [block] }),
+  );
+  if (serialized.join("\n") !== content) return null;
+  return blocks
+    .map((block, index) =>
+      block.type === "paragraph" &&
+      !block.content?.length &&
+      serialized[index] === EMPTY_BLOCK
+        ? ""
+        : serialized[index],
+    )
+    .join("\n");
+}
+
+// A diff can place a change anywhere along repeated text, so the range covers
+// every position the hunk could slide to. `lastFrom` is its latest start.
+function slidRange(
+  text: string,
+  hunk: TextHunk,
+): { from: number; to: number; lastFrom: number } {
+  const last = (value: string, fallback: string) =>
+    value ? value[value.length - 1] : fallback;
+  let removed = text.slice(hunk.from, hunk.to);
+  let added = hunk.insert;
+  let from = hunk.from;
+  while (from > 0) {
+    const char = text[from - 1];
+    if (last(removed, char) !== last(added, char)) break;
+    if (removed) removed = char + removed.slice(0, -1);
+    if (added) added = char + added.slice(0, -1);
+    from -= 1;
+  }
+  removed = text.slice(hunk.from, hunk.to);
+  added = hunk.insert;
+  let to = hunk.to;
+  while (to < text.length) {
+    const char = text[to];
+    if ((removed[0] ?? char) !== (added[0] ?? char)) break;
+    if (removed) removed = removed.slice(1) + char;
+    if (added) added = added.slice(1) + char;
+    to += 1;
+  }
+  return { from, to, lastFrom: hunk.from + to - hunk.to };
+}
+
+// Collaboration delivers each editor's changes to the others, so a body
+// authored against an older revision can already hold every change another
+// body made since then. The holder is then the merge, with nothing lost. Its
+// edits must stay clear of the other body's changes, except for typing into
+// or right after text the other body added without replacing anything.
+function holdsChanges(base: string, holder: string, other: string): boolean {
+  const changes = textHunks(other, base).map((hunk) => ({
+    ...slidRange(other, hunk),
+    added: !hunk.insert,
+  }));
+  return textHunks(other, holder).every((hunk) => {
+    const edit = slidRange(other, hunk);
+    const typed = hunk.from === hunk.to;
+    return changes.every(
+      (change) =>
+        edit.to < change.from ||
+        edit.from > change.to ||
+        (typed && change.added && edit.from > change.lastFrom),
+    );
+  });
+}
+
+/**
+ * Whether `holder` holds every change `other` made to `base`, with any edits
+ * of its own clear of them. False when a body cannot be compared as text.
+ */
+export function bodyHoldsChanges(
+  base: string,
+  holder: string,
+  other: string,
+): boolean {
+  // Only the holder comes from an editor. The base and the other body can be
+  // stored Markdown, such as an agent's blank-line paragraphs, so they compare
+  // in the form an editor holds them, as in the merge.
+  const [baseText, holderText, otherText] = [
+    parsedForm(base),
+    holder,
+    parsedForm(other),
+  ].map((content) => {
+    if (content === null) return null;
+    const blocks = parseStableBlocks(content);
+    return blocks ? comparableText(content, blocks) : null;
+  });
+  return (
+    baseText !== null &&
+    holderText !== null &&
+    otherText !== null &&
+    holdsChanges(baseText, holderText, otherText)
+  );
+}
+
 function textHunksOverlap(left: TextHunk, right: TextHunk): boolean {
   if (left.from === left.to && right.from === right.to)
     return left.from === right.from;
@@ -110,6 +221,17 @@ function textHunksOverlap(left: TextHunk, right: TextHunk): boolean {
   if (right.from === right.to)
     return left.from < right.from && right.from < left.to;
   return left.from < right.to && right.from < left.to;
+}
+
+// Collaboration delivers a peer's typing as it happens, so a body can hold the
+// start of an insertion the other body finished. That is one insertion, not
+// two competing ones; returns the hunk that holds all of it.
+function heldInsertion(left: TextHunk, right: TextHunk): TextHunk | null {
+  if (left.from !== left.to || right.from !== right.to) return null;
+  if (left.from !== right.from) return null;
+  if (left.insert.startsWith(right.insert)) return left;
+  if (right.insert.startsWith(left.insert)) return right;
+  return null;
 }
 
 function plainParagraphText(block: PMNode): string | null {
@@ -130,6 +252,7 @@ function mergePlainParagraph(
   candidate: PMNode,
   current: PMNode,
   incomingWins: boolean,
+  appendStaleSameWriterInsertions = false,
 ): { block: PMNode; displaced: boolean } | null {
   const before = plainParagraphText(base);
   const desired = plainParagraphText(candidate);
@@ -144,7 +267,27 @@ function mergePlainParagraph(
     const overlaps = currentHunks.filter((other) =>
       textHunksOverlap(hunk, other),
     );
-    if (!overlaps.length) {
+    const held =
+      overlaps.length === 1 ? heldInsertion(hunk, overlaps[0]) : null;
+    if (held) {
+      if (held === hunk) {
+        acceptedCurrent.delete(overlaps[0]);
+        acceptedIncoming.push(hunk);
+      }
+    } else if (
+      appendStaleSameWriterInsertions &&
+      hunk.from === hunk.to &&
+      overlaps.length === 1 &&
+      overlaps[0].from === overlaps[0].to &&
+      hunk.from === overlaps[0].from
+    ) {
+      acceptedCurrent.delete(overlaps[0]);
+      acceptedIncoming.push({
+        from: hunk.from,
+        to: hunk.to,
+        insert: `${overlaps[0].insert}${hunk.insert}`,
+      });
+    } else if (!overlaps.length) {
       acceptedIncoming.push(hunk);
     } else if (incomingWins) {
       for (const other of overlaps) acceptedCurrent.delete(other);
@@ -196,18 +339,52 @@ export function mergeDocumentBodyIntents(args: {
       displaced: false,
     };
   }
-  const base = parseStableBlocks(args.authoredBaseContent);
+  // The merge keeps blocks only from the candidate and the current body, so
+  // those must serialize exactly. The base just tells which blocks each side
+  // changed, and an editor holds a body in the form it parses to: an agent's
+  // blank-line Markdown would otherwise divert every save authored on it.
+  const baseContent = parsedForm(args.authoredBaseContent);
+  const base = baseContent === null ? null : parseStableBlocks(baseContent);
   const candidate = parseStableBlocks(args.authoredCandidateContent);
   const current = parseStableBlocks(args.currentContent);
-  if (!base || !candidate || !current) {
-    return { status: "preservation-required", reason: "structure" };
-  }
-  if (base.length !== candidate.length || base.length !== current.length) {
+  if (baseContent === null || !base || !candidate || !current) {
     return { status: "preservation-required", reason: "structure" };
   }
   const baseKeys = base.map(stableBlock);
   const candidateKeys = candidate.map(stableBlock);
   const currentKeys = current.map(stableBlock);
+  const baseText = comparableText(baseContent, base);
+  const candidateText = comparableText(
+    args.authoredCandidateContent,
+    candidate,
+  );
+  const currentText = comparableText(args.currentContent, current);
+  const comparable =
+    baseText !== null && candidateText !== null && currentText !== null;
+  if (comparable && holdsChanges(baseText, candidateText, currentText)) {
+    return {
+      status: "resolved",
+      content: args.authoredCandidateContent,
+      changedBlockIndexes:
+        candidateKeys.length === currentKeys.length
+          ? candidateKeys.flatMap((block, index) =>
+              block !== currentKeys[index] ? [index] : [],
+            )
+          : [],
+      displaced: false,
+    };
+  }
+  if (comparable && holdsChanges(baseText, currentText, candidateText)) {
+    return {
+      status: "resolved",
+      content: args.currentContent,
+      changedBlockIndexes: [],
+      displaced: false,
+    };
+  }
+  if (base.length !== candidate.length || base.length !== current.length) {
+    return { status: "preservation-required", reason: "structure" };
+  }
   const changed = baseKeys.flatMap((block, index) =>
     block !== candidateKeys[index] || block !== currentKeys[index]
       ? [index]
@@ -246,21 +423,36 @@ export function mergeDocumentBodyIntents(args: {
     const touching = committed.filter((intent) =>
       intent.affectedBlockIndexes.includes(index),
     );
-    if (touching.length !== 1) {
+    if (!touching.length) {
       return { status: "preservation-required", reason: "provenance" };
     }
-    const prior = touching[0];
-    const order = compareDocumentBodyIntents(args.incoming, prior);
-    if (order === "same") {
+    // The current block holds every touching intent's change, so the
+    // incoming change replaces an overlapping one only when it orders after
+    // all of them; otherwise the overlap is displaced.
+    const orders = touching.map((prior) =>
+      compareDocumentBodyIntents(args.incoming, prior),
+    );
+    if (orders.includes("same")) {
       return { status: "preservation-required", reason: "provenance" };
     }
-    const incomingWins =
-      order === "incoming-after" || order === "incoming-concurrent-wins";
+    const incomingWins = orders.every(
+      (order) =>
+        order === "incoming-after" || order === "incoming-concurrent-wins",
+    );
+    const appendStaleSameWriterInsertions = touching.every(
+      (prior) =>
+        prior.writerId === args.incoming.writerId &&
+        args.incoming.generation !== undefined &&
+        prior.generation !== undefined &&
+        args.incoming.generation > prior.generation &&
+        args.incoming.authoredBaseRevision < prior.committedRevision,
+    );
     const paragraph = mergePlainParagraph(
       base[index],
       candidate[index],
       current[index],
       incomingWins,
+      appendStaleSameWriterInsertions,
     );
     if (paragraph) {
       merged[index] = paragraph.block;

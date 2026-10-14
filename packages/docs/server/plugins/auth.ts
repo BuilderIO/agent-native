@@ -1,10 +1,7 @@
 import { randomUUID } from "crypto";
 
-import {
-  createAuthPlugin,
-  getAppBasePath,
-  type AuthOptions,
-} from "@agent-native/core/server";
+import { getAppBasePath, type AuthOptions } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
 
 export function shouldCreateDocsSessionForPath(
@@ -76,4 +73,4 @@ export const docsAuthOptions: AuthOptions = {
   },
 };
 
-export default createAuthPlugin(docsAuthOptions);
+export default createToolkitAuthPlugin(docsAuthOptions);

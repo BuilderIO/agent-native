@@ -21,9 +21,9 @@ describe("connectRequiredResult", () => {
     expect(result.connectRequired.message).toContain(
       "Builder.io is not connected for this workspace.",
     );
-    expect(result.connectRequired.message).toContain("Connect Builder.io");
+    expect(result.connectRequired.message).toContain("Use Builder.io");
     expect(result.connectRequired.message).toContain(
-      "the Connect button shown here",
+      "choose the button shown here",
     );
   });
 

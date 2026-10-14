@@ -100,7 +100,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 The simplest full-page chat:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -114,12 +114,11 @@ page can then morph the full chat into the sidebar while keeping the active
 thread:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -152,7 +151,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 The simplest embedded chat with your own chrome:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -265,7 +264,7 @@ Every Agent-Native app eventually needs a place where users can configure their 
 First-party templates don't mount it: Settings covers the same ground (Agent › Model, Instructions, Memory, Skills, Files, and Sub-agents, plus the app's Automations and MCP server pages), `/agent` redirects into Settings, and `agentPageHref="/settings/agent"` on `AgentSidebar` opens Settings › Agent › Model. Mount `AgentTabsPage` on its own route when an app wants the whole agent surface on one page.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -568,10 +567,8 @@ boundary: your runtime streams normalized events, and Agent-Native renders the
 composer, transcript, tool calls, approvals, native widgets, and app layout.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

@@ -18,12 +18,12 @@ const messages = {
     disconnecting: "接続を解除しています…",
   },
   settings: {
+    backHome: "ホームに戻る",
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
+    description: "アプリと言語の設定を管理します。",
+    languageTitle: "インターフェースの言語",
+    languageDescription: "このアプリで使用する言語を選択します。",
+    languageLabel: "言語",
     agentTitle: "エージェント設定",
     agentDescription:
       "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
@@ -33,7 +33,6 @@ const messages = {
       "チームのアクセスと共有ワークスペース リソースを管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    backHome: "ホームに戻る",
     emailChange: "メールアドレスを変更",
     emailChangeSent: "変更を確認するにはメールを確認してください。",
     emailChangeError: "確認メールを送信できませんでした。",
@@ -361,9 +360,9 @@ const messages = {
       "弊社のクラウド エージェントに変更を依頼してください。プレビューしてデプロイするためのリンクが表示されます。",
     codeChangeTitle: "これにはコードの変更が必要です",
     codeChangeBadge: "コード変更",
-    connectBuilderTitle: "Builder.io に接続",
+    connectBuilderTitle: "Builder.io を使う",
     connectBuilderDescription:
-      "Builder（無料プランあり）に接続すると、このアプリからクラウドベースのコード変更が可能になります。",
+      "Builder.io（無料プランあり）を使うと、このアプリからクラウド経由でコードを変更できます。",
     setupRequired: "セットアップが必要です",
     branchCreated: "ブランチが作成されました",
     close: "閉じる",
@@ -613,7 +612,7 @@ const messages = {
     back: "戻る",
     agentEngineRequired: "エージェント エンジンが必要です",
     agentEngineDescription:
-      "Connect Builder.io（無料プランあり）or an LLM key before {{platform}} can answer.",
+      "Builder.io（無料プランあり）または LLM キーを使うと、{{platform}} が回答できるようになります。",
     openLlm: "LLM を開く",
     setup: "Setup",
     shareDocumentsWith: "ドキュメントを共有する",
@@ -653,6 +652,13 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "リストに戻る",
+    promoteMustContain: "返信に含めるテキスト…",
+    promoteMustContainOptional: "返信で確認する任意のテキスト…",
+    promoteMustContainLabel: "昇格した評価の返信で確認するテキスト",
+    promoteReviewedPromptLabel:
+      "手動で確認したプロンプト（本番環境から自動コピーされません）",
+    promoteNeedsContains:
+      "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",
     type: "タイプ",
     name: "名前",

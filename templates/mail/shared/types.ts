@@ -27,6 +27,7 @@ export type EmailMessage = {
   isStarred: boolean;
   isDraft?: boolean;
   isSent?: boolean;
+  scheduledJobStatus?: "pending" | "processing" | "uncertain";
   isArchived: boolean;
   isTrashed: boolean;
   labelIds: string[];

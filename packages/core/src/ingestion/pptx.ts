@@ -1,3 +1,5 @@
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 export interface ParsedPptxTextRun {
   content: string;
   bold?: boolean;
@@ -184,6 +186,7 @@ interface ZipArchive {
 
 export async function parsePptxPresentation(
   fileBuffer: Uint8Array,
+  options: { includeHiddenSlides?: boolean } = {},
 ): Promise<ParsedPptxPresentation> {
   const dependencies = await loadPptxDependencies();
   const loadZip = dependencies.loadZip.bind(dependencies);
@@ -317,7 +320,10 @@ export async function parsePptxPresentation(
       );
       continue;
     }
-    if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0") {
+    if (
+      stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0" &&
+      !options.includeHiddenSlides
+    ) {
       hiddenSlideCount += 1;
       continue;
     }
@@ -2830,33 +2836,30 @@ async function loadPptxDependencies(): Promise<{
   loadZip(data: Uint8Array): Promise<ZipArchive>;
   parseXml(xml: string): unknown;
 }> {
-  try {
-    const [zipModule, xmlModule] = await Promise.all([
-      import("jszip") as Promise<{
-        default: { loadAsync(data: Uint8Array): Promise<ZipArchive> };
-      }>,
-      import("fast-xml-parser") as Promise<{
-        XMLParser: new (options: Record<string, unknown>) => {
-          parse(xml: string): unknown;
-        };
-      }>,
-    ]);
-    const parser = new xmlModule.XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: "@_",
-      trimValues: false,
-      parseTagValue: false,
-    });
-    return {
-      loadZip: (data) => zipModule.default.loadAsync(data),
-      parseXml: (xml) =>
-        parser.parse(annotatePathCommandOrder(normalizeHardLineBreaks(xml))),
-    };
-  } catch {
-    throw new Error(
-      "Structured PPTX parsing requires the optional jszip and fast-xml-parser dependencies.",
-    );
-  }
+  const [zipModule, xmlModule] = await Promise.all([
+    loadOptionalPeer("jszip", () => import("jszip")) as Promise<{
+      default: { loadAsync(data: Uint8Array): Promise<ZipArchive> };
+    }>,
+    loadOptionalPeer(
+      "fast-xml-parser",
+      () => import("fast-xml-parser"),
+    ) as Promise<{
+      XMLParser: new (options: Record<string, unknown>) => {
+        parse(xml: string): unknown;
+      };
+    }>,
+  ]);
+  const parser = new xmlModule.XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    trimValues: false,
+    parseTagValue: false,
+  });
+  return {
+    loadZip: (data) => zipModule.default.loadAsync(data),
+    parseXml: (xml) =>
+      parser.parse(annotatePathCommandOrder(normalizeHardLineBreaks(xml))),
+  };
 }
 
 function normalizeHardLineBreaks(xml: string): string {

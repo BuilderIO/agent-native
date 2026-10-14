@@ -1,5 +1,3 @@
-import { ChangelogDialog } from "@agent-native/core/client/changelog";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -7,8 +5,8 @@ import {
   openSettingsPage,
 } from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
-import type { SettingsPageContext } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { ChangelogDialog } from "@agent-native/toolkit/app/changelog";
+import type { SettingsPageContext } from "@agent-native/toolkit/app/settings";
 import {
   IconFlask,
   IconTool,
@@ -17,7 +15,6 @@ import {
   IconSun,
   IconMoon,
   IconHistory,
-  IconHierarchy2,
   IconRefresh,
   IconSettings,
 } from "@tabler/icons-react";
@@ -49,14 +46,10 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
 import { isMacPlatform } from "@/lib/utils";
 import { dashboards } from "@/pages/adhoc/registry";
-import {
-  buildAnalyticsGeneralSettingsSearchEntries,
-  buildAnalyticsSettingsCommandItems,
-} from "@/pages/settings/settings-search";
+import { buildAnalyticsSettingsCommandItems } from "@/pages/settings/settings-search";
 
 import changelog from "../../../CHANGELOG.md?raw";
 import {
@@ -270,10 +263,6 @@ export function CommandPalette() {
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const replayStorageStatus = useReplayStorageStatus({ enabled: open });
-  const settingsRedesign = useFeatureFlagState(
-    SETTINGS_REDESIGN_FLAG.key,
-  ).enabled;
   const settingsPageContext = useMemo<SettingsPageContext>(
     () => ({
       role,
@@ -287,21 +276,10 @@ export function CommandPalette() {
     }),
     [canManageOrg, isOwner, org, role],
   );
-  const settingsCommands = useMemo(() => {
-    const generalEntries = buildAnalyticsGeneralSettingsSearchEntries(
-      t,
-      !!replayStorageStatus.data?.configured,
-    );
-    return buildAnalyticsSettingsCommandItems(t, generalEntries, {
-      redesign: settingsRedesign,
-      pageContext: settingsPageContext,
-    });
-  }, [
-    replayStorageStatus.data?.configured,
-    settingsPageContext,
-    settingsRedesign,
-    t,
-  ]);
+  const settingsCommands = useMemo(
+    () => buildAnalyticsSettingsCommandItems(t, settingsPageContext),
+    [settingsPageContext, t],
+  );
   const settingsLabel = t("settingsShortcut.command"); // i18n-key-ignore shared framework catalog
 
   const savedChartsQuery = useQuery({
@@ -562,24 +540,6 @@ export function CommandPalette() {
                   {getSettingsShortcutHint(isMacPlatform())}
                 </CommandShortcut>
               </CommandItem>
-              {showHiddenResults && !settingsRedesign && (
-                <CommandItem
-                  value={`setting:agent-page:${t("settings.agentTitle")}`}
-                  onSelect={() => go("/settings/agent")}
-                  keywords={commandPaletteKeywords(
-                    t("settings.agentTitle"),
-                    "agent",
-                    "context",
-                    "files",
-                    "connections",
-                    "jobs",
-                    "access",
-                  )}
-                >
-                  <IconHierarchy2 className="me-2 h-4 w-4 text-muted-foreground" />
-                  <span className="truncate">{t("settings.agentTitle")}</span>
-                </CommandItem>
-              )}
               {showHiddenResults &&
                 settingsCommands.map((setting) => (
                   <CommandItem

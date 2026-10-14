@@ -1,14 +1,16 @@
 import { createHash } from "node:crypto";
 
-import type { H3Event } from "h3";
+import { setCookie, type H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
-import { getSession } from "../server/auth.js";
+import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js";
+import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
+  getVerifiedServiceIdentityFromEvent,
   getRequestContext,
   hasExplicitPersonalOrgScope,
 } from "../server/request-context.js";
@@ -19,9 +21,15 @@ import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import {
+  ACTIVE_ORG_SETTING_KEY,
+  cachedActiveOrgSetting,
   cachedMemberships,
   invalidateMemberOrgCaches,
+  newOrgSelection,
+  ORG_SELECTION_COOKIE,
+  orgSelectionFromCookieHeader,
   requestMemberOrgIds,
+  type ActiveOrgSetting,
 } from "./request-org-cache.js";
 import { implicitServiceOrgRole } from "./service-identity.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
@@ -168,7 +176,13 @@ function markFederationMembershipValidated(
   ] = { email: email.trim().toLowerCase(), orgId };
 }
 
-type ActiveOrgSetting = { orgId: string | null } | null;
+function parseActiveOrgSetting(
+  value: Record<string, unknown> | null,
+): ActiveOrgSetting {
+  if (!value || !("orgId" in value)) return null;
+  if (value.orgId === null) return { orgId: null };
+  return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
+}
 
 function loadActiveOrgSettingForEvent(
   event: H3Event,
@@ -185,14 +199,29 @@ function loadActiveOrgSettingForEvent(
   const normalizedEmail = email.toLowerCase();
   let promise = cache.get(normalizedEmail);
   if (!promise) {
-    promise = getUserSetting(email, "active-org-id").then((value) => {
-      if (!value || !("orgId" in value)) return null;
-      if (value.orgId === null) return { orgId: null };
-      return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
-    });
+    promise = cachedActiveOrgSetting(
+      email,
+      orgSelectionFromCookieHeader(event.req?.headers?.get("cookie")),
+      async () =>
+        parseActiveOrgSetting(
+          await getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
+        ),
+    );
     cache.set(normalizedEmail, promise);
   }
   return promise;
+}
+
+/**
+ * Point this caller's later requests at a fresh `active-org-id` read on every
+ * instance. Call after the caller's own preference was written in this request.
+ */
+export function markActiveOrgSelectionChanged(event: H3Event): void {
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    ...crossSiteCookieAttrs(event),
+    httpOnly: true,
+    path: "/",
+  });
 }
 
 function loadMembershipsForEvent(
@@ -234,6 +263,9 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
   if (!email) return EMPTY_CONTEXT;
+  if (isAnonymousWaitlistSessionEmail(email)) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
   if (hasExplicitPersonalOrgScope(event)) {
     return { email, orgId: null, orgName: null, role: null };
   }
@@ -244,6 +276,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const sessionOrgRole = normalizeOrgRole(session.orgRole);
 
   const requestContext = getRequestContext();
+  const verifiedServiceIdentity = getVerifiedServiceIdentityFromEvent(event);
   const serviceRole = implicitServiceOrgRole({
     email,
     orgId: sessionOrgId,
@@ -252,13 +285,34 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
         ? null
         : (requestContext?.orgId ?? sessionOrgId),
   });
-  if (serviceRole && sessionOrgId) {
-    return {
-      email,
-      orgId: sessionOrgId,
-      orgName: null,
-      role: serviceRole,
-    };
+  if (
+    serviceRole &&
+    sessionOrgId &&
+    verifiedServiceIdentity &&
+    verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
+      email.trim().toLowerCase() &&
+    verifiedServiceIdentity.orgId === sessionOrgId
+  ) {
+    const organization = await getDbExec().execute({
+      sql: `SELECT identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [sessionOrgId],
+    });
+    const metadata = organization.rows[0] as
+      | { identity_authority?: unknown; identity_id?: unknown }
+      | undefined;
+    if (
+      metadata &&
+      !String(metadata.identity_authority ?? "").trim() &&
+      !String(metadata.identity_id ?? "").trim()
+    ) {
+      return {
+        email,
+        orgId: sessionOrgId,
+        orgName: null,
+        role: serviceRole,
+      };
+    }
   }
 
   const exec = getDbExec();
@@ -388,7 +442,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
           )));
 
       if (shouldActivate) {
-        await setActiveOrgId(email, joinedOrgId, "joined domain-matched org");
+        await setActiveOrgId(
+          email,
+          joinedOrgId,
+          "joined domain-matched org",
+          event,
+        );
         const active = memberships.find((m) => m.orgId === joinedOrgId);
         if (active) {
           return {
@@ -443,7 +502,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   }
 
   if (memberships.length === 0 && autoCreateDefaultOrgEnabled()) {
-    const created = await tryCreateDefaultOrg(exec, email, session);
+    const created = await tryCreateDefaultOrg(exec, email, session, event);
     if (created) return created;
     // Creation failed (race / DB error); fall through with an empty org context
     // so non-blocking invite/domain UI can still surface recovery options.
@@ -561,6 +620,36 @@ export async function resolveOrgIdForEmail(
   return ids[0];
 }
 
+export async function resolveActiveOrgIdForStorageCredential(
+  email: string,
+): Promise<string | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT m.org_id AS "orgId"
+          FROM org_members m
+          INNER JOIN organizations o ON m.org_id = o.id
+          WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL`,
+    args: [normalizedEmail],
+  });
+  if (rows.length === 0) return null;
+
+  const activeOrgSetting = (await getUserSetting(
+    normalizedEmail,
+    ACTIVE_ORG_SETTING_KEY,
+    { bypassCache: true },
+  )) as ActiveOrgSetting;
+  const activeOrgId =
+    typeof activeOrgSetting?.orgId === "string"
+      ? activeOrgSetting.orgId.trim()
+      : "";
+  if (!activeOrgId) return null;
+
+  return rows.some((row) => row.orgId === activeOrgId) ? activeOrgId : null;
+}
+
 export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
@@ -589,6 +678,8 @@ export async function createOrganization(
     id?: string;
     identityAuthority?: string;
     identityId?: string;
+    /** The creating caller's request; see `setActiveOrgId`. */
+    event?: H3Event;
   } = {},
 ): Promise<{
   id: string;
@@ -629,13 +720,19 @@ export async function createOrganization(
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
-  await setActiveOrgId(email, id, `created organization "${trimmedName}"`);
+  await setActiveOrgId(
+    email,
+    id,
+    `created organization "${trimmedName}"`,
+    options.event,
+  );
 
   return { id, name: trimmedName, role, a2aSecret, createdAt };
 }
 
 export async function bootstrapAdminOrganization(
   rawEmail: string,
+  event?: H3Event,
 ): Promise<boolean> {
   const email = rawEmail.trim().toLowerCase();
   if (!email || !isBootstrapAdmin(email)) return false;
@@ -660,7 +757,7 @@ export async function bootstrapAdminOrganization(
     const identity = config.app.workspaceId ?? config.app.id ?? name;
     const id = `bootstrap-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
     try {
-      await createOrganization(name, email, "owner", { id });
+      await createOrganization(name, email, "owner", { id, event });
       return true;
     } catch (error) {
       const existing = await exec.execute({
@@ -681,7 +778,12 @@ export async function bootstrapAdminOrganization(
     args: [nanoid(), orgId, email, now],
   });
   invalidateMemberOrgCaches();
-  await setActiveOrgId(email, orgId, "bootstrap admin organization access");
+  await setActiveOrgId(
+    email,
+    orgId,
+    "bootstrap admin organization access",
+    event,
+  );
   return true;
 }
 
@@ -784,6 +886,7 @@ async function tryCreateDefaultOrg(
   exec: ReturnType<typeof getDbExec>,
   email: string,
   session: { name?: string } | null,
+  event: H3Event,
 ): Promise<OrgContext | null> {
   await getSetting("__init").catch(() => null);
 
@@ -819,8 +922,23 @@ async function tryCreateDefaultOrg(
       args: [nanoid(), orgId, email, "owner", now],
     });
     invalidateMemberOrgCaches();
+    updateMembershipsForEvent(event, email, [
+      {
+        orgId,
+        role: "owner",
+        orgName,
+        allowedDomain: null,
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
 
-    await setActiveOrgId(email, orgId, "auto-created default organization");
+    await setActiveOrgId(
+      email,
+      orgId,
+      "auto-created default organization",
+      event,
+    );
     if (shouldWriteFirstRunOnboardingEligibility()) {
       try {
         await appStatePut(
@@ -878,50 +996,38 @@ async function releaseClaim(
 }
 
 export async function getOrgDomain(orgId: string): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
-      args: [orgId],
-    });
-    if (!rows[0]) return null;
-    const domain = String((rows[0] as any).allowed_domain || "");
-    return domain || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const domain = String((rows[0] as any).allowed_domain || "");
+  return domain || null;
 }
 
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
-      args: [orgId],
-    });
-    if (!rows[0]) return null;
-    const secret = String((rows[0] as any).a2a_secret || "");
-    return secret || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const secret = String((rows[0] as any).a2a_secret || "");
+  return secret || null;
 }
 
 export async function getA2ASecretByDomain(
   domain: string,
 ): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
-      args: [domain.toLowerCase()],
-    });
-    if (!rows[0]) return null;
-    const secret = String((rows[0] as any).a2a_secret || "");
-    return secret || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [domain.toLowerCase()],
+  });
+  if (!rows[0]) return null;
+  const secret = String((rows[0] as any).a2a_secret || "");
+  return secret || null;
 }
 
 export async function resolveOrgByDomain(
@@ -941,6 +1047,70 @@ export async function resolveOrgByDomain(
   } catch {
     return null;
   }
+}
+
+export async function resolveA2AOrganizationMetadataByDomain(
+  domain: string,
+): Promise<{ orgId: string; orgDomain: string | null } | null> {
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!normalizedDomain) return null;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, allowed_domain
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [normalizedDomain],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  const orgId = String(row.id ?? "").trim();
+  const orgDomain = String(row.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  if (!orgId || !orgDomain || orgDomain !== normalizedDomain) return null;
+  return { orgId, orgDomain };
+}
+
+export async function resolveA2AOrganizationMetadataById(
+  orgId: string,
+): Promise<{ orgId: string; orgDomain: string | null } | null> {
+  const normalizedOrgId = orgId.trim();
+  if (!normalizedOrgId) return null;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+    args: [normalizedOrgId],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  const resolvedOrgId = String(row.id ?? "").trim();
+  if (!resolvedOrgId || resolvedOrgId !== normalizedOrgId) return null;
+  const rawDomain = String(row.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  return { orgId: resolvedOrgId, orgDomain: rawDomain || null };
+}
+
+export async function resolveA2AOrganizationCredentialsByDomain(
+  domain: string,
+): Promise<{
+  orgId: string;
+  orgDomain: string;
+  secret: string;
+} | null> {
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!normalizedDomain) return null;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, allowed_domain, a2a_secret
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [normalizedDomain],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  const orgId = String(row.id ?? "").trim();
+  const orgDomain = String(row.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  const secret = String(row.a2a_secret ?? "").trim();
+  if (!orgId || orgDomain !== normalizedDomain || !secret) return null;
+  return { orgId, orgDomain, secret };
 }
 
 export async function isSoleOrgDomain(domain: string): Promise<boolean> {

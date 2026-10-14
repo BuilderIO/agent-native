@@ -1,6 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +9,8 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { ownerEmailMatches } from "../server/lib/recordings.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 80;
@@ -95,7 +98,7 @@ function transcriptMatch(
 
 export default defineAction({
   description:
-    "Search recordings by title, description, transcript text, or comments. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user.",
+    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -118,6 +121,13 @@ export default defineAction({
       agentOnly: isAgentRecordingCaller(ctx?.caller),
       userEmail: ctx?.userEmail,
     };
+    const userEmail = ctx?.userEmail ?? getRequestUserEmail();
+    const lifecycleFilter = userEmail
+      ? or(
+          isNull(schema.recordings.trashedAt),
+          ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
+        )
+      : isNull(schema.recordings.trashedAt);
 
     const recMatches = await db
       .select({
@@ -125,6 +135,9 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        trashedAt: schema.recordings.trashedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -140,7 +153,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
-          isNull(schema.recordings.trashedAt),
+          lifecycleFilter,
           sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
@@ -155,6 +168,9 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        trashedAt: schema.recordings.trashedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -174,7 +190,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
-          isNull(schema.recordings.trashedAt),
+          lifecycleFilter,
           sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -189,6 +205,9 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        trashedAt: schema.recordings.trashedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -208,7 +227,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
-          isNull(schema.recordings.trashedAt),
+          lifecycleFilter,
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -222,7 +241,8 @@ export default defineAction({
       id: r.id,
       title: r.title,
       description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
+      thumbnailUrl: listingThumbnailUrl(r),
+      trashedAt: r.trashedAt,
       durationMs: r.durationMs,
       ownerEmail: r.ownerEmail,
       visibility: r.visibility,
@@ -233,7 +253,8 @@ export default defineAction({
       id: r.id,
       title: r.title,
       description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
+      thumbnailUrl: listingThumbnailUrl(r),
+      trashedAt: r.trashedAt,
       durationMs: r.durationMs,
       ownerEmail: r.ownerEmail,
       visibility: r.visibility,
@@ -260,6 +281,7 @@ export default defineAction({
     for (const r of recMatches) {
       merged.set(r.id, {
         ...r,
+        thumbnailUrl: listingThumbnailUrl(r),
         matchType: "title-description",
         snippet: buildSnippet(r.description, args.query),
         matchMs: null,

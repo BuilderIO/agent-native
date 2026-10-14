@@ -1,26 +1,26 @@
 import {
-  AgentSidebar,
-  GuidedQuestionFlow,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
   isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
+import { analyticsAskThreadPath, isAnalyticsAskPath } from "@shared/ask-route";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -40,6 +40,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { AgentCompletionSound } from "../AgentCompletionSound";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { isSessionReplayRoute } from "./layout-route-policy";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -94,7 +95,7 @@ function InteractiveLayout({ children }: LayoutProps) {
                 : undefined;
             return Array.isArray(revisions)
               ? revisions.filter(isAssistantChatHistoryVersion)
-              : [];
+              : null;
           },
         },
         restore: {
@@ -119,7 +120,7 @@ function InteractiveLayout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(revisions)
             ? revisions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -161,18 +162,14 @@ function InteractiveLayout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
+  const isSessionDetailRoute = isSessionReplayRoute(location.pathname);
   const isMonitoringRoute =
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");
-  const isAskRoute = location.pathname === "/ask";
-  // The redesigned Settings brings its own navigation, header, and agent
-  // toggle, so it renders full width. While the flag loads it shows the
-  // shell's skeleton, which needs the same frame.
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const isRedesignedSettingsRoute =
-    isSettingsPathname(location.pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  const isAskRoute = isAnalyticsAskPath(location.pathname);
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const settingsOwnsChrome = isSettingsPathname(location.pathname);
   const isSettingsRoute = isAnalyticsSettingsPath(location.pathname);
   const runningRuns = useRef<AnalyticsChatRunningRuns>(new Map());
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -188,7 +185,7 @@ function InteractiveLayout({ children }: LayoutProps) {
     });
   useAgentChatHomeHandoffLinks({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
-    chatPath: "/ask",
+    isChatPath: isAnalyticsAskPath,
     ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
     enabled: true,
     requireActiveHandoff: true,
@@ -213,7 +210,7 @@ function InteractiveLayout({ children }: LayoutProps) {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
       if (typeof detail?.isRunning !== "boolean") return;
-      if (location.pathname === "/ask") markAnalyticsChatActivity();
+      if (isAnalyticsAskPath(location.pathname)) markAnalyticsChatActivity();
       updateAnalyticsChatHandoffForRun(
         runningRuns.current,
         detail,
@@ -226,9 +223,12 @@ function InteractiveLayout({ children }: LayoutProps) {
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, [location.pathname]);
 
-  function openAskAgentFullscreen() {
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/ask");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      analyticsAskThreadPath(threadId ?? null),
+    );
   }
 
   if (BARE_ROUTES.has(location.pathname)) {
@@ -242,18 +242,18 @@ function InteractiveLayout({ children }: LayoutProps) {
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      {!isRedesignedSettingsRoute && <MobileNav showNewChat={isAskRoute} />}
+      {!settingsOwnsChrome && <MobileNav showNewChat={isAskRoute} />}
       {!isExtensionsRoute &&
         !isAskRoute &&
         !isSessionDetailRoute &&
         !isMonitoringRoute &&
-        !isRedesignedSettingsRoute && <Header />}
+        !settingsOwnsChrome && <Header />}
       <InvitationBanner />
       <main
         className={
           isExtensionsRoute
             ? "agent-native-app-main flex-1 overflow-y-auto"
-            : isAskRoute || isRedesignedSettingsRoute
+            : isAskRoute || settingsOwnsChrome
               ? "agent-native-app-main flex-1 overflow-hidden p-0"
               : "agent-native-app-main flex-1 overflow-y-auto p-6 pt-2"
         }
@@ -284,7 +284,7 @@ function InteractiveLayout({ children }: LayoutProps) {
       <AgentCompletionSound />
       <HeaderActionsProvider>
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {!isRedesignedSettingsRoute && (
+          {!settingsOwnsChrome && (
             <div className="agent-layout-left-drawer hidden shrink-0 md:block">
               <Sidebar />
             </div>

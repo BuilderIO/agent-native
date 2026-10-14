@@ -14,6 +14,7 @@ import {
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { parseJobResource } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   listUnclaimedAutomationRuns,
   startAutomationRun,
@@ -129,7 +130,7 @@ export async function queueAutomationRunNow(
       { statusCode: 403 },
     );
   }
-  const { body, meta } = parseJobResource(resource.content);
+  const { body } = parseJobResource(resource.content);
   if (!body.trim()) {
     throw Object.assign(
       new Error(`Automation "${name}" has no instructions.`),
@@ -150,13 +151,13 @@ export async function queueAutomationRunNow(
   });
 
   const historyId = await startAutomationRun({
-    owner: resource.owner,
+    ...automationRunOwnership(resource.owner, input.userEmail, input.orgId),
     automation: name,
     path: resource.path,
-    scope: input.scope,
-    orgId: input.scope === "organization" ? input.orgId : null,
     appId: input.appId,
-    notificationEmail: meta.createdBy ?? input.userEmail,
+    // The person who asked for the run, already authorized above; a stored
+    // `createdBy` may have left the organization.
+    notificationEmail: input.userEmail,
     dispatchPending: true,
   });
   try {

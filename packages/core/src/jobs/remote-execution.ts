@@ -12,7 +12,6 @@ import type {
   RemoteDevice,
 } from "../integrations/remote-types.js";
 import {
-  organizationResourceOwner,
   resourceGetByPath,
   resourcePutIfCurrent,
   type Resource,
@@ -22,6 +21,7 @@ import {
   patchJobFrontmatterFields,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import { finishAutomationRun, startAutomationRun } from "./run-history.js";
 
 export const REMOTE_AUTOMATION_MAX_ACTIVE_MS = 24 * 60 * 60_000;
@@ -194,17 +194,14 @@ export async function dispatchRemoteAutomation(
   let createdHistory = false;
   if (!automationRunId) {
     try {
-      const historyOwner = input.orgId
-        ? organizationResourceOwner(input.orgId)
-        : input.resource.owner === "__shared__"
-          ? input.ownerEmail
-          : input.resource.owner;
       automationRunId = await startAutomationRun({
-        owner: historyOwner,
+        ...automationRunOwnership(
+          input.resource.owner,
+          input.ownerEmail,
+          input.orgId,
+        ),
         automation: automationName(input.resource.path),
         path: input.resource.path,
-        scope: input.orgId ? "organization" : "personal",
-        orgId: input.orgId ?? null,
         appId: input.appId,
         notificationEmail: input.ownerEmail,
       });
@@ -282,6 +279,7 @@ export async function dispatchRemoteAutomation(
         automationRunId,
         "error",
         error instanceof Error ? error.message : "Remote dispatch failed.",
+        "remote_dispatch_failed",
       ).catch(() => undefined);
     }
     throw error;
@@ -401,5 +399,6 @@ export async function finishRemoteAutomationHistory(
     meta.remoteAutomationRunId,
     state === "completed" ? "success" : "error",
     error,
+    state === "completed" ? undefined : "remote_execution_failed",
   );
 }

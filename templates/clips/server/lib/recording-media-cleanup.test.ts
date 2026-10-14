@@ -14,7 +14,11 @@ vi.mock("@agent-native/core/server", () => ({
     mockResolveBuilderRequestAuthorization(),
 }));
 
-import { deleteRecordingMediaObjects } from "./recording-media-cleanup";
+import {
+  deleteRecordingMediaObjects,
+  deleteStoredMediaUrl,
+  recordingMediaUrls,
+} from "./recording-media-cleanup";
 
 describe("recording-media-cleanup", () => {
   beforeEach(() => {
@@ -129,5 +133,62 @@ describe("recording-media-cleanup", () => {
       errors: [],
     });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  describe("deleteStoredMediaUrl", () => {
+    const url = "https://cdn.builder.io/api/v1/image/assets%2Fshot.png";
+    const respond = (status: number) => ({
+      ok: status < 300,
+      status,
+      statusText: String(status),
+      text: vi.fn(async () => ""),
+    });
+
+    it("counts an asset that is already gone as deleted", async () => {
+      // A retry after a delete whose response was lost: the object is gone,
+      // and a redaction waiting on it must be able to finish.
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(404));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(true);
+      expect(mockFetch.mock.calls[1]?.[1]).toMatchObject({ method: "HEAD" });
+      // The URL as stored, not the stripped one the delete API is given.
+      expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+        "assets%2Fshot.png?deleted-check=",
+      );
+    });
+
+    it("does not trust a 404 while the asset is still being served", async () => {
+      // The same 404 is what a key without rights to the asset gets.
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(200));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
+    });
+  });
+
+  it("includes a screenshot's leftover files, so permanent delete removes them", () => {
+    // Nothing else points at them; a row deleted without them leaves the
+    // unredacted original in storage for good.
+    expect(
+      recordingMediaUrls({
+        kind: "image",
+        imageUrl: "https://store.example/burned.png",
+        editsJson: JSON.stringify({
+          unreclaimedUrls: ["https://store.example/copy.png"],
+          burnInProgress: { staleUrls: ["https://store.example/original.png"] },
+        }),
+      }),
+    ).toEqual([
+      "https://store.example/burned.png",
+      "https://store.example/original.png",
+      "https://store.example/copy.png",
+    ]);
+  });
+
+  it("refuses to list a screenshot's media when its edits cannot be read", () => {
+    expect(() =>
+      recordingMediaUrls({ kind: "image", editsJson: "{not json" }),
+    ).toThrow(/could not be read/);
   });
 });

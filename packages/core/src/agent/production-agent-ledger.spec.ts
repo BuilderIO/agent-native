@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import {
+  getOrCreateRequestDbPool,
+  getRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { assembleA2AFinalResponse } from "../server/agent-chat/action-filters-a2a.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
@@ -43,6 +48,14 @@ const clearLedgerMock = vi.hoisted(() => vi.fn<() => Promise<void>>());
 const currentTurnEventsMock = vi.hoisted(() =>
   vi.fn<() => Promise<any[]>>(() => Promise.resolve([])),
 );
+const resolveAppAuthorizationContextMock = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
+
+vi.mock("../org/app-roles.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/app-roles.js")>()),
+  resolveAppAuthorizationContext: resolveAppAuthorizationContextMock,
+}));
 
 vi.mock("./run-store.js", () => ({
   writeLedgerEntry: writeLedgerMock,
@@ -138,11 +151,16 @@ describe("tool-call result ledger", () => {
     currentTurnEventsMock.mockResolvedValue([]);
   });
 
-  it("writes a ledger entry when a zombie write-tool call completes", async () => {
+  it("writes a ledger entry for a dynamically classified write", async () => {
     // Simulate the zombie path: the action promise resolves normally (no race),
     // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
     // must be called with the thread + tool key.
     const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { payload?: string }).payload === "x" ? "write" : "read",
+    };
     const actionResult = {
       draft: {
         subject: "Launch notes",
@@ -188,6 +206,78 @@ describe("tool-call result ledger", () => {
       false,
       JSON.stringify(widgetResult),
     );
+  });
+
+  it("keeps the request pool alive through a late zombie ledger write", async () => {
+    let markActionStarted!: () => void;
+    const actionStarted = new Promise<void>((resolve) => {
+      markActionStarted = resolve;
+    });
+    let resolveAction!: (result: string) => void;
+    const actionResult = new Promise<string>((resolve) => {
+      resolveAction = resolve;
+    });
+    let markLedgerStarted!: () => void;
+    const ledgerStarted = new Promise<void>((resolve) => {
+      markLedgerStarted = resolve;
+    });
+    let releaseLedgerWrite!: () => void;
+    const ledgerWriteGate = new Promise<void>((resolve) => {
+      releaseLedgerWrite = resolve;
+    });
+    const requestPoolKey = "zombie-ledger-request";
+    const pool = {
+      query: vi.fn(async () => "pool-open"),
+      end: vi.fn(async () => {}),
+    };
+    let poolDuringLedgerWrite: unknown;
+    let ledgerQueryResult: unknown;
+    writeLedgerMock.mockImplementation(async () => {
+      poolDuringLedgerWrite = getRequestDbPool(requestPoolKey);
+      const activePool = getRequestDbPool(requestPoolKey) as
+        | typeof pool
+        | undefined;
+      ledgerQueryResult = await activePool?.query();
+      markLedgerStarted();
+      await ledgerWriteGate;
+    });
+
+    const action = makeWriteAction();
+    (action.run as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      markActionStarted();
+      return actionResult;
+    });
+    const controller = new AbortController();
+    const request = runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool(requestPoolKey, () => pool);
+      await runAgentLoop({
+        engine: singleToolEngine("save-data", { content: "slow" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "save this" }] },
+        ],
+        actions: { "save-data": action },
+        send: () => {},
+        signal: controller.signal,
+        threadId: "thread-zombie-pool-scope",
+      }).catch(() => {});
+    });
+
+    await actionStarted;
+    controller.abort();
+    await request;
+    expect(pool.end).not.toHaveBeenCalled();
+
+    resolveAction("write-result");
+    await ledgerStarted;
+    expect(poolDuringLedgerWrite).toBe(pool);
+    expect(ledgerQueryResult).toBe("pool-open");
+    expect(pool.end).not.toHaveBeenCalled();
+
+    releaseLedgerWrite();
+    await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
   });
 
   it("does not write a ledger entry for resolved MCP error results", async () => {
@@ -512,6 +602,7 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.artifacts).toEqual(artifacts);
 
     const toolResults = events
@@ -886,12 +977,17 @@ describe("tool-call result ledger", () => {
     );
   });
 
-  it("recovers a timed out write from its late zombie ledger result", async () => {
+  it("recovers a timed out dynamically classified write from its ledger", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
 
     const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { content?: string }).content === "slow" ? "write" : "read",
+    };
     const events: any[] = [];
 
     await runAgentLoop({
@@ -1059,6 +1155,7 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.result).toContain("Already completed");
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
     expect(toolDone?.chatUIResult).toEqual(chatUIResult);
     expect(when).not.toHaveBeenCalled();
@@ -1221,6 +1318,77 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.isError).toBe(true);
     expect(toolDone?.result).toContain("timed out after");
     expect(toolDone?.result).not.toContain("Interrupted before");
+  });
+
+  it("times out a tool whose app authorization never resolves", async () => {
+    resolveAppAuthorizationContextMock.mockReturnValueOnce(
+      new Promise<never>(() => {}),
+    );
+    const action: ActionEntry = {
+      ...makeWriteAction(),
+      timeoutMs: 20,
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      appId: "analytics",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("timed out before the action started");
+    expect(toolDone?.result).not.toMatch(/tool call timed out after/i);
+  });
+
+  it("does not invoke a timed-out tool when app authorization resolves late", async () => {
+    let resolveAuthorization!: (value: null) => void;
+    resolveAppAuthorizationContextMock.mockReturnValueOnce(
+      new Promise<null>((resolve) => {
+        resolveAuthorization = resolve;
+      }),
+    );
+    const action: ActionEntry = {
+      ...makeWriteAction(),
+      timeoutMs: 20,
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      appId: "analytics",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("timed out before the action started");
+    expect(action.run).not.toHaveBeenCalled();
+
+    // A macrotask drains the whole microtask chain behind the authorization
+    // promise; a single microtask flush can finish before the guard runs.
+    resolveAuthorization(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(action.run).not.toHaveBeenCalled();
   });
 
   it("never consults the ledger for read-only tools", async () => {

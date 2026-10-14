@@ -78,6 +78,7 @@ export interface EventType {
   position: number;
   schedulingType: SchedulingType;
   ownerEmail?: string;
+  orgId?: string;
   teamId?: string;
   scheduleId?: string;
   locations: Location[];
@@ -161,6 +162,9 @@ export interface Booking {
   uid: string;
   eventTypeId: string;
   hostEmail: string;
+  ownerEmail?: string;
+  orgId?: string | null;
+  teamId?: string;
   title: string;
   description?: string;
   startTime: string;

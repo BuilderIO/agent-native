@@ -10,7 +10,6 @@ import {
   type BrainSensitivityScoreKey,
 } from "./search-index-contracts.js";
 import {
-  MAX_CLASSIFIER_OUTPUT_CHARS,
   sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
@@ -18,12 +17,13 @@ import {
 const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 const JEV_MODEL = "jev-latest";
 const JEV_MAX_INPUT_CHARS = 40_000;
+const JEV_MAX_WINDOWS = 8;
 const MAX_TITLE_CHARS = 1_000;
 
-const JEV_TIMEOUT_MS = 5_000;
+const JEV_TIMEOUT_MS = 15_000;
+const JEV_RETRY_DELAYS_MS = [1_000, 3_000];
 
 const JEV_BLOCK_PROBABILITY = 0.6;
-const JEV_ALLOW_PROBABILITY = 0.2;
 const JEV_HIGH_CONFIDENCE_PROBABILITY = 0.85;
 
 const SCORE_CACHE_LIMIT = 500;
@@ -38,6 +38,7 @@ export type JevFailureReason =
   | "jev-timeout"
   | "jev-invalid-response"
   | "jev-credential-unavailable"
+  | "jev-credential-lookup-failed"
   | "jev-unavailable";
 
 class JevDiagnosticError extends Error {
@@ -48,6 +49,24 @@ class JevDiagnosticError extends Error {
 }
 
 export { WORKSPACE_RULE_QUESTION };
+
+const TRANSIENT_JEV_REASONS = new Set<string>([
+  "jev-timeout",
+  "jev-unavailable",
+  "jev-invalid-response",
+  "jev-credential-lookup-failed",
+]);
+
+export function jevFailureHttpStatus(reason: string): number | null {
+  const match = reason.match(/^jev-http-([0-9]+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+export function isTransientJevFailure(reason: string): boolean {
+  if (TRANSIENT_JEV_REASONS.has(reason)) return true;
+  const status = jevFailureHttpStatus(reason) ?? 0;
+  return status === 408 || status === 429 || status > 499;
+}
 
 export type JevClassifierPreference = "jev" | "model" | "deterministic";
 
@@ -440,11 +459,14 @@ export function jevSensitivityDecision(
     truncated: boolean;
   },
 ): BrainSensitivityDecision {
-  const screen = screenSensitivityDeterministically(context.judgedContent);
-  const safeContent = sanitizeSensitiveText(screen.safeLines.join("\n")).slice(
-    0,
-    MAX_CLASSIFIER_OUTPUT_CHARS,
+  const screen = screenSensitivityDeterministically(
+    context.judgedContent,
+    "credentials",
   );
+  // Not capped at MAX_CLASSIFIER_OUTPUT_CHARS: this is the content Jev
+  // judged, and an allowed capture is stored from it, so a cap would silently
+  // drop the tail of a long capture Jev cleared.
+  const safeContent = sanitizeSensitiveText(screen.safeLines.join("\n"));
   const entries = BRAIN_SENSITIVITY_CATEGORIES.map(
     (category) => [category, scores[category] ?? 0] as const,
   ).sort((a, b) => b[1] - a[1]);
@@ -456,9 +478,11 @@ export function jevSensitivityDecision(
     .filter(([, score]) => score >= JEV_BLOCK_PROBABILITY)
     .map(([category]) => category);
 
-  const clearlySafe = highest < JEV_ALLOW_PROBABILITY;
   const disposition =
-    safeContent && clearlySafe && !categories.length && !context.truncated
+    safeContent &&
+    highest < JEV_BLOCK_PROBABILITY &&
+    !categories.length &&
+    !context.truncated
       ? "allowed"
       : "quarantined";
   const confidenceBand =
@@ -523,37 +547,63 @@ export async function runJevClassification(
       failureReason: jevFailureReason(error, "credential"),
     };
   }
-  if (!auth) return { configured: false };
+  if (!auth) {
+    return { configured: false, failureReason: "jev-credential-unavailable" };
+  }
 
   const screenedTitle = sanitizeSensitiveText(
-    screenSensitivityDeterministically(input.title).safeLines.join(" "),
+    screenSensitivityDeterministically(
+      input.title,
+      "credentials",
+    ).safeLines.join(" "),
   ).slice(0, MAX_TITLE_CHARS);
   const fullBody = sanitizeSensitiveText(
-    screenSensitivityDeterministically(input.content).safeLines.join("\n"),
+    screenSensitivityDeterministically(
+      input.content,
+      "credentials",
+    ).safeLines.join("\n"),
   );
-  const judgedBody = fullBody.slice(0, JEV_MAX_INPUT_CHARS);
-  const truncated = judgedBody.length < fullBody.length;
+  const judgedLimit = JEV_MAX_INPUT_CHARS * JEV_MAX_WINDOWS;
+  const judgedBody = fullBody.slice(0, judgedLimit);
+  const truncated = fullBody.length > judgedLimit;
   const workspaceRule =
     sanitizeSensitiveText(
       input.settings.sensitivityCustomInstructions?.trim() ?? "",
     ) || undefined;
-  const key = cacheKey(screenedTitle, judgedBody, workspaceRule);
 
-  let scores = readCachedScores(key);
-  if (!scores) {
-    try {
-      scores = await requestJevSensitivityScores(
-        auth,
-        { title: screenedTitle, body: judgedBody },
-        workspaceRule,
-      );
-      writeCachedScores(key, scores);
-    } catch (error) {
-      return {
-        configured: true,
-        authSource: auth.source,
-        failureReason: jevFailureReason(error, "request"),
-      };
+  const windows = [judgedBody.slice(0, JEV_MAX_INPUT_CHARS)];
+  for (
+    let offset = JEV_MAX_INPUT_CHARS;
+    offset < judgedBody.length;
+    offset += JEV_MAX_INPUT_CHARS
+  ) {
+    windows.push(judgedBody.slice(offset, offset + JEV_MAX_INPUT_CHARS));
+  }
+
+  const scores: JevCategoryScores = {};
+  for (const window of windows) {
+    const key = cacheKey(screenedTitle, window, workspaceRule);
+    let windowScores = readCachedScores(key);
+    if (!windowScores) {
+      try {
+        windowScores = await requestJevScoresWithRetry(
+          auth,
+          { title: screenedTitle, body: window },
+          workspaceRule,
+        );
+        writeCachedScores(key, windowScores);
+      } catch (error) {
+        return {
+          configured: true,
+          authSource: auth.source,
+          failureReason: jevFailureReason(error, "request"),
+        };
+      }
+    }
+    for (const [scoreKey, score] of Object.entries(windowScores) as Array<
+      [BrainSensitivityScoreKey, number]
+    >) {
+      scores[scoreKey] = Math.max(scores[scoreKey] ?? 0, score);
     }
   }
 
@@ -568,11 +618,32 @@ export async function runJevClassification(
   };
 }
 
+async function requestJevScoresWithRetry(
+  auth: JevAuth,
+  state: { title: string; body: string },
+  workspaceRule?: string,
+): Promise<JevCategoryScores> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await requestJevSensitivityScores(auth, state, workspaceRule);
+    } catch (error) {
+      const delay = JEV_RETRY_DELAYS_MS[attempt];
+      if (
+        delay === undefined ||
+        !isTransientJevFailure(jevFailureReason(error, "request"))
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 function jevFailureReason(
   error: unknown,
   context: "credential" | "request",
 ): JevFailureReason {
-  if (context === "credential") return "jev-credential-unavailable";
+  if (context === "credential") return "jev-credential-lookup-failed";
   if (error instanceof JevDiagnosticError) return error.code;
   if (
     error instanceof Error &&

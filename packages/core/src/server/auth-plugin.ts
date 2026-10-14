@@ -1,7 +1,6 @@
-import { getMethod, setResponseHeader, setResponseStatus } from "h3";
-
-import { autoMountAuth } from "./auth.js";
-import { getSession } from "./auth.js";
+import { runMigrations } from "../db/migrations.js";
+import { ORG_MIGRATIONS } from "../org/migrations.js";
+import { authSessionHandler, autoMountAuth } from "./auth.js";
 import type { AuthOptions } from "./auth.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 import {
@@ -15,6 +14,9 @@ import {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
+  const migrateOrgSchema = runMigrations(ORG_MIGRATIONS, {
+    table: "_org_migrations",
+  });
   return (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "auth");
     const isByoa = Boolean(options?.getSession);
@@ -23,16 +25,7 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
 
     if (!isByoa) {
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [sessionPath]);
-      app.use(sessionPath, async (event: any) => {
-        setResponseHeader(event, "Cache-Control", "no-store");
-        const method = getMethod(event);
-        if (method !== "GET" && method !== "HEAD") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        const session = await getSession(event);
-        return session ?? { error: "Not authenticated" };
-      });
+      app.use(sessionPath, authSessionHandler);
     }
     const initPromise = (async () => {
       if (isByoa) {
@@ -55,9 +48,12 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
       // guard:allow-boot-data-work — local/long-lived runtimes provision auth
       // before mounting routes; production functions are rejected by the
       // migration runner and use the release job instead.
-      const mountPromise = runBetterAuthMigrations(nitroApp).then(() =>
-        autoMountAuth(app, options),
-      );
+      // Better Auth's hooks read the org tables inside its sign-up
+      // transaction, where a missing table aborts the sign-up. The org
+      // plugin migrates only after the whole bootstrap, too late for that.
+      const mountPromise = runBetterAuthMigrations(nitroApp)
+        .then(() => migrateOrgSchema(nitroApp))
+        .then(() => autoMountAuth(app, options));
       markFrameworkRoutesReadyBeforeBootstrap(
         nitroApp,
         FRAMEWORK_AUTH_EARLY_PATHS,

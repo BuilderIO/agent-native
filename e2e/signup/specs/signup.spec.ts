@@ -70,6 +70,18 @@ function assertBetterAuthSession(
   ).toBe(email);
 }
 
+async function waitForApplicationReady(page: Page, app: string) {
+  await expect(
+    page.locator('[data-first-run-startup-loading="true"]'),
+  ).toHaveCount(0, { timeout: 60_000 });
+
+  if (app === "chat") {
+    const composer = page.getByRole("textbox", { name: "Message agent" });
+    await expect(composer).toBeVisible();
+    await expect(composer).toBeEditable();
+  }
+}
+
 const targets = selectedSignupTargets();
 
 function recordMailosaurInconclusive(
@@ -194,10 +206,30 @@ for (const target of targets) {
         `${target.app} verification returned an error`,
       ).toBeLessThan(400);
       expect(new URL(verificationPage.url()).origin).toBe(target.origin);
+      const continueButton = verificationPage.locator(
+        'form button[type="submit"]',
+      );
+      await expect(
+        continueButton,
+        `${target.app} emailed link did not stop at the scanner-safe confirmation page`,
+      ).toBeVisible();
+      await continueButton.click();
+      await expect
+        .poll(() => new URL(verificationPage.url()).pathname)
+        .not.toContain("/_agent-native/auth/email-link/landing");
       expect(new URL(verificationPage.url()).pathname).not.toMatch(
         /sign-in|login/i,
       );
     });
+
+    if (target.app === "chat") {
+      await test.step("wait for Chat to finish its first-run thread handoff", async () => {
+        await verificationPage.waitForURL(
+          (url) => /^\/chat\/[^/]+\/?$/.test(url.pathname),
+          { waitUntil: "domcontentloaded" },
+        );
+      });
+    }
 
     if (target.app === "design" && target.environment === "beta") {
       await test.step("capture fresh-user first-run readiness", async () => {
@@ -232,6 +264,10 @@ for (const target of targets) {
       });
     }
 
+    await test.step("wait for the application to become usable", async () => {
+      await waitForApplicationReady(verificationPage, target.app);
+    });
+
     await test.step("prove the session works before any refresh", async () => {
       assertSession(
         await readSession(verificationPage),
@@ -246,10 +282,12 @@ for (const target of targets) {
     });
 
     await test.step("prove the session survives a browser refresh", async () => {
+      await waitForApplicationReady(verificationPage, target.app);
       await verificationPage.reload({ waitUntil: "domcontentloaded" });
       await expect
         .poll(() => new URL(verificationPage.url()).pathname)
         .not.toMatch(/sign-in|login/i);
+      await waitForApplicationReady(verificationPage, target.app);
       assertSession(
         await readSession(verificationPage),
         email,

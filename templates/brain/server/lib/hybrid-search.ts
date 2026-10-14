@@ -1,5 +1,4 @@
 import { getDbExec } from "@agent-native/core/db";
-import { resolveDefaultEmbeddingFamily } from "@agent-native/core/embeddings";
 import {
   queryPgVectorIndex,
   queryPostgresFts,
@@ -14,6 +13,10 @@ import type {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
+import {
+  BrainEmbeddingUnavailableError,
+  resolveBrainEmbeddingFamily,
+} from "./brain-embedding-family.js";
 import { BRAIN_SEARCH_INDEX_VERSION } from "./search-index-contracts.js";
 
 export interface HybridCandidate {
@@ -35,6 +38,23 @@ export interface HybridCandidate {
 export interface HybridSearchResult extends HybridCandidate {
   score: number;
   reasons: string[];
+}
+
+export type SearchLaneStatus =
+  | { status: "ok" }
+  | { status: "failed"; error: string };
+
+export interface SearchLaneStatuses {
+  fts: SearchLaneStatus;
+  semantic: SearchLaneStatus;
+}
+
+function laneFailure(err: unknown): SearchLaneStatus {
+  const error =
+    err instanceof BrainEmbeddingUnavailableError
+      ? err.code
+      : (err instanceof Error ? err.message : "unknown").slice(0, 200);
+  return { status: "failed", error };
 }
 
 export const RRF_K = 60;
@@ -102,9 +122,13 @@ export async function hybridSearchArtifacts(input: {
   projectId?: string;
   limit?: number;
   rerank?: boolean;
-}): Promise<HybridSearchResult[]> {
+}): Promise<{ results: HybridSearchResult[]; lanes: SearchLaneStatuses }> {
+  const lanes: SearchLaneStatuses = {
+    fts: { status: "ok" },
+    semantic: { status: "ok" },
+  };
   const terms = normalizeSearchTerms(input.query);
-  if (!terms.length) return [];
+  if (!terms.length) return { results: [], lanes };
   const db = getDb();
   const projectSourceIds = input.projectId
     ? (
@@ -123,9 +147,10 @@ export async function hybridSearchArtifacts(input: {
           )
       ).map((row) => row.sourceId)
     : undefined;
-  if (projectSourceIds && !projectSourceIds.length) return [];
+  if (projectSourceIds && !projectSourceIds.length)
+    return { results: [], lanes };
   const audienceIds = await listAccessibleAudienceIds(projectSourceIds);
-  if (!audienceIds.length) return [];
+  if (!audienceIds.length) return { results: [], lanes };
   const baseFilter = and(
     eq(schema.brainSearchArtifacts.status, "active"),
     eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
@@ -198,82 +223,79 @@ export async function hybridSearchArtifacts(input: {
         namespace: SEARCH_NAMESPACE,
       });
       ftsRanks = new Map(fts.map((hit, index) => [hit.chunkId, index + 1]));
-    } catch {
+    } catch (err) {
       ftsRanks = new Map();
+      lanes.fts = laneFailure(err);
     }
     try {
-      const family = await resolveDefaultEmbeddingFamily();
-      if (family) {
-        const [queryVector] = await family.embed(
-          [{ text: input.query }],
-          "query",
+      const family = await resolveBrainEmbeddingFamily();
+      const [queryVector] = await family.embed(
+        [{ text: input.query }],
+        "query",
+      );
+      if (queryVector) {
+        const vectorHits = await queryPgVectorIndex(
+          getDbExec(),
+          {
+            embeddingSetId: family.id,
+            dimensions: family.dimensions,
+            vector: queryVector,
+            allowedAudienceIds: audienceIds,
+            limit: Math.max((input.limit ?? 25) * 3, 30),
+            namespace: SEARCH_NAMESPACE,
+          },
+          true,
         );
-        if (queryVector) {
-          const vectorHits = await queryPgVectorIndex(
-            getDbExec(),
-            {
-              embeddingSetId: family.id,
-              dimensions: family.dimensions,
-              vector: queryVector,
-              allowedAudienceIds: audienceIds,
-              limit: Math.max((input.limit ?? 25) * 3, 30),
-              namespace: SEARCH_NAMESPACE,
-            },
-            true,
-          );
-          const vectorKeys = vectorHits.map((hit) => hit.vectorKey);
-          const embeddingRows = vectorKeys.length
-            ? await db
-                .select({
-                  vectorKey: schema.brainSearchEmbeddings.vectorKey,
-                  targetType: schema.brainSearchEmbeddings.targetType,
-                  targetId: schema.brainSearchEmbeddings.targetId,
-                })
-                .from(schema.brainSearchEmbeddings)
-                .where(
-                  and(
-                    eq(schema.brainSearchEmbeddings.status, "active"),
-                    inArray(
-                      schema.brainSearchEmbeddings.audienceId,
-                      audienceIds,
-                    ),
-                    inArray(schema.brainSearchEmbeddings.vectorKey, vectorKeys),
-                  ),
-                )
-            : [];
-          const burstIds = embeddingRows
-            .filter((row) => row.targetType === "burst")
-            .map((row) => row.targetId);
-          const burstArtifacts = burstIds.length
-            ? await db
-                .select({
-                  id: schema.brainSearchBursts.id,
-                  artifactId: schema.brainSearchBursts.artifactId,
-                })
-                .from(schema.brainSearchBursts)
-                .where(inArray(schema.brainSearchBursts.id, burstIds))
-            : [];
-          const burstToArtifact = new Map(
-            burstArtifacts.map((row) => [row.id, row.artifactId]),
-          );
-          const keyToArtifact = new Map(
-            embeddingRows.map((row) => [
-              row.vectorKey,
-              row.targetType === "artifact"
-                ? row.targetId
-                : burstToArtifact.get(row.targetId),
-            ]),
-          );
-          semanticRanks = new Map();
-          vectorHits.forEach((hit, index) => {
-            const artifactId = keyToArtifact.get(hit.vectorKey);
-            if (artifactId && !semanticRanks.has(artifactId))
-              semanticRanks.set(artifactId, index + 1);
-          });
-        }
+        const vectorKeys = vectorHits.map((hit) => hit.vectorKey);
+        const embeddingRows = vectorKeys.length
+          ? await db
+              .select({
+                vectorKey: schema.brainSearchEmbeddings.vectorKey,
+                targetType: schema.brainSearchEmbeddings.targetType,
+                targetId: schema.brainSearchEmbeddings.targetId,
+              })
+              .from(schema.brainSearchEmbeddings)
+              .where(
+                and(
+                  eq(schema.brainSearchEmbeddings.status, "active"),
+                  inArray(schema.brainSearchEmbeddings.audienceId, audienceIds),
+                  inArray(schema.brainSearchEmbeddings.vectorKey, vectorKeys),
+                ),
+              )
+          : [];
+        const burstIds = embeddingRows
+          .filter((row) => row.targetType === "burst")
+          .map((row) => row.targetId);
+        const burstArtifacts = burstIds.length
+          ? await db
+              .select({
+                id: schema.brainSearchBursts.id,
+                artifactId: schema.brainSearchBursts.artifactId,
+              })
+              .from(schema.brainSearchBursts)
+              .where(inArray(schema.brainSearchBursts.id, burstIds))
+          : [];
+        const burstToArtifact = new Map(
+          burstArtifacts.map((row) => [row.id, row.artifactId]),
+        );
+        const keyToArtifact = new Map(
+          embeddingRows.map((row) => [
+            row.vectorKey,
+            row.targetType === "artifact"
+              ? row.targetId
+              : burstToArtifact.get(row.targetId),
+          ]),
+        );
+        semanticRanks = new Map();
+        vectorHits.forEach((hit, index) => {
+          const artifactId = keyToArtifact.get(hit.vectorKey);
+          if (artifactId && !semanticRanks.has(artifactId))
+            semanticRanks.set(artifactId, index + 1);
+        });
       }
-    } catch {
+    } catch (err) {
       semanticRanks = new Map();
+      lanes.semantic = laneFailure(err);
     }
   }
   const externalIds = Array.from(
@@ -358,5 +380,8 @@ export async function hybridSearchArtifacts(input: {
           : ("lexical" as const),
       };
     });
-  return reciprocalRankFusion(candidates).slice(0, input.limit ?? 25);
+  return {
+    results: reciprocalRankFusion(candidates).slice(0, input.limit ?? 25),
+    lanes,
+  };
 }

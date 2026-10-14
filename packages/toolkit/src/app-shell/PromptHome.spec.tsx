@@ -135,6 +135,27 @@ describe("prompt home and library", () => {
     expect(onValueChange).not.toHaveBeenCalled();
   });
 
+  it("reports activation of the already-selected library tab", () => {
+    const onValueChange = vi.fn();
+    render(
+      <PromptHomeLibrary
+        value="templates"
+        onValueChange={onValueChange}
+        labels={{ templates: "Templates", recent: "Recent" }}
+        templates={<div>Real catalog</div>}
+        recent={<div>Private history</div>}
+      />,
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onValueChange).toHaveBeenCalledExactlyOnceWith("templates");
+  });
+
   it("focuses home search on slash only when the user is not typing", () => {
     function Home() {
       useHomeSearchShortcut(true);

@@ -16,11 +16,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     );
   },
 }));
-
-import {
-  resolveToolRenderer,
-  type ToolRendererContext,
-} from "@agent-native/core/client/chat";
+import { resolveToolRenderer } from "@agent-native/toolkit/app/chat";
+import { type ToolRendererContext } from "@agent-native/toolkit/app/chat/chat";
 import { SLIDES_DECK_RESULT_RENDERER } from "@shared/action-ui";
 
 import "./register-chat-renderers.js";

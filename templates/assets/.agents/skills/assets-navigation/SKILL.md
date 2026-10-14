@@ -39,11 +39,11 @@ generation, or embed target is unclear.
 
 ## Settings
 
-- With the `settings-redesign` flag on, Assets › General (`/settings/app`)
-  holds generation setup: Builder.io, manual Gemini/OpenAI keys, and object
-  storage (`#asset-generation-setup`, `#asset-storage`). Keys and storage save
-  at workspace scope, so only owners and admins (or a solo workspace) can
-  change them; members see them read-only.
+- Assets › General (`/settings/app`) holds generation setup: Builder.io,
+  manual Gemini/OpenAI keys, and object storage (`#asset-generation-setup`,
+  `#asset-storage`). Keys and storage save at workspace scope, so only owners
+  and admins (or a solo workspace) can change them; members see them
+  read-only.
 - Assets › Notifications (`/settings/notifications`) holds the generation
   email switch. Read or change it with `get-assets-notification-prefs` and
   `update-assets-notification-prefs`, never a raw settings write.

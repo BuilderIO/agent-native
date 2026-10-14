@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Turnstile } from "@agent-native/core/client/ui";
 import { testUserRegex } from "@agent-native/core/shared";
+import { Turnstile } from "@agent-native/toolkit/app/shared";
 import type { CustomField } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { useState } from "react";

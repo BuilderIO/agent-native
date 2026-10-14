@@ -269,6 +269,71 @@ describe("manage-draft saved mailbox deletion", () => {
 });
 
 describe("manage-draft local fallback", () => {
+  it("updates a compose draft already in app state without a create call", async () => {
+    const attachments = [
+      {
+        id: "attachment-1",
+        filename: "brief.pdf",
+        originalName: "brief.pdf",
+        mimeType: "application/pdf",
+        size: 128,
+        url: "/uploads/brief.pdf",
+      },
+    ];
+    appState.set("compose-ui-draft", {
+      id: "ui-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Original draft",
+      mode: "compose",
+      attachments,
+      inline: true,
+    });
+
+    const updated = await action.run({
+      action: "update",
+      id: "ui-draft",
+      body: "Updated draft",
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledWith("compose-ui-draft");
+    expect(updated.draft.body).toBe("Updated draft");
+    expect(updated.draft.attachments).toEqual(attachments);
+    expect(updated.draft.inline).toBe(true);
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments }),
+    );
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "compose-ui-draft",
+      expect.objectContaining({
+        body: "Updated draft",
+        attachments,
+        inline: true,
+      }),
+    );
+  });
+
+  it("rejects malformed attachment state instead of replacing a draft without it", async () => {
+    appState.set("compose-ui-draft", {
+      id: "ui-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Original draft",
+      mode: "compose",
+      attachments: { filename: "brief.pdf" },
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "ui-draft",
+        body: "Updated draft",
+      }),
+    ).rejects.toThrow('Draft "ui-draft" has invalid attachments');
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
   it("can create and update a local draft without an account marker", async () => {
     const created = await action.run({
       action: "create",
@@ -476,10 +541,24 @@ describe("manage-draft deep link", () => {
 });
 
 describe("manage-draft call-shape guidance", () => {
-  it("describes the required action field and the create-before-update contract", () => {
-    expect(action.description).toContain("action");
+  it("explains how to target existing drafts and when to create", () => {
+    expect(action.description).toContain(
+      "use `create` for a new draft even if another compose draft is open",
+    );
+    expect(action.description).toContain(
+      "`update` to revise a specific existing draft with its raw compose ID",
+    );
+    expect(action.description).toContain("pass only `{id}`");
+    expect(action.description).toContain(
+      "`delete` with only the raw compose ID (not the `compose-{id}` app-state key)",
+    );
+    expect(action.description).toContain(
+      "`delete-saved` with `savedDraftId` for a saved mailbox draft",
+    );
     expect(action.description).toMatch(/create.*update.*delete/i);
-    expect(action.description).toContain("id returned by a prior create");
+    expect(action.description).not.toContain(
+      "Never call update or delete before a matching create",
+    );
   });
 
   it("rejects a call with no action at all", () => {

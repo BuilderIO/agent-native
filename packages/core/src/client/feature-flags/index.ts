@@ -1,4 +1,3 @@
-export { FeatureFlagsEditor } from "./FeatureFlagsPanel.js";
 export {
   evaluatedFeatureFlagValues,
   featureFlagValue,

@@ -1,13 +1,34 @@
-import * as LaunchDarkly from "@launchdarkly/node-server-sdk";
-
 import { getAppConfig } from "../app-config/index.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+import type { LaunchDarklyContext } from "./context.js";
+
+interface LaunchDarklyClient {
+  waitForInitialization(): Promise<unknown>;
+  close(): Promise<void>;
+  variation<T>(
+    flagKey: string,
+    context: LaunchDarklyContext,
+    fallback: T,
+  ): Promise<T>;
+  boolVariation(
+    flagKey: string,
+    context: LaunchDarklyContext,
+    fallback: boolean,
+  ): Promise<boolean>;
+  allFlagsState(
+    context: LaunchDarklyContext,
+  ):
+    | { valid: boolean; allValues(): Record<string, unknown> }
+    | Promise<{ valid: boolean; allValues(): Record<string, unknown> }>;
+}
 
 const CLIENT_KEY = Symbol.for("@agent-native/core/launchdarkly.client");
 const INIT_KEY = Symbol.for("@agent-native/core/launchdarkly.init");
+const LAUNCH_DARKLY_PACKAGE_ID = "@launchdarkly/node-server-sdk";
 
 interface GlobalWithLaunchDarkly {
-  [CLIENT_KEY]?: LaunchDarkly.LDClient;
-  [INIT_KEY]?: Promise<LaunchDarkly.LDClient | null>;
+  [CLIENT_KEY]?: LaunchDarklyClient;
+  [INIT_KEY]?: Promise<LaunchDarklyClient | null>;
 }
 
 function globalState(): GlobalWithLaunchDarkly {
@@ -36,7 +57,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-export function getLaunchDarklyClient(): Promise<LaunchDarkly.LDClient | null> {
+export function getLaunchDarklyClient(): Promise<LaunchDarklyClient | null> {
   const state = globalState();
   if (state[INIT_KEY]) return state[INIT_KEY];
 
@@ -47,21 +68,26 @@ export function getLaunchDarklyClient(): Promise<LaunchDarkly.LDClient | null> {
     return resolved;
   }
 
-  const client = LaunchDarkly.init(sdkKey);
-  state[CLIENT_KEY] = client;
+  const pending = (async () => {
+    const { init } = await loadOptionalPeer(
+      LAUNCH_DARKLY_PACKAGE_ID,
+      () => import(/* @vite-ignore */ LAUNCH_DARKLY_PACKAGE_ID),
+    );
+    const client = init(sdkKey) as unknown as LaunchDarklyClient;
+    state[CLIENT_KEY] = client;
 
-  withTimeout(client.waitForInitialization(), INIT_TIMEOUT_MS).catch(
-    (error: unknown) => {
-      console.warn(
-        `[launchdarkly] client did not confirm initialization within ${INIT_TIMEOUT_MS}ms; evaluating against callers' defaults until it connects.`,
-        error,
-      );
-    },
-  );
-
-  const resolved = Promise.resolve(client);
-  state[INIT_KEY] = resolved;
-  return resolved;
+    withTimeout(client.waitForInitialization(), INIT_TIMEOUT_MS).catch(
+      (error: unknown) => {
+        console.warn(
+          `[launchdarkly] client did not confirm initialization within ${INIT_TIMEOUT_MS}ms; evaluating against callers' defaults until it connects.`,
+          error,
+        );
+      },
+    );
+    return client;
+  })();
+  state[INIT_KEY] = pending;
+  return pending;
 }
 
 export async function closeLaunchDarklyClient(): Promise<void> {

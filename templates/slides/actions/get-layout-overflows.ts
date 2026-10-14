@@ -6,50 +6,7 @@ import {
   slideFitMeasurementMatchesSlide,
   type DeckFitState,
 } from "../shared/slide-fit.js";
-import {
-  readAppStateForCurrentTab,
-  writeAppStateForCurrentTab,
-} from "./_tab-state.js";
-
-const REPEATED_CHECK_WARNING_THRESHOLD = 3;
-const REPEATED_CHECK_WINDOW_MS = 30 * 60_000;
-
-interface LayoutOverflowCheckHistory {
-  deckId: string;
-  count: number;
-  lastCheckAt: number;
-}
-
-function historyKeyForDeck(deckId: string): string {
-  return `layout-overflow-check-history:${deckId}`;
-}
-
-async function noteLayoutOverflowCheck(
-  deckId: string,
-  resolved: boolean,
-): Promise<number> {
-  const key = historyKeyForDeck(deckId);
-  const now = Date.now();
-  if (resolved) {
-    await writeAppStateForCurrentTab(key, {
-      deckId,
-      count: 0,
-      lastCheckAt: now,
-    });
-    return 0;
-  }
-  const prior = (await readAppStateForCurrentTab(key, {
-    fallbackToGlobal: false,
-  })) as LayoutOverflowCheckHistory | null;
-  const carriesOver =
-    prior?.deckId === deckId &&
-    typeof prior.count === "number" &&
-    typeof prior.lastCheckAt === "number" &&
-    now - prior.lastCheckAt <= REPEATED_CHECK_WINDOW_MS;
-  const count = (carriesOver ? prior!.count : 0) + 1;
-  await writeAppStateForCurrentTab(key, { deckId, count, lastCheckAt: now });
-  return count;
-}
+import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
@@ -122,8 +79,10 @@ function getCurrentSlideFitMeasurement(
 }
 
 export default defineAction({
+  readOnly: true,
+  dedupe: false,
   description:
-    "Read the latest browser measurements for every slide in a deck. Returns status unknown until every slide has a finite measurement matching its current HTML, so never use a partial result to claim the deck fits.",
+    "Read current browser measurements for every slide in a deck. This reads measurements from the open Slides editor tab; it does not start or wait for measurement. Call once after all slide edits and once more only after a repair. If status is unknown, report unknownSlides and do not call again this turn unless the editor has produced a new measurement.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
   }),
@@ -146,7 +105,7 @@ export default defineAction({
       { fallbackToGlobal: false },
     );
 
-    const unknownSlideIds: string[] = [];
+    const unknownSlides: Array<{ slideId: string; slideNumber: number }> = [];
     const overflows: Array<{
       slideId: string;
       slideNumber: number;
@@ -156,6 +115,7 @@ export default defineAction({
       contentWidth: number;
       viewportHeight: number;
       viewportWidth: number;
+      hint: string;
     }> = [];
 
     slides.forEach((slide, index) => {
@@ -176,7 +136,7 @@ export default defineAction({
         !Number.isFinite(measurement.viewportWidth) ||
         !Number.isFinite(measurement.measuredAt)
       ) {
-        unknownSlideIds.push(slide.id);
+        unknownSlides.push({ slideId: slide.id, slideNumber: index + 1 });
         return;
       }
       if (
@@ -192,28 +152,35 @@ export default defineAction({
           contentWidth: measurement.contentWidth,
           viewportHeight: measurement.viewportHeight,
           viewportWidth: measurement.viewportWidth,
+          hint: [
+            measurement.verticalOverflow > 0
+              ? `Reduce vertical content by at least ${Math.ceil(measurement.verticalOverflow)} px by splitting dense content, shortening copy, or reducing gaps and padding; keep body text at least 16 px.`
+              : null,
+            measurement.horizontalOverflow > 0
+              ? `Reduce horizontal content by at least ${Math.ceil(measurement.horizontalOverflow)} px by reflowing the layout, wrapping wide content, or reducing horizontal padding while preserving readability.`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
         });
       }
     });
 
     const canClaimDeckFits =
-      unknownSlideIds.length === 0 && overflows.length === 0;
-    const checkCount = await noteLayoutOverflowCheck(deckId, canClaimDeckFits);
+      unknownSlides.length === 0 && overflows.length === 0;
 
     return {
       deckId,
-      status: unknownSlideIds.length > 0 ? "unknown" : "measured",
-      measuredSlideCount: slides.length - unknownSlideIds.length,
+      status: unknownSlides.length > 0 ? "unknown" : "measured",
+      measuredSlideCount: slides.length - unknownSlides.length,
       slideCount: slides.length,
-      unknownSlideIds,
+      unknownSlides,
+      unknownSlideIds: unknownSlides.map(({ slideId }) => slideId),
       overflows,
       canClaimDeckFits,
-      ...(checkCount >= REPEATED_CHECK_WARNING_THRESHOLD
+      ...(unknownSlides.length > 0
         ? {
-            guidance:
-              overflows.length > 0
-                ? `This deck has been checked ${checkCount} times with overflow still present. Stop re-measuring and patching one slide at a time. Report the exact remaining overflow (slide, pixels, dimension) to the user instead of calling get-layout-overflows again this turn.`
-                : `This deck has been checked ${checkCount} times and slide measurements are still unavailable (unknownSlideIds). Stop re-checking and tell the user which slides could not be measured instead of calling get-layout-overflows again this turn.`,
+            guidance: `Slides ${unknownSlides.map(({ slideNumber, slideId }) => `${slideNumber} (${slideId})`).join(", ")} have no current browser measurement. Rechecking in this turn will not change this result unless the editor reports a new measurement.`,
           }
         : {}),
     };

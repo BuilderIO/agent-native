@@ -1,13 +1,18 @@
-import { getAppConfig } from "../app-config/index.js";
 import {
   createDbExec,
   getDbExec,
   getMigrationDatabaseUrl,
+  HostedRuntimeLocalDatabaseError,
   isPgliteUrl,
   retryOnDdlRace,
   type DbExec,
 } from "./client.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import { appMigratesAtRelease } from "./migration-policy.js";
+import {
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+  withMigrationExecutionRuntime,
+} from "./migration-runtime.js";
 
 // Core plugins must serialize boot-time DDL for each database. The same
 // database can be reached through multiple Vite module runners, so keep this
@@ -179,26 +184,13 @@ function resolveMigrationSql(sql: MigrationSql): string | null {
 }
 
 function isServerlessRequestRuntime(): boolean {
-  if (process.env.NODE_ENV !== "production") return false;
-  return (
-    process.env.NETLIFY === "true" ||
-    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
-    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
-    Boolean(process.env.LAMBDA_TASK_ROOT) ||
-    process.env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    process.env.VERCEL === "1"
-  );
+  return isProductionServerlessFunctionRuntime();
 }
 
-function appMigratesAtRelease(): boolean {
-  const { migration } = getAppConfig();
-  return (
-    migration.releaseMigrations ||
-    migration.betaSchemaOwner?.toLowerCase() === "production"
-  );
-}
-
-export { withMigrationRuntime } from "./migration-runtime.js";
+export {
+  withMigrationExecutionRuntime,
+  withMigrationRuntime,
+} from "./migration-runtime.js";
 
 function validateMigrationNames(
   migrations: Array<MigrationEntry>,
@@ -237,19 +229,12 @@ export function runMigrations(
   }
 
   const namedTable = `${table}_named`;
+  const skipServerlessRequest = () =>
+    options?.runInServerlessRequest !== true &&
+    isServerlessRequestRuntime() &&
+    appMigratesAtRelease() &&
+    !isMigrationAuthorizedRuntime();
   const migrate = async () => {
-    if (
-      options?.runInServerlessRequest !== true &&
-      isServerlessRequestRuntime() &&
-      appMigratesAtRelease() &&
-      !isMigrationAuthorizedRuntime()
-    ) {
-      console.info(
-        `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
-      );
-      return;
-    }
-
     try {
       const migrations =
         typeof migrationSource === "function"
@@ -424,6 +409,17 @@ export function runMigrations(
         if (!runOnlyPending) await releaseMigrationExec();
       }
     } catch (err) {
+      // A deployed server with no hosted database refuses every database
+      // open, and its sign-in page explains the fix, so exiting below would
+      // take that page down. Recognize the refusal here rather than predicting
+      // it before migrating: a Node server starts refusing once the first
+      // plugin calls getH3App(), which can happen after this plugin began.
+      if (err instanceof HostedRuntimeLocalDatabaseError) {
+        console.error(
+          `[migrations] Skipping "${table}" migrations. ${err.message}`,
+        );
+        return;
+      }
       console.error("[db] Migration failed:", (err as Error).message);
       if (isMigrationAuthorizedRuntime()) throw err;
       const isServerless =
@@ -437,5 +433,15 @@ export function runMigrations(
       }
     }
   };
-  return async () => withMigrationLock(getMigrationDatabaseUrl(), migrate);
+  return async () => {
+    if (skipServerlessRequest()) {
+      console.info(
+        `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
+      );
+      return;
+    }
+    return withMigrationLock(getMigrationDatabaseUrl(), () =>
+      withMigrationExecutionRuntime(migrate),
+    );
+  };
 }

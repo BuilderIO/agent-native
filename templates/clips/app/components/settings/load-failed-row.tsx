@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsRow } from "@agent-native/toolkit/app/settings";
 
 import { Button } from "@/components/ui/button";
 

@@ -1,4 +1,11 @@
 import {
+  getInitialCanvasFrameGeometry,
+  getOverviewFrameHeight as getSharedOverviewFrameHeight,
+  getResponsiveInitialCanvasFrameGeometries,
+  OVERVIEW_FRAME_LABEL_HEIGHT,
+  OVERVIEW_FRAME_WIDTH,
+} from "../../../../shared/canvas-frames";
+import {
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
   getResponsiveGroupHeight,
@@ -11,9 +18,8 @@ import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 
-const SCREEN_WIDTH = 320;
-const SCREEN_GAP = 56;
-const FRAME_LABEL_HEIGHT = 28;
+const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
+const FRAME_LABEL_HEIGHT = OVERVIEW_FRAME_LABEL_HEIGHT;
 
 export {
   BREAKPOINT_FRAME_GAP,
@@ -123,51 +129,22 @@ export function getResponsiveInitialFrameGeometry(
   screens: readonly ResponsiveLayoutScreen[],
   primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined> = {},
 ): FrameGeometry {
-  const columnCount = Math.min(3, Math.max(1, screens.length));
-  const column = index % columnCount;
-  const row = Math.floor(index / columnCount);
-  const primaryGeometryFor = (screen: ResponsiveLayoutScreen) =>
-    screen.id ? primaryGeometryById[screen.id] : undefined;
-  const sizes = screens.map((screen) =>
-    getResponsiveScreenGroupSize(screen, primaryGeometryFor(screen)),
+  const screenIds = screens.map(
+    (screen, screenIndex) => screen.id ?? `__screen_${screenIndex}`,
   );
-  const columnWidths = Array.from({ length: columnCount }, (_, columnIndex) =>
-    Math.max(
-      0,
-      ...sizes
-        .filter((_, screenIndex) => screenIndex % columnCount === columnIndex)
-        .map((size) => size.width),
-    ),
+  const geometryById = getResponsiveInitialCanvasFrameGeometries(
+    screens.map((screen, screenIndex) => ({
+      id: screenIds[screenIndex]!,
+      metadata: screen.metadata
+        ? { width: screen.metadata.width, height: screen.metadata.height }
+        : undefined,
+      breakpointWidths: screen.breakpointWidths,
+    })),
+    primaryGeometryById,
   );
-  const rowCount = Math.ceil(screens.length / columnCount);
-  const rowHeights = Array.from({ length: rowCount }, (_, rowIndex) =>
-    Math.max(
-      0,
-      ...sizes
-        .slice(rowIndex * columnCount, (rowIndex + 1) * columnCount)
-        .map((size) => size.height),
-    ),
+  return (
+    geometryById[screenIds[index] ?? ""] ?? getInitialCanvasFrameGeometry(index)
   );
-  const own = screens[index];
-  const ownGeometry = own ? primaryGeometryFor(own) : undefined;
-  const ownWidth = Math.max(1, ownGeometry?.width ?? SCREEN_WIDTH);
-  const ownHeight = Math.max(
-    1,
-    ownGeometry?.height ?? getOverviewFrameHeight(ownWidth, own?.metadata),
-  );
-  return {
-    x: columnWidths
-      .slice(0, column)
-      .reduce((total, width) => total + width + SCREEN_GAP, 0),
-    y: rowHeights
-      .slice(0, row)
-      .reduce(
-        (total, height) => total + height + FRAME_LABEL_HEIGHT + SCREEN_GAP,
-        0,
-      ),
-    width: ownWidth,
-    height: ownHeight,
-  };
 }
 
 const GENERATED_VARIANT_GAP = 96;
@@ -322,26 +299,14 @@ export function getInitialFrameGeometry(
   index: number,
   metadata?: ScreenViewportSize,
 ): FrameGeometry {
-  const column = index % 3;
-  const row = Math.floor(index / 3);
-  const height = getOverviewFrameHeight(SCREEN_WIDTH, metadata);
-  return {
-    x: column * (SCREEN_WIDTH + SCREEN_GAP),
-    y: row * (height + FRAME_LABEL_HEIGHT + SCREEN_GAP),
-    width: SCREEN_WIDTH,
-    height,
-  };
+  return getInitialCanvasFrameGeometry(index, metadata);
 }
 
 export function getOverviewFrameHeight(
   width: number,
   metadata?: ScreenViewportSize,
 ) {
-  const sourceWidth =
-    metadata?.width && metadata.width > 0 ? metadata.width : 1280;
-  const sourceHeight =
-    metadata?.height && metadata.height > 0 ? metadata.height : 2560;
-  return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+  return getSharedOverviewFrameHeight(width, metadata);
 }
 
 export function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry): boolean {

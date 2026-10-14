@@ -1,19 +1,19 @@
 import {
-  focusAgentChat,
   navigateWithAgentChatViewTransition,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,

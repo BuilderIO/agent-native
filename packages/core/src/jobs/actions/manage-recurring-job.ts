@@ -7,6 +7,7 @@ import {
   resourceGetByPath,
   resourcePut,
 } from "../../resources/store.js";
+import { RESUME_AUTOMATION_PATCH } from "../automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../cron.js";
 import {
   classifyJobResource,
@@ -98,6 +99,13 @@ export default defineAction({
     if (enabled !== undefined) {
       meta.enabled = enabled;
       fields.enabled = enabled;
+      if (
+        enabled &&
+        (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+      ) {
+        // Enabling lifts a framework pause and starts a clean failure streak.
+        Object.assign(fields, RESUME_AUTOMATION_PATCH);
+      }
     }
     if (meta.enabled && meta.schedule && isValidCron(meta.schedule)) {
       meta.nextRun = nextOccurrence(

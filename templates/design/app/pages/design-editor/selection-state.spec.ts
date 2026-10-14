@@ -8,18 +8,52 @@ import {
   getOverviewScreenExportGeometryById,
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
+  explicitOverviewScreenSelectionForHistory,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
+  overviewScreenSelectionForPendingEcho,
+  applyExplicitOverviewScreenSelectionToggle,
   pendingEditTargetsSelectedElement,
   resolveMarqueeAdditive,
   resolveOverviewScreenFrameGeometry,
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
+  shouldDisableExportsUntilCanvasFramesExist,
   shouldEscapeToOverview,
+  updateExplicitOverviewScreenSelection,
 } from "./selection-state";
+
+describe("shouldDisableExportsUntilCanvasFramesExist", () => {
+  it("disables exports during generation until a canvas frame exists", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 1,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows exports when generation is not pending", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: false,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("overview screen export geometry", () => {
   it("uses the live natural height only for explicit Hug screens", () => {
@@ -139,6 +173,120 @@ describe("getOverviewScreenContentKey", () => {
       useRuntimeReplacement: false,
     });
     expect(after).not.toBe(before);
+  });
+});
+
+describe("overviewScreenSelectionForPendingEcho", () => {
+  it("keeps a pending child-layer selection from becoming an explicit Screen selection", () => {
+    expect(
+      overviewScreenSelectionForPendingEcho({
+        screenIds: ["screen-1"],
+        pendingLayerId: "layer-1",
+        screenFileIds: new Set(["screen-1", "screen-2"]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("preserves an explicit Screen-root selection", () => {
+    expect(
+      overviewScreenSelectionForPendingEcho({
+        screenIds: ["screen-1"],
+        pendingLayerId: "screen-1",
+        screenFileIds: new Set(["screen-1", "screen-2"]),
+      }),
+    ).toEqual(["screen-1"]);
+  });
+});
+
+describe("explicit overview screen selection provenance", () => {
+  it("does not promote a child layer's owner Screen when Shift adds another Screen", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: [],
+        selectedScreenIds: ["owner-screen", "picked-screen"],
+        currentExplicitScreenIds: [],
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: true,
+      }),
+    ).toEqual(["picked-screen"]);
+  });
+
+  it("keeps a Shift-marquee Screen explicit after its owner layer is reported", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["home-screen", "hit-screen"],
+        selectedScreenIds: ["home-screen", "hit-screen"],
+        currentExplicitScreenIds: ["home-screen"],
+        ownerDerivedScreenIds: new Set(["home-screen", "hit-screen"]),
+        additive: true,
+        marqueeSelectedScreenIds: ["hit-screen"],
+      }),
+    ).toEqual(["home-screen", "hit-screen"]);
+  });
+
+  it("treats a replacement selection as explicit even for the prior layer owner", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["owner-screen"],
+        selectedScreenIds: ["owner-screen", "picked-screen"],
+        currentExplicitScreenIds: [],
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: false,
+      }),
+    ).toEqual(["owner-screen", "picked-screen"]);
+  });
+
+  it("restores explicit provenance when Shift reselects an owner Screen", () => {
+    const afterToggleOff = applyExplicitOverviewScreenSelectionToggle({
+      currentExplicitScreenIds: [],
+      screenId: "owner-screen",
+      selected: false,
+    });
+    const afterToggleOn = applyExplicitOverviewScreenSelectionToggle({
+      currentExplicitScreenIds: afterToggleOff,
+      screenId: "owner-screen",
+      selected: true,
+    });
+
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: [],
+        selectedScreenIds: ["owner-screen"],
+        currentExplicitScreenIds: afterToggleOn,
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: true,
+      }),
+    ).toEqual(["owner-screen"]);
+  });
+
+  it("restores explicit Screen provenance alongside a child layer selection", () => {
+    expect(
+      explicitOverviewScreenSelectionForHistory({
+        selection: makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: ["picked-screen"],
+        }),
+        screenFileIds: new Set(["owner-screen", "picked-screen"]),
+      }),
+    ).toEqual(["picked-screen"]);
+  });
+
+  it("treats snapshots with different explicit Screen targets as different selections", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: ["picked-screen"],
+        }),
+        makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: [],
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

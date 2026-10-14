@@ -1,10 +1,11 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Forms",
-    learnMoreUrl: "https://agent-native.com/apps/forms",
+    learnMoreUrl:
+      "https://agent-native.com/apps/forms?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",
     features: [

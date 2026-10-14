@@ -1743,7 +1743,7 @@ export async function listOverlayEvents(
 export async function getEvent(
   googleEventId: string,
   account: GoogleAccountSelection,
-  options: { calendarSourceKey?: string } = {},
+  options: { calendarSourceKey?: string; signal?: AbortSignal } = {},
 ): Promise<CalendarEvent> {
   let calendarSource: GoogleCalendarSource | undefined;
   if (options.calendarSourceKey) {
@@ -1765,11 +1765,13 @@ export async function getEvent(
     }
   }
   const client = await getClientForAccount(account);
+  options.signal?.throwIfAborted();
 
   const event = await calendarGetEvent(
     client.accessToken,
     calendarSource?.calendarId ?? "primary",
     googleEventId,
+    options.signal,
   );
   const selfAttendee = event.attendees?.find((a: any) => a.self === true);
 
@@ -2346,6 +2348,7 @@ async function rsvpSingleEvent(
   accountEmail: string,
   comment?: string,
   sendUpdates?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   await calendarPatchEvent(
     accessToken,
@@ -2362,6 +2365,7 @@ async function rsvpSingleEvent(
       attendeesOmitted: true,
     },
     { sendUpdates: sendUpdates ?? "none" },
+    signal,
   );
 }
 
@@ -2372,8 +2376,10 @@ export async function rsvpEvent(
   scope: "single" | "all" | "thisAndFollowing" = "single",
   comment?: string,
   sendUpdates?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const client = await getClientForAccount(account);
+  signal?.throwIfAborted();
 
   if (scope === "single") {
     await rsvpSingleEvent(
@@ -2383,6 +2389,7 @@ export async function rsvpEvent(
       account.accountEmail,
       comment,
       sendUpdates,
+      signal,
     );
     return;
   }
@@ -2391,7 +2398,9 @@ export async function rsvpEvent(
     client.accessToken,
     "primary",
     googleEventId,
+    signal,
   );
+  signal?.throwIfAborted();
   const recurringEventId = instance.recurringEventId || googleEventId;
 
   if (scope === "all") {
@@ -2402,6 +2411,7 @@ export async function rsvpEvent(
       account.accountEmail,
       comment,
       sendUpdates,
+      signal,
     );
     return;
   }
@@ -2411,12 +2421,18 @@ export async function rsvpEvent(
     instance.start?.date ||
     new Date().toISOString();
 
-  const futureEvents = await calendarListEvents(client.accessToken, "primary", {
-    timeMin: instanceStart,
-    singleEvents: true,
-    orderBy: "startTime",
-    maxResults: 250,
-  });
+  const futureEvents = await calendarListEvents(
+    client.accessToken,
+    "primary",
+    {
+      timeMin: instanceStart,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 250,
+    },
+    signal,
+  );
+  signal?.throwIfAborted();
 
   const futureInstances = (futureEvents.items || []).filter(
     (e: any) =>
@@ -2432,6 +2448,7 @@ export async function rsvpEvent(
         account.accountEmail,
         comment,
         sendUpdates,
+        signal,
       ),
     ),
   );

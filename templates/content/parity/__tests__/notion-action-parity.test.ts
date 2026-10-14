@@ -85,7 +85,7 @@ describe("Content Notion action parity", () => {
     expect(hook).not.toMatch(/\/api\/documents\/[^"`']*\/notion/);
     expect(hook).not.toMatch(/\/api\/notion\/(?:status|disconnect|search)/);
     expect(hook).toContain("useActionQuery");
-    expect(hook).toContain("useActionMutation");
+    expect(hook).toContain("useContentActionMutation");
   });
 
   it("exposes Notion document sync actions over the action HTTP surface", () => {

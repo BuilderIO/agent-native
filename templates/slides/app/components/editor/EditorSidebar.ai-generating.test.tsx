@@ -39,12 +39,12 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({ open }: { open: boolean }) =>
     open ? <div role="dialog">Connect storage to upload files</div> : null,
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   useEagerFileUploads: () => ({
     commitFiles: vi.fn(),
     discardFiles: vi.fn(),
@@ -57,11 +57,17 @@ vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: ({
     onSubmit,
     onAttachmentRequest,
+    requireAgentEngine,
   }: {
     onSubmit: (text: string, files: File[]) => void;
     onAttachmentRequest?: () => void;
+    requireAgentEngine?: boolean;
   }) => (
     <>
+      <div
+        data-testid="add-slide-prompt-composer"
+        data-require-agent-engine={String(Boolean(requireAgentEngine))}
+      />
       <button type="button" onClick={() => onSubmit("a slide about trees", [])}>
         submit-prompt
       </button>
@@ -234,6 +240,11 @@ describe("EditorSidebar AI-active slide", () => {
       await import("./AddSlidePopover");
     });
     await waitFor(() => screen.getByText("submit-prompt"));
+    expect(
+      screen
+        .getByTestId("add-slide-prompt-composer")
+        .getAttribute("data-require-agent-engine"),
+    ).toBe("true");
 
     await act(async () => {
       fireEvent.click(screen.getByText("submit-prompt"));

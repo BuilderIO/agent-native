@@ -8,7 +8,7 @@ import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";

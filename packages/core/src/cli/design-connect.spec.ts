@@ -8,7 +8,15 @@ import path from "node:path";
 import vm from "node:vm";
 
 import { chromium, type Browser } from "playwright";
+import { createServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
+
+import {
+  createLocalhostBridgeAudience,
+  issueLocalhostBridgeOperationCapability,
+  LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD,
+} from "../server/visual-edit-bridge-capability.js";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 
@@ -21,8 +29,10 @@ import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
   deriveDesignPreviewAttestationSignature,
+  deriveDesignScopedReadOnlyPreviewToken,
   deriveDesignScopedLiveEditCapability,
   deriveDesignScopedLiveEditRegistrationCapability,
+  isMotionModuleReachableFromRoute,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -784,6 +794,407 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("proves imported Motion modules through relative and inherited tsconfig aliases", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "shared"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "base.json"),
+      '{\n  "compilerOptions": { "paths": { "@shared/*": ["app/shared/*"], "@/*": ["app/*"] } }\n}',
+    );
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      '{\n  // comments and trailing commas are valid tsconfig JSONC\n  "extends": "./base.json",\n}\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card";\nimport helper from "@shared/helper";\nexport default function Home() { return <Card helper={helper} />; }\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      'import helper from "@shared/helper";\nexport default function Card() { return <div>{helper}</div>; }\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/shared/helper.tsx"),
+      'import Card from "../components/Card";\nexport default Card.name;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Unrelated.tsx"),
+      "export default function Unrelated() { return <aside />; }\n",
+    );
+
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/shared/helper.tsx",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Unrelated.tsx",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("reports symlinked Motion import configs as an unsupported layout", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.mkdirSync(path.join(root, "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return null; }\n",
+    );
+    fs.writeFileSync(path.join(root, "motion-config.json"), "{}\n");
+    fs.symlinkSync("motion-config.json", path.join(root, "tsconfig.json"));
+
+    const query = () =>
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      });
+    await expect(query()).rejects.toThrow(
+      /Symlinked tsconfig\/jsconfig files are unsupported/,
+    );
+
+    fs.unlinkSync(path.join(root, "tsconfig.json"));
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      '{"extends":"./config/base.json"}\n',
+    );
+    fs.writeFileSync(path.join(root, "config/base-config.json"), "{}\n");
+    fs.symlinkSync("base-config.json", path.join(root, "config/base.json"));
+    await expect(query()).rejects.toThrow(
+      /Symlinked tsconfig\/jsconfig files are unsupported/,
+    );
+  });
+
+  it("proves an HTML Motion source only for its linked HTML route", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "pages"), { recursive: true });
+    fs.writeFileSync(path.join(root, "index.htm"), "<main>Home</main>");
+    fs.writeFileSync(
+      path.join(root, "pages", "help.html"),
+      "<main>Help</main>",
+    );
+
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "index.htm",
+        modulePath: "index.htm",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "index.htm",
+        modulePath: "pages/help.html",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "index.htm",
+        modulePath: "index.js",
+      }),
+    ).rejects.toThrow(/HTML Motion source writes must target/);
+    expect(
+      discoverDesignRoutes(root).map((route) => route.sourceFile),
+    ).toContain("index.htm");
+  });
+
+  it("does not treat type-only references as runtime Motion module edges", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export type CardProps = { title: string };\nexport default function Card() { return <div />; }\n",
+    );
+    const routePath = "app/routes/home.tsx";
+    const modulePath = "app/components/Card.tsx";
+    const typeOnlyRoutes = [
+      'import type { CardProps } from "../components/Card";\nexport default function Home(_props: CardProps) { return null; }\n',
+      'import { type CardProps } from "../components/Card";\nexport default function Home(_props: CardProps) { return null; }\n',
+      'export type { CardProps } from "../components/Card";\nexport default function Home() { return null; }\n',
+      'export type * from "../components/Card";\nexport default function Home() { return null; }\n',
+      'type CardProps = import("../components/Card").CardProps;\nexport default function Home(_props: CardProps) { return null; }\n',
+    ];
+
+    for (const source of typeOnlyRoutes) {
+      fs.writeFileSync(path.join(root, routePath), source);
+      await expect(
+        isMotionModuleReachableFromRoute({
+          rootPath: root,
+          routePath,
+          modulePath,
+        }),
+      ).resolves.toBe(false);
+    }
+
+    fs.writeFileSync(
+      path.join(root, routePath),
+      'import Card from "../components/Card";\nexport default function Home() { return <Card />; }\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath,
+        modulePath,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("fails closed for unresolved imports, dynamic imports, and symlink escapes", async () => {
+    const root = tmpDir();
+    const outside = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "const child = import(moduleName); export default child;\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return <div />; }\n",
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/dynamic import/i);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import "../missing/NotThere"; export default function Home() { return null; }\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/Cannot resolve source import/);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'const modules = import.meta.glob("../components/*.tsx"); export default modules;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/import\.meta\.glob/);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'const modules = require.context("../components", true); export default modules;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/require\.context/);
+
+    fs.writeFileSync(
+      path.join(outside, "Escape.tsx"),
+      "export default function Escape() { return <div />; }\n",
+    );
+    fs.symlinkSync(
+      path.join(outside, "Escape.tsx"),
+      path.join(root, "app/components/Escape.tsx"),
+    );
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Escape from "../components/Escape"; export default Escape;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Escape.tsx",
+      }),
+    ).rejects.toThrow(/symlink|outside/i);
+  });
+
+  it("rejects traversal paths and bounds Motion import graph work", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "export default function Home() { return null; }\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Unrelated.tsx"),
+      "export default function Unrelated() { return null; }\n",
+    );
+
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "../outside.tsx",
+      }),
+    ).rejects.toThrow(/project-relative/);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      `/*${"x".repeat(12 * 1024 * 1024)}*/ export default null;`,
+    );
+    const unboundedRead = vi.spyOn(fsPromises, "readFile");
+    try {
+      await expect(
+        isMotionModuleReachableFromRoute({
+          rootPath: root,
+          routePath: "app/routes/home.tsx",
+          modulePath: "app/components/Unrelated.tsx",
+        }),
+      ).rejects.toThrow(/12 MiB verification limit/);
+      expect(unboundedRead).not.toHaveBeenCalled();
+    } finally {
+      unboundedRead.mockRestore();
+    }
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "export default null;\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      `/*${"x".repeat(12 * 1024 * 1024)}*/ {}`,
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Unrelated.tsx",
+      }),
+    ).rejects.toThrow(/12 MiB verification limit/);
+    fs.unlinkSync(path.join(root, "tsconfig.json"));
+
+    const imports = Array.from({ length: 512 }, (_, index) => {
+      const current = path.join(
+        root,
+        `app/components/mod-${String(index).padStart(3, "0")}.tsx`,
+      );
+      const next = index + 1;
+      fs.writeFileSync(
+        current,
+        next < 512
+          ? `import Child from "./mod-${String(next).padStart(3, "0")}"; export default Child;\n`
+          : "export default null;\n",
+      );
+      return current;
+    });
+    expect(imports).toHaveLength(512);
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Child from "../components/mod-000"; export default Child;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Unrelated.tsx",
+      }),
+    ).rejects.toThrow(/512-module verification limit/);
+  });
+
+  it("returns only a signed membership receipt from the authenticated graph endpoint", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return <div />; }\n",
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    manifest.routes = [
+      {
+        id: "home",
+        path: "/",
+        title: "Home",
+        sourceFile: "app/routes/home.tsx",
+        sourceKind: "react-router",
+      },
+    ];
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/verify-module-provenance`,
+        {
+          routePath: "app/routes/home.tsx",
+          modulePath: "app/components/Card.tsx",
+          motionRelayChallenge: "server-issued-challenge-placeholder",
+        },
+        { "x-bridge-token": bridge.bridgeToken },
+      );
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({
+        ok: true,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+        reachable: true,
+      });
+      expect(result.body["operationReceipt"]).toBe(
+        crypto
+          .createHmac("sha256", bridge.bridgeToken)
+          .update("agent-native-design-motion-bridge-receipt-v1\0")
+          .update(
+            JSON.stringify([
+              "server-issued-challenge-placeholder",
+              "verify-module-provenance",
+              "app/components/Card.tsx",
+              "app/routes/home.tsx",
+              true,
+              null,
+              false,
+              "",
+              "",
+              "",
+            ]),
+          )
+          .digest("hex"),
+      );
+      expect(result.body).not.toHaveProperty("content");
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
   it("rejects a localhost connection id used as the bridge token", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -893,18 +1304,21 @@ describe("design connect bridge endpoints", () => {
     const base = `http://127.0.0.1:${port}`;
     const designId = "design-revision-survives-reload";
     const auth = liveEditAuth(bridge, designId);
-    const publish = (revision: number) =>
+    const publish = (
+      revision: number,
+      pending: Record<string, unknown> | null = {
+        designId,
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: `Revision ${revision}`,
+      },
+    ) =>
       postJson(
         `${base}/live-edit-pending`,
         {
           designId,
           revision,
-          pending: {
-            designId,
-            pendingEditCount: 1,
-            status: "ready",
-            prompt: `Revision ${revision}`,
-          },
+          pending,
         },
         auth,
       );
@@ -921,6 +1335,10 @@ describe("design connect bridge endpoints", () => {
     try {
       expect((await register("revision-survivor")).status).toBe(200);
       expect((await publish(9)).status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body,
+      ).toMatchObject({ pending: { prompt: "Revision 9" }, revision: 9 });
       for (let index = 0; index < 128; index += 1) {
         const otherDesign = `design-key-eviction-${index}`;
         const otherAuth = liveEditAuth(bridge, otherDesign);
@@ -937,7 +1355,9 @@ describe("design connect bridge endpoints", () => {
       }
       expect((await publish(8)).status).toBe(403);
       expect((await register("revision-survivor-again")).status).toBe(200);
-      expect((await publish(8)).status).toBe(409);
+      const staleAfterReregistration = await publish(8);
+      expect(staleAfterReregistration.status).toBe(409);
+      expect(staleAfterReregistration.body.revision).toBe(9);
     } finally {
       await new Promise<void>((resolve) => bridge.server.close(resolve));
     }
@@ -947,8 +1367,18 @@ describe("design connect bridge endpoints", () => {
       expect((await register("revision-survivor-after-restart")).status).toBe(
         200,
       );
-      expect((await publish(8)).status).toBe(409);
+      const staleAfterRestart = await publish(8);
+      expect(staleAfterRestart.status).toBe(409);
+      expect(staleAfterRestart.body.revision).toBe(9);
       expect((await publish(10)).status).toBe(200);
+      expect((await publish(11, null)).status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body,
+      ).toMatchObject({ pending: null, revision: 11 });
+      const staleAfterClear = await publish(10);
+      expect(staleAfterClear.status).toBe(409);
+      expect(staleAfterClear.body.revision).toBe(11);
     } finally {
       await new Promise<void>((resolve) => bridge.server.close(resolve));
     }
@@ -1256,7 +1686,7 @@ describe("design connect bridge endpoints", () => {
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
-      ).toEqual({ ok: true, pending: null });
+      ).toEqual({ ok: true, pending: null, revision: 0 });
       expect(
         (
           await postJson(
@@ -1530,7 +1960,7 @@ describe("design connect bridge endpoints", () => {
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
-      ).toEqual({ ok: true, pending: null });
+      ).toEqual({ ok: true, pending: null, revision: 11 });
       const staleAfterClear = await postJson(
         `${base}/live-edit-pending`,
         {
@@ -1549,7 +1979,7 @@ describe("design connect bridge endpoints", () => {
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
-      ).toEqual({ ok: true, pending: null });
+      ).toEqual({ ok: true, pending: null, revision: 11 });
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-2`, authB))
           .body.pending,
@@ -2166,7 +2596,7 @@ describe("design connect bridge endpoints", () => {
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
+        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')} .pattern{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E")}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
       );
     });
     await new Promise<void>((resolve, reject) => {
@@ -2241,6 +2671,8 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain(
         `./inline.css?previewToken=${bridge.previewToken}`,
       );
+      expect(html.body).toContain("filter='url(%23n)'");
+      expect(html.body).not.toContain("url(%23n?previewToken=");
       expect(html.body).toContain(
         `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
       );
@@ -2273,6 +2705,7 @@ describe("design connect bridge endpoints", () => {
       const iframeUrls: string[] = [];
       const nodePrototype = {
         appendChild: (node: unknown) => node,
+        insertBefore: (node: unknown) => node,
       };
       const xhrPrototype = { open: () => undefined };
       const windowObject = {
@@ -2310,6 +2743,61 @@ describe("design connect bridge endpoints", () => {
       };
       nodePrototype.appendChild(externalIframe);
       expect(iframeUrls).toHaveLength(1);
+      const inlineSvgStyle = {
+        nodeType: 1,
+        tagName: "STYLE",
+        textContent: `.pattern{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E")}`,
+      };
+      const originalInlineSvgStyle = inlineSvgStyle.textContent;
+      nodePrototype.appendChild(inlineSvgStyle);
+      expect(inlineSvgStyle.textContent).toBe(originalInlineSvgStyle);
+      const liveReloadedStylesheet = {
+        nodeType: 1,
+        tagName: "LINK",
+        value: `${base}/app/global.css?t=123`,
+        getAttribute(name: string) {
+          return name === "href" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "href") this.value = value;
+        },
+      };
+      nodePrototype.insertBefore(liveReloadedStylesheet, null);
+      expect(liveReloadedStylesheet.value).toBe(
+        `${base}/app/global.css?t=123&previewToken=${bridge.previewToken}`,
+      );
+      const stylesheetAuthScript = html.body.match(
+        /<script data-agent-native-vite-css-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!stylesheetAuthScript)
+        throw new Error("missing stylesheet auth shim");
+      const insertedAfter: unknown[][] = [];
+      const elementPrototype = {
+        after(...nodes: unknown[]) {
+          insertedAfter.push(nodes);
+        },
+      };
+      vm.runInNewContext(stylesheetAuthScript, {
+        Element: { prototype: elementPrototype },
+        document: { baseURI: `${base}/live-edit` },
+        URL,
+      });
+      const viteReplacementLink = {
+        nodeType: 1,
+        tagName: "LINK",
+        value: `${base}/app/global.css?t=456`,
+        getAttribute(name: string) {
+          return name === "href" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "href") this.value = value;
+        },
+      };
+      elementPrototype.after(viteReplacementLink);
+      expect(viteReplacementLink.value).toBe(
+        `${base}/app/global.css?t=456&previewToken=${bridge.previewToken}`,
+      );
+      expect(insertedAfter).toEqual([[viteReplacementLink]]);
       new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
         `ws://${new URL(base).host}/hmr`,
       );
@@ -2600,6 +3088,56 @@ describe("design connect bridge endpoints", () => {
       );
       expect(viaQuery.status).toBe(200);
       expect(viaQuery.body).toBe(tinyModule);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("adds the preview token to import and export clauses that span multiple lines", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end(
+        [
+          "import {",
+          "  require_react_dom",
+          '} from "/node_modules/.vite/deps/chunk-WPQCFWW4.js?v=7f02add7";',
+          "export {",
+          "  useState,",
+          "  useEffect",
+          '} from "./hooks.js";',
+        ].join("\n"),
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const module = await getText(
+        `http://127.0.0.1:${port}/node_modules/.vite/deps/react-dom_client.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.status).toBe(200);
+      expect(module.body).toContain(
+        `/node_modules/.vite/deps/chunk-WPQCFWW4.js?v=7f02add7&previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `./hooks.js?previewToken=${bridge.previewToken}`,
+      );
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -3366,6 +3904,283 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("carries a public design-scoped preview token from Vite HMR updates into module requests", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const port = await freePort();
+    const upstreamRequests: string[] = [];
+    const upstreamWebSocketExtensions: Array<string | undefined> = [];
+    const devServer = http.createServer((req, res) => {
+      upstreamRequests.push(req.url ?? "");
+      res
+        .writeHead(200, { "content-type": "application/javascript" })
+        .end("export const updated = true;");
+    });
+    const upstreamWebSockets = new WebSocketServer({
+      noServer: true,
+      perMessageDeflate: false,
+    });
+    devServer.on("upgrade", (req, socket, head) => {
+      upstreamWebSocketExtensions.push(req.headers["sec-websocket-extensions"]);
+      upstreamWebSockets.handleUpgrade(req, socket, head, (client) => {
+        client.send(
+          JSON.stringify({
+            type: "update",
+            updates: [
+              {
+                type: "js-update",
+                path: "/app/components/library/empty-state.tsx",
+                acceptedPath: "/app/components/library/empty-state.tsx",
+                timestamp: 123,
+              },
+            ],
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const publicPreviewToken = deriveDesignScopedReadOnlyPreviewToken(
+      bridge.bridgeToken,
+      "design-one",
+    );
+    let client: WebSocket | null = null;
+    let rawServerClose: Promise<void> | null = null;
+    let socketCloseTimeout: NodeJS.Timeout | undefined;
+    try {
+      const bridgeOrigin = `http://127.0.0.1:${port}`;
+      client = new WebSocket(
+        `${bridgeOrigin}/@vite/client?previewToken=${publicPreviewToken}`,
+        "vite-hmr",
+        { origin: "null" },
+      );
+      let timeout: NodeJS.Timeout | undefined;
+      const updatePayload = await new Promise<string>((resolve, reject) => {
+        client!.once("message", (data) => resolve(data.toString()));
+        client!.once("error", reject);
+        timeout = setTimeout(
+          () => reject(new Error("Vite HMR update timed out")),
+          2_000,
+        );
+      });
+      if (timeout) clearTimeout(timeout);
+      const update = JSON.parse(updatePayload) as {
+        updates: Array<{
+          path: string;
+          acceptedPath: string;
+          timestamp: number | string;
+        }>;
+      };
+      const moduleUpdate = update.updates[0];
+      expect(moduleUpdate?.path).toBe(
+        "/app/components/library/empty-state.tsx",
+      );
+      expect(moduleUpdate?.acceptedPath).toBe(moduleUpdate?.path);
+      expect(moduleUpdate?.timestamp).toBe(
+        `123&previewToken=${publicPreviewToken}`,
+      );
+      expect(moduleUpdate?.timestamp).not.toContain(bridge.previewToken);
+      expect(upstreamRequests).toEqual([]);
+
+      const module = await getText(
+        `${bridgeOrigin}${moduleUpdate!.acceptedPath}?import&t=${moduleUpdate!.timestamp}`,
+        { origin: "null" },
+      );
+      expect(module.status).toBe(200);
+      expect(module.headers["access-control-allow-origin"]).toBe("null");
+      expect(module.body).toContain("updated = true");
+      expect(upstreamRequests).toEqual([
+        "/app/components/library/empty-state.tsx?import&t=123",
+      ]);
+      expect(upstreamWebSocketExtensions).toEqual([undefined]);
+      const upstreamClient = [...upstreamWebSockets.clients][0];
+      expect(upstreamClient).toBeDefined();
+      const socketsClosed = Promise.all([
+        new Promise<void>((resolve) => client!.once("close", resolve)),
+        new Promise<void>((resolve) => upstreamClient!.once("close", resolve)),
+      ]);
+      rawServerClose = new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await Promise.race([
+        Promise.all([rawServerClose, socketsClosed]),
+        new Promise<never>((_resolve, reject) => {
+          socketCloseTimeout = setTimeout(
+            () => reject(new Error("HMR sockets survived server.close()")),
+            2_000,
+          );
+        }),
+      ]);
+      expect(upstreamWebSockets.clients.size).toBe(0);
+    } finally {
+      if (socketCloseTimeout) clearTimeout(socketCloseTimeout);
+      client?.terminate();
+      for (const upstreamClient of upstreamWebSockets.clients) {
+        upstreamClient.terminate();
+      }
+      await new Promise<void>((resolve) =>
+        upstreamWebSockets.close(() => resolve()),
+      );
+      if (rawServerClose) await rawServerClose;
+      else await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("applies real Vite JavaScript and imported stylesheet HMR through the bridge", async () => {
+    const root = tmpDir();
+    await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
+    await fsPromises.writeFile(
+      path.join(root, "index.html"),
+      '<!doctype html><html><head></head><body><div id="value"></div><script type="module" src="/src/main.js"></script></body></html>',
+    );
+    const mainPath = path.join(root, "src", "main.js");
+    const stylesheetPath = path.join(root, "src", "style.css");
+    await fsPromises.writeFile(
+      mainPath,
+      'import "./style.css"; document.querySelector("#value").textContent = "before"; if (import.meta.hot) import.meta.hot.accept();',
+    );
+    await fsPromises.writeFile(
+      stylesheetPath,
+      ":root { --bridge-hmr-probe: before; }",
+    );
+
+    const devPort = await freePort();
+    const vite = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root,
+      server: { host: "127.0.0.1", port: devPort, strictPort: true },
+    });
+    let bridge: Awaited<ReturnType<typeof startDesignConnectBridge>> | null =
+      null;
+    let browser: Browser | null = null;
+    const diagnostics: string[] = [];
+    try {
+      await vite.listen();
+      const bridgePort = await freePort();
+      const manifest = await prepareDesignConnectManifest({
+        root,
+        url: `http://127.0.0.1:${devPort}`,
+        port: bridgePort,
+      });
+      bridge = await startDesignConnectBridge(manifest);
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      page.on("requestfailed", (request) =>
+        diagnostics.push(
+          `request failed ${request.url()}: ${request.failure()?.errorText}`,
+        ),
+      );
+      page.on(
+        "console",
+        (message) =>
+          message.type() === "error" &&
+          diagnostics.push(`console error: ${message.text()}`),
+      );
+      const previewUrl = new URL("/live-edit", bridge.manifest.bridgeUrl);
+      previewUrl.searchParams.set("url", `http://127.0.0.1:${devPort}/`);
+      previewUrl.searchParams.set("previewToken", bridge.previewToken);
+      previewUrl.searchParams.set("bridge", "0");
+      await page.goto(previewUrl.toString());
+      await page.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "before",
+        undefined,
+        { timeout: 10_000 },
+      );
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--bridge-hmr-probe")
+            .trim() === "before",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      await fsPromises.writeFile(
+        mainPath,
+        'import "./style.css"; document.querySelector("#value").textContent = "after"; if (import.meta.hot) import.meta.hot.accept();',
+      );
+      await page.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "after",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      const stylesheetChange = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("Vite did not observe the stylesheet edit")),
+          5_000,
+        );
+        const onChange = (changedPath: string) => {
+          if (path.resolve(changedPath) !== stylesheetPath) return;
+          clearTimeout(timeout);
+          vite.watcher.off("change", onChange);
+          resolve();
+        };
+        vite.watcher.on("change", onChange);
+      });
+      await fsPromises.writeFile(
+        stylesheetPath,
+        ":root { --bridge-hmr-probe: after; }",
+      );
+      await stylesheetChange;
+      try {
+        await page.waitForFunction(
+          () =>
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--bridge-hmr-probe")
+              .trim() === "after",
+          undefined,
+          { timeout: 10_000 },
+        );
+      } catch (error) {
+        const state = await page.evaluate(() => ({
+          stylesheets: [
+            ...document.querySelectorAll("link[rel=stylesheet]"),
+          ].map((link) => ({
+            href: (link as HTMLLinkElement).href,
+            media: (link as HTMLLinkElement).media,
+          })),
+          style: getComputedStyle(document.documentElement)
+            .getPropertyValue("--bridge-hmr-probe")
+            .trim(),
+        }));
+        throw new Error(
+          `${String(error)}\n${JSON.stringify(state)}\n${diagnostics.join("\n")}`,
+        );
+      }
+
+      let shutdownTimeout: ReturnType<typeof setTimeout> | undefined;
+      const shutdownCompleted = await Promise.race([
+        bridge.close().then(() => true),
+        new Promise<boolean>((resolve) => {
+          shutdownTimeout = setTimeout(() => resolve(false), 1_500);
+        }),
+      ]);
+      if (shutdownTimeout) clearTimeout(shutdownTimeout);
+      expect(shutdownCompleted).toBe(true);
+      bridge = null;
+    } finally {
+      await browser?.close();
+      if (bridge) {
+        await bridge.close();
+      }
+      await vite.close();
+    }
+  }, 60_000);
+
   it("rejects snapshot URLs outside the connected dev server origin", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -3386,6 +4201,48 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+    }
+  });
+
+  it("accepts and canonicalizes equivalent loopback hostnames for live previews", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><p>Local app is live</p>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await getJson(
+        `http://127.0.0.1:${port}/snapshot?url=${encodeURIComponent(`http://localhost:${devPort}/library`)}&previewToken=${bridge.previewToken}`,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body.url).toBe(`http://127.0.0.1:${devPort}/library`);
+      expect(result.body.html).toContain("Local app is live");
+
+      const livePreview = await getText(
+        `http://127.0.0.1:${port}/live-edit?url=${encodeURIComponent(`http://localhost:${devPort}/library`)}&previewToken=${bridge.previewToken}`,
+      );
+      expect(livePreview.status).toBe(200);
+      expect(livePreview.body).toContain("<p>Local app is live</p>");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
 
@@ -3433,6 +4290,65 @@ describe("design connect bridge endpoints", () => {
           challenge,
         ),
       });
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("requires a route-scoped operation capability for provenance reads", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return <div />; }\n",
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    manifest.routes = [
+      {
+        id: "home",
+        path: "/",
+        title: "Home",
+        sourceFile: "app/routes/home.tsx",
+        sourceKind: "react-router",
+      },
+    ];
+    const bridge = await startDesignConnectBridge(manifest);
+    const body = {
+      routePath: "app/routes/home.tsx",
+      modulePath: "app/components/Card.tsx",
+      motionRelayChallenge: "provenance-capability-challenge",
+    };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /verify-module-provenance",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/verify-module-provenance`,
+        capabilityBody,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ ok: true, reachable: true });
+      expect(result.body).not.toHaveProperty("content");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -3510,6 +4426,146 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+    }
+  });
+
+  it("limits public design preview tokens to reads and their registered design", async () => {
+    const root = tmpDir();
+    let upstreamMutationCount = 0;
+    let upstreamUpgradeCount = 0;
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/public-document") {
+        res
+          .writeHead(200, { "content-type": "text/html" })
+          .end(
+            '<html><head></head><body><script src="/app.js"></script></body></html>',
+          );
+        return;
+      }
+      if (req.method !== "GET") upstreamMutationCount += 1;
+      res.setHeader("content-type", "text/plain");
+      res.end(req.method === "GET" ? "preview" : "mutated");
+    });
+    devServer.on("upgrade", () => {
+      upstreamUpgradeCount += 1;
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const publicPreviewToken = deriveDesignScopedReadOnlyPreviewToken(
+      bridge.bridgeToken,
+      "design-one",
+    );
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const preview = await getText(
+        `${base}/screen?previewToken=${encodeURIComponent(publicPreviewToken)}`,
+      );
+      expect(preview.status).toBe(200);
+      expect(preview.body).toBe("preview");
+
+      const publicDocument = await getText(
+        `${base}/public-document?previewToken=${encodeURIComponent(publicPreviewToken)}`,
+        { "sec-fetch-dest": "document" },
+      );
+      expect(publicDocument.status).toBe(200);
+      expect(publicDocument.body).toContain(publicPreviewToken);
+      expect(publicDocument.body).not.toContain(bridge.previewToken);
+
+      const mutation = await postJson(
+        `${base}/mutate`,
+        { value: "no" },
+        { "x-design-preview-token": publicPreviewToken },
+      );
+      expect(mutation.status).toBe(403);
+      expect(upstreamMutationCount).toBe(0);
+
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+          bridgeKey: "public-preview",
+          designId: "design-one",
+        },
+        {
+          "x-design-preview-token": publicPreviewToken,
+          "x-agent-native-live-edit-registration-capability":
+            deriveDesignScopedLiveEditRegistrationCapability(
+              bridge.bridgeToken,
+              "design-one",
+            ),
+        },
+      );
+      expect(registration.status).toBe(200);
+
+      const wrongDesignRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+          bridgeKey: "other-design-preview",
+          designId: "design-two",
+        },
+        {
+          "x-design-preview-token": publicPreviewToken,
+          "x-agent-native-live-edit-registration-capability":
+            deriveDesignScopedLiveEditRegistrationCapability(
+              bridge.bridgeToken,
+              "design-two",
+            ),
+        },
+      );
+      expect(wrongDesignRegistration.status).toBe(403);
+
+      const nonHmrUpgradeResponse = await new Promise<string>(
+        (resolve, reject) => {
+          const socket = net.connect(port, "127.0.0.1", () => {
+            socket.write(
+              [
+                `GET /socket?previewToken=${encodeURIComponent(publicPreviewToken)} HTTP/1.1`,
+                `Host: 127.0.0.1:${port}`,
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Version: 13",
+                "",
+                "",
+              ].join("\r\n"),
+            );
+          });
+          const timeout = setTimeout(() => {
+            socket.destroy();
+            reject(new Error("non-HMR WebSocket upgrade did not finish"));
+          }, 2_000);
+          socket.once("data", (data) => {
+            clearTimeout(timeout);
+            resolve(data.toString("utf8"));
+            socket.destroy();
+          });
+          socket.once("error", (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+        },
+      );
+      expect(nonHmrUpgradeResponse).toMatch(/^HTTP\/1\.1 403 Forbidden/);
+      expect(upstreamUpgradeCount).toBe(0);
+    } finally {
+      await Promise.all([
+        new Promise<void>((resolve) => bridge.server.close(() => resolve())),
+        new Promise<void>((resolve) => devServer.close(() => resolve())),
+      ]);
     }
   });
 
@@ -3721,6 +4777,210 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+    }
+  });
+
+  it("accepts exact scoped capabilities and rejects replays across bridge restarts", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    let bridge = await startDesignConnectBridge(manifest);
+    const body = { relPath: "index.html", content: "first write" };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /write-file",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const wrongEndpoint = await postJson(
+        `${base}/apply-edit`,
+        capabilityBody,
+      );
+      expect(wrongEndpoint.status).toBe(401);
+
+      const changedBody = await postJson(`${base}/write-file`, {
+        ...capabilityBody,
+        content: "forged write",
+      });
+      expect(changedBody.status).toBe(401);
+
+      const firstUse = await postJson(`${base}/write-file`, capabilityBody);
+      expect(firstUse.status).toBe(200);
+      expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
+        "first write",
+      );
+
+      const replay = await postJson(`${base}/write-file`, capabilityBody);
+      expect(replay.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+
+    bridge = await startDesignConnectBridge(manifest);
+    try {
+      const replayAfterRestart = await postJson(
+        `http://127.0.0.1:${port}/write-file`,
+        capabilityBody,
+      );
+      expect(replayAfterRestart.status).toBe(401);
+      expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
+        "first write",
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("uses a one-use capability for filesystem reads", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "index.html"), "read source", "utf8");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const body = { relPath: "index.html" };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /read-file",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const endpoint = `http://127.0.0.1:${port}/read-file`;
+      const firstRead = await postJson(endpoint, capabilityBody);
+      expect(firstRead.status).toBe(200);
+      expect(firstRead.body["content"]).toBe("read source");
+
+      const replay = await postJson(endpoint, capabilityBody);
+      expect(replay.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("uses an operation-scoped capability for file listing", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "index.html"), "listed source", "utf8");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /list-files",
+      body: {},
+    });
+    const capabilityBody = {
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const endpoint = `http://127.0.0.1:${port}/list-files`;
+      const firstList = await postJson(endpoint, capabilityBody);
+      expect(firstList.status).toBe(200);
+      expect(
+        (firstList.body["files"] as Array<{ path?: unknown }>).some(
+          (file) => file.path === "index.html",
+        ),
+      ).toBe(true);
+
+      const replay = await postJson(endpoint, capabilityBody);
+      expect(replay.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a capability issued for another project root with a shared token", async () => {
+    const rootA = tmpDir();
+    const rootB = tmpDir();
+    fs.writeFileSync(path.join(rootA, "index.html"), "root A original", "utf8");
+    fs.writeFileSync(path.join(rootB, "index.html"), "root B original", "utf8");
+    const sharedBridgeToken = "shared-test-token-not-a-real-secret";
+    const portA = await freePort();
+    const portB = await freePort();
+    const manifestA = await prepareDesignConnectManifest({
+      root: rootA,
+      url: "http://localhost:5173",
+      port: portA,
+    });
+    const manifestB = await prepareDesignConnectManifest({
+      root: rootB,
+      url: "http://localhost:5173",
+      port: portB,
+    });
+    const bridgeA = await startDesignConnectBridge(manifestA, {
+      bridgeToken: sharedBridgeToken,
+    });
+    const bridgeB = await startDesignConnectBridge(manifestB, {
+      bridgeToken: sharedBridgeToken,
+    });
+    const body = { relPath: "index.html", content: "authorized for A" };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: sharedBridgeToken,
+      audience: createLocalhostBridgeAudience(rootA),
+      operation: "POST /write-file",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const rejectedOnB = await postJson(
+        `http://127.0.0.1:${portB}/write-file`,
+        capabilityBody,
+      );
+      expect(rejectedOnB.status).toBe(401);
+      expect(fs.readFileSync(path.join(rootB, "index.html"), "utf8")).toBe(
+        "root B original",
+      );
+
+      const acceptedOnA = await postJson(
+        `http://127.0.0.1:${portA}/write-file`,
+        capabilityBody,
+      );
+      expect(acceptedOnA.status).toBe(200);
+      expect(fs.readFileSync(path.join(rootA, "index.html"), "utf8")).toBe(
+        "authorized for A",
+      );
+    } finally {
+      await Promise.all([
+        new Promise<void>((resolve) => bridgeA.server.close(resolve)),
+        new Promise<void>((resolve) => bridgeB.server.close(resolve)),
+      ]);
     }
   });
 

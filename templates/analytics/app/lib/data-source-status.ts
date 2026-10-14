@@ -25,6 +25,9 @@ export interface WorkspaceConnectionProviderSummary {
   hasWorkspaceConnection: boolean;
   hasGrantedWorkspaceConnection: boolean;
   hasActiveWorkspaceConnection: boolean;
+  statuses?: Array<
+    "connected" | "checking" | "needs_reauth" | "error" | "disabled"
+  >;
 }
 
 export interface DataSourceProviderStatus {
@@ -56,7 +59,9 @@ export type SharedConnectionStatusKind =
   | "ready"
   | "needs_grant"
   | "needs_credentials"
-  | "local_credentials";
+  | "local_credentials"
+  | "needs_reauth"
+  | "error";
 
 export interface SharedConnectionStatus {
   kind: SharedConnectionStatusKind;
@@ -67,6 +72,7 @@ export interface SharedConnectionStatus {
 }
 
 const dataSourceWorkspaceProviderIds: Record<string, string> = {
+  bigquery: "bigquery",
   github: "github",
   hubspot: "hubspot",
   jira: "jira",
@@ -76,6 +82,7 @@ const dataSourceWorkspaceProviderIds: Record<string, string> = {
 };
 
 const workspaceOAuthSourceIds = new Set([
+  "bigquery",
   "notion",
   "hubspot",
   "jira",
@@ -86,14 +93,25 @@ export function isWorkspaceOAuthSource(source: DataSource): boolean {
   return workspaceOAuthSourceIds.has(source.id);
 }
 
+export function canConnectWorkspaceOAuth(
+  source: DataSource,
+  canManageOrg: boolean,
+  hasOrg: boolean,
+): boolean {
+  return source.id === "bigquery" ? hasOrg : canManageOrg;
+}
+
 export function shouldShowWorkspaceOAuthSetup(
   source: DataSource,
   status: SharedConnectionStatus | null,
   canManageOrg: boolean,
 ): boolean {
   return (
-    canManageOrg &&
-    (status?.kind === "needs_credentials" || status?.kind === "needs_grant") &&
+    (canManageOrg || source.id === "bigquery") &&
+    (status?.kind === "needs_credentials" ||
+      status?.kind === "needs_grant" ||
+      status?.kind === "needs_reauth" ||
+      status?.kind === "error") &&
     isWorkspaceOAuthSource(source)
   );
 }
@@ -106,6 +124,7 @@ export function shouldShowWorkspaceOAuthAdminNotice(
   hasOrg = true,
 ): boolean {
   return (
+    source.id !== "bigquery" &&
     orgLoaded &&
     hasOrg &&
     !canManageOrg &&
@@ -121,7 +140,7 @@ export function shouldOfferWorkspaceOAuthReconnect(
   connectionTestFailed: boolean,
 ): boolean {
   return (
-    canManageOrg &&
+    (canManageOrg || source.id === "bigquery") &&
     connectionTestFailed &&
     status?.kind === "ready" &&
     isWorkspaceOAuthSource(source)
@@ -158,12 +177,12 @@ export function dataSourceOAuthReturnPath(
   return query ? `/data-sources?${query}` : "/data-sources";
 }
 
-export function getGoogleDriveConnection(
+export function getGoogleSheetsConnection(
   data: DataSourceStatusResponse | undefined,
 ): WorkspaceConnectionProviderSummary | undefined {
   return data?.workspaceConnections?.providers.find(
     (provider) =>
-      provider.provider === "google_drive" || provider.id === "google_drive",
+      provider.provider === "google_sheets" || provider.id === "google_sheets",
   );
 }
 
@@ -172,6 +191,8 @@ const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   needs_grant: "Available in workspace",
   needs_credentials: "Not connected",
   local_credentials: "Configured in this app",
+  needs_reauth: "Reconnect needed",
+  error: "Connection error",
 };
 
 function normalizeCredentialKey(key: string): string {
@@ -203,6 +224,12 @@ export function isSourceConfigured(
   const statusMap = new Map(
     envStatus.map((s) => [normalizeCredentialKey(s.key), s.configured]),
   );
+  if (source.id === "bigquery") {
+    return (
+      statusMap.get("BIGQUERY_PROJECT_ID") === true &&
+      statusMap.get("GOOGLE_APPLICATION_CREDENTIALS_JSON") === true
+    );
+  }
   const optionalKeys = getOptionalCredentialKeys(source);
   const requiredKeys = source.envKeys.filter(
     (key) => !optionalKeys.has(normalizeCredentialKey(key)),
@@ -271,8 +298,20 @@ export function getSharedConnectionStatus(
     source.name;
 
   let kind: SharedConnectionStatusKind;
-  if (connection?.grantState === "connected") {
+  const bigQueryProjectConfigured = envStatus.some(
+    (status) =>
+      normalizeCredentialKey(status.key) === "BIGQUERY_PROJECT_ID" &&
+      status.configured,
+  );
+  if (
+    connection?.grantState === "connected" &&
+    (source.id !== "bigquery" || bigQueryProjectConfigured)
+  ) {
     kind = "ready";
+  } else if (connection?.statuses?.includes("needs_reauth")) {
+    kind = "needs_reauth";
+  } else if (connection?.statuses?.includes("error")) {
+    kind = "error";
   } else if (connection?.grantState === "needs_grant") {
     kind = "needs_grant";
   } else if (localConfigured) {
@@ -295,6 +334,24 @@ export function isSourceReady(
   data: DataSourceStatusResponse | undefined,
   envStatus: EnvKeyStatus[],
 ): boolean {
+  if (source.id === "bigquery") {
+    const projectConfigured = envStatus.some(
+      (status) =>
+        normalizeCredentialKey(status.key) === "BIGQUERY_PROJECT_ID" &&
+        status.configured,
+    );
+    const serviceAccountConfigured = envStatus.some(
+      (status) =>
+        normalizeCredentialKey(status.key) ===
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON" && status.configured,
+    );
+    return (
+      projectConfigured &&
+      (serviceAccountConfigured ||
+        getWorkspaceConnectionForSource(source, data)?.grantState ===
+          "connected")
+    );
+  }
   return (
     isSourceConfigured(source, envStatus) ||
     getProviderStatusForSource(source, data)?.configured === true ||
@@ -307,6 +364,20 @@ export function isSourceLocallyConfigured(
   data: DataSourceStatusResponse | undefined,
   envStatus: EnvKeyStatus[],
 ): boolean {
+  if (source.id === "bigquery") {
+    return (
+      envStatus.some(
+        (status) =>
+          normalizeCredentialKey(status.key) === "BIGQUERY_PROJECT_ID" &&
+          status.configured,
+      ) &&
+      envStatus.some(
+        (status) =>
+          normalizeCredentialKey(status.key) ===
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON" && status.configured,
+      )
+    );
+  }
   if (isSourceConfigured(source, envStatus)) return true;
   const providerStatus = getProviderStatusForSource(source, data);
   if (!providerStatus?.configured) return false;

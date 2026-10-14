@@ -27,27 +27,27 @@ vi.mock(
   },
 );
 
-vi.mock("@agent-native/core/client/db-admin", () => ({
+vi.mock("@agent-native/toolkit/app/db-admin", () => ({
   DevDatabaseLink: () => null,
 }));
 
-vi.mock(import("@agent-native/core/client/ui"), async (importOriginal) => {
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => null,
+}));
+
+vi.mock(import("@agent-native/toolkit/app/shared"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
+    openCommandMenu: vi.fn(),
     AgentNativeIcon: ({
       size = 24,
       ...props
     }: React.SVGProps<SVGSVGElement> & { size?: number | string }) => (
       <svg data-agent-native-icon width={size} height={size} {...props} />
     ),
-    FeedbackButton: () => null,
   };
 });
-
-vi.mock("@agent-native/core/client/navigation", () => ({
-  openCommandMenu: vi.fn(),
-}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
@@ -83,7 +83,7 @@ vi.mock(import("@agent-native/toolkit/app-shell"), async (importOriginal) => {
     ),
   };
 });
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", () => ({
   OrgSwitcher: () => null,
 }));
 

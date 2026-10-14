@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
 import { installExtensionRequest } from "./DesignExtensionsPanel";
 
 describe("installExtensionRequest — duplicate-install race", () => {
@@ -159,26 +160,22 @@ describe("Design extension creation — LLM readiness gate", () => {
   it("keeps prompt entry and submission behind the readiness state", () => {
     expect(source).toContain('providerStatus.state === "configured"');
     expect(source).toContain('providerStatus === "configured"');
-    expect(source).toContain("disabled={!providerReady}");
+    expect(source).toContain(
+      'disabled={!providerReady && providerStatus !== "unknown"}',
+    );
     expect(source).toMatch(
       /if \(!providerReady\) return;[\s\S]*?sendToDesignAgentChat\(/,
     );
     expect(source).toMatch(/if \(!providerReady \|\| !canSubmit\) return;/);
     expect(source).toContain("<form onSubmit={handleSubmit}");
     expect(source).toContain("<BuilderSetupCard");
-    expect(source).toContain('t("agentChat.setup.checkingProvider")');
+    expect(source).not.toContain('t("agentChat.setup.checkingProvider")');
   });
 });
 
 describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
   it("receives the DesignEditor screen-point resolver", () => {
-    const source = readFileSync(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "../../pages/DesignEditor.tsx",
-      ),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toMatch(
       /<AssetLibraryPanel[\s\S]*?resolveScreenPoint=\{resolveAssetScreenPoint\}/,
     );

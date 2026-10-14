@@ -3,7 +3,7 @@ import {
   registerChannelSettingsExtensions,
   SettingsGroup,
   SettingsRow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";

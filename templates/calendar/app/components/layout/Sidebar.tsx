@@ -1,16 +1,14 @@
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import {
-  buildSettingsRoute,
-  openCommandMenu,
-} from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {

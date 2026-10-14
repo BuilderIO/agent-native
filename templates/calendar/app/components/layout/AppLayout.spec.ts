@@ -39,10 +39,10 @@ describe("Calendar app navigation", () => {
     expect(source).toContain("setSidebarExpandedWhileChatOpen(!nextCollapsed)");
   });
 
-  it("drops the app sidebar and header when the redesigned Settings shell owns the page", () => {
+  it("drops the app sidebar and header when the Settings shell owns the page", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain("useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key)");
+    expect(source).toContain("const settingsOwnsChrome = isSettingsPage;");
     expect(source).toContain(
       "{settingsOwnsChrome ? null : (\n              <Sidebar",
     );

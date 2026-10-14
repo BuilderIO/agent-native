@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Revoke",
   couldNotRevoke: "Could not revoke token.",
   authorizeDevice: "Authorize device",
+  organization: "Organization",
+  invalidOrganization: "Choose an organization you belong to.",
   fullCatalogRequested:
     "This device is requesting access to the full action catalog.",
   createToken: "Create connection token",
@@ -66,6 +68,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "Could not create token.",
   networkError: "Network error. Please try again.",
   urlTitle: "Your MCP URL",
+  servicePrincipals: "Service principals",
+  principalUngoverned: "Ungoverned",
+  principalActive: "Active",
+  principalSuspended: "Suspended",
+  principalRetired: "Retired",
+  principalUngovernedHint: "No owner or action grant is set.",
+  principalOwner: "Owner",
+  principalRisk: "Risk",
+  riskLow: "low",
+  riskMedium: "medium",
+  riskHigh: "high",
+  suspend: "Suspend",
+  resume: "Resume",
+  couldNotUpdatePrincipal: "Could not update the service principal.",
+  containmentIncomplete:
+    "Updated, but some runs or tokens could not be stopped. Try again.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {
@@ -89,6 +107,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "Open the full connect page to create a token for clients that cannot complete OAuth.",
   mcpOpenConnectPage: "Open full connect page",
+  mcpIdentityError: "Couldn't load this app's connection details.",
+  mcpRetry: "Try again",
   mcpConnect: mcpConnectMessages,
 };
 

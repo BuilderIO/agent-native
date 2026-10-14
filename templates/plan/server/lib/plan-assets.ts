@@ -18,7 +18,7 @@ export {
 
 export const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset";
 const PLAN_ASSET_STORAGE_REQUIRED_REASON =
-  "Image storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to add images to visual plans.";
+  "Image storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to add images to visual plans.";
 
 export function planAssetUrl(assetId: string, filename: string): string {
   return `${PLAN_ASSET_ROUTE_PREFIX}/${encodeURIComponent(assetId)}/${encodeURIComponent(filename)}`;

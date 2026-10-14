@@ -7,23 +7,28 @@ export type DataSourceType =
   | "prometheus"
   | "program";
 
-export type ChartType =
-  | "line"
-  | "area"
-  | "bar"
-  | "metric"
-  | "table"
-  | "pie"
-  | "section"
-  | "funnel"
-  | "heatmap"
-  | "callout"
-  | "extension";
+export const PANEL_CHART_TYPES = [
+  "line",
+  "area",
+  "bar",
+  "combo",
+  "metric",
+  "table",
+  "pie",
+  "section",
+  "funnel",
+  "heatmap",
+  "callout",
+  "extension",
+] as const;
+
+export type ChartType = (typeof PANEL_CHART_TYPES)[number];
 
 export type FilterType =
   | "date"
   | "date-range"
   | "select"
+  | "multi-select"
   | "toggle"
   | "text"
   | "toggle-date";
@@ -56,6 +61,7 @@ export interface TableColumnConfig {
   format?: ColumnFormat;
   linkKey?: string;
   hidden?: boolean;
+  width?: number;
 }
 
 export interface PivotConfig {
@@ -80,6 +86,7 @@ export interface SqlPanelConfig {
   yFormatter?: "number" | "currency" | "percent";
   rightYKeys?: string[];
   rightYFormatter?: "number" | "currency" | "percent";
+  barKeys?: string[];
   seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;

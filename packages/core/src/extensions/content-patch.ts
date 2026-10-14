@@ -1,6 +1,10 @@
 import { analyzeRegexSource } from "../shared/bounded-regex.js";
 import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import {
+  loadOptionalPeer,
+  OptionalPeerDependencyError,
+} from "../shared/optional-peer.js";
+import {
   applyTargetedReplace,
   findTargetedMatches,
   type TargetedAmbiguousMatch,
@@ -103,7 +107,12 @@ export async function applyExtensionContentUpdate(
   try {
     return await applyExtensionContentUpdateUnchecked(currentContent, opts);
   } catch (error) {
-    if (error instanceof ExtensionContentEditError) throw error;
+    if (
+      error instanceof ExtensionContentEditError ||
+      error instanceof OptionalPeerDependencyError
+    ) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new ExtensionContentEditError(message);
   }
@@ -146,32 +155,31 @@ async function applyExtensionContentUpdateUnchecked(
 }
 
 export async function formatExtensionHtml(content: string): Promise<string> {
-  try {
-    const [{ format }, ...plugins] = await Promise.all([
+  const [{ format }, ...plugins] = await loadOptionalPeer("prettier", () =>
+    Promise.all([
       import("prettier/standalone"),
       import("prettier/plugins/html"),
       import("prettier/plugins/postcss"),
       import("prettier/plugins/babel"),
       import("prettier/plugins/estree"),
-    ]);
+    ]),
+  );
+
+  try {
     const formatted = await format(content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
-    return typeof formatted === "string" ? formatted : content;
-  } catch (err: any) {
-    const message = String(err?.message ?? err);
-    if (
-      message.includes("Cannot find package 'prettier'") ||
-      message.includes('Cannot find package "prettier"') ||
-      message.includes("Cannot find module 'prettier'") ||
-      message.includes('Cannot find module "prettier"')
-    ) {
-      return content;
+    if (typeof formatted !== "string") {
+      throw new Error("Prettier returned a non-string result");
     }
+    return formatted;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Unable to format extension HTML with Prettier: ${message}`,
+      { cause: error },
     );
   }
 }

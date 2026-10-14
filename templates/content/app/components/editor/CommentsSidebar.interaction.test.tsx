@@ -36,7 +36,9 @@ const actions = vi.hoisted(() => ({
   realMutation: false,
   reconcile: vi.fn(),
   edit: vi.fn(),
+  remove: vi.fn(),
   resolve: vi.fn(),
+  modelsReady: false,
 }));
 vi.mock("@/hooks/use-comments", async () => {
   const { useMutation } = await import("@tanstack/react-query");
@@ -52,6 +54,7 @@ vi.mock("@/hooks/use-comments", async () => {
     },
     useEditComment: () => ({ mutateAsync: actions.edit, isPending: false }),
     useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
+    useDeleteComment: () => ({ mutateAsync: actions.remove }),
     useResolveComment: () => ({
       mutateAsync: actions.resolve,
       isPending: false,
@@ -61,14 +64,18 @@ vi.mock("@/hooks/use-comments", async () => {
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
   useChatModels: () => ({
     configuredModels: [],
-    selectionReady: false,
+    selectionReady: actions.modelsReady,
     selectedModel: "",
     selectedEngine: "",
     selectedEffort: undefined,
@@ -83,7 +90,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   }),
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => content,
 }));
 
@@ -173,6 +180,7 @@ function SidebarOwner({
     onActivateThread?: (threadId: string) => void;
     suggestions?: ResourceSuggestion[];
     activeSuggestionId?: string;
+    unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
     alignToAnchors?: boolean;
     onDecideSuggestionProposal?: (
       proposalId: string,
@@ -202,6 +210,7 @@ function SidebarOwner({
       threads={threads}
       suggestions={options.suggestions}
       activeSuggestionId={options.activeSuggestionId}
+      unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
       canComment
@@ -224,6 +233,7 @@ describe("comment review interactions", () => {
   let resolveCreate: (result: { id: string; threadId: string }) => void;
   beforeEach(() => {
     actions.realMutation = false;
+    actions.modelsReady = false;
     queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -257,6 +267,7 @@ describe("comment review interactions", () => {
       onActivateThread?: (threadId: string) => void;
       suggestions?: ResourceSuggestion[];
       activeSuggestionId?: string;
+      unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
       alignToAnchors?: boolean;
       onDecideSuggestionProposal?: (
         proposalId: string,
@@ -350,6 +361,27 @@ describe("comment review interactions", () => {
       ]),
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
+  });
+  it("drops the conflict alert once an unplaceable suggestion is amended", () => {
+    const conflictAlert = () =>
+      [
+        ...container.querySelectorAll(
+          "[data-suggestion-id='one'] [role='alert']",
+        ),
+      ].find((alert) => alert.textContent === "editor.toolbar.conflict");
+    const failed = proposalSuggestion("one");
+    const options = {
+      activeSuggestionId: "one",
+      alignToAnchors: false,
+      unplaceableSuggestionRevisions: new Map([["one", failed.revision]]),
+    };
+    render(null, [], "inline", { ...options, suggestions: [failed] });
+    expect(conflictAlert()).toBeDefined();
+    render(null, [], "inline", {
+      ...options,
+      suggestions: [{ ...failed, revision: failed.revision + 1 }],
+    });
+    expect(conflictAlert()).toBeUndefined();
   });
   it.each([
     ["inline", "one", false],
@@ -449,6 +481,99 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
+  const sendAiReply = async (
+    start: CommentAiController["start"],
+    { removeFails = false } = {},
+  ) => {
+    actions.modelsReady = true;
+    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
+    if (removeFails) actions.remove.mockRejectedValue(new Error("lost"));
+    else actions.remove.mockResolvedValue(undefined);
+    const commentAi = {
+      requests: [],
+      startingThreadIds: new Set<string>(),
+      stoppingRequestIds: new Set<string>(),
+      continuations: new Map(),
+      transcriptRevision: 0,
+      start,
+      continue: vi.fn(),
+      retry: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      open: vi.fn(),
+      undo: vi.fn(),
+      freshResolutions: new Map(),
+      dismissResolution: vi.fn(),
+    } satisfies CommentAiController;
+    render("one", undefined, "inline", { commentAi });
+    await type("actually, make it Thursday");
+    act(() =>
+      replyDraft.setAiDraft({
+        mode: "suggest",
+        selection: { model: "model", engine: "engine", provider: "provider" },
+      }),
+    );
+    // The composer places the AI mention chip a tick after the AI is chosen.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const sent = replyDraft.draft.text;
+    expect(sent).toContain("actually, make it Thursday");
+    await act(async () =>
+      (
+        container.querySelector(
+          '[aria-label="comments.aiSend"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(actions.create).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "one",
+        instructions: sent.trim(),
+      }),
+    );
+    return sent;
+  };
+
+  it("takes back an AI reply and restores its draft when AI is already busy", async () => {
+    const sent = await sendAiReply(vi.fn().mockResolvedValue("busy"));
+
+    expect(actions.remove).toHaveBeenCalledWith({
+      id: "reply-1",
+      documentId: "fixture",
+    });
+    expect(replyDraft.draft.text).toBe(sent);
+  });
+
+  it("restores the draft of a busy AI reply even when taking the reply back fails", async () => {
+    const sent = await sendAiReply(vi.fn().mockResolvedValue("busy"), {
+      removeFails: true,
+    });
+
+    expect(actions.remove).toHaveBeenCalledOnce();
+    expect(replyDraft.draft.text).toBe(sent);
+  });
+
+  it("keeps a busy AI reply when a newer reply was typed while it was sent", async () => {
+    let answer!: (outcome: "busy") => void;
+    const start = vi.fn(
+      () => new Promise<"busy">((resolve) => (answer = resolve)),
+    );
+    const sending = sendAiReply(start);
+    await vi.waitFor(() => expect(start).toHaveBeenCalled());
+    act(() => replyDraft.setText("a newer thought"));
+    await act(async () => answer("busy"));
+    await sending;
+
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(replyDraft.draft.text).toBe("a newer thought");
+  });
+
+  it("keeps an AI reply when starting AI fails, since the request may have been saved", async () => {
+    await sendAiReply(vi.fn().mockRejectedValue(new Error("network lost")));
+
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(replyDraft.draft.text).toBe("");
+  });
   it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
     render("one");
     await type("Unsent detailed feedback");

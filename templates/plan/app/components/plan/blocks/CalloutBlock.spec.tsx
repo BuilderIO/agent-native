@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-
-import type { BlockRenderContext } from "@agent-native/core/blocks";
-import { CalloutBlockEdit, type CalloutData } from "@agent-native/core/blocks";
+import type { BlockRenderContext } from "@agent-native/core/blocks/server";
+import { type CalloutData } from "@agent-native/core/blocks/server";
+import { CalloutBlockEdit } from "@agent-native/toolkit/app/blocks";
 import React, { act, cloneElement, isValidElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

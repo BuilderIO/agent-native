@@ -1,13 +1,20 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { serializeIconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItemsPageResponse,
+  ContentDatabaseNavigationPageResponse,
   ContentDatabaseResponse,
   ContentDatabaseItem,
+  ContentLinkTarget,
+  ContentNavigationContext,
+  ContentNavigationPathEntry,
   Document,
   DocumentCreateRequest,
   DocumentCreateResult,
@@ -23,16 +30,31 @@ import type { ContentSidebarSections } from "@shared/content-personal-navigation
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
 import type { QueryClient } from "@tanstack/react-query";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  isCancelledError,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+
+import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
 
 import type {
   DocumentUpdateConflictResponse,
   DocumentUpdateSupersededResponse,
 } from "../../actions/update-document";
 import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
+import type {
+  ImportContentArgs,
+  ImportContentResult,
+  UndoContentImportResult,
+} from "../../shared/import/api";
 import {
   documentQueryFilter,
+  documentQueryKey,
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
@@ -40,12 +62,39 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "../lib/optimistic-document";
+import {
+  adoptPageOpenRead,
+  claimPageOpenRead,
+  releasePageOpenRead,
+  spoilPageOpenReads,
+  startPageOpenRead,
+  type PageOpenRead,
+  type PageOpenReadAdoption,
+} from "../lib/page-open-reads";
+import {
+  contentFilesCollectionFilter,
+  contentNavigationBranchFilter,
+  contentNavigationContextFilter,
+  contentPlacementTargets,
+  contentRowTargets,
+  contentSpaceFilesDatabaseId,
+  documentScopedQueryFilter,
+  invalidateContentQueries,
+  useContentActionMutation,
+  type ContentQueryTarget,
+} from "./use-content-action-mutation";
+import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
+  contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
 } from "./use-content-database";
+import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
 
 export {
   documentQueryFilter,
@@ -466,15 +515,36 @@ export function patchDocumentCaches(
     contentDatabaseItemsContainingDocumentFilter(documentId),
     (current) => patchDocumentInDatabaseCache(current, documentId, patch),
   );
+  if (patch.title !== undefined) {
+    queryClient.setQueriesData<ContentLinkTarget | null>(
+      { queryKey: CONTENT_LINK_TARGETS_QUERY_KEY },
+      (current) =>
+        current && "documentId" in current && current.documentId === documentId
+          ? { ...current, title: patch.title! }
+          : current,
+    );
+  }
   queryClient.setQueriesData<{ entries: ContentRecentResult[] }>(
     { queryKey: ["action", "get-content-recent"] },
     (current) => {
-      if (!current || patch.title === undefined) return current;
+      if (!current || (patch.title === undefined && patch.icon === undefined))
+        return current;
       let changed = false;
       const entries = current.entries.map((entry) => {
         if (entry.target.documentId !== documentId) return entry;
         changed = true;
-        return { ...entry, title: patch.title! };
+        return {
+          ...entry,
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.icon !== undefined
+            ? {
+                icon:
+                  typeof patch.icon === "string"
+                    ? patch.icon
+                    : serializeIconValue(patch.icon),
+              }
+            : {}),
+        };
       });
       return changed ? { ...current, entries } : current;
     },
@@ -538,6 +608,99 @@ export function patchContentSpaceNameCaches(
   }
 
   return matched;
+}
+
+const NAVIGATION_CONTEXT_QUERY_KEY = [
+  "action",
+  "get-content-navigation-context",
+] as const;
+
+/**
+ * An optimistic page opens before the server has it, so its path read fails
+ * and the sidebar would stop revealing the page's ancestors. Seed the path from
+ * the parent's cached one and show the parent as expandable; the create's
+ * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ * The sidebar reveals a path only through its space's Files membership, so
+ * the new entry claims that membership too.
+ */
+export function seedCreatedDocumentNavigation(
+  queryClient: Pick<
+    QueryClient,
+    "getQueriesData" | "setQueriesData" | "setQueryData"
+  >,
+  document: Document,
+  workspaceFilesDatabaseId: string | null,
+) {
+  const parentId = document.parentId ?? null;
+  let parentPath: ContentNavigationPathEntry[] = [];
+  if (parentId) {
+    for (const [
+      ,
+      context,
+    ] of queryClient.getQueriesData<ContentNavigationContext>({
+      queryKey: NAVIGATION_CONTEXT_QUERY_KEY,
+    })) {
+      const index =
+        context?.path?.findIndex((entry) => entry.id === parentId) ?? -1;
+      if (index >= 0) {
+        parentPath = context!.path.slice(0, index + 1);
+        workspaceFilesDatabaseId ??= context!.workspaceFilesDatabaseId;
+        break;
+      }
+    }
+    queryClient.setQueriesData<ContentDatabaseNavigationPageResponse>(
+      contentNavigationBranchFilter({ documentIds: [parentId] }),
+      (current) =>
+        current && {
+          ...current,
+          items: current.items.map((item) =>
+            item.documentId === parentId
+              ? { ...item, hasChildren: true }
+              : item,
+          ),
+        },
+    );
+  }
+  queryClient.setQueryData<ContentNavigationContext>(
+    [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
+    {
+      mode: "database",
+      document,
+      path: [
+        ...parentPath,
+        {
+          id: document.id,
+          parentId,
+          title: document.title,
+          icon: null,
+          databaseId: workspaceFilesDatabaseId,
+          databaseDocumentId:
+            parentPath[parentPath.length - 1]?.databaseDocumentId ?? null,
+          isFavorite: false,
+          canEdit: true,
+          canManage: true,
+          createdAt: document.createdAt,
+          updatedAt: document.updatedAt,
+        },
+      ],
+      workspaceFilesDatabaseId,
+    },
+  );
+}
+
+export function removeCreatedDocumentNavigation(
+  queryClient: Pick<QueryClient, "invalidateQueries" | "removeQueries">,
+  document: Pick<Document, "id" | "parentId">,
+) {
+  queryClient.removeQueries({
+    queryKey: [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
+    exact: true,
+  });
+  if (document.parentId) {
+    invalidateContentQueries(queryClient, [
+      contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+    ]);
+  }
 }
 
 export function documentUpdateSuccessPatch(
@@ -611,32 +774,205 @@ export function useDocuments(options?: { enabled?: boolean }) {
   });
 }
 
+// The sidebar and the editor breadcrumbs read the same entry.
+export function useContentNavigationContext(documentId: string | null) {
+  return useActionQuery<ContentNavigationContext>(
+    "get-content-navigation-context",
+    documentId ? { id: documentId } : undefined,
+    { enabled: Boolean(documentId) },
+  );
+}
+
 export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
   staleTime: 0,
   refetchOnMount: "always" as const,
   retry: false,
 };
 
+function documentReadParams(id: string, context: DocumentQueryContext) {
+  return documentQueryKey(id, context)[2];
+}
+
 export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
+  options: { enabled?: boolean; refetchOnMount?: false } = {},
 ) {
   return useActionQuery<Document>(
     "get-document",
-    id
-      ? {
-          id,
-          ...(context.databaseId ? { databaseId: context.databaseId } : {}),
-          ...(context.databaseDocumentId
-            ? { databaseDocumentId: context.databaseDocumentId }
-            : {}),
-        }
-      : undefined,
+    id ? documentReadParams(id, context) : undefined,
     {
-      enabled: !!id,
+      enabled: !!id && options.enabled !== false,
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
+      ...options,
     },
   );
+}
+
+// The page editor's read of its document. When a read started for this page
+// open has already landed, it counts as fetched for this mount instead of
+// being discarded and read again. Only the first mount can adopt; a later
+// document switch reads fresh.
+export function usePageOpenDocument(
+  documentId: string,
+  context: DocumentQueryContext,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentQueryKey(documentId, context);
+  const queryHash = hashKey(queryKey);
+  const claimRef = useRef<{
+    queryHash: string;
+    queryKey: typeof queryKey;
+    adoption: PageOpenReadAdoption;
+    read: PageOpenRead | null;
+  } | null>(null);
+  if (claimRef.current?.queryHash !== queryHash) {
+    claimRef.current =
+      claimRef.current === null
+        ? { queryHash, queryKey, ...claimPageOpenRead(queryClient, queryKey) }
+        : { queryHash, queryKey, adoption: "none", read: null };
+  }
+  const claim = claimRef.current;
+  const { adoption } = claim;
+  const cachedDocument = queryClient.getQueryData<Document>(queryKey);
+  const query = useDocument(documentId, context, {
+    enabled: !(
+      cachedDocument && isDocumentCreationPending(queryClient, cachedDocument)
+    ),
+    ...(adoption === "fresh" ? { refetchOnMount: false } : {}),
+  });
+  // Runs after the query's own subscription, so from here on sync reaches
+  // this read as a mounted query.
+  useEffect(() => {
+    if (claim.read) {
+      releasePageOpenRead(queryClient, claim.queryKey, claim.read);
+    }
+  }, [claim, queryClient]);
+  return {
+    query,
+    fetchedForThisOpen: query.isFetchedAfterMount || adoption === "fresh",
+    // The open's own reads, draft included, already started elsewhere.
+    readsStartedEarly: adoption !== "none",
+  };
+}
+
+export function startPageOpenDocumentReads(
+  queryClient: QueryClient,
+  documentId: string,
+  context: DocumentQueryContext = {},
+  { beforeSession = false }: { beforeSession?: boolean } = {},
+) {
+  const queryKey = documentQueryKey(documentId, context);
+  const cached = queryClient.getQueryData<Document>(queryKey);
+  if (cached && isDocumentCreationPending(queryClient, cached)) return;
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const readsDraft =
+    !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
+  // One request answers the page and its draft, so the draft read cannot hold
+  // the page back on its own. Each read takes that answer once: a refetch
+  // through either key sends its own request rather than replaying this one.
+  let pageRead: Promise<PageOpenDocumentRead> | null = null;
+  const readPage = () =>
+    (pageRead ??= callAction<PageOpenDocumentRead>(
+      "get-document",
+      {
+        ...documentReadParams(documentId, context),
+        ...(readsDraft ? { includePreviewDraft: true } : {}),
+      },
+      { method: "GET" },
+    ));
+  let documentTaken = false;
+  const documentReadStarted = startPageOpenRead(
+    queryClient,
+    documentId,
+    {
+      queryKey,
+      queryFn: ({ signal }) => {
+        if (documentTaken) {
+          return callAction<Document>(
+            "get-document",
+            documentReadParams(documentId, context),
+            { method: "GET", signal },
+          );
+        }
+        documentTaken = true;
+        return readPage().then(
+          ({ previewDraft: _previewDraft, ...document }) => document,
+        );
+      },
+      retry: false,
+    },
+    { beforeSession },
+  );
+  if (widgetBridgeActive) return;
+  if (readsDraft) {
+    const draftRead = previewDocumentDraftReadOptions(
+      documentId,
+      cached?.createdAt,
+    );
+    let draftTaken = !documentReadStarted;
+    startPageOpenRead(
+      queryClient,
+      documentId,
+      {
+        ...draftRead,
+        queryFn: (context) => {
+          if (draftTaken) return draftRead.queryFn(context);
+          draftTaken = true;
+          // A server without the combined answer, or a page read that failed,
+          // leaves the draft to its own request.
+          return readPage().then(
+            (read) => read.previewDraft ?? draftRead.queryFn(context),
+            () => draftRead.queryFn(context),
+          );
+        },
+      },
+      { beforeSession },
+    );
+  }
+  // The review reads are not tracked as this open's reads, so one sent before
+  // the session could not be dropped if another account answers it.
+  if (!beforeSession && cached?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
+  }
+}
+
+// Open comments and suggestions hold the review margin open beside the page,
+// so their reads start with the page read rather than after it lands. A page
+// known to come from a local file has neither, so its open skips them.
+export function startPageOpenReviewReads(
+  queryClient: QueryClient,
+  documentId: string,
+) {
+  const reads = [
+    ["list-comments", { documentId }],
+    [
+      "list-resource-suggestions",
+      { resourceType: "document", resourceId: documentId },
+    ],
+  ] as const;
+  for (const [actionName, params] of reads) {
+    void queryClient.prefetchQuery({
+      queryKey: ["action", actionName, params],
+      queryFn: ({ signal }) =>
+        callAction(actionName, params, { method: "GET", signal }),
+      retry: false,
+    });
+  }
+}
+
+export function startPageOpenCompanionReads(
+  queryClient: QueryClient,
+  documentId: string,
+  knownDocument: Document | undefined,
+  readsStartedEarly: boolean,
+) {
+  if (readsStartedEarly) return;
+  if (isEmbedMcpChatBridgeActive()) return;
+  startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
+  if (knownDocument?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
+  }
 }
 
 export interface PreviewDocumentDraftRecord {
@@ -652,27 +988,98 @@ export interface PreviewDocumentDraftRecord {
   updatedAt: string;
 }
 
+// `editable: false` means the reader cannot edit the page, so it has no
+// private draft to recover; it is not the same answer as `draft: null`.
+export interface PreviewDocumentDraftResponse {
+  draft: PreviewDocumentDraftRecord | null;
+  editable: boolean;
+}
+
+type PageOpenDocumentRead = Document & {
+  previewDraft?: PreviewDocumentDraftResponse;
+};
+
+function previewDocumentDraftReadOptions(
+  documentId: string,
+  createdAt?: string | null,
+) {
+  return {
+    queryKey: ["action", "get-preview-document-draft", { documentId }] as const,
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      callAction<PreviewDocumentDraftResponse>(
+        "get-preview-document-draft",
+        { documentId },
+        { method: "GET", signal },
+      ),
+    // A 403/404 for a row this young is one this connection cannot see yet
+    // rather than a refusal, so ride it out. Once the row is past its settling
+    // window a 403 is a real authorization answer and stays terminal.
+    ...documentScopedReadRetryOptions(isWithinCreateSettlingWindow(createdAt)),
+  };
+}
+
 export function usePreviewDocumentDraft(
-  documentId: string | null,
+  documentId: string,
   options: { enabled?: boolean; createdAt?: string | null } = {},
 ) {
-  return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
-    "get-preview-document-draft",
-    documentId ? { documentId } : undefined,
-    {
-      enabled: !!documentId && options.enabled !== false,
-      // The caller gates this off while it knows creation is pending. A 403/404
-      // that still arrives for a row that young is one this connection cannot
-      // see yet rather than a refusal, so ride it out. Once the row is past its
-      // settling window a 403 is a real authorization answer and stays terminal.
-      ...documentScopedReadRetryOptions(
-        isWithinCreateSettlingWindow(options.createdAt),
-      ),
-    },
+  return useQuery({
+    ...previewDocumentDraftReadOptions(documentId, options.createdAt),
+    // The caller gates this off while it knows creation is pending.
+    enabled: options.enabled !== false,
+  });
+}
+
+// A page that is known not to need recovery skips the draft read, as does the
+// ChatGPT widget, which never recovers drafts.
+function previewDocumentDraftIsRead(
+  queryClient: QueryClient,
+  known?: Document,
+) {
+  if (isOpenAiMcpAppHost()) return false;
+  return !(
+    known &&
+    (isDocumentCreationPending(queryClient, known) ||
+      isDocumentCreationConfirmed(queryClient, known) ||
+      known.canEdit === false ||
+      known.source?.mode === "local-files")
   );
 }
 
+// Starts the draft read that page recovery verifies, alongside the document
+// read instead of after it.
+export function startPreviewDocumentDraftRead(
+  queryClient: QueryClient,
+  documentId: string,
+  known?: Document,
+) {
+  if (!previewDocumentDraftIsRead(queryClient, known)) return;
+  startPageOpenRead(
+    queryClient,
+    documentId,
+    previewDocumentDraftReadOptions(documentId, known?.createdAt),
+  );
+}
+
+// Resolves once the current user's draft has been read for this page open:
+// the open's own read when it is still usable, otherwise one fresh read.
+// Rejects when that read fails or says the page is no longer editable.
+export async function ensurePreviewDocumentDraftRead(
+  queryClient: QueryClient,
+  documentId: string,
+  createdAt?: string | null,
+) {
+  const options = previewDocumentDraftReadOptions(documentId, createdAt);
+  const result =
+    adoptPageOpenRead(queryClient, options.queryKey) === "fresh"
+      ? queryClient.getQueryData<PreviewDocumentDraftResponse>(options.queryKey)
+      : await queryClient.fetchQuery({ ...options, staleTime: 0 });
+  if (result?.editable === false) {
+    throw new Error("The page is no longer editable by this user.");
+  }
+}
+
 export function useUpdatePreviewDocumentDraft() {
+  const queryClient = useQueryClient();
   return useActionMutation<
     {
       status: "saved" | "deleted" | "conflict" | "superseded";
@@ -703,11 +1110,18 @@ export function useUpdatePreviewDocumentDraft() {
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,
+    // This tab's own draft writes never come back through sync.
+    onMutate: (variables) => {
+      spoilPageOpenReads(queryClient, variables.documentId);
+    },
+    onSettled: (_data, _error, variables) => {
+      spoilPageOpenReads(queryClient, variables.documentId);
+    },
   });
 }
 
 export function useResolvePreviewDocumentDraft() {
-  return useActionMutation<
+  return useContentActionMutation<
     {
       status: "resolved" | "document_conflict";
       choice?: "keep_mine" | "use_saved" | "save_separately";
@@ -723,7 +1137,25 @@ export function useResolvePreviewDocumentDraft() {
       expectedDraftContent: string;
       expectedDocumentUpdatedAt?: string;
     }
-  >("resolve-preview-document-draft");
+  >("resolve-preview-document-draft", {
+    invalidates: (result, { documentId }) => [
+      documentScopedQueryFilter(documentId),
+      ...(result.choice === "keep_mine"
+        ? [
+            contentNavigationBranchFilter({ documentIds: [documentId] }),
+            contentNavigationContextFilter([documentId]),
+            ["action", "get-content-recent"],
+            ["action", "list-documents"],
+          ]
+        : []),
+      ...(result.createdDocumentId
+        ? [
+            contentNavigationBranchFilter({ parentIds: [null] }),
+            ["action", "list-documents"],
+          ]
+        : []),
+    ],
+  });
 }
 
 export function useCreateDocument() {
@@ -732,12 +1164,72 @@ export function useCreateDocument() {
     "create-document",
     {
       skipActionQueryInvalidation: true,
-      onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+      onSuccess: (created) =>
+        invalidateContentQueries(
+          queryClient,
+          contentPlacementTargets(queryClient, {
+            documentIds: [created.id],
+            parentIds: [created.parentId ?? null],
+            databaseId: created.parentId
+              ? undefined
+              : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
+          }),
+        ),
     },
   );
 }
 
-export function useUpdateDocument() {
+const DOCUMENT_UPDATE_MUTATION_KEY = ["content", "update-document"];
+const recentSaveRecoveries = new WeakMap<QueryClient, () => void>();
+
+function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
+  if (recentSaveRecoveries.has(queryClient)) return;
+  let reading = false;
+  const stopRecovery = () => {
+    recentSaveRecoveries.get(queryClient)?.();
+    recentSaveRecoveries.delete(queryClient);
+  };
+  const reconcile = () => {
+    if (reading) return;
+    if (
+      queryClient.isMutating({
+        mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+        predicate: (mutation) => {
+          const pending = mutation.state.variables as
+            | DocumentUpdateRequestWithCas
+            | undefined;
+          return pending?.title !== undefined || pending?.icon !== undefined;
+        },
+      }) > 0
+    )
+      return;
+    reading = true;
+    const refresh = queryClient.invalidateQueries(
+      { queryKey: ["action", "get-content-recent"] },
+      { throwOnError: true },
+    );
+    const reads = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["action", "get-content-recent"], type: "active" })
+      .map((query) => query.promise);
+    void Promise.all([refresh, ...reads]).then(
+      stopRecovery,
+      (error: unknown) => {
+        reading = false;
+        if (isCancelledError(error)) reconcile();
+        else stopRecovery();
+      },
+    );
+  };
+  recentSaveRecoveries.set(
+    queryClient,
+    // Mutation statuses change after onSettled, including simultaneous failures.
+    queryClient.getMutationCache().subscribe(reconcile),
+  );
+  reconcile();
+}
+
+export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
   const queryClient = useQueryClient();
   const t = useT();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -747,8 +1239,15 @@ export function useUpdateDocument() {
   return useActionMutation<DocumentUpdateResult, DocumentUpdateRequestWithCas>(
     "update-document",
     {
+      mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      headers: (payload) =>
+        contentSaveTelemetryHeaders(payload, options?.saveOrigin),
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
+        // This tab's own saves never come back through sync.
+        spoilPageOpenReads(queryClient, variables.id);
+        const documentFilter = documentQueryFilter(variables.id);
+        await queryClient.cancelQueries(documentFilter);
         const optimisticPatch: Partial<Document> = {
           ...(variables.title !== undefined ? { title: variables.title } : {}),
           ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
@@ -758,7 +1257,6 @@ export function useUpdateDocument() {
         };
         if (Object.keys(optimisticPatch).length === 0) return undefined;
 
-        const documentFilter = documentQueryFilter(variables.id);
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
@@ -771,6 +1269,9 @@ export function useUpdateDocument() {
         const personalViewFilter = {
           queryKey: ["action", "get-content-database-personal-view"],
         } as const;
+        const recentFilter = {
+          queryKey: ["action", "get-content-recent"],
+        } as const;
         const sidebarStateEntry = currentContentSidebarState(
           queryClient,
           currentDocumentSpaceId(queryClient, variables.id),
@@ -778,12 +1279,12 @@ export function useUpdateDocument() {
         const sidebarStateKey = sidebarStateEntry?.[0];
         const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
-          queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
           queryClient.cancelQueries(databasePageFilter),
           queryClient.cancelQueries(contentSpacesFilter),
           queryClient.cancelQueries(personalViewFilter),
+          queryClient.cancelQueries(recentFilter),
         ]);
 
         const previous: Array<[readonly unknown[], unknown]> = [
@@ -932,6 +1433,11 @@ export function useUpdateDocument() {
           | { previous?: Array<[readonly unknown[], unknown]> }
           | undefined;
         restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
+        if (variables.title !== undefined || variables.icon !== undefined)
+          recoverRecentAfterDocumentSaves(queryClient);
+      },
+      onSettled: (_data, _error, variables) => {
+        spoilPageOpenReads(queryClient, variables.id);
       },
       onSuccess: (data, variables, context) => {
         const renamedContentSpace = (
@@ -1038,16 +1544,11 @@ export function useUpdateDocument() {
           documentUpdateSuccessPatch(data, variables),
         );
         if (variables.title !== undefined) {
-          void queryClient.invalidateQueries(
+          invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
-          );
-          invalidateContentDatabaseNavigationQueries(queryClient);
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-content-recent"],
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-content-navigation-context"],
-          });
+            ...contentRowTargets(queryClient, [variables.id]),
+            ["action", "search-documents"],
+          ]);
         }
         if (renamedContentSpace) {
           patchContentSpaceNameCaches(queryClient, variables.id, data.title);
@@ -1059,7 +1560,9 @@ export function useUpdateDocument() {
           });
         }
         if (variables.isFavorite !== undefined) {
-          invalidateContentDatabaseNavigationQueries(queryClient);
+          invalidateContentQueries(queryClient, [
+            contentNavigationBranchFilter({ documentIds: [variables.id] }),
+          ]);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
           });
@@ -1173,9 +1676,15 @@ export function useUpdateDocument() {
   );
 }
 
+const TRASH_LIST_QUERY_KEYS: readonly ContentQueryTarget[] = [
+  ["action", "list-trashed-documents"],
+  ["action", "list-trashed-content-databases"],
+  ["action", "list-content-trash"],
+];
+
 export function useDeleteDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       success: boolean;
       deleted: number;
@@ -1185,31 +1694,23 @@ export function useDeleteDocument() {
     },
     { id: string; databaseDocumentId?: string; activeDocumentId?: string }
   >("delete-document", {
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(variables.id));
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-content-spaces"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (_data, variables) => [
+      ...contentPlacementTargets(queryClient, { documentIds: [variables.id] }),
+      contentDatabaseItemsContainingDocumentFilter(variables.id),
+      documentQueryFilter(variables.id),
+      ["action", "list-documents"],
+      ["action", "get-content-database"],
+      ["action", "list-content-spaces"],
+      ["action", "get-content-recent"],
+      ["action", "search-documents"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
   });
 }
 
 export function useRollbackCreatedSlashDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       success: boolean;
       id: string;
@@ -1218,53 +1719,88 @@ export function useRollbackCreatedSlashDocument() {
     },
     { id: string; parentId: string }
   >("rollback-created-slash-document", {
-    onSuccess: (_result, { id }) => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(id));
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (_result, { id, parentId }) => [
+      ...contentPlacementTargets(queryClient, {
+        documentIds: [id],
+        parentIds: [parentId],
+      }),
+      documentQueryFilter(id),
+      ["action", "list-documents"],
+      ["action", "get-content-database"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
   });
 }
 
-export function useTrashedDocuments() {
-  return useActionQuery<ListTrashedDocumentsResponse>(
-    "list-trashed-documents",
-    {},
+export function useImportContent() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<ImportContentResult, ImportContentArgs>(
+    "import-content",
+    {
+      invalidates: (result, { parentId }) =>
+        result.dryRun
+          ? []
+          : [
+              ...contentPlacementTargets(queryClient, {
+                documentIds: result.pages.flatMap((page) =>
+                  page.id ? [page.id] : [],
+                ),
+                parentIds: [parentId ?? null],
+              }),
+              ["action", "list-documents"],
+              ["action", "search-documents"],
+            ],
+    },
   );
 }
 
-export function useRestoreDocument() {
+export function useUndoContentImport() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
+    UndoContentImportResult,
+    { importId: string }
+  >("undo-content-import", {
+    invalidates: ({ trashedIds }) => [
+      ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
+      ...trashedIds.map((id) => documentQueryFilter(id)),
+      ["action", "list-documents"],
+      ["action", "search-documents"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
+  });
+}
+
+export function useTrashedDocuments(options?: { enabled?: boolean }) {
+  return useActionQuery<ListTrashedDocumentsResponse>(
+    "list-trashed-documents",
+    {},
+    { enabled: options?.enabled !== false },
+  );
+}
+
+/** A restored page returns to a parent the client does not know, so every mounted branch refreshes. */
+export function restoredDocumentTargets(
+  documentId: string,
+): ContentQueryTarget[] {
+  return [
+    contentDatabaseNavigationQueryFilter(),
+    contentNavigationContextFilter([documentId]),
+    documentScopedQueryFilter(documentId),
+    contentDatabaseConstrainedQueryFilter(),
+    ["action", "list-documents"],
+    ["action", "get-content-database"],
+    ["action", "get-content-recent"],
+    ["action", "search-documents"],
+    ...TRASH_LIST_QUERY_KEYS,
+  ];
+}
+
+export function useRestoreDocument() {
+  return useContentActionMutation<
     { success: boolean; restored: number; documentId: string },
     { id: string }
   >("restore-document", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (_data, { id }) => restoredDocumentTargets(id),
   });
 }
 
@@ -1285,26 +1821,41 @@ export function usePermanentlyDeleteDocument() {
         { id, planId: plan.planId, scopeToken: plan.scopeToken },
       );
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["action"] });
+    onSuccess: (_data, { id }) => {
+      invalidateContentQueries(queryClient, [
+        documentScopedQueryFilter(id),
+        ["action", "list-documents"],
+        ...TRASH_LIST_QUERY_KEYS,
+      ]);
     },
   });
 }
 
 export function useMoveDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<Document, DocumentMoveRequest & { id: string }>(
-    "move-document",
-    {
-      onSuccess: (_data, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        void queryClient.invalidateQueries(documentQueryFilter(variables.id));
-        invalidateContentDatabaseNavigationQueries(queryClient);
-      },
-    },
-  );
+  return useContentActionMutation<
+    Document,
+    DocumentMoveRequest & { id: string }
+  >("move-document", {
+    invalidates: (_data, variables) => [
+      ...contentPlacementTargets(queryClient, {
+        documentIds: [variables.id],
+        parentIds: variables.parentId === undefined ? [] : [variables.parentId],
+        databaseId: variables.spaceId
+          ? contentSpaceFilesDatabaseId(queryClient, variables.spaceId)
+          : undefined,
+      }),
+      documentQueryFilter(variables.id),
+      contentFilesCollectionFilter(),
+      ["action", "list-documents"],
+      ...(variables.spaceId
+        ? [
+            ["action", "get-content-database"],
+            ["action", "get-content-recent"],
+          ]
+        : []),
+    ],
+  });
 }
 
 export function buildDocumentTree(

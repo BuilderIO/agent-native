@@ -1,16 +1,16 @@
-import { ConnectionsTab } from "@agent-native/core/client/agent-chat";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   McpServersApiProvider,
   type McpServersApi,
 } from "@agent-native/core/client/resources";
+import { ConnectionsTab } from "@agent-native/toolkit/app/agent-page/AgentTabsPage";
 import {
   SettingsGroup,
   SettingsRow,
   SettingsSurfaceProvider,
   SettingsTabsPage,
   type SettingsTabItem,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   getDesktopVisibleApps,

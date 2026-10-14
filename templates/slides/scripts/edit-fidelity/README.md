@@ -1,6 +1,6 @@
 # Edit fidelity harness
 
-Drives the real Slides editor in Chromium and checks one rule: clicking into
+Drives the real Slides editor in a real browser and checks one rule: clicking into
 text, typing, pressing Enter, or just leaving an edit must not change any
 styling or layout on the slide. Unit tests have repeatedly missed breaks on
 this path. The clicked element becomes the editor in place, the save
@@ -15,12 +15,145 @@ Run the script from `templates/slides`:
 pnpm exec tsx scripts/edit-fidelity/run.ts [case-filter] [options]
 ```
 
-Run the focused chat caret regression while a synthetic slide text edit session
-is open in Chromium:
+Run the focused selection-direction and chat caret regressions in Chromium,
+including typing while a synthetic slide text edit session is open:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 ```
+
+The Slides chat E2E job in `ci.yml` runs this check for pull requests that
+change Slides, Core, or Toolkit files.
+
+Run the job's focused line-edge caret check for in-place slide text editing:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --browser firefox
+```
+
+Run the Chromium IME Escape regression in an in-place slide text session:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+```
+
+Run the Chromium mobile PowerPoint import status check. It holds the local file
+upload while checking the real mobile stylesheet, then verifies that a
+successful import opens its deck:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+```
+
+Run the synthetic Slides text-surface typing, clipboard, undo/redo, and
+slide-switching round in Chromium (the default), WebKit, or Firefox. Chromium's
+`--ime-escape` gate uses trusted CDP IME input. WebKit and Firefox receive
+synthetic composition events around ordinary CJK key input; this checks the
+editor's composition guards, but does not simulate a native OS IME:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser firefox
+```
+
+Run the in-place rich-text authoring parity round in Chromium (the default),
+WebKit, or Firefox. It types every
+Content StarterKit Markdown shortcut at a block start and after Enter, runs all
+eight enabled slash commands, and exercises styled bullet rows plus semantic
+UL/OL Enter, indentation, staged Backspace, list exit, keyboard formatting,
+soft breaks, Markdown paste, undo-to-literal, and vertical caret navigation.
+Divider input rules cover `--- `, `___ `, and `*** `:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser firefox
+```
+
+Rerun one authoring parity case while debugging it by matching a substring of
+its case ID:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-case paragraph-bullet-delete
+```
+
+Run slash, Markdown, list, and Docs-shaped paste with undo/redo against
+representative source slides from the selected corpus. The gate requires
+absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide.
+It also checks fractional-height lists inside transformed, bottom-anchored
+absolute wrappers and roots, so subpixel size reservation cannot move the
+surrounding layout; the wrapper rect is checked within one 1/64 CSS-pixel step
+after each flow. Styled bullet-row markers keep a separate style check when the
+surrounding row is treated as the edited visual block. Imported PPTX paragraphs
+may reflow within their fixed text object when authoring inserts a block; the
+gate allows only the measured downstream flow while keeping the object, its
+styles, and every other slide object fixed. It saves and reloads each result and
+compares canonical markup plus outside-block style/geometry. On the largest
+corpus slide, it reports Event Timing keydown-to-paint p95 and warns
+when it exceeds 16 ms. Since Event Timing
+omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
+bound when the p95 is below that threshold. It gates the p95 time from keydown
+through the first animation frame and forced layout at 16 ms only when Event
+Timing is unavailable; that measurement is a proxy, not paint. When Event
+Timing is available, the first-frame proxy does not force layout, and the gate
+reports beforeinput/input handler time separately. The Event Timing
+keydown-to-paint measurement remains the latency flag. Slides with `data:` URLs
+are excluded from the authoring rounds; the largest-slide latency copy replaces
+those URLs with `about:blank` while preserving source geometry, so embedded
+image bytes are never copied into the scratch database:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --authoring-source largest --browser firefox
+pnpm exec tsx scripts/edit-fidelity/run.ts --corpus ../../.tmp/private/corpus --authoring-corpus --browser firefox
+```
+
+Run seeded authoring soak checks. Each seed performs 500 mixed editing steps by
+default, checks caret, typing, layout, exception, undo/redo, and persistence
+invariants, and prints the seed plus a bounded operation log on failure. For the
+manual cross-browser soak, use `--seeds 20`; seeds rotate through
+synthetic, absolute, flex/grid, semantic-list, imported flex bullet-row, imported
+paragraph bullet-row, and scaled committed-corpus text targets:
+
+Random operations use Playwright keyboard input. The full undo/redo drain starts
+with a Playwright shortcut in each direction, then dispatches the editor's same
+keydown handler in-page and checks caret and markup after every history step.
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser firefox
+```
+
+The `slides-authoring-fuzz-soak.yml` workflow is manual (`workflow_dispatch`). It
+runs 20 seeds of 500 steps for each browser, with one seed per job and at most
+four jobs at a time. PR CI runs a bounded 80-step smoke with seed 16 in each
+browser, plus an 80-step seed 2 absolute-layout smoke in Chromium. It does not
+run the full soak.
+
+## Authoring parity checklist
+
+Before #5916, Slides used the shared Content editor with tasks, code blocks,
+tables, and the Markdown serializer disabled. Its eight slash commands were
+Text, Heading 1–3, Bulleted list, Numbered list, Quote, and Divider. StarterKit
+still supplied its normal inline marks, headings 1–4, lists, blockquote, and
+horizontal-rule input rules.
+
+| Behavior           | Shared editor before #5916                                                                                                                                 | In-place editor before this fix                                                                   | Restored behavior and gate                                                                                                                                                   |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slash menu         | Paragraph, Heading 1–3, Bulleted list, Numbered list, Quote, Divider                                                                                       | No menu or command dispatch                                                                       | Caret-anchored menu filters live, wraps arrows, accepts Enter/Tab, keeps focus, closes on slash removal/outside click, and flips at viewport edges; all 8 commands are gated |
+| Markdown shortcuts | `- `, `* `, `+ `, `1. `, `# ` through `#### `, `> `, `---` / `___` / `***`, `**bold**`, `__bold__`, `*italic*`, `_italic_`, `~~strike~~`, and `` `code` `` | Only a subset worked at the root; line starts and child blocks were inconsistent                  | Every shortcut is checked at a block start and after Enter; one undo restores literal input                                                                                  |
+| Lists              | Enter split and exited list items; Tab and Shift-Tab changed nesting                                                                                       | Enter / indentation mostly worked, but edge deletion could merge too early or lose a row          | Enter, Tab, Shift-Tab, empty-item exit, and two-stage Backspace demotion/merge are checked for real UL/OL and styled rows                                                    |
+| Block edges        | Heading Enter creates a paragraph; Backspace demotes heading, quote, or list item before a second press merges                                             | Heading Enter cloned the heading; block/list edges had no staged demotion                         | Heading-end Enter, staged Backspace, and Shift+Enter soft break are covered in unit and browser gates                                                                        |
+| Toolbar            | Bold, italic, underline, strike, inline code, Heading 1–3, and Link                                                                                        | Inline formatting and links remained; keyboard shortcut handling varied by browser                | Cmd/Ctrl+B/I/U, Shift+S, E, and K call style-safe commands; selection formatting stays inside the edited element                                                             |
+| Links              | Add and remove links on the selection; paste a URL over selected text makes a link                                                                         | Toolbar links were available; URL paste replaced the selected text                                | Keyboard link input and URL-over-selection paste preserve selected text and use safe URL schemes                                                                             |
+| Undo / redo        | Typing bursts group by word/pause; commands undo to their literal input                                                                                    | Custom in-place history grouped edits but conversion restoration and word grouping were not gated | Shortcut/slash undo-to-literal, typing groups, and undo-all/redo-all are checked                                                                                             |
+| Paste              | Rich HTML, plain text, and Markdown block paste                                                                                                            | Rich paste had a custom sanitizer; plain Markdown stayed literal text                             | Sanitized rich paste preserves supported headings, quotes, lists, and inline styles; plain Markdown creates blocks                                                           |
+| Arrow navigation   | Up/Down between blocks preserves the preferred horizontal caret position                                                                                   | Native browser movement was not checked across block layouts                                      | Real-browser checks preserve caret x-position across adjacent blocks                                                                                                         |
 
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
@@ -37,24 +170,36 @@ To reuse a server that is already running, set
 `SLIDES_BASE_URL=http://localhost:<port>`. The harness refuses any other host,
 because it creates and rewrites decks.
 
-| Option                         | Meaning                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `case-filter`                  | Substring of the corpus file name                                                          |
-| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                     |
-| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                         |
-| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept    |
-| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`) |
-| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                       |
-| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                      |
-| `--slides 1,3`                 | 1-based slide numbers                                                                      |
-| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                               |
-| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                            |
-| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                     |
-| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                       |
-| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
-| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
-| `--headed`                     | Show the browser                                                                           |
-| `--typing-chat`                | Run only the Agent chat typing regression with a slide text edit session open              |
+| Option                         | Meaning                                                                                                                            |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `case-filter`                  | Substring of the corpus file name                                                                                                  |
+| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                                                             |
+| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                                                                 |
+| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept                                            |
+| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`)                                         |
+| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                                                               |
+| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                                                              |
+| `--slides 1,3`                 | 1-based slide numbers                                                                                                              |
+| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                                                                       |
+| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                                                                    |
+| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                                                             |
+| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                                                               |
+| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                                                                    |
+| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                                                           |
+| `--headed`                     | Show the browser                                                                                                                   |
+| `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open                                         |
+| `--caret-qa`                   | Check Home/End or macOS line-edge caret navigation in a synthetic slide text edit                                                  |
+| `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                                                          |
+| `--mobile-import-status`       | Check the real mobile import status while a local PowerPoint upload is pending                                                     |
+| `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
+| `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |
+| `--authoring-case <id>`        | With `--authoring`, run only cases whose ID contains `<id>`                                                                        |
+| `--authoring-corpus`           | Exercise slash, Markdown, and list authoring against corpus layouts; checks save/reload, outside-block fidelity, and input latency |
+| `--authoring-source <id>`      | Focus `--authoring-corpus` on one selected layout source                                                                           |
+| `--authoring-flow <flow>`      | Focus `--authoring-corpus` on `slash`, `shortcut`, `list`, or `paste`                                                              |
+| `--authoring-fuzz`             | Run deterministic mixed-operation authoring soak; `--seed`, `--steps` (default 500), and `--seeds` select the run                  |
+| `--line-key-platform <os>`     | Emulate an OS and use its caret keys for reproduction; choices are `darwin`, `linux`, and `win32`                                  |
+| `--browser`                    | Browser for authoring, fuzz, or text-surface QA; choices are `chromium`, `webkit`, `firefox`, with Chromium as default             |
 
 Exit codes:
 

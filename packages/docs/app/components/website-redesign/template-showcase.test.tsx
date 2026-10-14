@@ -9,11 +9,11 @@ import { docsI18nCatalog } from "../../i18n";
 import { TemplateShowcase } from "./template-showcase";
 
 const EXPECTED_APP_HREFS = [
-  "/apps/clips/",
   "/apps/design/",
   "/apps/slides/",
   "/apps/analytics/",
   "/apps/calendar/",
+  "/apps/clips/",
   "/apps/mail/",
   "/apps/assets/",
   "/apps/content/",

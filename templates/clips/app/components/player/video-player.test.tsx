@@ -15,7 +15,12 @@ import {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { clampSeek, VideoPlayer, type VideoPlayerHandle } from "./video-player";
+import {
+  clampSeek,
+  isMediaVersionRefresh,
+  VideoPlayer,
+  type VideoPlayerHandle,
+} from "./video-player";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
@@ -175,12 +180,11 @@ describe("VideoPlayer playback", () => {
     const video = getVideo();
     vi.spyOn(video, "load").mockImplementation(() => {});
 
-    act(() => {
-      video.dispatchEvent(new Event("error"));
-    });
-    act(() => {
-      video.dispatchEvent(new Event("error"));
-    });
+    for (let i = 0; i < 3; i++) {
+      act(() => {
+        video.dispatchEvent(new Event("error"));
+      });
+    }
 
     const error = container.querySelector<HTMLElement>('[role="status"]');
     expect(error?.textContent).toContain("Video could not be loaded.");
@@ -188,6 +192,21 @@ describe("VideoPlayer playback", () => {
 
     const controls = getPlayerControls();
     expect(controls.className).toContain("z-20");
+  });
+
+  it("retries a second playback error with a fresh cache-bust before failing", () => {
+    const video = getVideo();
+    const load = vi.spyOn(video, "load").mockImplementation(() => {});
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("stops picture-in-picture playback when the player unmounts", () => {
@@ -1102,5 +1121,37 @@ describe("clampSeek", () => {
 
   it("never returns a negative time", () => {
     expect(clampSeek(-5, videoWith(600), 600_000)).toBe(0);
+  });
+});
+
+describe("isMediaVersionRefresh", () => {
+  const base = "/api/video/rec-1";
+
+  it("detects a media version bump on the same recording", () => {
+    expect(isMediaVersionRefresh(`${base}?media=a`, `${base}?media=b`)).toBe(
+      true,
+    );
+  });
+
+  it("ignores identical media versions", () => {
+    expect(isMediaVersionRefresh(`${base}?media=a`, `${base}?media=a`)).toBe(
+      false,
+    );
+  });
+
+  it("ignores cache-bust recovery params", () => {
+    expect(
+      isMediaVersionRefresh(`${base}?media=a&cb=1`, `${base}?media=a`),
+    ).toBe(false);
+  });
+
+  it("treats a different recording as a new source, not a refresh", () => {
+    expect(
+      isMediaVersionRefresh(`${base}?media=a`, "/api/video/rec-2?media=b"),
+    ).toBe(false);
+  });
+
+  it("treats a missing source as not a refresh", () => {
+    expect(isMediaVersionRefresh(undefined, `${base}?media=b`)).toBe(false);
   });
 });

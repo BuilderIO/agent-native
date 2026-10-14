@@ -61,7 +61,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     vars ? `${key} ${JSON.stringify(vars)}` : key,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   SettingsGroup: ({ id, children }: { id?: string; children: ReactNode }) => (
     <section data-group={id}>{children}</section>
   ),

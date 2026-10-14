@@ -3,25 +3,12 @@ import { IconDatabaseCog, IconRefresh } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
-import {
-  CrmSettingsPanelHeader,
-  crmSettingsPanelClassName,
-  type CrmSettingsPanelProps,
-} from "./SettingsPanelHeader";
-
-export function AdvancedSettings({ embedded }: CrmSettingsPanelProps = {}) {
+export function AdvancedSettings() {
   const t = useT();
   return (
-    <div className={crmSettingsPanelClassName(embedded)}>
-      <CrmSettingsPanelHeader
-        embedded={embedded}
-        title={t("advanced.title")}
-        description={t("advanced.description")}
-      />
-
-      <div className={cn("mt-6 grid gap-3", embedded && "mt-0")}>
+    <div className="w-full">
+      <div className="grid gap-3">
         <section className="flex flex-wrap items-center gap-4 rounded-lg border border-border/70 bg-card px-4 py-3.5">
           <IconRefresh className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">

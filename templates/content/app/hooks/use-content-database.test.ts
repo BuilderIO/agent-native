@@ -15,6 +15,7 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseCreationRequest,
+  contentDatabaseItemsPageReadState,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
   contentDatabaseItemsContainingDocumentFilter,
@@ -208,6 +209,22 @@ describe("contentDatabaseConstrainedQueryFilter", () => {
 
     expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  });
+});
+
+describe("current Content database table page", () => {
+  it("does not treat a previous view's placeholder rows as the requested result", () => {
+    const previousPage = { items: [{ document: { title: "Previous view" } }] };
+
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, true, false),
+    ).toEqual({ page: undefined, failed: false, settled: false });
+    expect(contentDatabaseItemsPageReadState(previousPage, true, true)).toEqual(
+      { page: undefined, failed: true, settled: true },
+    );
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, false, false),
+    ).toEqual({ page: previousPage, failed: false, settled: true });
   });
 });
 

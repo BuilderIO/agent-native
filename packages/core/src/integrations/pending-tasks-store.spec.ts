@@ -88,11 +88,16 @@ describe("integration pending task store", () => {
     expect((updateCall?.[0] as { sql: string }).sql).toContain(
       "last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)",
     );
+    const recoverableSince = (updateCall?.[0] as { args: unknown[] }).args[4];
     expect((updateCall?.[0] as { args: unknown[] }).args).toEqual([
       "processing",
       expect.any(Number),
       "background-acknowledged",
       "task-1",
+      expect.any(Number),
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
     ]);
   });
 
@@ -174,7 +179,7 @@ describe("integration pending task store", () => {
           ),
       );
     expect(select?.sql).toContain("ORDER BY created_at ASC, id ASC");
-    expect(select?.args).toEqual(["slack", "thread-1"]);
+    expect(select?.args).toEqual(["slack", "thread-1", expect.any(Number)]);
   });
 
   it("only treats duplicate-key errors as duplicate webhook deliveries", async () => {
@@ -219,6 +224,49 @@ describe("integration pending task store", () => {
     expect(insert?.sql).toContain("dispatch_scope");
     expect(insert?.args.at(-1)).toBe("channel-7");
   });
+
+  it.each(["insert", "stage", "retry"] as const)(
+    "rejects inline image bytes before SQL during %s",
+    async (operation) => {
+      const {
+        insertPendingTask,
+        markTaskDeliveryRetryable,
+        PendingTaskPayloadNotPersistableError,
+        stageTaskDeliveryPayload,
+      } = await loadStore();
+      const payload = JSON.stringify({
+        attachments: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "aW1hZ2UtYnl0ZXM=",
+            },
+          },
+        ],
+      });
+
+      const write = {
+        insert: () =>
+          insertPendingTask({
+            id: "unsafe-task",
+            platform: "slack",
+            externalThreadId: "thread-unsafe",
+            payload,
+            ownerEmail: "member@example.com",
+          }),
+        stage: () => stageTaskDeliveryPayload("unsafe-task", payload),
+        retry: () =>
+          markTaskDeliveryRetryable("unsafe-task", payload, "delivery failed"),
+      }[operation];
+
+      await expect(write()).rejects.toBeInstanceOf(
+        PendingTaskPayloadNotPersistableError,
+      );
+      expect(executeMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("resolves valid Slack provenance from the caller's stored task", async () => {
     executeMock.mockImplementation(async (query: string | { sql: string }) => {

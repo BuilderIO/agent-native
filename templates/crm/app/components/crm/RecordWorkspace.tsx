@@ -1,10 +1,10 @@
 import { setClientAppState } from "@agent-native/core/client/application-state";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -222,9 +222,12 @@ export function RecordWorkspace({
               are different answers and must not render the same. */}
           {pageQuery.error ? (
             <p className="text-sm text-destructive">
-              {pageQuery.error instanceof Error
-                ? pageQuery.error.message
-                : t("record.panelLoadFailed")}
+              {(pageQuery.error as { errorCode?: string }).errorCode ===
+              "crm_record_withheld"
+                ? t("record.withheld")
+                : pageQuery.error instanceof Error
+                  ? pageQuery.error.message
+                  : t("record.panelLoadFailed")}
             </p>
           ) : page ? (
             <>

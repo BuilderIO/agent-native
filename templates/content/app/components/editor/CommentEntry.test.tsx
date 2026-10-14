@@ -22,14 +22,15 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ isPending: false, mutateAsync }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useFormatters: () => ({ formatDate: () => "Sep 10" }),
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
 }));
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -283,7 +284,8 @@ it("names the agent, keeps the exact model in its badge, and keeps the time comp
   expect(time?.className).toContain("whitespace-nowrap");
 });
 
-it("places thread actions inline after the comment menu", async () => {
+it("lets a long author shrink while keeping thread actions inline after the menu", async () => {
+  const author = "A reviewer with a long display name";
   await act(async () =>
     root.render(
       <CommentDraftProvider
@@ -291,7 +293,7 @@ it("places thread actions inline after the comment menu", async () => {
         currentUserEmail={comment.author_email}
       >
         <CommentEntry
-          comment={comment}
+          comment={{ ...comment, author_name: author }}
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
@@ -303,6 +305,13 @@ it("places thread actions inline after the comment menu", async () => {
   );
 
   const actions = container.querySelector("[data-comment-row-actions]");
+  const name = [...container.querySelectorAll("span")].find(
+    (node) => node.textContent === author,
+  );
+  expect(name?.className).toContain("min-w-0");
+  expect(name?.className).toContain("truncate");
+  expect(name?.className).not.toContain("shrink-0");
+  expect(actions?.className).toContain("shrink-0");
   const buttons = [...(actions?.querySelectorAll("button") ?? [])];
   expect(buttons[buttons.length - 1]?.dataset.testid).toBe("resolve");
   expect(

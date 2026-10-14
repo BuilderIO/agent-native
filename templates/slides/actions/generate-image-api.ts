@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -28,6 +28,7 @@ interface ReferenceImage {
 interface DeckSlide {
   id?: string;
   content?: unknown;
+  contentHash?: unknown;
 }
 
 interface DeckWithSlides {
@@ -93,9 +94,13 @@ async function insertGeneratedImage({
   const imageUrl = parseGeneratedImageUrl(url);
   const deck = (await getDeckAction.run({ id: deckId })) as DeckWithSlides;
   const slide = deck.slides?.find((candidate) => candidate.id === slideId);
-  if (!slide || typeof slide.content !== "string") {
+  if (
+    !slide ||
+    typeof slide.content !== "string" ||
+    typeof slide.contentHash !== "string"
+  ) {
     throw new Error(
-      `Slide ${slideId} was not found in deck ${deckId} for image insertion`,
+      `Slide ${slideId} or its contentHash was not found in deck ${deckId} for image insertion`,
     );
   }
 
@@ -106,6 +111,7 @@ async function insertGeneratedImage({
     deckId,
     slideId,
     fullContent,
+    baseContentHash: slide.contentHash,
     preserveSource: true,
   });
   if (!update.ok || !("applied" in update) || !update.applied) {
@@ -237,8 +243,9 @@ export default defineAction({
       recordAsset: false,
     });
     if (!uploaded?.url) {
-      throw new Error(
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before generating slide images.",
+      fail(
+        "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before generating slide images.",
+        { errorCode: "object_storage_unavailable", statusCode: 424 },
       );
     }
 

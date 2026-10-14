@@ -1,8 +1,16 @@
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+import {
+  getRegisteredObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "./otel-provider.js";
+
 const TRACER_NAME = "@agent-native/core/agent-loop";
 
+export type AgentSpanAttributeValue = string | number | boolean | string[];
+
 export interface AgentSpan {
-  setAttribute(key: string, value: string | number | boolean): void;
-  setAttributes(attributes: Record<string, string | number | boolean>): void;
+  setAttribute(key: string, value: AgentSpanAttributeValue): void;
+  setAttributes(attributes: Record<string, AgentSpanAttributeValue>): void;
   setStatus(status: { code: number; message?: string }): void;
   recordException(exception: { name?: string; message: string }): void;
   end(endTime?: unknown): void;
@@ -15,7 +23,7 @@ interface AgentTracer {
   startSpan(
     name: string,
     options?: {
-      attributes?: Record<string, string | number | boolean>;
+      attributes?: Record<string, AgentSpanAttributeValue>;
       startTime?: unknown;
     },
     context?: unknown,
@@ -34,12 +42,23 @@ interface AgentTraceRuntime {
 }
 
 let cachedRuntime: AgentTraceRuntime | null | undefined;
+let cachedTracerProvider: ObservabilityTracerProvider | undefined;
+let runtimeLoadWarningLogged = false;
 
 async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
-  if (cachedRuntime !== undefined) return cachedRuntime;
+  const tracerProvider = getRegisteredObservabilityProvider()?.tracerProvider;
+  if (cachedRuntime !== undefined && cachedTracerProvider === tracerProvider) {
+    return cachedRuntime;
+  }
+  cachedTracerProvider = tracerProvider;
   try {
-    const otel: any = await import("@opentelemetry/api");
-    const tracer = otel?.trace?.getTracer?.(TRACER_NAME);
+    const otel: any = await loadOptionalPeer(
+      "@opentelemetry/api",
+      () => import("@opentelemetry/api"),
+    );
+    const tracer = tracerProvider
+      ? tracerProvider.getTracer(TRACER_NAME)
+      : otel?.trace?.getTracer?.(TRACER_NAME);
     cachedRuntime = tracer
       ? {
           tracer: tracer as AgentTracer,
@@ -49,16 +68,23 @@ async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
           ...(otel?.trace?.setSpan ? { trace: otel.trace } : {}),
         }
       : null;
-  } catch {
+  } catch (error) {
+    if (!runtimeLoadWarningLogged) {
+      runtimeLoadWarningLogged = true;
+      console.warn(
+        "[agent-native] OpenTelemetry tracing disabled after an optional peer load failure.",
+        error,
+      );
+    }
     cachedRuntime = null;
   }
   return cachedRuntime;
 }
 
 function pruneAttributes(
-  attributes: Record<string, string | number | boolean | null | undefined>,
-): Record<string, string | number | boolean> {
-  const out: Record<string, string | number | boolean> = {};
+  attributes: Record<string, AgentSpanAttributeValue | null | undefined>,
+): Record<string, AgentSpanAttributeValue> {
+  const out: Record<string, AgentSpanAttributeValue> = {};
   for (const [key, value] of Object.entries(attributes)) {
     if (value === null || value === undefined) continue;
     out[key] = value;
@@ -70,7 +96,6 @@ const TRACKING_SPAN_NAMES = new Map([
   ["action.response", "action.client"],
   ["action_completed", "action.server"],
   ["action_failed", "action.server"],
-  ["http.response", "http.server"],
   ["$ai_generation", "llm.generation"],
   ["$ai_trace", "llm.trace"],
   ["agent_run_terminal", "agent.run.terminal"],
@@ -271,7 +296,7 @@ export async function flushTrackingEvents(
 
 export async function startAgentSpan(
   name: string,
-  attributes: Record<string, string | number | boolean | null | undefined> = {},
+  attributes: Record<string, AgentSpanAttributeValue | null | undefined> = {},
   parentSpan: AgentSpan | null = null,
   startTime?: unknown,
 ): Promise<AgentSpan | null> {
@@ -327,9 +352,9 @@ export function withAgentSpanContext<T>(
 export function endAgentSpan(
   span: AgentSpan | null,
   result: {
-    status?: "success" | "error";
+    status?: "success" | "error" | "unset";
     errorMessage?: string | null;
-    attributes?: Record<string, string | number | boolean | null | undefined>;
+    attributes?: Record<string, AgentSpanAttributeValue | null | undefined>;
     endTime?: number;
   } = {},
 ): void {
@@ -346,7 +371,7 @@ export function endAgentSpan(
       if (result.errorMessage) {
         span.recordException({ message: result.errorMessage });
       }
-    } else {
+    } else if (result.status !== "unset") {
       span.setStatus({ code: SPAN_STATUS_OK });
     }
   } catch {
@@ -362,6 +387,7 @@ export function endAgentSpan(
 
 export function __resetAgentTracerCache(): void {
   cachedRuntime = undefined;
+  runtimeLoadWarningLogged = false;
 }
 
 export function __setAgentTracerForTests(tracer: AgentTracer | null): void {

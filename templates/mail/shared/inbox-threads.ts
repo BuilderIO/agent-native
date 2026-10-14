@@ -1,3 +1,4 @@
+import type { GmailReadState } from "./gmail-freshness";
 import type { EmailMessage, Label, SavedMailFilter } from "./types";
 
 export const IMPORTANT_TAB_ID = "important";
@@ -21,6 +22,7 @@ export type InboxTab = {
   query?: string;
   total: number;
   unread: number;
+  totalIsLowerBound?: boolean;
 };
 
 export type InboxSyncAccountStatus = {
@@ -33,6 +35,7 @@ export type InboxSyncAccountStatus = {
    * `needs_reauth` — refresh token dead; user must reconnect.
    */
   state: "initial" | "ready" | "error" | "needs_reauth";
+  backfillPending?: boolean;
   lastSyncedAt: number | null;
   error?: string;
 };
@@ -49,11 +52,17 @@ export type ListInboxThreadsResult = {
   tabs: InboxTab[];
   activeTabId: string;
   items: InboxThreadItem[];
+  tabPreviews: Record<string, InboxThreadItem[]>;
   total: number;
   complete?: boolean;
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   labels: Label[];
+  /**
+   * Rows always come from the synced store; this says whether Gmail is
+   * cooling down underneath them (`cached`/`stale`) and until when.
+   */
+  read?: GmailReadState;
 };
 
 export type InboxThreadItem = EmailMessage & {

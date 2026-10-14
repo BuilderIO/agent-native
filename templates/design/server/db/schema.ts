@@ -7,7 +7,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { boolean, primaryKey } from "drizzle-orm/pg-core";
+import { boolean, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
   id: text("id").primaryKey(),
@@ -147,6 +147,29 @@ export const designLocalhostConnections = table(
   },
 );
 
+export const designMotionBridgeReceiptChallenges = table(
+  "design_motion_bridge_receipt_challenges",
+  {
+    nonce: text("nonce").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    chainId: text("chain_id"),
+    receiptHash: text("receipt_hash"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
+export const designMotionBridgeRelayChains = table(
+  "design_motion_bridge_relay_chains",
+  {
+    chainId: text("chain_id").primaryKey(),
+    actionName: text("action_name").notNull(),
+    inputHash: text("input_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
 // ---------------------------------------------------------------------------
 // New tables — additive only; never alter existing tables.
 // All ownable tables are read/written through accessFilter / assertAccess.
@@ -178,6 +201,7 @@ export const motionTimeline = table("motion_timeline", {
   sourceRef: text("source_ref"),
   filePath: text("file_path"),
   tracks: text("tracks").notNull().default("[]"),
+  textDocument: text("text_document"),
   durationMs: integer("duration_ms").notNull().default(300),
   defaultEase: text("default_ease").notNull().default("ease"),
   compiledHash: text("compiled_hash"),
@@ -300,4 +324,52 @@ export const designVisualEditSnapshotBlobCleanup = table(
     blobHandle: text("blob_handle").primaryKey(),
     createdAt: text("created_at").notNull().default(now()),
   },
+);
+
+export const designScreenRestoreClaims = table(
+  "design_screen_restore_claims",
+  {
+    id: text("id").primaryKey(),
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    sourceFileId: text("source_file_id").notNull(),
+    snapshot: text("snapshot").notNull(),
+    consumedAt: text("consumed_at"),
+    restoredFileId: text("restored_file_id"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (t) => [
+    index("design_screen_restore_claims_design_source_idx").on(
+      t.designId,
+      t.sourceFileId,
+    ),
+  ],
+);
+
+export const designBoardReplayScreenshots = table(
+  "design_board_replay_screenshots",
+  {
+    id: text("id").primaryKey(),
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    boardFileId: text("board_file_id").notNull(),
+    replayId: text("replay_id").notNull(),
+    capturedAt: text("captured_at").notNull(),
+    app: text("app").notNull(),
+    route: text("route"),
+    captureSourceFingerprint: text("capture_source_fingerprint"),
+    offsetMs: integer("offset_ms").notNull(),
+    viewportWidth: integer("viewport_width").notNull(),
+    viewportHeight: integer("viewport_height").notNull(),
+    eventCount: integer("event_count").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    blobHandle: text("blob_handle").notNull(),
+    sourceStageId: text("source_stage_id"),
+    createdAt: text("created_at").default(now()),
+    ...ownableColumns(),
+  },
+  (t) => [index("design_board_replay_screenshots_design_idx").on(t.designId)],
 );
