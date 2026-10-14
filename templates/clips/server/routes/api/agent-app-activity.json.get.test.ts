@@ -20,8 +20,8 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   applyAgentJsonHeaders: vi.fn(),
   canReadAppActivityEvents: (access: {
     viewerIsOwner: boolean;
-    apiToken: string | null;
-  }) => access.viewerIsOwner || Boolean(access.apiToken),
+    viaAgentLink: boolean;
+  }) => access.viewerIsOwner || access.viaAgentLink,
   describeAgentAccessFailure: (failure: unknown) => failure,
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
@@ -48,6 +48,7 @@ const events = [
 
 function grantAccess(access: {
   viewerIsOwner: boolean;
+  viaAgentLink: boolean;
   apiToken: string | null;
 }) {
   mockLoadPublicAgentAccess.mockResolvedValue({
@@ -60,7 +61,7 @@ describe("/api/agent-app-activity route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetQuery.mockReturnValue({ id: "rec-1", agent_access: "tok" });
-    grantAccess({ viewerIsOwner: false, apiToken: "tok" });
+    grantAccess({ viewerIsOwner: false, viaAgentLink: true, apiToken: "tok" });
     mockLoadRecordingAppActivity.mockResolvedValue({
       status: "ok",
       summary,
@@ -68,9 +69,9 @@ describe("/api/agent-app-activity route", () => {
     });
   });
 
-  it("refuses an open public link without a scoped token", async () => {
+  it("refuses an open public link without a Share with agents token", async () => {
     mockGetQuery.mockReturnValue({ id: "rec-1" });
-    grantAccess({ viewerIsOwner: false, apiToken: null });
+    grantAccess({ viewerIsOwner: false, viaAgentLink: false, apiToken: null });
 
     const result = await handler({} as any);
 

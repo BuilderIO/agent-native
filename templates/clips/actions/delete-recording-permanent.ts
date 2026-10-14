@@ -267,9 +267,9 @@ export default defineAction({
     const mediaCleanup = await deleteRecordingMediaObjects(existing, {
       protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
     });
-    if (diagnostics?.appActivityBlobJson) {
-      await deleteAppActivityBlob(diagnostics.appActivityBlobJson, args.id);
-    }
+    const appActivityCleanup = diagnostics?.appActivityBlobJson
+      ? await deleteAppActivityBlob(diagnostics.appActivityBlobJson, args.id)
+      : null;
 
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);
@@ -285,6 +285,6 @@ export default defineAction({
     console.log(
       `Permanently deleted recording "${existing.title}" (${args.id})`,
     );
-    return { success: true, id: args.id, mediaCleanup };
+    return { success: true, id: args.id, mediaCleanup, appActivityCleanup };
   },
 });

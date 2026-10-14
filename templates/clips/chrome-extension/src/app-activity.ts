@@ -11,6 +11,29 @@ import { BROWSER_DIAGNOSTIC_LOOKBACK_MS } from "@shared/browser-diagnostics";
 // background.ts so the conversion and its limits are unit-tested here.
 
 export const MAX_RECORDER_REPORT_CHARS = 5_000_000;
+const APP_ACTIVITY_READ_TIMEOUT_MS = 2_000;
+
+export class AppActivityReadTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`the page did not answer within ${timeoutMs} ms`);
+    this.name = "AppActivityReadTimeoutError";
+  }
+}
+
+// A page that never answers must not hold up stopping or saving a recording.
+export function withReadTimeout<T>(
+  read: Promise<T>,
+  timeoutMs = APP_ACTIVITY_READ_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new AppActivityReadTimeoutError(timeoutMs)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([read, timeout]).finally(() => clearTimeout(timer));
+}
 
 export type RecorderReportResult =
   | { status: "absent" }
@@ -150,6 +173,18 @@ export function diagnosticsClockMs(
   return timestampMs - clock.startedAtMs - pausedMs;
 }
 
+// Without a start read, the stop read must reach back over the lookback too.
+export function stopReadSeconds(
+  startedAtMs: number,
+  nowMs: number,
+  hasStartRead: boolean,
+): number {
+  const secondsSinceStart = Math.ceil((nowMs - startedAtMs) / 1000) + 1;
+  return hasStartRead
+    ? secondsSinceStart
+    : secondsSinceStart + BROWSER_DIAGNOSTIC_LOOKBACK_MS / 1000;
+}
+
 function mergeWindows(windows: AppActivityWindow[]): AppActivityWindow[] {
   const merged: AppActivityWindow[] = [];
   for (const window of windows.sort(
@@ -194,9 +229,9 @@ export function buildAppActivity(
 
   const events: unknown[] = [];
   const coverage: AppActivityWindow[] = [];
-  let dropped = 0;
+  // The recorder's count is cumulative, so only the latest read's is used.
+  let dropped = latest.dropped;
   for (const { read, fromMs, toMs } of spans) {
-    dropped += read.dropped;
     const coveredFromMs = Math.max(
       fromMs,
       read.readAtMs - read.windowSeconds * 1000,
@@ -211,7 +246,8 @@ export function buildAppActivity(
     for (const event of read.events) {
       const at = isRecord(event) ? event.at : undefined;
       if (!isRecord(event) || typeof at !== "number" || !Number.isFinite(at)) {
-        dropped += 1;
+        // Without a time it cannot be matched across reads; count it once.
+        if (read === latest) dropped += 1;
         continue;
       }
       if (at < fromMs || at >= toMs) continue;

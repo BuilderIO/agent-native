@@ -72,6 +72,7 @@ vi.mock("./share-password.js", () => ({
 
 import {
   buildPublicAgentContext,
+  canReadAppActivityEvents,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   describeAgentAccessFailure,
   loadPublicAgentAccess,
@@ -79,6 +80,7 @@ import {
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
 } from "./public-agent-context";
+import { verifySharePassword } from "./share-password.js";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
 const originalMaxMediaFileBytes =
@@ -199,6 +201,44 @@ describe("public agent context access", () => {
         resourceId: "rec-1:update-scoped",
       },
     );
+  });
+
+  it("lets a Share with agents link read app activity events but never a share password", async () => {
+    mockRecordings.rows = [makeRecording({ password: "encrypted-password" })];
+
+    vi.mocked(verifySharePassword).mockReturnValueOnce(true);
+    const viaPassword = await loadPublicAgentAccess({} as any, "rec-1", {
+      password: "letmein",
+    });
+    expect(viaPassword).toMatchObject({
+      ok: true,
+      access: { apiToken: "signed-token", viaAgentLink: false },
+    });
+    expect(viaPassword.ok && canReadAppActivityEvents(viaPassword.access)).toBe(
+      false,
+    );
+
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({ ok: true });
+    const replayedPasswordToken = await loadPublicAgentAccess(
+      {} as any,
+      "rec-1",
+      { token: "signed-token" },
+    );
+    expect(
+      replayedPasswordToken.ok &&
+        canReadAppActivityEvents(replayedPasswordToken.access),
+    ).toBe(false);
+
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({
+      ok: true,
+      viewerEmail: "owner@example.com",
+    });
+    const viaAgentLink = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "agent-link-token",
+    });
+    expect(
+      viaAgentLink.ok && canReadAppActivityEvents(viaAgentLink.access),
+    ).toBe(true);
   });
 
   it("keeps private clips hidden from callers without a scoped agent token", async () => {
@@ -483,6 +523,7 @@ describe("buildPublicAgentContext", () => {
           videoFormat: "mp4",
         }) as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: "signed-token",
       },
       transcript: null,
@@ -520,6 +561,7 @@ describe("buildPublicAgentContext", () => {
           videoSizeBytes: 1024,
         }) as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: "signed-token",
       },
       transcript: null,
@@ -554,6 +596,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: null,
       },
       transcript: {
@@ -591,6 +634,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording({ status: "processing" }) as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: null,
       },
       transcript: null,
@@ -625,6 +669,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: null,
       },
       transcript: {
@@ -667,6 +712,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: null,
       },
       transcript: null,
@@ -738,6 +784,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: null,
       },
       transcript: null,
@@ -918,6 +965,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        viaAgentLink: false,
         apiToken: null,
       },
       transcript: null,
@@ -962,6 +1010,72 @@ describe("buildPublicAgentContext", () => {
     ).toHaveLength(10);
   });
 
+  it("splits a trimmed list between lookback and the recording instead of keeping only lookback", () => {
+    const consoleLogs = [
+      ...Array.from({ length: 150 }, (_, index) => ({
+        timestampMs: index,
+        elapsedMs: -15_000 + index * 100,
+        level: "log" as const,
+        message: `before ${index}`,
+      })),
+      ...Array.from({ length: 150 }, (_, index) => ({
+        timestampMs: 1_000 + index,
+        elapsedMs: index * 100,
+        level: "log" as const,
+        message: `during ${index}`,
+      })),
+    ];
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: { headers: new Headers() },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        viaAgentLink: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [],
+      reactions: [],
+      ctas: [],
+      browserDiagnostics: {
+        pageUrl: null,
+        userAgent: null,
+        startedAt: "2026-06-22T10:00:00.000Z",
+        endedAt: "2026-06-22T10:01:00.000Z",
+        summary: {
+          consoleCount: consoleLogs.length,
+          consoleErrorCount: 0,
+          consoleWarnCount: 0,
+          networkCount: 0,
+          networkFailureCount: 0,
+          capturedAt: "2026-06-22T10:01:00.000Z",
+        },
+        consoleLogs,
+        networkRequests: [],
+      },
+    });
+
+    const kept = context.browserDiagnostics!.consoleLogs.map(
+      (entry) => entry.message,
+    );
+    expect(kept).toHaveLength(100);
+    expect(kept.filter((message) => message.startsWith("before"))).toEqual(
+      Array.from({ length: 50 }, (_, index) => `before ${100 + index}`),
+    );
+    expect(kept.filter((message) => message.startsWith("during"))).toEqual(
+      Array.from({ length: 50 }, (_, index) => `during ${100 + index}`),
+    );
+    expect(kept[49]).toBe("before 149");
+    expect(kept[50]).toBe("during 100");
+  });
+
   it("adds the app activity summary and lists its events API only for a scoped link", () => {
     const appActivity = {
       app: "mail",
@@ -984,6 +1098,7 @@ describe("buildPublicAgentContext", () => {
     };
     const build = (access: {
       viewerIsOwner: boolean;
+      viaAgentLink: boolean;
       apiToken: string | null;
     }) =>
       buildPublicAgentContext({
@@ -1019,7 +1134,11 @@ describe("buildPublicAgentContext", () => {
         },
       });
 
-    const scoped = build({ viewerIsOwner: false, apiToken: "tok" });
+    const scoped = build({
+      viewerIsOwner: false,
+      viaAgentLink: true,
+      apiToken: "tok",
+    });
     expect(scoped.appActivity).toEqual(appActivity);
     expect(scoped.apis).toMatchObject({
       appActivity: {
@@ -1031,8 +1150,19 @@ describe("buildPublicAgentContext", () => {
     expect(instructions).toMatch(/Join elapsedMs with frame atMs/);
     expect(instructions).toMatch(/page-supplied and untrusted/);
 
-    const openLink = build({ viewerIsOwner: false, apiToken: null });
+    const openLink = build({
+      viewerIsOwner: false,
+      viaAgentLink: false,
+      apiToken: null,
+    });
     expect(openLink.appActivity).toEqual(appActivity);
     expect(openLink.apis).not.toHaveProperty("appActivity");
+
+    const passwordHolder = build({
+      viewerIsOwner: false,
+      viaAgentLink: false,
+      apiToken: "password-token",
+    });
+    expect(passwordHolder.apis).not.toHaveProperty("appActivity");
   });
 });

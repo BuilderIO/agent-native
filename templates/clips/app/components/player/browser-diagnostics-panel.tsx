@@ -859,11 +859,12 @@ export function BrowserDiagnosticsPanel({
     {
       id: "issues",
       label: t("browserDiagnostics.issues"),
+      // App failures count once their events are loaded and listed below.
       count:
         diagnostics.summary.consoleErrorCount +
         diagnostics.summary.consoleWarnCount +
         diagnostics.summary.networkFailureCount +
-        appFailureCount,
+        appEvents.filter(isAppActivityFailure).length,
     },
     {
       id: "console",

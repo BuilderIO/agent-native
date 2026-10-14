@@ -109,6 +109,11 @@ const appEvents: AppActivityEvent[] = [
   },
 ];
 
+const listedIssueCount =
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS.summary.consoleErrorCount +
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS.summary.consoleWarnCount +
+  VIEWER_PREVIEW_BROWSER_DIAGNOSTICS.summary.networkFailureCount;
+
 const diagnosticsWithAppActivity = {
   ...VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
   appActivity: {
@@ -380,6 +385,9 @@ describe("BrowserDiagnosticsPanel", () => {
     const issuesSection = container.querySelector(
       '[data-browser-diagnostics-section="issues"]',
     );
+    expect(issuesSection?.querySelector("button")?.textContent).toBe(
+      `Issues${listedIssueCount + 1}`,
+    );
     act(() => issuesSection?.querySelector("button")?.click());
     expect(issuesSection?.textContent).toContain("list-folders");
   });
@@ -404,6 +412,11 @@ describe("BrowserDiagnosticsPanel", () => {
       "App activity could not be loaded.",
     );
     expect(appSection?.textContent).not.toContain("No app activity");
+    expect(
+      container
+        .querySelector('[data-browser-diagnostics-section="issues"]')
+        ?.querySelector("button")?.textContent,
+    ).toBe(`Issues${listedIssueCount}`);
   });
 
   it("leaves out the app section when the recording has no app activity", () => {

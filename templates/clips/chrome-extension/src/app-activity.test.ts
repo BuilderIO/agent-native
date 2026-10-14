@@ -8,11 +8,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type AppActivityRead,
+  AppActivityReadTimeoutError,
   buildAppActivity,
   diagnosticsClockMs,
   MAX_RECORDER_REPORT_CHARS,
   parseRecorderReportResult,
   readRecorderReport,
+  stopReadSeconds,
+  withReadTimeout,
 } from "./app-activity";
 
 const START = 1_760_000_000_000;
@@ -93,6 +96,30 @@ describe("readRecorderReport", () => {
       status: "failed",
       error: "disabled",
     });
+  });
+});
+
+describe("withReadTimeout", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("passes a prompt read through", async () => {
+    await expect(withReadTimeout(Promise.resolve("report"))).resolves.toBe(
+      "report",
+    );
+  });
+
+  it("gives up on a page that never answers", async () => {
+    vi.useFakeTimers();
+    const read = withReadTimeout(new Promise(() => {}), 2_000);
+    vi.advanceTimersByTime(2_000);
+    await expect(read).rejects.toBeInstanceOf(AppActivityReadTimeoutError);
+  });
+});
+
+describe("stopReadSeconds", () => {
+  it("covers the recording, plus the lookback when there was no start read", () => {
+    expect(stopReadSeconds(START, START + 9_500, true)).toBe(11);
+    expect(stopReadSeconds(START, START + 9_500, false)).toBe(41);
   });
 });
 
@@ -259,6 +286,24 @@ describe("buildAppActivity", () => {
       clock,
     );
     expect(activity?.events).toHaveLength(1);
+    expect(activity?.dropped).toBe(5);
+  });
+
+  it("takes the recorder's cumulative dropped count from the latest read only", () => {
+    const malformed = {
+      at: "soon",
+      type: "action",
+    } as unknown as RecorderEvent;
+    const activity = buildAppActivity(
+      {
+        start: read(START, { dropped: 2, events: [malformed] }),
+        stop: read(START + 1_000, {
+          dropped: 4,
+          events: [malformed, event(START + 10)],
+        }),
+      },
+      clock,
+    );
     expect(activity?.dropped).toBe(5);
   });
 

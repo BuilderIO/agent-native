@@ -269,8 +269,8 @@ When the clip carries app activity from an agent-native app, the context adds
 `appActivity` (counts, recorder coverage windows, up to 20 failures with
 `elapsedMs`). For the owner or a Share with agents link it also lists
 `apis.appActivity` (`/api/agent-app-activity.json`, filtered by `fromMs`,
-`toMs`, `maxEvents`); an open public link gets the summary only, because event
-data is more sensitive than the summary.
+`toMs`, `maxEvents`); an open public link or a share password gets the summary
+only, because event data is more sensitive than the summary.
 
 Password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.

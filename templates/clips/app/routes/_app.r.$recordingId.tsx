@@ -1167,7 +1167,11 @@ export default function RecordingPage() {
   const appActivityQ = useActionQuery<{ events: AppActivityEvent[] }>(
     "get-recording-app-activity",
     { recordingId: recordingId ?? "", maxEvents: MAX_APP_ACTIVITY_EVENTS },
-    { enabled: Boolean(recordingId && browserDiagnostics?.appActivity) },
+    {
+      enabled: Boolean(
+        recordingId && browserDiagnostics?.appActivity && panel === "debug",
+      ),
+    },
   );
   const appActivityEvents: AppActivityEventsState = appActivityQ.data
     ? { status: "ready", events: appActivityQ.data.events }

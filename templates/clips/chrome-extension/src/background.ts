@@ -12,6 +12,8 @@ import {
   MAX_RECORDER_REPORT_CHARS,
   parseRecorderReportResult,
   readRecorderReport,
+  stopReadSeconds,
+  withReadTimeout,
 } from "./app-activity";
 import {
   cdpTimestampMs,
@@ -299,12 +301,12 @@ type CaptureSession = {
   diagnosticsPausedAtMs: number | null;
   diagnosticsPausedDurationMs: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
-  appActivityStartRead: AppActivityRead | null;
+  appActivityStartRead: Promise<AppActivityRead | null> | null;
 };
 
 type NativeDiagnostics = {
   diagnostics: BrowserDiagnosticsData | null;
-  appActivity: AppActivity | null;
+  appActivity: Promise<AppActivity | null> | null;
 };
 
 type StoredAuth = {
@@ -1747,7 +1749,7 @@ async function markRecordingStarted() {
     await refreshLookbackNetwork(session);
     beginSessionCapture(session, overlayBaseEpochMs);
     if (session.includeDeveloperLogs) {
-      session.appActivityStartRead = await readAppActivity(
+      session.appActivityStartRead = readAppActivity(
         session.targetTabId,
         BROWSER_DIAGNOSTIC_LOOKBACK_MS / 1000,
       );
@@ -2091,10 +2093,11 @@ async function saveNativeDiagnostics(
     return;
   }
   // App activity is attached to the diagnostics row, so it is saved second.
-  if (!captured?.appActivity) return;
+  const appActivity = await captured?.appActivity;
+  if (!appActivity) return;
   await postAction(settings, "save-recording-app-activity", {
     recordingId: recording.recordingId,
-    ...captured.appActivity,
+    ...appActivity,
   }).catch((err) => {
     console.warn("[clips-extension] app activity save failed:", err);
   });
@@ -2109,7 +2112,10 @@ async function stopNativeDiagnostics(
     ? snapshotSession(session)
     : null;
   const appActivity = recording.includeDeveloperLogs
-    ? await stopAppActivity(session, recording)
+    ? collectAppActivity(session, recording).catch((err) => {
+        console.warn("[clips-extension] app activity dropped:", err);
+        return null;
+      })
     : null;
   await deleteSession(recording.sessionId).catch((err) => {
     console.warn("[clips-extension] diagnostics detach failed:", err);
@@ -2129,20 +2135,17 @@ function diagnosticsClockOf(recording: NativeRecording): DiagnosticsClock {
   };
 }
 
-async function stopAppActivity(
+async function collectAppActivity(
   session: CaptureSession,
   recording: NativeRecording,
 ): Promise<AppActivity | null> {
-  const secondsSinceStart =
-    Math.ceil((nowMs() - recording.startedAtMs) / 1000) + 1;
+  const clock = diagnosticsClockOf(recording);
+  const startRead = await session.appActivityStartRead;
   const stopRead = await readAppActivity(
     session.targetTabId,
-    secondsSinceStart,
+    stopReadSeconds(clock.startedAtMs, nowMs(), startRead !== null),
   );
-  return buildAppActivity(
-    { start: session.appActivityStartRead, stop: stopRead },
-    diagnosticsClockOf(recording),
-  );
+  return buildAppActivity({ start: startRead, stop: stopRead }, clock);
 }
 
 async function clearNativeRecording(): Promise<void> {
@@ -2545,12 +2548,14 @@ async function readAppActivity(
 ): Promise<AppActivityRead | null> {
   let result: unknown;
   try {
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: readRecorderReport,
-      args: [seconds, MAX_RECORDER_REPORT_CHARS],
-    });
+    const [injection] = await withReadTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: readRecorderReport,
+        args: [seconds, MAX_RECORDER_REPORT_CHARS],
+      }),
+    );
     result = injection?.result;
   } catch (err) {
     console.warn("[clips-bg] no app activity for tab", tabId, err);

@@ -353,19 +353,29 @@ export function buildBrowserDiagnosticTimeline({
     .map(({ event }) => event);
 }
 
-// Indices in the order entries are worth keeping when a list must shrink:
-// failures, then lookback (negative elapsedMs), then the newest of the rest.
-// Keeping only the newest would drop the lookback first.
+// Indices (entries are in time order) in the order they are worth keeping
+// when a list must shrink: failures, then recording and lookback entries in
+// turns, newest first. Any prefix gives lookback at most half of the room
+// left after failures, and either side takes room the other cannot fill.
 export function diagnosticKeepOrder<T extends { elapsedMs: number }>(
   entries: readonly T[],
   isFailure: (entry: T) => boolean,
 ): number[] {
-  const rank = (entry: T) =>
-    isFailure(entry) ? 0 : entry.elapsedMs < 0 ? 1 : 2;
-  return entries
-    .map((entry, index) => ({ index, rank: rank(entry) }))
-    .sort((a, b) => a.rank - b.rank || b.index - a.index)
-    .map(({ index }) => index);
+  const newestFirst = entries.map((_, index) => index).reverse();
+  const failures = newestFirst.filter((index) => isFailure(entries[index]));
+  const rest = newestFirst.filter((index) => !isFailure(entries[index]));
+  const recording = rest.filter((index) => entries[index].elapsedMs >= 0);
+  const lookback = rest.filter((index) => entries[index].elapsedMs < 0);
+  const turns: number[] = [];
+  for (
+    let turn = 0;
+    turn < Math.max(recording.length, lookback.length);
+    turn++
+  ) {
+    if (turn < recording.length) turns.push(recording[turn]);
+    if (turn < lookback.length) turns.push(lookback[turn]);
+  }
+  return [...failures, ...turns];
 }
 
 export function compactDiagnosticEntries<T extends { elapsedMs: number }>(

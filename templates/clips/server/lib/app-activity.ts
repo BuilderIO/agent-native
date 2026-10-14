@@ -54,22 +54,26 @@ export async function loadRecordingAppActivity(
   }
 }
 
+export type AppActivityBlobCleanup =
+  | { deleted: true }
+  | { deleted: false; error: string };
+
 export async function deleteAppActivityBlob(
   blobJson: string,
   recordingId: string,
-): Promise<void> {
-  let reason: string | undefined;
+): Promise<AppActivityBlobCleanup> {
+  let error: string | undefined;
   try {
     const result = await deletePrivateBlob(
       JSON.parse(blobJson) as PrivateBlobHandle,
     );
-    if (!result.deleted) reason = result.reason ?? "the provider kept it";
-  } catch (error) {
-    reason = error instanceof Error ? error.message : String(error);
+    if (!result.deleted) error = result.reason ?? "the provider kept it";
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
   }
-  if (reason) {
-    console.warn(
-      `[app-activity] could not delete the app activity blob for ${recordingId}: ${reason}`,
-    );
-  }
+  if (!error) return { deleted: true };
+  console.warn(
+    `[app-activity] could not delete the app activity blob for ${recordingId}: ${error}`,
+  );
+  return { deleted: false, error };
 }

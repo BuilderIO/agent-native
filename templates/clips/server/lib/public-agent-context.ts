@@ -80,6 +80,9 @@ export type PublicAgentReaction = {
 export interface PublicAgentAccess {
   recording: PublicAgentRecording;
   viewerIsOwner: boolean;
+  // A Share with agents grant names the person who made it; tokens minted
+  // for a share password or the owner's own page are signed without one.
+  viaAgentLink: boolean;
   apiToken: string | null;
 }
 
@@ -487,15 +490,17 @@ export async function loadPublicAgentAccess(
     access: {
       recording,
       viewerIsOwner,
+      viaAgentLink: Boolean(tokenAccess?.ok && tokenAccess.viewerEmail),
       apiToken,
     },
   };
 }
 
-// Events carry more than the summary in agent context, so an open public link
-// is not enough: reading them takes the owner or a scoped agent token.
+// Events carry more than the summary in agent context, so neither an open
+// public link nor a share password is enough: reading them takes the owner or
+// a Share with agents link.
 export function canReadAppActivityEvents(access: PublicAgentAccess): boolean {
-  return access.viewerIsOwner || Boolean(access.apiToken);
+  return access.viewerIsOwner || access.viaAgentLink;
 }
 
 export async function loadAgentTranscript(
