@@ -132,8 +132,11 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/client/agent-chat")
     >();
+  const sidebarState =
+    await import("../../../../core/src/client/agent-sidebar-state.js");
   return {
     ...actual,
+    ...sidebarState,
     AGENT_CHAT_VIEW_TRANSITION_CLASS: "",
     getAgentChatViewTransitionStyle: (style: React.CSSProperties) => style,
     startAgentChatViewTransition: () => undefined,
@@ -189,6 +192,7 @@ function renderSidebar(
   screenRefreshEnabled = true,
   forceOverlay = false,
   openOnChatRunning = false,
+  storageKey?: string,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -202,6 +206,7 @@ function renderSidebar(
             openOnChatRunning={openOnChatRunning}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
+            storageKey={storageKey}
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
@@ -214,6 +219,17 @@ function renderSidebar(
   root = createRoot(container);
   render(enabled);
   return render;
+}
+
+async function unmountSidebar() {
+  const mountedRoot = root;
+  const mountedContainer = container;
+  await act(async () => {
+    mountedRoot?.unmount();
+  });
+  mountedContainer?.remove();
+  root = undefined;
+  container = undefined;
 }
 
 afterEach(() => {
@@ -234,6 +250,7 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
+  window.sessionStorage.clear();
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     clear: () => values.clear(),
@@ -1833,6 +1850,80 @@ describe("AgentSidebar panel", () => {
       expect(container?.querySelector("textarea")).toBeTruthy();
     },
   );
+
+  it("keeps a consumed explicit open hint across an enabled sidebar remount", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState({}, "", "/overview?agentSidebar=open");
+    const renderDispatchSidebar = (enabled = true) =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        enabled,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+    let setEnabled!: (nextEnabled: boolean) => void;
+    await act(async () => {
+      setEnabled = renderDispatchSidebar(false);
+    });
+    await act(async () => {});
+
+    expect(window.location.search).toBe("?agentSidebar=open");
+    await act(async () => {
+      setEnabled(true);
+    });
+    expect(window.location.search).toBe("");
+    expect(localStorage.getItem("agent-native.dispatch.sidebar-open")).toBe(
+      "true",
+    );
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeTruthy();
+    expect(container?.querySelector("textarea")).toBeTruthy();
+
+    await unmountSidebar();
+
+    await act(async () => {
+      renderDispatchSidebar();
+    });
+    const remountedRoot = root;
+    const remountedContainer = container;
+    try {
+      await act(async () => {});
+
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeTruthy();
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+    } finally {
+      await unmountSidebar();
+    }
+
+    await act(async () => {
+      renderDispatchSidebar();
+    });
+    try {
+      await act(async () => {});
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeNull();
+    } finally {
+      await unmountSidebar();
+    }
+  });
 
   it("keeps an explicit URL close ahead of a thread link", async () => {
     window.history.replaceState(

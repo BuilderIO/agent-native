@@ -73,6 +73,62 @@ export function getAgentSidebarOpenPreferenceKey(
   return suffix ? `agent-native.${suffix}.sidebar-open` : SIDEBAR_OPEN_KEY;
 }
 
+function getExplicitUrlOpenSessionKey(storageKey?: string | null): string {
+  return `${getAgentSidebarOpenPreferenceKey(storageKey)}.explicit-url-open`;
+}
+
+function getExplicitUrlOpenSessionIntent(
+  storageKey?: string | null,
+): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      window.sessionStorage.getItem(
+        getExplicitUrlOpenSessionKey(storageKey),
+      ) === "true"
+    );
+  } catch {
+    // coercion-ok: null distinguishes unreadable storage from a missing false intent.
+    return null;
+  }
+}
+
+function setExplicitUrlOpenSessionIntent(
+  open: boolean,
+  storageKey?: string | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const key = getExplicitUrlOpenSessionKey(storageKey);
+    if (open) {
+      window.sessionStorage.setItem(key, "true");
+    } else {
+      window.sessionStorage.removeItem(key);
+    }
+    return true;
+  } catch {
+    // coercion-ok: false keeps the explicit URL intent available when the session write fails.
+    return false;
+  }
+}
+
+function writeAgentSidebarOpenPreference(
+  open: boolean,
+  storageKey?: string | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(
+      getAgentSidebarOpenPreferenceKey(storageKey),
+      String(open),
+    );
+    return true;
+  } catch {
+    // coercion-ok: false keeps the URL override retryable when preference persistence fails.
+    return false;
+  }
+}
+
 export function dispatchAgentSidebarStateChange(
   detail: AgentSidebarStateChangeDetail,
 ): void {
@@ -87,14 +143,13 @@ export function dispatchAgentSidebarStateChange(
 export function setAgentSidebarOpenPreference(
   open: boolean,
   storageKey?: string | null,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(
-      getAgentSidebarOpenPreferenceKey(storageKey),
-      String(open),
-    );
-  } catch {}
+): boolean {
+  if (typeof window === "undefined") return false;
+  const sessionIntentCleared = open
+    ? true
+    : setExplicitUrlOpenSessionIntent(false, storageKey);
+  const preferenceSaved = writeAgentSidebarOpenPreference(open, storageKey);
+  return sessionIntentCleared && preferenceSaved;
 }
 
 export function requestAgentSidebarOpen(): void {
@@ -119,7 +174,12 @@ export function consumeAgentSidebarUrlOpenOverride(
   const override = getAgentSidebarUrlOpenOverride();
   if (override === null || typeof window === "undefined") return override;
 
-  setAgentSidebarOpenPreference(override, storageKey);
+  const preferenceSaved = writeAgentSidebarOpenPreference(override, storageKey);
+  const sessionIntentSaved = setExplicitUrlOpenSessionIntent(
+    override,
+    storageKey,
+  );
+  if (!preferenceSaved || !sessionIntentSaved) return override;
 
   try {
     const url = new URL(window.location.href);
@@ -187,6 +247,19 @@ export function getInitialAgentSidebarOpen(
   if (!ignoreUrlOverride) {
     const urlOverride = getAgentSidebarUrlOpenOverride();
     if (urlOverride !== null) return urlOverride;
+  }
+  if (getExplicitUrlOpenSessionIntent(storageKey) === true) {
+    try {
+      if (
+        window.localStorage.getItem(
+          getAgentSidebarOpenPreferenceKey(storageKey),
+        ) !== "false"
+      ) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
   }
   if (hasChatThreadDeepLink()) return true;
 
