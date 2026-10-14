@@ -39,7 +39,7 @@ export const EXTERNAL_DASHBOARD_MIGRATION_SQL = [
       CHECK (failure_code IS NULL OR failure_code IN ('provider_unavailable', 'unsupported_content', 'dashboard_write_failed', 'verification_failed', 'unknown')),
     CONSTRAINT bi_migration_external_dashboards_provider_status_check
       CHECK (provider_status IS NULL OR provider_status BETWEEN 100 AND 599),
-    CONSTRAINT bi_migration_external_dashboards_diagnostics_length_check
+    CONSTRAINT bi_migration_external_dashboards_element_diagnostics_length_check
       CHECK (char_length(element_diagnostics) <= 50000),
     CONSTRAINT bi_migration_external_dashboards_flagged_count_check
       CHECK (flagged_count >= 0)
