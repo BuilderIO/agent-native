@@ -1176,6 +1176,9 @@ export default {
     fullScreen: "पूर्ण स्क्रीन",
     refresh: "रीफ़्रेश करें",
     refreshing: "रीफ़्रेश हो रहा है...",
+    updating: "अपडेट हो रहा है",
+    updatingPreviousFilters: "पिछले फ़िल्टर · अपडेट हो रहा है",
+    previousFilters: "पिछले फ़िल्टर",
     downloadCsv: "CSV डाउनलोड करें",
     copyTable: "तालिका कॉपी करें",
     multiColumnSortHelp:

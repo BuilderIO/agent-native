@@ -1221,6 +1221,9 @@ export default {
     fullScreen: "Tela cheia",
     refresh: "Atualizar",
     refreshing: "Atualizando...",
+    updating: "Atualizando",
+    updatingPreviousFilters: "Filtros anteriores · Atualizando",
+    previousFilters: "Filtros anteriores",
     downloadCsv: "Baixar CSV",
     copyTable: "Copiar tabela",
     multiColumnSortHelp:

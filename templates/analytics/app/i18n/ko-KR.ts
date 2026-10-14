@@ -1190,6 +1190,9 @@ export default {
     fullScreen: "전체 화면",
     refresh: "새로고침",
     refreshing: "새로고침 중...",
+    updating: "업데이트 중",
+    updatingPreviousFilters: "이전 필터 · 업데이트 중",
+    previousFilters: "이전 필터",
     downloadCsv: "CSV 다운로드",
     copyTable: "표 복사",
     multiColumnSortHelp:

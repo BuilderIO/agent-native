@@ -1225,6 +1225,9 @@ export default {
     fullScreen: "Pantalla completa",
     refresh: "Actualizar",
     refreshing: "Actualizando...",
+    updating: "Actualizando",
+    updatingPreviousFilters: "Filtros anteriores · Actualizando",
+    previousFilters: "Filtros anteriores",
     downloadCsv: "Descargar CSV",
     copyTable: "Copiar tabla",
     multiColumnSortHelp:

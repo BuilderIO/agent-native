@@ -1208,6 +1208,9 @@ export default {
     fullScreen: "全画面表示",
     refresh: "更新",
     refreshing: "更新中...",
+    updating: "更新中",
+    updatingPreviousFilters: "前のフィルター · 更新中",
+    previousFilters: "前のフィルター",
     downloadCsv: "CSVをダウンロード",
     copyTable: "テーブルをコピー",
     multiColumnSortHelp:

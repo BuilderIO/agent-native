@@ -1234,6 +1234,9 @@ export default {
     fullScreen: "Plein écran",
     refresh: "Actualiser",
     refreshing: "Actualisation...",
+    updating: "Mise à jour",
+    updatingPreviousFilters: "Filtres précédents · Mise à jour",
+    previousFilters: "Filtres précédents",
     downloadCsv: "Télécharger CSV",
     copyTable: "Copier le tableau",
     multiColumnSortHelp:

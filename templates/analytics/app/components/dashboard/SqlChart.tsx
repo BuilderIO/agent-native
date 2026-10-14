@@ -102,6 +102,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -1248,10 +1249,32 @@ export function SqlChart({
   const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const [localRefreshToken, setLocalRefreshToken] = useState(0);
+  // Only a pivot reads the time range, so only a pivot's rows depend on it.
+  const pivotTimeRange = panel.config?.pivot ? (timeRange ?? null) : null;
+  const retainPreviousScope = useMemo(
+    () =>
+      JSON.stringify([
+        dashboardId ?? null,
+        panel.id,
+        panel.source,
+        panel.chartType,
+        panel.config ?? null,
+        pivotTimeRange,
+      ]),
+    [
+      dashboardId,
+      panel.id,
+      panel.source,
+      panel.chartType,
+      panel.config,
+      pivotTimeRange,
+    ],
+  );
   const {
     data: queryResult,
     isLoading: queryIsLoading,
     isFetching: queryIsFetching,
+    isPlaceholderData: queryIsPlaceholderData,
     error: queryError,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
@@ -1261,20 +1284,31 @@ export function SqlChart({
       enabled: shouldQuery,
       reportScreenshot,
       refreshToken: refreshToken + localRefreshToken,
+      retainPreviousScope,
     },
   );
 
   const result = resultOverride ?? queryResult;
   const isLoading = resultOverride ? false : queryIsLoading;
-  const isFetching = resultOverride ? false : queryIsFetching;
   const rawRows = result?.rows ?? [];
+  // The last completed result, including a result with no rows, stays on
+  // screen while the next query runs. Only a first load, or a retry of a
+  // failure with nothing to show, has no result to keep and shows the skeleton.
+  const isUpdating =
+    !resultOverride &&
+    queryIsFetching &&
+    queryResult !== undefined &&
+    (rawRows.length > 0 || !queryError);
+  const isShowingPreviousFilters =
+    !resultOverride && queryResult !== undefined && queryIsPlaceholderData;
+  const isFetching = resultOverride ? false : queryIsFetching && !isUpdating;
   const error =
     rawRows.length === 0
       ? (result?.error ??
         (queryError ? formatSqlChartError(queryError) : undefined))
       : undefined;
   const refreshError =
-    shouldQuery && rawRows.length > 0 && queryError
+    shouldQuery && rawRows.length > 0 && queryError && !isUpdating
       ? formatSqlChartError(queryError)
       : undefined;
   const requestRefresh = () => {
@@ -1392,7 +1426,25 @@ export function SqlChart({
   }
 
   const missingConfigKeys = plan.missingKeys;
-  const withConfigWarning = (node: ReactNode) => {
+  const updatingNotice = isUpdating ? (
+    <div className="pointer-events-none relative h-0">
+      <span
+        role="status"
+        data-dashboard-report-updating={
+          isShowingPreviousFilters ? "previous-filters" : "refresh"
+        }
+        className="absolute right-0 top-0 z-10 inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
+      >
+        <Spinner className="size-3" />
+        {t(
+          isShowingPreviousFilters
+            ? "sqlDashboard.updatingPreviousFilters"
+            : "sqlDashboard.updating",
+        )}
+      </span>
+    </div>
+  ) : null;
+  const withConfigBanners = (node: ReactNode) => {
     if (refreshError) {
       return (
         <div className="flex h-full min-h-0 flex-col gap-2">
@@ -1401,6 +1453,12 @@ export function SqlChart({
             role="alert"
           >
             <p className="min-w-0 break-words text-xs text-destructive">
+              {isShowingPreviousFilters ? (
+                <span className="font-medium">
+                  {t("sqlDashboard.previousFilters")}
+                  {" · "}
+                </span>
+              ) : null}
               {refreshError}
             </p>
             <Button
@@ -1430,6 +1488,13 @@ export function SqlChart({
     );
   };
 
+  const withConfigWarning = (node: ReactNode) => (
+    <>
+      {updatingNotice}
+      {withConfigBanners(node)}
+    </>
+  );
+
   const pointLimit = plan.pointLimit;
   const withPointLimit = (node: ReactNode) =>
     pointLimit ? (
@@ -1454,7 +1519,14 @@ export function SqlChart({
     // A funnel or heatmap with rows that draws nothing keeps the warning and
     // refresh banner that say why; a result with no rows to plot is a bare
     // "No data".
-    return plan.rows.length === 0 ? noData : withConfigWarning(noData);
+    return plan.rows.length === 0 ? (
+      <>
+        {updatingNotice}
+        {noData}
+      </>
+    ) : (
+      withConfigWarning(noData)
+    );
   }
 
   if (chartType === "metric") {
