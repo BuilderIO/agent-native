@@ -49,7 +49,8 @@ export async function readGongNativeInsightsPolicy(): Promise<GongNativeInsights
     );
   }
 
-  return parsePolicy(null, "none");
+  // No workspace or user to read a policy from: fail closed.
+  return { ...parsePolicy(null, "none"), enabled: false };
 }
 
 export async function writeGongNativeInsightsPolicy(

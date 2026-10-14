@@ -315,6 +315,13 @@ export async function stagingExecuteRequest(
       );
     }
 
+    if (response.truncated === true) {
+      fail(
+        `Provider response page ${pageIndex + 1} was cut at the response size limit, so staging it would drop rows. Request smaller pages (a lower limit or fewer fields) or add a server-side filter.`,
+        { errorCode: "provider_response_truncated" },
+      );
+    }
+
     const body =
       response.json ??
       (response.text ? tryParseJson(response.text as string) : null);

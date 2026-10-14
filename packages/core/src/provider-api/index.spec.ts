@@ -4160,6 +4160,37 @@ describe("provider API runtime", () => {
     expect(result.guidance).not.toContain("Prefer this escape hatch");
   });
 
+  it("fails fetchAllPages loudly when a page is cut at the size limit", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: "x".repeat(5_000) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 1_000,
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+          maxPages: 2,
+        },
+      }),
+    ).rejects.toThrow(/cut at the response size limit/);
+  });
+
   it("deduplicates identical concurrent GET provider requests", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     const fetchMock = vi.mocked(globalThis.fetch);

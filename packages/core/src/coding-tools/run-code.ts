@@ -1404,6 +1404,9 @@ async function providerFetch(provider, apiPath, init = {}) {
       const detail = typeof r.text === "string" ? r.text : JSON.stringify(r.json ?? "");
       throw new Error(\`Provider request failed (\${r.status}): \${String(detail).slice(0, 500)}\`);
     }
+    if (r.truncated === true) {
+      throw new Error("Provider response was cut at the response size limit, so its body is incomplete. Request smaller pages or add a server-side filter; use providerRequest() to inspect the partial body.");
+    }
     return r.json !== undefined ? r.json : r.text;
   }
   return parsed;

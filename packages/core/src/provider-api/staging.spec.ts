@@ -516,6 +516,32 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("refuses to stage a page that was cut at the response size limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: [{ id: "ch_1", note: "x".repeat(5_000) }] }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    await expect(
+      stagingExecuteRequest(
+        {
+          provider: "stripe",
+          path: "/charges",
+          stageAs: "stripe_charges",
+          maxBytes: 1_000,
+          pagination: { maxPages: 2 },
+        },
+        makeExecutor(),
+        { appId: "testapp", ownerEmail: "ada@example.com" },
+      ),
+    ).rejects.toThrow(/cut at the response size limit/);
+  });
+
   it("can send next cursors through a POST body path", async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     const fetchMock = vi

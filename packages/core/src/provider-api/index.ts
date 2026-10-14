@@ -2098,6 +2098,7 @@ export async function executeProviderApiRequest(
         contentType: resp.contentType,
         status: resp.status,
         ok: resp.ok,
+        truncated: resp.truncated,
       };
     });
 
@@ -2197,7 +2198,9 @@ export async function executeProviderApiRequest(
     response,
     guidance: [
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. A data API returns records: when the provider can filter, search, or answer the question itself, make it do that instead of pulling records to filter locally.",
-      response.truncated ? truncatedResponseGuidance(response.size, effectiveMaxBytes) : null,
+      response.truncated
+        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        : null,
       providerAccessErrorGuidance(config, response.status),
     ]
       .filter(Boolean)
@@ -3096,6 +3099,7 @@ async function executeCustomProviderApiRequest(
         contentType: resp.contentType,
         status: resp.status,
         ok: resp.ok,
+        truncated: resp.truncated,
       };
     });
 
@@ -6263,6 +6267,7 @@ async function fetchAllPages(
     contentType: string | null;
     status: number;
     ok: boolean;
+    truncated: boolean;
   }>,
 ): Promise<{
   items: unknown[];
@@ -6320,6 +6325,12 @@ async function fetchAllPages(
         `fetchAllPages request failed with HTTP ${page.status}${
           preview ? `: ${preview}` : ""
         }`,
+      );
+    }
+
+    if (page.truncated) {
+      throw new Error(
+        `fetchAllPages page ${pageCount} was cut at the response size limit, so its items and next cursor are incomplete. Request smaller pages (a lower limit or fewer fields) or add a server-side filter.`,
       );
     }
 
