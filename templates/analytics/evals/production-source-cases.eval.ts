@@ -604,8 +604,10 @@ function retrievedFindDataMetadata(run: AgentRunOutput): string[] {
               !Array.isArray(candidate),
           )
           .map((candidate) => JSON.stringify(candidate).toLowerCase());
-      } catch {
-        return [];
+      } catch (error) {
+        throw new Error("Could not parse retrieved find-data metadata.", {
+          cause: error,
+        });
       }
     });
 }

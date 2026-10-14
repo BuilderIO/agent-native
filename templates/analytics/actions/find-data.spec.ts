@@ -77,7 +77,7 @@ describe("find-data scan coverage", () => {
       "Treat missing source-index matches as incomplete",
     );
     expect(result.guidance).toContain(
-      "aggregate and snapshot references are not row-level membership sources",
+      "exclude aggregates and snapshots as member sources",
     );
   });
 
