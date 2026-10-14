@@ -1585,6 +1585,74 @@ describe("createAgentNativeChatRuntime", () => {
     expect(structuredHistory).not.toContain("Chat setup is required.");
   });
 
+  it("keeps tool truncation boundaries aligned after filtering an unstarted turn", async () => {
+    const prompt = "Continue the review.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-filtered-tool-history-boundary",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "failed-start-user",
+          role: "user",
+          status: "error",
+          content: [{ type: "text", text: "This request never started." }],
+        },
+        {
+          id: "old-tool-call",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "old-boundary-call",
+              toolName: "lookup",
+              input: { query: "prior context" },
+            },
+          ],
+        },
+        {
+          id: "newer-tool-result",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-boundary-call",
+              toolName: "lookup",
+              result: "ORPHAN_RESULT_MUST_BE_OMITTED",
+            },
+          ],
+        },
+        ...Array.from({ length: 1_023 }, (_, index) => ({
+          id: `assistant-tail-${index}`,
+          role: "assistant" as const,
+          content: [],
+        })),
+        {
+          id: "current-user",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.structuredHistory).toBeDefined();
+    const structuredHistory = JSON.stringify(body.structuredHistory);
+    expect(structuredHistory).not.toContain("ORPHAN_RESULT_MUST_BE_OMITTED");
+    expect(structuredHistory).not.toContain("old-boundary-call");
+    expect(structuredHistory).not.toContain("This request never started.");
+    expect(structuredHistory).not.toContain(prompt);
+  });
+
   it("omits repeated current message IDs without dropping a prior identical ask", async () => {
     const prompt = "Repeat this question exactly.";
     const fetchMock = vi

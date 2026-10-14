@@ -2778,7 +2778,7 @@ function boundedStructuredHistorySources(
   supplementalMessages: readonly AgentChatRuntimeMessage[],
   currentAttachmentUrls: ReadonlySet<string>,
 ): BoundedStructuredHistorySources {
-  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
+  const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
   let currentPromptScanLimited = false;
   let omitted = false;
@@ -3324,6 +3324,7 @@ function nativeStructuredHistoryFromMessages(
   approvedToolCallAskIds: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
   const approvedToolCallSet = new Set(approvedToolCalls);
   const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -3335,7 +3336,7 @@ function nativeStructuredHistoryFromMessages(
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
   const sources = boundedStructuredHistorySources(
-    messages,
+    historyMessages,
     currentPrompt,
     supplementalMessages,
     currentAttachmentUrls,
@@ -3346,7 +3347,7 @@ function nativeStructuredHistoryFromMessages(
     approvedToolCallAskIds,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
-    messages,
+    historyMessages,
     supplementalMessages,
     sources,
     supplementalToolHistoryOmitted,
