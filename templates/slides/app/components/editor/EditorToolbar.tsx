@@ -16,7 +16,6 @@ import { RunsTray } from "@agent-native/toolkit/app/progress";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
-  IconArrowLeft,
   IconCircle,
   IconPlayerPlay,
   IconLayoutSidebar,
@@ -29,8 +28,6 @@ import {
   IconMoon,
   IconDotsVertical,
   IconExternalLink,
-  IconArrowBackUp,
-  IconArrowForwardUp,
   IconLoader2,
   IconAdjustments,
   IconPencilPlus,
@@ -113,6 +110,7 @@ import {
   SLIDE_TRANSITION_TYPES,
   type SlideTransitionType,
 } from "../../../shared/slide-transitions";
+import { AppMenu } from "./AppMenu";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -127,6 +125,7 @@ import {
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
+import type { SlideCanvasCommands } from "./SlideEditor";
 import {
   SLIDE_TRANSITION_LABEL_KEYS,
   SlideTransitionControl,
@@ -189,6 +188,11 @@ interface EditorToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  canvasCommandsRef?: { current: SlideCanvasCommands | null };
+  onDuplicateSlides?: () => void;
+  onDeleteSlides?: () => void;
+  onPreviousSlide?: () => void;
+  onNextSlide?: () => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -253,6 +257,11 @@ export default function EditorToolbar({
   canRedo = false,
   onUndo,
   onRedo,
+  canvasCommandsRef,
+  onDuplicateSlides,
+  onDeleteSlides,
+  onPreviousSlide,
+  onNextSlide,
   canEdit = true,
   canComment = canEdit,
 }: EditorToolbarProps) {
@@ -359,15 +368,6 @@ export default function EditorToolbar({
   const activeSlideTransition = normalizeSlideTransition(
     currentSlide?.transition,
   );
-  const undoModifier =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.platform)
-      ? "⌘"
-      : "Ctrl";
-  const undoShortcut = `${undoModifier} Z`;
-  const redoShortcut =
-    undoModifier === "⌘" ? `${undoModifier} ⇧ Z` : `${undoModifier} Shift Z`;
-
   const openFileImport = useCallback(() => {
     if (storageQuery.isLoading) {
       setShowStorageSetup(true);
@@ -818,21 +818,39 @@ export default function EditorToolbar({
 
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
-      {/* Back button */}
-      {!widgetEmbed && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/home"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
-              aria-label={t("editorToolbar.backToDecks")}
-            >
-              <IconArrowLeft className="size-4 text-muted-foreground" />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
-        </Tooltip>
-      )}
+      <AppMenu
+        widgetEmbed={widgetEmbed}
+        canEdit={canEdit}
+        exportMenu={
+          <ExportMenu
+            ref={exportMenuRef}
+            inline
+            hideExportDialog
+            onExportStatusChange={setExportStatus}
+            hasSlides={hasSlides}
+            deckId={deckId}
+            deckTitle={deckTitle}
+            onDuplicate={onDuplicateDeck ?? (() => {})}
+            onExportPdf={onExportPdf ?? (() => {})}
+            onExportPptx={onExportPptx ?? (() => {})}
+            onExportGoogleSlides={onExportGoogleSlides}
+          />
+        }
+        importing={importing}
+        onImportFile={() => void openFileImport()}
+        onDuplicateDeck={onDuplicateDeck}
+        onDownloadBackup={onDownloadBackup}
+        onShowHistory={onShowHistory}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={onUndo}
+        onRedo={onRedo}
+        canvasCommandsRef={canvasCommandsRef}
+        onDuplicateSlides={onDuplicateSlides}
+        onDeleteSlides={onDeleteSlides}
+        onPreviousSlide={onPreviousSlide}
+        onNextSlide={onNextSlide}
+      />
 
       {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
       <Tooltip>
@@ -1004,7 +1022,6 @@ export default function EditorToolbar({
                 onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
-                <DropdownMenuSeparator />
                 <DropdownMenuLabel>
                   {t("editorToolbar.slideTools")}
                 </DropdownMenuLabel>
@@ -1098,69 +1115,6 @@ export default function EditorToolbar({
                         : unresolvedCommentCount}
                     </span>
                   )}
-                </DropdownMenuItem>
-              </>
-            )}
-
-            <DropdownMenuSeparator />
-            {(onUndo || onRedo) && (
-              <>
-                <DropdownMenuGroup>
-                  {onUndo && (
-                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-                      <IconArrowBackUp className="size-4" />
-                      {t("editorToolbar.undoWithShortcut", {
-                        shortcut: undoShortcut,
-                      })}
-                    </DropdownMenuItem>
-                  )}
-                  {onRedo && (
-                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-                      <IconArrowForwardUp className="size-4" />
-                      {t("editorToolbar.redoWithShortcut", {
-                        shortcut: redoShortcut,
-                      })}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            {!widgetEmbed && (
-              <>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onShowHistory}>
-                    <IconHistory className="size-4" />
-                    {t("editorToolbar.savedVersions")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <ExportMenu
-                  ref={exportMenuRef}
-                  inline
-                  hideExportDialog
-                  onExportStatusChange={setExportStatus}
-                  hasSlides={hasSlides}
-                  deckId={deckId}
-                  deckTitle={deckTitle}
-                  onDuplicate={onDuplicateDeck ?? (() => {})}
-                  onExportPdf={onExportPdf ?? (() => {})}
-                  onExportPptx={onExportPptx ?? (() => {})}
-                  onExportGoogleSlides={onExportGoogleSlides}
-                />
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={importing}
-                  onSelect={() => void openFileImport()}
-                >
-                  {importing ? (
-                    <IconLoader2 className="size-4 animate-spin" />
-                  ) : (
-                    <IconDownload className="size-4" />
-                  )}
-                  {importing
-                    ? t("editorToolbar.importing")
-                    : t("editorToolbar.importFile")}
                 </DropdownMenuItem>
               </>
             )}

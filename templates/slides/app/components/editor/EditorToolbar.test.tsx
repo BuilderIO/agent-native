@@ -73,6 +73,10 @@ vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   AgentToggleButton: () => <button type="button" data-testid="agent-toggle" />,
 }));
 
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => null,
+}));
+
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: mocks.shareButton,
 }));
@@ -233,6 +237,21 @@ afterEach(() => {
   cleanup();
 });
 
+async function openAppMenu() {
+  fireEvent.pointerDown(screen.getByRole("button", { name: "appMenu.label" }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  await screen.findByRole("menu");
+}
+
+async function openAppSubmenu(name: string) {
+  await openAppMenu();
+  const trigger = screen.getByRole("menuitem", { name });
+  fireEvent.focus(trigger);
+  fireEvent.keyDown(trigger, { key: "ArrowRight" });
+}
+
 describe("<EditorToolbar>", () => {
   const viewerToolbar = () => (
     <TooltipProvider>
@@ -302,7 +321,7 @@ describe("<EditorToolbar>", () => {
     </TooltipProvider>
   );
 
-  it("shows the app's top bar in a widget minus what the host and the widget grant own", () => {
+  it("shows the app's top bar in a widget minus what the host and the widget grant own", async () => {
     mocks.widgetEmbed.value = true;
     const onTitleChange = vi.fn();
     render(widgetToolbar({ onTitleChange }));
@@ -332,13 +351,18 @@ describe("<EditorToolbar>", () => {
 
     expect(screen.getByText("editorToolbar.present")).toBeTruthy();
     // The host owns navigation and chat.
-    expect(screen.queryByLabelText("editorToolbar.backToDecks")).toBeNull();
     expect(screen.queryByTestId("agent-toggle")).toBeNull();
     expect(screen.queryByTestId("runs-tray")).toBeNull();
     screen.getByRole("button", { name: "editorToolbar.more" }).click();
     expect(screen.queryByText("editorToolbar.comments")).toBeNull();
-    expect(screen.queryByText("editorToolbar.savedVersions")).toBeNull();
-    expect(screen.queryByText("editorToolbar.importFile")).toBeNull();
+
+    await openAppMenu();
+    expect(screen.getByRole("menuitem", { name: "appMenu.edit" })).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "appMenu.backToDashboard" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "appMenu.file" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "appMenu.help" })).toBeNull();
     expect(mocks.exportMenu).not.toHaveBeenCalled();
   });
 
@@ -357,12 +381,17 @@ describe("<EditorToolbar>", () => {
     expect(embedded.showShareLinks).toBe(standard.showShareLinks);
   });
 
-  it("keeps the way back to the deck list and the agent controls outside the widget", () => {
+  it("keeps the way back to the deck list and the agent controls outside the widget", async () => {
     render(widgetToolbar());
 
-    expect(screen.getByLabelText("editorToolbar.backToDecks")).toBeTruthy();
     expect(screen.getByTestId("agent-toggle")).toBeTruthy();
     expect(screen.getByTestId("runs-tray")).toBeTruthy();
+    await openAppMenu();
+    expect(
+      screen
+        .getByRole("menuitem", { name: "appMenu.backToDashboard" })
+        .getAttribute("href"),
+    ).toBe("/home");
   });
 
   it("keeps the creative context tab in Share outside the widget", () => {
@@ -818,11 +847,8 @@ describe("<EditorToolbar>", () => {
     fireEvent.click(presentButton);
     expect(onPresent).not.toHaveBeenCalled();
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
-    );
-    await screen.findByRole("menu");
+    await openAppSubmenu("appMenu.file");
+    await waitFor(() => expect(mocks.exportMenu).toHaveBeenCalled());
     expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ hasSlides: false }),
     );
@@ -839,7 +865,7 @@ describe("<EditorToolbar>", () => {
     );
   });
 
-  it("surfaces history from the top-right overflow menu", async () => {
+  it("surfaces version history from the app menu's File submenu", async () => {
     const onShowHistory = vi.fn();
     const historyButtonRef = createRef<HTMLButtonElement>();
 
@@ -861,17 +887,101 @@ describe("<EditorToolbar>", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
+    await openAppSubmenu("appMenu.file");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "appMenu.versionHistory" }),
     );
 
-    const historyItem = await screen.findByRole("menuitem", {
-      name: "History",
-    });
-    fireEvent.click(historyItem);
-
     await waitFor(() => expect(onShowHistory).toHaveBeenCalledTimes(1));
+  });
+
+  describe("app menu canvas commands", () => {
+    const canvasCommands = (hasObjectSelection: boolean) => ({
+      canZoomIn: true,
+      canZoomOut: false,
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      hasObjectSelection: () => hasObjectSelection,
+      duplicateObjects: vi.fn(() => true),
+      deleteObjects: vi.fn(() => true),
+    });
+    const toolbar = (
+      commands: ReturnType<typeof canvasCommands> | null,
+      slideProps: {
+        onDuplicateSlides?: () => void;
+        onDeleteSlides?: () => void;
+        onPreviousSlide?: () => void;
+        onNextSlide?: () => void;
+      } = {},
+    ) => (
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deckWithSlides}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          canvasCommandsRef={{ current: commands }}
+          {...slideProps}
+        />
+      </TooltipProvider>
+    );
+
+    it("acts on selected objects before falling back to slides", async () => {
+      const commands = canvasCommands(true);
+      const onDuplicateSlides = vi.fn();
+      render(toolbar(commands, { onDuplicateSlides }));
+
+      await openAppSubmenu("appMenu.edit");
+      fireEvent.click(
+        await screen.findByRole("menuitem", {
+          name: "appMenu.duplicateSelection",
+        }),
+      );
+
+      expect(commands.duplicateObjects).toHaveBeenCalledTimes(1);
+      expect(onDuplicateSlides).not.toHaveBeenCalled();
+    });
+
+    it("deletes the selected slides when no object is selected", async () => {
+      const commands = canvasCommands(false);
+      const onDeleteSlides = vi.fn();
+      render(toolbar(commands, { onDeleteSlides }));
+
+      await openAppSubmenu("appMenu.edit");
+      fireEvent.click(
+        await screen.findByRole("menuitem", {
+          name: "appMenu.deleteSelection",
+        }),
+      );
+
+      expect(onDeleteSlides).toHaveBeenCalledTimes(1);
+      expect(commands.deleteObjects).not.toHaveBeenCalled();
+    });
+
+    it("disables what the canvas and slide position cannot do", async () => {
+      const commands = canvasCommands(false);
+      const onNextSlide = vi.fn();
+      render(toolbar(commands, { onNextSlide }));
+
+      await openAppSubmenu("appMenu.view");
+      const item = (name: string) =>
+        screen.getByRole("menuitem", { name }).hasAttribute("data-disabled");
+      await screen.findByRole("menuitem", { name: "appMenu.zoomIn" });
+      expect(item("appMenu.zoomIn")).toBe(false);
+      expect(item("appMenu.zoomOut")).toBe(true);
+      expect(item("appMenu.previousSlide")).toBe(true);
+      fireEvent.click(
+        screen.getByRole("menuitem", { name: "appMenu.nextSlide" }),
+      );
+      expect(onNextSlide).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("keeps transition choices, media tools, and theme toggles out of the overflow menu", async () => {

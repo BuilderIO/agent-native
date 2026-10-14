@@ -510,28 +510,17 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     );
 
     const inlineMenuContent = (
-      <>
-        {onShareTeam || onShareLink ? (
-          <>
-            {shareActions}
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger
-            disabled={!hasSlides}
-            className="cursor-pointer gap-2"
-          >
-            <IconUpload className="size-4" />
-            {t("editorExport.export")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-56">
-            {exportActions}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSeparator />
-        {duplicateAction}
-      </>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger
+          disabled={!hasSlides}
+          className="cursor-pointer"
+        >
+          {t("appMenu.export")}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-56">
+          {exportActions}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
     );
 
     return (

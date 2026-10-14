@@ -88,7 +88,9 @@ import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
 import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
-import SlideEditor from "@/components/editor/SlideEditor";
+import SlideEditor, {
+  type SlideCanvasCommands,
+} from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import {
@@ -625,6 +627,7 @@ export default function DeckEditor() {
   const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
   const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
+  const canvasCommandsRef = useRef<SlideCanvasCommands | null>(null);
   const presentNavigationRef = useRef(false);
   const generationHomeNavigationRef = useRef(false);
   const generationHomeExitInFlightRef = useRef(false);
@@ -4321,6 +4324,15 @@ export default function DeckEditor() {
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  const previousSlide = deck.slides[currentIndex - 1];
+  const nextSlide =
+    currentIndex >= 0 ? deck.slides[currentIndex + 1] : undefined;
+  const menuSlideIds =
+    activeSlideId && !selectedSlideIds.includes(activeSlideId)
+      ? [activeSlideId]
+      : selectedSlideIds;
+  const canDeleteMenuSlides =
+    deck.slides.length > menuSlideIds.length && menuSlideIds.length > 0;
   const canPreviewTransition =
     transitionPreviewPair(deck.slides, currentIndex) !== null;
   currentSlideRef.current = currentSlide;
@@ -4498,6 +4510,25 @@ export default function DeckEditor() {
         canRedo={canRedo}
         onUndo={canEdit ? () => undo(id) : undefined}
         onRedo={canEdit ? () => redo(id) : undefined}
+        canvasCommandsRef={canvasCommandsRef}
+        onDuplicateSlides={
+          canEdit && menuSlideIds.length > 0
+            ? () => handleDuplicateSlideFromRail(menuSlideIds)
+            : undefined
+        }
+        onDeleteSlides={
+          canEdit && canDeleteMenuSlides
+            ? () => handleDeleteSlideFromRail(menuSlideIds)
+            : undefined
+        }
+        onPreviousSlide={
+          previousSlide
+            ? () => handleSlideSelection(previousSlide.id)
+            : undefined
+        }
+        onNextSlide={
+          nextSlide ? () => handleSlideSelection(nextSlide.id) : undefined
+        }
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         onDownloadBackup={handleDownloadDeckBackup}
         onImportDeckBackup={handleImportDeckBackup}
@@ -4878,6 +4909,7 @@ export default function DeckEditor() {
               return flushDeckSave(id);
             }}
             flushInlineEditRef={inlineEditFlushRef}
+            canvasCommandsRef={canvasCommandsRef}
             readOnly={!canEdit}
             canComment={canComment}
             currentUserEmail={session?.email ?? null}

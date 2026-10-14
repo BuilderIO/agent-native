@@ -366,7 +366,9 @@ describe("<ExportMenu>", () => {
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
-    const exportTrigger = screen.getByRole("menuitem", { name: "Export" });
+    const exportTrigger = screen.getByRole("menuitem", {
+      name: "appMenu.export",
+    });
     fireEvent.focus(exportTrigger);
     fireEvent.keyDown(exportTrigger, { key: "ArrowRight" });
     fireEvent.click(screen.getByText("Export as PPTX"));
