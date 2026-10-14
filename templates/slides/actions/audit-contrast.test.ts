@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockResolveAccess = vi.fn();
 const mockListBrowserSessions = vi.fn();
 const mockCallBrowserSession = vi.fn();
+let storedDesignSystemData = "";
 const mockGetCurrentRequestBrowserTabId = vi.fn<() => string | null>();
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -23,7 +24,7 @@ vi.mock("../server/db/index.js", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: () => Promise.resolve([{ data: designSystemData }]),
+          limit: () => Promise.resolve([{ data: storedDesignSystemData }]),
         }),
       }),
     }),
@@ -80,6 +81,7 @@ const run = (args: { deckId: string }) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  storedDesignSystemData = designSystemData;
   mockGetCurrentRequestBrowserTabId.mockReturnValue(null);
   mockResolveAccess.mockImplementation((type: string) => {
     if (type === "design-system") {
@@ -115,6 +117,35 @@ describe("audit-contrast", () => {
   });
 
   it("audits a deck reader against the private design system the deck links", async () => {
+    mockResolveAccess.mockImplementation((type: string) =>
+      Promise.resolve(
+        type === "design-system"
+          ? null
+          : {
+              resource: {
+                designSystemId: "ds-1",
+                data: JSON.stringify({ slides }),
+              },
+            },
+      ),
+    );
+    mockListBrowserSessions.mockResolvedValue([session("tab-this", "deck-1")]);
+
+    await run({ deckId: "deck-1" });
+
+    expect(mockCallBrowserSession).toHaveBeenCalledWith(
+      "editor@example.com",
+      "tab-this",
+      expect.objectContaining({ args: expectedRequest }),
+      expect.any(Object),
+    );
+  });
+
+  it("hashes only the rendering projection for a deck reader", async () => {
+    storedDesignSystemData = JSON.stringify({
+      colors: { primary: "#000000" },
+      notes: "private",
+    });
     mockResolveAccess.mockImplementation((type: string) =>
       Promise.resolve(
         type === "design-system"
