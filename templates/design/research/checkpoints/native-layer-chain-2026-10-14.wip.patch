@@ -1,0 +1,320 @@
+diff --git a/templates/design/app/components/design/bridge/native-shader-runtime.bridge.ts b/templates/design/app/components/design/bridge/native-shader-runtime.bridge.ts
+index a1e531a919..080aea2d9d 100644
+--- a/templates/design/app/components/design/bridge/native-shader-runtime.bridge.ts
++++ b/templates/design/app/components/design/bridge/native-shader-runtime.bridge.ts
+@@ -471,0 +472,16 @@ type NestedBackdropTransaction = {
++type StagedLayerFrame = {
++  mount: Mount;
++  texture: GPUTexture;
++  resources: NativeFrameResourceScratch<GPUTexture>;
++  simulationFrame?: NativeSimulationFrame;
++  statefulFrame?: NativeStatefulEncodedFrame;
++  feedbackFrame?: NativeFeedbackEncodedFrame;
++  sourceEpoch: number | null;
++  authoredEpoch: number | null;
++  instance: EffectInstance;
++  definition: EffectDefinition;
++  definitionHash: string;
++  localTime: number;
++  inputEpochs: NonNullable<Mount["pendingGraphInputEpochs"]>;
++  extent: NativeEffectExtentPlan;
++};
+@@ -11714,0 +11731 @@ class NativeShaderRuntime {
++    candidate?: GPUTexture,
+@@ -11716 +11733 @@ class NativeShaderRuntime {
+-    const prior = previous.outputTexture;
++    const prior = candidate ?? previous.outputTexture;
+@@ -11804,4 +11821,4 @@ class NativeShaderRuntime {
+-    if (
+-      owners.filter((candidate) => candidate.instance.placement === "layer")
+-        .length > 1
+-    )
++    const layerOwners = owners.filter(
++      (candidate) => candidate.instance.placement === "layer",
++    );
++    if (new Set(layerOwners.map((candidate) => candidate.target)).size > 1)
+@@ -11812,0 +11830,3 @@ class NativeShaderRuntime {
++      (!layerOwners.length ||
++        candidate.instance.placement !== "layer" ||
++        candidate.isTopLayer) &&
+@@ -11846,2 +11866,4 @@ class NativeShaderRuntime {
+-      this.enclosingLayerMounts(child.target).length !== 1 ||
+-      !this.enclosingLayerMounts(child.target).includes(parent)
++      new Set(
++        this.enclosingLayerMounts(child.target).map((owner) => owner.target),
++      ).size !== 1 ||
++      this.nestedBackdropOwner(child.target) !== parent
+@@ -12256,0 +12279,186 @@ class NativeShaderRuntime {
++  private async stageLayerChain(
++    layers: readonly Mount[],
++    initialSource: GPUTexture,
++    captureInsets: Mount["captureInsets"],
++    encoder: GPUCommandEncoder,
++    time: number,
++    deterministic: boolean,
++    complete: Set<string>,
++    active: Set<string>,
++  ): Promise<StagedLayerFrame[]> {
++    const staged: StagedLayerFrame[] = [];
++    let source = initialSource;
++    let previous: Mount | null = null;
++    try {
++      for (const mount of layers) {
++        if (mount.frozenReason)
++          throw new NativeSourceError(
++            mount.frozenReason.code,
++            mount.frozenReason.message,
++          );
++        if (this.mounts.get(mount.instance.id) !== mount || active.has(mount.instance.id))
++          throw new NativeSourceError(
++            "effect-layer-dependency-unavailable",
++            "effect-layer-dependency-unavailable",
++          );
++        active.add(mount.instance.id);
++        this.layout(mount, captureInsets);
++        mount.provider?.setDensity(mount.pixelRatio);
++        if (!mount.outputExtent)
++          throw new NativeSourceError(
++            "effect-layer-chain-geometry-invalid",
++            "effect-layer-chain-geometry-invalid",
++          );
++        const resources = new NativeFrameResourceScratch(
++          mount.resourceTextures,
++          mount.definition.simulation
++            ? [...mount.resourceTextures.keys()]
++            : [],
++        );
++        mount.resourceTextures = resources.scratch;
++        let retained = false;
++        try {
++          if (previous)
++            source = this.alignedLayerSource(mount, previous, encoder, source);
++          const localTime = deterministic
++            ? mount.instance.timing.time +
++              (mount.instance.timing.paused
++                ? 0
++                : time * mount.instance.timing.speed)
++            : mount.clock.paused
++              ? mount.clock.local
++              : mount.clock.local +
++                (time - mount.clock.global) * mount.clock.speed;
++          const sourceEpoch = mount.provider?.sourceEpoch?.() ?? null;
++          const authoredEpoch = mount.provider?.authoredSourceEpoch?.() ?? null;
++          const result = await this.effectPasses(
++            mount,
++            source,
++            localTime,
++            encoder,
++            mount.definition,
++            mount.instance,
++            deterministic,
++            previous
++              ? `${previous.instance.id}:${previous.frameCount + 1}`
++              : `layer-chain:${this.renderEpoch}`,
++            { complete, active },
++          );
++          const texture = await this.finish(
++            mount,
++            result,
++            encoder,
++            mount.instance,
++            mount.definition,
++          );
++          if (mount.definition.resourceGraph && !mount.pendingGraphInputEpochs)
++            throw new NativeSourceError(
++              "linear-resource-frame-invalid",
++              "linear-resource-frame-invalid",
++            );
++          staged.push({
++            mount,
++            texture,
++            resources,
++            simulationFrame: mount.simulationFrame ?? undefined,
++            statefulFrame: mount.statefulFrame ?? undefined,
++            feedbackFrame: mount.feedbackFrame ?? undefined,
++            sourceEpoch,
++            authoredEpoch,
++            instance: mount.instance,
++            definition: mount.definition,
++            definitionHash: mount.definitionHash,
++            localTime,
++            inputEpochs: new Map(mount.pendingGraphInputEpochs ?? []),
++            extent: mount.outputExtent,
++          });
++          mount.simulationFrame = null;
++          mount.statefulFrame = null;
++          mount.feedbackFrame = null;
++          source = texture;
++          previous = mount;
++          retained = true;
++        } finally {
++          mount.resourceTextures = resources.committed;
++          active.delete(mount.instance.id);
++          if (!retained) {
++            const simulation = mount.simulationFrame;
++            mount.simulationFrame = null;
++            if (simulation) await simulation.transaction.abandon();
++            mount.statefulFrame?.abandon();
++            mount.statefulFrame = null;
++            mount.feedbackFrame?.abandon();
++            mount.feedbackFrame = null;
++            for (const texture of resources.rollback())
++              if (!this.textureRetirement.includes(texture))
++                this.textureRetirement.push(texture);
++            mount.pendingGraphInputEpochs = null;
++          }
++        }
++      }
++      return staged;
++    } catch (error) {
++      await this.abortStagedLayerChain(staged, false, false, error);
++      throw error;
++    }
++  }
++
++  private assertStagedLayerChainCurrent(staged: readonly StagedLayerFrame[]): void {
++    for (const frame of staged) {
++      const { mount } = frame;
++      if (
++        this.mounts.get(mount.instance.id) !== mount ||
++        mount.instance !== frame.instance ||
++        mount.definition !== frame.definition ||
++        mount.definitionHash !== frame.definitionHash ||
++        mount.outputExtent !== frame.extent ||
++        !mount.target.isConnected ||
++        (frame.sourceEpoch !== null &&
++          mount.provider?.sourceEpoch?.() !== frame.sourceEpoch) ||
++        (frame.authoredEpoch !== null &&
++          mount.provider?.authoredSourceEpoch?.() !== frame.authoredEpoch)
++      )
++        throw new NativeSourceError("source-epoch-stale", "source-epoch-stale");
++      for (const [name, { capture, sourceEpoch }] of frame.inputEpochs)
++        if (!this.authoredInputCaptureCurrent(mount, name, capture, sourceEpoch))
++          throw new NativeSourceError(
++            "input-authored-source-stale",
++            `Authored input ${capture.nodeId} changed before GPU publication.`,
++          );
++    }
++  }
++
++  private async abortStagedLayerChain(
++    staged: readonly StagedLayerFrame[],
++    submitted: boolean,
++    gpuValidated: boolean,
++    error: unknown,
++  ): Promise<void> {
++    for (const frame of staged) {
++      const { mount } = frame;
++      if (frame.simulationFrame) {
++        if (submitted) await frame.simulationFrame.transaction.rejectSubmitted();
++        else await frame.simulationFrame.transaction.abandon();
++        if (frame.simulationFrame.state !== mount.simulation)
++          this.retireSimulationState(frame.simulationFrame.state);
++      }
++      if (frame.statefulFrame) {
++        if (submitted && !gpuValidated)
++          await frame.statefulFrame.rejectSubmitted(error);
++        else frame.statefulFrame.abandon();
++      }
++      mount.statefulCandidate?.executor.dispose();
++      mount.statefulCandidate = null;
++      if (frame.feedbackFrame) {
++        if (submitted) await frame.feedbackFrame.rejectSubmitted(error);
++        else frame.feedbackFrame.abandon();
++      }
++      if (mount.feedbackCandidate) await this.disposeFeedback(mount.feedbackCandidate);
++      mount.feedbackCandidate = null;
++      mount.pendingGraphInputEpochs = null;
++      for (const texture of frame.resources.rollback())
++        if (!this.textureRetirement.includes(texture))
++          this.textureRetirement.push(texture);
++    }
++  }
++
+@@ -12359,0 +12568,38 @@ class NativeShaderRuntime {
++    const lowerLayerChain: Mount[] = [];
++    if (
++      mount.instance.placement === "layer" &&
++      mount.isTopLayer &&
++      mount.previousLayerId
++    ) {
++      let previousId: string | undefined = mount.previousLayerId;
++      const seen = new Set([mount.instance.id]);
++      while (previousId) {
++        const previous = this.mounts.get(previousId);
++        if (
++          !previous ||
++          seen.has(previousId) ||
++          previous.target !== mount.target ||
++          previous.instance.placement !== "layer" ||
++          previous.previousFillId
++        )
++          throw new NativeSourceError(
++            "effect-layer-dependency-unavailable",
++            "effect-layer-dependency-unavailable",
++          );
++        seen.add(previousId);
++        lowerLayerChain.unshift(previous);
++        previousId = previous.previousLayerId;
++      }
++      if (
++        draft ||
++        lowerLayerChain.some(
++          (candidate) =>
++            this.draft?.instanceId === candidate.instance.id ||
++            this.instancePreview?.instanceId === candidate.instance.id,
++        )
++      )
++        throw new NativeSourceError(
++          "effect-layer-chain-draft-unsupported",
++          "effect-layer-chain-draft-unsupported",
++        );
++    }
+@@ -12370,18 +12616,20 @@ class NativeShaderRuntime {
+-      try {
+-        await this.renderMount(
+-          previousLayer,
+-          time,
+-          deterministic,
+-          complete,
+-          active,
+-        );
+-      } catch (error) {
+-        active.delete(mount.instance.id);
+-        throw error;
+-      }
+-      if (!previousLayer.outputTexture) {
+-        active.delete(mount.instance.id);
+-        throw new NativeSourceError(
+-          "effect-layer-dependency-unavailable",
+-          `Layer dependency ${mount.previousLayerId} has no GPU output.`,
+-        );
++      if (!lowerLayerChain.length) {
++        try {
++          await this.renderMount(
++            previousLayer,
++            time,
++            deterministic,
++            complete,
++            active,
++          );
++        } catch (error) {
++          active.delete(mount.instance.id);
++          throw error;
++        }
++        if (!previousLayer.outputTexture) {
++          active.delete(mount.instance.id);
++          throw new NativeSourceError(
++            "effect-layer-dependency-unavailable",
++            `Layer dependency ${mount.previousLayerId} has no GPU output.`,
++          );
++        }
+@@ -12465 +12713 @@ class NativeShaderRuntime {
+-      (mount.previousLayerId ||
++      ((mount.previousLayerId && !lowerLayerChain.length) ||
+@@ -12497 +12745,4 @@ class NativeShaderRuntime {
+-    if (mount.instance.placement === "layer" && !mount.previousLayerId) {
++    if (
++      mount.instance.placement === "layer" &&
++      (!mount.previousLayerId || lowerLayerChain.length)
++    ) {
