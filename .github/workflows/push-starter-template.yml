@@ -32,7 +32,7 @@ jobs:
       - name: Resolve the published release tag
         id: source
         env:
-          INPUT_VERSION: ${{ inputs.core_version }}
+          CORE_VERSION_INPUT: ${{ inputs.core_version }}
           PUBLISHED_PACKAGES: ${{ github.event.client_payload.publishedPackages }}
         run: |
           set -euo pipefail
@@ -50,7 +50,7 @@ jobs:
             echo "::error::Could not reach npm for: npm view $*" >&2
             return 1
           }
-          version="${INPUT_VERSION:-}"
+          version="${CORE_VERSION_INPUT:-}"
           if [ -z "$version" ]; then
             # Right after a publish, `latest` can still read the previous
             # release; wait for it to reach the version this dispatch announced.
@@ -96,15 +96,15 @@ jobs:
 
       - name: Require the release commit to pin the resolved core version
         env:
-          VERSION: ${{ steps.source.outputs.version }}
+          CORE_VERSION: ${{ steps.source.outputs.version }}
         run: |
           set -euo pipefail
           pinned="$(jq -r .version packages/core/package.json)"
-          if [ "$pinned" != "$VERSION" ]; then
-            echo "::error::Tag for core ${VERSION} checks out packages/core at ${pinned}; refusing to mirror a mismatched template."
+          if [ "$pinned" != "$CORE_VERSION" ]; then
+            echo "::error::Tag for core ${CORE_VERSION} checks out packages/core at ${pinned}; refusing to mirror a mismatched template."
             exit 1
           fi
-          echo "Mirroring the builder-code-starter template from the core ${VERSION} release commit."
+          echo "Mirroring the builder-code-starter template from the core ${CORE_VERSION} release commit."
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
