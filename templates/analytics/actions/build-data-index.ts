@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
+import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
@@ -20,17 +20,29 @@ import {
   SOURCE_INDEX_RUN_STALE_AFTER_MS,
   type SourceIndexRunOutcome,
 } from "../server/lib/source-index-runs.js";
+import { parseSourceIndexBundle } from "../server/lib/source-index-schema.js";
 import type { SourceIndexBundle } from "../server/lib/source-index-schema.js";
 import {
   invalidateSourceIndexCache,
+  mergeSourceIndexBundles,
   SOURCE_INDEX_SETTING_KEY,
 } from "../server/lib/source-index-store.js";
 
 function indexedSourceRevisions(
   bundle: SourceIndexBundle,
+  updatedFrom: SourceIndexBundle = bundle,
 ): Record<string, string> {
+  const updatedSources = bundle.sources.filter((source) =>
+    updatedFrom.sources.some((builtSource) =>
+      builtSource.repositoryRef
+        ? source.repositoryRef === builtSource.repositoryRef
+        : source.id === builtSource.id &&
+          (source.revision ?? source.contentFingerprint) ===
+            (builtSource.revision ?? builtSource.contentFingerprint),
+    ),
+  );
   return Object.fromEntries(
-    bundle.sources.map((source): [string, string] => {
+    updatedSources.map((source): [string, string] => {
       const revision = source.revision ?? source.contentFingerprint;
       if (!revision) {
         // guard:allow-bare-error — invariant: withRevision stamps every source before storage, so a missing revision is a builder bug.
@@ -61,7 +73,7 @@ async function readDbtRepository(orgId: string): Promise<DbtRepository> {
 
 export default defineAction({
   description:
-    "Rebuild the organization's Analytics source index from its configured dbt GitHub repository. Requires an organization owner or admin. Every build is recorded as a run. A successful build replaces the current index; a failed build leaves it unchanged and records the error. The index holds source metadata only, and its entries remain unapproved suggestions.",
+    "Rebuild the organization's Analytics source index from its configured dbt GitHub repository. Requires an organization owner or admin. Every build is recorded as a run. A successful build replaces only the configured dbt sources and preserves other indexed sources; a failed build leaves the index unchanged and records the error. The dictionary overlay remains untouched. The index holds source metadata only, and its entries remain unapproved suggestions.",
   schema: z.object({
     trigger: z
       .enum(["manual", "scheduled"])
@@ -98,11 +110,25 @@ export default defineAction({
     });
     let outcome: SourceIndexRunOutcome;
     try {
-      const { bundle } = await buildDbtSourceIndexFromGitHub(repository);
+      const { bundle: builtBundle } =
+        await buildDbtSourceIndexFromGitHub(repository);
       // Computed before the write so a bad source fails the run instead of
       // leaving a stored index with no recorded revisions.
-      const sourceRevisions = indexedSourceRevisions(bundle);
-      await putOrgSetting(orgId, SOURCE_INDEX_SETTING_KEY, bundle);
+      // Check the new build before the write, then report its final source IDs
+      // after any repository collision has been preserved and disambiguated.
+      indexedSourceRevisions(builtBundle);
+      const storedBundle = await mutateOrgSetting(
+        orgId,
+        SOURCE_INDEX_SETTING_KEY,
+        (existingIndex) => {
+          const currentBundle = existingIndex
+            ? parseSourceIndexBundle(existingIndex)
+            : null;
+          return mergeSourceIndexBundles(currentBundle, builtBundle);
+        },
+      );
+      const bundle = parseSourceIndexBundle(storedBundle);
+      const sourceRevisions = indexedSourceRevisions(bundle, builtBundle);
       invalidateSourceIndexCache(orgId);
       outcome = {
         status: "succeeded",

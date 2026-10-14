@@ -62,10 +62,14 @@ The expected source contracts are:
 - Builder.io current and historical counts: `dbt_mart.organization_user_count`
   is one row per organization per date; `dbt_mart.aggregate_monthly_users_per_org`
   is one row per organization per month.
-- Builder.io month-end employee split: `aggregate_monthly_users_per_org.user_count`
-  excludes `@builder.io` addresses and `internal_user_count` counts them. This
-  email-domain rule is specific to that historical model; it is not a generic
-  spam, employment, or active-user definition.
+- Builder.io monthly membership counts: `aggregate_monthly_users_per_org.user_count`
+  counts distinct memberships whose email does not end in `@builder.io`;
+  `internal_user_count` counts distinct memberships whose email does end in
+  `@builder.io`. This is an email-address split, not a verified employee or
+  staff roster. Completed months use the last calendar day as their cutoff; the
+  in-progress month is a partial snapshot as of today. This domain rule is
+  specific to this historical membership model, not a generic spam or
+  active-user definition.
 - Builder.io product activity: `fact_builder_activity`, using its dbt-declared
   activity fact grain rather than a user or organization dimension.
 - Agent-Native accounts and telemetry: `dim_agent_native_users` for accounts

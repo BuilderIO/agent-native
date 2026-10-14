@@ -312,6 +312,10 @@ const messages = {
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
       "Versuchen Sie es erneut, nachdem die Transkription abgeschlossen ist.",
+    silenceTranscriptUnavailableTitle:
+      "Dieses Transkript kann nicht zum Entfernen von Stille verwendet werden",
+    silenceTranscriptUnavailableDescription:
+      "Versuchen Sie, ein neues Transkript zu erstellen, und entfernen Sie danach erneut die Stille.",
     titleGenerationQueued: "Titel wird erstellt…",
     descriptionQueued: "Beschreibung wird erstellt…",
     chapterQueued: "Kapitel werden erstellt…",

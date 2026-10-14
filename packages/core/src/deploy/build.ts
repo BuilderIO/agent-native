@@ -65,6 +65,10 @@ import {
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
+  CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getMissingCoreOptionalPeers,
+} from "../shared/optional-peer-ssr.js";
+import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
@@ -120,6 +124,12 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+
+function packageExternalPattern(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?:/|$)`);
+}
+
 export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare_module",
   "cloudflare-module",
@@ -4381,14 +4391,6 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
-const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
-  "fast-xml-parser",
-  "jszip",
-  "officeparser",
-  "pdf-parse",
-  "pdfjs-dist",
-] as const;
-
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
@@ -4868,7 +4870,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of NETLIFY_BUNDLED_INGESTION_DEPENDENCIES) {
+    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
       if (hasBareRuntimeImport(source, dependency)) {
         bareIngestionImports.push(
           `${dependency} in ${path.relative(projectCwd, filePath)}`,
@@ -6080,6 +6082,15 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const nodeExternalPreset =
+    preset === "netlify" ||
+    preset === "vercel" ||
+    isAwsLambdaPreset(preset) ||
+    preset === "node" ||
+    preset === "node-server";
+  const optionalPeerExternals = nodeExternalPreset
+    ? getMissingCoreOptionalPeers(cwd).map(packageExternalPattern)
+    : [];
   const sentryServerSourceMapPlugins =
     await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
@@ -6142,12 +6153,8 @@ export default bundle;
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
-      ...(preset === "netlify" ||
-      preset === "vercel" ||
-      isAwsLambdaPreset(preset) ||
-      preset === "node" ||
-      preset === "node-server"
-        ? { external: ["yjs"] }
+      ...(nodeExternalPreset
+        ? { external: ["yjs", ...optionalPeerExternals] }
         : {}),
       plugins: [
         ...(preset.startsWith("cloudflare")

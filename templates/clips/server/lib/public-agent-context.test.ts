@@ -57,6 +57,13 @@ vi.mock("../db/index.js", () => ({
   },
 }));
 
+const mockRecordAgentView = vi.hoisted(() => vi.fn());
+
+vi.mock("./agent-views.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-views.js")>()),
+  recordAgentView: (...args: unknown[]) => mockRecordAgentView(...args),
+}));
+
 vi.mock("./share-password.js", () => ({
   getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
     password ? `${id}:password-scoped` : `${id}:update-scoped`,
@@ -207,6 +214,56 @@ describe("public agent context access", () => {
     if (!result.ok) {
       expect(result.failure.status).toBe(404);
     }
+  });
+});
+
+describe("agent view recording", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordings.rows = [];
+    mockGetSession.mockResolvedValue(null);
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+  });
+
+  it("records a non-owner read with the clip owner and whether a scoped link was used", async () => {
+    mockRecordings.rows = [makeRecording({ visibility: "private" })];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      agentLabel: "Fusion",
+    });
+
+    await loadPublicAgentAccess({} as any, "rec-1", { token: "agent-token" });
+
+    expect(mockRecordAgentView).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      "rec-1",
+      {
+        agentLabel: "Fusion",
+        ownerEmail: "owner@example.com",
+        viaScopedLink: true,
+      },
+    );
+  });
+
+  it("marks a tokenless public read as not scoped", async () => {
+    mockRecordings.rows = [makeRecording()];
+
+    await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(mockRecordAgentView.mock.calls[0][2]).toEqual({
+      agentLabel: null,
+      ownerEmail: "owner@example.com",
+      viaScopedLink: false,
+    });
+  });
+
+  it("does not record the owner's own reads", async () => {
+    mockRecordings.rows = [makeRecording()];
+    mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+
+    await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(mockRecordAgentView).not.toHaveBeenCalled();
   });
 });
 

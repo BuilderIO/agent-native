@@ -29,6 +29,7 @@ export type WorkspaceConnectionProviderId =
   | "gmail"
   | "google_calendar"
   | "google_drive"
+  | "bigquery"
   | "google_docs"
   | "google_sheets"
   | "google_slides"
@@ -232,6 +233,19 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       ...GOOGLE_IDENTITY_SCOPES,
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/calendar.events",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "bigquery",
+    label: "BigQuery",
+    description:
+      "BigQuery datasets and SQL jobs for analytics and data exploration.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/bigquery",
     ]),
   }),
   defineWorkspaceConnectionProvider({

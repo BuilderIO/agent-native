@@ -50,6 +50,30 @@ function toDataTableResult(result: {
   });
 }
 
+function isQueryCancellation(
+  error: unknown,
+  signal: AbortSignal | undefined,
+): boolean {
+  return (
+    signal?.aborted === true ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+function queryFailureClass(
+  error: unknown,
+): "timeout" | "query_error" | "unknown" {
+  if (!(error instanceof Error)) return "unknown";
+  const code = (error as Error & { code?: unknown }).code;
+  return [
+    "FirstPartyAnalyticsQueryTimeoutError",
+    "BigQueryQueryTimeoutError",
+    "DbTimeoutError",
+  ].includes(error.name) || code === "CONNECT_TIMEOUT"
+    ? "timeout"
+    : "query_error";
+}
+
 export default defineAction({
   description:
     "Query the built-in first-party Analytics source: events recorded through this app's analytics collector endpoint (/track), compact daily rollups updated transactionally with new ingest, identifiable user-day rollups, and session replay summaries. It needs no external provider connection. Use it for app/site traffic, product events, template/app usage, conversions, session recordings, and LLM/agent observability (event_name = '$ai_generation': model cost, tokens, latency); use the BigQuery, GA4, Mixpanel, PostHog, or Amplitude actions when the user asks for those or the data lives there. " +
@@ -108,10 +132,47 @@ export default defineAction({
       },
       actionContext,
     );
-    const result = await queryFirstPartyAnalytics(args.sql, scope, {
-      cache: true,
-      includeTestIdentities: args.includeTestIdentities === true,
-    });
+    let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+    try {
+      result = await queryFirstPartyAnalytics(args.sql, scope, {
+        cache: true,
+        includeTestIdentities: args.includeTestIdentities === true,
+        ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
+      });
+    } catch (error) {
+      try {
+        if (isQueryCancellation(error, actionContext?.signal)) {
+          track(
+            "query_cancelled",
+            {
+              app_name: "analytics",
+              template_name: "analytics",
+              query_mode: "first_party",
+              surface: "agent",
+              cancellation_class: actionContext?.signal?.aborted
+                ? "caller_abort"
+                : "query_abort",
+            },
+            actionContext,
+          );
+        } else {
+          track(
+            "query_failed",
+            {
+              app_name: "analytics",
+              template_name: "analytics",
+              query_mode: "first_party",
+              surface: "agent",
+              failure_class: queryFailureClass(error),
+            },
+            actionContext,
+          );
+        }
+      } catch {
+        // Telemetry is best-effort and must not replace the query error.
+      }
+      throw error;
+    }
     track(
       "query_executed",
       {

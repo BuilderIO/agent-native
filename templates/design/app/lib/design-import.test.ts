@@ -353,6 +353,7 @@ describe("design clipboard marker round-trip", () => {
           filename: "home.html",
           fileType: "html",
           content: "<html><body>Home</body></html>",
+          sourceScreenId: "screen-home",
           canvasFrame: { x: 100, y: 200, width: 390, height: 844 },
         },
       ],
@@ -410,6 +411,11 @@ describe("design clipboard marker round-trip", () => {
         filename: "safe.html",
         content: "<main>nope</main>",
         canvasFrame: { x: Number.POSITIVE_INFINITY },
+      },
+      {
+        filename: "safe.html",
+        content: "<main>nope</main>",
+        sourceScreenId: 7,
       },
     ]) {
       const marker = btoa(

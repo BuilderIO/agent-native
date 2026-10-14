@@ -574,6 +574,17 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     expect(
       track.mock.calls.some(([name]) => name === "generation_completed"),
     ).toBe(false);
+    expect(
+      track.mock.calls
+        .filter(([name]) => name === "generation_failed")
+        .map(([, properties]) => properties),
+    ).toEqual([
+      expect.objectContaining({
+        error_type: "no_files_saved",
+        files_saved: 0,
+        generation_path: "generate_design",
+      }),
+    ]);
     expect(result.fileErrors).toEqual([
       {
         filename: "index.html",
@@ -657,6 +668,14 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
         message: expect.stringContaining("changed since it was read"),
       },
     ]);
+    expect(
+      track.mock.calls
+        .filter(([name]) => name === "generation_completed")
+        .map(([, properties]) => properties),
+    ).toEqual([expect.objectContaining({ outcome: "partial", file_count: 1 })]);
+    expect(
+      track.mock.calls.some(([name]) => name === "generation_failed"),
+    ).toBe(false);
   });
 
   it("updates fileType separately when it changes, alongside the guarded content write", async () => {
@@ -2652,5 +2671,260 @@ describe("generate-design: explicit device request resizes an existing frame", (
       { width: number; height: number }
     >;
     expect(metadata["file-1"]).toMatchObject({ width: 390, height: 844 });
+  });
+});
+
+describe("generate-design: generation attempt tracking", () => {
+  const html = "<html><body>Hello</body></html>";
+
+  function events(name: string) {
+    return track.mock.calls
+      .filter(([event]) => event === name)
+      .map(([, properties]) => properties as Record<string, unknown>);
+  }
+
+  function generationEvents() {
+    return track.mock.calls
+      .map(([event]) => event as string)
+      .filter((event) => event.startsWith("generation_"));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    track.mockReset();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([
+      { id: "design-1", title: "Untitled Design", data: null },
+    ]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.readAppState.mockResolvedValue(null);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("records one started and one completed event for a saved generation", async () => {
+    const prompt = "A secret product launch page for Project Nightjar";
+    const result = await action.run({
+      designId: "design-1",
+      prompt,
+      designSystemId: "ds-1",
+      files: [{ filename: "index.html", fileType: "html", content: html }],
+    });
+
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_completed",
+    ]);
+    const [started] = events("generation_started");
+    const [completed] = events("generation_completed");
+    expect(started).toMatchObject({
+      output_id: "design-1",
+      output_type: "design",
+      generation_path: "generate_design",
+      prompt_type: "ui",
+      prompt_length_bucket: "1-50",
+      has_reference_design_system: true,
+      app_name: "design",
+    });
+    expect(completed).toMatchObject({
+      output_id: "design-1",
+      generation_path: "generate_design",
+      outcome: "completed",
+      file_count: 1,
+      generation_attempt_id: started.generation_attempt_id,
+    });
+    expect(JSON.stringify(track.mock.calls)).not.toContain("Nightjar");
+    expect(events("design_edited")).toEqual([
+      expect.objectContaining({
+        edit_type: "generation",
+        generation_attempt_id: started.generation_attempt_id,
+      }),
+    ]);
+    expect(result.urlPath).toContain(String(started.generation_attempt_id));
+  });
+
+  it("records nothing when the caller cannot edit the design", async () => {
+    const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    mocks.assertAccess.mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Landing page",
+        files: [{ filename: "index.html", fileType: "html", content: html }],
+      }),
+    ).rejects.toBe(denied);
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it("records one failure and rethrows the original error when the save throws", async () => {
+    const boom = Object.assign(new Error("db down"), { statusCode: 503 });
+    mocks.mutateDesignData.mockRejectedValueOnce(boom);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Landing page",
+        files: [{ filename: "index.html", fileType: "html", content: html }],
+      }),
+    ).rejects.toBe(boom);
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_failed",
+    ]);
+    const [started] = events("generation_started");
+    expect(events("generation_failed")[0]).toMatchObject({
+      output_id: "design-1",
+      generation_path: "generate_design",
+      generation_attempt_id: started.generation_attempt_id,
+      error_type: "http_503",
+      files_saved: 0,
+    });
+  });
+
+  it("records a failure when the design-system access check fails after start", async () => {
+    const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    mocks.assertAccess
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Landing page",
+        designSystemId: "ds-private",
+        files: [{ filename: "index.html", fileType: "html", content: html }],
+      }),
+    ).rejects.toBe(denied);
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_failed",
+    ]);
+  });
+
+  it("attributes a call that fills a pending generate-screens frame to the screens path", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "planning",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "queued",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    expect(generationEvents()).toEqual([
+      "generation_started",
+      "generation_completed",
+    ]);
+    for (const properties of [
+      ...events("generation_started"),
+      ...events("generation_completed"),
+    ]) {
+      expect(properties).toMatchObject({
+        generation_path: "screens",
+        generation_session_id: "session-1",
+      });
+    }
+  });
+
+  it("keeps the generate_design path once the plan was cancelled, even with queued frames", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "cancelled",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "queued",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    const [started] = events("generation_started");
+    expect(started.generation_path).toBe("generate_design");
+    expect(started).not.toHaveProperty("generation_session_id");
+  });
+
+  it("keeps the generate_design path for a file outside the pending plan", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "done",
+      prompt: "App",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "home.html",
+          status: "done",
+          role: "screen",
+          agentId: "agent-frame-1",
+          agentName: "A",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 900 },
+        },
+      ],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Home screen",
+      files: [{ filename: "home.html", fileType: "html", content: html }],
+    });
+
+    const [started] = events("generation_started");
+    expect(started.generation_path).toBe("generate_design");
+    expect(started).not.toHaveProperty("generation_session_id");
+  });
+
+  it("still saves and returns when the tracking provider throws", async () => {
+    track.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Landing page",
+      files: [{ filename: "index.html", fileType: "html", content: html }],
+    });
+
+    expect(result.fileCount).toBe(1);
+    expect(result.savedFiles).toHaveLength(1);
   });
 });

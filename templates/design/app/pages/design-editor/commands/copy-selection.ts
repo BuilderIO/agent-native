@@ -139,6 +139,7 @@ export async function runCopySelection({
               filename: file.filename,
               fileType: file.fileType,
               content,
+              sourceScreenId: screenId,
               canvasFrame: canvasFrameGeometryById[screenId],
             };
           })

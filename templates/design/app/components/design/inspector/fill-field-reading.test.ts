@@ -4,6 +4,7 @@ import {
   fillFieldEditText,
   parseFillFieldDraft,
   readFillField,
+  showsChevron,
   showsOpacity,
 } from "./fill-field-reading";
 
@@ -41,6 +42,34 @@ describe("readFillField", () => {
     };
     expect(solid("oklch(72.4% 0.181 153)")).toEqual(expected);
     expect(solid("oklch(0.724 0.181 153)")).toEqual(expected);
+  });
+
+  it("rounds an OKLCH reading to a length the field can hold, without touching the stored color", () => {
+    const stored = "oklch(70.8312% 0.157349 153.2147)";
+    expect(solid(stored)).toEqual({
+      kind: "wide",
+      prefix: "OKLCH",
+      text: "70.8 0.157 153.2",
+    });
+    expect(stored).toBe("oklch(70.8312% 0.157349 153.2147)");
+    expect(solid("oklch(0.5 0.1 20)")).toMatchObject({ text: "50 0.1 20" });
+    expect(solid("oklch(0.5 0 0)")).toMatchObject({ text: "50 0 0" });
+  });
+
+  it("keeps the longest OKLCH reading short enough for the field", () => {
+    const { text } = solid("oklch(88.8888% 0.888888 288.8888)") as {
+      text: string;
+    };
+    expect(text).toBe("88.9 0.889 288.9");
+    // `OKLCH ` plus the numbers: 22 characters is the most a reading takes.
+    expect(`OKLCH ${text}`.length).toBeLessThanOrEqual(22);
+  });
+
+  it("reads Display P3 to three decimals whatever the stored precision", () => {
+    expect(solid("color(display-p3 0.123456 0.5 0.987654)")).toMatchObject({
+      prefix: "P3",
+      text: "0.123 0.5 0.988",
+    });
   });
 
   it("reads CSS colors the editor does not write as written, keeping their case", () => {
@@ -129,6 +158,22 @@ describe("showsOpacity", () => {
       showsOpacity({ kind: "token", name: "Link", unresolved: false }, 100),
     ).toBe(true);
     expect(showsOpacity({ kind: "mixed" }, 100)).toBe(false);
+  });
+});
+
+describe("showsChevron", () => {
+  it("gives Display P3 and OKLCH the chevron's room", () => {
+    expect(showsChevron(solid("color(display-p3 0.09 0.09 0.09)"))).toBe(false);
+    expect(showsChevron(solid("oklch(72.4% 0.181 153)"))).toBe(false);
+  });
+
+  it("keeps it for everything else", () => {
+    expect(showsChevron(solid("#171717"))).toBe(true);
+    expect(showsChevron(solid("rgb(102, 51, 153)"))).toBe(true);
+    expect(showsChevron({ kind: "paint", text: "Linear" })).toBe(true);
+    expect(
+      showsChevron({ kind: "token", name: "Link", unresolved: false }),
+    ).toBe(true);
   });
 });
 

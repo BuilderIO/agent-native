@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
 const resolveCredential = vi.fn();
-const getAccessToken = vi.fn();
+const getBigQueryAccessToken = vi.fn();
 const getCredentialContext = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
@@ -18,7 +18,7 @@ vi.mock("./credentials", () => ({ resolveCredential }));
 
 vi.mock("./gcloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gcloud")>()),
-  getAccessToken,
+  getBigQueryAccessToken,
 }));
 
 const {
@@ -281,8 +281,8 @@ describe("runQuery cancellation", () => {
     resolveCredential.mockImplementation(async (key: string) =>
       key === "BIGQUERY_PROJECT_ID" ? "test-project" : null,
     );
-    getAccessToken.mockReset();
-    getAccessToken.mockResolvedValue("test-access-token");
+    getBigQueryAccessToken.mockReset();
+    getBigQueryAccessToken.mockResolvedValue("test-access-token");
   });
 
   afterEach(() => {
@@ -398,6 +398,12 @@ describe("runQuery cancellation", () => {
 
   it("applies the caller's BigQuery billed-byte cap", async () => {
     const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
       jsonResponse({
         jobComplete: true,
         schema: { fields: [] },
@@ -935,7 +941,7 @@ describe("runQuery cancellation", () => {
 
   it("classifies token setup failures before starting the dry-run request", async () => {
     const privateDetail = new Error("private token setup detail");
-    getAccessToken.mockRejectedValueOnce(privateDetail);
+    getBigQueryAccessToken.mockRejectedValueOnce(privateDetail);
     const fetchMock = vi.fn<typeof globalThis.fetch>();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -956,10 +962,12 @@ describe("runQuery cancellation", () => {
     const abortError = new Error("aborted");
     abortError.name = "AbortError";
     let receivedSignal: AbortSignal | undefined;
-    getAccessToken.mockImplementationOnce(async (signal?: AbortSignal) => {
-      receivedSignal = signal;
-      throw abortError;
-    });
+    getBigQueryAccessToken.mockImplementationOnce(
+      async (options?: { signal?: AbortSignal }) => {
+        receivedSignal = options?.signal;
+        throw abortError;
+      },
+    );
 
     await expect(
       dryRunQuerySchema("SELECT 1", {
@@ -1541,27 +1549,19 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("isolates cached results by default member and organization-only scope", async () => {
+  it("isolates default and org credential scopes while sharing org results", async () => {
     useCacheDatabase();
+    const queryResult = jsonResponse({
+      jobComplete: true,
+      schema: { fields: [] },
+      rows: [],
+      totalBytesProcessed: "0",
+    });
     const fetchMock = mockQueryJobs(
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
+      queryResult,
+      queryResult,
+      queryResult,
+      queryResult,
     );
     vi.stubGlobal("fetch", fetchMock);
     const sql = "SELECT 9743 AS credential_scope_cache_test";
@@ -1572,6 +1572,20 @@ describe("runQuery cancellation", () => {
       orgId: "customer-org",
     });
     await runQuery(sql);
+    getCredentialContext.mockReturnValue({
+      userEmail: "scope-switch@example.com",
+      orgId: "customer-org",
+    });
+    await runQuery(sql);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    getCredentialContext.mockReturnValue({
+      userEmail: "scope-switch@example.com",
+      orgId: "customer-org",
+      credentialScope: "org",
+    });
+    await runQuery(sql);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+
     getCredentialContext.mockReturnValue({
       userEmail: "admin-a@example.com",
       orgId: "customer-org",
@@ -1585,6 +1599,6 @@ describe("runQuery cancellation", () => {
     });
     await runQuery(sql);
 
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 });
