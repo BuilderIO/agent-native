@@ -2621,7 +2621,7 @@ describe("in-place text session: undo", () => {
 
   it("keeps a 500-operation history for a large text block within the byte budget", () => {
     const operationCount = 500;
-    const originalText = "x".repeat(360_000);
+    const originalText = "x".repeat(500_000);
     const el = mount(`<p id="t">${originalText}</p>`);
     session = startInPlaceTextSession(el);
     caret(textOf(el, originalText.slice(0, 16)), 0);
@@ -2633,7 +2633,7 @@ describe("in-place text session: undo", () => {
     }
 
     const history = session.historyStats();
-    expect(history.peakBytes).toBeGreaterThan(160 * 1024 * 1024);
+    expect(history.peakBytes).toBeGreaterThan(220 * 1024 * 1024);
     expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
     expect(history.retainedBytes).toBeLessThanOrEqual(
       IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
