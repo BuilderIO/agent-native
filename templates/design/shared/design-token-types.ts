@@ -99,6 +99,8 @@ export function guessTokenType(name: string, value: string): DesignTokenType {
   if (/size/.test(n) && /font|text|type|heading|body/.test(n)) {
     return "font-size";
   }
+  // Tailwind-style scales (`--text-lg: 1.125rem`) name font sizes "text-*".
+  if (/^(--)?text-/.test(n) && DIMENSION_VALUE.test(v)) return "font-size";
   if (/font|family|typeface/.test(n)) {
     return DIMENSION_VALUE.test(v) ? "font-size" : "font-family";
   }

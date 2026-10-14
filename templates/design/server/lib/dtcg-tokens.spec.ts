@@ -78,6 +78,20 @@ describe("parseDtcgTokens", () => {
     ]);
   });
 
+  it("types Tailwind-style text-* dimensions as font sizes", () => {
+    expect(
+      parseDtcgTokens(
+        JSON.stringify({
+          text: { lg: { $type: "dimension", $value: "1.125rem" } },
+          border: { width: { $type: "dimension", $value: "1px" } },
+        }),
+      ),
+    ).toEqual([
+      { cssVar: "--text-lg", value: "1.125rem", type: "font-size" },
+      { cssVar: "--border-width", value: "1px", type: "spacing" },
+    ]);
+  });
+
   it("counts declarations it could not import", () => {
     const { tokens, skippedCount } = parseDtcgFiles([
       {
