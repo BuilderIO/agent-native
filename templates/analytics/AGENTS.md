@@ -15,7 +15,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Use one bounded SQL or server-side `run-code` call for lists, filters, counts, or cohorts. If the catalog misses, call `find-data` once, then inspect exact metadata with `search-bigquery-schema` or provider status only when needed; do not fan out per item or add unasked breakdowns.
 - For an exact owner-defined dbt metric, use `query-dbt-semantic-metric` when a dbt workspace connection is available. dbt defines metric meaning and grain; Sigma and Amplitude are examples and cross-checks. Do not infer an owner-approved metric from a model name or dashboard.
 - Answer shape: when a saved or certified dashboard answers, open with one line naming and linking it (`[Title](/dashboards/<id>)`) and how to read it there, then answer. Add a short "How it's computed" note (source, window, filters, sample size, caveats) only when it changes how to read the number. Show SQL, tables, or schema only when asked, when the user writes SQL or asks about tables or columns, or when no dashboard matches. Label figures “Unverified” if no live query ran; never cite the public `demo` source as real evidence unless asked.
-- Create or change saved artifacts only when asked. For named accounts, use `account-deep-dive`; for health, read `account-health`. When challenged on coverage, rerun from the source cohort and provide the updated answer.
+- Create or change saved artifacts only when asked. For a named account, ask what was said in Gong with `run-gong-native-insight` and use `account-deep-dive` when the answer needs HubSpot CRM context; for health, read `account-health`. When challenged on coverage, rerun from the source cohort and provide the updated answer.
 
 ## Core rules
 

@@ -39,9 +39,11 @@ questions, and it is the default here too.
   sub-questions in one call. It is on by default; a workspace owner can turn it
   off with `configure-gong-native-insights`, which never blocks the raw
   evidence path.
-- `account-deep-dive` — first choice for named account/deal deep dives that
-  need HubSpot plus Gong. It searches by account/deal/company/contact domain,
-  loads Gong call details, and returns compact transcript excerpts for synthesis.
+- `account-deep-dive` — first choice for a named account/deal when the answer
+  needs HubSpot CRM context alongside Gong. For a question about what was said
+  in the calls, use `run-gong-native-insight` first. It searches by
+  account/deal/company/contact domain, loads Gong call details, and returns
+  compact transcript excerpts for synthesis.
 - `gong-calls` — bounded convenience reads: list recent calls, search by
   company/domain/person/email, fetch a single transcript by call ID, or return
   transcript excerpts for a small matching cohort. Its `transcriptQuery` is a
@@ -107,8 +109,10 @@ When analyzing customer sentiment, objections, or voice of the customer:
 
 For account or deal deep dives:
 
-1. Call `account-deep-dive` first when the request also needs CRM context,
-   contacts, stages, amount, close date, or an overall opportunity narrative.
+1. Ask `run-gong-native-insight` first for what customers said, risks,
+   objections, and next steps. Call `account-deep-dive` first when the request
+   also needs CRM context, contacts, stages, amount, close date, or an overall
+   opportunity narrative, or when native operations are not connected.
 2. Use `gong-calls` for targeted follow-up searches by account name, domain,
    person, or email.
 3. Set `includeTranscripts=true` when the user asks for context, risks,
