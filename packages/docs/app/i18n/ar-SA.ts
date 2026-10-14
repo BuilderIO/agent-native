@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const arSA = {
   campaign: {
+    allArticles: "جميع المقالات",
     useCases: "حالات الاستخدام",
     useCasesTitle:
       "أنجز العمل المتكرر باستخدام تطبيق Agent-Native ووكيل الذكاء الاصطناعي",

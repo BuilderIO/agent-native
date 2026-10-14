@@ -1,6 +1,7 @@
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 
-import { loadCampaignContent } from "../../lib/campaign-content";
+import { USE_CASES_BASE } from "../../lib/campaign-content";
+import { loadCampaignContent } from "../../lib/campaign-content.server";
 import {
   newestArticles,
   publicArticle,
@@ -32,7 +33,7 @@ export const meta = ({
     ? campaignMeta(
         content.item.title,
         content.item.meta_description,
-        `/use-cases/${content.item.slug}`,
+        `${USE_CASES_BASE}/${content.item.slug}`,
       )
     : [];
 };

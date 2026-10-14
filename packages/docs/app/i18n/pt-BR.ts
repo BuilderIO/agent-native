@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const ptBR = {
   campaign: {
+    allArticles: "Todos os artigos",
     useCases: "Casos de uso",
     useCasesTitle:
       "Trabalho recorrente, feito com um app Agent-Native e seu agente de IA",

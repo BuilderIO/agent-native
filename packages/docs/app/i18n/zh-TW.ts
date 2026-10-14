@@ -1,5 +1,6 @@
 const messages = {
   campaign: {
+    allArticles: "所有文章",
     useCases: "使用情境",
     useCasesTitle: "使用 Agent-Native 應用程式和你的 AI 代理完成日常重複工作",
     useCasesIntro: "選擇你反覆執行的工作。",

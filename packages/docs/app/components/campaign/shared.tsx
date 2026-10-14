@@ -4,6 +4,7 @@ import { IconCopy, IconLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { buildCampaignCtaUrl } from "../../lib/campaign-links";
+import { BuilderImage } from "../builder-image";
 import { TemplateFinalCta } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
 import { copyText } from "../website-redesign/ds/clipboard";
@@ -87,24 +88,27 @@ export function CampaignScreenshot({
       ? safeHref(item.screenshot_url)
       : undefined;
   return (
-    <figure className="m-0 overflow-hidden rounded-xl border border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)]">
-      {url ? (
-        <img
-          src={url}
-          alt={item.screenshot_alt}
-          loading="lazy"
-          className="block h-auto w-full"
-        />
-      ) : (
-        <div className="flex min-h-64 flex-col items-center justify-center gap-4 p-8 text-center">
-          <p className="m-0 font-mono font-semibold">
-            {t("campaign.screenshotTodo")}
-          </p>
-          <p className="m-0 max-w-xl text-[var(--b-text-secondary)]">
-            {item.screenshot_brief}
-          </p>
-        </div>
-      )}
+    <figure className="docs-content m-0">
+      <div className="docs-image-frame">
+        {url ? (
+          <BuilderImage
+            src={url}
+            alt={item.screenshot_alt}
+            loading="lazy"
+            sizes="(max-width: 767px) 100vw, 1200px"
+            className="block h-auto w-full"
+          />
+        ) : (
+          <div className="flex min-h-64 flex-col items-center justify-center gap-4 p-8 text-center">
+            <p className="m-0 font-mono font-semibold">
+              {t("campaign.screenshotTodo")}
+            </p>
+            <p className="m-0 max-w-xl text-[var(--b-text-secondary)]">
+              {item.screenshot_brief}
+            </p>
+          </div>
+        )}
+      </div>
     </figure>
   );
 }

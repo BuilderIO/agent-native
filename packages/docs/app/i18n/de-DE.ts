@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const deDE = {
   campaign: {
+    allArticles: "Alle Artikel",
     useCases: "Anwendungsfälle",
     useCasesTitle:
       "Wiederkehrende Arbeit, erledigt mit einer Agent-Native-App und deinem KI-Agenten",

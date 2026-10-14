@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const esES = {
   campaign: {
+    allArticles: "Todos los artículos",
     useCases: "Casos de uso",
     useCasesTitle:
       "Trabajo recurrente, realizado con una app Agent-Native y tu agente de IA",

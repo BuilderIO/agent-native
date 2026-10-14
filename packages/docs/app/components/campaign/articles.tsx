@@ -1,18 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
+import {
+  ARTICLES_BASE,
+  USE_CASES_BASE,
+  CATEGORY_NAMES,
+  categories,
+} from "../../../lib/campaign-content";
 import { TemplateLandingShell } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
 import { ContentCard } from "../website-redesign/ds/content-card";
 import { SectionHeader } from "../website-redesign/ds/section-header";
 import { ArticleBody, parseArticle, sanitizedMarkdown } from "./markdown";
-import {
-  appNames,
-  categories,
-  safeHref,
-  type Article,
-  type UseCase,
-} from "./public-content";
+import { safeHref, type Article, type UseCase } from "./public-content";
 import {
   CampaignBand,
   CampaignDate,
@@ -40,34 +40,46 @@ export function ArticlesList({
         <SectionHeader
           eyebrow={t("campaign.articles")}
           as="h1"
-          heading={category ? appNames[category] : t("campaign.articles")}
+          heading={
+            category
+              ? CATEGORY_NAMES[category as Article["category"]]
+              : t("campaign.articles")
+          }
           subheading={category ? undefined : t("campaign.articlesIntro")}
         />
       </div>
-      <div className="border border-[var(--docs-border)]">
+      <section className="border border-[var(--docs-border)]">
+        {!category ? (
+          <div className="p-6 sm:p-8">
+            <SectionHeader heading={t("campaign.allArticles")} />
+          </div>
+        ) : null}
         {articles.map((article) => (
           <article
             key={article.slug}
             className="border-t border-[var(--docs-border)] first:border-t-0"
           >
             <Link
-              to={`/articles/${article.slug}`}
+              to={`${ARTICLES_BASE}/${article.slug}`}
               className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[12rem_7rem_1fr] sm:p-8"
             >
               <span className="text-sm text-[var(--fg-secondary)]">
                 <CampaignDate date={article.published} />
               </span>
               <span className="font-mono text-sm text-[var(--fg-secondary)]">
-                {appNames[article.category]}
+                {CATEGORY_NAMES[article.category]}
               </span>
               <h2 className="m-0 text-xl font-medium">{article.title}</h2>
             </Link>
           </article>
         ))}
-      </div>
+      </section>
       {hasMore ? (
         <div className="border-x border-b border-[var(--docs-border)] p-6 text-center">
-          <Button variant="secondary" href={`/articles/page/${page + 1}`}>
+          <Button
+            variant="secondary"
+            href={`${ARTICLES_BASE}/page/${page + 1}`}
+          >
             {t("campaign.showMore")}
           </Button>
         </div>
@@ -81,8 +93,8 @@ export function ArticlesList({
             {categories.map((key) => (
               <ContentCard
                 key={key}
-                href={`/articles/category/${key}`}
-                title={appNames[key]}
+                href={`${ARTICLES_BASE}/category/${key}`}
+                title={CATEGORY_NAMES[key]}
                 body={t(`campaign.topics.${key}`)}
               />
             ))}
@@ -138,10 +150,10 @@ export function ArticlePage({
             aria-label={t("campaign.breadcrumb")}
             className="mb-8 flex flex-wrap items-center gap-2 text-sm text-[var(--fg-secondary)]"
           >
-            <Link to="/articles">{t("campaign.articles")}</Link>
+            <Link to={ARTICLES_BASE}>{t("campaign.articles")}</Link>
             <span aria-hidden="true">/</span>
-            <Link to={`/articles/category/${article.category}`}>
-              {appNames[article.category]}
+            <Link to={`${ARTICLES_BASE}/category/${article.category}`}>
+              {CATEGORY_NAMES[article.category]}
             </Link>
           </nav>
           <h1 className="m-0 text-3xl font-medium leading-tight tracking-tight sm:text-5xl">
@@ -176,7 +188,9 @@ export function ArticlePage({
           {useCase ? (
             <p className="mb-8 text-[var(--fg-secondary)]">
               {t("campaign.partOf")}{" "}
-              <Link to={`/use-cases/${useCase.slug}`}>{useCase.title}</Link>
+              <Link to={`${USE_CASES_BASE}/${useCase.slug}`}>
+                {useCase.title}
+              </Link>
             </p>
           ) : null}
           <ArticleBody article={article} />
@@ -210,7 +224,7 @@ export function ArticlePage({
           <div className="p-6 sm:p-8">
             <SectionHeader
               heading={t("campaign.moreArticles", {
-                category: appNames[article.category],
+                category: CATEGORY_NAMES[article.category],
               })}
             />
           </div>
@@ -218,8 +232,16 @@ export function ArticlePage({
             {more.map((item) => (
               <ContentCard
                 key={item.slug}
-                href={`/articles/${item.slug}`}
-                title={item.title}
+                href={`${ARTICLES_BASE}/${item.slug}`}
+                title={
+                  <>
+                    <span className="mb-3 block font-mono text-sm font-normal text-[var(--b-text-secondary)]">
+                      {CATEGORY_NAMES[item.category]}
+                    </span>
+                    {item.title}
+                  </>
+                }
+                body={item.meta_description}
               />
             ))}
           </div>

@@ -1,6 +1,11 @@
 import { useT, useFormatters } from "@agent-native/core/client/i18n";
 
 import {
+  ARTICLES_BASE,
+  USE_CASES_BASE,
+  CATEGORY_NAMES,
+} from "../../../lib/campaign-content";
+import {
   TemplateHero,
   TemplateLandingFaq,
   TemplateLandingShell,
@@ -10,7 +15,7 @@ import { AppStatusBadge } from "../website-redesign/ds/app-status-badge";
 import { Button } from "../website-redesign/ds/button";
 import { ContentCard } from "../website-redesign/ds/content-card";
 import { SectionHeader } from "../website-redesign/ds/section-header";
-import { appNames, type UseCase, type Article } from "./public-content";
+import { type UseCase, type Article } from "./public-content";
 import {
   CampaignBand,
   CampaignCta,
@@ -36,7 +41,7 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
       {apps.map((app) => (
         <section key={app} className="border border-[var(--docs-border)]">
           <div className="p-6 sm:p-8">
-            <SectionHeader heading={appNames[app] ?? app} />
+            <SectionHeader heading={CATEGORY_NAMES[app]} />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
             {items
@@ -44,7 +49,7 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
               .map((item) => (
                 <ContentCard
                   key={item.slug}
-                  href={`/use-cases/${item.slug}`}
+                  href={`${USE_CASES_BASE}/${item.slug}`}
                   title={item.title}
                   body={item.subhead}
                 />
@@ -88,7 +93,7 @@ export function UseCasePage({
         descriptionPlacement="below-title"
         eyebrow={
           <span className="inline-flex items-center gap-2">
-            {appNames[item.app] ?? item.app}
+            {CATEGORY_NAMES[item.app]}
             <AppStatusBadge appId={item.app === "plans" ? "plan" : item.app} />
           </span>
         }
@@ -180,7 +185,7 @@ export function UseCasePage({
             {articles.map((article) => (
               <ContentCard
                 key={article.slug}
-                href={`/articles/${article.slug}`}
+                href={`${ARTICLES_BASE}/${article.slug}`}
                 title={article.title}
               />
             ))}

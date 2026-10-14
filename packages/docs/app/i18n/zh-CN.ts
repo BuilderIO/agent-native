@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const zhCN = {
   campaign: {
+    allArticles: "所有文章",
     useCases: "使用场景",
     useCasesTitle: "用 Agent-Native 应用和你的 AI 智能体完成日常重复工作",
     useCasesIntro: "选择你反复执行的工作。",

@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const jaJP = {
   campaign: {
+    allArticles: "すべての記事",
     useCases: "ユースケース",
     useCasesTitle:
       "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなす",

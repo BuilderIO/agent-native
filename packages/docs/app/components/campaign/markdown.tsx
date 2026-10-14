@@ -344,10 +344,16 @@ export function ArticleBody({ article }: { article: Article }) {
           <TemplateLandingFaq
             eyebrow={t("campaign.faqs")}
             title={parsed.faqTitle}
+            headingId={headingId(parsed.faqTitle)}
+            headingAction={
+              <CopyControl text={headingId(parsed.faqTitle)} heading />
+            }
             idPrefix="article-faq"
             items={parsed.faqs.map((faq) => ({
               id: faq.id,
-              question: <span id={faq.id}>{faq.q}</span>,
+              question: faq.q,
+              headingId: faq.id,
+              headingAction: <CopyControl text={faq.id} heading />,
               answer: (
                 <div className="docs-content max-w-none">
                   <MarkdownBlocks tokens={faq.answer} article={article} />

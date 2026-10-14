@@ -1,5 +1,6 @@
 const enUS = {
   campaign: {
+    allArticles: "All articles",
     useCases: "Use cases",
     useCasesTitle:
       "Recurring work, done with an Agent-Native app and your AI agent",

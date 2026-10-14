@@ -19,7 +19,9 @@ export const categories = [
 ] as const;
 export const ARTICLES_PAGE_SIZE = 12;
 
-const text = z.string().trim().min(1);
+const text = z
+  .string()
+  .refine((value) => value.trim().length > 0, "Expected nonempty text");
 const slug = text.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const category = z.enum(categories);
 export function isSafeCampaignUrl(value: string): boolean {
@@ -44,7 +46,7 @@ const appUrl = safeUrl.refine(
   (value) => /^https?:\/\//.test(value),
   "Expected an absolute app URL",
 );
-const screenshot = z.string().trim().optional();
+const screenshot = z.string().optional();
 const date = z.preprocess(
   (value) =>
     value instanceof Date && Number.isFinite(value.getTime())
@@ -87,9 +89,12 @@ const useCaseSchema = z.object({
       quote: text,
       name: text,
       role: text,
-      used_before: z.array(text),
+      used_before: z
+        .union([text, z.array(text)])
+        .transform((value) => (typeof value === "string" ? [value] : value)),
     })
-    .optional(),
+    .nullish()
+    .transform((value) => value ?? undefined),
   faqs: z.array(z.object({ q: text, a: text })),
   updated: date,
 });
@@ -118,12 +123,12 @@ export type CampaignSources = {
 };
 
 function validateScreenshot(value: string | undefined, filename: string): void {
-  if (!value || /^TODO\b/i.test(value)) {
+  if (!value?.trim() || /^TODO\b/i.test(value)) {
     console.warn(
       `[campaign-content] ${filename}: screenshot_url missing or TODO; retaining content`,
     );
-  } else if (!isSafeCampaignUrl(value)) {
-    throw new Error("screenshot_url must be a safe URL or TODO");
+  } else if (!isSafeCampaignUrl(value) || !/^https?:\/\//.test(value)) {
+    throw new Error("screenshot_url must be an absolute HTTP(S) URL or TODO");
   }
 }
 
@@ -138,9 +143,7 @@ function parseFiles<T extends { slug: string; screenshot_url?: string }>(
       try {
         const parsed = matter(markdown ? raw : `---\n${raw}\n---\n`);
         const result = schema.parse(
-          markdown
-            ? { ...parsed.data, body: parsed.content.trim() }
-            : parsed.data,
+          markdown ? { ...parsed.data, body: parsed.content } : parsed.data,
         );
         const fileSlug = filename
           .split("/")
@@ -188,30 +191,6 @@ export function parseCampaignContent(
         b.published.localeCompare(a.published) || a.slug.localeCompare(b.slug),
     );
   return { useCases, articles };
-}
-
-// Vite embeds the raw files in the deployed module; Node build tooling supplies sources explicitly.
-const bundledSources: CampaignSources | undefined = import.meta.env
-  ? {
-      useCases: import.meta.glob<string>("../content/use-cases/*.yaml", {
-        query: "?raw",
-        import: "default",
-        eager: true,
-      }),
-      articles: import.meta.glob<string>("../content/articles/*.md", {
-        query: "?raw",
-        import: "default",
-        eager: true,
-      }),
-    }
-  : undefined;
-
-export function loadCampaignContent(): CampaignContent {
-  if (!bundledSources)
-    throw new Error(
-      "Campaign loader requires Vite; Node tooling must use loadCampaignContentFromDisk(rootDir)",
-    );
-  return parseCampaignContent(bundledSources);
 }
 
 export function articleMarkdown(article: PublicArticle): string {

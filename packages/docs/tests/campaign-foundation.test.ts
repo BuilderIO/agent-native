@@ -9,6 +9,7 @@ import { campaignMeta } from "../app/lib/campaign-seo";
 import { buildCampaignPages } from "../app/vite-sitemap-plugin";
 import { articleMarkdown, parseCampaignContent } from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
+import { loadCampaignContent } from "../lib/campaign-content.server";
 
 const common = {
   slug: "sample",
@@ -70,10 +71,88 @@ describe("campaign content", () => {
     expect(content.articles).toHaveLength(1);
     expect(JSON.stringify(content)).not.toContain("PRIVATE");
     expect(articleMarkdown(content.articles[0])).toBe(
-      "# Sample\n\nPublic article body.\n",
+      "# Sample\n\n\nPublic article body.\n",
     );
     expect(JSON.stringify(buildCampaignPages(content))).not.toContain(
       "PRIVATE",
+    );
+  });
+
+  it("accepts null stories as absent and normalizes used_before strings to lists", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const absent = parseCampaignContent(
+      sources({ "sample.yaml": yaml({ ...useCase, story: null }) }),
+    ).useCases[0];
+    expect(absent).toBeDefined();
+    expect(absent.story).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(absent))).not.toHaveProperty("story");
+    for (const used_before of ["Manual notes", ["Manual notes"]]) {
+      const item = parseCampaignContent(
+        sources({
+          "sample.yaml": yaml({
+            ...useCase,
+            story: {
+              quote: "Useful",
+              name: "Writer",
+              role: "Founder",
+              used_before,
+              internal: "PRIVATE-STORY",
+            },
+          }),
+        }),
+      ).useCases[0];
+      expect(item.story?.used_before).toEqual(["Manual notes"]);
+      expect(JSON.stringify(item)).not.toContain("PRIVATE");
+    }
+  });
+
+  it("rejects relative screenshot URLs and preserves original public text", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      parseCampaignContent(
+        sources({
+          "sample.yaml": yaml({
+            ...useCase,
+            screenshot_url: "/images/sample.png",
+          }),
+        }),
+      ).useCases,
+    ).toEqual([]);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("absolute HTTP(S) URL"),
+    );
+    const item = parseCampaignContent(
+      sources({
+        "sample.yaml": yaml({
+          ...useCase,
+          title: " Sample ",
+          screenshot_url: "https://example.com/image.png",
+        }),
+      }),
+    ).useCases[0];
+    expect(item.title).toBe(" Sample ");
+    expect(item.screenshot_url).toBe("https://example.com/image.png");
+    expect(parseCampaignContent(sources()).articles[0].body).toBe(
+      "\nPublic article body.",
+    );
+  });
+
+  it("validates all nine use cases and eight articles through bundled and disk loaders", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bundled = loadCampaignContent();
+    const disk = loadCampaignContentFromDisk(
+      new URL("..", import.meta.url).pathname,
+    );
+    expect(bundled.useCases).toHaveLength(9);
+    expect(bundled.articles).toHaveLength(8);
+    expect(bundled).toEqual(disk);
+    expect(error).not.toHaveBeenCalled();
+    const serialized = JSON.stringify(bundled);
+    expect(serialized).not.toMatch(/"(?:audience|internal)":/);
+    expect(bundled.useCases.every((item) => item.story === undefined)).toBe(
+      true,
     );
   });
 

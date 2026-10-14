@@ -1,6 +1,7 @@
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 
-import { loadCampaignContent } from "../../lib/campaign-content";
+import { ARTICLES_BASE } from "../../lib/campaign-content";
+import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { ArticlePage } from "../components/campaign/articles";
 import {
   newestArticles,
@@ -40,7 +41,7 @@ export const meta = ({
     ? campaignMeta(
         content.article.title,
         content.article.meta_description,
-        `/articles/${content.article.slug}`,
+        `${ARTICLES_BASE}/${content.article.slug}`,
         "article",
       )
     : [];

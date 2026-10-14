@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const koKR = {
   campaign: {
+    allArticles: "모든 글",
     useCases: "사용 사례",
     useCasesTitle: "Agent-Native 앱과 AI 에이전트로 반복 업무 처리하기",
     useCasesIntro: "반복해서 하는 업무를 선택하세요.",

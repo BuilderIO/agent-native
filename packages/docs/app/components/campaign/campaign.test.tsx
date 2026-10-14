@@ -5,7 +5,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, type LoaderFunctionArgs } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadCampaignContent } from "../../../lib/campaign-content";
+import {
+  ARTICLES_BASE,
+  USE_CASES_BASE,
+  CATEGORY_NAMES,
+} from "../../../lib/campaign-content";
+import { loadCampaignContent } from "../../../lib/campaign-content.server";
 import enUS from "../../i18n/en-US";
 import {
   loader as articleLoader,
@@ -16,7 +21,7 @@ import { loader as categoryLoader } from "../../routes/articles.category.$catego
 import { loader as pageLoader } from "../../routes/articles.page.$page";
 import { loader as useCaseLoader } from "../../routes/use-cases.$slug";
 import { SnackbarProvider } from "../website-redesign/ds/snackbar";
-import { ArticlePage } from "./articles";
+import { ArticlePage, ArticlesList } from "./articles";
 import { parseArticle, sanitizedMarkdown } from "./markdown";
 import {
   publicArticle,
@@ -59,7 +64,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   }),
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
-vi.mock("../../../lib/campaign-content", () => ({
+vi.mock("../../../lib/campaign-content.server", () => ({
   loadCampaignContent: vi.fn(),
 }));
 
@@ -77,6 +82,7 @@ const useCase: UseCase = {
   screenshot_brief: "Test screenshot brief.",
   old_way: { heading: "Test old heading", body: "Test old body." },
   replaces: ["Test tool A", "Test tool B"],
+  story: undefined,
   new_way: {
     heading: "Test new heading",
     steps: ["Test first step.", "Test second step."],
@@ -335,6 +341,20 @@ describe("public campaign frontend", () => {
     expect(document.querySelector("h3#test-subheading")?.textContent).toBe(
       "Test subheading",
     );
+    for (const id of [
+      "frequently-asked-questions",
+      "test-faq-one",
+      "test-faq-two",
+    ]) {
+      const heading = document.getElementById(id)!;
+      expect(["H2", "H3"]).toContain(heading.tagName);
+      const copy = heading.parentElement!.querySelector(
+        'button[aria-label="Copy link"]',
+      )!;
+      expect(copy).not.toBeNull();
+      expect(copy.closest("button[aria-expanded]")).toBeNull();
+      expect(copy.classList.contains("group-hover:opacity-100")).toBe(true);
+    }
     expect(document.querySelectorAll("table th")).toHaveLength(2);
     expect(document.querySelectorAll("table td")).toHaveLength(2);
     expect(document.querySelector("pre")?.textContent).toContain("Test code");
@@ -363,6 +383,89 @@ describe("public campaign frontend", () => {
       ["Test FAQ one?", "Test answer one."],
       ["Test FAQ two?", "Test answer two."],
     ]);
+  });
+
+  it("renders All articles and related-card category, title and full metadata", () => {
+    const list = dom(
+      markup(<ArticlesList articles={[article]} page={1} hasMore={false} />),
+    );
+    expect(
+      [...list.querySelectorAll("h2")].map((heading) => heading.textContent),
+    ).toContain("All articles");
+    expect(
+      list.querySelector(`a[href="${ARTICLES_BASE}/${article.slug}"]`),
+    ).not.toBeNull();
+    const related = {
+      ...article,
+      slug: "test-related",
+      title: "Test related article",
+      meta_description: "Test related metadata, kept verbatim.",
+    };
+    const page = dom(
+      markup(
+        <ArticlePage article={article} useCase={useCase} more={[related]} />,
+      ),
+    );
+    const card = page.querySelector(
+      `a[href="${ARTICLES_BASE}/${related.slug}"]`,
+    )!;
+    expect(card.querySelector("h3")?.textContent).toBe(
+      `${CATEGORY_NAMES[related.category]}${related.title}`,
+    );
+    expect(card.textContent).toContain(related.meta_description);
+    expect(
+      page.querySelector(`a[href="${USE_CASES_BASE}/${useCase.slug}"]`)
+        ?.textContent,
+    ).toBe(useCase.title);
+  });
+
+  it("uses the existing image frame and optimized BuilderImage for public screenshots", () => {
+    const screenshot = {
+      ...article,
+      screenshot_url:
+        "https://cdn.builder.io/api/v1/image/assets%2Ffake-space%2Ffake-screenshot.png",
+    };
+    const document = dom(
+      markup(<ArticlePage article={screenshot} useCase={null} more={[]} />),
+    );
+    const image = document.querySelector(".docs-image-frame img")!;
+    expect(image.getAttribute("alt")).toBe(article.screenshot_alt);
+    expect(image.getAttribute("srcset")).not.toBeNull();
+  });
+
+  it("rejects unsafe URL forms while preserving their visible labels", () => {
+    for (const href of [
+      "/\\\\example.com",
+      "/bad path",
+      "/bad\\npath",
+      "//example.com",
+      "https://fake-user:fake-password@example.invalid",
+      "https://example.com/\\\\bad",
+      "javascript:alert(1)",
+    ])
+      expect(safeHref(href)).toBeUndefined();
+    for (const href of [
+      "/docs",
+      "#test-heading",
+      "../docs",
+      "mailto:test@example.invalid",
+      "https://example.com/docs",
+    ])
+      expect(safeHref(href)).toBe(href);
+    const document = dom(
+      markup(
+        <ArticlePage
+          article={{
+            ...article,
+            body: "[Test visible label](/\\\\example.com)",
+          }}
+          useCase={null}
+          more={[]}
+        />,
+      ),
+    );
+    expect(document.body.textContent).toContain("Test visible label");
+    expect(document.querySelector('a[href="/\\\\example.com"]')).toBeNull();
   });
 
   it("does not invent screenshot or inline CTA markers", () => {

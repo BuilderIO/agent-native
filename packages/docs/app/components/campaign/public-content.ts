@@ -1,65 +1,10 @@
-export interface UseCase {
-  slug: string;
-  job_id: string;
-  app: string;
-  title: string;
-  subhead: string;
-  meta_description: string;
-  cta_label: string;
-  secondary_cta_label: string;
-  app_cta_url: string;
-  screenshot_url?: string;
-  screenshot_alt: string;
-  screenshot_brief: string;
-  old_way: { heading: string; body: string };
-  replaces?: string[];
-  new_way: { heading: string; steps: string[] };
-  story?: { quote: string; name: string; role: string; used_before: string[] };
-  faqs: { q: string; a: string }[];
-  cta_band_heading: string;
-  cta_band_subhead: string;
-  updated: string;
-}
+import type {
+  PublicArticle,
+  PublicUseCase,
+} from "../../../lib/campaign-content";
 
-export interface Article {
-  slug: string;
-  use_case: string;
-  job_id: string;
-  title: string;
-  meta_description: string;
-  category: string;
-  published: string;
-  updated?: string;
-  author: string;
-  author_role?: string;
-  author_avatar?: string;
-  app_cta_url: string;
-  cta_label: string;
-  screenshot_url?: string;
-  screenshot_alt: string;
-  screenshot_brief: string;
-  cta_band_heading: string;
-  cta_band_subhead: string;
-  related_resources: { label: string; url: string }[];
-  related?: string[];
-  body: string;
-}
-
-export const appNames: Record<string, string> = {
-  clips: "Clips",
-  design: "Design",
-  slides: "Slides",
-  plans: "Plans",
-  plan: "Plans",
-  analytics: "Analytics",
-};
-export const categories = [
-  "clips",
-  "design",
-  "slides",
-  "plans",
-  "analytics",
-] as const;
+export type UseCase = PublicUseCase;
+export type Article = PublicArticle;
 
 // Project nested objects as well: additions to the content source must not widen the public loader contract.
 export function publicUseCase(item: UseCase): UseCase {
@@ -130,13 +75,16 @@ export function newestArticles<T extends { published: string }>(
 }
 
 export function safeHref(href: string): string | undefined {
-  if (/^(https?:\/\/|mailto:|\/[^/]|#)/i.test(href) || href === "/")
-    return href;
-  if (
-    !/^[a-z][a-z\d+.-]*:/i.test(href) &&
-    !href.startsWith("//") &&
-    !/[\u0000-\u0020\\]/.test(href)
-  )
-    return href;
-  return undefined;
+  if (!href || /[\s\\\u0000-\u001f\u007f]/.test(href) || href.startsWith("//"))
+    return undefined;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const url = new URL(href);
+      return url.username || url.password ? undefined : href;
+    } catch {
+      return undefined;
+    }
+  }
+  if (/^(mailto:|\/|#)/i.test(href)) return href;
+  return /^[a-z][a-z\d+.-]*:/i.test(href) ? undefined : href;
 }

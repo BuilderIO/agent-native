@@ -2,6 +2,7 @@ import enUS from "./en-US";
 
 const hiIN = {
   campaign: {
+    allArticles: "सभी लेख",
     useCases: "उपयोग के उदाहरण",
     useCasesTitle:
       "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करें",
