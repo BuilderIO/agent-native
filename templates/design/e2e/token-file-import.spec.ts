@@ -93,15 +93,12 @@ test("token file import continues after an oversized selection", async ({
   await page
     .getByRole("button", { name: "Import tokens", exact: true })
     .click();
+  const fileChooserPromise = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: /Import from a file/ }).click();
+  const fileChooser = await fileChooserPromise;
 
-  const fileInput = page
-    .locator(
-      'input[type="file"][accept*=".css"]',
-    )
-    .first();
   const response = await waitForAction(page, "import-design-tokens", () =>
-    fileInput.setInputFiles([
+    fileChooser.setFiles([
       {
         name: "too-large.css",
         mimeType: "text/css",
