@@ -2669,29 +2669,33 @@ export default function RecordingPage() {
                   {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("remove-filler-words");
-                    removeFillerWords.mutate({
-                      recordingId: recording.id,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.removeFillerWords")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("remove-silences");
-                    removeSilences.mutate({
-                      recordingId: recording.id,
-                      thresholdMs: 1200,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.removeSilences")}
-                </DropdownMenuItem>
+                {isLoomEmbedBacked ? null : (
+                  <>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("remove-filler-words");
+                        removeFillerWords.mutate({
+                          recordingId: recording.id,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.removeFillerWords")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("remove-silences");
+                        removeSilences.mutate({
+                          recordingId: recording.id,
+                          thresholdMs: 1200,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.removeSilences")}
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuItem
                   disabled={backgroundAiBusy}
                   onSelect={() => {

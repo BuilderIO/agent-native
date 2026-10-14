@@ -317,6 +317,35 @@ describe("home Figma import", () => {
     );
     expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
   });
+  it("warns when a URL import contains rasterized or approximated layers", async () => {
+    mocks.importFrame.mockResolvedValue({
+      designId: "imported-design",
+      files: [{ id: "screen", filename: "frame.html" }],
+      fidelityReport: {
+        exactCount: 0,
+        imageFallbacks: [
+          { nodeId: "1:2", nodeType: "VECTOR", notes: ["Rendered as PNG."] },
+        ],
+        approximated: [
+          { nodeId: "1:3", nodeType: "TEXT", notes: ["Style approximated."] },
+        ],
+      },
+    });
+
+    await openLink();
+    await typeUrl();
+    await submit();
+
+    expect(mocks.warning).toHaveBeenCalledExactlyOnceWith(
+      "Imported frame.html.",
+      {
+        description:
+          "designEditor.import.figmaImageFallbackWarning\ndesignEditor.import.figmaApproximationWarning",
+      },
+    );
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
+  });
   it("retains the URL and readable provider failure for retry and offers existing settings", async () => {
     mocks.importFrame.mockRejectedValueOnce(
       new Error("Action failed: Figma token cannot read this file"),
