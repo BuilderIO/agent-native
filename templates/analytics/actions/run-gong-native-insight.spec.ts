@@ -87,6 +87,26 @@ describe("run-gong-native-insight", () => {
     );
   });
 
+  it("reports a Gong tool error as an error, not as synthesis", async () => {
+    callMcpToolMock.mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "Rate limit exceeded" }],
+    });
+
+    const result = (await action.run({
+      operation: "ask_account",
+      allowCreditRequest: true,
+      arguments: { account: "Acme" },
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      error: "Rate limit exceeded",
+      evidenceFallbackAction: "gong-calls",
+    });
+    expect(result).not.toHaveProperty("result");
+    expect(result).not.toHaveProperty("synthesisOnly");
+  });
+
   it("does not spend a request when the operation is ambiguous across Gong servers", async () => {
     listVisibleMcpToolsMock.mockResolvedValue([
       askAccountTool,

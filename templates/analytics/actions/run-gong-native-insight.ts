@@ -11,6 +11,25 @@ import {
 } from "../server/lib/gong-native-operations";
 import { readGongNativeInsightsPolicy } from "../server/lib/gong-native-policy";
 
+function isMcpToolError(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    (result as { isError?: unknown }).isError === true
+  );
+}
+
+function mcpToolErrorText(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  const text = Array.isArray(content)
+    ? content
+        .map((part) => (typeof part?.text === "string" ? part.text : undefined))
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  return text || "Gong returned an error result with no message.";
+}
+
 export default defineAction({
   description:
     "FIRST CHOICE for any natural-language question about a Gong account, deal, customer, or topic (what did they say about X, risks, objections, themes, next steps, call prep, summaries). Sends one question to Gong's official MCP, which searches the calls server-side and answers in seconds, so never page /calls or /calls/extensive to answer a question. Each invocation consumes one Gong credit request, so put every related sub-question in one call. Workspace owners can turn it off with configure-gong-native-insights. Call gong-native-insights to see the connected operation schemas. Use gong-calls or the provider corpus path only for verbatim quotes, exact counts, or proof that something was absent across all calls.",
@@ -100,6 +119,24 @@ export default defineAction({
       providerId: GONG_MCP_PROVIDER_ID,
       context,
     });
+    // callMcpTool resolves with isError instead of throwing; an error is not a
+    // synthesis, and the request was still sent, so it stays counted.
+    if (isMcpToolError(result)) {
+      return {
+        connected: true,
+        source: "gong-native-mcp",
+        operation,
+        creditRequests: 1,
+        creditUnit: "request",
+        durationMs: Date.now() - startedAt,
+        evidenceMode: "provider-synthesis",
+        rawEvidenceAvailable: false,
+        error: mcpToolErrorText(result),
+        evidenceFallbackAction: "gong-calls",
+        guidance:
+          "Gong returned an error for this request, so there is no synthesis. Report the error instead of presenting it as an answer, and use gong-calls for evidence retrieval.",
+      };
+    }
     return {
       connected: true,
       source: "gong-native-mcp",
