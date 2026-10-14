@@ -175,6 +175,11 @@ export function SigmaMigrationDialog({
   );
   const listData = workbookList.data;
   const listResultIsValid = listData ? isWorkbookListResult(listData) : false;
+  const listHasError =
+    workbookList.isError || Boolean(listData && !listResultIsValid);
+  const isLoadingList =
+    workbookList.isPending ||
+    (workbookList.isFetching && workbookList.isPlaceholderData);
   const connections = listData?.connections ?? EMPTY_CONNECTIONS;
   const connectedConnections = useMemo(
     () => connections.filter((connection) => connection.status === "connected"),
@@ -182,7 +187,14 @@ export function SigmaMigrationDialog({
   );
 
   useEffect(() => {
-    if (!listData) return;
+    if (
+      !listData ||
+      !listResultIsValid ||
+      workbookList.isError ||
+      workbookList.isPlaceholderData
+    ) {
+      return;
+    }
     setConnectionId((current) => {
       if (current && connectedConnections.some((item) => item.id === current)) {
         return current;
@@ -191,7 +203,13 @@ export function SigmaMigrationDialog({
         ? connectedConnections[0].id
         : null;
     });
-  }, [connectedConnections, listData]);
+  }, [
+    connectedConnections,
+    listData,
+    listResultIsValid,
+    workbookList.isError,
+    workbookList.isPlaceholderData,
+  ]);
 
   useEffect(() => {
     setPageCursor(undefined);
@@ -332,7 +350,7 @@ export function SigmaMigrationDialog({
       : null;
 
   const handleConnectionChange = (value: string) => {
-    setConnectionId(value);
+    setConnectionId(value || null);
     setPageCursor(undefined);
     setWorkbookId(null);
     setMigrationResult(null);
@@ -450,7 +468,35 @@ export function SigmaMigrationDialog({
 
   const dashboardPath = reviewTarget ? accessibleDashboardUrl : null;
   const hasMoreWorkbooks =
-    listData?.connectionId === connectionId && Boolean(listData.nextPage);
+    !listHasError &&
+    listData?.connectionId === connectionId &&
+    Boolean(listData.nextPage);
+  const chooseConnectionButton = connectionId ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => handleConnectionChange("")}
+    >
+      {t("dashboardOverview.sigmaChooseConnectionPlaceholder")}
+    </Button>
+  ) : null;
+  const loadMoreButton = hasMoreWorkbooks ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => setPageCursor(listData.nextPage ?? undefined)}
+      disabled={workbookList.isFetching}
+    >
+      {workbookList.isFetching ? (
+        <IconLoader2 className="animate-spin" />
+      ) : null}
+      {workbookList.isFetching
+        ? t("dashboardOverview.sigmaLoadingMore")
+        : t("dashboardOverview.sigmaLoadMore")}
+    </Button>
+  ) : null;
 
   return (
     <>
@@ -461,23 +507,25 @@ export function SigmaMigrationDialog({
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-2">
-            {workbookList.isPending && workbooks.length === 0 ? (
+            {isLoadingList && workbooks.length === 0 ? (
               <WorkbookListSkeleton />
-            ) : (workbookList.isError || (listData && !listResultIsValid)) &&
-              workbooks.length === 0 ? (
+            ) : listHasError && workbooks.length === 0 ? (
               <StateMessage
                 icon={<IconAlertCircle className="size-4" />}
                 title={t("dashboardOverview.sigmaWorkbooksLoadFailed")}
                 detail={t("dashboardOverview.sigmaRetryConnection")}
                 action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void workbookList.refetch()}
-                  >
-                    {t("dashboardOverview.sigmaRetry")}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {chooseConnectionButton}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void workbookList.refetch()}
+                    >
+                      {t("dashboardOverview.sigmaRetry")}
+                    </Button>
+                  </div>
                 }
               />
             ) : connectedConnections.length === 0 ? (
@@ -542,10 +590,15 @@ export function SigmaMigrationDialog({
             {connected &&
             !needsConnectionSelection &&
             (!workbookList.isPending || workbooks.length > 0) ? (
-              workbooks.length === 0 && !workbookList.isError ? (
-                <p className="text-sm text-muted-foreground">
-                  {t("dashboardOverview.sigmaNoWorkbooks")}
-                </p>
+              workbooks.length === 0 && !listHasError ? (
+                <div className="space-y-3">
+                  {!hasMoreWorkbooks ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t("dashboardOverview.sigmaNoWorkbooks")}
+                    </p>
+                  ) : null}
+                  {loadMoreButton}
+                </div>
               ) : workbooks.length > 0 ? (
                 <div className="space-y-5">
                   <div className="space-y-2">
@@ -587,44 +640,30 @@ export function SigmaMigrationDialog({
                     </Badge>
                   ) : null}
 
-                  {workbookList.isError ? (
+                  {listHasError ? (
                     <StateMessage
                       icon={<IconAlertCircle className="size-4" />}
                       title={t("dashboardOverview.sigmaMoreWorkbooksFailed")}
                       detail={t("dashboardOverview.sigmaRetryConnection")}
                       action={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            setRefreshVersion((current) => current + 1)
-                          }
-                        >
-                          {t("dashboardOverview.sigmaRetry")}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          {chooseConnectionButton}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setRefreshVersion((current) => current + 1)
+                            }
+                          >
+                            {t("dashboardOverview.sigmaRetry")}
+                          </Button>
+                        </div>
                       }
                     />
                   ) : null}
 
-                  {hasMoreWorkbooks ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setPageCursor(listData.nextPage ?? undefined)
-                      }
-                      disabled={workbookList.isFetching}
-                    >
-                      {workbookList.isFetching ? (
-                        <IconLoader2 className="animate-spin" />
-                      ) : null}
-                      {workbookList.isFetching
-                        ? t("dashboardOverview.sigmaLoadingMore")
-                        : t("dashboardOverview.sigmaLoadMore")}
-                    </Button>
-                  ) : null}
+                  {loadMoreButton}
 
                   {selectedWorkbook ? (
                     <section className="space-y-3" aria-live="polite">
@@ -650,14 +689,17 @@ export function SigmaMigrationDialog({
                           title={t("dashboardOverview.sigmaPreviewFailed")}
                           detail={t("dashboardOverview.sigmaRetryPreview")}
                           action={
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void inspection.refetch()}
-                            >
-                              {t("dashboardOverview.sigmaRetry")}
-                            </Button>
+                            <div className="flex flex-wrap gap-2">
+                              {chooseConnectionButton}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void inspection.refetch()}
+                              >
+                                {t("dashboardOverview.sigmaRetry")}
+                              </Button>
+                            </div>
                           }
                         />
                       ) : inspection.data ? (
@@ -678,9 +720,12 @@ export function SigmaMigrationDialog({
                       ) : null}
 
                       {migrationError ? (
-                        <p className="text-sm text-destructive" role="alert">
-                          {migrationError}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm text-destructive" role="alert">
+                            {migrationError}
+                          </p>
+                          {chooseConnectionButton}
+                        </div>
                       ) : null}
 
                       {isImported ? (

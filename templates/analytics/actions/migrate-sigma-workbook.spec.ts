@@ -63,9 +63,11 @@ vi.mock("../server/lib/dashboards-store.js", () => ({
 vi.mock("../server/lib/read-only-sql.js", () => ({
   assertReadOnlySql: vi.fn(),
 }));
-vi.mock("./inspect-sigma-workbook.js", () => ({
-  summarizeSigmaElementReview: mocks.summarizeReview,
-}));
+vi.mock("./inspect-sigma-workbook.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./inspect-sigma-workbook.js")>();
+  return { ...actual, summarizeSigmaElementReview: mocks.summarizeReview };
+});
 
 const { default: migrateSigmaWorkbook, sigmaDashboardName } =
   await import("./migrate-sigma-workbook.js");
@@ -94,6 +96,7 @@ function configureImportableWorkbook() {
     workbook: { workbookId, name: "Revenue" },
     elements: [panel],
     sqlQueries: [{ elementId: "element_1", sql: "SELECT 1" }],
+    diagnostics: [],
   });
   mocks.summarizeReview.mockReturnValue([
     { id: "element_1", importable: true },
@@ -112,6 +115,7 @@ beforeEach(() => {
     workbook: { workbookId, name: "Revenue" },
     elements: [],
     sqlQueries: [],
+    diagnostics: [],
   });
   mocks.summarizeReview.mockReturnValue([]);
   mocks.createMigration.mockResolvedValue({});
@@ -138,6 +142,7 @@ describe("migrate-sigma-workbook", () => {
       workbook: { workbookId, name: "Revenue" },
       elements,
       sqlQueries: [],
+      diagnostics: [],
     });
     mocks.summarizeReview.mockReturnValue(review);
     await expect(
@@ -164,6 +169,7 @@ describe("migrate-sigma-workbook", () => {
       workbook: { workbookId, name: "Revenue" },
       elements: [panel],
       sqlQueries: [],
+      diagnostics: [],
     });
     mocks.summarizeReview.mockReturnValue([
       {
@@ -176,6 +182,38 @@ describe("migrate-sigma-workbook", () => {
     await expect(
       migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
     ).rejects.toMatchObject({ errorCode: "sigma_source_mapping_required" });
+
+    expect(mocks.inspectWorkbook).toHaveBeenCalledTimes(1);
+    expect(mocks.inspectWorkbook).toHaveBeenCalledWith({
+      connectionId: "connection_1",
+      workbookId,
+      includeSqlQueries: false,
+    });
+    expect(mocks.createMigration).not.toHaveBeenCalled();
+    expect(mocks.claimMigration).not.toHaveBeenCalled();
+  });
+
+  it("keeps source lookup failures retryable before loading SQL", async () => {
+    mocks.inspectWorkbook.mockResolvedValue({
+      workbook: { workbookId, name: "Revenue" },
+      elements: [panel],
+      sqlQueries: [],
+      diagnostics: [
+        {
+          code: "sigma_source_connection_lookup_failed",
+          severity: "error",
+          message: "Connection metadata could not be verified.",
+          connectionId: "source_1",
+        },
+      ],
+    });
+
+    await expect(
+      migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_source_inspection_failed",
+      statusCode: 503,
+    });
 
     expect(mocks.inspectWorkbook).toHaveBeenCalledTimes(1);
     expect(mocks.inspectWorkbook).toHaveBeenCalledWith({

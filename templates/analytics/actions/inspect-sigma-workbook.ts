@@ -92,6 +92,22 @@ export function summarizeSigmaElementReview(args: {
   );
 }
 
+export function requireSigmaSourceInspection(
+  inspection: SigmaWorkbookInspection,
+): void {
+  if (
+    inspection.diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  ) {
+    fail(
+      "Sigma source connection details could not be verified. Retry the workbook preview.",
+      {
+        errorCode: "sigma_source_inspection_failed",
+        statusCode: 503,
+      },
+    );
+  }
+}
+
 export default defineAction({
   description:
     "Preview a Sigma workbook without returning SQL or workbook payloads. Sigma imports remain preview-only because the current connection API does not expose a BigQuery project mapping Analytics can verify.",
@@ -114,19 +130,7 @@ export default defineAction({
       workbookId: args.workbookId,
       includeSqlQueries: false,
     });
-    if (
-      inspection.diagnostics.some(
-        (diagnostic) => diagnostic.severity === "error",
-      )
-    ) {
-      fail(
-        "Sigma source connection details could not be verified. Retry the workbook preview.",
-        {
-          errorCode: "sigma_source_inspection_failed",
-          statusCode: 503,
-        },
-      );
-    }
+    requireSigmaSourceInspection(inspection);
     const elements = summarizeSigmaElementReview({
       inspection,
     });

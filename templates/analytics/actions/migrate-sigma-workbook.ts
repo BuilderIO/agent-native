@@ -40,6 +40,7 @@ import {
 } from "../server/lib/dashboards-store.js";
 import { assertReadOnlySql } from "../server/lib/read-only-sql.js";
 import {
+  requireSigmaSourceInspection,
   summarizeSigmaElementReview,
   type SigmaElementReview,
 } from "./inspect-sigma-workbook.js";
@@ -366,12 +367,14 @@ export default defineAction({
       workbookId: args.workbookId,
       includeSqlQueries: false,
     });
+    requireSigmaSourceInspection(preliminaryInspection);
     requireImportableSigmaReview(preliminaryInspection);
     const inspection = await inspectSigmaWorkbook({
       connectionId: selection.selected.id,
       workbookId: args.workbookId,
       includeSqlQueries: true,
     });
+    requireSigmaSourceInspection(inspection);
     const review = requireImportableSigmaReview(inspection);
 
     if (args.recoverMissingDashboard) {
