@@ -211,6 +211,18 @@ export function useSqlQuery(
      * `error` stays set beside them.
      */
     retainPreviousScope?: string;
+    /**
+     * Also holds that last result while the query is disabled, for a panel
+     * that is only paused. Requires `retainPreviousScope`; without it a
+     * disabled query shows nothing.
+     */
+    retainWhilePaused?: boolean;
+    /**
+     * A completed result for a SQL string is never stale, so enabling or
+     * returning to a SQL that already has one does not rescan it. Only an
+     * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
+     */
+    reuseCompletedOnEnable?: boolean;
   },
 ) {
   // The signed-in user and org are part of the cache key, so one account's
@@ -264,7 +276,9 @@ export function useSqlQuery(
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     retry: options?.retry ?? false,
-    staleTime: options?.staleTime ?? 5 * 60 * 1000,
+    staleTime:
+      options?.staleTime ??
+      (options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000),
   });
   const refetch = query.refetch;
 
@@ -324,7 +338,7 @@ export function useSqlQuery(
   const held = lastShown.current;
   if (
     query.data === undefined &&
-    enabled &&
+    (enabled || (options?.retainWhilePaused && sessionReady)) &&
     held &&
     held.accountScope === accountScope &&
     held.retainScope === retainScope

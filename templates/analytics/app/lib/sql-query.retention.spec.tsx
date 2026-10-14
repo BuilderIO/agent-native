@@ -80,16 +80,22 @@ describe("useSqlQuery retained results", () => {
     scope = "view-1",
     enabled = true,
     refreshToken = 0,
+    paused = false,
+    reuse = false,
   }: {
     sql: string;
     scope?: string;
     enabled?: boolean;
     refreshToken?: number;
+    paused?: boolean;
+    reuse?: boolean;
   }) {
     const query = useSqlQuery(["sql", "panel-1", sql], sql, "bigquery", {
       enabled,
       refreshToken,
       retainPreviousScope: scope,
+      retainWhilePaused: paused,
+      reuseCompletedOnEnable: reuse,
     });
     latest = {
       rows: query.data?.rows,
@@ -130,6 +136,7 @@ describe("useSqlQuery retained results", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
@@ -303,6 +310,145 @@ describe("useSqlQuery retained results", () => {
 
     expect(latest.rows).toEqual([{ v: "a" }]);
     expect(latest.placeholder).toBe(false);
+  });
+
+  describe("paused panels", () => {
+    const sixMinutes = 6 * 60 * 1000;
+    const later = () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + sixMinutes);
+    };
+
+    it("keeps the last rows, marked as previous, while paused on a new filter", async () => {
+      answers({ A: { v: "a" } });
+      await render({ sql: "A", paused: true });
+      await settle();
+      mocks.callAction.mockClear();
+
+      await render({ sql: "B", enabled: false, paused: true });
+      expect(latest.rows).toEqual([{ v: "a" }]);
+      expect(latest.placeholder).toBe(true);
+      expect(latest.fetching).toBe(false);
+      expect(latest.loading).toBe(false);
+      expect(mocks.callAction).not.toHaveBeenCalled();
+    });
+
+    it("fetches the new filter once when the pause ends", async () => {
+      answers({ A: { v: "a" }, B: { v: "b" } });
+      await render({ sql: "A", paused: true });
+      await settle();
+      await render({ sql: "B", enabled: false, paused: true });
+      mocks.callAction.mockClear();
+
+      await render({ sql: "B", paused: true });
+      await vi.waitFor(() => expect(latest.rows).toEqual([{ v: "b" }]));
+      expect(latest.placeholder).toBe(false);
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    });
+
+    it("holds nothing while paused unless asked to", async () => {
+      answers({ A: { v: "a" } });
+      await render({ sql: "A" });
+      await settle();
+      await render({ sql: "B", enabled: false });
+      expect(latest.rows).toBeUndefined();
+      expect(latest.placeholder).toBe(false);
+    });
+
+    it("never holds another account's rows while paused", async () => {
+      answers({ A: { v: "a" } });
+      await render({ sql: "A", paused: true });
+      await settle();
+
+      mocks.session.session = { ...userA, orgId: "org-2" };
+      await render({ sql: "B", enabled: false, paused: true });
+      expect(latest.rows).toBeUndefined();
+      expect(latest.placeholder).toBe(false);
+
+      mocks.session.status = "unavailable";
+      mocks.session.session = null;
+      await render({ sql: "B", enabled: false, paused: true });
+      expect(latest.rows).toBeUndefined();
+    });
+
+    it("does not rescan a completed filter when it is enabled again after five minutes", async () => {
+      answers({ A: { v: "a" } });
+      await render({ sql: "A", reuse: true });
+      await settle();
+      mocks.callAction.mockClear();
+
+      await render({ sql: "A", enabled: false, reuse: true });
+      later();
+      await render({ sql: "A", reuse: true });
+      await render({ sql: "A", enabled: false, reuse: true });
+      await render({ sql: "A", reuse: true });
+
+      expect(mocks.callAction).not.toHaveBeenCalled();
+      expect(latest.rows).toEqual([{ v: "a" }]);
+    });
+
+    it("reuses a cached filter it returns to after five minutes", async () => {
+      answers({ A: { v: "a" }, B: { v: "b" } });
+      await render({ sql: "A", reuse: true });
+      await settle();
+      await render({ sql: "B", reuse: true });
+      await settle();
+      mocks.callAction.mockClear();
+
+      later();
+      await render({ sql: "A", reuse: true });
+      expect(latest.rows).toEqual([{ v: "a" }]);
+      expect(mocks.callAction).not.toHaveBeenCalled();
+    });
+
+    it("still fetches a filter with no completed result when enabled", async () => {
+      answers({ A: { v: "a" } });
+      await render({ sql: "A", enabled: false, reuse: true });
+      expect(mocks.callAction).not.toHaveBeenCalled();
+      await render({ sql: "A", reuse: true });
+      await vi.waitFor(() => expect(latest.rows).toEqual([{ v: "a" }]));
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the five minute freshness for ordinary consumers", async () => {
+      answers({ A: { v: "a" } });
+      await render({ sql: "A" });
+      await settle();
+      await render({ sql: "A", enabled: false });
+      mocks.callAction.mockClear();
+
+      later();
+      await render({ sql: "A" });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    });
+
+    it("still forces one explicit refresh, then returns to normal fetches", async () => {
+      answers({ A: { v: "a" }, B: { v: "b" } });
+      await render({ sql: "A", reuse: true, paused: true });
+      await settle();
+      mocks.callAction.mockClear();
+
+      await render({ sql: "A", enabled: false, reuse: true, paused: true });
+      await render({ sql: "A", reuse: true, paused: true, refreshToken: 1 });
+      await vi.waitFor(() =>
+        expect(mocks.callAction.mock.calls[0]?.[1]).toEqual({
+          query: "A",
+          source: "bigquery",
+          forceRefresh: true,
+        }),
+      );
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+      await render({ sql: "B", reuse: true, paused: true, refreshToken: 1 });
+      await vi.waitFor(() => expect(latest.rows).toEqual([{ v: "b" }]));
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+      expect(mocks.callAction.mock.calls[1]?.[1]).toEqual({
+        query: "B",
+        source: "bigquery",
+      });
+    });
   });
 
   describe("account boundary", () => {

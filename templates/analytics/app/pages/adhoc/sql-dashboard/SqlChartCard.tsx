@@ -61,6 +61,7 @@ import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-con
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
+import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
@@ -175,11 +176,27 @@ export function SqlChartCard({
   const [copyTable, setCopyTable] = useState<(() => Promise<void>) | null>(
     null,
   );
-  const [shouldLoadData, setShouldLoadData] = useState(
+  const [visible, setVisible] = useState(
     eagerLoad ||
       panel.chartType === "section" ||
       panel.chartType === "extension",
   );
+  // The query this card has been allowed to run. A card that scrolls out of
+  // view keeps it enabled for that same query, so scrolling never cancels,
+  // restarts or refetches it; only a changed query waits for the card to be
+  // visible again. The dashboard and panel are part of it so a reused card
+  // never inherits another panel's permission.
+  const queryKey = JSON.stringify([
+    dashboardId ?? null,
+    panel.id,
+    panel.source,
+    serializePanelSql(resolvedSql ?? panel.sql),
+  ]);
+  const [authorizedQueryKey, setAuthorizedQueryKey] = useState<string | null>(
+    null,
+  );
+  const shouldLoadData =
+    visible || eagerLoad || authorizedQueryKey === queryKey;
   const [refreshToken, setRefreshToken] = useState(0);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
@@ -208,9 +225,13 @@ export function SqlChartCard({
   }, [copyTable, t]);
 
   const handleRefresh = useCallback(() => {
-    setShouldLoadData(true);
+    setAuthorizedQueryKey(queryKey);
     setRefreshToken((token) => token + 1);
-  }, []);
+  }, [queryKey]);
+
+  useEffect(() => {
+    if (visible || eagerLoad) setAuthorizedQueryKey(queryKey);
+  }, [visible, eagerLoad, queryKey]);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -286,27 +307,25 @@ export function SqlChartCard({
 
   useEffect(() => {
     if (eagerLoad) {
-      setShouldLoadData(true);
+      setVisible(true);
       return;
     }
     if (panel.chartType === "section" || panel.chartType === "extension") {
-      setShouldLoadData(true);
+      setVisible(true);
       return;
     }
 
-    setShouldLoadData(false);
+    setVisible(false);
     const node = cardRef.current;
     if (!node || typeof IntersectionObserver === "undefined") {
-      setShouldLoadData(true);
+      setVisible(true);
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setShouldLoadData(true);
-          observer.disconnect();
-        }
+        const latest = entries[entries.length - 1];
+        if (latest) setVisible(latest.isIntersecting);
       },
       {
         rootMargin: "64px 0px",
@@ -804,6 +823,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            retainWhileOffscreen
             timeRange={timeRange}
             reportScreenshot={reportScreenshot}
             refreshToken={refreshToken}
