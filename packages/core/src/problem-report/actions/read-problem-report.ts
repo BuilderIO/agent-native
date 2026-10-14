@@ -35,7 +35,7 @@ function parseStoredReport(data: Buffer) {
 
 export default defineAction({
   description:
-    "Read events from a problem report the user attached with Report a problem. Returns the report's app, route and time, watched values, pending work, and a bounded text slice of events (oldest first), filtered by type and by time in seconds before the report. When `truncated` is true, call again with `from: nextFrom` for the rest.",
+    "Read events from a problem report the user attached with Report a problem. Returns the report's app, route and time, watched values, pending work, and a bounded text slice of events (oldest first), filtered by type and by time in seconds before the report. When `truncated` is true, call again with the same filters and `start: nextStart` for the rest.",
   schema: z.object({
     ref: z
       .string()
@@ -62,6 +62,14 @@ export default defineAction({
       .describe(
         "Latest event to include, in seconds relative to the report (negative, e.g. -5). Omit to read up to the moment of the report.",
       ),
+    start: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        "How many matching events to skip. Pass `nextStart` from the previous call to continue.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -71,7 +79,7 @@ export default defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
-  run: async ({ ref, type, from, to }) => {
+  run: async ({ ref, type, from, to, start = 0 }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       fail("Sign in to read problem reports.", {
@@ -90,13 +98,13 @@ export default defineAction({
     );
     const lines: string[] = [];
     let chars = 0;
-    for (const event of matched) {
+    for (const event of matched.slice(start)) {
       const line = formatRecorderEvent(event, EVENT_DATA_MAX_CHARS);
       if (chars + line.length + 1 > SLICE_MAX_CHARS) break;
       lines.push(line);
       chars += line.length + 1;
     }
-    const nextEvent = matched[lines.length];
+    const nextStart = start + lines.length;
 
     return {
       app: report.app,
@@ -108,8 +116,8 @@ export default defineAction({
       totalEvents: report.events.length,
       matchedEvents: matched.length,
       events: lines.join("\n"),
-      truncated: nextEvent !== undefined,
-      ...(nextEvent ? { nextFrom: nextEvent.t } : {}),
+      truncated: nextStart < matched.length,
+      ...(nextStart < matched.length ? { nextStart } : {}),
       watched: clipText(JSON.stringify(report.watched), WATCHED_MAX_CHARS),
       pending: report.pending,
     };

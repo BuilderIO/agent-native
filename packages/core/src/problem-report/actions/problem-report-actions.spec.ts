@@ -187,10 +187,10 @@ describe("read-problem-report", () => {
     expect(window.events).toBe('-12.0s  state  selection  {"id":"m1"}');
   });
 
-  it("says where to continue when the slice is cut", async () => {
+  it("continues after a cut slice without repeating events that share a time", async () => {
     const events = Array.from({ length: 400 }, (_, i) =>
       event({
-        t: -100 + i * 0.25,
+        t: -100 + Math.floor(i / 50),
         name: `action-${i}`,
         data: { n: "x".repeat(60) },
       }),
@@ -204,12 +204,12 @@ describe("read-problem-report", () => {
     expect(first.truncated).toBe(true);
     expect(first.events.length).toBeLessThanOrEqual(16_000);
     const shown = first.events.split("\n").length;
-    expect(first.nextFrom).toBe(events[shown].t);
+    expect(first.nextStart).toBe(shown);
 
     const rest = await as(ALICE, "org-one", () =>
-      readProblemReport.run({ ref, from: first.nextFrom }),
+      readProblemReport.run({ ref, start: first.nextStart }),
     );
-    expect(rest.events.split("\n")[0]).toContain(`action-${shown}`);
+    expect(rest.events.split("\n")[0]).toContain(`action-${shown}  `);
   });
 
   it("refuses another user in the same organization", async () => {
