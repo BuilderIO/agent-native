@@ -5791,6 +5791,47 @@ export async function runAuthoringFuzz(
         }
         case "heading-backspace":
         case "quote-backspace": {
+          if (operation.kind === "quote-backspace") {
+            await newPlainLine();
+            await runSlashCommand("quote");
+            const leadingSpaceToken = `space${activeIndex}`;
+            await typeText(` ${leadingSpaceToken}`);
+            await placeCaretAtToken(leadingSpaceToken, "start");
+            await snapshotEditorSiblings("capture", operation);
+            await editor.press("Backspace");
+            const whitespaceDelete = await editor.evaluate(
+              (root: HTMLElement, token: string) => {
+                const quote = [
+                  ...(root.matches("blockquote") ? [root] : []),
+                  ...Array.from(
+                    root.querySelectorAll<HTMLElement>("blockquote"),
+                  ),
+                ].find((block) => block.textContent?.includes(token));
+                return {
+                  text: quote?.textContent?.replaceAll("\u200b", "") ?? null,
+                  tag: quote?.tagName ?? null,
+                };
+              },
+              leadingSpaceToken,
+            );
+            if (
+              whitespaceDelete.tag !== "BLOCKQUOTE" ||
+              whitespaceDelete.text !== leadingSpaceToken
+            ) {
+              throw new Error(
+                `${operation.kind} did not preserve native leading-space deletion (${JSON.stringify(whitespaceDelete)})`,
+              );
+            }
+            const whitespaceSiblingChanges = await snapshotEditorSiblings(
+              "assert",
+              operation,
+            );
+            if (whitespaceSiblingChanges.length) {
+              throw new Error(
+                `${operation.kind} moved or restyled a sibling while deleting leading whitespace: ${whitespaceSiblingChanges.slice(0, 5).join(", ")}`,
+              );
+            }
+          }
           await newPlainLine();
           await runSlashCommand(
             operation.kind === "heading-backspace" ? "heading2" : "quote",

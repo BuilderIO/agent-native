@@ -5275,7 +5275,12 @@ export function startInPlaceTextSession(
     if (event.key === "Backspace") {
       const range = selectionRange();
       const demote = range?.collapsed ? backwardDemotionBlock(range) : null;
-      if (range && demote && paragraphBefore(range, demote)) {
+      if (
+        range &&
+        demote &&
+        paragraphBefore(range, demote) &&
+        !isNativeDelete("deleteContentBackward", range)
+      ) {
         event.preventDefault();
         edit("delete", () => deleteAtBlockEdge(range, "backward"));
         return;
