@@ -8,7 +8,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { readDeckLinkedDesignSystem } from "./_linked-design-system.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 
 const MAX_AGENT_CONTEXT_CHARS = 14_000;
 const MAX_JSON_CONTEXT_CHARS = 2_500;
@@ -301,7 +304,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Deck that links this design system. Lets anyone who can read the deck read its design system.",
+        "Deck that links this design system. Lets anyone who can read the deck read only the rendering fields (id, title, data) of its design system.",
       ),
     purpose: z
       .enum(["selected", "reference"])
@@ -337,6 +340,18 @@ export default defineAction({
     }
 
     const row = access.resource;
+
+    // Deck readers get only what renders the deck; the rest of the record
+    // (instructions, assets, notes, Builder docs) stays with design-system
+    // readers.
+    if (access.viaDeck) {
+      return {
+        id: row.id,
+        title: row.title,
+        data: projectRenderingDesignSystemData(row.data),
+      };
+    }
+
     const builderReference = parseBuilderDesignSystemProxyReference(row.data);
 
     if (compact === "true") {
@@ -377,8 +392,6 @@ export default defineAction({
 
     if (
       ctx?.caller !== "mcp-widget" &&
-      // A deck reader may not edit the design system, even its cached count.
-      !access.viaDeck &&
       builder &&
       typeof builder.docCount === "number"
     ) {

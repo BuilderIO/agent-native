@@ -20,7 +20,10 @@ vi.mock("../server/db/index.js", () => ({
   schema: { designSystems: { id: "id" } },
 }));
 
-import { readDeckLinkedDesignSystem } from "./_linked-design-system.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 
 const privateRow = { id: "ds-private", data: "{}" };
 
@@ -69,5 +72,28 @@ describe("readDeckLinkedDesignSystem", () => {
     await expect(
       readDeckLinkedDesignSystem({ data: "{not json" }, "ds-private"),
     ).resolves.toBeNull();
+  });
+});
+
+describe("projectRenderingDesignSystemData", () => {
+  it("keeps rendering fields and drops notes and image-style guidance", () => {
+    const raw = JSON.stringify({
+      colors: { primary: "#111" },
+      customCSS: "a{}",
+      notes: "internal",
+      imageStyle: { referenceUrls: ["u"], styleDescription: "x" },
+    });
+    expect(JSON.parse(projectRenderingDesignSystemData(raw) as string)).toEqual(
+      {
+        colors: { primary: "#111" },
+        customCSS: "a{}",
+      },
+    );
+  });
+
+  it("returns null for absent or malformed data", () => {
+    expect(projectRenderingDesignSystemData(null)).toBeNull();
+    expect(projectRenderingDesignSystemData("{")).toBeNull();
+    expect(projectRenderingDesignSystemData("[]")).toBeNull();
   });
 });

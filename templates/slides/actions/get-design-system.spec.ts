@@ -38,7 +38,8 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-vi.mock("./_linked-design-system.js", () => ({
+vi.mock("./_linked-design-system.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_linked-design-system.js")>()),
   readDeckLinkedDesignSystem: (...args: unknown[]) =>
     mockReadDeckLinkedDesignSystem(...args),
 }));
@@ -252,7 +253,8 @@ describe("get-design-system", () => {
       deck,
       "builder-ds-1",
     );
-    expect(result.data).toBe(resource.data);
+    expect(Object.keys(result).sort()).toEqual(["data", "id", "title"]);
+    expect(mockHydrateBuilderDesignSystemReference).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 

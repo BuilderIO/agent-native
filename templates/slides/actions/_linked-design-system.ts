@@ -43,3 +43,41 @@ export async function readDeckLinkedDesignSystem(
     .limit(1);
   return row ? { resource: row, viaDeck: true } : null;
 }
+
+const RENDERING_KEYS = [
+  "colors",
+  "typography",
+  "spacing",
+  "borders",
+  "slideDefaults",
+  "logos",
+  "customCSS",
+] as const;
+
+/**
+ * Allowlists the design-system fields that affect how a deck renders, so
+ * notes, image-style guidance, and Builder proxy references never leave
+ * through deck-inherited access or public share snapshots. Returns null when
+ * the stored data is absent or not a JSON object.
+ */
+export function projectRenderingDesignSystemData(
+  raw: string | null | undefined,
+): string | null {
+  if (typeof raw !== "string") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // coercion-ok: unreadable style data renders as the default tokens.
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const source = parsed as Record<string, unknown>;
+  const projected: Record<string, unknown> = {};
+  for (const key of RENDERING_KEYS) {
+    if (source[key] !== undefined) projected[key] = source[key];
+  }
+  return JSON.stringify(projected);
+}

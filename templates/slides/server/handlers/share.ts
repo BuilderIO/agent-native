@@ -12,7 +12,10 @@ import type {
 import { eq, lt } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
-import { readDeckLinkedDesignSystem } from "../../actions/_linked-design-system.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "../../actions/_linked-design-system.js";
 import { getDb, schema } from "../db";
 import { slideRevealIssues } from "../lib/slide-reveal-issues.js";
 import { trackSlides } from "../lib/slides-tracking.js";
@@ -102,19 +105,9 @@ async function createShareLink(event: any, deckId: string, userEmail: string) {
       deckResource,
       designSystemId,
     );
-    const rawData = designSystemAccess?.resource?.data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed = JSON.parse(rawData);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          designSystemData = JSON.stringify(parsed as DesignSystemData);
-        }
-        // coercion-ok: malformed optional style data keeps a valid deck shareable.
-      } catch {
-        // A malformed style record should not make an otherwise valid deck
-        // impossible to share; the presentation will use its default tokens.
-      }
-    }
+    designSystemData = projectRenderingDesignSystemData(
+      designSystemAccess?.resource?.data,
+    );
   }
 
   const slides = storedDeck.slides.map((slide: unknown, index: number) =>
