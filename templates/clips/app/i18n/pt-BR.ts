@@ -2055,6 +2055,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI",
     cleanupComplete: "Ditado limpo",
     cleanupFailed: "Não foi possível limpar o ditado",
+    undoCleanup: "Desfazer",
+    restoreOriginal: "Restaurar original",
+    cleanupRestored: "Ditado original restaurado",
+    cleanupRestoreFailed: "Não foi possível restaurar o ditado original",
     startFirst: "Transforme suas ideias em texto",
     recordOnDesktop: "Gravar no desktop",
     emptyDesktopDescription:

@@ -1925,6 +1925,10 @@ const messages = {
     cleanupWithAi: "使用 AI 清理",
     cleanupComplete: "聽寫已清理",
     cleanupFailed: "無法清理聽寫",
+    undoCleanup: "復原",
+    restoreOriginal: "還原原文",
+    cleanupRestored: "已還原原始聽寫",
+    cleanupRestoreFailed: "無法還原原始聽寫",
     startFirst: "把想法變成文字",
     recordOnDesktop: "在桌面版錄製",
     emptyDesktopDescription:

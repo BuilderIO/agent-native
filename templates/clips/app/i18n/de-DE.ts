@@ -2077,6 +2077,11 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
     cleanupComplete: "Diktat bereinigt",
     cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
     startFirst: "Verwandle deine Gedanken in Text",
     recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:

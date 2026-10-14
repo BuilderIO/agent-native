@@ -1938,6 +1938,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (已本地化)",
     cleanupComplete: "听写已清理",
     cleanupFailed: "无法清理听写",
+    undoCleanup: "撤销",
+    restoreOriginal: "恢复原文",
+    cleanupRestored: "已恢复原始听写",
+    cleanupRestoreFailed: "无法恢复原始听写",
     startFirst: "把想法变成文字",
     recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:

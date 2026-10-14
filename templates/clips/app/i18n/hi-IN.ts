@@ -1996,6 +1996,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (स्थानीयकृत)",
     cleanupComplete: "डिक्टेशन साफ़ किया गया",
     cleanupFailed: "डिक्टेशन साफ़ नहीं किया जा सका",
+    undoCleanup: "पूर्ववत करें",
+    restoreOriginal: "मूल वापस लाएँ",
+    cleanupRestored: "मूल डिक्टेशन बहाल किया गया",
+    cleanupRestoreFailed: "मूल डिक्टेशन बहाल नहीं किया जा सका",
     startFirst: "अपने विचारों को टेक्स्ट में बदलें",
     recordOnDesktop: "डेस्कटॉप पर रिकॉर्ड करें",
     emptyDesktopDescription:

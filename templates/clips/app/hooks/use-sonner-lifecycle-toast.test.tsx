@@ -29,6 +29,37 @@ function Probe() {
       <button type="button" onClick={() => lifecycle.success("Ready")}>
         finish
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          lifecycle.error("Transcript unavailable", {
+            duration: Number.POSITIVE_INFINITY,
+          })
+        }
+      >
+        fail
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          lifecycle.info("Check your connection", {
+            duration: Number.POSITIVE_INFINITY,
+          })
+        }
+      >
+        info
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          lifecycle.error("Retry the export", {
+            action: { label: "Retry", onClick: vi.fn() },
+            duration: Number.POSITIVE_INFINITY,
+          })
+        }
+      >
+        actionable failure
+      </button>
     </div>
   );
 }
@@ -68,5 +99,32 @@ describe("useSonnerLifecycleToast", () => {
       duration: 6_000,
       id: "lifecycle-toast",
     });
+  });
+
+  it("auto-dismisses inactive errors and info while keeping actionable failures", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<Probe />));
+
+    const buttons = container.querySelectorAll("button");
+    act(() => (buttons[3] as HTMLButtonElement).click());
+    act(() => (buttons[4] as HTMLButtonElement).click());
+    act(() => (buttons[5] as HTMLButtonElement).click());
+
+    expect(toast.error).toHaveBeenNthCalledWith(1, "Transcript unavailable", {
+      duration: 12_000,
+    });
+    expect(toast.info).toHaveBeenCalledWith("Check your connection", {
+      duration: 12_000,
+    });
+    expect(toast.error).toHaveBeenNthCalledWith(
+      2,
+      "Retry the export",
+      expect.objectContaining({
+        action: expect.objectContaining({ label: "Retry" }),
+        duration: Number.POSITIVE_INFINITY,
+      }),
+    );
   });
 });
