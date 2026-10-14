@@ -420,7 +420,7 @@ const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "d856963383d00183ee53aa6bcb78c479308cbd1b";
+const BASELINE_GIT_REVISION = "757e1dd35809cce59999f5e54762151c00750a6b";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
