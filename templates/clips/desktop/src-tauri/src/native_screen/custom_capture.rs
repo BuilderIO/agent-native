@@ -3824,6 +3824,7 @@ fn spawn_capture_watchdog(
                         &state,
                         target_window_id,
                         params.alignment_generation,
+                        super::RestoreRetryBehavior::Preserve,
                         || {
                             !shutdown.load(Ordering::SeqCst)
                                 && !watch.is_paused()

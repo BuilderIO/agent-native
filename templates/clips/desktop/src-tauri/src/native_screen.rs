@@ -1971,7 +1971,6 @@ fn refresh_selected_window_camera_capture(
     if !can_refresh() {
         return Ok(false);
     }
-    invalidate_camera_capture_restore_retry(&state);
     if let Err(error) = align_camera_bubble_to_selected_window_inner(
         app,
         &state,
@@ -2140,9 +2139,21 @@ fn align_camera_bubble_to_selected_window(
     target_window_id: u32,
     generation: u64,
 ) -> Result<(), String> {
-    align_camera_bubble_to_selected_window_while(app, state, target_window_id, generation, || {
-        state.warm_generation.load(Ordering::SeqCst) == generation
-    })
+    align_camera_bubble_to_selected_window_while(
+        app,
+        state,
+        target_window_id,
+        generation,
+        RestoreRetryBehavior::Invalidate,
+        || state.warm_generation.load(Ordering::SeqCst) == generation,
+    )
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RestoreRetryBehavior {
+    Preserve,
+    Invalidate,
 }
 
 #[cfg(target_os = "macos")]
@@ -2151,6 +2162,7 @@ fn align_camera_bubble_to_selected_window_while(
     state: &NativeFullscreenRecordingState,
     target_window_id: u32,
     generation: u64,
+    restore_retry_behavior: RestoreRetryBehavior,
     can_align: impl Fn() -> bool,
 ) -> Result<(), String> {
     if !can_align() {
@@ -2165,7 +2177,9 @@ fn align_camera_bubble_to_selected_window_while(
     if !can_align() {
         return Err("Recording stopped while positioning the Clips camera.".into());
     }
-    invalidate_camera_capture_restore_retry(state);
+    if restore_retry_behavior == RestoreRetryBehavior::Invalidate {
+        invalidate_camera_capture_restore_retry(state);
+    }
     align_camera_bubble_to_selected_window_inner(
         app,
         state,
@@ -3751,6 +3765,7 @@ pub async fn native_fullscreen_recording_resume(
                                 &state,
                                 target_window_id,
                                 session.restart.alignment_generation,
+                                RestoreRetryBehavior::Preserve,
                                 || true,
                             ) {
                                 restore_camera_bubble_after_restart_failure(
@@ -3825,6 +3840,7 @@ pub async fn native_fullscreen_recording_resume(
                 &state,
                 target_window_id,
                 restart.alignment_generation,
+                RestoreRetryBehavior::Preserve,
                 || true,
             ) {
                 restore_camera_bubble_after_restart_failure(&app, &state, &restart);
@@ -3949,6 +3965,7 @@ fn rotate_screencapturekit_segment(
                     state,
                     target_window_id,
                     restart.alignment_generation,
+                    RestoreRetryBehavior::Preserve,
                     || true,
                 )?;
             }
