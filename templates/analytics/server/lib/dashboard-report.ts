@@ -41,6 +41,8 @@ export type DashboardReportResult = {
   reportError?: string;
   // False only when a degraded report was held back for a scheduled retry.
   delivered: boolean;
+  /** Set when email went out but the Slack post did not; retrying would resend the email. */
+  slackError?: string;
 };
 
 function daysAgo(n: number): string {
@@ -337,8 +339,22 @@ export async function sendDashboardReportSubscription(
     });
   }
 
+  let slackError: string | undefined;
   if (slackWebhookUrl) {
-    await postReportToSlack(sub, snapshot, slackWebhookUrl, reportError);
+    try {
+      await postReportToSlack(
+        sub,
+        snapshot,
+        slackWebhookUrl,
+        reportError,
+        rendered.text,
+      );
+    } catch (err) {
+      // A Slack-only report has sent nothing yet, so it must retry. Once
+      // email went out, throwing would retry the subscription and resend it.
+      if (!recipients.length) throw err;
+      slackError = err instanceof Error ? err.message : String(err);
+    }
   }
 
   return {
@@ -347,8 +363,31 @@ export async function sendDashboardReportSubscription(
     reportMode,
     degradedPanelIds: rendered.degradedPanelIds,
     delivered: true,
+    ...(slackError ? { slackError } : {}),
     ...(reportError ? { reportError } : {}),
   };
+}
+
+// Core caps notification bodies at 2,000 characters; the link leads so a long
+// report is truncated after it rather than cutting the link off.
+const SLACK_REPORT_BODY_LIMIT = 1_900;
+
+function slackReportBody(
+  snapshot: ReportSnapshot,
+  reportError: string | undefined,
+  reportText: string,
+): string {
+  const head = [
+    reportDate(snapshot),
+    ...(reportError ? [`Incomplete: ${reportError}`] : []),
+    `Dashboard: ${snapshot.dashboardUrl}`,
+  ].join("\n");
+  const room = SLACK_REPORT_BODY_LIMIT - head.length - 2;
+  const summary = reportText.trim();
+  if (!summary || room <= 0) return head;
+  return `${head}\n\n${
+    summary.length > room ? `${summary.slice(0, room - 1)}…` : summary
+  }`;
 }
 
 // Posts the summary and dashboard link to the subscription's Slack webhook
@@ -359,16 +398,13 @@ async function postReportToSlack(
   snapshot: ReportSnapshot,
   slackWebhookUrl: string,
   reportError: string | undefined,
+  reportText: string,
 ): Promise<void> {
   const delivery = await notifyWithDelivery(
     {
       severity: "info",
       title: `Daily dashboard: ${snapshot.title}`,
-      body: [
-        reportDate(snapshot),
-        ...(reportError ? [`Incomplete: ${reportError}`] : []),
-        `Dashboard: ${snapshot.dashboardUrl}`,
-      ].join("\n"),
+      body: slackReportBody(snapshot, reportError, reportText),
       channels: ["slack"],
       metadata: {
         kind: "dashboard_report",

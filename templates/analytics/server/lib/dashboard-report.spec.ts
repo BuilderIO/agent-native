@@ -499,15 +499,47 @@ describe("dashboard report email", () => {
     expect(meta.owner).toBe("steve@builder.io");
   });
 
-  it("fails loudly when Slack does not confirm the post", async () => {
+  it("fails loudly when Slack does not confirm a Slack-only post", async () => {
     mocks.notifyWithDelivery.mockResolvedValueOnce({ deliveredChannels: [] });
 
     await expect(
       sendDashboardReportSubscription({
         ...subscription(),
+        recipients: [],
         slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
       }),
     ).rejects.toThrow("Slack delivery of the dashboard report failed");
+  });
+
+  it("reports a Slack failure without throwing once email was sent", async () => {
+    mocks.notifyWithDelivery.mockResolvedValueOnce({ deliveredChannels: [] });
+
+    const result = await sendDashboardReportSubscription({
+      ...subscription(),
+      slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+    });
+
+    expect(sentEmails().length).toBeGreaterThan(0);
+    expect(result).toMatchObject({
+      delivered: true,
+      slackError: "Slack delivery of the dashboard report failed",
+    });
+  });
+
+  it("keeps the dashboard link ahead of a truncated report summary", async () => {
+    await sendDashboardReportSubscription({
+      ...subscription(),
+      recipients: [],
+      slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+    });
+
+    const [input] = mocks.notifyWithDelivery.mock.calls[0] as unknown as [
+      { body: string },
+    ];
+    expect(input.body.length).toBeLessThanOrEqual(2_000);
+    expect(input.body.indexOf("Dashboard: ")).toBeLessThan(
+      input.body.length / 2,
+    );
   });
 
   it("delivers once to each normalized recipient", async () => {
