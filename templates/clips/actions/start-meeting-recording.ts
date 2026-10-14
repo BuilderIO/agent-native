@@ -9,6 +9,7 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -80,6 +81,14 @@ export default defineAction({
       visibility: meeting.visibility,
       createdAt: nowIso,
       updatedAt: nowIso,
+    });
+    trackRecordingCreated({
+      recordingId,
+      userId: ownerEmail,
+      platform: null,
+      source: "meeting",
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
     });
 
     await db

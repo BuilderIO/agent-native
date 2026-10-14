@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { recordingTrackingSource } from "../server/lib/recording-failures.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -24,7 +27,12 @@ export default defineAction({
     const db = getDb();
 
     const [existing] = await db
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        trashedAt: schema.recordings.trashedAt,
+        recordingPlatform: schema.recordings.recordingPlatform,
+      })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
@@ -52,6 +60,31 @@ export default defineAction({
 
     const trashedAt = after?.trashedAt ?? null;
     const skipped = Boolean(args.skipIfReady) && !trashedAt;
+
+    // Closes the funnel for a row that never became ready (a recorder
+    // dropping a row it opened, or a user trashing a stuck upload); without
+    // it, recording_created minus ready/failed/cancelled reads it as silent.
+    if (!existing.trashedAt && trashedAt && existing.status !== "ready") {
+      try {
+        track(
+          "recording_discarded",
+          {
+            app_name: "clips",
+            template_name: "clips",
+            output_id: args.id,
+            output_type: "clip",
+            recording_platform: existing.recordingPlatform ?? "unknown",
+            status_at_discard: existing.status,
+          },
+          recordingTrackingSource(getCurrentOwnerEmail()),
+        );
+      } catch (err) {
+        console.warn(
+          "[trash-recording] recording_discarded track failed:",
+          err,
+        );
+      }
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(

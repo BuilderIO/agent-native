@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
@@ -156,6 +157,16 @@ export default defineAction({
       ownerEmail,
       createdAt: now,
       updatedAt: now,
+    });
+
+    trackRecordingCreated({
+      recordingId: id,
+      userId: ownerEmail,
+      platform: args.recordingPlatform,
+      source: args.recordingSource,
+      attemptId: args.recordingAttemptId,
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
