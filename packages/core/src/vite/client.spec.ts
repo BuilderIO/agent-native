@@ -3796,6 +3796,66 @@ describe("Vite SSR optional dependencies", () => {
     }
   });
 
+  it("does not treat workspace Core dev peers as application runtime dependencies", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-workspace-core-peers-"),
+    );
+    const appRoot = path.join(workspaceRoot, "apps/demo");
+    const coreRoot = path.join(workspaceRoot, "packages/core");
+    const linkedCoreRoot = path.join(
+      appRoot,
+      "node_modules/@agent-native/core",
+    );
+    fs.mkdirSync(path.dirname(linkedCoreRoot), { recursive: true });
+    fs.mkdirSync(path.join(coreRoot, "node_modules/prettier"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "workspace-core-peer-app",
+        dependencies: { "@agent-native/core": "workspace:*" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependencies: { prettier: "^3" },
+        peerDependenciesMeta: { prettier: { optional: true } },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "node_modules/prettier/package.json"),
+      JSON.stringify({ name: "prettier", version: "3.8.3" }),
+    );
+    fs.symlinkSync(coreRoot, linkedCoreRoot, "dir");
+
+    try {
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain("prettier");
+
+      fs.mkdirSync(path.join(appRoot, "node_modules/prettier"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(appRoot, "node_modules/prettier/package.json"),
+        JSON.stringify({ name: "prettier", version: "3.8.3" }),
+      );
+      const appPackage = JSON.parse(
+        fs.readFileSync(path.join(appRoot, "package.json"), "utf8"),
+      );
+      appPackage.dependencies.prettier = "^3";
+      fs.writeFileSync(
+        path.join(appRoot, "package.json"),
+        JSON.stringify(appPackage),
+      );
+
+      expect(getMissingCoreOptionalPeers(appRoot)).not.toContain("prettier");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("ignores nested peers that Core cannot resolve", () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-nested-peer-"));
     const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");

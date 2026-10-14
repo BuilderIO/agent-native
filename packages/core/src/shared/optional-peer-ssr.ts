@@ -131,6 +131,7 @@ function getRuntimeDependencyNames(cwd: string, coreRoot: string): Set<string> {
     visited.add(realManifestPath);
 
     const manifest = JSON.parse(fs.readFileSync(realManifestPath, "utf8")) as {
+      name?: string;
       dependencies?: Record<string, string>;
       optionalDependencies?: Record<string, string>;
       peerDependencies?: Record<string, string>;
@@ -139,9 +140,14 @@ function getRuntimeDependencyNames(cwd: string, coreRoot: string): Set<string> {
     for (const name of [
       ...Object.keys(manifest.dependencies ?? {}),
       ...Object.keys(manifest.optionalDependencies ?? {}),
-      ...Object.keys(manifest.peerDependencies ?? {}),
     ]) {
       pending.push({ name, fromDir: packageDir });
+    }
+    // A workspace-linked Core resolves its own dev-installed peers from coreRoot.
+    const peerFromDir =
+      manifest.name === "@agent-native/core" ? cwd : packageDir;
+    for (const name of Object.keys(manifest.peerDependencies ?? {})) {
+      pending.push({ name, fromDir: peerFromDir });
     }
   }
 
