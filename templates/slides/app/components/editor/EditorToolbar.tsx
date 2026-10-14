@@ -354,8 +354,8 @@ export default function EditorToolbar({
     (canEdit &&
       Boolean(
         (currentSlide && (onToggleAnimations || onToggleLayers)) ||
-          onToggleTweaks ||
-          onToggleDrawMode,
+        onToggleTweaks ||
+        onToggleDrawMode,
       )) ||
     (canComment && Boolean(onTogglePinMode));
   const showCommentsItem = !widgetEmbed && Boolean(onToggleComments);
