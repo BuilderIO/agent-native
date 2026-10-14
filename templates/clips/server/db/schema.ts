@@ -282,6 +282,8 @@ export const recordingBrowserDiagnostics = table(
     interactionEventsJson: text("interaction_events_json")
       .notNull()
       .default("[]"),
+    appActivitySummaryJson: text("app_activity_summary_json"),
+    appActivityBlobJson: text("app_activity_blob_json"),
     redactionVersion: integer("redaction_version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

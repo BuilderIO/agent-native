@@ -1232,6 +1232,16 @@ export const migrations = runMigrations(
       // predate device scoping and stay visible to every device's queue.
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
     },
+    {
+      version: 85,
+      name: "recording-browser-diagnostics-app-activity",
+      // Additive. Mirrors `appActivitySummaryJson` and `appActivityBlobJson`
+      // in server/db/schema.ts.
+      sql: [
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_summary_json TEXT`,
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_blob_json TEXT`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

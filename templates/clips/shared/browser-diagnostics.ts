@@ -1,3 +1,5 @@
+import type { AppActivitySummary } from "./app-activity";
+
 export const MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS = 400;
 export const MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS = 400;
 export const MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS = 800;
@@ -28,6 +30,12 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
   `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
   "gi",
 );
+
+const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
+
+export function isSecretDiagnosticKey(key: string): boolean {
+  return SECRET_KEY_RE.test(key);
+}
 
 export interface RedactBrowserDiagnosticStringOptions {
   redactQueryValues?: boolean;
@@ -167,6 +175,7 @@ export interface BrowserDiagnosticsSummary {
 export interface BrowserDiagnosticsData extends BrowserDiagnosticsSnapshot {
   summary: BrowserDiagnosticsSummary;
   timeline?: BrowserDiagnosticTimelineEvent[];
+  appActivity?: AppActivitySummary | null;
 }
 
 function safeArray(value: string | null | undefined): unknown[] {
