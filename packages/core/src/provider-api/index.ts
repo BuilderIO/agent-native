@@ -2264,6 +2264,11 @@ export async function resolveProviderApiOAuthAccessToken(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
+  if (args.provider === "bigquery" && ctx.credentialScope === "org") {
+    throw new Error(
+      "Personal BigQuery OAuth is unavailable for org-only credential scope.",
+    );
+  }
   const credential = oauthAuth.workspaceProvider
     ? await resolveOptionalConnectionBoundOAuthBearerToken({
         auth: oauthAuth,
@@ -4027,7 +4032,11 @@ async function resolveAuth(
     };
   }
   if (auth.type === "google-service-account") {
-    if (auth.oauthProvider && auth.workspaceProvider) {
+    if (
+      auth.oauthProvider &&
+      auth.workspaceProvider &&
+      !(auth.workspaceProvider === "bigquery" && ctx.credentialScope === "org")
+    ) {
       const oauthCredential =
         await resolveOptionalConnectionBoundOAuthBearerToken({
           auth: {

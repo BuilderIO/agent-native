@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
@@ -2864,6 +2866,89 @@ describe("provider API runtime", () => {
       accountId: "google-account-1",
       connectionId: "bigquery-connection-1",
     });
+  });
+
+  it("uses the service account for org-only BigQuery provider requests", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const serviceAccountJson = JSON.stringify({
+      type: "service_account",
+      client_email: "analytics@example.test",
+      private_key: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (String(input) === "https://oauth2.googleapis.com/token") {
+          return new Response(
+            JSON.stringify({ access_token: "org-service-account-token" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ tables: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["bigquery"],
+      getCredentialContext: () => ({
+        ...credentialContext,
+        credentialScope: "org",
+      }),
+      resolveCredential: async ({ key }) =>
+        key === "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+          ? {
+              key,
+              value: serviceAccountJson,
+              source: "app_local",
+              scope: "org",
+              scopeId: "org-1",
+            }
+          : null,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "bigquery",
+        method: "GET",
+        path: "/projects/test-project/datasets",
+      }),
+    ).resolves.toMatchObject({ response: { json: { tables: [] } } });
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://bigquery.googleapis.com/bigquery/v2/projects/test-project/datasets",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer org-service-account-token",
+        }),
+      }),
+    );
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+  });
+
+  it("rejects org-only direct BigQuery OAuth token resolution", async () => {
+    await expect(
+      resolveProviderApiOAuthAccessToken(
+        { provider: "bigquery", connectionId: "bigquery-connection-1" },
+        {
+          appId: "analytics",
+          providerIds: ["bigquery"],
+          getCredentialContext: () => ({
+            ...credentialContext,
+            credentialScope: "org",
+          }),
+        },
+      ),
+    ).rejects.toThrow(
+      "Personal BigQuery OAuth is unavailable for org-only credential scope.",
+    );
+
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
   });
 
   it("preserves the shared Google grant when BigQuery needs reauthorization", async () => {
