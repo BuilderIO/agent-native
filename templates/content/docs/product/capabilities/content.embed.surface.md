@@ -6,7 +6,7 @@ name: "Embedded Content surface"
 user_promise: "The same Page, View, or focused Content experience can appear in another app without splitting identity, history, or permissions."
 primary_user_job: "Work on a canonical Content object in the application where my work is happening."
 kind: "surface"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "configured"
 dependencies: ["content.agent.action-parity", "content.access.page-database"]
@@ -23,9 +23,14 @@ proof_requirements:
     "Shared Action, access, history, and concurrent-update parity tests",
     "Host workflow covering read, edit, navigation, unsupported mode, and unmount/remount",
   ]
-evidence: []
+evidence:
+  [
+    "templates/content/actions/_widget-edit-capabilities.ts",
+    "templates/content/actions/update-document.ts",
+    "packages/core/src/mcp/embed-app.ts",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Embedded Content surface
@@ -61,7 +66,7 @@ Given a host requests a surface mode that is not supported by the mount contract
 
 ## Current evidence
 
-Donor evidence: Content components, Actions, and application-state patterns already support reuse. No stable mount lifecycle, cross-host state, or full responsive proof exists; this record remains `approved_shape`.
+The ChatGPT widget now opens an editable canonical Content document through scoped reads and artifact-bound writes, with the app's document layout and controls (#6856, #6909, #6913, #6918, #6923, #6945, #7149, #7257, #7317). This is `in_progress`: a general Page/View mount lifecycle, cross-host state, responsive and concurrent-update parity, and real-host proof remain open.
 
 ## Proof plan
 

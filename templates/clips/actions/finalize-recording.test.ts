@@ -1547,6 +1547,53 @@ describe("finalize-recording media serve verification", () => {
     expect(
       Date.parse(String(parked?.uploadLeaseExpiresAt)) - before,
     ).toBeGreaterThanOrEqual(WAITING_STORAGE_LEASE_MS);
+    const waitingStorageOperations = mockCompareAndSetManyAppState.mock.calls
+      .map(([operations]) => operations as Array<Record<string, unknown>>)
+      .find((operations) =>
+        operations.some(
+          (operation) =>
+            operation.key === "recording-upload-rec_1" &&
+            (operation.nextValue as Record<string, unknown> | undefined)
+              ?.status === "waiting_storage",
+        ),
+      );
+    expect(waitingStorageOperations).toHaveLength(1);
+  });
+
+  it("clears an existing media verification marker when storage is unavailable", async () => {
+    const marker = { recordingId: "rec_1", status: "pending" };
+    seedBufferedRecording();
+    const readBufferedState = mockReadAppState.getMockImplementation();
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-media-verification-rec_1") return marker;
+      return (await readBufferedState?.(key)) ?? null;
+    });
+    mockUploadFile.mockResolvedValue(null);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ id: "rec_1", status: "waiting_storage" }),
+    );
+    const waitingStorageOperations = mockCompareAndSetManyAppState.mock.calls
+      .map(([operations]) => operations as Array<Record<string, unknown>>)
+      .find((operations) =>
+        operations.some(
+          (operation) =>
+            operation.key === "recording-upload-rec_1" &&
+            (operation.nextValue as Record<string, unknown> | undefined)
+              ?.status === "waiting_storage",
+        ),
+      );
+    expect(waitingStorageOperations).toHaveLength(2);
+    expect(waitingStorageOperations?.[1]).toEqual({
+      key: "recording-media-verification-rec_1",
+      expectedValue: marker,
+      nextValue: null,
+    });
   });
 
   it("claims a due durable verification before promoting the recording", async () => {

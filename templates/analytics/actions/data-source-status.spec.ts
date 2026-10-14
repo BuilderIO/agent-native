@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   listWorkspaceConnections: vi.fn(async () => []),
   workspaceProviderCatalog: [] as Array<Record<string, unknown>>,
   workspaceSummaryByProvider: {} as Record<string, Record<string, unknown>>,
+  workspaceConnections: [] as Array<Record<string, any>>,
+  workspaceGrants: [] as Array<Record<string, any>>,
   workspaceSummary: {
     appId: "analytics",
     provider: "hubspot",
@@ -53,11 +55,47 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionGrants: mocks.listWorkspaceConnectionGrants,
   listWorkspaceConnections: mocks.listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderForApp: vi.fn(
-    ({ providerId }: { providerId: string }) => ({
-      ...(mocks.workspaceSummaryByProvider[providerId] ??
-        mocks.workspaceSummary),
-      provider: providerId,
-    }),
+    ({
+      providerId,
+      connections,
+    }: {
+      providerId: string;
+      connections: Array<Record<string, any>>;
+    }) => {
+      const override = mocks.workspaceSummaryByProvider[providerId];
+      if (override) return { ...override, provider: providerId };
+      if (providerId !== "bigquery") {
+        return { ...mocks.workspaceSummary, provider: providerId };
+      }
+      const providerConnections = connections.filter(
+        (connection) => connection.provider === providerId,
+      );
+      const connected = providerConnections.some(
+        (connection) => connection.status === "connected",
+      );
+      return {
+        ...mocks.workspaceSummary,
+        provider: providerId,
+        grantState: connected
+          ? "connected"
+          : providerConnections.length > 0
+            ? "granted"
+            : "not_connected",
+        grantAvailability:
+          providerConnections.length > 0 ? "available" : "not_connected",
+        connectionCount: providerConnections.length,
+        grantedConnectionCount: providerConnections.length,
+        activeConnectionCount: connected ? 1 : 0,
+        hasWorkspaceConnection: providerConnections.length > 0,
+        hasGrantedWorkspaceConnection: providerConnections.length > 0,
+        hasActiveWorkspaceConnection: connected,
+        connections: providerConnections.map((connection) => ({
+          id: String(connection.id ?? "test-connection"),
+          status: connection.status,
+          grantedToApp: true,
+        })),
+      };
+    },
   ),
 }));
 
@@ -86,9 +124,13 @@ describe("data-source-status", () => {
     mocks.tryRequestCredentialContext.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
     mocks.listWorkspaceConnectionGrants.mockReset();
-    mocks.listWorkspaceConnectionGrants.mockResolvedValue([]);
     mocks.listWorkspaceConnections.mockReset();
-    mocks.listWorkspaceConnections.mockResolvedValue([]);
+    mocks.listWorkspaceConnectionGrants.mockImplementation(
+      async () => mocks.workspaceGrants,
+    );
+    mocks.listWorkspaceConnections.mockImplementation(
+      async () => mocks.workspaceConnections,
+    );
     mocks.workspaceProviderCatalog = [
       {
         id: "hubspot",
@@ -100,6 +142,8 @@ describe("data-source-status", () => {
       },
     ];
     mocks.workspaceSummaryByProvider = {};
+    mocks.workspaceConnections = [];
+    mocks.workspaceGrants = [];
     mocks.tryRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
       orgId: "org-1",
@@ -402,6 +446,14 @@ describe("data-source-status", () => {
   });
 
   it("does not describe optional-only credentials as configured credentials", async () => {
+    mocks.workspaceProviderCatalog.push({
+      id: "bigquery",
+      label: "BigQuery",
+      description: null,
+      capabilities: [],
+      credentialKeys: [],
+      recommendedTemplateUses: ["analytics"],
+    });
     mocks.hasCredential.mockImplementation(
       async (key: string) => key === "ANALYTICS_BIGQUERY_EVENTS_TABLE",
     );
@@ -426,7 +478,7 @@ describe("data-source-status", () => {
     );
 
     expect(bigquery).toMatchObject({
-      configured: true,
+      configured: false,
       ready: false,
       credentialsConfigured: false,
       configuredKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
@@ -550,6 +602,106 @@ describe("data-source-status", () => {
       workspaceConnections: {
         available: false,
         error: "workspace lookup unavailable",
+      },
+    });
+  });
+
+  it("does not count another member's BigQuery OAuth grant as configured", async () => {
+    mocks.workspaceConnections = [
+      {
+        id: "bigquery-bob",
+        provider: "bigquery",
+        ownerEmail: "bob@example.com",
+        status: "connected",
+        config: { credentialMode: "oauth" },
+        credentialRefs: [],
+      },
+    ];
+    mocks.hasCredential.mockImplementation(async () => false);
+
+    const result = (await dataSourceStatus.run({ key: "bigquery" })) as any;
+    const bigquery = result.providers.find(
+      (provider: any) => provider.provider === "bigquery",
+    );
+    const workspaceBigQuery = result.workspaceConnections.providers.find(
+      (provider: any) => provider.id === "bigquery",
+    );
+
+    expect(bigquery).toMatchObject({
+      configured: false,
+      missingRequiredKeys: [
+        "BIGQUERY_PROJECT_ID",
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON or BigQuery OAuth connection",
+      ],
+      workspaceConnection: {
+        grantState: "not_connected",
+        connectionCount: 0,
+      },
+    });
+    expect(workspaceBigQuery).toMatchObject({
+      grantState: "not_connected",
+      connectionCount: 0,
+    });
+  });
+
+  it("counts the current user's BigQuery OAuth grant as configured", async () => {
+    mocks.workspaceConnections = [
+      {
+        id: "bigquery-ada",
+        provider: "bigquery",
+        ownerEmail: "ada@example.com",
+        status: "connected",
+        config: { credentialMode: "oauth" },
+        credentialRefs: [],
+      },
+    ];
+    mocks.hasCredential.mockImplementation(
+      async (key: string) => key === "BIGQUERY_PROJECT_ID",
+    );
+
+    const result = (await dataSourceStatus.run({ key: "bigquery" })) as any;
+    const bigquery = result.providers.find(
+      (provider: any) => provider.provider === "bigquery",
+    );
+
+    expect(bigquery).toMatchObject({
+      configured: true,
+      missingRequiredKeys: [],
+      workspaceConnection: {
+        grantState: "connected",
+        connectionCount: 1,
+      },
+    });
+  });
+
+  it("keeps local BigQuery service-account configuration available", async () => {
+    mocks.workspaceConnections = [
+      {
+        id: "bigquery-bob",
+        provider: "bigquery",
+        ownerEmail: "bob@example.com",
+        status: "connected",
+        config: { credentialMode: "oauth" },
+        credentialRefs: [],
+      },
+    ];
+    mocks.hasCredential.mockImplementation(
+      async (key: string) =>
+        key === "BIGQUERY_PROJECT_ID" ||
+        key === "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    );
+
+    const result = (await dataSourceStatus.run({ key: "bigquery" })) as any;
+    const bigquery = result.providers.find(
+      (provider: any) => provider.provider === "bigquery",
+    );
+
+    expect(bigquery).toMatchObject({
+      configured: true,
+      missingRequiredKeys: [],
+      workspaceConnection: {
+        grantState: "not_connected",
+        connectionCount: 0,
       },
     });
   });

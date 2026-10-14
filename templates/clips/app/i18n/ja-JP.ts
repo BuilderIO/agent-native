@@ -305,6 +305,10 @@ const messages = {
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
+    silenceTranscriptUnavailableTitle:
+      "この文字起こしは無音部分の削除に使用できません",
+    silenceTranscriptUnavailableDescription:
+      "新しい文字起こしを生成してから、もう一度無音部分を削除してください。",
     titleGenerationQueued: "タイトルを生成中…",
     descriptionQueued: "説明を生成中…",
     chapterQueued: "チャプターを生成中…",

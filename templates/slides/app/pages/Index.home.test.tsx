@@ -537,6 +537,10 @@ function HistoryControls() {
   return (
     <>
       <div data-testid="history-path">{location.pathname}</div>
+      <div data-testid="history-url">
+        {location.pathname}
+        {location.search}
+      </div>
       <div data-testid="history-state">{JSON.stringify(location.state)}</div>
       <button type="button" onClick={() => navigate(-1)}>
         Browser back
@@ -893,6 +897,12 @@ describe("Slides prompt-led home", () => {
       expect(screen.getByTestId("history-path").textContent).toBe(
         "/deck/new-deck",
       ),
+    );
+    expect(
+      JSON.parse(screen.getByTestId("history-state").textContent!),
+    ).toEqual({ generationOriginalPrompt: submittedPrompt });
+    expect(screen.getByTestId("history-url").textContent).not.toContain(
+      submittedPrompt,
     );
     fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
     await waitFor(() =>
@@ -3418,7 +3428,7 @@ describe("Slides prompt-led home", () => {
     expect(savedSelection).not.toHaveProperty("referenceDeckId");
   });
 
-  it("restores the generation-failure draft and model on the inline home", async () => {
+  it("restores a failed deck's prompt on Home without automatically generating", async () => {
     const modelSelection = {
       model: "test-model",
       engine: "builder",
@@ -3444,6 +3454,7 @@ describe("Slides prompt-led home", () => {
     );
     expect(promptProps.mock.lastCall![0].open).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
   });
 
   it("restores the saved sign-in draft and model without automatically generating", async () => {

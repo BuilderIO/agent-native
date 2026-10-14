@@ -3339,6 +3339,7 @@ function isWorkspaceGoogleOAuthProvider(
   | "google_calendar"
   | "google_docs"
   | "google_drive"
+  | "bigquery"
   | "google_sheets"
   | "google_slides" {
   return (
@@ -3346,6 +3347,7 @@ function isWorkspaceGoogleOAuthProvider(
     provider === "google_calendar" ||
     provider === "google_docs" ||
     provider === "google_drive" ||
+    provider === "bigquery" ||
     provider === "google_sheets" ||
     provider === "google_slides"
   );

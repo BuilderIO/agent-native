@@ -256,6 +256,7 @@ export interface DesignClipboardScreenEntry {
   filename: string;
   fileType?: string;
   content: string;
+  sourceScreenId?: string;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -370,7 +371,10 @@ function validateDesignClipboardPayload(
       screen.filename.includes("/") ||
       screen.filename.includes("\\") ||
       !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
-      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+      (screen.fileType !== undefined &&
+        !clipboardString(screen.fileType, 32)) ||
+      (screen.sourceScreenId !== undefined &&
+        !clipboardString(screen.sourceScreenId))
     ) {
       return null;
     }

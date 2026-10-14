@@ -36,6 +36,10 @@ import {
   isShowKeyboardShortcutsHotkey,
   useDesignHotkeys,
 } from "@/hooks/useDesignHotkeys";
+import {
+  DESIGN_IMPORT_FORMATS,
+  requestImportFile,
+} from "@/lib/design-import-file-picker";
 
 import {
   collectCodeLayerAncestors,
@@ -817,20 +821,35 @@ export function useEditorSourceAndSync({
   // The file input must render outside any dropdown: menus unmount on close,
   // before the file picker reports its change event.
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
-  const openImportFilePicker = useCallback(() => {
-    importFileInputRef.current?.click();
-  }, []);
-  const handleImportFileChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = "";
-      if (!file) return;
+  const startImportFile = useCallback(
+    (file: File) => {
       setMinimalUi(false);
       setUiHidden(false);
       setActiveLeftPanel("import");
       setPendingImportFile(file);
     },
     [setActiveLeftPanel, setMinimalUi, setUiHidden],
+  );
+  const openImportFilePicker = useCallback(() => {
+    requestImportFile({
+      formats: DESIGN_IMPORT_FORMATS,
+      allSupportedLabel: t("designEditor.import.allSupportedFiles"),
+      openFallbackInput: () => importFileInputRef.current?.click(),
+      onFile: startImportFile,
+      onError: (error) =>
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        }),
+    });
+  }, [startImportFile, t]);
+  const handleImportFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (file) startImportFile(file);
+    },
+    [startImportFile],
   );
   const pendingVisualStyleNavigationBlocker = useBlocker(
     useCallback(

@@ -6000,3 +6000,91 @@ describe("run() — slide transition writes", () => {
     ).toBe(true);
   });
 });
+
+describe("run() — patch-slide edits", () => {
+  const eyebrow = (color: string) =>
+    `<div class="fmd-slide"><p style="color: ${color}">FIELD NOTES</p><h1>Title</h1></div>`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextDeckWriteMiss = undefined;
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: eyebrow("#a85f43") },
+          { id: "slide-2", content: eyebrow("#a85f43") },
+        ],
+      }),
+    };
+  });
+
+  it("applies style-only find/replace edits to several slides without a content hash", async () => {
+    const edit = { find: "#a85f43", replace: "#8a4a33", occurrence: 1 };
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: ["slide-1", "slide-2"].map((slideId) =>
+          OperationSchema.parse({
+            op: "patch-slide",
+            slideId,
+            styleOnly: true,
+            edits: [edit],
+          }),
+        ),
+      },
+      { caller: "tool" },
+    );
+
+    const saved = JSON.parse(String(lastUpdatedDeckData));
+    expect(saved.slides.map((slide: any) => slide.content)).toEqual([
+      eyebrow("#8a4a33"),
+      eyebrow("#8a4a33"),
+    ]);
+  });
+
+  it("applies several edit ops on the same slide in order", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          OperationSchema.parse({
+            op: "patch-slide",
+            slideId: "slide-1",
+            styleOnly: true,
+            edits: [{ find: "#a85f43", replace: "#8a4a33" }],
+          }),
+          OperationSchema.parse({
+            op: "patch-slide",
+            slideId: "slide-1",
+            edits: [{ find: "<h1>Title</h1>", replace: "<h1>Renamed</h1>" }],
+          }),
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const saved = JSON.parse(String(lastUpdatedDeckData));
+    expect(saved.slides[0].content).toBe(
+      eyebrow("#8a4a33").replace("<h1>Title</h1>", "<h1>Renamed</h1>"),
+    );
+  });
+
+  it("rejects edits combined with fields.content", () => {
+    expect(
+      OperationSchema.safeParse({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: eyebrow("#000000") },
+        baseContentHash: "hash",
+        edits: [{ find: "#a85f43", replace: "#000000" }],
+      }).success,
+    ).toBe(false);
+  });
+});

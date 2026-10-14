@@ -1,6 +1,10 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  createOnboardingCorrelationId,
+  trackOnboardingEvent,
+} from "@agent-native/core/client/onboarding/use-onboarding";
+import {
   BuilderConnectPopover,
   hasBuilderOAuthCredential,
   useBuilderConnectFlow,
@@ -25,6 +29,24 @@ import {
 // success should finish this card's setup; a connection made long after the
 // cancel belongs to something else.
 const CANCELLED_SETUP_RECOVERY_MS = 60_000;
+
+// The S3 path finishes in settings, outside this card, so only the choice is
+// recorded here; a later `recording_started.storage_connected` shows whether
+// it landed.
+function trackStorageStep(
+  name:
+    | "onboarding_step_viewed"
+    | "onboarding_step_completed"
+    | "onboarding_step_skipped"
+    | "onboarding_method_clicked",
+  properties: Record<string, unknown>,
+): void {
+  try {
+    trackOnboardingEvent(name, { step_id: "file-storage", ...properties });
+  } catch (err) {
+    console.warn(`[storage-setup] ${name} tracking failed:`, err);
+  }
+}
 
 export interface StorageSetupCardProps {
   onConfigured: () => void | Promise<void>;
@@ -70,6 +92,7 @@ export function StorageSetupCard({
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
   const connectRequestedRef = useRef(false);
   const connectIntentExpiresAtRef = useRef<number | null>(null);
+  const [stepViewId] = useState(createOnboardingCorrelationId);
 
   const clearConfiguredTimeout = useCallback(() => {
     if (configuredTimeoutRef.current !== null) {
@@ -146,6 +169,11 @@ export function StorageSetupCard({
           stop();
           setConnecting(false);
           setConnected(true);
+          trackStorageStep("onboarding_step_completed", {
+            flow: connectSource,
+            step_view_id: stepViewId,
+            method_id: "builder",
+          });
           clearConfiguredTimeout();
           configuredTimeoutRef.current = setTimeout(() => {
             configuredTimeoutRef.current = null;
@@ -177,7 +205,14 @@ export function StorageSetupCard({
       if (!document.hidden) void tick();
     };
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [clearConfiguredTimeout, onConfigured, stopVisibilityHandler, t]);
+  }, [
+    clearConfiguredTimeout,
+    connectSource,
+    onConfigured,
+    stepViewId,
+    stopVisibilityHandler,
+    t,
+  ]);
 
   const handleBuilderConnected = useCallback(() => {
     if (!connectRequestedRef.current) return;
@@ -235,12 +270,17 @@ export function StorageSetupCard({
       connectRequestedRef.current = true;
       connectIntentExpiresAtRef.current = null;
       setStatusIssue(null);
+      trackStorageStep("onboarding_method_clicked", {
+        flow: connectSource,
+        step_view_id: stepViewId,
+        method_id: "builder",
+      });
       builderConnect.start({
         provisionAccount,
         scope: builderConnectionScope,
       });
     },
-    [builderConnectionScope, builderConnect.start],
+    [builderConnectionScope, builderConnect.start, connectSource, stepViewId],
   );
   const handleBuilderCancel = useCallback(() => {
     connectIntentExpiresAtRef.current =
@@ -249,8 +289,12 @@ export function StorageSetupCard({
   }, [builderConnect.cancel]);
   const handleSkip = useCallback(() => {
     clearConfiguredTimeout();
+    trackStorageStep("onboarding_step_skipped", {
+      flow: connectSource,
+      step_view_id: stepViewId,
+    });
     onSkip?.();
-  }, [clearConfiguredTimeout, onSkip]);
+  }, [clearConfiguredTimeout, connectSource, onSkip, stepViewId]);
   const builderConnectErrorMessage = builderConnect.error
     ? builderConnect.errorKind === "launch"
       ? t("storageSetup.builderConnectPopupError")
@@ -264,6 +308,13 @@ export function StorageSetupCard({
     : null;
   const builderConnecting = builderConnect.connecting;
   const actionConnecting = connecting || builderConnecting;
+
+  useEffect(() => {
+    trackStorageStep("onboarding_step_viewed", {
+      flow: connectSource,
+      step_view_id: stepViewId,
+    });
+  }, [connectSource, stepViewId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -320,6 +371,13 @@ export function StorageSetupCard({
             <Button asChild variant="secondary" className="w-full">
               <a
                 href={storageSetupHref}
+                onClick={() =>
+                  trackStorageStep("onboarding_method_clicked", {
+                    flow: connectSource,
+                    step_view_id: stepViewId,
+                    method_id: "s3",
+                  })
+                }
                 {...(openSettingsInNewTab
                   ? { target: "_blank", rel: "noopener noreferrer" }
                   : {})}

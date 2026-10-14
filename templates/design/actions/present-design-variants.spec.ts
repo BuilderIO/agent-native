@@ -137,6 +137,9 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 vi.mock("nanoid", () => ({
   nanoid: mocks.nanoid,
 }));
@@ -1478,5 +1481,137 @@ describe("present-design-variants", () => {
     ).toBeUndefined();
     expect(mocks.designData.canvasFrames["old-file-a"]).toBeDefined();
     expect(mocks.designData.canvasFrames["old-file-b"]).toBeDefined();
+  });
+
+  describe("generation attempt tracking", () => {
+    const variants = [
+      {
+        id: "one",
+        label: "One",
+        content: "<!doctype html><html><body>One</body></html>",
+      },
+      {
+        id: "two",
+        label: "Two",
+        content: "<!doctype html><html><body>Two</body></html>",
+      },
+    ];
+
+    function events(name: string) {
+      return track.mock.calls
+        .filter(([event]) => event === name)
+        .map(([, properties]) => properties as Record<string, unknown>);
+    }
+
+    function generationEvents() {
+      return track.mock.calls
+        .map(([event]) => event as string)
+        .filter((event) => event.startsWith("generation_"));
+    }
+
+    beforeEach(() => {
+      track.mockReset();
+      mocks.assertAccess.mockResolvedValue(undefined);
+    });
+
+    it("records one started and one completed event for a saved set", async () => {
+      await action.run({
+        designId: "design_123",
+        prompt: "Pick a direction",
+        brief: "A calm finance dashboard",
+        variants,
+      });
+
+      expect(generationEvents()).toEqual([
+        "generation_started",
+        "generation_completed",
+      ]);
+      const [started] = events("generation_started");
+      expect(started).toMatchObject({
+        output_id: "design_123",
+        output_type: "design",
+        generation_path: "variants",
+        prompt_type: "ui",
+        prompt_length_bucket: "1-50",
+        variant_count: 2,
+      });
+      expect(events("generation_completed")[0]).toMatchObject({
+        generation_attempt_id: started.generation_attempt_id,
+        generation_path: "variants",
+        outcome: "completed",
+        file_count: 2,
+        has_linked_design_system: false,
+      });
+      expect(events("variants_generated")).toEqual([
+        expect.objectContaining({
+          output_id: "design_123",
+          variant_count: 2,
+          generation_attempt_id: started.generation_attempt_id,
+          app_name: "design",
+        }),
+      ]);
+      expect(JSON.stringify(track.mock.calls)).not.toContain("finance");
+    });
+
+    it("records nothing when the caller cannot edit the design", async () => {
+      const denied = Object.assign(new Error("Forbidden"), {
+        statusCode: 403,
+      });
+      mocks.assertAccess.mockRejectedValueOnce(denied);
+
+      await expect(
+        action.run({ designId: "design_123", prompt: "Pick", variants }),
+      ).rejects.toBe(denied);
+      expect(track).not.toHaveBeenCalled();
+    });
+
+    it("records one failure with the saved count and rethrows the original error", async () => {
+      const boom = new Error("canvas write failed");
+      mocks.mutateDesignData.mockRejectedValueOnce(boom);
+
+      await expect(
+        action.run({ designId: "design_123", prompt: "Pick", variants }),
+      ).rejects.toBe(boom);
+      expect(generationEvents()).toEqual([
+        "generation_started",
+        "generation_failed",
+      ]);
+      expect(events("generation_failed")[0]).toMatchObject({
+        generation_path: "variants",
+        error_type: "error",
+        files_saved: 2,
+      });
+      expect(events("variants_generated")).toEqual([]);
+    });
+
+    it("records a failure with nothing saved when validation rejects the set", async () => {
+      await expect(
+        action.run({
+          designId: "design_123",
+          prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+          variants,
+        }),
+      ).rejects.toThrow("Use one exact canvas size per Design action call");
+      expect(generationEvents()).toEqual([
+        "generation_started",
+        "generation_failed",
+      ]);
+      expect(events("generation_failed")[0]).toMatchObject({
+        files_saved: 0,
+      });
+    });
+
+    it("still returns the set when the tracking provider throws", async () => {
+      track.mockImplementation(() => {
+        throw new Error("analytics down");
+      });
+
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Pick",
+        variants,
+      });
+      expect(result.count).toBe(2);
+    });
   });
 });

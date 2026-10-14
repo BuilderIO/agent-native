@@ -1735,7 +1735,7 @@ test.describe("authenticated beta Design interactions", () => {
       );
       await expect(rows).toHaveCount(2);
       const initialRows = await rows.allTextContents();
-      expect(initialRows[0]).toMatch(/Image 1/);
+      expect(initialRows[0]).toMatch(/^Image\s*100%/);
       expect(initialRows[1]).toMatch(/Radial gradient 2/);
 
       await fillSection(page)
@@ -1823,7 +1823,7 @@ test.describe("authenticated beta Design interactions", () => {
       );
       await expect(reloadedRows).toHaveCount(3);
       const reloadedRowText = await reloadedRows.allTextContents();
-      expect(reloadedRowText[0]).toMatch(/Image 1/);
+      expect(reloadedRowText[0]).toMatch(/^Image\s*100%/);
       expect(reloadedRowText[1]).toMatch(/Radial gradient 2/);
       expect(reloadedRowText[2]).toMatch(/Linear gradient 3/);
     } catch (error) {

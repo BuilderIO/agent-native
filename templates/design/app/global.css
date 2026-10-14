@@ -165,6 +165,9 @@
   --design-inspector-grid-gap: var(--design-baseline-unit);
   --design-inspector-section-padding-inline: var(--design-baseline-unit);
   --design-inspector-section-padding-block: var(--design-baseline-unit);
+  --design-inspector-row-handle-width: var(
+    --design-inspector-section-padding-inline
+  );
   --design-inspector-control-gap: var(--design-baseline-half);
   --design-inspector-popover-label-width: calc(var(--design-baseline-unit) * 9);
   --design-inspector-popover-icon-width: calc(var(--design-baseline-unit) * 4);
@@ -325,7 +328,11 @@
   box-shadow: inset 0 1px var(--design-editor-control-border);
 }
 
-.design-sidebar-section:first-child {
+/* The sticky inspector header keeps its own bottom border so it still reads
+   over scrolled content; the section right under it must not stack a second
+   stroke against that border. */
+.design-sidebar-section:first-child,
+[data-design-inspector-header] + .design-sidebar-section {
   box-shadow: none;
 }
 
@@ -750,12 +757,14 @@
     );
 }
 
+/* The reorder handle's column hangs into the section's side padding, so the
+   field and action slots land exactly where a row without a handle puts them. */
 .design-inspector-grid[data-inspector-layout="drag-paint-row"] {
   position: relative;
-  grid-template-columns: minmax(0, 1fr) repeat(
-      2,
-      var(--design-action-slot-width)
-    );
+  margin-inline-start: calc(-1 * var(--design-inspector-row-handle-width));
+  grid-template-columns:
+    var(--design-inspector-row-handle-width) minmax(0, 1fr)
+    repeat(2, var(--design-action-slot-width));
 }
 
 .design-inspector-grid[data-inspector-layout="paint-row"]
@@ -784,26 +793,22 @@
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
   > [data-inspector-grid-cell]:nth-child(1) {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  z-index: 1;
-  width: var(--design-control-height);
-}
-
-.design-inspector-grid[data-inspector-layout="drag-paint-row"]
-  > [data-inspector-grid-cell]:nth-child(2) {
   grid-column: 1 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
-  > [data-inspector-grid-cell]:nth-child(3) {
+  > [data-inspector-grid-cell]:nth-child(2) {
   grid-column: 2 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
-  > [data-inspector-grid-cell]:nth-child(4) {
+  > [data-inspector-grid-cell]:nth-child(3) {
   grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(4) {
+  grid-column: 4 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]

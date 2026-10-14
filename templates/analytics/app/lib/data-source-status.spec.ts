@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canConnectWorkspaceOAuth,
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
   getGoogleSheetsConnection,
@@ -19,6 +20,16 @@ import {
 import { dataSources } from "./data-sources";
 
 describe("data source status", () => {
+  it("only offers personal BigQuery OAuth inside an organization", () => {
+    const bigquery = dataSources.find((source) => source.id === "bigquery")!;
+    const notion = dataSources.find((source) => source.id === "notion")!;
+
+    expect(canConnectWorkspaceOAuth(bigquery, false, false)).toBe(false);
+    expect(canConnectWorkspaceOAuth(bigquery, false, true)).toBe(true);
+    expect(canConnectWorkspaceOAuth(notion, false, true)).toBe(false);
+    expect(canConnectWorkspaceOAuth(notion, true, true)).toBe(true);
+  });
+
   it("uses the Google Sheets connection for Sheets exports", () => {
     const status: DataSourceStatusResponse = {
       workspaceConnections: {
@@ -90,6 +101,68 @@ describe("data source status", () => {
           label: "BigQuery Events Table",
           required: false,
           configured: false,
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("requires a project and either personal OAuth or a service account for BigQuery", () => {
+    const bigquery = dataSources.find((source) => source.id === "bigquery")!;
+    const projectOnly: EnvKeyStatus[] = [
+      {
+        key: "BIGQUERY_PROJECT_ID",
+        label: "BigQuery Project ID",
+        required: true,
+        configured: true,
+      },
+    ];
+    const oauthStatus: DataSourceStatusResponse = {
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        error: null,
+        providers: [
+          {
+            provider: "bigquery",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+        ],
+      },
+    };
+
+    expect(isSourceReady(bigquery, undefined, projectOnly)).toBe(false);
+    expect(isSourceConfigured(bigquery, projectOnly)).toBe(false);
+    expect(isSourceReady(bigquery, oauthStatus, projectOnly)).toBe(true);
+    expect(isSourceLocallyConfigured(bigquery, oauthStatus, projectOnly)).toBe(
+      false,
+    );
+    expect(
+      shouldOfferWorkspaceOAuthReconnect(
+        bigquery,
+        {
+          kind: "ready",
+          label: "Ready",
+          providerId: "bigquery",
+          providerLabel: "BigQuery",
+        },
+        false,
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isSourceReady(bigquery, undefined, [
+        ...projectOnly,
+        {
+          key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+          label: "Google Cloud",
+          required: false,
+          configured: true,
         },
       ]),
     ).toBe(true);

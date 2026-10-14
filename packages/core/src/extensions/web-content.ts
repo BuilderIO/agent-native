@@ -34,7 +34,9 @@ export interface WebContentProcessOptions {
   extract?: string;
   includeLinks?: boolean;
   search?: WebContentSearchOptions | null;
-  maxChars?: number;
+  /** `null` keeps the complete content available for a saved workspace file. */
+  maxChars?: number | null;
+  saveContentFormat?: "markdown" | "text";
 }
 
 export interface WebContentLink {
@@ -62,6 +64,8 @@ export interface WebContentResult {
   publishedTime?: string;
   agentMetadata?: unknown[];
   content?: string;
+  fullContent?: string;
+  contentLength?: number;
   links?: WebContentLink[];
   matches?: WebContentMatch[];
   totalMatches?: number;
@@ -161,28 +165,46 @@ export async function processWebContent(
   const html = isHtmlResponse(contentType, options.body);
   const mode = resolveMode(requestedMode, html, search);
   const emptyHtmlBody = html && !options.body.trim();
-  const maxChars = normalizeBoundedNumber(
-    options.maxChars,
-    DEFAULT_MAX_CONTENT_CHARS,
-    1,
-    200_000,
-  );
+  const maxChars =
+    options.maxChars === null
+      ? Number.POSITIVE_INFINITY
+      : normalizeBoundedNumber(
+          options.maxChars,
+          DEFAULT_MAX_CONTENT_CHARS,
+          1,
+          200_000,
+        );
 
   const extracted =
-    html && !emptyHtmlBody && (mode !== "raw" || hasWebContentSearch(search))
+    html &&
+    !emptyHtmlBody &&
+    (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat)
       ? await extractHtml(
           options.body,
           options.url,
           extract,
-          mode === "markdown" || mode === "matches",
+          mode === "markdown" ||
+            mode === "matches" ||
+            options.saveContentFormat === "markdown",
         )
       : null;
   const baseContent = contentForMode(mode, options.body, extracted);
+  const fullContent = options.saveContentFormat
+    ? options.saveContentFormat === "text"
+      ? (extracted?.text ?? (extracted ? "" : options.body))
+      : extracted?.markdown ||
+        extracted?.text ||
+        (extracted ? "" : options.body)
+    : undefined;
   const result: WebContentResult = {
     mode,
     extract,
     contentType,
     ...metadataFromExtraction(extracted),
+    ...(fullContent !== undefined ? { fullContent } : {}),
+    ...(mode !== "links" && mode !== "metadata"
+      ? { contentLength: baseContent.length }
+      : {}),
   };
 
   if (
@@ -301,10 +323,11 @@ function resolveMode(
 
 function isHtmlResponse(contentType: string | null, body: string): boolean {
   if (contentType) {
+    const mediaType = contentType.toLowerCase();
     return (
-      contentType === "text/html" ||
-      contentType === "application/xhtml+xml" ||
-      contentType.endsWith("+html")
+      mediaType === "text/html" ||
+      mediaType === "application/xhtml+xml" ||
+      mediaType.endsWith("+html")
     );
   }
   return /<!doctype html|<html[\s>]|<body[\s>]|<article[\s>]/i.test(

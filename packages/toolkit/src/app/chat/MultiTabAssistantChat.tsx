@@ -2285,6 +2285,14 @@ export function MultiTabAssistantChat({
           continue;
         }
         if (!chatRefs.current.has(threadId)) continue;
+        if (
+          delivery.send.submit &&
+          !delivery.modelOverride &&
+          !hostManagedModels &&
+          modelListLoading &&
+          !resolveThreadModelSelection(threadId)
+        )
+          continue;
         const lane = { delivery, handedOff: false };
         deliveryLanes.current.set(threadId, lane);
         if (!delivery.targetReported) {
@@ -2375,7 +2383,12 @@ export function MultiTabAssistantChat({
         else setTimeout(deliver, 50);
       }
     },
-    [bumpModelSelectionVersion],
+    [
+      bumpModelSelectionVersion,
+      hostManagedModels,
+      modelListLoading,
+      resolveThreadModelSelection,
+    ],
   );
 
   // Listen for builder.submitChat postMessages

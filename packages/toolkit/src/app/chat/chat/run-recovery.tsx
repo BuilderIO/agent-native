@@ -82,14 +82,20 @@ function trackSetupFunnelEvent(
   action: SetupTelemetryAction,
   outcome: SetupTelemetryOutcome,
 ): void {
-  trackOnboardingEvent(eventName, {
-    flow: "chat_setup",
-    app_name: setupTelemetryAppName(),
-    step_id: "connect_ai",
-    method_id: methodId,
-    action,
-    outcome,
-  });
+  // Runs in the card's mount effect and ahead of the setup links' navigation,
+  // so a throw here would unmount the card or swallow the click.
+  try {
+    trackOnboardingEvent(eventName, {
+      flow: "chat_setup",
+      app_name: setupTelemetryAppName(),
+      step_id: "connect_ai",
+      method_id: methodId,
+      action,
+      outcome,
+    });
+  } catch (err) {
+    console.warn(`[connect-ai-setup] ${eventName} tracking failed:`, err);
+  }
 }
 
 type BuilderConnectTelemetryAttempt = {

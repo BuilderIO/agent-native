@@ -552,6 +552,7 @@ export default defineEventHandler(async (event) => {
             description: "Private session replay storyboard from Analytics.",
             projectType: "prototype",
             designSystemId: null,
+            creationMethod: "import_analytics",
           },
           {
             caller: "frontend",

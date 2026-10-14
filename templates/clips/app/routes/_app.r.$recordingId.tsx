@@ -158,6 +158,7 @@ import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
+import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
@@ -1665,21 +1666,45 @@ export default function RecordingPage() {
     const errorCode = (err as Error & { errorCode?: unknown }).errorCode;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
-    failAiRequestToast(t("recordingPage.aiRequestFailed"), {
-      description:
-        errorCode === "edits_unreadable"
-          ? t("recordingPage.silenceEditsUnreadable")
-          : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
-      ...(retryKind === "remove-filler-words" || retryKind === "remove-silences"
-        ? {
-            action: {
-              label: t("agentChat.common.retry"),
-              onClick: () => retryAiRequestRef.current?.(retryKind),
-            },
-          }
-        : {}),
-      duration: Number.POSITIVE_INFINITY,
-    });
+    const transcriptNeedsRegeneration = shouldOfferTranscriptRegeneration(
+      retryKind,
+      errorCode,
+      recording?.id,
+    );
+    failAiRequestToast(
+      transcriptNeedsRegeneration
+        ? t("recordingPage.silenceTranscriptUnavailableTitle")
+        : t("recordingPage.aiRequestFailed"),
+      {
+        description: transcriptNeedsRegeneration
+          ? t("recordingPage.silenceTranscriptUnavailableDescription")
+          : errorCode === "edits_unreadable"
+            ? t("recordingPage.silenceEditsUnreadable")
+            : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
+        ...(transcriptNeedsRegeneration
+          ? {
+              action: {
+                label: t("transcriptPanel.regenerate"),
+                onClick: () =>
+                  requestTranscriptWithLifecycle({
+                    recordingId: recording!.id,
+                    force: true,
+                    regenerate: true,
+                  }),
+              },
+            }
+          : retryKind === "remove-filler-words" ||
+              retryKind === "remove-silences"
+            ? {
+                action: {
+                  label: t("agentChat.common.retry"),
+                  onClick: () => retryAiRequestRef.current?.(retryKind),
+                },
+              }
+            : {}),
+        duration: Number.POSITIVE_INFINITY,
+      },
+    );
   };
   const requestTranscript = useActionMutation("request-transcript" as any, {
     onSuccess: (result: any) => {
@@ -2247,6 +2272,7 @@ export default function RecordingPage() {
                 </div>
               ) : (
                 <StorageSetupCard
+                  connectSource="clips_recording_page_storage_setup_card"
                   title={
                     loomStorageSetupFailure
                       ? t("recordingPage.connectStorageImportLoomTitle")

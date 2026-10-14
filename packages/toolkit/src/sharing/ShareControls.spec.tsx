@@ -5,7 +5,11 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip.js";
-import { JoinedShareControl, ShareModeTabs } from "./ShareControls.js";
+import {
+  JoinedShareControl,
+  ShareModeTabs,
+  ShareTabs,
+} from "./ShareControls.js";
 
 describe("JoinedShareControl", () => {
   const roots: ReturnType<typeof createRoot>[] = [];
@@ -84,6 +88,87 @@ describe("JoinedShareControl", () => {
     expect(group?.className).toContain(
       "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8",
     );
+  });
+
+  it("renders underline tabs and shows only the selected tab's panel", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const onValueChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <ShareTabs
+          value="link"
+          onValueChange={onValueChange}
+          listLabel="Share options"
+          tabs={[
+            { value: "link", label: "Link", content: <div>Link body</div> },
+            { value: "embed", label: "Embed", content: <div>Embed body</div> },
+          ]}
+        />,
+      );
+    });
+
+    const list = container.querySelector('[role="tablist"]');
+    expect(list?.getAttribute("aria-label")).toBe("Share options");
+    expect(list?.className).toContain("bg-transparent");
+    expect(list?.className).not.toContain("bg-muted");
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    for (const tab of tabs) {
+      expect(tab.className).toContain("after:bg-foreground");
+      expect(tab.className).toContain("data-[state=active]:bg-transparent");
+    }
+    expect(container.textContent).toContain("Link body");
+    expect(container.textContent).not.toContain("Embed body");
+
+    await act(async () => {
+      tabs[1].dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(onValueChange).toHaveBeenCalledWith("embed");
+  });
+
+  it("builds People and Agents on the same underline tabs", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+
+    await act(async () => {
+      root.render(
+        <ShareModeTabs
+          value="agents"
+          onValueChange={() => {}}
+          peopleLabel="People"
+          agentsLabel="Agents"
+          people={<div>Access</div>}
+          agents={<div>Prompt</div>}
+          extraTabs={[
+            { value: "context", label: "Context", content: <div>Ctx</div> },
+          ]}
+        />,
+      );
+    });
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "People",
+      "Agents",
+      "Context",
+    ]);
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    for (const tab of tabs) expect(tab.className).toContain("after:h-0.5");
+    expect(container.textContent).toContain("Prompt");
+    expect(container.textContent).not.toContain("Access");
   });
 
   it("keeps disabled extra share tabs unavailable", async () => {

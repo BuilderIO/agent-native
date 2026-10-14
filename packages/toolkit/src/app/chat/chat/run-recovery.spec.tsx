@@ -1076,6 +1076,70 @@ describe("run recovery surfaces", () => {
     );
   });
 
+  it("keeps the setup card working when setup tracking throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setupTelemetryMock.mockImplementation(() => {
+      throw new Error("tracker exploded");
+    });
+    const onConnected = vi.fn();
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/home",
+          element: (
+            <AgentNativeI18nProvider
+              initialLocale="en-US"
+              initialPreference="en-US"
+              persistPreference={false}
+            >
+              <BuilderSetupCard onConnected={onConnected} />
+            </AgentNativeI18nProvider>
+          ),
+        },
+        { path: "/settings/keys", element: <SetupTrackingFlowProbe /> },
+      ],
+      { initialEntries: ["/home"] },
+    );
+
+    await act(async () => {
+      root.render(<RouterProvider router={router} />);
+    });
+    expect(container.querySelector(".agent-builder-setup-card")).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".agent-builder-setup-card__builder-button",
+        )
+        ?.click();
+    });
+    await vi.waitFor(() =>
+      expect(builderConnectMock.onConnect).toBeTypeOf("function"),
+    );
+    await act(async () => builderConnectMock.onConnect?.(true));
+    await act(async () => {
+      await expect(
+        builderFlowMock.onConnected?.({ orgName: null }),
+      ).resolves.toBeUndefined();
+    });
+    expect(onConnected).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLAnchorElement>('a[href="/settings/keys"]')
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(router.state.location.pathname).toBe("/settings/keys");
+    expect(setupTelemetryMock.mock.calls.map(([name]) => name)).toEqual([
+      "integration_setup_exposed",
+      "integration_method_clicked",
+      "integration_method_outcome",
+      "integration_method_clicked",
+    ]);
+    expect(warn).toHaveBeenCalled();
+  });
+
   it("tracks Builder success only after a selected setup attempt is confirmed", async () => {
     const card = (
       <AgentNativeI18nProvider

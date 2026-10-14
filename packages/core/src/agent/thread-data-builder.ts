@@ -1782,6 +1782,161 @@ function snapshotAssistantTextKey(
   ]);
 }
 
+function snapshotAssistantText(message: any): string | undefined {
+  if (
+    message?.role !== "assistant" ||
+    !Array.isArray(message.parts) ||
+    message.parts.length === 0 ||
+    !message.parts.every(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+  ) {
+    return undefined;
+  }
+  return message.parts.map((part: any) => part.text).join("");
+}
+
+function removeSupersededAgentKitMessagePrefixes(
+  messages: unknown,
+  agentKit: Record<string, unknown>,
+  previousAgentKit: Record<string, unknown>,
+  incomingAgentKit: Record<string, unknown>,
+): unknown[] | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  const completedMessagesByRun = new Map<string, Set<string>>();
+  const events = [previousAgentKit, incomingAgentKit, agentKit].flatMap(
+    (snapshot) => (Array.isArray(snapshot.events) ? snapshot.events : []),
+  );
+  for (const event of events) {
+    const messageId = event?.message?.id;
+    if (
+      event?.type !== "message.completed" ||
+      event.message?.role !== "assistant" ||
+      typeof event.runId !== "string" ||
+      typeof messageId !== "string"
+    ) {
+      continue;
+    }
+    const messageIds =
+      completedMessagesByRun.get(event.runId) ?? new Set<string>();
+    messageIds.add(messageId);
+    completedMessagesByRun.set(event.runId, messageIds);
+  }
+  if (completedMessagesByRun.size === 0) return messages;
+
+  const runningRunSnapshots = [previousAgentKit, incomingAgentKit].flatMap(
+    (snapshot) =>
+      Array.isArray(snapshot.runs)
+        ? snapshot.runs.flatMap((run: any) =>
+            run?.status === "running" &&
+            typeof run.id === "string" &&
+            typeof run.activeMessageId === "string" &&
+            typeof run.lastSequence === "number" &&
+            Number.isSafeInteger(run.lastSequence)
+              ? [{ run, messages: snapshot.messages }]
+              : [],
+          )
+        : [],
+  );
+  const removedIds = new Set<string>();
+  for (const run of Array.isArray(agentKit.runs) ? agentKit.runs : []) {
+    if (
+      run?.status !== "completed" ||
+      typeof run.id !== "string" ||
+      typeof run.activeMessageId !== "string" ||
+      typeof run.lastSequence !== "number" ||
+      !Number.isSafeInteger(run.lastSequence)
+    ) {
+      continue;
+    }
+    const staleRunningSnapshot = runningRunSnapshots
+      .filter(
+        ({ run: candidateRun }) =>
+          candidateRun.id === run.id &&
+          candidateRun.activeMessageId !== run.activeMessageId &&
+          candidateRun.lastSequence < run.lastSequence &&
+          !completedMessagesByRun
+            .get(run.id)
+            ?.has(candidateRun.activeMessageId),
+      )
+      .sort((left, right) => right.run.lastSequence - left.run.lastSequence)[0];
+    if (
+      !staleRunningSnapshot ||
+      !completedMessagesByRun.get(run.id)?.has(run.activeMessageId) ||
+      !events.some(
+        (event: any) =>
+          event?.type === "message.completed" &&
+          event.runId === run.id &&
+          event.message?.role === "assistant" &&
+          event.message?.id === run.activeMessageId &&
+          typeof event.sequence === "number" &&
+          Number.isSafeInteger(event.sequence) &&
+          event.sequence > staleRunningSnapshot.run.lastSequence &&
+          event.sequence <= run.lastSequence,
+      )
+    ) {
+      continue;
+    }
+
+    const completedIndex = messages.findIndex(
+      (entry) =>
+        snapshotEntryId(entry, "message") === run.activeMessageId &&
+        entry?.role === "assistant",
+    );
+    if (completedIndex === -1) continue;
+    const completedText = snapshotAssistantText(messages[completedIndex]);
+    if (completedText === undefined) continue;
+
+    const lastUserIndexBefore = (messageIndex: number) => {
+      for (let index = messageIndex - 1; index >= 0; index--) {
+        if (messages[index]?.role === "user") return index;
+      }
+      return -1;
+    };
+    const lastUserIndex = lastUserIndexBefore(completedIndex);
+    if (
+      lastUserIndex === -1 ||
+      lastUserIndexBefore(
+        messages.findIndex(
+          (entry) =>
+            snapshotEntryId(entry, "message") ===
+            staleRunningSnapshot.run.activeMessageId,
+        ),
+      ) !== lastUserIndex
+    ) {
+      continue;
+    }
+
+    const candidateId = staleRunningSnapshot.run.activeMessageId;
+    const candidate = Array.isArray(staleRunningSnapshot.messages)
+      ? staleRunningSnapshot.messages.find(
+          (entry: unknown) => snapshotEntryId(entry, "message") === candidateId,
+        )
+      : undefined;
+    const candidateIndex = messages.findIndex(
+      (entry) => snapshotEntryId(entry, "message") === candidateId,
+    );
+    const candidateText = snapshotAssistantText(candidate);
+    if (
+      candidateIndex <= lastUserIndex ||
+      candidateText === undefined ||
+      candidateText.length === 0 ||
+      candidateText.length >= completedText.length ||
+      !completedText.startsWith(candidateText)
+    ) {
+      continue;
+    }
+    removedIds.add(candidateId);
+  }
+
+  return removedIds.size === 0
+    ? messages
+    : messages.filter((entry) => {
+        const id = snapshotEntryId(entry, "message");
+        return !id || !removedIds.has(id);
+      });
+}
+
 function preferIncomingSnapshotEntry(
   kind: "message" | "toolCall" | "widget",
   existing: any,
@@ -3363,6 +3518,13 @@ function mergeAgentKitHistory(
       merged._eventRunWatermarks = previous._eventRunWatermarks;
     }
   }
+  const messages = removeSupersededAgentKitMessagePrefixes(
+    merged.messages,
+    merged,
+    previous,
+    next,
+  );
+  if (messages) merged.messages = messages;
   delete merged._snapshotDelta;
   delete merged.eventRunReplacements;
   delete merged.eventRunSnapshotWatermarks;

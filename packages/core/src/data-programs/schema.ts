@@ -56,6 +56,9 @@ export const DATA_PROGRAM_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_p
 
 export const DATA_PROGRAMS_APP_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_owner_idx ON data_programs (app_id, owner_email)`;
 export const DATA_PROGRAMS_APP_NAME_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_name_idx ON data_programs (app_id, name)`;
+// data_program_shares tables created before notified_at existed never got it
+// from the CREATE TABLE IF NOT EXISTS above, and every share insert names it.
+export const DATA_PROGRAM_SHARES_NOTIFIED_AT_COLUMN_SQL = `ALTER TABLE data_program_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`;
 export const DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_program_shares_resource_idx ON data_program_shares (resource_id)`;
 
 export function dataProgramRunsCreateSql(integerType: string): string {
