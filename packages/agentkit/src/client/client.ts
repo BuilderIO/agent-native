@@ -5110,6 +5110,9 @@ export class AgentKitClient implements AgentKitController {
           completedAt: authoritativeRun.completedAt ?? currentRun.completedAt,
           activeMessageId:
             authoritativeRun.activeMessageId ?? currentRun.activeMessageId,
+          inheritedMessageId:
+            authoritativeRun.inheritedMessageId ??
+            currentRun.inheritedMessageId,
           usage: authoritativeRun.usage ?? currentRun.usage,
         },
       },
@@ -6225,6 +6228,7 @@ export class AgentKitClient implements AgentKitController {
       usage: run?.usage,
       error: run?.error,
       activeMessageId: run?.activeMessageId,
+      inheritedMessageId: run?.inheritedMessageId,
     };
   }
 

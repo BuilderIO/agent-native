@@ -1069,6 +1069,8 @@ export interface AgentRunSnapshot {
   status: AgentRunStatus;
   lastSequence: number;
   activeMessageId?: string;
+  /** A streaming reply from an earlier run that this run continues. */
+  inheritedMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;
