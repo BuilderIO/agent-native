@@ -90,6 +90,17 @@ export interface StagedDatasetMeta {
   updatedAt: number;
 }
 
+/**
+ * What readers compare to tell that a dataset was replaced mid-read. The write
+ * time alone could repeat if an id is deleted and recreated within one
+ * millisecond, so the shape of the data is part of the token.
+ */
+export function stagedDatasetVersion(
+  meta: Pick<StagedDatasetMeta, "updatedAt" | "rowCount" | "byteSize">,
+): string {
+  return `${meta.updatedAt}.${meta.rowCount}.${meta.byteSize}`;
+}
+
 export interface UpsertDatasetOptions {
   id: string;
   appId: string;

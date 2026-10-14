@@ -8,6 +8,7 @@ import {
   getStagedDatasetMeta,
   getStagedDatasetRows,
   listStagedDatasets,
+  stagedDatasetVersion,
 } from "../staged-datasets-store.js";
 
 const WhereSchema = z.object({
@@ -235,7 +236,10 @@ export function createQueryStagedDatasetAction<
       // them would answer from this metadata with no rows, or another
       // version's rows, and read as a valid result.
       const current = await runtime.getMeta({ id: datasetId, ...scope });
-      if (!current || current.updatedAt !== meta.updatedAt) {
+      if (
+        !current ||
+        stagedDatasetVersion(current) !== stagedDatasetVersion(meta)
+      ) {
         fail(
           `Dataset ${datasetId} was evicted or replaced while it was being read. Stage it again and rerun the query.`,
           { errorCode: "staged_dataset_changed", statusCode: 409 },

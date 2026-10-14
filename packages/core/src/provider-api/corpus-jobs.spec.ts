@@ -208,6 +208,7 @@ const {
   getProviderCorpusJob,
   appendProviderCorpusJobHits,
   getProviderCorpusJobHits,
+  updateProviderCorpusJob,
 } = await import("./corpus-jobs-store.js");
 
 function providerEnvelope(json: unknown, status = 200) {
@@ -510,6 +511,92 @@ describe("provider corpus jobs", () => {
 
         expect(second.job.status).toBe("completed");
         expect(seen).toEqual([[rows[0], rows[1]], [rows[2]]]);
+      });
+
+      it("fails when the same timestamp comes back with a different row count", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue({
+          ...meta(100),
+          rowCount: 3,
+        });
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const { start, resume } = startPaused();
+        const first = await start();
+
+        stagedStore.getStagedDatasetMeta.mockResolvedValue({
+          ...meta(100),
+          rowCount: 5,
+        });
+        const second = await resume(first.job.id);
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/re-staged after this job started/);
+      });
+
+      it("fails closed for a saved position whose version was never recorded", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const { start, resume, seen } = startPaused();
+        const first = await start();
+        await updateProviderCorpusJob({
+          id: first.job.id,
+          appId: "analytics",
+          ownerEmail: "ada@example.com",
+          checkpoint: { nextIndex: 2, sourceItemCount: 3 },
+        });
+
+        const second = await resume(first.job.id);
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/version was never recorded/);
+        expect(seen).toEqual([[rows[0], rows[1]]]);
+      });
+
+      it("checks the version even when the job paused for quota before any progress", async () => {
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+        stagedStore.getStagedDatasetRows.mockResolvedValue(rows);
+        const action = createProviderCorpusJobAction({
+          appId: "analytics",
+          getRuntime: () => ({
+            executeRequest: async () =>
+              providerEnvelope(
+                {
+                  error: "provider_quota_exhausted",
+                  retryAt: "2026-06-17T12:00:00.000Z",
+                  retryAfterMs: 60_000,
+                  reason: "cooldown",
+                },
+                429,
+              ),
+          }),
+        });
+        const first = (await action.run({
+          operation: "start",
+          name: "transcripts",
+          mode: "batch-search",
+          request: {
+            provider: "fake",
+            method: "POST",
+            path: "/calls/transcript",
+            body: { filter: {} },
+          },
+          batch: {
+            inputDatasetId: "ds_input",
+            batchSize: 2,
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          },
+          search: { query: "Figma MCP", textPaths: ["transcript"] },
+        })) as any;
+        expect(first.job.status).toBe("quota_wait");
+
+        stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(200));
+        const second = (await action.run({
+          operation: "continue",
+          jobId: first.job.id,
+        })) as any;
+
+        expect(second.job.status).toBe("failed");
+        expect(second.error).toMatch(/re-staged after this job started/);
       });
 
       it("fails instead of resuming at the old position against a re-staged dataset", async () => {

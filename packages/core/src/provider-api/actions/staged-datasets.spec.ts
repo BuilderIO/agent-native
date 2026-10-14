@@ -99,6 +99,18 @@ describe("staged dataset action factories", () => {
       expect(runtime.aggregate).not.toHaveBeenCalled();
     });
 
+    it("treats a different row count at the same timestamp as a replacement", async () => {
+      const runtime = createRuntime();
+      runtime.getMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce({ ...meta(100), rowCount: 9 });
+
+      await expect(query(runtime)).rejects.toThrow(
+        /evicted or replaced while it was being read/,
+      );
+      expect(runtime.aggregate).not.toHaveBeenCalled();
+    });
+
     it("reports a re-stage between the reads instead of mixing versions", async () => {
       const runtime = createRuntime();
       runtime.getMeta

@@ -19,6 +19,7 @@ import type { ProviderApiMethod, ProviderApiRequestArgs } from "./index.js";
 import {
   getStagedDatasetMeta,
   getStagedDatasetRows,
+  stagedDatasetVersion,
 } from "./staged-datasets-store.js";
 
 type ProviderCorpusRuntime = {
@@ -708,15 +709,17 @@ async function runBatchSearch(
   // The saved position is an index into one version of the input dataset. If it
   // was re-staged since this job began, the same index points at other rows, so
   // resuming would skip or repeat records.
+  // A saved position with no pinned version (a job paused before versions were
+  // recorded) cannot be checked, so it fails closed like a mismatch.
   const pinnedVersion = job.checkpoint.sourceVersion;
   if (
-    nextIndex > 0 &&
-    typeof pinnedVersion === "number" &&
     sourceVersion !== null &&
-    pinnedVersion !== sourceVersion
+    (typeof pinnedVersion === "string"
+      ? pinnedVersion !== sourceVersion
+      : nextIndex > 0)
   ) {
     throw new Error(
-      `Input dataset ${batch.inputDatasetId} was re-staged after this job started, so its saved position no longer points at the same rows. Start a new job from the current dataset.`,
+      `Input dataset ${batch.inputDatasetId} was re-staged after this job started, or its version was never recorded, so the saved position cannot be trusted to point at the same rows. Start a new job from the current dataset.`,
     );
   }
   let batchesThisCall = 0;
@@ -878,7 +881,7 @@ async function callProvider(
 async function loadBatchSourceItems(
   job: ProviderCorpusJobRecord,
   batch: Required<BatchConfig>,
-): Promise<{ items: unknown[]; version: number | null }> {
+): Promise<{ items: unknown[]; version: string | null }> {
   if (batch.items.length > 0) return { items: batch.items, version: null };
   if (!batch.inputDatasetId) return { items: [], version: null };
   const scope = {
@@ -901,9 +904,8 @@ async function loadBatchSourceItems(
     const items = await getStagedDatasetRows(scope);
     const after = await getStagedDatasetMeta(scope);
     if (!after) throw notFound();
-    if (after.updatedAt === before.updatedAt) {
-      return { items, version: after.updatedAt };
-    }
+    const version = stagedDatasetVersion(after);
+    if (version === stagedDatasetVersion(before)) return { items, version };
   }
   throw new Error(
     `Input dataset ${batch.inputDatasetId} kept changing while it was being read. Stage it once more and restart the job.`,
