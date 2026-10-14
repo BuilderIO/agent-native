@@ -1260,6 +1260,8 @@ describe("realDataFinalGuard", () => {
     "Tell me if anything else is off and the table shows 43 rows.",
     "Could you confirm the table has 43 rows?",
     "Could you check the table has 43 rows?",
+    "Could you explain what the table represents?",
+    "I need the table that has the current data, so I re-ran the query and it shows 43 rows.",
     "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
     "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
   ])(

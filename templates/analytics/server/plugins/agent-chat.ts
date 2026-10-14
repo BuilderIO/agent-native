@@ -343,7 +343,7 @@ const SCHEMA_DETAILS_IMPERATIVE =
 // identifier ("could you confirm which table holds usage" is an ask; "confirm
 // the table has 43 rows" is not).
 const SCHEMA_DETAILS_FEEDBACK_VERB =
-  "(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
+  "(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|explain|describe|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
 const SCHEMA_DETAILS_FEEDBACK =
   "(?! (?:if|whether|what else|anything|how|why)\\b)";
 const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
@@ -351,7 +351,7 @@ const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DE
 // off:" followed by a summary bullet that mentions a table is feedback.
 const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
