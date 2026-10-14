@@ -1,150 +1,165 @@
+import { selectTool } from "./helpers";
 import {
   expect,
+  expectOnlyChanged,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import { appPath, selectTool } from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
-<body style="margin:0;min-height:900px">
-<main data-agent-native-node-id="main" style="position:relative;min-height:900px">
-  <h1 data-agent-native-node-id="hero" style="position:absolute;left:40px;top:48px">Hero</h1>
-</main></body></html>`;
+<body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#ffffff">
+  <h1 data-agent-native-node-id="hero" data-agent-native-layer-name="Hero" style="position:absolute;left:40px;top:48px;margin:0;font:600 32px system-ui">Hero</h1>
+</body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
+const BOX = { x: 300, y: 200, width: 240, height: 160 };
+
+async function drawRectangle(app: App) {
+  await selectTool(app.page, "Rectangle");
+  const start = await app.pagePoint(BOX.x, BOX.y);
+  const end = await app.pagePoint(BOX.x + BOX.width, BOX.y + BOX.height);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 10 });
+  await app.page.mouse.up();
+  await app.settled();
+}
+
+function added(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
+  return [...after.values()].filter((node) => !before.has(node.id));
+}
+
+/** Pointer input lands on whole page pixels, so a dragged edge can be off by one page pixel in design px. */
+async function expectBox(app: App, label: string, actual: number[]) {
+  const expected = [BOX.x, BOX.y, BOX.width, BOX.height];
+  const tolerance = Math.max(
+    1,
+    Math.ceil(1 / (await app.pagePoint(0, 0)).scale),
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
+  const off = actual.filter(
+    (value, index) => Math.abs(value - expected[index]!) > tolerance,
+  );
+  expect(
+    off,
+    `${label}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)} ±${tolerance}`,
+  ).toEqual([]);
 }
 
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Create primitive QA ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 1280, height: 900 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
-      },
-    ],
-  });
-  return { designId, fileId };
+function savedBox(node: SavedNode) {
+  const style = styleOf(node);
+  return ["left", "top", "width", "height"].map((key) =>
+    Number.parseFloat(style[key]!),
+  );
 }
 
-async function previewNodeCount(page: Page) {
-  return page.evaluate(() => {
-    const frame = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id]",
+function paintOf(node: SavedNode) {
+  const {
+    left: _left,
+    top: _top,
+    width: _width,
+    height: _height,
+    ...rest
+  } = styleOf(node);
+  return rest;
+}
+
+async function layerRows(app: App) {
+  return app.page
+    .locator('[role="treeitem"]')
+    .evaluateAll((rows) =>
+      rows.map((row) => [
+        (row as HTMLElement).innerText.trim(),
+        row.getAttribute("aria-selected") === "true",
+      ]),
     );
-    const doc = frame?.contentDocument;
-    if (!doc) return -1;
-    return doc.querySelectorAll("[data-agent-native-node-id]").length;
-  });
 }
 
-async function drawRectangle(page: Page) {
-  await selectTool(page, "Rectangle");
-  const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
-  const x = Math.max(box.x, 0) + 60;
-  const y = Math.max(box.y, 0) + 60;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 120, y + 90, { steps: 10 });
-  await page.mouse.up();
-}
-
-test("drawing a rectangle shows it immediately and leaves the screen unselected", async ({
-  page,
-  request,
+test("drawing a rectangle on a screen in overview saves exactly the dragged box and selects the rectangle, not the screen", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  const pageErrors: string[] = [];
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(0);
-    await page.waitForTimeout(2500);
-    const before = await previewNodeCount(page);
+  const id = await app.seed(SCREEN_HTML);
+  await app.open(id);
+  await app.zoomToFit();
+  const before = await app.savedNodes(id);
 
-    await drawRectangle(page);
-    await page.waitForTimeout(2500);
+  await drawRectangle(app);
 
-    expect(pageErrors).toEqual([]);
-    expect(await previewNodeCount(page)).toBeGreaterThan(before);
-    await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await expect.poll(() => app.selectedLayers()).toEqual(["Rectangle"]);
+  await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
+  const after = await app.savedNodes(id);
+  const drawn = added(before, after);
+  expect(
+    drawn.map((node) => [
+      node.tag,
+      node.parent,
+      node.attrs["data-an-primitive"],
+    ]),
+  ).toEqual([["div", "page", "rectangle"]]);
+  const rectangle = drawn[0]!;
+  expect(paintOf(rectangle)).toEqual({
+    position: "absolute",
+    background: "rgb(217, 217, 217)",
+    border: "0px solid transparent",
+    "border-radius": "0px",
+  });
+  await expectBox(app, "saved", savedBox(rectangle));
+  const rendered = await app.designRect(rectangle.id);
+  await expectBox(app, "rendered", [
+    rendered.x,
+    rendered.y,
+    rendered.width,
+    rendered.height,
+  ]);
+  expectOnlyChanged(before, after, [rectangle.id]);
 });
 
-test("duplicating right after drawing copies the rectangle, not its screen", async ({
-  page,
-  request,
+test("Cmd+D right after drawing duplicates the rectangle in place and selects the copy, leaving the screen single", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(0);
-    await page.waitForTimeout(2500);
-    const screensBefore = await page.locator("[data-screen-shell]").count();
+  const id = await app.seed(SCREEN_HTML);
+  await app.open(id);
+  await app.zoomToFit();
+  const seeded = await app.savedNodes(id);
+  await drawRectangle(app);
+  const drawn = await app.savedNodes(id);
+  const original = added(seeded, drawn);
+  expect(
+    original.map((node) => node.attrs["data-an-primitive"]),
+    "the draw must save one rectangle",
+  ).toEqual(["rectangle"]);
 
-    await drawRectangle(page);
-    await page.waitForTimeout(2500);
-    const nodesAfterDraw = await previewNodeCount(page);
+  await app.page.keyboard.press("ControlOrMeta+d");
+  await app.settled();
 
-    await page.keyboard.press("ControlOrMeta+d");
-    await page.waitForTimeout(2500);
-
-    expect(await previewNodeCount(page)).toBeGreaterThan(nodesAfterDraw);
-    expect(await page.locator("[data-screen-shell]").count()).toBe(
-      screensBefore,
-    );
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  const after = await app.savedNodes(id);
+  const copies = added(drawn, after);
+  expect(
+    copies.map((node) => [
+      node.tag,
+      node.parent,
+      node.attrs["data-an-primitive"],
+    ]),
+  ).toEqual([["div", "page", "rectangle"]]);
+  const copy = copies[0]!;
+  expect(styleOf(copy)).toEqual(styleOf(original[0]));
+  expect(after.get(copy.id)!.index).toBe(after.get(original[0]!.id)!.index + 1);
+  expectOnlyChanged(drawn, after, [copy.id]);
+  await expect
+    .poll(() => layerRows(app))
+    .toEqual([
+      ["Home", false],
+      ["Rectangle", true],
+      ["Rectangle", false],
+      ["Hero", false],
+    ]);
+  const { files } = await app.savedRecord(id);
+  expect(files.map((file) => file.filename)).toStrictEqual([
+    "index.html",
+    "__board__.html",
+  ]);
+  expect(await app.designRect(copy.id)).toEqual(
+    await app.designRect(original[0]!.id),
+  );
 });

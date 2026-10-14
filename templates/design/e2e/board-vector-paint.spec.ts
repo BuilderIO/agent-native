@@ -1,15 +1,7 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
 
 import { appPath, openAppMenuSubmenu } from "./helpers";
-
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+import { expect, test, type App } from "./rails";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
@@ -29,74 +21,46 @@ const BOARD_HTML = `<!DOCTYPE html>
 <div data-agent-native-node-id="frame-1" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position: absolute; left: 860px; top: 120px; width: 310px; height: 204px; background: rgb(255, 255, 255); overflow: hidden;"><svg data-agent-native-node-id="draft-pen-board-1" data-agent-native-layer-name="Vector" data-an-primitive="path" viewBox="60 60 200 140" preserveAspectRatio="none" style="position: absolute; left: 20px; top: 20px; width: 200px; height: 140px; overflow: visible; background-color: #782323; border-width: 1px; border-style: solid; border-color: #000000" data-an-pen-nodes="[1,[60,60,null,null,null,null],[260,60,null,null,null,null],[160,200,null,null,null,null]]"><path d="M 60 60 L 260 60 L 160 200 L 60 60 Z" fill="rgb(218 218 218)" stroke="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
 </body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
+async function createDesign(app: App) {
+  const designId = await app.seed(SCREEN_HTML, {
+    files: { "second.html": SCREEN_HTML, "__board__.html": BOARD_HTML },
+  });
+  const { files } = await app.savedRecord(designId);
+  const fileId = (filename: string) =>
+    files.find((file) => file.filename === filename)!.id;
+  const boardFileId = fileId("__board__.html");
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id: designId,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", fileId("index.html")],
+            value: { sourceType: "inline", width: 800, height: 600 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId("index.html")],
+            value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+          },
+          {
+            op: "set",
+            path: ["screenMetadata", fileId("second.html")],
+            value: { sourceType: "inline", width: 800, height: 600 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId("second.html")],
+            value: { x: 1200, y: 0, width: 800, height: 600, z: 0 },
+          },
+          { op: "set", path: ["boardFileId"], value: boardFileId },
+        ],
+      },
+    },
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Board vector paint ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  const second = await action(request, "create-file", {
-    designId,
-    filename: "second.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const secondId = second.id ?? second.data?.id;
-  const board = await action(request, "create-file", {
-    designId,
-    filename: "__board__.html",
-    content: BOARD_HTML,
-    fileType: "html",
-  });
-  const boardFileId = board.id ?? board.data?.id;
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 800, height: 600 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
-      },
-      {
-        op: "set",
-        path: ["screenMetadata", secondId],
-        value: { sourceType: "inline", width: 800, height: 600 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", secondId],
-        value: { x: 1200, y: 0, width: 800, height: 600, z: 0 },
-      },
-      { op: "set", path: ["boardFileId"], value: boardFileId },
-    ],
-  });
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
   return { designId, boardFileId };
 }
 
@@ -207,7 +171,9 @@ async function persistedBoardVectorPaint(
   boardFileId: string,
 ) {
   const response = await request.get(
-    `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    appPath(
+      `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    ),
   );
   if (!response.ok()) throw new Error(`get-design: ${await response.text()}`);
   const design = await response.json();
@@ -264,306 +230,296 @@ function inspectorSection(page: Page, title: RegExp) {
 }
 
 test("a board pen shape's fill and stroke paint the shape, not the wrapper box", async ({
+  app,
   page,
   request,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(1);
-    await expect
-      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
-      .not.toBeNull();
+  const { designId } = await createDesign(app);
+  await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(async () => page.locator("[data-screen-shell]").count(), {
+      timeout: 40_000,
+    })
+    .toBeGreaterThan(1);
+  await expect
+    .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+    .not.toBeNull();
 
-    await selectLayerRow(page, "Vector");
+  await selectLayerRow(page, "Vector");
 
-    const fillSection = inspectorSection(page, /^Fill$/i);
-    await expect(fillSection).toBeVisible();
-    await fillSection.locator('button[aria-label="Add fill"]').click();
-    await expect
-      .poll(async () => (await boardVectorPaint(page))?.wrapperBackground, {
-        timeout: 15_000,
-      })
-      .toBe("");
+  const fillSection = inspectorSection(page, /^Fill$/i);
+  await expect(fillSection).toBeVisible();
+  await fillSection.locator('button[aria-label="Add fill"]').click();
+  await expect
+    .poll(async () => (await boardVectorPaint(page))?.wrapperBackground, {
+      timeout: 15_000,
+    })
+    .toBe("");
 
-    const strokeSection = inspectorSection(page, /^Stroke$/i);
-    const strokeAddButtons = strokeSection.getByRole("button", {
-      name: "Add stroke",
-    });
-    await expect(strokeAddButtons).toHaveCount(2);
-    const headingAddStroke = strokeAddButtons.first();
-    const headingBounds = await headingAddStroke.boundingBox();
-    if (!headingBounds) throw new Error("Stroke heading has no bounds");
-    await page.mouse.click(
-      headingBounds.x + headingBounds.width - 4,
-      headingBounds.y + headingBounds.height / 2,
-    );
-    await expect
-      .poll(async () => (await boardVectorPaint(page))?.wrapperBorderWidth, {
-        timeout: 15_000,
-      })
-      .toBe("");
+  const strokeSection = inspectorSection(page, /^Stroke$/i);
+  const strokeAddButtons = strokeSection.getByRole("button", {
+    name: "Add stroke",
+  });
+  await expect(strokeAddButtons).toHaveCount(2);
+  const headingAddStroke = strokeAddButtons.first();
+  const headingBounds = await headingAddStroke.boundingBox();
+  if (!headingBounds) throw new Error("Stroke heading has no bounds");
+  await page.mouse.click(
+    headingBounds.x + headingBounds.width - 4,
+    headingBounds.y + headingBounds.height / 2,
+  );
+  await expect
+    .poll(async () => (await boardVectorPaint(page))?.wrapperBorderWidth, {
+      timeout: 15_000,
+    })
+    .toBe("");
 
-    const paint = (await boardVectorPaint(page))!;
-    expect(paint.shapeFill).toBe("rgb(218, 218, 218)");
-    expect(paint.shapeStroke).toBe("rgb(0, 0, 0)");
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  const paint = (await boardVectorPaint(page))!;
+  expect(paint.shapeFill).toBe("rgb(218, 218, 218)");
+  expect(paint.shapeStroke).toBe("rgb(0, 0, 0)");
 });
 
 test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
+  app,
   page,
   request,
 }) => {
-  const { designId, boardFileId } = await createDesign(request);
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(1);
-    await expect
-      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
-      .not.toBeNull();
-    await selectLayerRow(page, "Vector");
+  const { designId, boardFileId } = await createDesign(app);
+  await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(async () => page.locator("[data-screen-shell]").count(), {
+      timeout: 40_000,
+    })
+    .toBeGreaterThan(1);
+  await expect
+    .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+    .not.toBeNull();
+  await selectLayerRow(page, "Vector");
 
-    const before = await boardVectorPaint(page);
-    expect(before?.shapeFill).toBe("rgb(218, 218, 218)");
-    expect(before?.shapeStroke).toBe("none");
+  const before = await boardVectorPaint(page);
+  expect(before?.shapeFill).toBe("rgb(218, 218, 218)");
+  expect(before?.shapeStroke).toBe("none");
 
-    await page.keyboard.press("Shift+x");
-    await expect
-      .poll(async () => {
-        const paint = await boardVectorPaint(page);
-        return paint && [paint.shapeFill, paint.shapeStroke];
-      })
-      .toEqual(["none", "rgb(218, 218, 218)"]);
-    await expect
-      .poll(async () => {
-        const paint = await boardVectorPaint(page);
-        return Number.parseFloat(paint?.shapeStrokeWidth ?? "0");
-      })
-      .toBeGreaterThan(0);
+  await page.keyboard.press("Shift+x");
+  await expect
+    .poll(async () => {
+      const paint = await boardVectorPaint(page);
+      return paint && [paint.shapeFill, paint.shapeStroke];
+    })
+    .toEqual(["none", "rgb(218, 218, 218)"]);
+  await expect
+    .poll(async () => {
+      const paint = await boardVectorPaint(page);
+      return Number.parseFloat(paint?.shapeStrokeWidth ?? "0");
+    })
+    .toBeGreaterThan(0);
 
-    const savedPaint = async () =>
-      sourceVectorPaint(
-        page,
-        await persistedBoardVectorPaint(request, designId, boardFileId),
-      );
-    await expect
-      .poll(async () => {
-        const source = await savedPaint();
-        return source && [source.fill, source.stroke];
-      })
-      .toEqual([
-        "none",
-        expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
-      ]);
-    const sourceAfterSwap = await savedPaint();
-    expect(sourceAfterSwap?.fill).toBe("none");
-    expect(sourceAfterSwap?.stroke).toMatch(
-      /218\s+218\s+218|218,\s*218,\s*218/i,
+  const savedPaint = async () =>
+    sourceVectorPaint(
+      page,
+      await persistedBoardVectorPaint(request, designId, boardFileId),
     );
+  await expect
+    .poll(async () => {
+      const source = await savedPaint();
+      return source && [source.fill, source.stroke];
+    })
+    .toEqual([
+      "none",
+      expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
+    ]);
+  const sourceAfterSwap = await savedPaint();
+  expect(sourceAfterSwap?.fill).toBe("none");
+  expect(sourceAfterSwap?.stroke).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
 
-    await page.getByRole("button", { name: "More", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^Edit$/ }).hover();
-    await expect(page.getByRole("menuitem", { name: /Undo/ })).toBeEnabled();
-    await page.keyboard.press("Escape");
-    await page.evaluate(() => {
-      (document.activeElement as HTMLElement | null)?.blur();
-    });
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+z" : "Control+z",
-    );
-    await expect
-      .poll(async () => {
-        const source = await savedPaint();
-        return source && [source.fill, source.stroke];
-      })
-      .toEqual([
-        expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
-        "none",
-      ]);
-    await expect
-      .poll(async () => {
-        const paint = await boardVectorPaint(page);
-        return paint && [paint.shapeFill, paint.shapeStroke];
-      })
-      .toEqual(["rgb(218, 218, 218)", "none"]);
-    const savedAfterUndo = await persistedBoardVectorPaint(
-      request,
-      designId,
-      boardFileId,
-    );
-    const sourceAfterUndo = await sourceVectorPaint(page, savedAfterUndo);
-    expect(sourceAfterUndo?.fill).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
-    expect(sourceAfterUndo?.stroke).toBe("none");
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Edit$/ }).hover();
+  await expect(page.getByRole("menuitem", { name: /Undo/ })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
+  await expect
+    .poll(async () => {
+      const source = await savedPaint();
+      return source && [source.fill, source.stroke];
+    })
+    .toEqual([
+      expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
+      "none",
+    ]);
+  await expect
+    .poll(async () => {
+      const paint = await boardVectorPaint(page);
+      return paint && [paint.shapeFill, paint.shapeStroke];
+    })
+    .toEqual(["rgb(218, 218, 218)", "none"]);
+  const savedAfterUndo = await persistedBoardVectorPaint(
+    request,
+    designId,
+    boardFileId,
+  );
+  const sourceAfterUndo = await sourceVectorPaint(page, savedAfterUndo);
+  expect(sourceAfterUndo?.fill).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
+  expect(sourceAfterUndo?.stroke).toBe("none");
 
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
-    );
-    await expect
-      .poll(async () => {
-        const paint = await boardVectorPaint(page);
-        return paint && [paint.shapeFill, paint.shapeStroke];
-      })
-      .toEqual(["none", "rgb(218, 218, 218)"]);
-    await expect
-      .poll(async () => {
-        const source = await savedPaint();
-        return source && [source.fill, source.stroke];
-      })
-      .toEqual([
-        "none",
-        expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
-      ]);
-    const savedAfterRedo = await persistedBoardVectorPaint(
-      request,
-      designId,
-      boardFileId,
-    );
-    const sourceAfterRedo = await sourceVectorPaint(page, savedAfterRedo);
-    expect(sourceAfterRedo?.fill).toBe("none");
-    expect(sourceAfterRedo?.stroke).toMatch(
-      /218\s+218\s+218|218,\s*218,\s*218/i,
-    );
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
+  );
+  await expect
+    .poll(async () => {
+      const paint = await boardVectorPaint(page);
+      return paint && [paint.shapeFill, paint.shapeStroke];
+    })
+    .toEqual(["none", "rgb(218, 218, 218)"]);
+  await expect
+    .poll(async () => {
+      const source = await savedPaint();
+      return source && [source.fill, source.stroke];
+    })
+    .toEqual([
+      "none",
+      expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
+    ]);
+  const savedAfterRedo = await persistedBoardVectorPaint(
+    request,
+    designId,
+    boardFileId,
+  );
+  const sourceAfterRedo = await sourceVectorPaint(page, savedAfterRedo);
+  expect(sourceAfterRedo?.fill).toBe("none");
+  expect(sourceAfterRedo?.stroke).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
 });
 
 // oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
-test("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
+// fixme: product bug: After the Linear stroke gradient is saved, Cmd+Z leaves gradientCount 1 and the url() reference live. No update-file follows the undo
+test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
+  app,
   page,
   request,
 }, testInfo) => {
-  const { designId, boardFileId } = await createDesign(request);
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(1);
-    await expect
-      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
-      .not.toBeNull();
-    await selectLayerRow(page, "Vector");
+  const { designId, boardFileId } = await createDesign(app);
+  await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(async () => page.locator("[data-screen-shell]").count(), {
+      timeout: 40_000,
+    })
+    .toBeGreaterThan(1);
+  await expect
+    .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+    .not.toBeNull();
+  await selectLayerRow(page, "Vector");
 
-    const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await expect(strokeSection).toBeVisible();
-    await strokeSection
-      .getByRole("button", { name: "Add stroke" })
-      .first()
-      .click();
-    const strokePicker = strokeSection.getByRole("button", {
-      name: "Open color picker",
-    });
-    await strokePicker.click();
-    const strokePopoverId = await strokePicker.getAttribute("aria-controls");
-    expect(strokePopoverId).toBeTruthy();
-    await page
-      .locator(`[id="${strokePopoverId}"]`)
-      .getByRole("button", { name: "Gradient", exact: true })
-      .click();
+  const strokeSection = inspectorSection(page, /^Stroke$/i);
+  await expect(strokeSection).toBeVisible();
+  await strokeSection
+    .getByRole("button", { name: "Add stroke" })
+    .first()
+    .click();
+  const strokePicker = strokeSection.getByRole("button", {
+    name: "Open color picker",
+  });
+  await strokePicker.click();
+  const strokePopoverId = await strokePicker.getAttribute("aria-controls");
+  expect(strokePopoverId).toBeTruthy();
+  await page
+    .locator(`[id="${strokePopoverId}"]`)
+    .getByRole("button", { name: "Gradient", exact: true })
+    .click();
 
-    await expect
-      .poll(() => boardVectorStrokeGradient(page))
-      .toMatchObject({ gradientCount: 1, referencesGradient: true });
-    await expect
-      .poll(async () => {
-        const source = await persistedBoardVectorPaint(
-          request,
-          designId,
-          boardFileId,
-        );
-        return source;
-      })
-      .toContain("data-an-vector-stroke-gradient");
+  await expect
+    .poll(() => boardVectorStrokeGradient(page))
+    .toMatchObject({ gradientCount: 1, referencesGradient: true });
+  await expect
+    .poll(async () => {
+      const source = await persistedBoardVectorPaint(
+        request,
+        designId,
+        boardFileId,
+      );
+      return source;
+    })
+    .toContain("data-an-vector-stroke-gradient");
 
-    await page.keyboard.press("Escape");
-    await expect(page.locator(`[id="${strokePopoverId}"]`)).toHaveCount(0);
-    await page.evaluate(() => {
-      (document.activeElement as HTMLElement | null)?.blur();
-    });
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+z" : "Control+z",
-    );
-    await expect
-      .poll(() => boardVectorStrokeGradient(page))
-      .toMatchObject({ gradientCount: 0, referencesGradient: false });
-    await expect
-      .poll(async () => {
-        const source = await persistedBoardVectorPaint(
-          request,
-          designId,
-          boardFileId,
-        );
-        return source;
-      })
-      .not.toContain("data-an-vector-stroke-gradient");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(`[id="${strokePopoverId}"]`)).toHaveCount(0);
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
+  await expect
+    .poll(() => boardVectorStrokeGradient(page))
+    .toMatchObject({ gradientCount: 0, referencesGradient: false });
+  await expect
+    .poll(async () => {
+      const source = await persistedBoardVectorPaint(
+        request,
+        designId,
+        boardFileId,
+      );
+      return source;
+    })
+    .not.toContain("data-an-vector-stroke-gradient");
 
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
-    );
-    await expect
-      .poll(() => boardVectorStrokeGradient(page))
-      .toMatchObject({ gradientCount: 1, referencesGradient: true });
-    await page.reload();
-    await expect
-      .poll(() => boardVectorStrokeGradient(page))
-      .toMatchObject({ gradientCount: 1, referencesGradient: true });
-    await selectLayerRow(page, "Vector");
-    const reloadedStrokePicker = inspectorSection(page, /^Stroke$/i).getByRole(
-      "button",
-      { name: "Open color picker" },
-    );
-    await expect(reloadedStrokePicker).toContainText("Linear");
-    await reloadedStrokePicker.click();
-    const reloadedStrokePopoverId =
-      await reloadedStrokePicker.getAttribute("aria-controls");
-    expect(reloadedStrokePopoverId).toBeTruthy();
-    await expect(
-      page
-        .locator(`[id="${reloadedStrokePopoverId}"]`)
-        .getByRole("button", { name: "Gradient", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    await expect
-      .poll(async () => {
-        const source = await persistedBoardVectorPaint(
-          request,
-          designId,
-          boardFileId,
-        );
-        return source;
-      })
-      .toContain("data-an-vector-stroke-gradient");
-    await page.screenshot({
-      path: testInfo.outputPath("vector-stroke-gradient.png"),
-    });
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
+  );
+  await expect
+    .poll(() => boardVectorStrokeGradient(page))
+    .toMatchObject({ gradientCount: 1, referencesGradient: true });
+  await page.reload();
+  await expect
+    .poll(() => boardVectorStrokeGradient(page))
+    .toMatchObject({ gradientCount: 1, referencesGradient: true });
+  await selectLayerRow(page, "Vector");
+  const reloadedStrokePicker = inspectorSection(page, /^Stroke$/i).getByRole(
+    "button",
+    { name: "Open color picker" },
+  );
+  await expect(reloadedStrokePicker).toContainText("Linear");
+  await reloadedStrokePicker.click();
+  const reloadedStrokePopoverId =
+    await reloadedStrokePicker.getAttribute("aria-controls");
+  expect(reloadedStrokePopoverId).toBeTruthy();
+  await expect(
+    page
+      .locator(`[id="${reloadedStrokePopoverId}"]`)
+      .getByRole("button", { name: "Gradient", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(async () => {
+      const source = await persistedBoardVectorPaint(
+        request,
+        designId,
+        boardFileId,
+      );
+      return source;
+    })
+    .toContain("data-an-vector-stroke-gradient");
+  await page.screenshot({
+    path: testInfo.outputPath("vector-stroke-gradient.png"),
+  });
 });
 
 // oracle: none — only the paint type controls changed (Gradient button, Type select); no Figma behavior is claimed.
-test("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
+// fixme: product bug: The PNG export's first POST /_agent-native/actions/render-export-png returns 403 (console error 'Failed to load resource: 403') before
+test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
+  app,
   page,
   request,
 }, testInfo) => {
-  const { designId, boardFileId } = await createDesign(request);
+  const { designId, boardFileId } = await createDesign(app);
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
@@ -576,284 +532,275 @@ test("vector fill gradient renders in the inspector, source, SVG and PNG exports
       `${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`,
     );
   });
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(1);
-    await expect
-      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
-      .not.toBeNull();
-    await selectLayerRow(page, "Vector");
+  await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(async () => page.locator("[data-screen-shell]").count(), {
+      timeout: 40_000,
+    })
+    .toBeGreaterThan(1);
+  await expect
+    .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+    .not.toBeNull();
+  await selectLayerRow(page, "Vector");
 
-    const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await expect(strokeSection).toBeVisible();
-    await strokeSection
-      .getByRole("button", { name: "Add stroke" })
-      .first()
-      .click();
-    const strokePicker = strokeSection.getByRole("button", {
-      name: "Open color picker",
+  const strokeSection = inspectorSection(page, /^Stroke$/i);
+  await expect(strokeSection).toBeVisible();
+  await strokeSection
+    .getByRole("button", { name: "Add stroke" })
+    .first()
+    .click();
+  const strokePicker = strokeSection.getByRole("button", {
+    name: "Open color picker",
+  });
+  await strokePicker.click();
+  const strokePopoverId = await strokePicker.getAttribute("aria-controls");
+  expect(strokePopoverId).toBeTruthy();
+  await page
+    .locator(`[id="${strokePopoverId}"]`)
+    .getByRole("button", { name: "Gradient", exact: true })
+    .click();
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({
+      strokeGradientCount: 1,
+      referencesStrokeGradient: true,
     });
-    await strokePicker.click();
-    const strokePopoverId = await strokePicker.getAttribute("aria-controls");
-    expect(strokePopoverId).toBeTruthy();
-    await page
-      .locator(`[id="${strokePopoverId}"]`)
-      .getByRole("button", { name: "Gradient", exact: true })
-      .click();
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({
-        strokeGradientCount: 1,
-        referencesStrokeGradient: true,
-      });
-    await expect.poll(() => boardVectorFillGradient(page)).not.toBeNull();
-    const initialStroke = (await boardVectorFillGradient(page))?.stroke;
-    expect(initialStroke).toBeTruthy();
-    expect(initialStroke).not.toBe("none");
+  await expect.poll(() => boardVectorFillGradient(page)).not.toBeNull();
+  const initialStroke = (await boardVectorFillGradient(page))?.stroke;
+  expect(initialStroke).toBeTruthy();
+  expect(initialStroke).not.toBe("none");
 
-    const fillSection = inspectorSection(page, /^Fill$/i);
-    await expect(fillSection).toBeVisible();
-    const fillPicker = fillSection.getByRole("button", {
-      name: "Open color picker",
-    });
-    await fillPicker.click();
-    const fillPopoverId = await fillPicker.getAttribute("aria-controls");
-    expect(fillPopoverId).toBeTruthy();
-    await page
-      .locator(`[id="${fillPopoverId}"]`)
-      .getByRole("button", { name: "Gradient", exact: true })
-      .click();
-    const gradientDialog = page.getByRole("dialog");
-    await expect(
-      gradientDialog.getByRole("group", { name: "Gradient stops" }),
-    ).toBeVisible();
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
+  const fillSection = inspectorSection(page, /^Fill$/i);
+  await expect(fillSection).toBeVisible();
+  const fillPicker = fillSection.getByRole("button", {
+    name: "Open color picker",
+  });
+  await fillPicker.click();
+  const fillPopoverId = await fillPicker.getAttribute("aria-controls");
+  expect(fillPopoverId).toBeTruthy();
+  await page
+    .locator(`[id="${fillPopoverId}"]`)
+    .getByRole("button", { name: "Gradient", exact: true })
+    .click();
+  const gradientDialog = page.getByRole("dialog");
+  await expect(
+    gradientDialog.getByRole("group", { name: "Gradient stops" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
 
-    await page.keyboard.press("Escape");
-    await page.evaluate(() => {
-      (document.activeElement as HTMLElement | null)?.blur();
-    });
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+z" : "Control+z",
-    );
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 0, referencesGradient: false });
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
-    );
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 0, referencesGradient: false });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
+  );
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
 
-    await fillSection
-      .getByRole("button", { name: "Open color picker" })
-      .click();
-    await expect(gradientDialog).toBeVisible();
-    await gradientDialog.getByRole("combobox", { name: "Type" }).click();
-    await page.getByRole("option", { name: "Radial", exact: true }).click();
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, gradientTag: "radialGradient" });
-    await expect
-      .poll(() => persistedBoardVectorPaint(request, designId, boardFileId))
-      .toContain("<radialGradient");
-    await page.screenshot({
-      path: testInfo.outputPath("vector-fill-radial-gradient-live.png"),
-    });
-    await page.keyboard.press("Escape");
-    await page.evaluate(() => {
-      (document.activeElement as HTMLElement | null)?.blur();
-    });
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+z" : "Control+z",
-    );
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
-    );
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, gradientTag: "radialGradient" });
+  await fillSection.getByRole("button", { name: "Open color picker" }).click();
+  await expect(gradientDialog).toBeVisible();
+  await gradientDialog.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Radial", exact: true }).click();
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, gradientTag: "radialGradient" });
+  await expect
+    .poll(() => persistedBoardVectorPaint(request, designId, boardFileId))
+    .toContain("<radialGradient");
+  await page.screenshot({
+    path: testInfo.outputPath("vector-fill-radial-gradient-live.png"),
+  });
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
+  );
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, gradientTag: "radialGradient" });
 
-    await fillSection
-      .getByRole("button", { name: "Open color picker" })
-      .click();
-    await expect(gradientDialog).toBeVisible();
-    await gradientDialog.getByRole("combobox", { name: "Type" }).click();
-    await page.getByRole("option", { name: "Linear", exact: true }).click();
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
-    // The Stops list has a row per stop, in position order: 0% first, 100% last.
-    const stopColor = gradientDialog.getByRole("textbox", {
-      name: "Stop color",
-    });
-    const stopOpacity = gradientDialog.getByRole("textbox", {
-      name: "Stop opacity",
-    });
-    await stopColor.first().fill("ff0000");
-    await stopColor.first().press("Enter");
-    await expect.poll(() => stopColor.first().inputValue()).toMatch(/ff0000/i);
-    await stopColor.last().fill("0000ff");
-    await stopColor.last().press("Enter");
-    await expect.poll(() => stopColor.last().inputValue()).toMatch(/0000ff/i);
-    await stopOpacity.last().fill("100");
-    await stopOpacity.last().press("Enter");
-    await expect.poll(() => stopOpacity.last().inputValue()).toBe("100");
+  await fillSection.getByRole("button", { name: "Open color picker" }).click();
+  await expect(gradientDialog).toBeVisible();
+  await gradientDialog.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Linear", exact: true }).click();
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
+  // The Stops list has a row per stop, in position order: 0% first, 100% last.
+  const stopColor = gradientDialog.getByRole("textbox", {
+    name: "Stop color",
+  });
+  const stopOpacity = gradientDialog.getByRole("textbox", {
+    name: "Stop opacity",
+  });
+  await stopColor.first().fill("ff0000");
+  await stopColor.first().press("Enter");
+  await expect.poll(() => stopColor.first().inputValue()).toMatch(/ff0000/i);
+  await stopColor.last().fill("0000ff");
+  await stopColor.last().press("Enter");
+  await expect.poll(() => stopColor.last().inputValue()).toMatch(/0000ff/i);
+  await stopOpacity.last().fill("100");
+  await stopOpacity.last().press("Enter");
+  await expect.poll(() => stopOpacity.last().inputValue()).toBe("100");
 
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({
-        gradientCount: 1,
-        referencesGradient: true,
-      });
-    const pixels = await boardVectorFillGradient(page);
-    await testInfo.attach("vector-fill-gradient-raster-source.svg", {
-      body: pixels?.serializedSvg ?? "missing svg",
-      contentType: "image/svg+xml",
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({
+      gradientCount: 1,
+      referencesGradient: true,
     });
-    expect(pixels?.stroke).toBe(initialStroke);
-    expect(pixels?.strokeGradientCount).toBe(1);
-    expect(pixels?.referencesStrokeGradient).toBe(true);
-    expect(pixels?.serializedSvg).toContain("data-an-vector-fill-gradient");
-    await page.screenshot({
-      path: testInfo.outputPath("vector-fill-gradient-live.png"),
-    });
+  const pixels = await boardVectorFillGradient(page);
+  await testInfo.attach("vector-fill-gradient-raster-source.svg", {
+    body: pixels?.serializedSvg ?? "missing svg",
+    contentType: "image/svg+xml",
+  });
+  expect(pixels?.stroke).toBe(initialStroke);
+  expect(pixels?.strokeGradientCount).toBe(1);
+  expect(pixels?.referencesStrokeGradient).toBe(true);
+  expect(pixels?.serializedSvg).toContain("data-an-vector-fill-gradient");
+  await page.screenshot({
+    path: testInfo.outputPath("vector-fill-gradient-live.png"),
+  });
 
-    const savedGradient = await expect
-      .poll(() => persistedBoardVectorPaint(request, designId, boardFileId))
-      .toContain("data-an-vector-fill-gradient");
-    void savedGradient;
-    const savedSource = await persistedBoardVectorPaint(
-      request,
-      designId,
-      boardFileId,
-    );
-    expect(savedSource).toContain(
-      "fill: url(#draft-pen-board-1-fill-gradient)",
-    );
-    expect(savedSource).toContain("data-an-vector-stroke-gradient");
-    expect(
-      savedSource.match(/<defs[^>]*data-an-vector-fill-gradient/g),
-    ).toHaveLength(1);
-    expect(savedSource).toContain('id="draft-pen-board-1-stroke-gradient"');
-    expect(savedSource).toContain('id="draft-pen-board-1-fill-gradient"');
+  const savedGradient = await expect
+    .poll(() => persistedBoardVectorPaint(request, designId, boardFileId))
+    .toContain("data-an-vector-fill-gradient");
+  void savedGradient;
+  const savedSource = await persistedBoardVectorPaint(
+    request,
+    designId,
+    boardFileId,
+  );
+  expect(savedSource).toContain("fill: url(#draft-pen-board-1-fill-gradient)");
+  expect(savedSource).toContain("data-an-vector-stroke-gradient");
+  expect(
+    savedSource.match(/<defs[^>]*data-an-vector-fill-gradient/g),
+  ).toHaveLength(1);
+  expect(savedSource).toContain('id="draft-pen-board-1-stroke-gradient"');
+  expect(savedSource).toContain('id="draft-pen-board-1-fill-gradient"');
 
-    await openAppMenuSubmenu(page, "File");
-    const exportMenu = page.getByRole("menuitem", { name: "Export" });
-    await expect(exportMenu).toBeVisible();
-    await exportMenu.click();
-    await expect(
-      page.getByRole("menuitem", { name: "Download for Figma (SVG)" }),
-    ).toBeVisible();
-    const [svgDownload] = await Promise.all([
-      page.waitForEvent("download"),
-      page.getByRole("menuitem", { name: "Download for Figma (SVG)" }).click(),
-    ]);
-    const svgStream = await svgDownload.createReadStream();
-    if (!svgStream) throw new Error("SVG export returned no data");
-    const svgChunks: Buffer[] = [];
-    for await (const chunk of svgStream) svgChunks.push(Buffer.from(chunk));
-    const exportedSvg = Buffer.concat(svgChunks).toString("utf8");
-    expect(exportedSvg).toContain("linearGradient");
-    expect(exportedSvg).toContain("url(#draft-pen-board-1-fill-gradient)");
+  await openAppMenuSubmenu(page, "File");
+  const exportMenu = page.getByRole("menuitem", { name: "Export" });
+  await expect(exportMenu).toBeVisible();
+  await exportMenu.click();
+  await expect(
+    page.getByRole("menuitem", { name: "Download for Figma (SVG)" }),
+  ).toBeVisible();
+  const [svgDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("menuitem", { name: "Download for Figma (SVG)" }).click(),
+  ]);
+  const svgStream = await svgDownload.createReadStream();
+  if (!svgStream) throw new Error("SVG export returned no data");
+  const svgChunks: Buffer[] = [];
+  for await (const chunk of svgStream) svgChunks.push(Buffer.from(chunk));
+  const exportedSvg = Buffer.concat(svgChunks).toString("utf8");
+  expect(exportedSvg).toContain("linearGradient");
+  expect(exportedSvg).toContain("url(#draft-pen-board-1-fill-gradient)");
 
-    const pngExportButton = inspectorSection(page, /^Export$/i).getByRole(
-      "button",
-      { name: "Export", exact: true },
-    );
-    await expect(pngExportButton).toBeEnabled();
-    const [pngDownload] = await Promise.all([
-      page.waitForEvent("download"),
-      pngExportButton.click(),
-    ]);
-    const pngStream = await pngDownload.createReadStream();
-    if (!pngStream) throw new Error("PNG export returned no data");
-    const pngChunks: Buffer[] = [];
-    for await (const chunk of pngStream) pngChunks.push(Buffer.from(chunk));
-    const pngBase64 = Buffer.concat(pngChunks).toString("base64");
-    const exportedPixels = await page.evaluate(async (base64) => {
-      const image = new Image();
-      image.src = `data:image/png;base64,${base64}`;
-      await image.decode();
-      const canvas = document.createElement("canvas");
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Could not read PNG export pixels");
-      context.drawImage(image, 0, 0);
-      const pixels = (x: number, y: number) => [
-        ...context.getImageData(x, y, 1, 1).data,
-      ];
-      const imagePixels = context.getImageData(
-        0,
-        0,
-        image.width,
-        image.height,
-      ).data;
-      let redPixels = 0;
-      let bluePixels = 0;
-      for (let index = 0; index < imagePixels.length; index += 4) {
-        const red = imagePixels[index]!;
-        const green = imagePixels[index + 1]!;
-        const blue = imagePixels[index + 2]!;
-        if (red > 200 && green < 100 && blue < 100) redPixels += 1;
-        if (blue > 160 && red < 100 && green < 120) bluePixels += 1;
-      }
-      return {
-        width: image.width,
-        height: image.height,
-        left: pixels(20, 20),
-        right: pixels(image.width - 20, 20),
-        redPixels,
-        bluePixels,
-      };
-    }, pngBase64);
-    await pngDownload.saveAs(
-      testInfo.outputPath("vector-fill-gradient-export.png"),
-    );
-    await testInfo.attach("vector-fill-gradient-export-pixels.json", {
-      body: JSON.stringify(exportedPixels),
-      contentType: "application/json",
-    });
-    expect(exportedPixels.width).toBeGreaterThan(0);
-    expect(exportedPixels.height).toBeGreaterThan(0);
-    expect(exportedPixels.redPixels).toBeGreaterThan(10);
-    expect(exportedPixels.bluePixels).toBeGreaterThan(10);
+  const pngExportButton = inspectorSection(page, /^Export$/i).getByRole(
+    "button",
+    { name: "Export", exact: true },
+  );
+  await expect(pngExportButton).toBeEnabled();
+  const [pngDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    pngExportButton.click(),
+  ]);
+  const pngStream = await pngDownload.createReadStream();
+  if (!pngStream) throw new Error("PNG export returned no data");
+  const pngChunks: Buffer[] = [];
+  for await (const chunk of pngStream) pngChunks.push(Buffer.from(chunk));
+  const pngBase64 = Buffer.concat(pngChunks).toString("base64");
+  const exportedPixels = await page.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not read PNG export pixels");
+    context.drawImage(image, 0, 0);
+    const pixels = (x: number, y: number) => [
+      ...context.getImageData(x, y, 1, 1).data,
+    ];
+    const imagePixels = context.getImageData(
+      0,
+      0,
+      image.width,
+      image.height,
+    ).data;
+    let redPixels = 0;
+    let bluePixels = 0;
+    for (let index = 0; index < imagePixels.length; index += 4) {
+      const red = imagePixels[index]!;
+      const green = imagePixels[index + 1]!;
+      const blue = imagePixels[index + 2]!;
+      if (red > 200 && green < 100 && blue < 100) redPixels += 1;
+      if (blue > 160 && red < 100 && green < 120) bluePixels += 1;
+    }
+    return {
+      width: image.width,
+      height: image.height,
+      left: pixels(20, 20),
+      right: pixels(image.width - 20, 20),
+      redPixels,
+      bluePixels,
+    };
+  }, pngBase64);
+  await pngDownload.saveAs(
+    testInfo.outputPath("vector-fill-gradient-export.png"),
+  );
+  await testInfo.attach("vector-fill-gradient-export-pixels.json", {
+    body: JSON.stringify(exportedPixels),
+    contentType: "application/json",
+  });
+  expect(exportedPixels.width).toBeGreaterThan(0);
+  expect(exportedPixels.height).toBeGreaterThan(0);
+  expect(exportedPixels.redPixels).toBeGreaterThan(10);
+  expect(exportedPixels.bluePixels).toBeGreaterThan(10);
 
-    await page.reload();
-    await expect
-      .poll(() => boardVectorFillGradient(page))
-      .toMatchObject({ gradientCount: 1, referencesGradient: true });
-    expect(
-      await persistedBoardVectorPaint(request, designId, boardFileId),
-    ).toContain("data-an-vector-fill-gradient");
-    await testInfo.attach("vector-fill-gradient-browser-errors.json", {
-      body: JSON.stringify({ pageErrors, consoleErrors, failedRequests }),
-      contentType: "application/json",
-    });
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await page.reload();
+  await expect
+    .poll(() => boardVectorFillGradient(page))
+    .toMatchObject({ gradientCount: 1, referencesGradient: true });
+  expect(
+    await persistedBoardVectorPaint(request, designId, boardFileId),
+  ).toContain("data-an-vector-fill-gradient");
+  await testInfo.attach("vector-fill-gradient-browser-errors.json", {
+    body: JSON.stringify({ pageErrors, consoleErrors, failedRequests }),
+    contentType: "application/json",
+  });
 });
 
 // oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("converting a vector fill gradient to solid clears source metadata and round-trips through undo", async ({
+  app,
   page,
   request,
 }, testInfo) => {
-  const { designId, boardFileId } = await createDesign(request);
+  const { designId, boardFileId } = await createDesign(app);
   const pageErrors: string[] = [];
   const failedRequests: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -961,6 +908,5 @@ test("converting a vector fill gradient to solid clears source metadata and roun
       body: JSON.stringify({ pageErrors, failedRequests, url: page.url() }),
       contentType: "application/json",
     });
-    await action(request, "delete-design", { id: designId }).catch(() => {});
   }
 });

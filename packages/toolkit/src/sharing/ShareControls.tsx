@@ -105,6 +105,78 @@ export interface ShareModeTab {
   disabled?: boolean;
 }
 
+export interface ShareTabListProps {
+  tabs: Pick<ShareModeTab, "value" | "label" | "disabled">[];
+  className?: string;
+  "aria-label"?: string;
+}
+
+/** The underline tab strip every share surface uses. Render inside `Tabs`. */
+export function ShareTabList({
+  tabs,
+  className,
+  "aria-label": ariaLabel,
+}: ShareTabListProps) {
+  return (
+    <TabsList
+      aria-label={ariaLabel}
+      className={cn(
+        "h-8 w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent px-0 py-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
+    >
+      {tabs.map((tab) => (
+        <TabsTrigger
+          key={tab.value}
+          value={tab.value}
+          disabled={tab.disabled}
+          className="relative h-8 min-w-0 flex-none rounded-none bg-transparent px-2 py-0 text-sm font-normal shadow-none after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:bg-foreground after:opacity-0 focus-visible:ring-inset focus-visible:ring-offset-0 data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none data-[state=active]:after:opacity-100"
+        >
+          {tab.label}
+        </TabsTrigger>
+      ))}
+    </TabsList>
+  );
+}
+
+export interface ShareTabsProps {
+  value: string;
+  onValueChange: (value: string) => void;
+  tabs: ShareModeTab[];
+  listLabel?: string;
+  className?: string;
+  listClassName?: string;
+}
+
+/** Underline tabs for a share surface; each tab owns its panel. */
+export function ShareTabs({
+  value,
+  onValueChange,
+  tabs,
+  listLabel,
+  className,
+  listClassName,
+}: ShareTabsProps) {
+  return (
+    <Tabs
+      value={value}
+      onValueChange={onValueChange}
+      className={cn("flex flex-col gap-3", className)}
+    >
+      <ShareTabList
+        tabs={tabs}
+        aria-label={listLabel}
+        className={listClassName}
+      />
+      {tabs.map((tab) => (
+        <TabsContent key={tab.value} value={tab.value} className="m-0">
+          {tab.content}
+        </TabsContent>
+      ))}
+    </Tabs>
+  );
+}
+
 export interface ShareModeTabsProps {
   value: string;
   onValueChange: (value: string) => void;
@@ -113,6 +185,7 @@ export interface ShareModeTabsProps {
   people: ReactNode;
   agents: ReactNode;
   extraTabs?: ShareModeTab[];
+  listLabel?: string;
   className?: string;
 }
 
@@ -125,38 +198,21 @@ export function ShareModeTabs({
   people,
   agents,
   extraTabs = [],
+  listLabel,
   className,
 }: ShareModeTabsProps) {
-  const tabs = [
-    { value: "people", label: peopleLabel, content: people },
-    { value: "agents", label: agentsLabel, content: agents },
-    ...extraTabs,
-  ];
-
   return (
-    <Tabs
+    <ShareTabs
       value={value}
       onValueChange={onValueChange}
-      className={cn("flex flex-col gap-3", className)}
-    >
-      <TabsList className="h-8 w-full justify-start gap-1 rounded-none bg-transparent px-0 py-0">
-        {tabs.map((tab) => (
-          <TabsTrigger
-            key={tab.value}
-            value={tab.value}
-            disabled={tab.disabled}
-            className="relative h-8 min-w-0 flex-none rounded-none bg-transparent px-2 py-0 text-sm font-normal shadow-none after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:bg-foreground after:opacity-0 data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none data-[state=active]:after:opacity-100"
-          >
-            {tab.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {tabs.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value} className="m-0">
-          {tab.content}
-        </TabsContent>
-      ))}
-    </Tabs>
+      listLabel={listLabel}
+      className={className}
+      tabs={[
+        { value: "people", label: peopleLabel, content: people },
+        { value: "agents", label: agentsLabel, content: agents },
+        ...extraTabs,
+      ]}
+    />
   );
 }
 

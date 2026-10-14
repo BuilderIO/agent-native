@@ -1,16 +1,46 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { type Locator, type Page } from "@playwright/test";
 
-import {
-  createFixtureDesign,
-  designFrame,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
-const NODE_ID = "e2e-alpha-button";
-const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
+const BUTTONS = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff">
+  <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;gap:16px">
+    <button data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha" style="width:160px;height:48px;opacity:0.97">Alpha</button>
+    <button data-agent-native-node-id="beta" data-agent-native-layer-name="Beta" style="width:160px;height:48px">Beta</button>
+  </div>
+</body></html>`;
 
-type StateValue =
+const AUTHORED_STATES = `<!doctype html><html><head><meta charset="utf-8">
+<style data-agent-native-states>
+[data-agent-native-node-id="alpha"]:hover {
+  opacity: 0.91 !important;
+}
+
+[data-agent-native-node-id="alpha"]:focus {
+  opacity: 0.82 !important;
+}
+
+[data-agent-native-node-id="alpha"]:focus-visible {
+  opacity: 0.73 !important;
+}
+
+[data-agent-native-node-id="alpha"]:active {
+  opacity: 0.64 !important;
+}
+
+[data-agent-native-node-id="gamma"]:disabled {
+  opacity: 0.55 !important;
+}
+</style></head>
+<body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff">
+  <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;gap:16px">
+    <button data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha" style="width:160px;height:48px;opacity:0.97">Alpha</button>
+    <button data-agent-native-node-id="beta" data-agent-native-layer-name="Beta" style="width:160px;height:48px">Beta</button>
+    <button disabled data-agent-native-node-id="gamma" data-agent-native-layer-name="Gamma" style="width:160px;height:48px">Gamma</button>
+  </div>
+</body></html>`;
+
+type State =
   | "default"
   | "hover"
   | "focus"
@@ -18,486 +48,257 @@ type StateValue =
   | "active"
   | "disabled";
 
-const STATE_LABELS: Record<StateValue, string> = {
-  default: "Default",
-  hover: "Hover",
-  focus: "Focus",
-  "focus-visible": "Focus visible",
-  active: "Pressed",
-  disabled: "Disabled",
-};
-
-const STATE_OPACITY: Record<Exclude<StateValue, "default">, number> = {
-  hover: 0.91,
-  focus: 0.82,
-  "focus-visible": 0.73,
-  active: 0.64,
-  disabled: 0.55,
-};
-
-let designId = "";
-type ClickProbeWindow = Window & { __interactionButtonClicks?: number };
-
-test.describe("element interaction states", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript((nodeId) => {
-      if (window === window.parent) {
-        const host = window as ClickProbeWindow;
-        host.__interactionButtonClicks = 0;
-        window.addEventListener("message", (event) => {
-          if (
-            event.data?.type === "design-test-interaction-button-click" &&
-            event.data.nodeId === nodeId &&
-            event.source !== window
-          ) {
-            host.__interactionButtonClicks =
-              (host.__interactionButtonClicks ?? 0) + 1;
-          }
-        });
-        return;
-      }
-      window.addEventListener(
-        "click",
-        (event) => {
-          if (
-            event.target instanceof Element &&
-            event.target.closest(`[data-agent-native-node-id="${nodeId}"]`)
-          ) {
-            window.parent.postMessage(
-              { type: "design-test-interaction-button-click", nodeId },
-              "*",
-            );
-          }
-        },
-        true,
-      );
-    }, NODE_ID);
-    designId = await createFixtureDesign(
-      page,
-      `E2E interaction states ${Date.now()}`,
-    );
-    await gotoEditor(page, designId);
-    await selectByText(page, "Alpha Button");
-    await expect(interactionStateTrigger(page)).toBeVisible();
-  });
-
-  test.afterEach(async ({ page }) => {
-    if (!designId) return;
-    await postAction(page, "delete-design", { id: designId }).catch(() => {});
-    designId = "";
-  });
-
-  // Switching to an unauthored state shows the PREVIOUS state's value (hover's
-  // 91% where Default's 97% should be inherited), so the leak this test was
-  // written to catch is real. Narrowed by elimination: the pure model is
-  // sound — with hover authored at 0.91, readResolvedStateStyles returns {}
-  // for focus/active/disabled — so the stale value comes from the React
-  // layer, not shared/interaction-states.ts. Mechanism found:
-  // VisualScrubInput (packages/toolkit/src/design-tweaks/scrub-input.tsx)
-  // keeps pendingCommitRef = { value, baseline } so a slow host round-trip
-  // cannot stomp a just-typed value, and its resync effect returns early
-  // whenever the incoming `value` still equals that baseline. Authoring hover
-  // 91 leaves baseline 97, so selecting an unauthored state delivers 97 —
-  // equal to the baseline — and the effect reads it as "the host has not
-  // echoed yet" and holds 91. It cannot tell a lagging host from a context
-  // change. The fix is a context key that clears pendingCommitRef when the
-  // selected element or interaction state changes (EditPanel already keys
-  // ExportSettingsPanel on selectedElementKey); that is an API change to a
-  // shared package, so it needs a decision plus a changeset.
-  test.fixme("authors all six inspector states, preserves selection, and round-trips undo, redo, and reload", async ({
-    page,
-  }) => {
-    const button = alphaButton(page);
-    const trigger = interactionStateTrigger(page);
-
-    await expectStateMenuContract(page, "default");
-    await setInspectorOpacity(page, 97);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.97, 2);
-    await expect.poll(() => inlineOpacity(fileContent(page))).toBe("0.97");
-
-    for (const state of [
-      "hover",
-      "focus",
-      "focus-visible",
-      "disabled",
-      "active",
-    ] as const) {
-      await selectInteractionState(page, state);
-      await expect(button).toHaveAttribute("data-an-state-preview", state);
-      await expect(trigger).toHaveAttribute("data-interaction-state", state);
-      await expect(selectedLayerRow(page)).toContainText("Alpha Button");
-
-      await expect(inspectorOpacityInput(page)).toHaveValue("97%");
-      await setInspectorOpacity(page, STATE_OPACITY[state] * 100);
-      await expect
-        .poll(() => computedOpacity(button))
-        .toBeCloseTo(STATE_OPACITY[state], 2);
-      await expect
-        .poll(async () => stateOpacity(await fileContent(page), state))
-        .toBe(String(STATE_OPACITY[state]));
-      await expect(button).toHaveAttribute("data-an-state-preview", state);
-      await expect(trigger).toHaveAttribute("data-interaction-state", state);
-      await expect(selectedLayerRow(page)).toContainText("Alpha Button");
-
-      await trigger.click();
-      const selectedOption = stateOption(page, state);
-      await expect(selectedOption).toHaveAttribute("aria-checked", "true");
-      await expect(selectedOption.locator("span.rounded-full")).toHaveCount(1);
-      await page.keyboard.press("Escape");
-      await expect(
-        page.getByRole("menu", { name: "Interaction state" }),
-      ).toHaveCount(0);
-    }
-
-    await selectInteractionState(page, "hover");
-    await expect(inspectorOpacityInput(page)).toHaveValue("91%");
-
-    const widthInput = page.locator('input[aria-label="W size in pixels"]');
-    await widthInput.fill("220");
-    await widthInput.press("Enter");
-    await expect(trigger).toHaveAttribute("data-interaction-state", "hover");
-    await expect(button).toHaveAttribute("data-an-state-preview", "hover");
-    await expect(selectedLayerRow(page)).toContainText("Alpha Button");
-    await expect
-      .poll(async () =>
-        stateProperty(await fileContent(page), "hover", "width"),
-      )
-      .toBe("220px");
-
-    await page.waitForTimeout(850);
-    await selectInteractionState(page, "active");
-    await setInspectorOpacity(page, 61);
-    await expect
-      .poll(async () => stateOpacity(await fileContent(page), "active"))
-      .toBe("0.61");
-
-    await pressEditorShortcut(page, "z");
-    await expect
-      .poll(async () => stateOpacity(await fileContent(page), "active"))
-      .toBe("0.64");
-    await expect(trigger).toHaveAttribute("data-interaction-state", "active");
-    await expect(button).toHaveAttribute("data-an-state-preview", "active");
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.64, 2);
-
-    await pressEditorShortcut(page, "z", { shift: true });
-    await expect
-      .poll(async () => stateOpacity(await fileContent(page), "active"))
-      .toBe("0.61");
-    await expect(trigger).toHaveAttribute("data-interaction-state", "active");
-    await expect(button).toHaveAttribute("data-an-state-preview", "active");
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.61, 2);
-
-    await gotoEditor(page, designId);
-    await expect(alphaButton(page)).not.toHaveAttribute(
-      "data-an-state-preview",
-      /.+/,
-    );
-    await selectByText(page, "Alpha Button");
-    await expect(interactionStateTrigger(page)).toHaveAttribute(
-      "data-interaction-state",
-      "default",
-    );
-    await expect(alphaButton(page)).not.toHaveAttribute(
-      "data-an-state-preview",
-      /.+/,
-    );
-    const persistedHtml = await fileContent(page);
-    const persistedButtonTag = new RegExp(
-      `<button[^>]*data-agent-native-node-id="${NODE_ID}"[^>]*>`,
-      "i",
-    ).exec(persistedHtml)?.[0];
-    expect(persistedButtonTag).toBeTruthy();
-    expect(persistedButtonTag).not.toContain("data-an-state-preview=");
-  });
-
-  test("persisted pseudo rules obey Chromium mouse, keyboard, pressed, and disabled semantics", async ({
-    page,
-  }) => {
-    const button = alphaButton(page);
-
-    await setInspectorOpacity(page, 97);
-    for (const state of [
-      "hover",
-      "focus",
-      "focus-visible",
-      "active",
-      "disabled",
-    ] as const) {
-      await selectInteractionState(page, state);
-      await setInspectorOpacity(page, STATE_OPACITY[state] * 100);
-    }
-    await selectInteractionState(page, "default");
-    await expect(button).not.toHaveAttribute("data-an-state-preview", /.+/);
-
-    await expect
-      .poll(
-        async () => {
-          const content = await fileContent(page);
-          return Object.values(STATE_OPACITY).every((opacity) =>
-            content.includes(String(opacity)),
-          );
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-
-    const interact = page.locator(
-      '[data-design-top-bar] [data-design-mode="interact"]',
-    );
-    await interact.click();
-    await expect(
-      page.locator("[data-design-top-bar] [data-design-interact-route]"),
-    ).toBeVisible();
-    await expect(button).toBeVisible();
-
-    await designFrame(page)
-      .locator("[data-agent-native-edit-overlay]")
-      .evaluateAll((nodes) => {
-        for (const node of nodes) {
-          (node as HTMLElement).style.pointerEvents = "none";
-        }
-      });
-    await page.evaluate(() => {
-      (window as ClickProbeWindow).__interactionButtonClicks = 0;
-    });
-    await button.evaluate((element) => {
-      (element as HTMLButtonElement).blur();
-    });
-
-    const box = await button.boundingBox();
-    if (!box) throw new Error("Alpha Button has no browser bounds");
-    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-
-    await page.mouse.move(center.x, center.y);
-    await expect.poll(() => pseudoMatches(button, ":hover")).toBe(true);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.91, 2);
-    await expect(button).not.toHaveAttribute("data-an-state-preview", /.+/);
-
-    await page.mouse.click(center.x, center.y);
-    await expect.poll(() => pseudoMatches(button, ":focus")).toBe(true);
-    await expect
-      .poll(() => pseudoMatches(button, ":focus-visible"))
-      .toBe(false);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.82, 2);
-
-    const betaButton = designFrame(page).locator(
-      '[data-agent-native-node-id="e2e-beta-button"]',
-    );
-    // Press through the iframe locator so the key stays in the preview frame.
-    // A page-level Shift+Tab can race the bridge's parent-side selection focus
-    // after the preceding pointer click and never reach the iframe.
-    await betaButton.press("Shift+Tab");
-    await expect
-      .poll(() =>
-        button.evaluate(
-          (element) => element.ownerDocument.activeElement === element,
-        ),
-      )
-      .toBe(true);
-    await expect.poll(() => pseudoMatches(button, ":focus-visible")).toBe(true);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.73, 2);
-
-    await page.mouse.move(center.x, center.y);
-    await page.mouse.down();
-    await expect.poll(() => pseudoMatches(button, ":active")).toBe(true);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.64, 2);
-    await page.mouse.up();
-    await expect.poll(() => pseudoMatches(button, ":active")).toBe(false);
-    await expect.poll(() => clickCount(page)).toBe(2);
-
-    await button.evaluate((element) => {
-      (element as HTMLButtonElement).disabled = true;
-    });
-    await expect.poll(() => pseudoMatches(button, ":disabled")).toBe(true);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.55, 2);
-    const clicksBeforeDisabledAttempt = await clickCount(page);
-    await page.mouse.click(center.x, center.y);
-    await expect.poll(() => clickCount(page)).toBe(clicksBeforeDisabledAttempt);
-
-    await button.evaluate((element) => {
-      const target = element as HTMLButtonElement;
-      target.disabled = false;
-      target.blur();
-    });
-    await page.mouse.move(2, 2);
-    await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.97, 2);
-  });
-});
-
-function alphaButton(page: Page): Locator {
-  return designFrame(page).locator(`[data-agent-native-node-id="${NODE_ID}"]`);
+async function openWithAlphaSelected(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  const rect = await app.designRect("alpha");
+  const center = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(center.x, center.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Alpha"]);
+  await expect(stateTrigger(app.page)).toHaveAttribute(
+    "data-interaction-state",
+    "default",
+  );
+  return id;
 }
 
-function interactionStateTrigger(page: Page): Locator {
-  return page.locator('button[aria-label="Interaction state"]');
+function stateTrigger(page: Page) {
+  return page.getByRole("button", { name: "Interaction state" });
 }
 
-function stateOption(page: Page, state: StateValue): Locator {
-  return page.locator(`[data-interaction-state-option="${state}"]`);
-}
-
-function selectedLayerRow(page: Page): Locator {
-  return page.locator('[role="treeitem"][aria-selected="true"]').first();
-}
-
-function inspectorOpacityInput(page: Page): Locator {
+function opacityInput(page: Page) {
   return page.locator('input[aria-label="Opacity" i]').first();
 }
 
-async function setInspectorOpacity(page: Page, percent: number): Promise<void> {
-  const input = inspectorOpacityInput(page);
-  await expect(input).toBeVisible();
-  await input.fill(String(percent));
+async function chooseState(page: Page, state: State) {
+  await stateTrigger(page).click();
+  await page.locator(`[data-interaction-state-option="${state}"]`).click();
+  await expect(stateTrigger(page)).toHaveAttribute(
+    "data-interaction-state",
+    state,
+  );
+}
+
+async function typeInto(input: Locator, value: string) {
+  await input.fill(value);
   await input.press("Enter");
 }
 
-async function selectInteractionState(
-  page: Page,
-  state: StateValue,
-): Promise<void> {
-  const trigger = interactionStateTrigger(page);
-  await trigger.click();
-  await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  const option = stateOption(page, state);
-  await expect(option).toBeVisible();
-  await option.click();
-  await expect(trigger).toHaveAttribute("data-interaction-state", state);
-  await expect(trigger).toContainText(STATE_LABELS[state]);
+async function computedOpacity(element: Locator) {
+  return element.evaluate((node) => getComputedStyle(node).opacity);
 }
 
-async function expectStateMenuContract(
-  page: Page,
-  selectedState: StateValue,
-): Promise<void> {
-  const trigger = interactionStateTrigger(page);
-  await expect(trigger).toHaveAttribute(
-    "data-interaction-state",
-    selectedState,
-  );
-  await trigger.click();
-  const options = page.locator('[role="menuitemradio"]');
-  await expect(options).toHaveCount(6);
-  await expect(options).toHaveText([
-    "Default",
-    "Hover",
-    "Focus",
-    "Focus visible",
-    "Pressed",
-    "Disabled",
-  ]);
-  for (const state of Object.keys(STATE_LABELS) as StateValue[]) {
-    await expect(stateOption(page, state)).toHaveAttribute(
-      "aria-checked",
-      String(state === selectedState),
-    );
+/** Real pseudo-class rules from the saved `<style data-agent-native-states>`, keyed `nodeId:state`. */
+function savedStateRules(html: string) {
+  const block =
+    /<style\b[^>]*\bdata-agent-native-states\b[^>]*>([\s\S]*?)<\/style>/i.exec(
+      html,
+    )?.[1] ?? "";
+  const rules: Record<string, Record<string, string>> = {};
+  for (const [, nodeId, state, body] of block.matchAll(
+    /\[data-agent-native-node-id="([^"]+)"\]:(hover|focus-visible|focus|active|disabled)\s*\{([^}]*)\}/g,
+  )) {
+    const declarations: Record<string, string> = {};
+    for (const declaration of body.split(";")) {
+      const [property, ...value] = declaration.split(":");
+      if (property.trim())
+        declarations[property.trim()] = value
+          .join(":")
+          .replace(/!important/, "")
+          .trim();
+    }
+    rules[`${nodeId}:${state}`] = declarations;
   }
-  await page.keyboard.press("Escape");
-  await expect(
-    page.getByRole("menu", { name: "Interaction state" }),
-  ).toHaveCount(0);
+  return rules;
 }
 
-async function computedOpacity(button: Locator): Promise<number> {
-  return button.evaluate((element) =>
-    Number.parseFloat(getComputedStyle(element).opacity),
+test("editing opacity and width per interaction state saves each under its own pseudo-class rule, leaving the element's own style untouched", async ({
+  app,
+}) => {
+  const id = await openWithAlphaSelected(app, BUTTONS);
+  const before = await app.savedNodes(id);
+
+  for (const [state, percent] of [
+    ["hover", "91"],
+    ["focus", "82"],
+    ["focus-visible", "73"],
+    ["active", "64"],
+    ["disabled", "55"],
+  ] as const) {
+    await chooseState(app.page, state);
+    await typeInto(opacityInput(app.page), percent);
+    await expect(app.node("alpha")).toHaveAttribute(
+      "data-an-state-preview",
+      state,
+    );
+    await expect
+      .poll(() => computedOpacity(app.node("alpha")))
+      .toBe(`0.${percent}`);
+  }
+  await chooseState(app.page, "hover");
+  await typeInto(
+    app.page.locator('input[aria-label="W size in pixels"]'),
+    "220",
   );
-}
+  await expect
+    .poll(() => app.designRect("alpha"))
+    .toMatchObject({ width: 220 });
+  await app.settled();
 
-async function pseudoMatches(button: Locator, selector: string) {
-  return button.evaluate((element, value) => element.matches(value), selector);
-}
-
-async function clickCount(page: Page): Promise<number> {
-  return page.evaluate(
-    () => (window as ClickProbeWindow).__interactionButtonClicks ?? 0,
-  );
-}
-
-async function pressEditorShortcut(
-  page: Page,
-  key: string,
-  options: { shift?: boolean } = {},
-): Promise<void> {
-  await page.evaluate(() => {
-    document.body.tabIndex = -1;
-    document.body.focus();
-  });
-  await page.keyboard.press(
-    [PRIMARY, options.shift ? "Shift" : "", key.toUpperCase()]
-      .filter(Boolean)
-      .join("+"),
-  );
-}
-
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const response = await page.request.post(
-    `${new URL(page.url()).origin}/_agent-native/actions/${name}`,
-    {
-      data: input,
-      headers: { "Content-Type": "application/json" },
+  const html = await app.savedHtml(id);
+  expect(savedStateRules(html)).toEqual({
+    "alpha:hover": {
+      opacity: "0.91",
+      width: "220px",
+      "flex-basis": "auto",
+      "flex-grow": "0",
+      "flex-shrink": "0",
     },
+    "alpha:focus": { opacity: "0.82" },
+    "alpha:focus-visible": { opacity: "0.73" },
+    "alpha:active": { opacity: "0.64" },
+    "alpha:disabled": { opacity: "0.55" },
+  });
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Alpha"]);
+  await expect(stateTrigger(app.page)).toHaveAttribute(
+    "data-interaction-state",
+    "hover",
   );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
+});
 
-async function fileContent(page: Page): Promise<string> {
-  const params = new URLSearchParams({ id: designId });
-  const response = await page.request.get(
-    `${new URL(page.url()).origin}/_agent-native/actions/get-design?${params}`,
-    { headers: { "Content-Type": "application/json" } },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `get-design failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  const result = await response.json();
-  const file = (result.files ?? []).find(
-    (candidate: { filename?: string }) => candidate.filename === "index.html",
-  );
-  if (typeof file?.content !== "string") {
-    throw new Error("index.html missing from get-design response");
-  }
-  return file.content;
-}
+// fixme: product bug: Opacity field shows the previous state's 91% on Focus (line 146); VisualScrubInput pendingCommitRef holds the stale value across a state
+test.fixme("choosing a state with nothing authored shows the element's default opacity, not the last edited state's", async ({
+  app,
+}) => {
+  const id = await openWithAlphaSelected(app, BUTTONS);
+  await chooseState(app.page, "hover");
+  await expect(opacityInput(app.page)).toHaveValue("97%");
+  await typeInto(opacityInput(app.page), "91");
+  await app.settled();
+  expect(savedStateRules(await app.savedHtml(id))).toEqual({
+    "alpha:hover": { opacity: "0.91" },
+  });
 
-function inlineOpacity(htmlPromise: Promise<string>): Promise<string> {
-  return htmlPromise.then((html) => {
-    const tag = new RegExp(
-      `<button[^>]*data-agent-native-node-id="${NODE_ID}"[^>]*>`,
-      "i",
-    ).exec(html)?.[0];
-    return (
-      /(?:^|;)\s*opacity\s*:\s*([^;"']+)/i.exec(tag ?? "")?.[1]?.trim() ?? ""
+  await chooseState(app.page, "focus");
+
+  await expect(opacityInput(app.page)).toHaveValue("97%");
+  await expect.poll(() => computedOpacity(app.node("alpha"))).toBe("0.97");
+});
+
+// fixme: product bug: Redo restores the saved :active rule but drops the inspector back to Default state and clears the preview (line 173
+test.fixme("undo and redo of a state edit restore that state's saved rule and keep the state selected", async ({
+  app,
+}) => {
+  const id = await openWithAlphaSelected(app, BUTTONS);
+  await chooseState(app.page, "active");
+  await typeInto(opacityInput(app.page), "64");
+  await app.settled();
+  await typeInto(opacityInput(app.page), "61");
+  await app.settled();
+  expect(savedStateRules(await app.savedHtml(id))).toEqual({
+    "alpha:active": { opacity: "0.61" },
+  });
+  const before = await app.savedNodes(id);
+
+  await app.page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+
+  expect(savedStateRules(await app.savedHtml(id))).toEqual({
+    "alpha:active": { opacity: "0.64" },
+  });
+  await expect(stateTrigger(app.page)).toHaveAttribute(
+    "data-interaction-state",
+    "active",
+  );
+  await expect(app.node("alpha")).toHaveAttribute(
+    "data-an-state-preview",
+    "active",
+  );
+  await expect.poll(() => computedOpacity(app.node("alpha"))).toBe("0.64");
+
+  await app.page.keyboard.press("ControlOrMeta+Shift+z");
+  await app.settled();
+
+  expect(savedStateRules(await app.savedHtml(id))).toEqual({
+    "alpha:active": { opacity: "0.61" },
+  });
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+  await expect(stateTrigger(app.page)).toHaveAttribute(
+    "data-interaction-state",
+    "active",
+  );
+  await expect.poll(() => computedOpacity(app.node("alpha"))).toBe("0.61");
+});
+
+test("in Interact mode saved state rules follow real hover, click focus, keyboard focus, press and disabled", async ({
+  app,
+}) => {
+  await app.page.addInitScript(() => {
+    const counter = window as Window & { __alphaClicks?: number };
+    counter.__alphaClicks = 0;
+    window.addEventListener(
+      "click",
+      (event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-agent-native-node-id="alpha"]')
+        ) {
+          counter.__alphaClicks = (counter.__alphaClicks ?? 0) + 1;
+        }
+      },
+      true,
     );
   });
-}
+  const id = await app.seed(AUTHORED_STATES);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
+  await expect(
+    app.page.locator("[data-design-top-bar] [data-design-interact-route]"),
+  ).toBeVisible();
+  const alpha = app.node("alpha");
+  const clicks = () =>
+    alpha.evaluate(
+      (node) =>
+        (node.ownerDocument.defaultView as Window & { __alphaClicks?: number })
+          .__alphaClicks,
+    );
+  await expect.poll(() => computedOpacity(alpha)).toBe("0.97");
 
-function stateOpacity(html: string, state: Exclude<StateValue, "default">) {
-  return stateProperty(html, state, "opacity");
-}
+  const box = await alpha.boundingBox();
+  if (!box) throw new Error("Alpha has no box");
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-function stateProperty(
-  html: string,
-  state: Exclude<StateValue, "default">,
-  property: string,
-): string {
-  const body = new RegExp(
-    `\\[data-agent-native-node-id="${NODE_ID}"\\]:${state}\\s*\\{([^}]*)\\}`,
-    "i",
-  ).exec(html)?.[1];
-  if (!body) return "";
-  return (
-    new RegExp(`${property}\\s*:\\s*([^;!]+)`, "i").exec(body)?.[1]?.trim() ??
-    ""
-  );
-}
+  await app.page.mouse.move(center.x, center.y);
+  await expect.poll(() => computedOpacity(alpha)).toBe("0.91");
+
+  await app.page.mouse.click(center.x, center.y);
+  await expect
+    .poll(() =>
+      alpha.evaluate((node) => node.matches(":focus:not(:focus-visible)")),
+    )
+    .toBe(true);
+  await expect.poll(() => computedOpacity(alpha)).toBe("0.82");
+
+  await app.node("beta").press("Shift+Tab");
+  await expect
+    .poll(() => alpha.evaluate((node) => node.matches(":focus-visible")))
+    .toBe(true);
+  await expect.poll(() => computedOpacity(alpha)).toBe("0.73");
+
+  await app.page.mouse.move(center.x, center.y);
+  await app.page.mouse.down();
+  await expect.poll(() => computedOpacity(alpha)).toBe("0.64");
+  await app.page.mouse.up();
+  await expect.poll(clicks).toBe(2);
+
+  await expect(app.node("gamma")).toBeDisabled();
+  await expect.poll(() => computedOpacity(app.node("gamma"))).toBe("0.55");
+});

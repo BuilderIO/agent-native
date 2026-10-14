@@ -1,12 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import {
-  appPath,
-  createFixtureDesign,
-  designFrame,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { FIXTURE_HTML } from "./global-setup";
+import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
+import { expect, test } from "./rails";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -25,23 +21,6 @@ function typographySection(page: Page) {
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Typography" }) })
     .first();
-}
-
-async function postAction(
-  page: Page,
-  action: string,
-  input: Record<string, unknown>,
-) {
-  const response = await page.request.post(
-    appPath(`/_agent-native/actions/${action}`),
-    { data: input },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${action} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
 }
 
 async function readDesignFile(page: Page, designId: string) {
@@ -84,19 +63,6 @@ function addLegacyLineHeightValues(source: string): string {
     paragraph.replace("line-height:1.6", "line-height:1.5"),
   );
   return next;
-}
-
-async function prepareLineHeightDesign(page: Page, title: string) {
-  const designId = await createFixtureDesign(page, title);
-  try {
-    const { file, source } = await readDesignFile(page, designId);
-    const content = addLegacyLineHeightValues(source);
-    await postAction(page, "update-file", { id: file.id, content });
-    return designId;
-  } catch (error) {
-    await postAction(page, "delete-design", { id: designId });
-    throw error;
-  }
 }
 
 function lineHeightInput(page: Page) {
@@ -189,212 +155,180 @@ async function expectSourceAndRender(
 }
 
 test("line-height Auto, px, percent, and legacy unitless values round-trip", async ({
+  app,
   page,
 }) => {
-  const designId = await prepareLineHeightDesign(
-    page,
-    "Line-height units proof",
-  );
+  const designId = await app.seed(addLegacyLineHeightValues(FIXTURE_HTML));
   const headingText = "E2E Hero Heading";
   const headingSelector = "h1";
   const paragraphText = "First fixture paragraph for selection tests.";
   const paragraphSelector = "main p";
 
-  try {
-    await gotoEditor(page, designId);
-    await selectByText(page, headingText);
+  await gotoEditor(page, designId);
+  await selectByText(page, headingText);
 
-    const typography = typographySection(page);
-    const fontButton = typography.getByRole("button", {
-      name: "Font",
-      exact: true,
+  const typography = typographySection(page);
+  const fontButton = typography.getByRole("button", {
+    name: "Font",
+    exact: true,
+  });
+  await fontButton.click();
+  const fontSearch = page.getByRole("combobox", { name: "Search" });
+  await fontSearch.fill("Lato");
+  await page.getByRole("option", { name: "Lato", exact: true }).click();
+
+  const weight = typography.getByRole("combobox").first();
+  await weight.click();
+  await page.getByRole("option", { name: "Bold", exact: true }).click();
+
+  const size = typography.locator('input[aria-label="Size" i]');
+  await size.fill("16");
+  await size.press("Enter");
+
+  const loadedLatoFaces = await designFrame(page)
+    .locator("body")
+    .evaluate(async (body) => {
+      const faces = await body.ownerDocument.fonts.load(
+        '700 16px "Lato"',
+        "Tasty Bites: Exploring Culinary Delights",
+      );
+      return faces.map((face) => ({
+        family: face.family,
+        weight: face.weight,
+        status: face.status,
+      }));
     });
-    await fontButton.click();
-    const fontSearch = page.getByRole("combobox", { name: "Search" });
-    await fontSearch.fill("Lato");
-    await page.getByRole("option", { name: "Lato", exact: true }).click();
+  expect(loadedLatoFaces).toContainEqual({
+    family: "Lato",
+    weight: "700",
+    status: "loaded",
+  });
+  await expect
+    .poll(async () => (await readLiveNode(page, headingSelector)).fontWeight)
+    .toBe("700");
 
-    const weight = typography.getByRole("combobox").first();
-    await weight.click();
-    await page.getByRole("option", { name: "Bold", exact: true }).click();
+  const headingId = await selectedNodeId(page, headingSelector);
+  const { source: initialSource } = await readDesignFile(page, designId);
+  expect(sourceStyleValue(initialSource, headingId, "line-height")).toBe(
+    "normal",
+  );
+  await expect(lineHeightInput(page)).toHaveValue("Auto");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "normal",
+    "normal",
+    19,
+  );
 
-    const size = typography.locator('input[aria-label="Size" i]');
-    await size.fill("16");
-    await size.press("Enter");
+  await lineHeightInput(page).press("ArrowUp");
+  await expect(lineHeightInput(page)).toHaveValue("20px");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "20px",
+    "20px",
+    20,
+  );
 
-    const loadedLatoFaces = await designFrame(page)
-      .locator("body")
-      .evaluate(async (body) => {
-        const faces = await body.ownerDocument.fonts.load(
-          '700 16px "Lato"',
-          "Tasty Bites: Exploring Culinary Delights",
-        );
-        return faces.map((face) => ({
-          family: face.family,
-          weight: face.weight,
-          status: face.status,
-        }));
-      });
-    expect(loadedLatoFaces).toContainEqual({
-      family: "Lato",
-      weight: "700",
-      status: "loaded",
-    });
-    await expect
-      .poll(async () => (await readLiveNode(page, headingSelector)).fontWeight)
-      .toBe("700");
+  await setLineHeight(page, "30");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "30px",
+    "30px",
+    30,
+  );
+  await lineHeightInput(page).press("ArrowUp");
+  await expect(lineHeightInput(page)).toHaveValue("31px");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "31px",
+    "31px",
+    31,
+  );
 
-    const headingId = await selectedNodeId(page, headingSelector);
-    const { source: initialSource } = await readDesignFile(page, designId);
-    expect(sourceStyleValue(initialSource, headingId, "line-height")).toBe(
-      "normal",
-    );
-    await expect(lineHeightInput(page)).toHaveValue("Auto");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "normal",
-      "normal",
-      19,
-    );
+  await page.getByRole("heading", { name: "Typography" }).click();
+  await page.keyboard.press(`${MOD}+z`);
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "30px",
+    "30px",
+    30,
+  );
+  await expect(lineHeightInput(page)).toHaveValue("30px");
 
-    await lineHeightInput(page).press("ArrowUp");
-    await expect(lineHeightInput(page)).toHaveValue("20px");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "20px",
-      "20px",
-      20,
-    );
+  await setLineHeight(page, "150%");
+  await expect(lineHeightInput(page)).toHaveValue("150%");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "150%",
+    "24px",
+    24,
+  );
 
-    await setLineHeight(page, "30");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "30px",
-      "30px",
-      30,
-    );
-    await lineHeightInput(page).press("ArrowUp");
-    await expect(lineHeightInput(page)).toHaveValue("31px");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "31px",
-      "31px",
-      31,
-    );
+  await setLineHeight(page, "30");
+  await expect(lineHeightInput(page)).toHaveValue("30px");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "30px",
+    "30px",
+    30,
+  );
 
-    await page.getByRole("heading", { name: "Typography" }).click();
-    await page.keyboard.press(`${MOD}+z`);
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "30px",
-      "30px",
-      30,
-    );
-    await expect(lineHeightInput(page)).toHaveValue("30px");
+  await page.reload();
+  await selectLayerByName(page, headingText);
+  await expect(lineHeightInput(page)).toHaveValue("30px");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "30px",
+    "30px",
+    30,
+  );
 
-    await setLineHeight(page, "150%");
-    await expect(lineHeightInput(page)).toHaveValue("150%");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "150%",
-      "24px",
-      24,
-    );
+  await setLineHeight(page, "+5");
+  await expect(lineHeightInput(page)).toHaveValue("5px");
+  await expectSourceAndRender(page, designId, headingSelector, "5px", "5px", 5);
 
-    await setLineHeight(page, "30");
-    await expect(lineHeightInput(page)).toHaveValue("30px");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "30px",
-      "30px",
-      30,
-    );
+  await setLineHeight(page, "150%");
+  await lineHeightInput(page).press("ArrowUp");
+  await expect(lineHeightInput(page)).toHaveValue("151%");
+  await expectSourceAndRender(
+    page,
+    designId,
+    headingSelector,
+    "151%",
+    "24.16px",
+  );
 
-    await page.reload();
-    await selectLayerByName(page, headingText);
-    await expect(lineHeightInput(page)).toHaveValue("30px");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "30px",
-      "30px",
-      30,
-    );
+  await setLineHeight(page, "0");
+  await expect(lineHeightInput(page)).toHaveValue("0px");
+  await expectSourceAndRender(page, designId, headingSelector, "0px", "0px", 0);
 
-    await setLineHeight(page, "+5");
-    await expect(lineHeightInput(page)).toHaveValue("5px");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "5px",
-      "5px",
-      5,
-    );
+  const paragraphId = await selectedNodeId(page, paragraphSelector);
+  await selectByText(page, paragraphText);
+  await expect(lineHeightInput(page)).toHaveValue("150%");
+  await expectSourceAndRender(page, designId, paragraphSelector, "1.5", "27px");
 
-    await setLineHeight(page, "150%");
-    await lineHeightInput(page).press("ArrowUp");
-    await expect(lineHeightInput(page)).toHaveValue("151%");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "151%",
-      "24.16px",
-    );
-
-    await setLineHeight(page, "0");
-    await expect(lineHeightInput(page)).toHaveValue("0px");
-    await expectSourceAndRender(
-      page,
-      designId,
-      headingSelector,
-      "0px",
-      "0px",
-      0,
-    );
-
-    const paragraphId = await selectedNodeId(page, paragraphSelector);
-    await selectByText(page, paragraphText);
-    await expect(lineHeightInput(page)).toHaveValue("150%");
-    await expectSourceAndRender(
-      page,
-      designId,
-      paragraphSelector,
-      "1.5",
-      "27px",
-    );
-
-    await page.reload();
-    await selectLayerByName(page, paragraphText);
-    await expect(lineHeightInput(page)).toHaveValue("150%");
-    const { source: reloadedSource } = await readDesignFile(page, designId);
-    expect(sourceStyleValue(reloadedSource, paragraphId, "line-height")).toBe(
-      "1.5",
-    );
-    await expectSourceAndRender(
-      page,
-      designId,
-      paragraphSelector,
-      "1.5",
-      "27px",
-    );
-  } finally {
-    await postAction(page, "delete-design", { id: designId });
-  }
+  await page.reload();
+  await selectLayerByName(page, paragraphText);
+  await expect(lineHeightInput(page)).toHaveValue("150%");
+  const { source: reloadedSource } = await readDesignFile(page, designId);
+  expect(sourceStyleValue(reloadedSource, paragraphId, "line-height")).toBe(
+    "1.5",
+  );
+  await expectSourceAndRender(page, designId, paragraphSelector, "1.5", "27px");
 });

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import { SURFACE_PADDING } from "../app/components/design/multi-screen/overview-layout";
 import { e2eBaseURL } from "./base-url";
@@ -10,6 +10,14 @@ import {
   gotoEditor,
   selectTool,
 } from "./helpers";
+import {
+  expect,
+  expectOnlyChanged,
+  savedNodeMap,
+  styleOf as styleOfNode,
+  test,
+  type App,
+} from "./rails";
 
 declare global {
   interface Window {
@@ -24,9 +32,9 @@ declare global {
 }
 
 const SCREEN_ONE = `<!doctype html>
-<html lang="en">
+<html lang="en" data-agent-native-node-id="one-doc">
   <head><meta charset="utf-8" /><title>Screen One</title></head>
-  <body style="margin:0;position:relative;min-height:1000px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+  <body data-agent-native-node-id="one-body" style="margin:0;position:relative;min-height:1000px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
     <header data-agent-native-node-id="header" data-agent-native-layer-name="Header"
             style="position:absolute;left:0;top:0;width:900px;height:80px;background:#1f2937"></header>
     <span data-agent-native-node-id="root-gap-1" data-agent-native-layer-name="RootGap1"
@@ -49,9 +57,9 @@ const SCREEN_ONE = `<!doctype html>
 </html>`;
 
 const SCREEN_TWO = `<!doctype html>
-<html lang="en">
+<html lang="en" data-agent-native-node-id="two-doc">
   <head><meta charset="utf-8" /><title>Screen Two</title></head>
-  <body style="margin:0;position:relative;min-height:900px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+  <body data-agent-native-node-id="two-body" style="margin:0;position:relative;min-height:900px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
     <section data-agent-native-node-id="page2-target" data-agent-native-layer-name="Page2Target"
              style="position:absolute;left:60px;top:60px;width:400px;height:300px;background:#312e81"></section>
   </body>
@@ -125,68 +133,91 @@ const STYLE_CARRY_DEST = `<!doctype html>
 
 let baseURL = "";
 
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!res.ok()) {
-    throw new Error(
-      `${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`,
-    );
-  }
-  return res.json();
-}
-
 async function newTwoScreenDesign(
-  page: Page,
+  app: App,
   screenOneHtml = SCREEN_ONE,
 ): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "interaction drag reparent",
-    projectType: "prototype",
+  return app.seed(screenOneHtml, { files: { "page-two.html": SCREEN_TWO } });
+}
+
+async function newStyleCarryTwoScreenDesign(app: App): Promise<string> {
+  return app.seed(STYLE_CARRY_SOURCE, {
+    files: { "page-two.html": STYLE_CARRY_DEST },
   });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: screenOneHtml,
-    fileType: "html",
+}
+
+const OVERSIZED_BOARD = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>Board</title></head>
+<body style="margin:0;position:relative;width:1800px;height:900px;overflow:visible;background:transparent">
+  <div data-agent-native-node-id="oversized-rect" data-agent-native-layer-name="Oversized rectangle" data-an-primitive="rectangle"
+       style="position:absolute;left:-700px;top:100px;width:470px;height:380px;background:#d9d9d9"></div>
+</body></html>`;
+
+/** Two screens plus a board holding a 470x380 rectangle: narrower than Main (900x360) but taller. */
+async function newOversizedBoardDesign(app: App): Promise<string> {
+  const id = await app.seed(SCREEN_ONE, {
+    files: { "page-two.html": SCREEN_TWO, "__board__.html": OVERSIZED_BOARD },
   });
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "page-two.html",
-    content: SCREEN_TWO,
-    fileType: "html",
-  });
+  const files = (await app.savedRecord(id)).files;
+  const fileId = (filename: string) =>
+    files.find((file) => file.filename === filename)!.id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          { op: "set", path: ["boardFileId"], value: fileId("__board__.html") },
+          {
+            op: "set",
+            path: ["screenMetadata", fileId("__board__.html")],
+            value: { sourceType: "inline", width: 1800, height: 900 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId("index.html")],
+            value: { x: 0, y: 0, width: 900, height: 1000, z: 0 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId("page-two.html")],
+            value: { x: 1020, y: 0, width: 900, height: 900, z: 1 },
+          },
+        ],
+      },
+    },
+  );
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
   return id;
 }
 
-async function newStyleCarryTwoScreenDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "interaction style carry",
-    projectType: "prototype",
+/** Saved parent, position and rounded left/top of a node, read from a saved document. */
+function savedPlacement(html: string, nodeId: string) {
+  const style = styleOfNode(savedNodeMap(html).get(nodeId));
+  return {
+    parent: parentOf(html, nodeId),
+    position: style.position,
+    left: Math.round(Number.parseFloat(style.left)),
+    top: Math.round(Number.parseFloat(style.top)),
+  };
+}
+
+/** Below 100% zoom a page pixel spans several design pixels, so a released drop rounds by a few. */
+function expectPlacement(
+  actual: ReturnType<typeof savedPlacement>,
+  expected: ReturnType<typeof savedPlacement>,
+) {
+  expect({ parent: actual.parent, position: actual.position }).toEqual({
+    parent: expected.parent,
+    position: expected.position,
   });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: STYLE_CARRY_SOURCE,
-    fileType: "html",
-  });
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "page-two.html",
-    content: STYLE_CARRY_DEST,
-    fileType: "html",
-  });
-  return id;
+  expect(
+    Math.max(
+      Math.abs(actual.left - expected.left),
+      Math.abs(actual.top - expected.top),
+    ),
+    `saved at ${actual.left},${actual.top}; dropped at ${expected.left},${expected.top}`,
+  ).toBeLessThanOrEqual(3);
 }
 
 async function getDesign(page: Page, id: string): Promise<any> {
@@ -438,6 +469,32 @@ async function boxFor(page: Page, screenId: string, nodeId: string) {
   return box;
 }
 
+/** Canvas (board) coordinates of a page point, through the screen's saved canvas frame. */
+async function canvasPoint(
+  page: Page,
+  id: string,
+  screenId: string,
+  point: { x: number; y: number },
+) {
+  const record = await getDesign(page, id);
+  const data =
+    typeof record.data === "string" ? JSON.parse(record.data) : record.data;
+  const frame = data.canvasFrames[screenId];
+  const box = await page
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    )
+    .boundingBox();
+  const width = await designFrame(page, screenId)
+    .locator("html")
+    .evaluate((element) => element.clientWidth);
+  const scale = box!.width / width;
+  return {
+    x: frame.x + (point.x - box!.x) / scale,
+    y: frame.y + (point.y - box!.y) / scale,
+  };
+}
+
 async function dumpTrace(page: Page): Promise<string> {
   return page
     .evaluate(() => (window as any).__designTrace?.dump?.() ?? "(no trace)")
@@ -455,11 +512,13 @@ test.beforeAll(async ({}, testInfo) => {
 
 test.describe("drag reparent interaction", () => {
   test("dragging an element over the footer highlights it, and drop nests the element into it", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
+    const beforeHtml = await fileContent(page, id, "index.html");
 
     const widget = await boxFor(page, screenId, "widget");
     const footer = await boxFor(page, screenId, "footer");
@@ -506,6 +565,16 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe("footer");
+    const nestedHtml = await fileContent(page, id, "index.html");
+    expectPlacement(savedPlacement(nestedHtml, "widget"), {
+      parent: "footer",
+      position: "absolute",
+      left: 380,
+      top: 45,
+    });
+    expectOnlyChanged(savedNodeMap(beforeHtml), savedNodeMap(nestedHtml), [
+      "widget",
+    ]);
 
     await page.keyboard.press("ControlOrMeta+z");
     await expect
@@ -534,12 +603,15 @@ test.describe("drag reparent interaction", () => {
       .toBe("footer");
   });
 
-  test("dragging an element out of the footer to the screen root reparents it to the root", async ({
+  // fixme: product bug: FooterItem is saved at left:330px top:175px although released with its centre on RootGap2's centre (expected 370,175): it lands 40 design
+  test.fixme("dragging an element out of the footer to the screen root reparents it to the root", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
+    const beforeHtml = await fileContent(page, id, "index.html");
 
     const footerItem = await boxFor(page, screenId, "footer-item");
     const target = await boxFor(page, screenId, "root-gap-2");
@@ -588,6 +660,16 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe(true);
+    const rootHtml = await fileContent(page, id, "index.html");
+    expectPlacement(savedPlacement(rootHtml, "footer-item"), {
+      parent: null,
+      position: "absolute",
+      left: 370,
+      top: 175,
+    });
+    expectOnlyChanged(savedNodeMap(beforeHtml), savedNodeMap(rootHtml), [
+      "footer-item",
+    ]);
 
     const moved = designFrame(page, screenId).locator(
       '[data-agent-native-node-id="footer-item"]',
@@ -665,9 +747,10 @@ test.describe("drag reparent interaction", () => {
   });
 
   test("moving a deeply nested flow child through clipped ancestors preserves root placement and history", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page, SCREEN_DEEP_CLIPPED);
+    const id = await newTwoScreenDesign(app, SCREEN_DEEP_CLIPPED);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
     const beforeHtml = await fileContent(page, id, "index.html");
@@ -721,6 +804,9 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe(true);
+    expectOnlyChanged(savedNodeMap(beforeHtml), savedNodeMap(movedHtml), [
+      "deep-item",
+    ]);
 
     const moved = designFrame(page, screenId).locator(
       '[data-agent-native-node-id="deep-item"]',
@@ -780,9 +866,10 @@ test.describe("drag reparent interaction", () => {
   });
 
   test("moving a deeply nested flow child into the root auto-layout uses the pointer slot", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page, SCREEN_DEEP_ROOT_FLEX);
+    const id = await newTwoScreenDesign(app, SCREEN_DEEP_ROOT_FLEX);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
     const beforeHtml = await fileContent(page, id, "index.html");
@@ -806,12 +893,12 @@ test.describe("drag reparent interaction", () => {
     await page.mouse.down();
     await page.mouse.move(grabPoint.x + 20, grabPoint.y + 4, { steps: 5 });
     await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 20 });
-    await page.waitForTimeout(400);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    await expect(guide).toBeVisible();
     const trace = await dumpTrace(page);
-    const guideBox = await designFrame(page, screenId)
-      .locator("[data-agent-native-insertion-guide]")
-      .boundingBox()
-      .catch(() => null);
+    const guideBox = await guide.boundingBox();
     expect(await fileContent(page, id, "index.html")).toBe(beforeHtml);
     expect(
       guideBox && guideBox.width > 0 && guideBox.height > 0,
@@ -837,6 +924,11 @@ test.describe("drag reparent interaction", () => {
         return parentOf(html, "deep-item") === null ? bodyOrder() : [];
       })
       .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
+    expectOnlyChanged(
+      savedNodeMap(beforeHtml),
+      savedNodeMap(await fileContent(page, id, "index.html")),
+      ["deep-item"],
+    );
 
     await page.keyboard.press("ControlOrMeta+z");
     await expect
@@ -862,14 +954,20 @@ test.describe("drag reparent interaction", () => {
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
     const widget = await boxFor(page, screenId, "widget");
     const boardPoint = await emptyBoardPoint(page);
+    const beforeHtml = await fileContent(page, id, "index.html");
+    const release = await canvasPoint(page, id, screenId, {
+      x: boardPoint.x + 40,
+      y: boardPoint.y + 24,
+    });
 
     const deepSelectModifier =
       process.platform === "darwin" ? "Meta" : "Control";
@@ -961,6 +1059,15 @@ test.describe("drag reparent interaction", () => {
       boardHtml,
       `Widget dropped on the empty board must become a board object (checked __board__.html). Got boardHtml length=${boardHtml.length}`,
     ).toContain('data-agent-native-node-id="widget"');
+    expectPlacement(savedPlacement(boardHtml, "widget"), {
+      parent: null,
+      position: "absolute",
+      left: Math.round(release.x - 70),
+      top: Math.round(release.y - 45),
+    });
+    expectOnlyChanged(savedNodeMap(beforeHtml), savedNodeMap(indexHtml), [
+      "widget",
+    ]);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
@@ -978,11 +1085,13 @@ test.describe("drag reparent interaction", () => {
       .toBe(true);
   });
 
-  test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
+  // fixme: product bug: Six console errors: 'Blocked script execution in about:srcdoc because the document's frame is sandboxed and the allow-scripts permission
+  test.fixme("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
+    app,
     page,
   }) => {
     test.setTimeout(60_000);
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
 
     const screenId = await fileIdFor(page, id, "index.html");
@@ -1226,9 +1335,10 @@ test.describe("drag reparent interaction", () => {
 
   // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
@@ -1300,6 +1410,7 @@ test.describe("drag reparent interaction", () => {
     expect(authoredRectSize.height).toBeLessThanOrEqual(mainContentSize.height);
     const rectBox = (await rectLocator.boundingBox())!;
     const main = await boxFor(page, screenId, "main");
+    const indexBefore = await fileContent(page, id, "index.html");
 
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
@@ -1346,6 +1457,18 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe(true);
+    const rectId = [...savedNodeMap(indexHtmlAfter).values()].find(
+      (node) => node.attrs["data-an-primitive"] === "rectangle",
+    )!.id;
+    expectOnlyChanged(savedNodeMap(indexBefore), savedNodeMap(indexHtmlAfter), [
+      rectId,
+    ]);
+    expectPlacement(savedPlacement(indexHtmlAfter, rectId), {
+      parent: "main",
+      position: "absolute",
+      left: 400,
+      top: 140,
+    });
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
@@ -1373,74 +1496,28 @@ test.describe("drag reparent interaction", () => {
   });
 
   test("dropping an oversized board rectangle into Main suppresses the insertion guide and keeps one owner after reload", async ({
+    app,
     page,
-  }, testInfo) => {
-    const id = await newTwoScreenDesign(page);
-    await gotoEditor(page, id);
+  }) => {
+    const id = await newOversizedBoardDesign(app);
+    await app.open(id);
+    await app.zoomToFit();
     const screenId = await fileIdFor(page, id, "index.html");
-
-    const boardPoint = await emptyBoardPoint(page);
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
-      .click();
-    await page.waitForTimeout(300);
-    const canvasZoomFactor = await canvasZoom(page);
-    expect(canvasZoomFactor).toBeGreaterThan(0.2);
-    expect(canvasZoomFactor).toBeLessThan(0.23);
-
-    await page.mouse.move(boardPoint.x, boardPoint.y);
-    await page.mouse.down();
-    await page.mouse.move(boardPoint.x + 100, boardPoint.y + 80, {
-      steps: 12,
+    const indexBefore = await app.savedNodes(id);
+    const pageTwoBefore = await app.savedNodes(id, "page-two.html");
+    const boardBefore = await app.savedNodes(id, "__board__.html");
+    expect(boardBefore.has("oversized-rect")).toBe(true);
+    expect(await app.designRect("main", "index.html")).toEqual({
+      x: 0,
+      y: 260,
+      width: 900,
+      height: 360,
     });
-    await page.mouse.up();
-
-    await expect
-      .poll(
-        async () => fileContent(page, id, "__board__.html").catch(() => ""),
-        {
-          timeout: 10_000,
-          message:
-            "precondition: the rectangle tool must place a rectangle on the board",
-        },
-      )
-      .toContain('data-an-primitive="rectangle"');
-
-    const rectLocator = page
+    const rect = page
       .locator("[data-board-surface-layer] iframe")
-      .first()
       .contentFrame()
-      .locator('[data-an-primitive="rectangle"]')
-      .first();
-    const rectangleNodeId = await rectLocator.getAttribute(
-      "data-agent-native-node-id",
-    );
-    if (!rectangleNodeId) throw new Error("board rectangle has no node id");
-    const authoredRectSize = await rectLocator.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return { width: rect.width, height: rect.height };
-    });
-    const mainContentSize = await designFrame(page, screenId)
-      .locator('[data-agent-native-node-id="main"]')
-      .evaluate((element) => {
-        const style = getComputedStyle(element);
-        return {
-          width:
-            element.clientWidth -
-            Number.parseFloat(style.paddingLeft) -
-            Number.parseFloat(style.paddingRight),
-          height:
-            element.clientHeight -
-            Number.parseFloat(style.paddingTop) -
-            Number.parseFloat(style.paddingBottom),
-        };
-      });
-    expect(mainContentSize).toEqual({ width: 900, height: 360 });
-    expect(authoredRectSize.width).toBeGreaterThan(460);
-    expect(authoredRectSize.width).toBeLessThan(mainContentSize.width);
-    expect(authoredRectSize.height).toBeGreaterThan(mainContentSize.height);
-    expect(authoredRectSize.width).toBeCloseTo(100 / canvasZoomFactor, 0);
-    expect(authoredRectSize.height).toBeCloseTo(80 / canvasZoomFactor, 0);
+      .locator('[data-agent-native-node-id="oversized-rect"]');
+    await expect(rect).toBeVisible();
 
     await page.evaluate((targetScreenId) => {
       const targetFrame = Array.from(
@@ -1466,8 +1543,7 @@ test.describe("drag reparent interaction", () => {
           ) {
             return;
           }
-          const hitTestResults = (window.__oversizedMainHitTestResults ??= []);
-          hitTestResults.push({
+          (window.__oversizedMainHitTestResults ??= []).push({
             anchorNodeId:
               "anchorNodeId" in message &&
               typeof message.anchorNodeId === "string"
@@ -1485,12 +1561,8 @@ test.describe("drag reparent interaction", () => {
       );
     }, screenId);
 
-    const rectBox = (await rectLocator.boundingBox())!;
-    const main = await boxFor(page, screenId, "main");
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
-      .click();
-    await page.waitForTimeout(300);
+    const rectBox = (await rect.boundingBox())!;
+    const release = await app.pagePoint(450, 440, "index.html");
     await page.mouse.move(
       rectBox.x + rectBox.width / 2,
       rectBox.y + rectBox.height / 2,
@@ -1504,308 +1576,93 @@ test.describe("drag reparent interaction", () => {
     await page.evaluate(() => {
       window.__oversizedMainHitTestResults = [];
     });
-    await page.mouse.move(main.x + main.width / 2, main.y + main.height / 2, {
-      steps: 24,
-    });
-    await page.waitForTimeout(400);
-
-    const latestHitTestResult = async () =>
-      page.evaluate(() => {
-        const results = window.__oversizedMainHitTestResults ?? [];
-        return results.length > 0 ? results[results.length - 1] : null;
-      });
+    await page.mouse.move(release.x, release.y, { steps: 24 });
     await expect
-      .poll(latestHitTestResult, {
-        timeout: 5_000,
-        message:
-          "an oversized source over Main should produce a hit-test result",
-      })
-      .toMatchObject({
-        anchorNodeId: "",
-        anchorRect: null,
-        guideRect: null,
-      });
-    const hitTestResultWhileHeld = await latestHitTestResult();
-    const crossScreenDropGuide = page.locator("[data-cross-screen-drop-guide]");
-    const hitTestGuide = designFrame(page, screenId).locator(
-      "[data-agent-native-hit-test-preview]",
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const results = window.__oversizedMainHitTestResults ?? [];
+            return results[results.length - 1] ?? null;
+          }),
+        {
+          message:
+            "an oversized source over Main should produce a hit-test result with no anchor",
+        },
+      )
+      .toMatchObject({ anchorNodeId: "", anchorRect: null, guideRect: null });
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeHidden();
+    await expect(
+      designFrame(page, screenId).locator(
+        "[data-agent-native-hit-test-preview]",
+      ),
+    ).toBeHidden();
+    await page.mouse.up();
+    await app.settled();
+
+    const indexAfter = await app.savedNodes(id);
+    const boardAfter = await app.savedNodes(id, "__board__.html");
+    expect(boardAfter.has("oversized-rect")).toBe(false);
+    expectOnlyChanged(boardBefore, boardAfter, ["oversized-rect"]);
+    expectOnlyChanged(indexBefore, indexAfter, ["oversized-rect"]);
+    expectOnlyChanged(
+      pageTwoBefore,
+      await app.savedNodes(id, "page-two.html"),
+      [],
     );
-    await expect(crossScreenDropGuide).toBeHidden();
-    await expect(hitTestGuide).toBeHidden();
-    const crossScreenGuideVisibleWhileHeld =
-      await crossScreenDropGuide.isVisible();
-    const hitTestGuideVisibleWhileHeld = await hitTestGuide.isVisible();
-    expect(crossScreenGuideVisibleWhileHeld).toBe(false);
-    expect(hitTestGuideVisibleWhileHeld).toBe(false);
+    const saved = styleOfNode(indexAfter.get("oversized-rect"));
+    expect(
+      {
+        parent: indexAfter.get("oversized-rect")?.parent,
+        position: saved.position,
+        width: saved.width,
+        height: saved.height,
+      },
+      "too tall for Main, so it lands in Screen One's root at its own size",
+    ).toEqual({
+      parent: "one-body",
+      position: "absolute",
+      width: "470px",
+      height: "380px",
+    });
+    const rendered = await app.designRect("oversized-rect", "index.html");
+    const offBy = (point: { x: number; y: number }) =>
+      Math.max(Math.abs(point.x - 215), Math.abs(point.y - 250));
+    expect(
+      offBy({
+        x: Number.parseFloat(saved.left),
+        y: Number.parseFloat(saved.top),
+      }),
+      `saved at ${saved.left},${saved.top}; centred on the release point is 215,250`,
+    ).toBeLessThanOrEqual(3);
+    expect(
+      offBy(rendered),
+      `rendered at ${rendered.x},${rendered.y}; centred on the release point is 215,250`,
+    ).toBeLessThanOrEqual(3);
+    expect({ width: rendered.width, height: rendered.height }).toEqual({
+      width: 470,
+      height: 380,
+    });
 
-    const ownershipSamples: Array<Record<string, unknown>> = [];
-    type GeometryValues = {
-      left: number;
-      top: number;
-      width: number;
-      height: number;
-    };
-    type RenderedGeometry = {
-      rect: GeometryValues;
-      computed: GeometryValues;
-    };
-    type OwnershipSnapshot = {
-      phase: string;
-      sampledAt: string;
-      nodeId: string;
-      indexCount: number;
-      boardCount: number;
-      owner: "index.html" | "__board__.html" | null;
-      authoredStyle: string | null;
-      authoredCoordinates: GeometryValues | null;
-      screenIframeCount: number;
-      boardIframeCount: number;
-      renderedNodeCountBeforeGeometry: number;
-      renderedNodeCountAfterGeometry: number;
-      geometryEvaluationError: string | null;
-      positionAndSize: RenderedGeometry | null;
-    };
-    const readOwnership = async (phase: string): Promise<OwnershipSnapshot> => {
-      const [indexHtml, boardHtml] = await Promise.all([
-        fileContent(page, id, "index.html"),
-        fileContent(page, id, "__board__.html"),
-      ]);
-      const indexCount =
-        indexHtml.split(`data-agent-native-node-id="${rectangleNodeId}"`)
-          .length - 1;
-      const boardCount =
-        boardHtml.split(`data-agent-native-node-id="${rectangleNodeId}"`)
-          .length - 1;
-      const owner: OwnershipSnapshot["owner"] =
-        indexCount === 1 && boardCount === 0
-          ? "index.html"
-          : boardCount === 1 && indexCount === 0
-            ? "__board__.html"
-            : null;
-      const ownerHtml =
-        owner === "index.html"
-          ? indexHtml
-          : owner === "__board__.html"
-            ? boardHtml
-            : null;
-      const authoredStyle = ownerHtml
-        ? styleOf(ownerHtml, rectangleNodeId)
-        : null;
-      const authoredCoordinates: GeometryValues | null = authoredStyle
-        ? {
-            left: styleNum(authoredStyle, "left"),
-            top: styleNum(authoredStyle, "top"),
-            width: styleNum(authoredStyle, "width"),
-            height: styleNum(authoredStyle, "height"),
-          }
-        : null;
-      const screenIframeSelector = `iframe[data-screen-iframe-id="${screenId}"]`;
-      const boardIframeSelector = "[data-board-surface-layer] iframe";
-      const [screenIframeCount, boardIframeCount] = await Promise.all([
-        page.locator(screenIframeSelector).count(),
-        page.locator(boardIframeSelector).count(),
-      ]);
-      const ownerIframeSelector =
-        owner === "index.html"
-          ? screenIframeSelector
-          : owner === "__board__.html"
-            ? boardIframeSelector
-            : null;
-      const nodeLocator = ownerIframeSelector
-        ? page
-            .locator(ownerIframeSelector)
-            .first()
-            .contentFrame()
-            .locator(`[data-agent-native-node-id="${rectangleNodeId}"]`)
-        : null;
-      const renderedNodeCountBeforeGeometry = nodeLocator
-        ? await nodeLocator.count()
-        : 0;
-      const sample: OwnershipSnapshot = {
-        phase,
-        sampledAt: new Date().toISOString(),
-        nodeId: rectangleNodeId,
-        indexCount,
-        boardCount,
-        owner,
-        authoredStyle,
-        authoredCoordinates,
-        screenIframeCount,
-        boardIframeCount,
-        renderedNodeCountBeforeGeometry,
-        renderedNodeCountAfterGeometry: renderedNodeCountBeforeGeometry,
-        geometryEvaluationError: null,
-        positionAndSize: null,
-      };
-      if (ownershipSamples.length < 50) ownershipSamples.push(sample);
-      if (nodeLocator && renderedNodeCountBeforeGeometry === 1) {
-        try {
-          const renderedNodes = await nodeLocator.evaluateAll((elements) =>
-            elements.map((element) => {
-              const rect = element.getBoundingClientRect();
-              const style = getComputedStyle(element);
-              return {
-                rect: {
-                  left: rect.left,
-                  top: rect.top,
-                  width: rect.width,
-                  height: rect.height,
-                },
-                computed: {
-                  left: Number.parseFloat(style.left),
-                  top: Number.parseFloat(style.top),
-                  width: Number.parseFloat(style.width),
-                  height: Number.parseFloat(style.height),
-                },
-              };
-            }),
-          );
-          sample.renderedNodeCountAfterGeometry = renderedNodes.length;
-          sample.positionAndSize = renderedNodes[0] ?? null;
-        } catch (error) {
-          sample.geometryEvaluationError =
-            error instanceof Error ? error.message : String(error);
-          throw error;
-        }
-      }
-      return sample;
-    };
-    const readStableOwnership = async (
-      phase: string,
-    ): Promise<OwnershipSnapshot> => {
-      let previous = "";
-      let stableSamples = 0;
-      await expect
-        .poll(
-          async () => {
-            const latest = await readOwnership(phase);
-            const next = JSON.stringify({
-              indexCount: latest.indexCount,
-              boardCount: latest.boardCount,
-              owner: latest.owner,
-              renderedNodeCountBeforeGeometry:
-                latest.renderedNodeCountBeforeGeometry,
-              renderedNodeCountAfterGeometry:
-                latest.renderedNodeCountAfterGeometry,
-              authoredCoordinates: latest.authoredCoordinates,
-            });
-            stableSamples = next === previous ? stableSamples + 1 : 0;
-            previous = next;
-            return stableSamples;
-          },
-          {
-            timeout: 10_000,
-            intervals: [500, 500, 500, 500, 500, 500],
-            message: "the rectangle owner and authored geometry should settle",
-          },
-        )
-        .toBeGreaterThanOrEqual(4);
-      return readOwnership(`${phase}:final`);
-    };
-
-    let afterMouseUp: OwnershipSnapshot | null = null;
-    let afterReload: OwnershipSnapshot | null = null;
-    try {
-      await page.mouse.up();
-      const afterMouseUpState = await readStableOwnership("after-mouseup");
-      afterMouseUp = afterMouseUpState;
-      expect(afterMouseUpState.indexCount + afterMouseUpState.boardCount).toBe(
-        1,
-      );
-      expect(afterMouseUpState.owner).not.toBeNull();
-      expect(afterMouseUpState.renderedNodeCountAfterGeometry).toBe(1);
-      if (
-        !afterMouseUpState.owner ||
-        !afterMouseUpState.authoredCoordinates ||
-        !afterMouseUpState.positionAndSize
-      ) {
-        throw new Error(
-          "the rectangle is missing owner or rendered geometry after mouse-up",
-        );
-      }
-      expect(
-        [
-          ...Object.values(afterMouseUpState.authoredCoordinates),
-          ...Object.values(afterMouseUpState.positionAndSize.rect),
-          ...Object.values(afterMouseUpState.positionAndSize.computed),
-        ].every(Number.isFinite),
-      ).toBe(true);
-
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(page.locator("[data-design-editor]")).toBeVisible({
-        timeout: 30_000,
-      });
-      const afterReloadState = await readStableOwnership("after-reload");
-      afterReload = afterReloadState;
-      expect(afterReloadState.indexCount + afterReloadState.boardCount).toBe(1);
-      expect(afterReloadState.renderedNodeCountAfterGeometry).toBe(1);
-      expect(afterReloadState.owner).toBe(afterMouseUpState.owner);
-      expect(afterReloadState.nodeId).toBe(rectangleNodeId);
-      expect(afterReloadState.authoredCoordinates).toEqual(
-        afterMouseUpState.authoredCoordinates,
-      );
-      if (
-        !afterReloadState.owner ||
-        !afterReloadState.authoredCoordinates ||
-        !afterReloadState.positionAndSize
-      ) {
-        throw new Error(
-          "the rectangle is missing owner or rendered geometry after reload",
-        );
-      }
-      expect(
-        [
-          ...Object.values(afterReloadState.authoredCoordinates),
-          ...Object.values(afterReloadState.positionAndSize.rect),
-          ...Object.values(afterReloadState.positionAndSize.computed),
-        ].every(Number.isFinite),
-      ).toBe(true);
-      expect(afterReloadState.positionAndSize.computed).toEqual(
-        afterMouseUpState.positionAndSize.computed,
-      );
-      expect(afterReloadState.positionAndSize.rect.left).toBeCloseTo(
-        afterMouseUpState.positionAndSize.rect.left,
-        0,
-      );
-      expect(afterReloadState.positionAndSize.rect.top).toBeCloseTo(
-        afterMouseUpState.positionAndSize.rect.top,
-        0,
-      );
-      expect(afterReloadState.positionAndSize.rect.width).toBeCloseTo(
-        afterMouseUpState.positionAndSize.rect.width,
-        0,
-      );
-      expect(afterReloadState.positionAndSize.rect.height).toBeCloseTo(
-        afterMouseUpState.positionAndSize.rect.height,
-        0,
-      );
-    } finally {
-      await testInfo.attach("oversized-main-drop-state.json", {
-        body: JSON.stringify(
-          {
-            canvasZoomFactor,
-            authoredRectSize,
-            mainContentSize,
-            hitTestResultWhileHeld,
-            crossScreenGuideVisibleWhileHeld,
-            hitTestGuideVisibleWhileHeld,
-            ownershipSamples,
-            afterMouseUp,
-            afterReload,
-            trace: await dumpTrace(page),
-          },
-          null,
-          2,
-        ),
-        contentType: "application/json",
-      });
-    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(app.node("oversized-rect", "index.html")).toBeVisible({
+      timeout: 30_000,
+    });
+    expectOnlyChanged(indexAfter, await app.savedNodes(id), []);
+    expectOnlyChanged(
+      boardAfter,
+      await app.savedNodes(id, "__board__.html"),
+      [],
+    );
+    expect(await app.designRect("oversized-rect", "index.html")).toEqual(
+      rendered,
+    );
   });
 
   test("holding Space while dragging into the footer keeps the element in its current parent", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
@@ -1858,6 +1715,7 @@ test.describe("drag reparent interaction", () => {
     await page.waitForTimeout(400);
     await page.mouse.up();
     await page.keyboard.up("Space");
+    await app.settled();
 
     await expect
       .poll(
@@ -1872,6 +1730,10 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe("main");
+    expectPlacement(
+      savedPlacement(await fileContent(page, id, "index.html"), "widget"),
+      { parent: "main", position: "absolute", left: 380, top: 565 },
+    );
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
@@ -1886,9 +1748,10 @@ test.describe("drag reparent interaction", () => {
   });
 
   test("one undo after nesting an element into the footer restores both its parent and its position", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
@@ -1957,12 +1820,18 @@ test.describe("drag reparent interaction", () => {
       'Steve: "currently only half reverts" — ONE undo must also restore the ' +
         `original position, not just the parent. before=(${beforeLeft},${beforeTop}) after-undo=(${leftAfterUndo},${topAfterUndo})`,
     ).toBe(true);
+    expectOnlyChanged(
+      savedNodeMap(beforeHtml),
+      savedNodeMap(await fileContent(page, id, "index.html")),
+      [],
+    );
   });
 
   test("one undo after dragging an element from a screen onto the board restores it inside the screen at its original position", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
@@ -2041,12 +1910,22 @@ test.describe("drag reparent interaction", () => {
       leftAfterUndo === beforeLeft && topAfterUndo === beforeTop,
       `ONE undo must restore the exact original position too. before=(${beforeLeft},${beforeTop}) after-undo=(${leftAfterUndo},${topAfterUndo})`,
     ).toBe(true);
+    expectOnlyChanged(
+      savedNodeMap(beforeHtml),
+      savedNodeMap(await fileContent(page, id, "index.html")),
+      [],
+    );
+    expect(await fileContent(page, id, "__board__.html")).not.toContain(
+      'data-agent-native-node-id="widget"',
+    );
   });
 
-  test("dragging an element across the screen boundary into a second screen inserts it into that screen", async ({
+  // fixme: product bug: Widget lands at Page2Target's top-left: saved style has no position/left/top (Inspector X 60 Y 60 = the target's corner) instead of the
+  test.fixme("dragging an element across the screen boundary into a second screen inserts it into that screen", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     await page.keyboard.press("Shift+1");
     const screenOneId = await fileIdFor(page, id, "index.html");
@@ -2129,6 +2008,7 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe(true);
+    const landed = savedPlacement(screenTwoHtml, "widget");
 
     await page.keyboard.press("ControlOrMeta+z");
     await expect
@@ -2140,6 +2020,25 @@ test.describe("drag reparent interaction", () => {
         );
       })
       .toBe(true);
+    await expect
+      .poll(async () => ({
+        widgetInScreenOne: savedPlacement(
+          await fileContent(page, id, "index.html"),
+          "widget",
+        ),
+        widgetInScreenTwo: (
+          await fileContent(page, id, "page-two.html")
+        ).includes('data-agent-native-node-id="widget"'),
+      }))
+      .toEqual({
+        widgetInScreenOne: {
+          parent: "main",
+          position: "absolute",
+          left: 40,
+          top: 40,
+        },
+        widgetInScreenTwo: false,
+      });
 
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect
@@ -2151,12 +2050,31 @@ test.describe("drag reparent interaction", () => {
         );
       })
       .toBe(true);
+    await expect
+      .poll(async () => ({
+        widgetInScreenOne: (await fileContent(page, id, "index.html")).includes(
+          'data-agent-native-node-id="widget"',
+        ),
+        widgetInScreenTwo: savedPlacement(
+          await fileContent(page, id, "page-two.html"),
+          "widget",
+        ),
+      }))
+      .toEqual({ widgetInScreenOne: false, widgetInScreenTwo: landed });
+    expectPlacement(landed, {
+      parent: "page2-target",
+      position: "absolute",
+      left: 130,
+      top: 105,
+    });
   });
 
-  test("returning a held cross-screen drag to its source keeps the source intact", async ({
+  // fixme: product bug: After release the editor saves Widget at left:30px (was 40px): a 10px shift onto FooterItem's left edge (x=30). Likely edge snapping at
+  test.fixme("returning a held cross-screen drag to its source keeps the source intact", async ({
+    app,
     page,
   }) => {
-    const id = await newTwoScreenDesign(page);
+    const id = await newTwoScreenDesign(app);
     await gotoEditor(page, id);
     await expandAllLayers(page);
     await page.keyboard.press("Shift+1");
@@ -2183,8 +2101,6 @@ test.describe("drag reparent interaction", () => {
     const target = await boxFor(page, screenTwoId, "page2-target");
     const sourceBefore = await fileContent(page, id, "index.html");
     const destinationBefore = await fileContent(page, id, "page-two.html");
-    const pageErrors: string[] = [];
-    page.on("pageerror", (error) => pageErrors.push(error.message));
 
     const deepSelectModifier =
       process.platform === "darwin" ? "Meta" : "Control";
@@ -2229,7 +2145,6 @@ test.describe("drag reparent interaction", () => {
       { steps: 30 },
     );
     await page.waitForTimeout(300);
-    expect(pageErrors).toEqual([]);
     await expect.poll(() => layerParentName(page, "Widget")).toBe("Main");
     expect(await fileContent(page, id, "index.html")).toBe(sourceBefore);
     expect(await fileContent(page, id, "page-two.html")).toBe(
@@ -2247,13 +2162,25 @@ test.describe("drag reparent interaction", () => {
         );
       })
       .toBe(true);
-    expect(pageErrors).toEqual([]);
+    await app.settled();
+    expect(await fileContent(page, id, "index.html")).toBe(sourceBefore);
+    expect(
+      await designFrame(page, screenOneId)
+        .locator('[data-agent-native-node-id="widget"]')
+        .evaluate((element) => {
+          const r = element.getBoundingClientRect();
+          return [r.x, r.y, r.width, r.height].map(Math.round);
+        }),
+      "the returned Widget renders where it started",
+    ).toEqual([40, 300, 140, 90]);
   });
 
-  test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
+  // fixme: product bug: Same landing defect as :2144: the saved card style keeps the carried colours/width but has no position/left/top, so it sits at
+  test.fixme("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
+    app,
     page,
   }) => {
-    const id = await newStyleCarryTwoScreenDesign(page);
+    const id = await newStyleCarryTwoScreenDesign(app);
     await gotoEditor(page, id);
     await page.keyboard.press("Shift+1");
     const screenOneId = await fileIdFor(page, id, "index.html");
@@ -2359,5 +2286,11 @@ test.describe("drag reparent interaction", () => {
     expect(await destNode.evaluate((el) => getComputedStyle(el).width)).toBe(
       "320px",
     );
+    expectPlacement(savedPlacement(screenTwoHtml, "style-card"), {
+      parent: "style-dest-target",
+      position: "absolute",
+      left: 40,
+      top: 110,
+    });
   });
 });

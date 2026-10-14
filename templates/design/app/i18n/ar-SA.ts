@@ -848,7 +848,6 @@ export default {
       tokens: "الرموز",
       threads: "المحادثات",
       label: "مساحة عمل التصميم",
-      account: "الحساب",
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
     },
@@ -1182,6 +1181,17 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "استيراد الرموز الملصقة",
       importedCount: "تم استيراد {{count}} رمزا",
+      importing: "جارٍ استيراد الرموز…",
+      importedWithSkipped:
+        "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من القيم أو الملفات غير الصالحة.",
+      importedWithOmissions:
+        "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من العناصر غير الصالحة. لم تتم المعالجة بسبب الحدود (الرموز: {{omittedTokens}}، الملفات: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "تم استيراد {{count}} من الرموز، وتعذرت قراءة {{readFailures}} من الملفات. أعد تحديدها ثم حاول مرة أخرى.",
+      importedWithReadFailuresAndOmissions:
+        "تم استيراد {{count}} من الرموز. تعذرت قراءة {{readFailures}} من الملفات. تم أيضًا تخطي {{skipped}} من العناصر غير الصالحة، ولم تُعالج {{omittedTokens}} من الرموز و{{omittedFiles}} من الملفات بسبب الحدود. أعد تحديد الملفات التي تعذرت قراءتها ثم حاول مرة أخرى.",
+      noTokensFound:
+        "لم يتم العثور على رموز صالحة. تحقق من تنسيق الملف والقيم.",
       count: "{{count}} رمز",
       search: "البحث في الرموز",
       noMatches: "لا توجد رموز مطابقة",
@@ -1266,7 +1276,7 @@ export default {
       figUploadProcessing: "جار التحويل…",
       figImportWarningTitle: "استيراد .fig كبير",
       figImportWarningDescription:
-        "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الإطارات التي تحتاجها.",
+        "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الصفحات التي تحتاجها.",
       figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
       figImportSelectAll: "تحديد الكل",
       figImportClearAll: "مسح الكل",
@@ -1275,6 +1285,11 @@ export default {
       figImportAll: "استيراد الكل",
       figImportAnalyzing: "جار التحليل…",
       figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
+      figImportFrameLimit: "اختر صفحات لا يتجاوز مجموع إطاراتها {{max}} إطار.",
+      figImportFramesSkippedWarning:
+        "تم تخطي {{count}} إطارًا لأنها معقدة جدًا للاستيراد: {{names}}",
+      figUploadLimits:
+        "حتى {{size}} غيغابايت · {{frames}} إطار لكل عملية استيراد",
       figUploadDescriptionShort:
         "استيراد محلي — بلا حصة من واجهة Figma. يتم تضمين الصور المضمّنة المدعومة.",
       figUploadImagesSkippedWarning:
@@ -1302,6 +1317,7 @@ export default {
       htmlPlaceholder: "<main>الصق HTML مستقلا هنا...</main>",
       importHtml: "استيراد HTML",
       chooseHtmlFile: "اختر ملف HTML",
+      allSupportedFiles: "جميع الملفات المدعومة",
       githubTitle: "GitHub",
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
       localTitle: "تطبيق محلي",
@@ -2193,6 +2209,7 @@ export default {
     figmaLink: "رابط Figma",
     importFromFigma: "الاستيراد من Figma",
     figmaFile: "ملف Figma (.fig)",
+    figmaFileMaxSize: "حتى {{max}} غيغابايت",
     openImport: "فتح الاستيراد",
     importSelectedFile: "استيراد الملف المحدد",
     starterSaasPrompt:

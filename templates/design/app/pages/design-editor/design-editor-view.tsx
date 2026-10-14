@@ -62,6 +62,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DESIGN_IMPORT_FORMATS,
+  importFormatsAccept,
+} from "@/lib/design-import-file-picker";
 import { cn } from "@/lib/utils";
 
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
@@ -625,7 +629,7 @@ export function renderDesignEditorView({
       <div className="!text-[11px] font-semibold uppercase text-muted-foreground">
         {"Format" /* i18n-ignore share export section label */}
       </div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-1.5">
         {shareExportOptions.map((option) => {
           const selected = option.value === shareExportFormat;
           const ExportIcon = option.Icon;
@@ -635,7 +639,7 @@ export function renderDesignEditorView({
               type="button"
               onClick={() => setShareExportFormat(option.value)}
               className={cn(
-                "relative flex min-h-[76px] items-start gap-2.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2.5 text-left transition-colors hover:bg-[var(--design-editor-panel-raised-bg)]",
+                "relative flex items-start gap-2.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2.5 text-left transition-colors hover:bg-[var(--design-editor-panel-raised-bg)]",
                 selected
                   ? "bg-[var(--design-editor-panel-raised-bg)] ring-1 ring-[var(--design-editor-accent-color)]"
                   : "",
@@ -699,12 +703,6 @@ export function renderDesignEditorView({
       onCopyCodingHandoff={handleCopyCodingHandoff}
     />
   );
-  const designSharePopoverClassName =
-    "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
-    "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:text-foreground " +
-    "[&_[role=tab][aria-selected=true]]:!bg-background dark:[&_[role=tab][aria-selected=true]]:!bg-[var(--design-editor-panel-bg)] [&_[role=tab][aria-selected=true]]:text-foreground";
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -1103,7 +1101,7 @@ export function renderDesignEditorView({
             },
           }}
           shareTabs={designShareTabs}
-          popoverClassName={designSharePopoverClassName}
+          popoverClassName="z-[100010]"
           triggerClassName={cn(
             dense
               ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
@@ -2046,7 +2044,7 @@ export function renderDesignEditorView({
       <input
         ref={editorSourceAndSync.importFileInputRef}
         type="file"
-        accept=".fig,.html,.htm"
+        accept={importFormatsAccept(DESIGN_IMPORT_FORMATS)}
         className="hidden"
         onChange={editorSourceAndSync.handleImportFileChange}
       />

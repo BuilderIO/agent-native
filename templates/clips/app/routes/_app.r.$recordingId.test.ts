@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
+
 function readRoute(name: string): string {
   return readFileSync(resolve(process.cwd(), "app/routes", name), "utf8");
 }
@@ -160,6 +162,16 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain(
       'toast.success(t("recordingPage.fillerQueued"))',
     );
+  });
+
+  it("offers transcript regeneration when silence removal needs timestamps", () => {
+    expect(
+      shouldOfferTranscriptRegeneration(
+        "remove-silences",
+        "timestamped_transcript_required",
+        "rec_1",
+      ),
+    ).toBe(true);
   });
 
   it("keeps Share primary and unifies mobile viewer panels", () => {

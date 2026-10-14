@@ -525,6 +525,7 @@ interface DeckContextType {
     choice: DeckContentConflictChoice,
   ) => Promise<DeckContentConflictResolution>;
   getDeck: (id: string) => Deck | undefined;
+  getDeckLatest: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
     layout?: SlideLayout,
@@ -6134,6 +6135,13 @@ export function DeckProvider({
     (id: string) => scopedDecks.find((d) => d.id === id),
     [scopedDecks],
   );
+  const getDeckLatest = useCallback(
+    (id: string) =>
+      deckScopeMatchesOrg
+        ? decksRef.current.find((deck) => deck.id === id)
+        : undefined,
+    [deckScopeMatchesOrg],
+  );
 
   const addSlide = useCallback(
     (
@@ -6874,6 +6882,7 @@ export function DeckProvider({
         refreshOpenDeck: refetchOpenDeckIfChanged,
         resolveDeckContentConflict,
         getDeck,
+        getDeckLatest,
         addSlide,
         flushDeckSave,
         retryDeckSave,

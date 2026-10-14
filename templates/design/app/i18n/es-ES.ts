@@ -866,7 +866,6 @@ export default {
       tokens: "Tokens de diseño",
       threads: "Conversaciones",
       label: "Espacio de trabajo de diseño",
-      account: "Cuenta",
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
     },
@@ -1204,6 +1203,17 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importar tokens pegados",
       importedCount: "{{count}} tokens importados",
+      importing: "Importando tokens…",
+      importedWithSkipped:
+        "Se importaron {{count}} tokens. Se omitieron {{skipped}} valores o archivos no válidos.",
+      importedWithOmissions:
+        "Se importaron {{count}} tokens. Se omitieron {{skipped}} elementos no válidos. No procesados por los límites (tokens: {{omittedTokens}}, archivos: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "Se importaron {{count}} tokens, pero no se pudieron leer {{readFailures}} archivos. Vuelve a seleccionarlos e inténtalo de nuevo.",
+      importedWithReadFailuresAndOmissions:
+        "Se importaron {{count}} tokens. No se pudieron leer {{readFailures}} archivos. También se omitieron {{skipped}} elementos no válidos y los límites dejaron sin procesar {{omittedTokens}} tokens y {{omittedFiles}} archivos. Vuelve a seleccionar los archivos ilegibles e inténtalo de nuevo.",
+      noTokensFound:
+        "No se encontraron tokens válidos. Revisa el formato del archivo y los valores.",
       count: "{{count}} tokens",
       search: "Buscar tokens",
       noMatches: "No hay tokens coincidentes",
@@ -1290,7 +1300,7 @@ export default {
       figUploadProcessing: "Convirtiendo…",
       figImportWarningTitle: "Importación .fig grande",
       figImportWarningDescription:
-        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige las páginas que necesitas.",
       figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
       figImportSelectAll: "Seleccionar todo",
       figImportClearAll: "Borrar todo",
@@ -1299,6 +1309,10 @@ export default {
       figImportAll: "Importar todo",
       figImportAnalyzing: "Analizando…",
       figImportSaving: "Guardando {{saved}} de {{total}} marcos",
+      figImportFrameLimit: "Elige páginas con {{max}} marcos o menos en total.",
+      figImportFramesSkippedWarning:
+        "Se omitieron {{count}} marcos demasiado complejos para importar: {{names}}",
+      figUploadLimits: "Hasta {{size}} GB · {{frames}} marcos por importación",
       figUploadDescriptionShort:
         "Importación local — sin cuota de la API de Figma. Se incluyen las imágenes incrustadas compatibles.",
       figUploadImagesSkippedWarning:
@@ -1326,6 +1340,7 @@ export default {
       htmlPlaceholder: "<main>Pega HTML independiente aquí...</main>",
       importHtml: "Importar HTML",
       chooseHtmlFile: "Elegir archivo HTML",
+      allSupportedFiles: "Todos los archivos compatibles",
       githubTitle: "GitHub",
       githubDescription:
         "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
@@ -2243,6 +2258,7 @@ export default {
     figmaLink: "Enlace de Figma",
     importFromFigma: "Importar desde Figma",
     figmaFile: "Archivo de Figma (.fig)",
+    figmaFileMaxSize: "Hasta {{max}} GB",
     openImport: "Abrir importación",
     importSelectedFile: "Importar archivo seleccionado",
     starterSaasPrompt:

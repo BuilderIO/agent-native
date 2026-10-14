@@ -1,19 +1,15 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
 import {
-  designFrame,
-  enterDirectMode,
-  expandAllLayers,
-  gotoEditor,
-  installBridge,
-  waitForBridge,
-} from "./helpers";
+  childrenOf,
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+} from "./rails";
+
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const NAME_MISMATCH_HTML = `<!doctype html>
 <html>
@@ -34,379 +30,258 @@ const TWO_BOX_HTML = `<!doctype html>
   </body>
 </html>`;
 
-async function postAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const baseUrl = e2eBaseURL();
-  const response = await request.post(
-    `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
-    { data: input },
+const ELEMENT_MENU = [
+  "Edit with Agent",
+  "Send to",
+  "Copy link",
+  "Copy",
+  "Paste to replace",
+  "Copy/Paste as",
+  "Rename",
+  "Frame selection",
+  "Add auto layout",
+  "Create component",
+  "Hide",
+  "Lock",
+  "Arrange",
+  "Transform",
+];
+
+const ARRANGE_MENU = ["Bring to front", "Send to back"];
+
+async function openFixture(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
+  return id;
+}
+
+async function centreOf(app: App, nodeId: string) {
+  const rect = await app.designRect(nodeId);
+  return app.pagePoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+}
+
+async function rightClick(app: App, nodeId: string) {
+  const point = await centreOf(app, nodeId);
+  await app.page.mouse.click(point.x, point.y, { button: "right" });
+  const menu = app.page.getByRole("menu").last();
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function openArrange(app: App) {
+  await app.page
+    .getByRole("menu")
+    .last()
+    .getByRole("menuitem", { name: "Arrange" })
+    .hover();
+  await expect(app.page.getByRole("menu")).toHaveCount(2);
+}
+
+async function clickNode(app: App, nodeId: string) {
+  const point = await centreOf(app, nodeId);
+  await app.page.mouse.click(point.x, point.y);
+}
+
+/** Item labels of the innermost open menu, without their shortcut hints. */
+function menuLabels(page: Page) {
+  return page
+    .getByRole("menu")
+    .last()
+    .getByRole("menuitem")
+    .evaluateAll((items) =>
+      items.map((item) =>
+        (
+          item.querySelector("span.flex-1")?.textContent ??
+          item.textContent ??
+          ""
+        ).trim(),
+      ),
+    );
+}
+
+/** Parses the computed colours Chrome serialises: rgb()/rgba() and color(srgb r g b / a). */
+function parseColour(value: string): [number, number, number, number] {
+  const rgb = value.match(
+    /^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/,
   );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
+  if (rgb)
+    return [
+      Number(rgb[1]),
+      Number(rgb[2]),
+      Number(rgb[3]),
+      rgb[4] === undefined ? 1 : Number(rgb[4]),
+    ];
+  const srgb = value.match(
+    /^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)(?: \/ ([\d.]+))?\)$/,
+  );
+  if (srgb) {
+    return [
+      Number(srgb[1]) * 255,
+      Number(srgb[2]) * 255,
+      Number(srgb[3]) * 255,
+      srgb[4] === undefined ? 1 : Number(srgb[4]),
+    ];
   }
-  return response.json();
+  throw new Error(`unparsed computed colour: ${value}`);
 }
 
-async function createFixture(request: APIRequestContext, html: string) {
-  const created = await postAction(request, "create-design", {
-    title: `Context menu ${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  await postAction(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: html,
-    fileType: "html",
-  });
-  return designId as string;
-}
-
-async function rightClickNode(page: Page, nodeId: string) {
-  const frame = designFrame(page);
-  const node = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
-  const point = await node.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  });
-  await node.evaluate((_element, pt) => {
-    document.dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        button: 2,
-        buttons: 2,
-        clientX: pt.x,
-        clientY: pt.y,
-      }),
-    );
-  }, point);
-  await waitForBridge(page, "element-contextmenu");
-  await expect(page.getByRole("menu").last()).toBeVisible();
+function luminance([r, g, b]: number[]) {
+  const channel = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
 }
 
 test.describe("interaction: right-click canvas context menu", () => {
   test("right-click on a single element shows the canvas menu items in order, and Bring to front reorders (one undo restores)", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+    const id = await openFixture(app, TWO_BOX_HTML);
+    const before = await app.savedNodes(id);
+    const body = before.get("a")!.parent!;
+    expect(childrenOf(before, body)).toStrictEqual(["a", "b"]);
 
-      await rightClickNode(page, "a");
-      const menu = page.getByRole("menu").last();
+    await rightClick(app, "a");
 
-      const designMenuOrder = [
-        "Edit with Agent",
-        "Copy link",
-        "Copy",
-        "Paste to replace",
-        "Copy/Paste as",
-        "Rename",
-        "Frame selection",
-        "Add auto layout",
-        "Create component",
-        "Hide",
-        "Lock",
-        "Arrange",
-        "Transform",
-      ];
-      const items = menu.getByRole("menuitem");
-      const itemCount = await items.count();
-      const texts: string[] = [];
-      for (let index = 0; index < itemCount; index += 1) {
-        const label = await items.nth(index).evaluate((element) => {
-          const primary = element.querySelector("span.flex-1");
-          return (primary?.textContent ?? element.textContent ?? "").trim();
-        });
-        texts.push(label);
-      }
-      const seenInOrder = texts.filter((label) =>
-        designMenuOrder.includes(label),
-      );
-      expect(seenInOrder, `menu items were: ${JSON.stringify(texts)}`).toEqual(
-        designMenuOrder,
-      );
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    expect(await menuLabels(app.page)).toStrictEqual(ELEMENT_MENU);
+    await openArrange(app);
+    expect(await menuLabels(app.page)).toStrictEqual(ARRANGE_MENU);
+    await app.page
+      .getByRole("menu")
+      .last()
+      .getByText("Bring to front", { exact: true })
+      .click();
+    await app.settled();
+    const fronted = await app.savedNodes(id);
+    expect(childrenOf(fronted, body)).toStrictEqual(["b", "a"]);
+    expectOnlyChanged(before, fronted, []);
 
-      const frame = designFrame(page);
-      const beforeOrder = await frame.locator("body").evaluate((body) =>
-        Array.from(body.children)
-          .map((el) => el.getAttribute("data-agent-native-node-id"))
-          .filter(Boolean),
-      );
-      expect(beforeOrder.indexOf("a")).toBeLessThan(beforeOrder.indexOf("b"));
+    await app.page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+    expect(childrenOf(await app.savedNodes(id), body)).toStrictEqual([
+      "a",
+      "b",
+    ]);
 
-      await menu.getByRole("menuitem", { name: "Arrange" }).hover();
-      await page
-        .getByRole("menu")
-        .last()
-        .getByText("Bring to front", { exact: true })
-        .click();
-      await expect
-        .poll(async () =>
-          frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean),
-          ),
-        )
-        .toEqual(expect.arrayContaining(["a", "b"]));
-      const afterOrder = await frame.locator("body").evaluate((body) =>
-        Array.from(body.children)
-          .map((el) => el.getAttribute("data-agent-native-node-id"))
-          .filter(Boolean),
-      );
-      expect(afterOrder.indexOf("a")).toBeGreaterThan(afterOrder.indexOf("b"));
+    await rightClick(app, "b");
+    await openArrange(app);
+    await app.page
+      .getByRole("menu")
+      .last()
+      .getByText("Send to back", { exact: true })
+      .click();
+    await app.settled();
+    expect(childrenOf(await app.savedNodes(id), body)).toStrictEqual([
+      "b",
+      "a",
+    ]);
 
-      await page.keyboard.press(
-        process.platform === "darwin" ? "Meta+z" : "Control+z",
-      );
-      await expect
-        .poll(async () =>
-          frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean)
-              .indexOf("a"),
-          ),
-        )
-        .toBeLessThan(
-          await frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean)
-              .indexOf("b"),
-          ),
-        );
-
-      await rightClickNode(page, "b");
-      await page
-        .getByRole("menu")
-        .last()
-        .getByRole("menuitem", { name: "Arrange" })
-        .hover();
-      await page
-        .getByRole("menu")
-        .last()
-        .getByText("Send to back", { exact: true })
-        .click();
-      await expect
-        .poll(async () =>
-          frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean)
-              .indexOf("b"),
-          ),
-        )
-        .toBeLessThan(
-          await frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean)
-              .indexOf("a"),
-          ),
-        );
-
-      await page.keyboard.press(
-        process.platform === "darwin" ? "Meta+z" : "Control+z",
-      );
-      await expect
-        .poll(async () =>
-          frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean)
-              .indexOf("b"),
-          ),
-        )
-        .toBeGreaterThan(
-          await frame.locator("body").evaluate((body) =>
-            Array.from(body.children)
-              .map((el) => el.getAttribute("data-agent-native-node-id"))
-              .filter(Boolean)
-              .indexOf("a"),
-          ),
-        );
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await app.page.keyboard.press(`${MOD}+z`);
+    await app.settled();
+    const restored = await app.savedNodes(id);
+    expect(childrenOf(restored, body)).toStrictEqual(["a", "b"]);
+    expectOnlyChanged(before, restored, []);
   });
 
   test("Rename is on both the canvas context menu and the layer row's context menu", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+    const id = await openFixture(app, TWO_BOX_HTML);
+    await rightClick(app, "a");
+    expect(
+      (await menuLabels(app.page)).filter((label) => label === "Rename"),
+    ).toHaveLength(1);
+    await app.page.keyboard.press("Escape");
+    await expect(app.page.getByRole("menu")).toHaveCount(0);
+    const before = await app.savedNodes(id);
 
-      await rightClickNode(page, "a");
-      const canvasMenu = page.getByRole("menu").last();
-      await expect(canvasMenu).toBeVisible();
-      await expect(
-        canvasMenu.getByRole("menuitem", { name: /^Rename/ }),
-      ).toHaveCount(1);
-      await page.keyboard.press("Escape");
-      await expect(canvasMenu).toBeHidden();
+    await app.page
+      .getByRole("tree", { name: "Layers" })
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .click({ button: "right" });
+    await app.page
+      .getByRole("menu")
+      .last()
+      .getByRole("menuitem", { name: /^Rename/ })
+      .click();
+    const renameInput = app.page.getByRole("textbox", { name: /rename/i });
+    await expect(renameInput).toHaveValue("Box A");
+    await renameInput.fill("Hero box");
+    await renameInput.press("Enter");
+    await app.settled();
 
-      await expandAllLayers(page);
-      const rowButton = page
-        .locator("[data-layer-row-button]")
-        .filter({ has: page.locator('span[title="Box A"]') })
-        .first();
-      await rowButton.click({ button: "right" });
-      const rowMenu = page.getByRole("menu").last();
-      const rename = rowMenu.getByRole("menuitem", { name: /^Rename/ });
-      await expect(rename).toBeVisible();
-      await rename.click();
-      const renameInput = page.getByRole("textbox", { name: /rename/i });
-      await expect(renameInput).toBeVisible();
-      await expect(renameInput).toHaveValue("Box A");
-      await page.keyboard.press("Escape");
-      await expect(renameInput).toBeHidden();
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    const after = await app.savedNodes(id);
+    expect(after.get("a")?.attrs["data-agent-native-layer-name"]).toBe(
+      "Hero box",
+    );
+    expectOnlyChanged(before, after, ["a"]);
   });
 
   test("Select layer submenu label for an unnamed container matches the layers panel name, not the raw text content", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, NAME_MISMATCH_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
-      await expandAllLayers(page);
+    await openFixture(app, NAME_MISMATCH_HTML);
+    const menu = await rightClick(app, "card");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Frame"]);
 
-      await rightClickNode(page, "card");
-      const menu = page.getByRole("menu").last();
-      const trigger = menu.getByText("Select layer", { exact: true });
-      await expect(trigger).toBeVisible();
-      await trigger.hover();
-      const submenu = page.getByRole("menu").last();
+    await menu.getByText("Select layer", { exact: true }).hover();
 
-      const panelLabel = (
-        (await page
-          .locator(
-            '[data-layer-row-content][data-layer-selection="primary"] [data-layer-row-button] span.flex-1',
-          )
-          .first()
-          .textContent()) ?? ""
-      ).trim();
-      expect(panelLabel.length).toBeGreaterThan(0);
-
-      await expect(
-        submenu.getByText(panelLabel, { exact: true }),
-      ).toBeVisible();
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await expect(app.page.getByRole("menu")).toHaveCount(2);
+    expect(await menuLabels(app.page)).toStrictEqual(["Frame", "Stage"]);
   });
 
   test("menu item hover/focus background keeps the item text legible in light mode", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await page.emulateMedia({ colorScheme: "light" });
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
-
-      await rightClickNode(page, "a");
-      const menu = page.getByRole("menu").last();
-      const copyItem = menu.getByText("Copy", { exact: true });
-      await copyItem.hover();
-
-      const rowLocator = menu.getByRole("menuitem").filter({ hasText: "Copy" });
-      const { bg, color } = await rowLocator.first().evaluate((element) => {
+    await app.page.emulateMedia({ colorScheme: "light" });
+    await openFixture(app, TWO_BOX_HTML);
+    const menu = await rightClick(app, "a");
+    const copy = menu.getByRole("menuitem").filter({ hasText: "Copy" }).first();
+    const colours = () =>
+      copy.evaluate((element) => {
         const style = getComputedStyle(element);
-        return { bg: style.backgroundColor, color: style.color };
+        return { bg: style.backgroundColor, text: style.color };
       });
+    const resting = await colours();
 
-      function parseRgb(value: string): [number, number, number, number] {
-        const match = value.match(
-          /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/,
-        );
-        if (!match) return [255, 255, 255, 1];
-        return [
-          Number(match[1]),
-          Number(match[2]),
-          Number(match[3]),
-          match[4] === undefined ? 1 : Number(match[4]),
-        ];
-      }
-      function relativeLuminance([r, g, b]: [number, number, number]) {
-        const channel = (c: number) => {
-          const v = c / 255;
-          return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-        };
-        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-      }
+    await copy.hover();
 
-      // The focused row uses the shared panel hover token (a translucent tint)
-      // with the regular foreground text. Composite the tint over an assumed
-      // white menu surface to get the effective row color, then require
-      // WCAG AA contrast (>= 4.5:1) between that and the computed text color.
-      const [r, g, b, a] = parseRgb(bg);
-      const surface: [number, number, number] = [255, 255, 255];
-      const effective: [number, number, number] = [
-        r * a + surface[0] * (1 - a),
-        g * a + surface[1] * (1 - a),
-        b * a + surface[2] * (1 - a),
-      ];
-      const [tr, tg, tb] = parseRgb(color);
-      const bgLuminance = relativeLuminance(effective);
-      const textLuminance = relativeLuminance([tr, tg, tb]);
-      const lighter = Math.max(bgLuminance, textLuminance);
-      const darker = Math.min(bgLuminance, textLuminance);
-      const contrast = (lighter + 0.05) / (darker + 0.05);
-      expect(
-        contrast,
-        `focus background ${bg} composited over white surface -> effective rgb(${effective.map((v) => Math.round(v)).join(",")}), contrast against item text ${color} was ${contrast.toFixed(2)}:1`,
-      ).toBeGreaterThanOrEqual(4.5);
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await expect
+      .poll(async () => (await colours()).bg, {
+        message: "hovering tints the row",
+      })
+      .not.toBe(resting.bg);
+    const { bg, text } = await colours();
+    const [r, g, b, a] = parseColour(bg);
+    // The menu surface is white in light mode; composite the translucent tint over it.
+    const row = [
+      r * a + 255 * (1 - a),
+      g * a + 255 * (1 - a),
+      b * a + 255 * (1 - a),
+    ];
+    const [lighter, darker] = [
+      luminance(row),
+      luminance(parseColour(text)),
+    ].sort((x, y) => y - x);
+    const contrast = (lighter! + 0.05) / (darker! + 0.05);
+    expect(
+      contrast,
+      `row ${bg} over white vs text ${text}`,
+    ).toBeGreaterThanOrEqual(4.5);
   });
 
   test("clears stale system clipboard paste availability while a new read is pending", async ({
-    page,
-    request,
+    app,
   }) => {
-    await page.addInitScript(() => {
+    await app.page.addInitScript(() => {
       let deferNextRead = false;
-      let resolvePendingRead:
-        | ((
-            items: Array<{
-              types: string[];
-              getType(type: string): Promise<Blob>;
-            }>,
-          ) => void)
-        | undefined;
+      let resolvePendingRead: ((items: unknown[]) => void) | undefined;
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: {
@@ -427,202 +302,143 @@ test.describe("interaction: right-click canvas context menu", () => {
         },
       });
       Object.defineProperty(window, "__deferClipboardRead", {
-        value: () => {
-          deferNextRead = true;
-        },
+        value: () => (deferNextRead = true),
       });
       Object.defineProperty(window, "__resolveClipboardRead", {
         value: () => resolvePendingRead?.([]),
       });
     });
+    await openFixture(app, TWO_BOX_HTML);
+    const firstMenu = await rightClick(app, "a");
+    await expect(
+      firstMenu.getByRole("menuitem", { name: /Paste to replace/ }),
+    ).toBeEnabled();
+    await app.page.keyboard.press("Escape");
+    await expect(app.page.getByRole("menu")).toHaveCount(0);
+    await app.page.evaluate(() =>
+      (
+        window as unknown as { __deferClipboardRead: () => void }
+      ).__deferClipboardRead(),
+    );
 
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+    const secondMenu = await rightClick(app, "a");
 
-      await rightClickNode(page, "a");
-      const firstMenu = page.getByRole("menu").last();
-      const firstReplace = firstMenu.getByRole("menuitem", {
-        name: /Paste to replace/,
-      });
-      await expect(firstReplace).toBeEnabled();
-
-      await page.keyboard.press("Escape");
-      await expect(firstMenu).toBeHidden();
-      await page.evaluate(() => {
-        (
-          window as unknown as { __deferClipboardRead: () => void }
-        ).__deferClipboardRead();
-      });
-
-      await rightClickNode(page, "a");
-      const secondMenu = page.getByRole("menu").last();
-      await expect(
-        secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
-      ).toBeDisabled();
-      await page.evaluate(() => {
-        (
-          window as unknown as { __resolveClipboardRead: () => void }
-        ).__resolveClipboardRead();
-      });
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await expect(
+      secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
+    ).toBeDisabled();
+    await app.page.evaluate(() =>
+      (
+        window as unknown as { __resolveClipboardRead: () => void }
+      ).__resolveClipboardRead(),
+    );
+    await expect(
+      secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
+      "an empty clipboard keeps paste off",
+    ).toBeDisabled();
   });
 
   test("right-click on empty canvas (no selection) shows Explore with Agent, Copy link, Paste here and Show/Hide UI/comments", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+    await openFixture(app, TWO_BOX_HTML);
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
+    const screen = (await app.page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox())!;
 
-      const frame = designFrame(page);
-      const body = frame.locator("body");
-      const point = await body.evaluate(() => ({
-        x: window.innerWidth - 5,
-        y: window.innerHeight - 5,
-      }));
-      await body.evaluate((_element, pt) => {
-        document.dispatchEvent(
-          new MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            button: 2,
-            buttons: 2,
-            clientX: pt.x,
-            clientY: pt.y,
-          }),
-        );
-      }, point);
-      await waitForBridge(page, "element-contextmenu");
-      const menu = page.getByRole("menu").last();
-      await expect(menu.getByText("Paste here", { exact: true })).toBeVisible();
-      await expect(
-        menu.getByText("Explore with Agent", { exact: true }),
-      ).toBeVisible();
-      await expect(menu.getByText("Copy link", { exact: true })).toBeVisible();
-      const texts = (await menu.getByRole("menuitem").allTextContents()).map(
-        (t) => t.trim(),
-      );
-      for (const forbidden of [
-        "Select all",
-        "Duplicate",
-        "Delete",
-        "Zoom to fit",
-        "Copy",
-      ]) {
-        expect(texts).not.toContain(forbidden);
-      }
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await app.page.mouse.click(screen.x - 60, screen.y + screen.height / 2, {
+      button: "right",
+    });
+
+    await expect(app.page.getByRole("menu").last()).toBeVisible();
+    expect(await menuLabels(app.page)).toStrictEqual([
+      "Explore with Agent",
+      "Copy link",
+      "Paste here",
+      "Hide UI",
+      "Hide comments",
+    ]);
   });
 
   test("Escape closes the context menu without applying anything", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+    const id = await openFixture(app, TWO_BOX_HTML);
+    const before = await app.savedNodes(id);
+    const menu = await rightClick(app, "a");
+    await menu.getByRole("menuitem", { name: /^Hide/ }).focus();
 
-      await rightClickNode(page, "a");
-      const menu = page.getByRole("menu").last();
-      await expect(menu).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(page.getByRole("menu")).toHaveCount(0);
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await app.page.keyboard.press("Escape");
+
+    await expect(app.page.getByRole("menu")).toHaveCount(0);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    await app.settled();
+    expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  test("clicking outside the menu closes it", async ({ page, request }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+  test("clicking outside the menu closes it", async ({ app }) => {
+    const id = await openFixture(app, TWO_BOX_HTML);
+    const before = await app.savedNodes(id);
+    await rightClick(app, "a");
+    const screen = (await app.page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox())!;
 
-      await rightClickNode(page, "a");
-      const menu = page.getByRole("menu").last();
-      await expect(menu).toBeVisible();
-      await page.mouse.click(10, 10);
-      await expect(page.getByRole("menu")).toHaveCount(0);
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    await app.page.mouse.click(screen.x - 60, screen.y + screen.height / 2);
+
+    await expect(app.page.getByRole("menu")).toHaveCount(0);
+    await app.settled();
+    expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
   test("Group selection from the context menu groups two elements and one undo restores the ungrouped selection", async ({
-    page,
-    request,
+    app,
   }) => {
-    const designId = await createFixture(request, TWO_BOX_HTML);
-    try {
-      await gotoEditor(page, designId);
-      await enterDirectMode(page);
-      await installBridge(page);
+    const id = await openFixture(app, TWO_BOX_HTML);
+    await clickNode(app, "a");
+    await app.page.keyboard.down("Shift");
+    await clickNode(app, "b");
+    await app.page.keyboard.up("Shift");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box B", "Box A"]);
+    const before = await app.savedNodes(id);
+    const body = before.get("a")!.parent!;
 
-      const frame = designFrame(page);
-      const boxA = frame.locator('[data-agent-native-node-id="a"]');
-      const boxB = frame.locator('[data-agent-native-node-id="b"]');
-      await boxA.click({ force: true });
-      await boxB.click({ force: true, modifiers: ["Shift"] });
+    const menu = await rightClick(app, "b");
+    await menu.getByText("Group selection", { exact: true }).click();
+    await app.settled();
 
-      await rightClickNode(page, "b");
-      const menu = page.getByRole("menu").last();
-      const groupItem = menu.getByText("Group selection", { exact: true });
-      await expect(groupItem).toBeEnabled();
-      await groupItem.click({ force: true });
+    const grouped = await app.savedNodes(id);
+    const groupId = grouped.get("a")!.parent!;
+    expect(childrenOf(grouped, body)).toStrictEqual([groupId]);
+    expect(childrenOf(grouped, groupId)).toStrictEqual(["a", "b"]);
+    expect(grouped.get(groupId)!.attrs).toEqual({
+      "data-agent-native-node-id": groupId,
+      "data-agent-native-layer-name": "Group",
+      "data-agent-native-group": "true",
+      "data-agent-native-group-wrapper": "true",
+      "data-agent-native-preserve-styles": "true",
+      style:
+        "position: absolute; left: 20px; top: 20px; width: 320px; height: 120px;",
+    });
+    expect(styleOf(grouped.get("a"))).toMatchObject({
+      left: "0px",
+      top: "0px",
+    });
+    expect(styleOf(grouped.get("b"))).toMatchObject({
+      left: "200px",
+      top: "0px",
+    });
+    expectOnlyChanged(before, grouped, ["a", "b", groupId]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Group"]);
 
-      await expect
-        .poll(() =>
-          frame.locator('body > [data-agent-native-node-id="a"]').count(),
-        )
-        .toBe(0);
+    await app.page.keyboard.press(`${MOD}+z`);
+    await app.settled();
 
-      await page.keyboard.press(
-        process.platform === "darwin" ? "Meta+z" : "Control+z",
-      );
-
-      await expect
-        .poll(() =>
-          frame
-            .locator(
-              'body > [data-agent-native-node-id="a"], body > [data-agent-native-node-id="b"]',
-            )
-            .count(),
-        )
-        .toBe(2);
-
-      const lastSelection = await page.evaluate(() => {
-        const entries = (window as any).__designTrace?.entries?.() ?? [];
-        const selects = entries.filter(
-          (entry: { area: string }) => entry.area === "select",
-        );
-        return selects[selects.length - 1]?.data ?? null;
-      });
-      expect(lastSelection?.layers?.length).toBe(2);
-    } finally {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
+    const undone = await app.savedNodes(id);
+    expect(childrenOf(undone, body)).toStrictEqual(["a", "b"]);
+    expectOnlyChanged(before, undone, []);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box B", "Box A"]);
   });
 });

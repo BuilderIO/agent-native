@@ -1,596 +1,446 @@
-import { expect, test, type Page } from "@playwright/test";
-
+import { appPath, expandAllLayers } from "./helpers";
 import {
-  setBaseURL,
-  MOD,
-  ALT,
-  newDesign,
-  geom,
-  openEditor,
-  postAction,
-  scale,
-  selectViaTree,
-  styleNum,
+  expect,
+  expectOnlyChanged,
+  savedNodeMap,
   styleOf,
-  chromeBounds,
-} from "./drag-and-drop.shared";
-import { appPath, expandAllLayers, gotoEditor } from "./helpers";
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+const ALT = "Alt";
+const LIVE_SCREEN =
+  'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])';
+
+const BOXES = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#f97316"></div>
+  <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" style="position:absolute;left:40px;top:200px;width:120px;height:80px;background:#2563eb"></div>
+</body></html>`;
+
+const BOARD_HTML = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Board</title></head>
+  <body style="margin:0;position:relative;background:transparent;overflow:visible">
+    <div data-agent-native-node-id="rect" data-agent-native-layer-name="Rect" style="position:absolute;left:600px;top:400px;width:120px;height:90px;background:#f59e0b"></div>
+  </body>
+</html>`;
+
+type Box = [left: number, top: number, width: number, height: number];
+type Frame = { x: number; y: number; width: number; height: number };
+
+async function setUpDesign(
+  app: App,
+  options: { board?: boolean } = {},
+): Promise<string> {
+  const id = await app.seed(
+    BOXES,
+    options.board ? { files: { "__board__.html": BOARD_HTML } } : {},
+  );
+  const { files } = await app.savedRecord(id);
+  const fileId = (name: string) =>
+    files.find((file) => file.filename === name)!.id;
+  const screenId = fileId("index.html");
+  const dataOperations: unknown[] = [
+    {
+      op: "set",
+      path: ["screenMetadata", screenId],
+      value: { sourceType: "inline", width: 800, height: 600 },
+    },
+    {
+      op: "set",
+      path: ["canvasFrames", screenId],
+      value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+    },
+  ];
+  if (options.board) {
+    dataOperations.push({
+      op: "set",
+      path: ["boardFileId"],
+      value: fileId("__board__.html"),
+    });
+  }
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    { data: { id, dataOperations } },
+  );
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
+  await app.open(id);
+  await app.zoomToFit();
+  return id;
+}
+
+async function clickAt(app: App, x: number, y: number) {
+  const point = await app.pagePoint(x, y);
+  await app.page.mouse.click(point.x, point.y);
+}
+
+/** Opens the boxes design with Box A selected by a canvas click. */
+async function openWithBoxA(app: App) {
+  const id = await setUpDesign(app);
+  await clickAt(app, 100, 80);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+  await app.settled();
+  return { id, before: await app.savedNodes(id) };
+}
+
+/** Presses at a design point, moves to another in steps, and releases with an optional modifier held. */
+async function dragDesign(
+  app: App,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  modifier?: string,
+) {
+  const start = await app.pagePoint(from.x, from.y);
+  const end = await app.pagePoint(to.x, to.y);
+  if (modifier) await app.page.keyboard.down(modifier);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 14 });
+  await app.page.mouse.up();
+  if (modifier) await app.page.keyboard.up(modifier);
+  await app.settled();
+}
+
+function boxFromStyle(style: Record<string, string>): Box {
+  return [style.left, style.top, style.width, style.height].map((value) =>
+    Number.parseFloat(value!),
+  ) as Box;
+}
+
+function savedBox(node: SavedNode | undefined): Box {
+  return boxFromStyle(styleOf(node));
+}
+
+async function renderedBox(app: App, nodeId: string): Promise<Box> {
+  const rect = await app.designRect(nodeId);
+  return [rect.x, rect.y, rect.width, rect.height];
+}
+
+/** Pointer input lands on whole page pixels, so a dragged edge can be off by one page pixel in design px. */
+async function expectWithinAPagePixel(
+  app: App,
+  actual: number[],
+  expected: number[],
+  label: string,
+) {
+  const tolerance = Math.max(
+    1,
+    Math.ceil(1 / (await app.pagePoint(0, 0)).scale),
+  );
+  const off = actual.filter(
+    (value, index) => Math.abs(value - expected[index]!) > tolerance,
+  );
+  expect(
+    off,
+    `${label}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)} ±${tolerance}`,
+  ).toEqual([]);
+}
+
+async function selectionOutline(app: App): Promise<Box> {
+  return app.page
+    .locator(LIVE_SCREEN)
+    .contentFrame()
+    .locator('[data-agent-native-edit-overlay="selection"]')
+    .evaluate((overlay) => {
+      const r = overlay.getBoundingClientRect();
+      return [r.x, r.y, r.width, r.height] as Box;
+    });
+}
+
+test.describe("element resize", () => {
+  test("dragging the E edge handle by 60 widens the box to 180 and changes nothing else", async ({
+    app,
+  }) => {
+    const { id, before } = await openWithBoxA(app);
+
+    await dragDesign(app, { x: 160, y: 80 }, { x: 220, y: 80 });
+
+    const after = await app.savedNodes(id);
+    await expectWithinAPagePixel(
+      app,
+      savedBox(after.get("box-a")),
+      [40, 40, 180, 80],
+      "saved Box A",
+    );
+    expect(
+      [styleOf(after.get("box-a")).left, styleOf(after.get("box-a")).top],
+      "an E-edge drag never moves the left or top edge",
+    ).toEqual(["40px", "40px"]);
+    expect(styleOf(after.get("box-a")).height).toBe("80px");
+    expectOnlyChanged(before, after, ["box-a"]);
+    await expectWithinAPagePixel(
+      app,
+      await renderedBox(app, "box-a"),
+      [40, 40, 180, 80],
+      "rendered Box A",
+    );
+  });
+
+  test("shift+drag on a corner handle keeps the element's aspect ratio", async ({
+    app,
+  }) => {
+    const { id, before } = await openWithBoxA(app);
+
+    await dragDesign(app, { x: 160, y: 120 }, { x: 280, y: 130 }, "Shift");
+
+    const after = await app.savedNodes(id);
+    const [left, top, width, height] = savedBox(after.get("box-a"));
+    expect([left, top], "the opposite corner stays put").toEqual([40, 40]);
+    await expectWithinAPagePixel(app, [width], [240], "saved width");
+    expect(
+      Math.abs(width / height - 1.5),
+      `a Shift resize keeps 120x80's 3:2 ratio; saved ${width}x${height}`,
+    ).toBeLessThan(0.01);
+    expectOnlyChanged(before, after, ["box-a"]);
+  });
+
+  // fixme: product bug: Alt edge resize grows by the drag distance split across both sides: saved [20,40,161,80], so the dragged edge sits ~19px behind the
+  test.fixme("alt+drag on an edge handle resizes symmetrically from the center", async ({
+    app,
+  }) => {
+    const { id, before } = await openWithBoxA(app);
+
+    await dragDesign(app, { x: 160, y: 80 }, { x: 200, y: 80 }, ALT);
+
+    const after = await app.savedNodes(id);
+    await expectWithinAPagePixel(
+      app,
+      savedBox(after.get("box-a")),
+      [0, 40, 200, 80],
+      "the dragged edge follows the pointer and the left edge mirrors it",
+    );
+    expectOnlyChanged(before, after, ["box-a"]);
+  });
+
+  test("the selection outline and inspector W/H follow the pointer live during a corner resize, and the release saves that size", async ({
+    app,
+  }) => {
+    const { id, before } = await openWithBoxA(app);
+    const width = app.page.getByLabel("W size in pixels");
+    const height = app.page.getByLabel("H size in pixels");
+    await expect(width).toHaveValue("120px");
+    await expect(height).toHaveValue("80px");
+
+    const start = await app.pagePoint(160, 120);
+    const held = await app.pagePoint(230, 170);
+    await app.page.mouse.move(start.x, start.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(held.x, held.y, { steps: 10 });
+
+    await expect
+      .poll(async () => {
+        const outline = await selectionOutline(app);
+        const tolerance = Math.ceil(1 / held.scale);
+        return outline.every(
+          (value, index) =>
+            Math.abs(value - [40, 40, 190, 130][index]!) <= tolerance,
+        );
+      }, "the outline is drawn at 40,40 190x130 while the pointer is held")
+      .toBe(true);
+    await expectWithinAPagePixel(
+      app,
+      [
+        Number.parseFloat(await width.inputValue()),
+        Number.parseFloat(await height.inputValue()),
+      ],
+      [190, 130],
+      "inspector W/H mid-drag",
+    );
+    expect(
+      savedBox((await app.savedNodes(id)).get("box-a")),
+      "nothing is saved until release",
+    ).toEqual([40, 40, 120, 80]);
+
+    await app.page.mouse.up();
+    await app.settled();
+    const after = await app.savedNodes(id);
+    await expectWithinAPagePixel(
+      app,
+      savedBox(after.get("box-a")),
+      [40, 40, 190, 130],
+      "saved Box A",
+    );
+    expectOnlyChanged(before, after, ["box-a"]);
+  });
+
+  test("one resize gesture is exactly one undo step", async ({ app }) => {
+    const { id, before } = await openWithBoxA(app);
+    await dragDesign(app, { x: 160, y: 120 }, { x: 240, y: 150 });
+    await expectWithinAPagePixel(
+      app,
+      savedBox((await app.savedNodes(id)).get("box-a")),
+      [40, 40, 200, 110],
+      "precondition: the resize saved",
+    );
+
+    await app.page.keyboard.press(`${MOD}+z`);
+    await expect(app.node("box-a")).toHaveCSS("width", "120px");
+    await app.settled();
+
+    const undone = await app.savedNodes(id);
+    expect(savedBox(undone.get("box-a"))).toEqual([40, 40, 120, 80]);
+    expectOnlyChanged(before, undone, []);
+    expect(await renderedBox(app, "box-a")).toEqual([40, 40, 120, 80]);
+  });
+
+  test("multi-selection resize scales the group bounds from the opposite corner", async ({
+    app,
+  }) => {
+    const id = await setUpDesign(app);
+    await clickAt(app, 100, 80);
+    await app.page.keyboard.down("Shift");
+    await clickAt(app, 100, 240);
+    await app.page.keyboard.up("Shift");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box B", "Box A"]);
+    await app.settled();
+    const before = await app.savedNodes(id);
+
+    await dragDesign(app, { x: 160, y: 280 }, { x: 100, y: 160 });
+
+    const after = await app.savedNodes(id);
+    await expectWithinAPagePixel(
+      app,
+      [...savedBox(after.get("box-a")), ...savedBox(after.get("box-b"))],
+      [40, 40, 60, 40, 40, 120, 60, 40],
+      "both boxes scale by 0.5 from the group's top-left corner",
+    );
+    expectOnlyChanged(before, after, ["box-a", "box-b"]);
+  });
 });
 
-async function handlePoint(
-  page: Page,
-  attr: "data-agent-native-edit-handle" | "data-agent-native-edge-handle",
-  pos: string,
-): Promise<{ x: number; y: number } | null> {
-  const iframeBox = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .boundingBox();
-  if (!iframeBox) return null;
-  const s = await scale(page);
-  const local = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("body")
-    .evaluate(
-      (_body, { attr, pos }) => {
-        const el = document.querySelector(`[${attr}="${pos}"]`);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      },
-      { attr, pos },
-    );
-  if (!local) return null;
-  return {
-    x: Math.round(iframeBox.x + local.x * s),
-    y: Math.round(iframeBox.y + local.y * s),
+// fixme: product bug: A width-only left-edge resize resets the screen's height: saved frame [-61,0,861,1024] (precondition confirmed 600 before the drag); the
+test.fixme("resizing a screen from its left edge moves its left side and keeps its height", async ({
+  app,
+}) => {
+  const id = await setUpDesign(app);
+  const page = app.page;
+  const screenId = (await app.savedRecord(id)).files.find(
+    (file) => file.filename === "index.html",
+  )!.id;
+  const savedFrame = async () => {
+    const { data } = await app.savedRecord(id);
+    const frames = (data as { canvasFrames: Record<string, Frame> })
+      .canvasFrames;
+    const { x, y, width, height } = frames[screenId]!;
+    return [x, y, width, height];
   };
-}
+  await page.locator("[data-frame-label]").click();
+  await expect.poll(() => app.selectedLayers()).toEqual(["Home"]);
+  await app.zoomToFit();
+  expect(await savedFrame(), "precondition: Home opens 800x600").toEqual([
+    0, 0, 800, 600,
+  ]);
+  const before = await app.savedNodes(id);
 
-async function groupHandlePoint(
-  page: Page,
-  corner: string,
-): Promise<{ x: number; y: number } | null> {
-  const iframeBox = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .boundingBox();
-  if (!iframeBox) return null;
-  const s = await scale(page);
-  const local = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("body")
-    .evaluate((_body, corner) => {
-      const el = document.querySelector(
-        `[data-agent-native-multi-selection-bounds] [data-corner="${corner}"]`,
-      );
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    }, corner);
-  if (!local) return null;
-  return {
-    x: Math.round(iframeBox.x + local.x * s),
-    y: Math.round(iframeBox.y + local.y * s),
-  };
-}
-
-async function shiftSelect(page: Page, name: string): Promise<void> {
-  await page
-    .getByRole("tree", { name: "Layers" })
-    .getByRole("treeitem")
-    .filter({ hasText: name })
-    .first()
-    .click({ modifiers: ["Shift"] });
-}
-
-async function dragHandle(
-  page: Page,
-  from: { x: number; y: number },
-  dx: number,
-  dy: number,
-  opts: { modifier?: string; steps?: number; mid?: () => Promise<void> } = {},
-): Promise<void> {
-  if (opts.modifier) await page.keyboard.down(opts.modifier);
+  const handle = page.locator('[data-resize-handle="w"]');
+  const box = (await handle.boundingBox())!;
+  const { scale } = await app.pagePoint(0, 0);
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  const steps = opts.steps ?? 12;
-  const midX = from.x + dx / 2;
-  const midY = from.y + dy / 2;
-  await page.mouse.move(midX, midY, { steps: steps / 2 });
-  if (opts.mid) await opts.mid();
-  await page.mouse.move(from.x + dx, from.y + dy, { steps: steps / 2 });
+  await page.mouse.move(from.x - 60 * scale, from.y, { steps: 10 });
   await page.mouse.up();
-  if (opts.modifier) await page.keyboard.up(opts.modifier);
-  await page.waitForTimeout(2000); // e2e-harness-ignore commit settle, matches drag-and-drop.shared dragBy
-}
+  await app.settled();
 
-test.describe("element resize — one axis vs both", () => {
-  test("dragging the E edge handle changes width only", async ({ page }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const before = await geom(page, id, "box-a");
-
-    const e = await handlePoint(page, "data-agent-native-edge-handle", "e");
-    expect(e, "no E edge handle found").not.toBeNull();
-    const s = await scale(page);
-    await dragHandle(page, e!, 60 * s, 0);
-
-    const after = await geom(page, id, "box-a");
-    expect(
-      [after.width - before.width, after.height, after.top, after.left],
-      `E-edge drag must touch width only (before ${before.width}x${before.height} @ ${before.left},${before.top})`,
-    ).toEqual([expect.closeTo(60, -1), before.height, before.top, before.left]);
-  });
-
-  test("dragging the SE corner handle changes both width and height", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const before = await geom(page, id, "box-a");
-
-    const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
-    expect(se, "no SE corner handle found").not.toBeNull();
-    const s = await scale(page);
-    await dragHandle(page, se!, 60 * s, 40 * s);
-
-    const after = await geom(page, id, "box-a");
-    expect(
-      [after.width - before.width, after.height - before.height],
-      "SE corner drag must grow both dimensions",
-    ).toEqual([expect.closeTo(60, -1), expect.closeTo(40, -1)]);
-  });
-});
-
-test("shift+drag on a corner handle keeps the element's aspect ratio", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  const ratio = before.width / before.height;
-
-  const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
-  expect(se).not.toBeNull();
-  const s = await scale(page);
-  await dragHandle(page, se!, 140 * s, 10 * s, { modifier: "Shift" });
-
-  const after = await geom(page, id, "box-a");
-  expect(after.width).toBeGreaterThan(before.width);
-  expect(
-    after.width / after.height,
-    `shift-resize must preserve the ${ratio.toFixed(3)} aspect ratio; got ${after.width}x${after.height}`,
-  ).toBeCloseTo(ratio, 1);
-});
-
-test("alt+drag on an edge handle resizes symmetrically from the center", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-  const centerX = before.left + before.width / 2;
-
-  const e = await handlePoint(page, "data-agent-native-edge-handle", "e");
-  expect(e).not.toBeNull();
-  const s = await scale(page);
-  await dragHandle(page, e!, 40 * s, 0, { modifier: ALT });
-
-  const after = await geom(page, id, "box-a");
-  const afterCenterX = after.left + after.width / 2;
-  expect(
-    after.width,
-    "alt-drag on E must still grow width by the full drag distance",
-  ).toBeGreaterThan(before.width);
-  expect(
-    afterCenterX,
-    `alt-resize must keep the center fixed at ${centerX}; left moved to ${after.left} while width became ${after.width}`,
-  ).toBeCloseTo(centerX, 0);
-});
-
-test("selection outline tracks the pointer live during a resize drag", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const boundsDuring: Awaited<ReturnType<typeof chromeBounds>>[] = [];
-
-  const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
-  expect(se).not.toBeNull();
-  const s = await scale(page);
-  await page.mouse.move(se!.x, se!.y);
-  await page.mouse.down();
-  const before = await chromeBounds(page);
-  for (const step of [30, 60, 90]) {
-    await page.mouse.move(se!.x + step * s, se!.y + step * s, { steps: 4 });
-    boundsDuring.push(await chromeBounds(page));
-  }
-  await page.mouse.up();
-
-  expect(before, "no selection outline before the drag").not.toBeNull();
-  expect(boundsDuring.every((b) => b !== null)).toBe(true);
-  const rights = boundsDuring.map((b) => b!.right);
-  expect(
-    rights,
-    `outline right edge should advance with the pointer: ${JSON.stringify(rights)}`,
-  ).toEqual([...rights].sort((a, b) => a - b));
-  expect(rights[0]).toBeGreaterThan(before!.right);
-  expect(rights[2]).toBeGreaterThan(rights[0]);
-});
-
-test("the inspector W/H fields update live while dragging a corner handle", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-
-  const wField = page.getByLabel("W size in pixels");
-  const hField = page.getByLabel("H size in pixels");
-  await expect(wField).toBeVisible({ timeout: 10_000 });
-  const wBefore = parseFloat(await wField.inputValue());
-  const hBefore = parseFloat(await hField.inputValue());
-  expect(wBefore).toBeCloseTo(before.width, 0);
-  expect(hBefore).toBeCloseTo(before.height, 0);
-
-  const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
-  expect(se).not.toBeNull();
-  const s = await scale(page);
-  await page.mouse.move(se!.x, se!.y);
-  await page.mouse.down();
-  await page.mouse.move(se!.x + 70 * s, se!.y + 50 * s, { steps: 10 });
-  await page.waitForTimeout(400);
-  const wMid = parseFloat(await wField.inputValue());
-  const hMid = parseFloat(await hField.inputValue());
-  await page.mouse.up();
-
-  expect(
-    [wMid, hMid],
-    `inspector should reflect the in-progress size (${wBefore}x${hBefore} -> mid ${wMid}x${hMid})`,
-  ).toEqual([
-    expect.closeTo(wBefore + 70, -1),
-    expect.closeTo(hBefore + 50, -1),
-  ]);
-});
-
-test("one resize gesture is exactly one undo step", async ({ page }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  const before = await geom(page, id, "box-a");
-
-  const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
-  expect(se).not.toBeNull();
-  const s = await scale(page);
-  await dragHandle(page, se!, 80 * s, 30 * s);
-
-  const resized = await geom(page, id, "box-a");
-  expect(resized.width).not.toBe(before.width);
-
-  await page.keyboard.press(`${MOD}+z`);
-  let undone = before;
-  await expect
-    .poll(
-      async () => {
-        undone = await geom(page, id, "box-a");
-        return undone.width;
-      },
-      {
-        timeout: 10_000,
-        message:
-          "a single undo after one resize gesture must fully restore the pre-drag width",
-      },
-    )
-    .toBe(before.width);
-  expect(
-    [undone.width, undone.height, undone.left, undone.top],
-    "a single undo after one resize gesture must fully restore the pre-drag geometry",
-  ).toEqual([before.width, before.height, before.left, before.top]);
-});
-
-test("multi-selection resize scales the group bounds from the opposite corner", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  await selectViaTree(page, "Box A");
-  await shiftSelect(page, "Box B");
-  await expect(page.getByText("2 selected")).toBeVisible({ timeout: 10_000 });
-
-  const beforeA = await geom(page, id, "box-a");
-  const beforeB = await geom(page, id, "box-b");
-  const gapBefore = beforeB.top - (beforeA.top + beforeA.height);
-
-  const se = await groupHandlePoint(page, "se");
-  expect(se, "no group resize handle for the multi-selection").not.toBeNull();
-  const s = await scale(page);
-  await dragHandle(page, se!, -60 * s, -60 * s);
-
-  const afterA = await geom(page, id, "box-a");
-  const afterB = await geom(page, id, "box-b");
-  expect(
-    [afterA.width < beforeA.width, afterB.width < beforeB.width],
-    `both members must shrink together (A ${beforeA.width}->${afterA.width}, B ${beforeB.width}->${afterB.width})`,
-  ).toEqual([true, true]);
-  expect(afterA.left).toBe(beforeA.left);
-  expect(afterA.top).toBe(beforeA.top);
-  const gapAfter = afterB.top - (afterA.top + afterA.height);
-  expect(
-    gapAfter,
-    `group scale should shrink the inter-member gap too (was ${gapBefore}, now ${gapAfter})`,
-  ).toBeLessThan(gapBefore);
-});
-
-test("[codex] resizing a screen from its left edge changes width only, not height", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await page.goto(appPath(`/design/${id}?view=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  const card = page.locator("[data-screen-card]").first();
-  await card.waitFor({ timeout: 30_000 });
-  await card.click({ force: true });
-  await page.waitForTimeout(800);
-
-  const cardBoxBefore = (await card.boundingBox())!;
-  const handle = page.locator('[data-resize-handle="w"]').first();
-  await handle.waitFor({ timeout: 10_000 });
-  const handleBox = (await handle.boundingBox())!;
-  const hx = handleBox.x + handleBox.width / 2;
-  const hy = handleBox.y + handleBox.height / 2;
-
-  await page.mouse.move(hx, hy);
-  await page.mouse.down();
-  await page.mouse.move(hx - 60, hy, { steps: 10 });
-  await page.mouse.up();
-
-  let cardBoxAfter = cardBoxBefore;
-  await expect
-    .poll(
-      async () => {
-        cardBoxAfter = (await card.boundingBox())!;
-        return cardBoxAfter.width;
-      },
-      { timeout: 10_000 },
-    )
-    .not.toBeCloseTo(cardBoxBefore.width, 0);
-  expect(
-    cardBoxAfter.height,
-    `dragging the screen's LEFT edge must not change height (was ${cardBoxBefore.height}, now ${cardBoxAfter.height}) — owned by codex, see feedback.md`,
-  ).toBeCloseTo(cardBoxBefore.height, 0);
-  expect(cardBoxAfter.width).not.toBeCloseTo(cardBoxBefore.width, 0);
+  await expectWithinAPagePixel(
+    app,
+    await savedFrame(),
+    [-60, 0, 860, 600],
+    "saved screen frame",
+  );
+  expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
 test.describe("board object resize through an overlapping Screen", () => {
-  const BOARD_HTML = `<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8" /><title>Board</title></head>
-  <body style="margin:0;min-height:900px;background:#e5e5e5">
-    <div data-agent-native-node-id="rect" data-agent-native-layer-name="Rect"
-         style="position:absolute;left:0px;top:0px;width:120px;height:90px;background:#f59e0b"></div>
-  </body>
-</html>`;
-  const SCREEN_HTML = `<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8" /><title>Screen</title></head>
-  <body style="margin:0;min-height:812px;background:#ffffff"></body>
-</html>`;
-
-  async function newOccludedBoardDesign(page: Page): Promise<string> {
-    const created = await postAction(page, "create-design", {
-      title: "board occlusion resize",
-      projectType: "prototype",
-    });
-    const id = created?.id ?? created?.data?.id;
-    if (!id) throw new Error("create-design returned no id");
-    await postAction(page, "create-file", {
-      designId: id,
-      filename: "index.html",
-      content: SCREEN_HTML,
-      fileType: "html",
-    });
-    const board = await postAction(page, "create-file", {
-      designId: id,
-      filename: "__board__.html",
-      content: BOARD_HTML,
-      fileType: "html",
-    });
-    const boardFileId = board?.id ?? board?.data?.id;
-    if (!boardFileId) throw new Error("create-file returned no board id");
-    await postAction(page, "update-design", {
-      id,
-      dataOperations: [
-        { op: "set", path: ["boardFileId"], value: boardFileId },
-      ],
-    });
-    return id;
-  }
-
-  async function boardHtml(page: Page, designId: string): Promise<string> {
-    const result = await page.request
-      .get(`${appPath("/_agent-native/actions/get-design")}?id=${designId}`)
-      .then((r) => r.json());
-    return (
-      (result.files ?? []).find(
-        (f: { filename?: string }) => f.filename === "__board__.html",
-      )?.content ?? ""
-    );
-  }
-
-  async function rectGeom(page: Page, designId: string) {
-    const s = styleOf(await boardHtml(page, designId), "rect");
-    return {
-      left: styleNum(s, "left"),
-      top: styleNum(s, "top"),
-      width: styleNum(s, "width"),
-      height: styleNum(s, "height"),
-    };
-  }
-
-  async function renderedRectGeom(page: Page) {
-    const s =
-      (await page
-        .locator(
-          "[data-board-surface-layer] iframe[data-design-preview-iframe]",
-        )
-        .contentFrame()
-        .locator('[data-agent-native-node-id="rect"]')
-        .getAttribute("style")) ?? "";
-    return {
-      left: styleNum(s, "left"),
-      top: styleNum(s, "top"),
-      width: styleNum(s, "width"),
-      height: styleNum(s, "height"),
-    };
-  }
-
-  function layerRow(page: Page, name: string) {
-    return page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem")
-      .filter({ hasText: name })
-      .first();
-  }
-
   test("SE-handle drag reaches and resizes the occluded board rect, one undo restores it and redo re-applies it", async ({
-    page,
+    app,
   }) => {
-    const id = await newOccludedBoardDesign(page);
-    await gotoEditor(page, id);
+    const page = app.page;
+    const id = await setUpDesign(app, { board: true });
+    const boardRect = async () =>
+      savedBox(
+        savedNodeMap(await app.savedHtml(id, "__board__.html")).get("rect"),
+      );
+    const renderedRect = async () =>
+      boxFromStyle(
+        await page
+          .locator(
+            "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+          )
+          .contentFrame()
+          .locator('[data-agent-native-node-id="rect"]')
+          .evaluate((element) => {
+            const style = (element as HTMLElement).style;
+            return {
+              left: style.left,
+              top: style.top,
+              width: style.width,
+              height: style.height,
+            };
+          }),
+      );
+    expect(await boardRect()).toEqual([600, 400, 120, 90]);
+    const centre = await app.pagePoint(660, 445);
+    expect(
+      await page.evaluate(
+        ({ x, y }) =>
+          Boolean(
+            document.elementFromPoint(x, y)?.closest("[data-screen-card]"),
+          ),
+        centre,
+      ),
+      "precondition: the Screen covers the board rect",
+    ).toBe(true);
+
     await expandAllLayers(page);
-
-    const screenCard = page.locator("[data-screen-card]").first();
-    await screenCard.waitFor({ timeout: 30_000 });
-    const screenBox = (await screenCard.boundingBox())!;
-    const occludedBy = await page.evaluate(
-      ({ x, y }) =>
-        document.elementFromPoint(x, y)?.closest("[data-screen-card]")
-          ? "screen"
-          : "other",
-      { x: screenBox.x + 10, y: screenBox.y + 10 },
-    );
-    expect(occludedBy, "precondition: Screen must occlude this point").toBe(
-      "screen",
-    );
-
-    await layerRow(page, "Rect").click();
-    await page.waitForTimeout(500);
-
+    await page
+      .getByRole("tree", { name: "Layers" })
+      .locator('[data-layer-row-button] span[title="Rect"]')
+      .click();
     const seHandle = page.locator(
       '[data-board-object-selection-box] [data-resize-handle="se"]',
     );
-    await seHandle.waitFor({ timeout: 10_000 });
     const handleBox = (await seHandle.boundingBox())!;
-
-    const initialHandleCenter = {
+    const from = {
       x: handleBox.x + handleBox.width / 2,
       y: handleBox.y + handleBox.height / 2,
     };
-    if (initialHandleCenter.y < 120) {
-      const surface = page.locator("[data-multi-screen-canvas-surface]");
-      const surfaceBox = await surface.boundingBox();
-      if (!surfaceBox) throw new Error("Canvas surface has no bounds");
-      const panStart = {
-        x: surfaceBox.x + surfaceBox.width / 2,
-        y: surfaceBox.y + surfaceBox.height / 4,
-      };
-      await surface.evaluate((el) => (el as HTMLElement).focus());
-      await page.mouse.move(panStart.x, panStart.y);
-      await page.keyboard.down("Space");
-      await page.mouse.down();
-      await page.mouse.move(panStart.x, panStart.y + 250, { steps: 12 });
-      await page.mouse.up();
-      await page.keyboard.up("Space");
-      await expect
-        .poll(async () => (await seHandle.boundingBox())!.y)
-        .toBeGreaterThan(120);
-      Object.assign(handleBox, (await seHandle.boundingBox())!);
-    }
-    expect(handleBox.y).toBeGreaterThan(120);
-    expect(handleBox.y + handleBox.height).toBeLessThan(
-      page.viewportSize()!.height,
-    );
-
-    const topAtHandle = await page.evaluate(
-      ({ x, y }) =>
-        document.elementFromPoint(x, y)?.getAttribute("data-resize-handle"),
-      {
-        x: handleBox.x + handleBox.width / 2,
-        y: handleBox.y + handleBox.height / 2,
-      },
-    );
-    expect(topAtHandle).toBe("se");
-
-    const before = await rectGeom(page, id);
-    expect(before).toEqual({ left: 0, top: 0, width: 120, height: 90 });
-
-    await page.mouse.move(
-      handleBox.x + handleBox.width / 2,
-      handleBox.y + handleBox.height / 2,
-    );
+    expect(
+      await page.evaluate(
+        ({ x, y }) =>
+          document.elementFromPoint(x, y)?.getAttribute("data-resize-handle"),
+        from,
+      ),
+      "the handle sits on top of the Screen that covers the rect",
+    ).toBe("se");
+    const { scale } = await app.pagePoint(0, 0);
+    await page.mouse.move(from.x, from.y);
     await page.mouse.down();
-    await page.mouse.move(
-      handleBox.x + handleBox.width / 2 + 30,
-      handleBox.y + handleBox.height / 2 + 20,
-      { steps: 10 },
-    );
+    await page.mouse.move(from.x + 30 * scale, from.y + 20 * scale, {
+      steps: 10,
+    });
     await page.mouse.up();
-    await page.waitForTimeout(2000); // e2e-harness-ignore commit settle, matches drag-and-drop.shared dragBy
+    await app.settled();
 
-    const after = await rectGeom(page, id);
-    const msg = `SE-handle drag through the host chrome must resize the occluded board rect (before ${JSON.stringify(before)}, after ${JSON.stringify(after)})`;
-    expect(after.left, msg).toBe(0);
-    expect(after.top, msg).toBe(0);
-    expect(after.width, msg).toBeGreaterThan(before.width + 10);
-    expect(after.height, msg).toBeGreaterThan(before.height + 5);
+    const resized = await boardRect();
+    await expectWithinAPagePixel(
+      app,
+      resized,
+      [600, 400, 150, 110],
+      "saved board rect",
+    );
 
     await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(async () => rectGeom(page, id), {
-        timeout: 10_000,
-        message:
-          "one undo after the board-rect resize must restore the persisted pre-drag geometry",
-      })
-      .toEqual(before);
-    await expect
-      .poll(async () => renderedRectGeom(page), {
-        timeout: 10_000,
-        message:
-          "one undo after the board-rect resize must restore the rendered pre-drag geometry",
-      })
-      .toEqual(before);
+    await expect.poll(boardRect).toEqual([600, 400, 120, 90]);
+    await expect.poll(renderedRect).toEqual([600, 400, 120, 90]);
 
     await page.keyboard.press(`${MOD}+Shift+z`);
-    await expect
-      .poll(async () => rectGeom(page, id), {
-        timeout: 10_000,
-        message:
-          "redo after the undo must re-apply the persisted post-drag geometry",
-      })
-      .toEqual(after);
-    await expect
-      .poll(async () => renderedRectGeom(page), {
-        timeout: 10_000,
-        message:
-          "redo after the undo must re-apply the rendered post-drag geometry",
-      })
-      .toEqual(after);
+    await expect.poll(boardRect).toEqual(resized);
+    await expect.poll(renderedRect).toEqual(resized);
   });
 });

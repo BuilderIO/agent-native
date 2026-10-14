@@ -188,6 +188,7 @@ import {
   abortRun,
   abortRunDurably,
   abortTurnByRefDurably,
+  endsAfterToolResultWithoutAssistantFinal,
   engineRequestShapeTags,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
@@ -2897,6 +2898,40 @@ describe("run manager soft timeout", () => {
       "run-terminal-after-save",
       "completed",
     );
+  });
+
+  it("does not continue after an approval pause even when another tool result follows", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-approval-pause-terminal",
+      "thread-approval-pause-terminal",
+      async (send) => {
+        send({
+          type: "tool_done",
+          tool: "publish-release",
+          id: "call-approved-release",
+          input: { release: "1.2.3" },
+          result: "Awaiting human approval. This action did NOT execute.",
+          approvalPause: true,
+        });
+        send({
+          type: "tool_done",
+          tool: "read-release",
+          id: "call-sibling",
+          input: {},
+          result: "Release details loaded.",
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.some((event) => event.type === "auto_continue")).toBe(false);
   });
 
   it("emits a continuation signal installed by the completion callback", async () => {

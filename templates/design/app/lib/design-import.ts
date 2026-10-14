@@ -38,6 +38,8 @@ export interface ImportResult {
   unresolvedImages?: number;
   unresolvedImageRefCount?: number;
   skippedEmbeddedImageCount?: number;
+  /** Names of .fig frames left out because their generated HTML was too large. */
+  skippedFrames?: string[];
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
   rateLimitPlanTier?: string;
@@ -256,6 +258,7 @@ export interface DesignClipboardScreenEntry {
   filename: string;
   fileType?: string;
   content: string;
+  sourceScreenId?: string;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -370,7 +373,10 @@ function validateDesignClipboardPayload(
       screen.filename.includes("/") ||
       screen.filename.includes("\\") ||
       !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
-      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+      (screen.fileType !== undefined &&
+        !clipboardString(screen.fileType, 32)) ||
+      (screen.sourceScreenId !== undefined &&
+        !clipboardString(screen.sourceScreenId))
     ) {
       return null;
     }

@@ -75,6 +75,41 @@ function renderEntry(
   if (action) lines.push(`  - query action: ${action}`);
   const columns = compact(entry.columnsUsed, 360);
   if (columns) lines.push(`  - columns: ${columns}`);
+  const sqlProjectedColumns = compact(entry.sqlProjectedColumns, 360);
+  if (sqlProjectedColumns) {
+    lines.push(
+      `  - SQL projected columns (inferred; verify against schema): ${sqlProjectedColumns}`,
+    );
+  }
+  const inferredMembershipKeys = Array.isArray(entry.inferredMembershipKeys)
+    ? compact(
+        entry.inferredMembershipKeys
+          .filter((key): key is string => typeof key === "string")
+          .join(", "),
+        240,
+      )
+    : compact(entry.inferredMembershipKeys, 240);
+  if (inferredMembershipKeys) {
+    lines.push(
+      `  - membership row keys inferred from structural dbt SQL analysis: ${inferredMembershipKeys}`,
+    );
+  }
+  const membershipKeyRoles =
+    entry.inferredMembershipKeyRoles &&
+    typeof entry.inferredMembershipKeyRoles === "object" &&
+    !Array.isArray(entry.inferredMembershipKeyRoles)
+      ? (entry.inferredMembershipKeyRoles as Record<string, unknown>)
+      : null;
+  const userMembershipKey = compact(membershipKeyRoles?.user, 120);
+  const organizationMembershipKey = compact(
+    membershipKeyRoles?.organization,
+    120,
+  );
+  if (userMembershipKey && organizationMembershipKey) {
+    lines.push(
+      `  - inferred membership key roles: user key ${userMembershipKey}; organization key ${organizationMembershipKey}`,
+    );
+  }
   const cuts = compact(entry.cuts, 240);
   if (cuts) lines.push(`  - standard cuts: ${cuts}`);
   const template = compact(entry.queryTemplate, 240);

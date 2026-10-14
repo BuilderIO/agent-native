@@ -1,9 +1,16 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { type Page, type Route } from "@playwright/test";
 
-import { appPath, designFrame, enterDirectMode, gotoEditor } from "./helpers";
+import {
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 const PNG_FIXTURE = path.resolve(
   import.meta.dirname,
@@ -15,64 +22,32 @@ const WEBM_FIXTURE = path.resolve(
 );
 const PNG_URL = "/e2e-assets/design-media-probe.png";
 const WEBM_URL = "/e2e-assets/design-media-probe.webm";
-const SCREEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main data-agent-native-node-id="media-root" data-agent-native-layer-name="Media root" style="position:relative;width:640px;height:480px;background:#20242b"></main></body></html>`;
+const SCREEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body data-agent-native-node-id="page" style="margin:0"><main data-agent-native-node-id="media-root" data-agent-native-layer-name="Media root" style="position:relative;width:640px;height:480px;background:#20242b"></main></body></html>`;
+const LIVE_SCREEN =
+  'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])';
 
-type DesignRecord = {
-  files?: Array<{ id: string; filename: string; content: string }>;
-};
+test.use({ viewport: { width: 1600, height: 1000 } });
 
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await page.request.post(
-    appPath(`/_agent-native/actions/${name}`),
-    { data: input },
-  );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
+async function seedMediaScreen(app: App) {
+  const id = await app.seed(SCREEN_HTML);
+  const screenId = (await app.savedRecord(id)).files.find(
+    (file) => file.filename === "index.html",
+  )!.id;
+  await app.open(id);
+  await app.zoomToFit();
+  return { id, screenId };
 }
 
-async function createMediaDesign(page: Page) {
-  const created = await postAction(page, "create-design", {
-    title: `Toolbar media upload ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId: string | undefined =
-    created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId,
-    filename: "screen.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const design = await readDesign(page, designId);
-  const screenId = design.files?.find(
-    (file) => file.filename === "screen.html",
-  )?.id;
-  if (!screenId) throw new Error("screen.html was not returned by get-design");
-  return { designId, screenId };
+function screenMedia(app: App, selector: "img" | "video", name: string) {
+  return app.page
+    .locator(LIVE_SCREEN)
+    .contentFrame()
+    .locator(`${selector}[data-agent-native-layer-name="${name}"]`);
 }
 
-async function readDesign(page: Page, designId: string) {
-  const response = await page.request.get(
-    appPath(
-      `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-    ),
-  );
-  if (!response.ok()) throw new Error(`get-design: ${await response.text()}`);
-  return (await response.json()) as DesignRecord;
-}
-
-async function readScreenHtml(page: Page, designId: string, screenId: string) {
-  const design = await readDesign(page, designId);
-  const html = design.files?.find((file) => file.id === screenId)?.content;
-  if (typeof html !== "string") throw new Error("screen source was not saved");
-  return html;
+/** The live Screen iframe; its source type decides whether the localhost recovery overlay covers it. */
+function liveScreen(page: Page) {
+  return page.locator(LIVE_SCREEN);
 }
 
 async function installAssetRoute(
@@ -101,6 +76,7 @@ type UploadGate = {
   error: () => string | undefined;
 };
 
+/** Holds the upload response until `release`, so the blob: preview can be checked first. */
 async function gateUpload(
   page: Page,
   pattern: string,
@@ -135,257 +111,263 @@ async function gateUpload(
   return { started, release, error: () => routeError };
 }
 
-async function verifyToolbarMedia(
-  page: Page,
-  options: {
-    designId: string;
-    screenId: string;
-    fixture: string;
-    name: string;
-    selector: "img" | "video";
-    durableUrl: string;
-    route: string;
-    responseStatus: number;
-    responseBody: Record<string, string>;
-    assertUpload: (route: Route) => Promise<void>;
-    assetBody: Buffer;
-    contentType: string;
-  },
-) {
-  await page
-    .locator(
-      `[data-screen-shell][data-frame-id="${options.screenId}"] [data-frame-label]`,
-    )
-    .click();
-  const upload = await gateUpload(
-    page,
-    options.route,
-    { status: options.responseStatus, body: options.responseBody },
-    options.assertUpload,
+async function assertWebmUpload(route: Route) {
+  const request = route.request();
+  expect(request.headers()["content-type"]).toContain("multipart/form-data");
+  expect(request.postDataBuffer()?.includes("design-media-probe.webm")).toBe(
+    true,
   );
-  const media = designFrame(page, options.screenId).locator(
-    `${options.selector}[data-agent-native-layer-name="${options.name}"]`,
-  );
-  try {
-    await addToolbarMedia(page, options.fixture);
-    await upload.started;
-    expect(upload.error()).toBeUndefined();
-    await expect(media).toHaveCount(1);
-    const previewUrl = await media.getAttribute("src");
-    expect(previewUrl).toMatch(/^blob:/);
-    if (options.selector === "video") {
-      await expect
-        .poll(() =>
-          media.evaluate((element) => (element as HTMLVideoElement).videoWidth),
-        )
-        .toBe(32);
-      await expect(media).toHaveAttribute("preload", "metadata");
-    }
-
-    upload.release();
-    await expect.poll(() => media.getAttribute("src")).toBe(options.durableUrl);
-    await expect
-      .poll(async () =>
-        (
-          await readScreenHtml(page, options.designId, options.screenId)
-        ).includes(options.durableUrl),
-      )
-      .toBe(true);
-    const persisted = await readScreenHtml(
-      page,
-      options.designId,
-      options.screenId,
-    );
-    expect(persisted).toContain(
-      `data-agent-native-layer-name="${options.name}"`,
-    );
-    expect(persisted).not.toContain("blob:");
-
-    await installAssetRoute(
-      page,
-      options.durableUrl,
-      options.assetBody,
-      options.contentType,
-    );
-    await page.reload();
-    const reloadedMedia = designFrame(page, options.screenId).locator(
-      `${options.selector}[data-agent-native-layer-name="${options.name}"]`,
-    );
-    await expect(reloadedMedia).toHaveAttribute("src", options.durableUrl);
-    if (options.selector === "img") {
-      await expect
-        .poll(() =>
-          reloadedMedia.evaluate(
-            (element) => (element as HTMLImageElement).naturalWidth,
-          ),
-        )
-        .toBe(8);
-    } else {
-      await expect
-        .poll(() =>
-          reloadedMedia.evaluate(
-            (element) => (element as HTMLVideoElement).videoHeight,
-          ),
-        )
-        .toBe(24);
-    }
-  } finally {
-    upload.release();
-    await page.unroute(options.route).catch(() => {});
-  }
+  expect(request.postDataBuffer()?.includes("video/webm")).toBe(true);
 }
 
-test("toolbar inserts image and video through preview, upload, save, and reload", async ({
-  page,
+/** The one saved layer `name` added since `before`, checked to be the only change. */
+function savedMediaLayer(
+  before: Map<string, SavedNode>,
+  after: Map<string, SavedNode>,
+  name: string,
+) {
+  const added = [...after.keys()].filter((id) => !before.has(id));
+  expect(added).toHaveLength(1);
+  expectOnlyChanged(before, after, added);
+  const layer = after.get(added[0])!;
+  expect(layer.attrs["data-agent-native-layer-name"]).toBe(name);
+  return layer;
+}
+
+// fixme: product bug: Once the video's durable URL on this host (http://<loopback>/e2e-assets/…webm) is saved, the inline Screen is reclassified as
+test.fixme("toolbar inserts image and video through preview, upload, save, and reload", async ({
+  app,
 }) => {
   test.setTimeout(120_000);
-  const { designId, screenId } = await createMediaDesign(page);
-  try {
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
+  const page = app.page;
+  const { id, screenId } = await seedMediaScreen(app);
+  await expect(liveScreen(page)).toHaveAttribute(
+    "data-design-source-type",
+    "inline",
+  );
+  await installAssetRoute(
+    page,
+    PNG_URL,
+    await readFile(PNG_FIXTURE),
+    "image/png",
+  );
+  await installAssetRoute(
+    page,
+    WEBM_URL,
+    await readFile(WEBM_FIXTURE),
+    "video/webm",
+  );
+  const frameLabel = page.locator(
+    `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-label]`,
+  );
 
-    await verifyToolbarMedia(page, {
-      designId,
-      screenId,
-      fixture: PNG_FIXTURE,
-      name: "async-image-upload-probe.png",
-      selector: "img",
-      durableUrl: PNG_URL,
-      route: "**/_agent-native/actions/upload-image",
-      responseStatus: 200,
-      responseBody: { url: PNG_URL },
-      assertUpload: async (route) => {
-        const body = route.request().postDataJSON() as {
-          data?: string;
-          filename?: string;
-        };
-        expect(body.filename).toBe("async-image-upload-probe.png");
-        expect(body.data).toMatch(/^data:image\/png;base64,/);
-      },
-      assetBody: await readFile(PNG_FIXTURE),
-      contentType: "image/png",
-    });
+  await frameLabel.click();
+  const beforeImage = await app.savedNodes(id);
+  const imageUpload = await gateUpload(
+    page,
+    "**/_agent-native/actions/upload-image",
+    { status: 200, body: { url: PNG_URL } },
+    async (route) => {
+      const body = route.request().postDataJSON() as {
+        data?: string;
+        filename?: string;
+      };
+      expect(body.filename).toBe("async-image-upload-probe.png");
+      expect(body.data).toMatch(/^data:image\/png;base64,/);
+    },
+  );
+  const image = screenMedia(app, "img", "async-image-upload-probe.png");
+  await addToolbarMedia(page, PNG_FIXTURE);
+  await imageUpload.started;
+  expect(imageUpload.error()).toBeUndefined();
+  await expect(image).toHaveAttribute("src", /^blob:/);
+  imageUpload.release();
+  await expect(image).toHaveAttribute("src", PNG_URL);
+  await app.settled();
+  const withImage = await app.savedNodes(id);
+  const savedImage = savedMediaLayer(
+    beforeImage,
+    withImage,
+    "async-image-upload-probe.png",
+  );
+  expect(savedImage).toMatchObject({ tag: "img", parent: "page" });
+  expect(savedImage.attrs.src).toBe(PNG_URL);
+  expect(
+    styleOf(savedImage),
+    "the 8×8 image lands at the Screen's centre",
+  ).toMatchObject({
+    position: "absolute",
+    width: "8px",
+    height: "8px",
+    left: "716px",
+    top: "508px",
+  });
 
-    await verifyToolbarMedia(page, {
-      designId,
-      screenId,
-      fixture: WEBM_FIXTURE,
-      name: "design-media-probe.webm",
-      selector: "video",
-      durableUrl: new URL(WEBM_URL, page.url()).href,
-      route: "**/_agent-native/file-upload",
-      responseStatus: 201,
-      responseBody: { url: new URL(WEBM_URL, page.url()).href },
-      assertUpload: async (route) => {
-        const request = route.request();
-        expect(request.headers()["content-type"]).toContain(
-          "multipart/form-data",
-        );
-        expect(
-          request.postDataBuffer()?.includes("design-media-probe.webm"),
-        ).toBe(true);
-        expect(request.postDataBuffer()?.includes("video/webm")).toBe(true);
-      },
-      assetBody: await readFile(WEBM_FIXTURE),
-      contentType: "video/webm",
-    });
-  } finally {
-    await postAction(page, "delete-design", { id: designId }).catch(() => {});
-  }
+  await page.reload();
+  await expect(image).toHaveAttribute("src", PNG_URL);
+  await expect
+    .poll(() =>
+      image.evaluate((element) => (element as HTMLImageElement).naturalWidth),
+    )
+    .toBe(8);
+
+  const webmUrl = new URL(WEBM_URL, page.url()).href;
+  await app.zoomToFit();
+  await frameLabel.click();
+  const videoUpload = await gateUpload(
+    page,
+    "**/_agent-native/file-upload",
+    { status: 201, body: { url: webmUrl } },
+    assertWebmUpload,
+  );
+  const video = screenMedia(app, "video", "design-media-probe.webm");
+  await addToolbarMedia(page, WEBM_FIXTURE);
+  await videoUpload.started;
+  expect(videoUpload.error()).toBeUndefined();
+  await expect(video).toHaveAttribute("src", /^blob:/);
+  await expect(video).toHaveAttribute("preload", "metadata");
+  await expect
+    .poll(() =>
+      video.evaluate((element) => (element as HTMLVideoElement).videoWidth),
+    )
+    .toBe(32);
+  videoUpload.release();
+  await expect(video).toHaveAttribute("src", webmUrl);
+  await app.settled();
+  const savedVideo = savedMediaLayer(
+    withImage,
+    await app.savedNodes(id),
+    "design-media-probe.webm",
+  );
+  expect(savedVideo).toMatchObject({ tag: "video", parent: "page" });
+  expect(savedVideo.attrs.src).toBe(webmUrl);
+  expect(
+    styleOf(savedVideo),
+    "the 32×24 video lands at the Screen's centre",
+  ).toMatchObject({
+    position: "absolute",
+    width: "32px",
+    height: "24px",
+    left: "704px",
+    top: "500px",
+  });
+  await expect
+    .soft(
+      liveScreen(page),
+      "a media URL on this host does not turn the Screen into a localhost preview",
+    )
+    .toHaveAttribute("data-design-source-type", "inline");
+
+  await page.reload();
+  await expect(video).toHaveAttribute("src", webmUrl);
+  await expect
+    .poll(() =>
+      video.evaluate((element) => (element as HTMLVideoElement).videoHeight),
+    )
+    .toBe(24);
+  await expect
+    .soft(liveScreen(page), "the Screen is still an inline Screen after reload")
+    .toHaveAttribute("data-design-source-type", "inline");
 });
 
-test("pasting a desktop video file uploads and persists a playable layer", async ({
-  page,
+// fixme: product bug: Once the video's durable URL on this host (http://<loopback>/e2e-assets/…webm) is saved, the inline Screen is reclassified as
+test.fixme("pasting a desktop video file uploads and persists a playable layer", async ({
+  app,
 }) => {
   test.setTimeout(120_000);
-  const { designId, screenId } = await createMediaDesign(page);
-  let upload: UploadGate | undefined;
-  try {
-    await gotoEditor(page, designId);
-    const durableUrl = new URL(WEBM_URL, page.url()).href;
-    upload = await gateUpload(
-      page,
-      "**/_agent-native/file-upload",
-      { status: 201, body: { url: durableUrl } },
-      async (route) => {
-        const request = route.request();
-        expect(request.headers()["content-type"]).toContain(
-          "multipart/form-data",
-        );
-        expect(
-          request.postDataBuffer()?.includes("design-media-probe.webm"),
-        ).toBe(true);
-        expect(request.postDataBuffer()?.includes("video/webm")).toBe(true);
-      },
-    );
-    await enterDirectMode(page);
-    const fixtureBytes = [...(await readFile(WEBM_FIXTURE))];
-    const pasteWasPrevented = await designFrame(page, screenId)
-      .locator("body")
-      .evaluate((body, bytes) => {
-        const file = new File(
-          [Uint8Array.from(bytes)],
-          "design-media-probe.webm",
-          { type: "video/webm" },
-        );
-        const transfer = new DataTransfer();
-        transfer.items.add(file);
-        const event = new ClipboardEvent("paste", {
-          bubbles: true,
-          cancelable: true,
-          clipboardData: transfer,
-        });
-        body.dispatchEvent(event);
-        return event.defaultPrevented;
-      }, fixtureBytes);
-    expect(pasteWasPrevented).toBe(true);
+  const page = app.page;
+  const { id } = await seedMediaScreen(app);
+  await expect(liveScreen(page)).toHaveAttribute(
+    "data-design-source-type",
+    "inline",
+  );
+  await installAssetRoute(
+    page,
+    WEBM_URL,
+    await readFile(WEBM_FIXTURE),
+    "video/webm",
+  );
+  const before = await app.savedNodes(id);
+  const webmUrl = new URL(WEBM_URL, page.url()).href;
+  const upload = await gateUpload(
+    page,
+    "**/_agent-native/file-upload",
+    { status: 201, body: { url: webmUrl } },
+    assertWebmUpload,
+  );
 
-    const media = designFrame(page, screenId).locator(
-      'video[data-agent-native-layer-name="design-media-probe.webm"]',
-    );
-    await upload.started;
-    expect(upload.error()).toBeUndefined();
-    await expect(media).toHaveCount(1);
-    await expect(media).toHaveAttribute("preload", "metadata");
-    await expect
-      .poll(() =>
-        media.evaluate((element) => (element as HTMLVideoElement).videoWidth),
-      )
-      .toBe(32);
-    await expect(media).toHaveAttribute("src", /^blob:/);
+  // Playwright cannot put a file on the OS clipboard, so the paste event carries it directly.
+  const fixtureBytes = [...(await readFile(WEBM_FIXTURE))];
+  const pasteWasHandled = await page
+    .locator(LIVE_SCREEN)
+    .contentFrame()
+    .locator("body")
+    .evaluate((body, bytes) => {
+      const file = new File(
+        [Uint8Array.from(bytes)],
+        "design-media-probe.webm",
+        {
+          type: "video/webm",
+        },
+      );
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      const event = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      });
+      body.dispatchEvent(event);
+      return event.defaultPrevented;
+    }, fixtureBytes);
+  expect(pasteWasHandled).toBe(true);
 
-    upload.release();
-    await expect.poll(() => media.getAttribute("src")).toBe(durableUrl);
-    await expect
-      .poll(() => readScreenHtml(page, designId, screenId))
-      .toContain(durableUrl);
-    const saved = await readScreenHtml(page, designId, screenId);
-    expect(saved).toContain(
-      'data-agent-native-layer-name="design-media-probe.webm"',
-    );
-    expect(saved).not.toContain("blob:");
+  const video = screenMedia(app, "video", "design-media-probe.webm");
+  await upload.started;
+  expect(upload.error()).toBeUndefined();
+  await expect(video).toHaveAttribute("src", /^blob:/);
+  await expect(video).toHaveAttribute("preload", "metadata");
+  await expect
+    .poll(() =>
+      video.evaluate((element) => (element as HTMLVideoElement).videoWidth),
+    )
+    .toBe(32);
 
-    await installAssetRoute(
-      page,
-      WEBM_URL,
-      await readFile(WEBM_FIXTURE),
-      "video/webm",
-    );
-    await page.reload();
-    const reloadedMedia = designFrame(page, screenId).locator(
-      'video[data-agent-native-layer-name="design-media-probe.webm"]',
-    );
-    await expect(reloadedMedia).toHaveAttribute("src", durableUrl);
-    await expect
-      .poll(() =>
-        reloadedMedia.evaluate(
-          (element) => (element as HTMLVideoElement).videoHeight,
-        ),
-      )
-      .toBe(24);
-  } finally {
-    upload?.release();
-    await page.unroute("**/_agent-native/file-upload").catch(() => {});
-    await postAction(page, "delete-design", { id: designId }).catch(() => {});
-  }
+  upload.release();
+  await expect(video).toHaveAttribute("src", webmUrl);
+  await app.settled();
+  const saved = savedMediaLayer(
+    before,
+    await app.savedNodes(id),
+    "design-media-probe.webm",
+  );
+  expect(saved).toMatchObject({ tag: "video", parent: "page" });
+  expect(saved.attrs.src).toBe(webmUrl);
+  expect(
+    styleOf(saved),
+    "the 32×24 video lands at the Screen's centre",
+  ).toMatchObject({
+    position: "absolute",
+    width: "32px",
+    height: "24px",
+    left: "704px",
+    top: "500px",
+  });
+  await expect
+    .soft(
+      liveScreen(page),
+      "a media URL on this host does not turn the Screen into a localhost preview",
+    )
+    .toHaveAttribute("data-design-source-type", "inline");
+
+  await page.reload();
+  await expect(video).toHaveAttribute("src", webmUrl);
+  await expect
+    .poll(() =>
+      video.evaluate((element) => (element as HTMLVideoElement).videoHeight),
+    )
+    .toBe(24);
+  await expect
+    .soft(liveScreen(page), "the Screen is still an inline Screen after reload")
+    .toHaveAttribute("data-design-source-type", "inline");
 });

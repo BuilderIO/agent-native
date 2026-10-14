@@ -24,6 +24,7 @@ import {
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import {
   admitAutoContinue,
   admitManualContinue,
@@ -37,7 +38,7 @@ import {
 } from "./engine/credential-errors.js";
 import {
   isConsistentToolCallInputFingerprint,
-  isRedactedToolCallInput,
+  isUnavailableToolCallInput,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
@@ -2413,8 +2414,14 @@ function persistedRunEventData(
   inputSource?: "execution",
 ): string {
   const stripped = stripInlineBytesFromJson(eventData, "placeholder");
-  if (stripped === eventData && inputSource !== "execution") return eventData;
   const original = JSON.parse(eventData);
+  if (original.type === "approval_required") {
+    return JSON.stringify({
+      ...JSON.parse(stripped),
+      approvalKey: approvalKeyForHistory(original.approvalKey),
+    });
+  }
+  if (stripped === eventData && inputSource !== "execution") return eventData;
   if (
     (original.type !== "tool_start" && original.type !== "tool_done") ||
     original.input === undefined ||
@@ -2984,7 +2991,7 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
           value.inputFingerprint as string | undefined,
           value.inputStoredFingerprint as string | undefined,
         ) &&
-        (!isRedactedToolCallInput(value.input) ||
+        (!isUnavailableToolCallInput(value.input) ||
           value.inputFingerprint !== undefined) &&
         (type === "tool_start"
           ? Object.hasOwn(value, "input")
@@ -2992,6 +2999,8 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
               (field) =>
                 value[field] === undefined || typeof value[field] === "boolean",
             ) &&
+            (value.approvalPause === undefined ||
+              typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||
               value.outcomeUnknown === true))
       );

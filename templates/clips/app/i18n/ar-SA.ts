@@ -298,6 +298,10 @@ const messages = {
     transcriptionCompleted: "اكتمل النسخ",
     transcriptNotReady: "النص ليس جاهزا بعد",
     tryAfterTranscription: "حاول مرة أخرى بعد انتهاء النسخ.",
+    silenceTranscriptUnavailableTitle:
+      "لا يمكن استخدام هذا النص لإزالة فترات الصمت",
+    silenceTranscriptUnavailableDescription:
+      "جرّب إنشاء نص جديد، ثم حاول إزالة فترات الصمت مرة أخرى.",
     titleGenerationQueued: "جارٍ إنشاء العنوان…",
     descriptionQueued: "جارٍ إنشاء الوصف…",
     chapterQueued: "جارٍ إنشاء الفصول…",

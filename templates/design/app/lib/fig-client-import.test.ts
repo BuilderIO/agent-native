@@ -72,6 +72,7 @@ function rendered(
     },
     imagePlaceholderPrefix: PLACEHOLDER_PREFIX,
     images,
+    skippedFrames: [],
     frames: frames.map((frame, index) => {
       const html = frame.html ?? `<main>${index}</main>`;
       return {
@@ -114,7 +115,7 @@ describe("importFigInBrowser", () => {
       frameCount: 0,
       nodeCount: 0,
       imageCount: 0,
-      frames: [],
+      pages: [],
     });
     mocks.renderFigImport.mockReset().mockReturnValue(rendered());
   });
@@ -188,6 +189,51 @@ describe("importFigInBrowser", () => {
       expect.objectContaining({ selection }),
     );
     expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a caller's prepared import for another selection when rendering fails", async () => {
+    const prepared = await prepareFigImport(file);
+    const dispose = vi.spyOn(prepared, "dispose");
+    mocks.renderFigImport.mockImplementationOnce(() => {
+      throw new Error(".fig import generated too much editable HTML");
+    });
+
+    const failure = importFigInBrowser({
+      designId: "design-1",
+      file,
+      prepared,
+      selection: new Set(["page-1", "page-2"]),
+    });
+    await expect(failure).rejects.toBeInstanceOf(FigClientImportError);
+    await expect(failure).rejects.toMatchObject({
+      preparedReusable: true,
+      remoteMutationStarted: false,
+    });
+    expect(dispose).not.toHaveBeenCalled();
+
+    await importFigInBrowser({
+      designId: "design-1",
+      file,
+      prepared,
+      selection: new Set(["page-1"]),
+    });
+    expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("returns the names of frames skipped for size", async () => {
+    mocks.renderFigImport.mockReturnValue({
+      ...rendered([{}]),
+      skippedFrames: [{ pageName: "Page", frameName: "Hero" }],
+    });
+    mocks.callAction.mockImplementation(async (_action: string, input) =>
+      acceptFrames(input),
+    );
+
+    const result = await importFigInBrowser({ designId: "design-1", file });
+
+    expect(result.files).toHaveLength(1);
+    expect(result.skippedFrames).toEqual(["Hero"]);
   });
 
   it("uploads referenced images and swaps their URLs into the frames", async () => {

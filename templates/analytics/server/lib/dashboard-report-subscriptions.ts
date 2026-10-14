@@ -14,6 +14,7 @@ export interface ReportSubscriptionInput {
   dashboardId: string;
   name?: string;
   recipients: string[];
+  slackWebhookUrl?: string | null;
   filters?: Record<string, string>;
   timeOfDay: string;
   timezone: string;
@@ -25,6 +26,7 @@ export interface DashboardReportSubscription {
   dashboardId: string;
   name: string;
   recipients: string[];
+  slackWebhookUrl: string | null;
   filters: Record<string, string>;
   frequency: "daily";
   timeOfDay: string;
@@ -127,6 +129,46 @@ function safeJsonParse<T>(raw: unknown, fallback: T): T {
   }
 }
 
+const SLACK_WEBHOOK_URL_MESSAGE =
+  "Slack webhook URL must be an https://hooks.slack.com/ URL";
+
+export function isSlackWebhookUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    // coercion-ok: an unparseable string is simply not a Slack webhook URL.
+    return false;
+  }
+  return url.protocol === "https:" && url.hostname === "hooks.slack.com";
+}
+
+export function normalizeSlackWebhookUrl(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (!isSlackWebhookUrl(trimmed)) throw new Error(SLACK_WEBHOOK_URL_MESSAGE);
+  return trimmed;
+}
+
+export { SLACK_WEBHOOK_URL_MESSAGE };
+
+export function normalizeDashboardReportDestinations(input: {
+  recipients: string[];
+  slackWebhookUrl?: string | null;
+}): { recipients: string[]; slackWebhookUrl: string | null } {
+  const slackWebhookUrl = normalizeSlackWebhookUrl(input.slackWebhookUrl);
+  const hasRecipients = input.recipients.some((email) => email.trim());
+  const recipients = hasRecipients
+    ? normalizeDashboardReportRecipients(input.recipients)
+    : [];
+  if (recipients.length === 0 && !slackWebhookUrl) {
+    throw new Error("Add at least one email recipient or a Slack webhook URL");
+  }
+  return { recipients, slackWebhookUrl };
+}
+
 export function normalizeDashboardReportRecipients(
   recipients: string[],
 ): string[] {
@@ -137,9 +179,6 @@ export function normalizeDashboardReportRecipients(
     if (!email || seen.has(email)) continue;
     seen.add(email);
     normalized.push(email);
-  }
-  if (normalized.length === 0) {
-    throw new Error("At least one recipient is required");
   }
   if (normalized.length > MAX_DASHBOARD_REPORT_RECIPIENTS) {
     throw new Error(
@@ -314,6 +353,7 @@ function rowToSubscription(row: any): DashboardReportSubscription {
     dashboardId: row.dashboardId,
     name: row.name,
     recipients: safeJsonParse<string[]>(row.recipients, []),
+    slackWebhookUrl: row.slackWebhookUrl?.trim() || null,
     filters: safeJsonParse<Record<string, string>>(row.filters, {}),
     frequency: "daily",
     timeOfDay: row.timeOfDay,
@@ -400,7 +440,8 @@ export async function saveDashboardReportSubscription(
     throw Object.assign(new Error("Dashboard not found"), { statusCode: 404 });
   }
 
-  const recipients = normalizeDashboardReportRecipients(input.recipients);
+  const { recipients, slackWebhookUrl } =
+    normalizeDashboardReportDestinations(input);
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
@@ -425,6 +466,7 @@ export async function saveDashboardReportSubscription(
         dashboardId: input.dashboardId,
         name,
         recipients: JSON.stringify(recipients),
+        slackWebhookUrl,
         filters: JSON.stringify(filters),
         timeOfDay,
         timezone,
@@ -440,6 +482,7 @@ export async function saveDashboardReportSubscription(
       dashboardId: input.dashboardId,
       name,
       recipients: JSON.stringify(recipients),
+      slackWebhookUrl,
       filters: JSON.stringify(filters),
       frequency: "daily",
       timeOfDay,

@@ -70,6 +70,8 @@ vi.mock("@/components/ui/input", () => ({
 
 let root: Root;
 let container: HTMLDivElement;
+// The .fig item shows its size limit beside the label.
+const FIG_MENU_ITEM = "home.figmaFilehome.figmaFileMaxSize";
 const figmaUrl =
   "https://www.figma.com/design/example-file/Example?node-id=1-2";
 async function click(text: string) {
@@ -188,7 +190,7 @@ describe("home Figma import", () => {
     await openMenu();
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     expect(picker).not.toHaveBeenCalled();
-    await click("home.figmaFile");
+    await click(FIG_MENU_ITEM);
     expect(picker).toHaveBeenCalledOnce();
     expect(input.accept).toBe(".fig");
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -208,15 +210,79 @@ describe("home Figma import", () => {
         document.querySelectorAll('[role="menuitem"]'),
         (item) => item.textContent,
       ),
-    ).toEqual(["home.figmaFile", "home.figmaLink"]);
+    ).toEqual([FIG_MENU_ITEM, "home.figmaLink"]);
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).every((item) => !item.querySelector("svg")),
     ).toBe(true);
-    await click("home.figmaFile");
+    await click(FIG_MENU_ITEM);
     expect(picker).toHaveBeenCalledOnce();
     expect(document.querySelector('input[type="url"]')).toBeNull();
+  });
+  describe("with a native file picker", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(window, "showOpenFilePicker");
+    });
+    function installPicker(picker: unknown) {
+      Object.defineProperty(window, "showOpenFilePicker", {
+        configurable: true,
+        value: picker,
+      });
+    }
+    async function pickFigmaFile() {
+      const fallback = vi.spyOn(
+        document.querySelector<HTMLInputElement>('input[type="file"]')!,
+        "click",
+      );
+      await openMenu();
+      await click(FIG_MENU_ITEM);
+      return fallback;
+    }
+
+    it("names the Figma format and imports the picked file without the <input>", async () => {
+      const file = new File(["fixture"], "Brand.fig");
+      const picker = vi.fn().mockResolvedValue([{ getFile: async () => file }]);
+      installPicker(picker);
+      const fallback = await pickFigmaFile();
+      await vi.waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+      expect(picker).toHaveBeenCalledExactlyOnceWith({
+        types: [
+          {
+            description: "Figma (.fig)",
+            accept: { "application/x-figma": [".fig"] },
+          },
+        ],
+        excludeAcceptAllOption: true,
+        multiple: false,
+      });
+      expect(fallback).not.toHaveBeenCalled();
+      expect(readPendingDesignImport("file-design")?.file).toBe(file);
+    });
+    it("treats a dismissed dialog as a no-op", async () => {
+      const picker = vi
+        .fn()
+        .mockRejectedValue(new DOMException("aborted", "AbortError"));
+      installPicker(picker);
+      await pickFigmaFile();
+      await vi.waitFor(() => expect(picker).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mocks.error).not.toHaveBeenCalled();
+      expect(mocks.create).not.toHaveBeenCalled();
+    });
+    it("surfaces a picker failure instead of swallowing it", async () => {
+      installPicker(
+        vi.fn().mockRejectedValue(new DOMException("blocked", "SecurityError")),
+      );
+      await pickFigmaFile();
+      await vi.waitFor(() =>
+        expect(mocks.error).toHaveBeenCalledExactlyOnceWith(
+          "designEditor.import.errors.uploadFailed",
+          { description: "blocked" },
+        ),
+      );
+      expect(mocks.create).not.toHaveBeenCalled();
+    });
   });
   it("does not provision, create, or import on mount, open, or cancel", async () => {
     await openLink();

@@ -120,6 +120,17 @@ export function resolveDrawStateWithoutLab(args: {
   return { dropAnnotateMode: !args.pinMode };
 }
 
+/**
+ * Commenting is a canvas-mode feature: Interact shows no pins, threads or
+ * placement UI whatever the "show comments" view setting says.
+ */
+export function areCommentPinsHidden(args: {
+  commentsHidden: boolean;
+  mode: EditorMode;
+}): boolean {
+  return args.commentsHidden || args.mode === "interact";
+}
+
 /** Whether a restored URL or agent `navigate` command asks for Annotate or Draw. */
 export function commandRequestsAnnotate(command: {
   mode?: unknown;

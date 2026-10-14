@@ -288,7 +288,7 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "understand-the-ask",
-    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer with one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
+    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer per AGENTS.md "Data questions"; otherwise one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
   },
   {
     id: "sources",
@@ -345,58 +345,25 @@ function latestUserText(
   return "";
 }
 
-function configuredDataSourceLabels(
-  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
-): string[] {
-  const labels = new Set<string>();
-  for (const result of toolResults ?? []) {
-    const normalizedName = String(result.name ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-");
-    if (normalizedName !== "data-source-status" || result.isError) continue;
-
-    let parsed: Record<string, unknown>;
-    try {
-      const value = JSON.parse(String(result.content ?? ""));
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      parsed = value as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-
-    const compactSources = Array.isArray(parsed.configuredDataSources)
-      ? parsed.configuredDataSources
-      : [];
-    for (const source of compactSources) {
-      if (!source || typeof source !== "object" || Array.isArray(source)) {
-        continue;
-      }
-      const record = source as Record<string, unknown>;
-      const label = record.label ?? record.provider;
-      if (typeof label === "string" && label.trim()) labels.add(label.trim());
-    }
-
-    const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
-    for (const provider of providers) {
-      if (
-        !provider ||
-        typeof provider !== "object" ||
-        Array.isArray(provider)
-      ) {
-        continue;
-      }
-      const record = provider as Record<string, unknown>;
-      if (record.configured !== true) continue;
-      const label = record.label ?? record.provider;
-      if (typeof label === "string" && label.trim()) labels.add(label.trim());
-    }
-  }
-  return [...labels];
-}
-
 const UNVERIFIED_DRAFT_RETRY_INSTRUCTION =
   ' If you cannot run a query, restate every number, count, or trend in the draft as explicitly unverified (prefix the sentence with "Unverified:") rather than asserting it.';
+
+function sourceStatusDescription(summary: DataSourceStatusSummary): string {
+  const healthyWorkspaceConnections = summary.workspaceConnectedSourceLabels;
+  const healthyLabels = new Set(healthyWorkspaceConnections);
+  const configuredWithoutHealthyGrant = summary.configuredSourceLabels.filter(
+    (label) => !healthyLabels.has(label),
+  );
+  const details = [
+    healthyWorkspaceConnections.length
+      ? `healthy workspace connections: ${healthyWorkspaceConnections.join(", ")}`
+      : "",
+    configuredWithoutHealthyGrant.length
+      ? `configured sources without a healthy workspace connection: ${configuredWithoutHealthyGrant.join(", ")}`
+      : "",
+  ].filter(Boolean);
+  return details.join("; ");
+}
 
 function exhaustedDraftPrefixFor({
   toolResults,
@@ -407,9 +374,10 @@ function exhaustedDraftPrefixFor({
   setupMarkdown: string;
   includeConnectOption: boolean;
 }): string {
-  const configuredSources = configuredDataSourceLabels(toolResults);
-  const connectedSentence = configuredSources.length
-    ? ` Connected sources: ${configuredSources.join(", ")}.`
+  const sourceStatus = dataSourceStatusSummary(toolResults);
+  const sourceStatusDetails = sourceStatusDescription(sourceStatus);
+  const sourceStatusSentence = sourceStatusDetails
+    ? ` Data-source status reports ${sourceStatusDetails}; it does not verify a query result.`
     : "";
   const nextOptions = [
     "ask me to query an existing dashboard (I'll search certified ones first)",
@@ -420,7 +388,7 @@ function exhaustedDraftPrefixFor({
   }
   return (
     "Unverified — no live data query ran for this answer, so every figure and trend below is unconfirmed." +
-    connectedSentence +
+    sourceStatusSentence +
     ` Next options: ${nextOptions.join(", ")}.`
   );
 }
@@ -491,14 +459,68 @@ function priorTurnEvidence(
 
 interface DataSourceStatusSummary {
   checked: boolean;
-  externalSourceLabels: string[];
+  configuredSourceLabels: string[];
+  workspaceConnectedSourceLabels: string[];
   availableExternalSources: Array<{
     aliases: string[];
     configured: boolean | null;
+    workspaceGrantState?: string;
+    credentialsConfigured?: boolean | null;
     label?: string;
     setupLink?: string;
   }>;
   setupLink: string;
+}
+
+function inferRequiredCredentialsConfigured(
+  providerId: unknown,
+  record: Record<string, unknown>,
+  configured: boolean | null,
+  workspaceGrantState: string | undefined,
+): boolean | null {
+  if (typeof record.credentialsConfigured === "boolean") {
+    return record.credentialsConfigured;
+  }
+
+  const rawMissingRequiredKeys = record.missingRequiredKeys;
+  if (
+    Array.isArray(rawMissingRequiredKeys) &&
+    rawMissingRequiredKeys.every((key) => typeof key === "string")
+  ) {
+    return rawMissingRequiredKeys.length === 0;
+  }
+
+  const configuredKeys = Array.isArray(record.configuredKeys)
+    ? record.configuredKeys.filter(
+        (key): key is string => typeof key === "string",
+      )
+    : null;
+  if (configuredKeys && typeof providerId === "string") {
+    const providerConfig = credentialProviderConfigs.find(
+      (provider) => provider.provider === providerId,
+    );
+    if (providerConfig) {
+      const configuredKeySet = new Set(
+        configuredKeys.map((key) => key.trim().toUpperCase()),
+      );
+      const requiredMode = providerConfig.requiredMode ?? "all";
+      return requiredMode === "any"
+        ? providerConfig.requiredKeys.some((key) =>
+            configuredKeySet.has(key.toUpperCase()),
+          )
+        : providerConfig.requiredKeys.every((key) =>
+            configuredKeySet.has(key.toUpperCase()),
+          );
+    }
+  }
+
+  if (
+    workspaceGrantState === "granted" ||
+    workspaceGrantState === "connected"
+  ) {
+    return null;
+  }
+  return configured === true ? true : null;
 }
 
 const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
@@ -587,6 +609,24 @@ function hasMissingRequestedExternalSource(
       );
       if (
         matchingStatuses.some(
+          (source) =>
+            source.workspaceGrantState === "granted" &&
+            source.credentialsConfigured !== true,
+        )
+      ) {
+        return true;
+      }
+      if (
+        matchingStatuses.some(
+          (source) =>
+            source.workspaceGrantState === "needs_grant" &&
+            source.credentialsConfigured === false,
+        )
+      ) {
+        return true;
+      }
+      if (
+        matchingStatuses.some(
           ({ configured }) => configured === true || configured === null,
         )
       ) {
@@ -601,7 +641,8 @@ function hasMissingRequestedExternalSource(
 function dataSourceStatusSummary(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): DataSourceStatusSummary {
-  const externalSourceLabels = new Set<string>();
+  const configuredSourceLabels = new Set<string>();
+  const workspaceConnectedSourceLabels = new Set<string>();
   const availableExternalSources = new Map<
     string,
     DataSourceStatusSummary["availableExternalSources"][number]
@@ -614,6 +655,10 @@ function dataSourceStatusSummary(
     label: unknown,
     configured: boolean | null,
     providerSetupLink?: unknown,
+    details?: {
+      workspaceGrantState?: string;
+      credentialsConfigured?: boolean | null;
+    },
   ) => {
     const aliases = [provider, label]
       .filter((value): value is string => typeof value === "string")
@@ -629,6 +674,16 @@ function dataSourceStatusSummary(
           : existing.configured === null || configured === null
             ? null
             : false;
+      if (details?.workspaceGrantState) {
+        existing.workspaceGrantState = details.workspaceGrantState;
+      }
+      if (details?.credentialsConfigured !== undefined) {
+        // The compact configuredDataSources entry is only a hint: its `via`
+        // value can include optional credentials. The provider record carries
+        // the authoritative required-credential result and must be allowed to
+        // correct that inference in either direction.
+        existing.credentialsConfigured = details.credentialsConfigured;
+      }
       existing.aliases = [...new Set([...existing.aliases, ...aliases])];
       if (!existing.label && typeof label === "string" && label.trim()) {
         existing.label = label.trim();
@@ -645,6 +700,12 @@ function dataSourceStatusSummary(
     availableExternalSources.set(key, {
       aliases,
       configured,
+      ...(details?.workspaceGrantState
+        ? { workspaceGrantState: details.workspaceGrantState }
+        : {}),
+      ...(details?.credentialsConfigured !== undefined
+        ? { credentialsConfigured: details.credentialsConfigured }
+        : {}),
       ...(typeof label === "string" && label.trim()
         ? { label: label.trim() }
         : {}),
@@ -735,13 +796,28 @@ function dataSourceStatusSummary(
       if (provider === "first-party" || via === "built-in") continue;
       const label = record.label ?? record.provider;
       if (typeof label === "string" && label.trim()) {
-        externalSourceLabels.add(label.trim());
+        configuredSourceLabels.add(label.trim());
+        if (via === "workspace" || via === "credentials-and-workspace") {
+          workspaceConnectedSourceLabels.add(label.trim());
+        }
       }
+      const workspaceGrantState =
+        via === "workspace-grant" || via === "credentials-and-workspace-grant"
+          ? "granted"
+          : via === "workspace" || via === "credentials-and-workspace"
+            ? "connected"
+            : undefined;
+      // `credentials-and-workspace-grant` is not evidence that required keys
+      // are present: the compact summary can include optional-only keys.
+      // Leave required-credential readiness unknown until the provider detail
+      // supplies its explicit result (or enough required-key metadata).
+      const credentialsConfigured = via === "credentials" ? true : undefined;
       addAvailableExternalSource(
         record.provider,
         label,
         true,
         record.setupLink,
+        { workspaceGrantState, credentialsConfigured },
       );
     }
 
@@ -766,15 +842,54 @@ function dataSourceStatusSummary(
       const label = record.label ?? record.provider;
       const configured =
         typeof record.configured === "boolean" ? record.configured : null;
+      const workspaceConnection =
+        record.workspaceConnection &&
+        typeof record.workspaceConnection === "object" &&
+        !Array.isArray(record.workspaceConnection)
+          ? (record.workspaceConnection as Record<string, unknown>)
+          : null;
+      const workspaceGrantState =
+        typeof workspaceConnection?.grantState === "string"
+          ? workspaceConnection.grantState
+          : undefined;
+      const credentialsConfigured = inferRequiredCredentialsConfigured(
+        record.provider,
+        record,
+        configured,
+        workspaceGrantState,
+      );
+      const requiredCredentialsMissingWithoutGrant =
+        workspaceGrantState === "needs_grant" &&
+        credentialsConfigured === false;
+      const effectiveConfigured = requiredCredentialsMissingWithoutGrant
+        ? false
+        : configured;
       addAvailableExternalSource(
         record.provider,
         label,
-        configured,
+        effectiveConfigured,
         record.setupLink,
+        { workspaceGrantState, credentialsConfigured },
       );
-      if (configured !== true) continue;
-      if (typeof label === "string" && label.trim()) {
-        externalSourceLabels.add(label.trim());
+      if (
+        effectiveConfigured === true &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        configuredSourceLabels.add(label.trim());
+      } else if (
+        effectiveConfigured === false &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        configuredSourceLabels.delete(label.trim());
+      }
+      if (
+        workspaceConnection?.grantState === "connected" &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        workspaceConnectedSourceLabels.add(label.trim());
       }
     }
 
@@ -795,24 +910,35 @@ function dataSourceStatusSummary(
       const grantState =
         typeof record.grantState === "string" ? record.grantState : null;
       const configured =
-        record.configured === true || grantState === "connected"
+        record.configured === true ||
+        grantState === "connected" ||
+        grantState === "granted"
           ? true
           : record.configured === false ||
-              grantState === "granted" ||
               grantState === "needs_grant" ||
               grantState === "not_connected"
             ? false
             : null;
-      addAvailableExternalSource(providerId, label, configured);
+      addAvailableExternalSource(providerId, label, configured, undefined, {
+        ...(grantState ? { workspaceGrantState: grantState } : {}),
+      });
       if (configured && typeof label === "string" && label.trim()) {
-        externalSourceLabels.add(label.trim());
+        configuredSourceLabels.add(label.trim());
+      }
+      if (
+        grantState === "connected" &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        workspaceConnectedSourceLabels.add(label.trim());
       }
     }
   }
 
   return {
     checked,
-    externalSourceLabels: [...externalSourceLabels],
+    configuredSourceLabels: [...configuredSourceLabels],
+    workspaceConnectedSourceLabels: [...workspaceConnectedSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
   };
@@ -821,13 +947,24 @@ function dataSourceStatusSummary(
 function requestedExternalSourceSetup(
   userText: string,
   summary: DataSourceStatusSummary,
-): { label: string; setupLink: string } | null {
+): { label: string; setupLink: string; kind: "connect" | "review" } | null {
   let source:
     | DataSourceStatusSummary["availableExternalSources"][number]
     | undefined;
+  let kind: "connect" | "review" = "connect";
   let bestMatchLength = -1;
   for (const candidate of summary.availableExternalSources) {
-    if (candidate.configured !== false || !candidate.setupLink) continue;
+    const needsReview =
+      candidate.workspaceGrantState === "granted" &&
+      candidate.credentialsConfigured !== true;
+    const needsConnect =
+      candidate.workspaceGrantState === "needs_grant" &&
+      candidate.credentialsConfigured === false;
+    if (
+      (candidate.configured !== false && !needsReview && !needsConnect) ||
+      !candidate.setupLink
+    )
+      continue;
     const matchLength = Math.max(
       -1,
       ...candidate.aliases
@@ -836,6 +973,7 @@ function requestedExternalSourceSetup(
     );
     if (matchLength > bestMatchLength) {
       source = candidate;
+      kind = needsReview ? "review" : "connect";
       bestMatchLength = matchLength;
     }
   }
@@ -843,6 +981,7 @@ function requestedExternalSourceSetup(
   return {
     label: source.label ?? source.aliases[0] ?? "data source",
     setupLink: source.setupLink,
+    kind,
   };
 }
 
@@ -888,35 +1027,54 @@ export function realDataFinalGuard(
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
+  const sourceStatusDetails = sourceStatusDescription(sourceStatus);
   const requestedSourceSetup = requestedExternalSourceSetup(
     userText,
     sourceStatus,
   );
   const setupLink = requestedSourceSetup?.setupLink ?? sourceStatus.setupLink;
   const setupLabel = requestedSourceSetup
-    ? `Connect ${requestedSourceSetup.label}`
+    ? requestedSourceSetup.kind === "review"
+      ? `Review ${requestedSourceSetup.label} connection`
+      : `Connect ${requestedSourceSetup.label}`
     : "Connect data sources";
   const setupMarkdown = `[${setupLabel}](${setupLink})`;
   const hasUnknownExternalSourceStatus =
     sourceStatus.availableExternalSources.some(
       ({ configured }) => configured === null,
     );
-  const noConnectedExternalSources =
+  const noConfiguredExternalSources =
     sourceStatus.checked &&
-    sourceStatus.externalSourceLabels.length === 0 &&
+    sourceStatus.configuredSourceLabels.length === 0 &&
     !hasUnknownExternalSourceStatus;
   const externalSourceRequest = looksLikeExternalSourceRequest(userText);
   const missingRequestedExternalSource = hasMissingRequestedExternalSource(
     userText,
-    sourceStatus.externalSourceLabels,
+    sourceStatus.configuredSourceLabels,
     sourceStatus.availableExternalSources,
   );
+  const hasUsableExternalSource = sourceStatus.availableExternalSources.some(
+    ({ workspaceGrantState, credentialsConfigured }) =>
+      credentialsConfigured === true || workspaceGrantState === "connected",
+  );
+  const noUsableExternalSources =
+    sourceStatus.checked &&
+    !hasUsableExternalSource &&
+    !hasUnknownExternalSourceStatus;
   const firstPartySourceShouldBeTried =
-    noConnectedExternalSources && !externalSourceRequest;
+    noUsableExternalSources && !externalSourceRequest;
   const needsDataSourceLink =
     sourceStatus.checked &&
     externalSourceRequest &&
-    (noConnectedExternalSources || missingRequestedExternalSource);
+    (noConfiguredExternalSources || missingRequestedExternalSource);
+  const unavailableSourceGuidance =
+    requestedSourceSetup?.kind === "review"
+      ? `The requested ${requestedSourceSetup.label} source already has an Analytics workspace grant, but no healthy connection is active.${sourceStatusDetails ? ` Status reports ${sourceStatusDetails}.` : ""} Ask the user to review that existing connection and include this exact link: ${setupMarkdown}. Do not ask them to connect it again.`
+      : `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`;
+  const unavailableSourceFallback =
+    requestedSourceSetup?.kind === "review"
+      ? `I can query ${requestedSourceSetup.label} once its existing workspace connection is healthy.${sourceStatusDetails ? ` Status reports ${sourceStatusDetails}.` : ""} ${setupMarkdown}`
+      : `I can help with that once the relevant source is connected. ${setupMarkdown}`;
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -1057,8 +1215,8 @@ export function realDataFinalGuard(
       !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
-        fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
+        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. ${unavailableSourceGuidance}`,
+        fallbackMessage: unavailableSourceFallback,
         maxRetries: 2,
       };
     }
@@ -1083,8 +1241,8 @@ export function realDataFinalGuard(
 
   if (needsDataSourceLink) {
     return {
-      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
+      retryMessage: unavailableSourceGuidance,
+      fallbackMessage: unavailableSourceFallback,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -1099,9 +1257,9 @@ export function realDataFinalGuard(
   }
   if (!draftMakesAnalyticsClaim) return null;
 
-  const configuredSources = configuredDataSourceLabels(context.toolResults);
-  const configuredSourceGuidance = configuredSources.length
-    ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
+  const configuredSources = sourceStatus.configuredSourceLabels;
+  const configuredSourceGuidance = sourceStatusDetails
+    ? ` \`data-source-status\` reports ${sourceStatusDetails}. It checks configuration and workspace grants but does not run a source query. Treat configured credentials separately from healthy workspace connections; do not call a credential-only source connected or ask the user to reconnect before trying its query action.`
     : "";
   const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
   const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
@@ -1130,7 +1288,7 @@ export function realDataFinalGuard(
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
       UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
     fallbackMessage: configuredSources.length
-      ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
+      ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
       : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
     maxRetries: 2,
     expandToolSurface: true,

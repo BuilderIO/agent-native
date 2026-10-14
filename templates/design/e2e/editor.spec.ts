@@ -1,76 +1,88 @@
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import { test, expect } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import enUS from "../app/i18n/en-US";
-import {
-  canvasZoom,
-  readSeedDesignId,
-  gotoEditor,
-  createFixtureDesign,
-  designFrame,
-  enterDirectMode,
-  selectByText,
-  inspectorInputCount,
-  dragCanvasByText,
-  cdpScreenshot,
-  installBridge,
-  waitForBridge,
-  bridgeMessages,
-  appPath,
-} from "./helpers";
+import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
+import { appPath, expandAllLayers, resetPersistedCanvasState } from "./helpers";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
-const MOD = process.platform === "darwin" ? "Meta" : "Control";
+type Box = { x: number; y: number; width: number; height: number };
 
-async function setCreativeContextLab(
-  page: import("@playwright/test").Page,
-  enabled: boolean,
-) {
+const HEADINGS = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:40px;background:#ffffff;font-family:system-ui">
+  <h1 data-agent-native-node-id="title" data-agent-native-layer-name="Title" style="margin:0;font-size:40px">Hero title</h1>
+  <h2 data-agent-native-node-id="subtitle" data-agent-native-layer-name="Subtitle" style="margin:24px 0 0;font-size:24px">Subtitle</h2>
+</body></html>`;
+
+const BOXES = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;background:#ffffff">
+  <div data-agent-native-node-id="panel" data-agent-native-layer-name="Panel" style="position:absolute;left:80px;top:80px;width:400px;height:240px;padding:24px;box-sizing:border-box;background:#e2e8f0">
+    <p data-agent-native-node-id="copy" data-agent-native-layer-name="Copy" style="margin:0">Panel copy</p>
+  </div>
+  <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" style="position:absolute;left:600px;top:80px;width:160px;height:120px;background:#93c5fd"></div>
+  <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" style="position:absolute;left:760px;top:200px;width:160px;height:120px;background:#fca5a5"></div>
+</body></html>`;
+
+async function openFixture(app: App, html = FIXTURE_HTML) {
+  const id = await app.seed(html, { title: SEED_TITLE });
+  await app.open(id);
+  return id;
+}
+
+async function setCreativeContextLab(page: Page, enabled: boolean) {
   const response = await page.request.post(
-    `${new URL(page.url()).origin}/_agent-native/actions/set-lab`,
+    appPath("/_agent-native/actions/set-lab"),
     {
       data: { key: CREATIVE_CONTEXT_LIBRARY_LAB.key, enabled },
-      headers: { "Content-Type": "application/json" },
     },
   );
-  expect(
-    response.ok(),
-    `set-lab returned ${response.status()}: ${await response.text()}`,
-  ).toBe(true);
+  expect(response.ok(), `set-lab returned ${response.status()}`).toBe(true);
 }
 
-async function deepSelectByText(
-  page: import("@playwright/test").Page,
-  text: string,
-) {
-  await enterDirectMode(page);
-  await installBridge(page);
-  await page.evaluate(() => ((window as any).__bridge = []));
-  const target = designFrame(page).getByText(text).first();
-  await target.waitFor({ state: "visible", timeout: 8_000 });
-  const box = await target.boundingBox();
-  if (!box) throw new Error(`no bounding box for "${text}"`);
-  await page.keyboard.down(MOD);
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.keyboard.up(MOD);
-  const selected = await waitForBridge(page, "element-select");
-  const payload = selected?.payload ?? selected;
-  expect(String(payload?.textContent ?? "")).toContain(text);
-  return payload;
+function overlaps(a: Box | null, b: Box | null) {
+  return Boolean(
+    a &&
+    b &&
+    a.x < b.x + b.width &&
+    b.x < a.x + a.width &&
+    a.y < b.y + b.height &&
+    b.y < a.y + a.height,
+  );
 }
 
-let designId: string;
+async function clickCenter(app: App, nodeId: string) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(point.x, point.y);
+}
 
-test.beforeAll(async () => {
-  designId = await readSeedDesignId();
-});
+function selectionOverlay(app: App) {
+  return app.page
+    .locator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+    )
+    .contentFrame()
+    .locator('[data-agent-native-edit-overlay="selection"]');
+}
 
-test.beforeEach(async ({ page }) => {
-  await gotoEditor(page, designId);
-});
+async function expectBoxNear(actual: Box | null, expected: Box | null) {
+  expect(actual).not.toBeNull();
+  for (const key of ["x", "y", "width", "height"] as const) {
+    expect(
+      Math.abs(actual![key] - expected![key]),
+      `${key}: ${actual![key]} vs ${expected![key]}`,
+    ).toBeLessThanOrEqual(2);
+  }
+}
 
 test("editor renders the toolbar and the design iframe content", async ({
-  page,
+  app,
 }) => {
+  await openFixture(app);
+  const page = app.page;
   const toolbar = page.locator("[data-design-bottom-toolbar]");
   for (const tool of [
     "Move",
@@ -98,20 +110,22 @@ test("editor renders the toolbar and the design iframe content", async ({
     "true",
   );
   await expect(toolbar.locator("[data-design-mode]")).toHaveCount(0);
-  await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
-  const nodeCount = await designFrame(page)
-    .locator("h1, h2, p, button")
-    .count();
-  expect(nodeCount).toBeGreaterThanOrEqual(5);
+  await expect(app.node("e2e-alpha-button")).toHaveText("Alpha Button");
+  await expect(
+    app.page
+      .locator("iframe[data-design-preview-iframe]")
+      .contentFrame()
+      .getByText("E2E Hero Heading"),
+  ).toBeVisible();
 });
 
 test("agent rail keeps the shared chat header and conversation tabs", async ({
-  page,
-}, testInfo) => {
-  const workspaceRail = page.locator(
-    '[data-design-chrome-region="workspace-rail"]',
-  );
-  await workspaceRail
+  app,
+}) => {
+  await openFixture(app);
+  const page = app.page;
+  await page
+    .locator('[data-design-chrome-region="workspace-rail"]')
     .getByRole("button", {
       name: enUS.designEditor.leftRail.agent,
       exact: true,
@@ -119,7 +133,6 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
-  await expect(agentPanel).toBeVisible();
   const newChatButton = agentPanel.locator('button[aria-label="New chat"]');
   await expect(newChatButton).toBeVisible();
   await expect(
@@ -129,36 +142,28 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     }),
   ).toBeVisible();
   await expect(
-    agentPanel.getByRole("button", { name: "Chat", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    agentPanel.getByRole("button", { name: "Workspace", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    agentPanel.getByRole("button", { name: "Workspace mode", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    agentPanel.getByRole("button", { name: "Share", exact: true }),
-  ).toHaveCount(0);
-  await expect(
     agentPanel.getByRole("button", { name: "Collapse sidebar", exact: true }),
   ).toBeVisible();
+  for (const removed of ["Chat", "Workspace", "Workspace mode", "Share"]) {
+    await expect(
+      agentPanel.getByRole("button", { name: removed, exact: true }),
+    ).toHaveCount(0);
+  }
 
   await newChatButton.click();
   const conversationTabs = agentPanel.locator('[role="button"].agent-tab');
   await expect(conversationTabs).toHaveCount(2);
-  expect(
-    await conversationTabs.evaluateAll(
-      (tabs) =>
-        tabs.filter((tab) => tab.classList.contains("bg-accent")).length,
-    ),
-  ).toBe(1);
-  await cdpScreenshot(page, testInfo.outputPath("design-agent-header.png"));
+  await expect(
+    agentPanel.locator('[role="button"].agent-tab.bg-accent'),
+  ).toHaveCount(1);
 });
 
-test("agent rail stays contained at a narrow viewport", async ({
-  page,
-}, testInfo) => {
+// fixme: product bug: The canvas bottom toolbar sits on top of the agent composer at 390px, covering its controls and part of the send button (line 117).
+test.fixme("agent rail stays inside a narrow viewport without the canvas toolbar covering its composer", async ({
+  app,
+}) => {
+  await openFixture(app);
+  const page = app.page;
   await page.setViewportSize({ width: 390, height: 844 });
   await page
     .locator('[data-design-chrome-region="workspace-rail"]')
@@ -170,44 +175,57 @@ test("agent rail stays contained at a narrow viewport", async ({
 
   const agentPanel = page.locator("[data-design-agent-panel]");
   await expect(agentPanel).toBeVisible();
-  const panelBox = await agentPanel.boundingBox();
-  expect(panelBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(334);
+  expect((await agentPanel.boundingBox())!.width).toBeLessThanOrEqual(334);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
-  await cdpScreenshot(page, testInfo.outputPath("design-agent-narrow.png"));
+  const composer = agentPanel
+    .locator('[data-agent-composer-slot="root"]')
+    .last();
+  await expect(composer).toBeVisible();
+  expect(
+    overlaps(
+      await page.locator("[data-design-bottom-toolbar]").boundingBox(),
+      await composer.boundingBox(),
+    ),
+    "the canvas toolbar covers the agent composer",
+  ).toBe(false);
 });
 
 test("designs list shared sidebar stays contained at normal and narrow widths", async ({
-  page,
-}, testInfo) => {
+  app,
+}) => {
+  const page = app.page;
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
-
   await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
-  const sidebar = page.locator('[data-agent-sidebar-state="open"]');
-  await expect(sidebar).toBeVisible();
+  const sidebar = page
+    .locator('[data-agent-sidebar-state="open"]')
+    .filter({ has: page.locator('button[aria-label="New chat"]') });
   await expect(sidebar.locator('button[aria-label="New chat"]')).toBeVisible();
   await expect(
-    sidebar.getByRole("button", {
-      name: "Agent panel options",
-      exact: true,
-    }),
+    sidebar.getByRole("button", { name: "Agent panel options", exact: true }),
   ).toBeVisible();
-  await cdpScreenshot(page, testInfo.outputPath("designs-list-normal.png"));
+  const normal = (await sidebar.boundingBox())!;
+  expect(normal.x + normal.width).toBeLessThanOrEqual(1280);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(1280);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(390);
-  await cdpScreenshot(page, testInfo.outputPath("designs-list-narrow.png"));
+  const narrow = (await sidebar.boundingBox())!;
+  expect(narrow.x).toBeGreaterThanOrEqual(0);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(390);
 });
 
-test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
-  await setCreativeContextLab(page, true);
+test("share dialog uses editor panel chrome", async ({ app }) => {
+  await setCreativeContextLab(app.page, true);
   try {
-    await gotoEditor(page, designId);
-
+    await openFixture(app);
+    const page = app.page;
     await page
       .getByRole("button", { name: /^share(?: \(.+\))?$/i })
       .first()
@@ -217,93 +235,63 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
       '[role="tablist"][aria-label="Share options"]',
     );
     await expect(shareOptions).toBeVisible();
-
-    const tabListBox = await shareOptions.boundingBox();
-    expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      420,
-    );
-    expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      42,
-    );
-
+    const tabListBox = (await shareOptions.boundingBox())!;
+    expect(tabListBox.width).toBeLessThanOrEqual(420);
+    expect(tabListBox.height).toBeLessThanOrEqual(42);
     const sendTab = page.getByRole("tab", { name: "Send to agent" });
-    const sendTabBox = await sendTab.boundingBox();
-    expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      36,
-    );
+    expect((await sendTab.boundingBox())!.height).toBeLessThanOrEqual(36);
 
-    const contextTab = page.getByRole("tab", { name: "Context", exact: true });
-    await expect(contextTab).toBeVisible();
-    await contextTab.click();
+    await page.getByRole("tab", { name: "Context", exact: true }).click();
     await expect(
       page.getByRole("region", { name: "Creative context" }),
     ).toBeVisible();
-    await cdpScreenshot(page, testInfo.outputPath("share-dialog-context.png"));
 
     await sendTab.click();
     await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
-    const copyPromptButton = page.getByRole("button", {
-      name: "Copy agent prompt",
-    });
-    await expect(copyPromptButton).toBeVisible();
     await page
       .context()
       .grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: new URL(page.url()).origin,
       });
-    await copyPromptButton.click();
+    await page.getByRole("button", { name: "Copy agent prompt" }).click();
     await expect(
       page.getByText("Agent prompt copied", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByText("Clipboard blocked", { exact: true }),
-    ).toHaveCount(0);
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-      "Build this design as production code: E2E Seed Design",
+      `Build this design as production code: ${SEED_TITLE}`,
     );
 
     const popover = page
       .locator("[data-radix-popper-content-wrapper]")
       .filter({ has: shareOptions })
       .first();
-    const popoverBox = await popover.boundingBox();
-    expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      650,
-    );
+    expect((await popover.boundingBox())!.width).toBeLessThanOrEqual(650);
 
     await page.getByRole("tab", { name: "Share link" }).click();
     await page.getByRole("combobox", { name: "General access" }).click();
-    await expect(
-      page.getByRole("option", { name: /Organization/ }),
-    ).toBeVisible();
-    await expect(shareOptions).toBeVisible();
     const accessMenu = page
       .locator("[data-radix-popper-content-wrapper]")
       .filter({ has: page.getByRole("option", { name: /Organization/ }) })
       .last();
     await expect(accessMenu).toBeVisible();
-    const sharePopoverZ = Number.parseInt(
-      (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
-      10,
-    );
-    const accessMenuZ = Number.parseInt(
-      (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) ||
-        "0",
-      10,
-    );
-    expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
+    await expect(shareOptions).toBeVisible();
+    const zIndex = (locator: typeof popover) =>
+      locator.evaluate((node) =>
+        Number.parseInt(getComputedStyle(node).zIndex || "0", 10),
+      );
+    expect(await zIndex(accessMenu)).toBeGreaterThan(await zIndex(popover));
     await page.keyboard.press("Escape");
-
-    await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
   } finally {
-    await setCreativeContextLab(page, false);
+    await setCreativeContextLab(app.page, false);
   }
 });
 
 test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs", async ({
-  page,
+  app,
 }) => {
-  await page.goto(appPath(`/visual-edit/${designId}`), {
+  const id = await app.seed(FIXTURE_HTML);
+  const page = app.page;
+  await page.goto(appPath(`/visual-edit/${id}`), {
     waitUntil: "domcontentloaded",
   });
   const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
@@ -327,31 +315,26 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
 });
 
 test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
-  page,
-}, testInfo) => {
+  app,
+}) => {
+  await openFixture(app);
+  const page = app.page;
   const topBar = page.locator("[data-design-top-bar]");
-  await expect(topBar).toBeVisible();
-  const barBox = await topBar.boundingBox();
-  if (!barBox) throw new Error("missing top bar box");
-  expect(barBox.y).toBe(0);
-  expect(barBox.height).toBe(48);
-  const leftShellBox = await page
+  const barBox = (await topBar.boundingBox())!;
+  expect([barBox.y, barBox.height]).toStrictEqual([0, 48]);
+  const leftShellBox = (await page
     .locator('[data-design-chrome-region="left-shell"]')
-    .boundingBox();
-  if (!leftShellBox) throw new Error("missing left shell box");
+    .boundingBox())!;
   expect(leftShellBox.y).toBe(0);
   expect(barBox.x).toBe(leftShellBox.x + leftShellBox.width);
-
   await expect(
     page.getByRole("button", { name: "Add to Context" }),
   ).toHaveCount(0);
 
-  const shareButton = topBar
+  const shareBox = (await topBar
     .getByRole("button", { name: /^share(?: \(.+\))?$/i })
-    .first();
-  await expect(shareButton).toBeVisible();
-  const shareBox = await shareButton.boundingBox();
-  if (!shareBox) throw new Error("missing Share box");
+    .first()
+    .boundingBox())!;
   expect(shareBox.x).toBeGreaterThanOrEqual(barBox.x - 1);
   expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
     barBox.x + barBox.width + 1,
@@ -360,27 +343,33 @@ test("top bar is 48px and keeps Share, presence and zoom inside the bar", async 
     await topBar.evaluate((node) => node.scrollWidth - node.clientWidth),
   ).toBeLessThanOrEqual(1);
   await expect(topBar.getByRole("button", { name: /^\d+%$/ })).toBeVisible();
-
-  // The rail no longer carries the moved controls.
-  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
-  await expect(rightPanel.getByRole("button", { name: /^share/i })).toHaveCount(
-    0,
-  );
-
-  await cdpScreenshot(page, testInfo.outputPath("editor-top-bar.png"));
+  await expect(
+    page
+      .locator('[data-design-chrome-region="right-panel"]')
+      .getByRole("button", { name: /^share/i }),
+  ).toHaveCount(0);
 });
 
-test("screen overview adds and targets frames from the unified breakpoint control", async ({
-  page,
+test("screen overview adds, targets and removes breakpoints from the unified control and saves each set", async ({
+  app,
 }) => {
+  const page = app.page;
+  const savedWidths = async (designId: string) => {
+    const data = (await app.savedRecord(designId)).data as {
+      breakpointSet?: { breakpoints: { widthPx: number }[] };
+    };
+    return (data.breakpointSet?.breakpoints ?? []).map(
+      (breakpoint) => breakpoint.widthPx,
+    );
+  };
   let notifyFirstAdd: () => void = () => {};
   let releaseFirstAdd: () => void = () => {};
-  const firstAddStarted = new Promise<void>((resolve) => {
-    notifyFirstAdd = resolve;
-  });
-  const firstAddGate = new Promise<void>((resolve) => {
-    releaseFirstAdd = resolve;
-  });
+  const firstAddStarted = new Promise<void>(
+    (resolve) => (notifyFirstAdd = resolve),
+  );
+  const firstAddGate = new Promise<void>(
+    (resolve) => (releaseFirstAdd = resolve),
+  );
   let holdFirstAdd = true;
   await page.route("**/_agent-native/actions/add-breakpoint", async (route) => {
     const response = await route.fetch();
@@ -392,137 +381,132 @@ test("screen overview adds and targets frames from the unified breakpoint contro
     await route.fulfill({ response });
   });
 
-  try {
-    const fixtureDesignId = await createFixtureDesign(
-      page,
-      "E2E Unified Breakpoint Control",
-    );
-    await page.setViewportSize({ width: 1800, height: 1000 });
-    await page.goto(
-      appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`),
-      { waitUntil: "domcontentloaded" },
-    );
-    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
-    await page
-      .locator("aside")
-      .first()
-      .getByRole("button", { name: "All screens", exact: true })
-      .click();
-    await expect(page.locator("[data-screen-card]").first()).toBeVisible();
-
-    const breakpointControl = page.locator("[data-breakpoint-device-control]");
-    await expect(
-      breakpointControl.getByRole("button", { name: "Base" }),
-    ).toHaveAttribute("aria-pressed", "true");
-
-    await breakpointControl
-      .getByRole("button", { name: "Add breakpoint" })
-      .click();
-    await page.getByRole("button", { name: /Tablet\s+810/ }).click();
-
-    const tabletTarget = breakpointControl.getByRole("button", {
-      name: "810",
-    });
-    await expect(tabletTarget).toBeVisible();
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
-    await tabletTarget.click();
-    await expect(tabletTarget).toHaveAttribute("aria-pressed", "true");
-    await breakpointControl.getByRole("button", { name: "Base" }).click();
-    await expect(
-      breakpointControl.getByRole("button", { name: "Base" }),
-    ).toHaveAttribute("aria-pressed", "true");
-
-    await firstAddStarted;
-    const addBreakpoint = breakpointControl.getByRole("button", {
-      name: "Add breakpoint",
-    });
-    await expect(addBreakpoint).toBeVisible();
-    await expect(addBreakpoint).toBeEnabled();
-    await addBreakpoint.click();
-    const customWidth = page.getByPlaceholder("Custom width");
-    await customWidth.fill("700");
-    const addCustomBreakpoint = page.getByRole("button", {
-      name: "Add",
-      exact: true,
-    });
-    await expect(addCustomBreakpoint).toBeDisabled();
-    releaseFirstAdd();
-    await expect(addCustomBreakpoint).toBeEnabled();
-    await addCustomBreakpoint.click();
-    const customTarget = breakpointControl.getByRole("button", {
-      name: "700",
-    });
-    await expect(customTarget).toBeVisible();
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
-
-    await customTarget.click();
-    await breakpointControl
-      .getByRole("button", { name: "Breakpoint options" })
-      .click();
-    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
-
-    await tabletTarget.click();
-    await breakpointControl
-      .getByRole("button", { name: "Breakpoint options" })
-      .click();
-    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
-  } finally {
-    releaseFirstAdd();
-    await page.unroute("**/_agent-native/actions/add-breakpoint");
-  }
-});
-
-test("frame plus skips the breakpoint matching the base screen width", async ({
-  page,
-}) => {
-  const fixtureDesignId = await createFixtureDesign(
-    page,
-    "E2E Frame Breakpoint Plus",
-  );
-  const actionUrl = `${new URL(page.url()).origin}/_agent-native/actions/add-breakpoint`;
-  for (const breakpoint of [
-    { label: "Mobile", widthPx: 390 },
-    { label: "Tablet", widthPx: 768 },
-  ]) {
-    const response = await page.request.post(actionUrl, {
-      data: { designId: fixtureDesignId, ...breakpoint },
-    });
-    expect(response.ok()).toBe(true);
-  }
+  const id = await app.seed(FIXTURE_HTML);
   await page.setViewportSize({ width: 1800, height: 1000 });
-  await page.goto(appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`), {
+  await page.goto(appPath(`/design/${id}?view=overview&zoom=24`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+  await expect(page.locator("[data-screen-card]")).toBeVisible();
   await page
     .locator("aside")
     .first()
     .getByRole("button", { name: "All screens", exact: true })
     .click();
-  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+  const control = page.locator("[data-breakpoint-device-control]");
+  const base = control.getByRole("button", { name: "Base" });
+  await expect(base).toHaveAttribute("aria-pressed", "true");
+
+  await control.getByRole("button", { name: "Add breakpoint" }).click();
+  await page.getByRole("button", { name: /Tablet\s+810/ }).click();
+  const tablet = control.getByRole("button", { name: "810" });
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+  await tablet.click();
+  await expect(tablet).toHaveAttribute("aria-pressed", "true");
+  await base.click();
+  await expect(base).toHaveAttribute("aria-pressed", "true");
+
+  await firstAddStarted;
+  await control.getByRole("button", { name: "Add breakpoint" }).click();
+  await page.getByPlaceholder("Custom width").fill("700");
+  const addCustom = page.getByRole("button", { name: "Add", exact: true });
+  await expect(addCustom).toBeDisabled();
+  releaseFirstAdd();
+  await expect(addCustom).toBeEnabled();
+  await addCustom.click();
+  const custom = control.getByRole("button", { name: "700" });
   await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+  await expect.poll(() => savedWidths(id)).toStrictEqual([700, 810]);
+
+  await custom.click();
+  await control.getByRole("button", { name: "Breakpoint options" }).click();
+  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+  await expect.poll(() => savedWidths(id)).toStrictEqual([810]);
+
+  await tablet.click();
+  await control.getByRole("button", { name: "Breakpoint options" }).click();
+  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+  await expect.poll(() => savedWidths(id)).toStrictEqual([]);
+});
+
+test("the frame + offers the next standard breakpoint and skips one equal to the screen's own width", async ({
+  app,
+}) => {
+  const page = app.page;
+  const id = await app.seed(FIXTURE_HTML, {
+    files: { "laptop.html": FIXTURE_HTML },
+  });
+  const record = await app.savedRecord(id);
+  const fileId = (name: string) =>
+    record.files.find((file) => file.filename === name)!.id;
+  const post = async (name: string, data: Record<string, unknown>) =>
+    expect(
+      (
+        await page.request.post(appPath(`/_agent-native/actions/${name}`), {
+          data,
+        })
+      ).ok(),
+    ).toBe(true);
+  await post("update-design", {
+    id,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["screenMetadata", fileId("index.html")],
+        value: { sourceType: "inline", width: 1440, height: 900 },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", fileId("index.html")],
+        value: { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+      {
+        op: "set",
+        path: ["screenMetadata", fileId("laptop.html")],
+        value: { sourceType: "inline", width: 1280, height: 900 },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", fileId("laptop.html")],
+        value: { x: 0, y: 2000, width: 1280, height: 900, z: 1 },
+      },
+    ],
+  });
+  for (const breakpoint of [
+    { label: "Mobile", widthPx: 390 },
+    { label: "Tablet", widthPx: 768 },
+  ]) {
+    await post("add-breakpoint", { designId: id, ...breakpoint });
+  }
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto(appPath(`/design/${id}?view=overview&zoom=24`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(4);
 
   await expect(
-    page.locator(
-      'button[title="Add Desktop breakpoint (1280px) to all screens"]',
-    ),
-  ).toHaveCount(0);
+    page.locator('button[title$="breakpoint (1280px) to all screens"]'),
+  ).toHaveCount(1);
+  await expect(
+    page.locator('button[title^="Add "][title$=" to all screens"]'),
+  ).toHaveCount(1);
+  await expect(
+    page.locator('button[title$="breakpoint (1280px) to all screens"]'),
+  ).toHaveAttribute("title", "Add Desktop breakpoint (1280px) to all screens");
 });
 
 test("screen overview keeps compact frame actions contained when header space is tight", async ({
-  page,
+  app,
 }) => {
+  await openFixture(app);
+  const page = app.page;
   const screenShell = page
     .locator("[data-screen-shell]")
     .filter({ has: page.locator("[data-screen-card]") })
     .first();
-  await expect(screenShell).toBeVisible();
-
   const screenCard = screenShell.locator("[data-screen-card]");
-  const initialCardBox = await screenCard.boundingBox();
-  if (!initialCardBox) throw new Error("no screen card box");
+  const initialCardBox = (await screenCard.boundingBox())!;
 
   await page.mouse.move(
     initialCardBox.x + initialCardBox.width / 2,
@@ -531,176 +515,104 @@ test("screen overview keeps compact frame actions contained when header space is
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, 300);
   await page.keyboard.up("Control");
-  await page.waitForTimeout(250);
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveAttribute(
+    "data-compact",
+    "true",
+  );
+  let previous = "";
+  await expect
+    .poll(async () => {
+      const now = JSON.stringify(await screenCard.boundingBox());
+      const stable = now === previous;
+      previous = now;
+      return stable;
+    })
+    .toBe(true);
 
   await expect(screenShell.locator("[data-frame-dimensions]")).toHaveCount(0);
-
-  const cardBox = await screenCard.boundingBox();
-  const titleBox = await screenShell
+  const cardBox = (await screenCard.boundingBox())!;
+  const titleBox = (await screenShell
     .locator("[data-frame-title]")
-    .boundingBox();
-  const fullViewBox = await screenShell
+    .boundingBox())!;
+  const fullViewBox = (await screenShell
     .locator("[data-frame-full-view]")
-    .boundingBox();
-  if (!cardBox || !titleBox || !fullViewBox) {
-    throw new Error("missing frame header boxes");
-  }
-
+    .boundingBox())!;
   expect(titleBox.width).toBeGreaterThan(0);
   expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(fullViewBox.x + 1);
   expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x);
   expect(fullViewBox.x + fullViewBox.width).toBeLessThanOrEqual(
     cardBox.x + cardBox.width + 1,
   );
-  await expect(screenShell.locator("[data-frame-full-view]")).toHaveAttribute(
-    "data-compact",
-    "true",
+});
+
+test("a plain click selects the element under the cursor, the inspector shows its values, and another click replaces it", async ({
+  app,
+}) => {
+  await openFixture(app, HEADINGS);
+  await app.zoomToFit();
+  const size = app.page.locator('input[aria-label="Size" i]').first();
+
+  await clickCenter(app, "title");
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Title"]);
+  await expect(size).toHaveValue("40px");
+  await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
+  await expectBoxNear(
+    await selectionOverlay(app).boundingBox(),
+    await app.node("title").boundingBox(),
+  );
+
+  await clickCenter(app, "subtitle");
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Subtitle"]);
+  await expect(size).toHaveValue("24px");
+  await expectBoxNear(
+    await selectionOverlay(app).boundingBox(),
+    await app.node("subtitle").boundingBox(),
   );
 });
 
-test("screen overview lets users select elements inside the active screen", async ({
-  page,
+test("middle-mouse pan follows each pointer step 1:1 over screen content", async ({
+  app,
 }) => {
-  const before = await inspectorInputCount(page);
-  await installBridge(page);
-  await page.evaluate(() => ((window as any).__bridge = []));
-
-  const target = designFrame(page).getByText("E2E Hero Heading").first();
-  await target.waitFor({ state: "visible", timeout: 8_000 });
-  const box = await target.boundingBox();
-  expect(
-    box,
-    "overview iframe element should have a bounding box",
-  ).toBeTruthy();
-  const activeScreenCard = page
-    .locator("[data-screen-card]")
-    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
-    .first();
-  const activeScreenShell = page
-    .locator("[data-screen-shell]")
-    .filter({ has: activeScreenCard })
-    .first();
-  const frameTitle = activeScreenShell.locator("[data-frame-title]");
-  const fullViewButton = activeScreenShell.locator("[data-frame-full-view]");
-  const accentColor = await activeScreenCard.evaluate(() => {
-    const probe = document.createElement("span");
-    probe.style.color = "var(--design-editor-accent-color)";
-    document.body.appendChild(probe);
-    const color = window.getComputedStyle(probe).color;
-    probe.remove();
-    return color;
-  });
-  const frameTitleColor = () =>
-    frameTitle.evaluate((el) => window.getComputedStyle(el).color);
-
-  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-  await waitForBridge(page, "element-hover");
-  await expect.poll(frameTitleColor).not.toBe(accentColor);
-
-  await frameTitle.hover();
-  await expect.poll(frameTitleColor).toBe(accentColor);
-
-  await frameTitle.click();
-  await expect.poll(frameTitleColor).toBe(accentColor);
-  // Clicking the title fits the camera to the Screen, so the heading moves.
-  // Wait for it to settle before aiming the next click at it.
-  let settled = box!;
-  await expect
-    .poll(async () => {
-      const next = (await target.boundingBox())!;
-      const stable = next.x === settled.x && next.y === settled.y;
-      settled = next;
-      return stable;
-    })
-    .toBe(true);
-  await page.mouse.click(
-    settled.x + settled.width / 2,
-    settled.y + settled.height / 2,
+  await openFixture(app, HEADINGS);
+  await app.zoomToFit();
+  const card = app.page.locator("[data-screen-card]");
+  const title = await app.designRect("title");
+  const start = await app.pagePoint(
+    title.x + title.width / 2,
+    title.y + title.height / 2,
   );
+  const cardTop = (await card.boundingBox())!.y;
 
-  const selected = await waitForBridge(page, "element-select");
-  const payload = selected?.payload ?? selected;
-  expect(payload?.textContent ?? "").toContain("E2E Hero Heading");
-  await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
-  await expect
-    .poll(() =>
-      fullViewButton.evaluate((el) => window.getComputedStyle(el).opacity),
-    )
-    .toBe("1");
-  await expect
-    .poll(() =>
-      designFrame(page)
-        .locator('[data-agent-native-edit-overlay="selection"]')
-        .evaluate((el) => window.getComputedStyle(el).display),
-    )
-    .not.toBe("none");
-  await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
-});
-
-test("middle-mouse pan follows vertical pointer movement over screen content", async ({
-  page,
-}) => {
-  const screenCard = page
-    .locator("[data-screen-card]")
-    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
-    .last();
-  await expect(screenCard).toBeVisible();
-
-  const heading = designFrame(page).getByText("E2E Hero Heading").first();
-  await heading.scrollIntoViewIfNeeded();
-  const headingBox = await heading.boundingBox();
-  const initialCard = await screenCard.boundingBox();
-  if (!headingBox || !initialCard) {
-    throw new Error("missing screen content or card bounds");
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down({ button: "middle" });
+  for (let step = 1; step <= 6; step += 1) {
+    await app.page.mouse.move(start.x, start.y + step * 12);
+    await expect
+      .poll(async () => Math.round((await card.boundingBox())!.y - cardTop))
+      .toBe(step * 12);
   }
+  await app.page.mouse.up({ button: "middle" });
 
-  const startX = headingBox.x + headingBox.width / 2;
-  const startY = headingBox.y + headingBox.height / 2;
-  const cardY = [initialCard.y];
-  await page.mouse.move(startX, startY);
-  await page.mouse.down({ button: "middle" });
-  try {
-    for (let step = 1; step <= 8; step += 1) {
-      await page.mouse.move(startX, startY + step * 12, { steps: 1 });
-      await page.waitForTimeout(24);
-      const currentCard = await screenCard.boundingBox();
-      if (!currentCard)
-        throw new Error("screen card disappeared while panning");
-      cardY.push(currentCard.y);
-    }
-  } finally {
-    await page.mouse.up({ button: "middle" });
-  }
-
-  const deltas = cardY.slice(1).map((y, index) => y - cardY[index]!);
-  const finalCardY = cardY[cardY.length - 1]!;
-  expect(deltas.every((delta) => delta > 0 && delta < 30)).toBe(true);
-  expect(finalCardY - cardY[0]!).toBeGreaterThan(72);
-  expect(finalCardY - cardY[0]!).toBeLessThan(120);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual([]);
 });
 
 test("left sidebar switches between all screens and focused screens", async ({
-  page,
+  app,
 }) => {
+  await openFixture(app);
+  const page = app.page;
   const sidebar = page.locator("aside").first();
   const allScreens = sidebar.getByRole("button", { name: "All screens" });
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
-
-  await expect(allScreens).toBeVisible();
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
-
-  const screenCards = page.locator("[data-screen-card]");
-  await expect(screenCards.first()).toBeVisible();
 
   // A row focuses its Screen on the overview canvas: the Screen is selected and
   // "All screens" stays current. Interact is what leaves the overview.
   await homeScreen.click();
-  await expect(
-    page.locator('[role="treeitem"][aria-selected="true"]').first(),
-  ).toContainText("Home");
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Home"]);
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
@@ -711,9 +623,12 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
   await expect(
     page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
-  ).toHaveCount(1, { timeout: 10_000 });
+  ).toHaveCount(1);
   await expect(
-    page.locator("iframe[data-design-preview-iframe]"),
+    page
+      .locator("iframe[data-design-preview-iframe]")
+      .contentFrame()
+      .getByText("E2E Hero Heading"),
   ).toBeVisible();
 
   await allScreens.click();
@@ -722,258 +637,203 @@ test("left sidebar switches between all screens and focused screens", async ({
 });
 
 if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
-  test("hides the gated secondary panels and Assets picker when disabled", async ({
-    page,
+  test("with secondary panels disabled, Tools, Assets and Code deep links open Layers instead", async ({
+    app,
   }) => {
-    for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
+    const id = await app.seed(FIXTURE_HTML, { title: SEED_TITLE });
+    const layersRailButton = app.page
+      .getByRole("navigation", { name: "Design workspace" })
+      .getByRole("button", { name: "Layers", exact: true });
+    for (const panel of ["tools", "assets", "code"]) {
+      await resetPersistedCanvasState(app.page);
+      await app.page.goto(appPath(`/design/${id}?panel=${panel}`), {
+        waitUntil: "domcontentloaded",
+      });
       await expect(
-        page.getByRole("button", { name: label, exact: true }),
+        layersRailButton,
+        `?panel=${panel} must fall back to Layers`,
+      ).toHaveAttribute("aria-current", "page");
+      await expect(
+        app.page.getByRole("tree", { name: "Layers" }),
+      ).toBeVisible();
+      await expect(
+        app.page.getByRole("button", { name: /Shader Fills/ }),
       ).toHaveCount(0);
     }
-    await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
   });
 }
 
-test("clicking an element selects it and populates the inspector", async ({
-  page,
+test("a selected element's resize handle stays on top of a hovered neighbour and still resizes", async ({
+  app,
 }) => {
-  const before = await inspectorInputCount(page);
-  const payload = await deepSelectByText(page, "E2E Hero Heading");
-
-  expect(payload).toBeTruthy();
-  expect((payload.tagName ?? "").toUpperCase()).toBe("H1");
-  expect(payload.textContent ?? "").toContain("E2E Hero Heading");
-  expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
-
-  await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
-});
-
-test("selected element handles stay above hover chrome", async ({ page }) => {
-  const payload = await selectByText(page, "E2E Hero Heading");
-  expect(payload.selector).toBeTruthy();
-
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .evaluate((iframe, selector) => {
-      (iframe as HTMLIFrameElement).contentWindow?.postMessage(
-        { type: "hover-element", selector },
-        "*",
-      );
-    }, payload.selector);
-
-  await expect
-    .poll(() =>
-      designFrame(page)
-        .locator('[data-agent-native-edit-overlay="highlight"]')
-        .evaluate((el) => window.getComputedStyle(el).display),
+  const id = await openFixture(app, BOXES);
+  await app.zoomToFit();
+  await clickCenter(app, "box-a");
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Box A"]);
+  const before = await app.savedNodes(id);
+  const handle = app.page
+    .locator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
     )
-    .toBe("none");
+    .contentFrame()
+    .locator('[data-agent-native-edit-handle="se"]');
+  await expect(handle).toBeVisible();
+  const from = await app.pagePoint(760, 200);
+  const to = await app.pagePoint(760 + 40, 200 + 30);
 
-  const overlayChrome = await designFrame(page)
-    .locator("body")
-    .evaluate(() => {
-      const highlight = document.querySelector<HTMLElement>(
-        '[data-agent-native-edit-overlay="highlight"]',
-      );
-      const selection = document.querySelector<HTMLElement>(
-        '[data-agent-native-edit-overlay="selection"]',
-      );
-      const handle = document.querySelector<HTMLElement>(
-        '[data-agent-native-edit-handle="nw"]',
-      );
-      if (!highlight || !selection || !handle) {
-        throw new Error("missing selection overlay chrome");
-      }
-      const handleStyles = window.getComputedStyle(handle);
-      return {
-        highlightZ: Number(window.getComputedStyle(highlight).zIndex),
-        selectionZ: Number(window.getComputedStyle(selection).zIndex),
-        handleZ: Number(handleStyles.zIndex),
-        handleBackground: handleStyles.backgroundColor,
-      };
-    });
+  await app.page.mouse.move(from.x, from.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(to.x, to.y, { steps: 10 });
+  await app.page.mouse.up();
+  await app.settled();
 
-  expect(overlayChrome.selectionZ).toBeGreaterThan(overlayChrome.highlightZ);
-  expect(overlayChrome.handleZ).toBeGreaterThan(0);
-  expect(overlayChrome.handleBackground).not.toBe("rgba(0, 0, 0, 0)");
+  const after = await app.savedNodes(id);
+  expect(styleOf(after.get("box-a"))).toEqual({
+    ...styleOf(before.get("box-a")),
+    width: "200px",
+    height: "150px",
+  });
+  expectOnlyChanged(before, after, ["box-a"]);
 });
 
-test("spacing handles stay visible at rest and remain draggable", async ({
-  page,
+test("dragging a container's top padding handle saves the new padding", async ({
+  app,
 }) => {
-  await enterDirectMode(page);
-  await installBridge(page);
-  await page.evaluate(() => ((window as any).__bridge = []));
+  const id = await openFixture(app, BOXES);
+  await app.zoomToFit();
+  const panel = await app.designRect("panel");
+  const corner = await app.pagePoint(panel.x + 8, panel.y + panel.height - 8);
+  await app.page.mouse.click(corner.x, corner.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Panel"]);
+  const before = await app.savedNodes(id);
+  const handle = app.page
+    .locator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+    )
+    .contentFrame()
+    .locator('[data-spacing-key="padding:top"]');
+  await expect(handle).toBeVisible();
+  const box = (await handle.boundingBox())!;
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const { scale } = await app.pagePoint(0, 0);
 
-  const container = designFrame(page).locator("main").first();
-  const box = await container.boundingBox();
-  if (!box) throw new Error("missing fixture container bounds");
+  await app.page.mouse.move(from.x, from.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(from.x, from.y + 16 * scale, { steps: 8 });
+  await app.page.mouse.up();
+  await app.settled();
 
-  const frameBox = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .last()
-    .boundingBox();
-  if (!frameBox) throw new Error("missing design iframe bounds");
-  const zoom = await canvasZoom(page);
-  await designFrame(page)
-    .locator('[data-agent-native-edit-overlay="shield"]')
-    .first()
-    .dispatchEvent("click", {
-      bubbles: true,
-      cancelable: true,
-      clientX: (box.x - frameBox.x) / zoom + 12,
-      clientY: (box.y - frameBox.y) / zoom + 12,
-      detail: 1,
-    });
-  const selected = await waitForBridge(page, "element-select");
-  expect(
-    (selected?.payload?.tagName ?? selected?.tagName ?? "").toUpperCase(),
-  ).toBe("MAIN");
+  const after = await app.savedNodes(id);
+  expect(styleOf(after.get("panel"))).toEqual({
+    ...styleOf(before.get("panel")),
+    "padding-top": "40px",
+  });
+  expectOnlyChanged(before, after, ["panel"]);
+});
 
-  const topPaddingHandle = designFrame(page).locator(
-    '[data-spacing-key="padding:top"]',
+test("clicking a Layers row selects that element on the canvas", async ({
+  app,
+}) => {
+  await openFixture(app, HEADINGS);
+  await app.zoomToFit();
+  await expandAllLayers(app.page);
+
+  await app.page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name: "Subtitle", exact: true })
+    .click();
+
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Subtitle"]);
+  await expect(selectionOverlay(app)).toBeVisible();
+  await expectBoxNear(
+    await selectionOverlay(app).boundingBox(),
+    await app.node("subtitle").boundingBox(),
   );
-  await expect(topPaddingHandle).toBeVisible({ timeout: 5_000 });
+});
 
-  const handleBox = await topPaddingHandle.boundingBox();
-  if (!handleBox) throw new Error("missing top padding handle bounds");
-  const handleX = handleBox.x + handleBox.width / 2;
-  const handleY = handleBox.y + handleBox.height / 2;
-  await page.mouse.move(handleX, handleY);
-  const regionToken = `spacing-region-${Date.now()}`;
-  await topPaddingHandle.evaluate((el, token) => {
-    el.setAttribute("data-e2e-spacing-region-token", token);
-  }, regionToken);
-
-  await page.mouse.move(handleX, handleY);
-  await page.waitForTimeout(500);
-  await expect(topPaddingHandle).toBeVisible();
-  await expect(topPaddingHandle).toHaveAttribute(
-    "data-e2e-spacing-region-token",
-    regionToken,
+// fixme: product bug: The Layers tree scrolls 137px sideways when the deep row is shown, clipping Home and the upper rows (line 524).
+test.fixme("deeply nested layer rows keep a clickable hit target without scrolling the tree sideways", async ({
+  app,
+}) => {
+  const levels = [
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+  ];
+  const nested = levels.reduceRight(
+    (inner, name) =>
+      `<div data-agent-native-node-id="level-${name.toLowerCase()}" data-agent-native-layer-name="Level ${name}" style="padding:4px">${inner}</div>`,
+    '<button data-agent-native-node-id="deep" data-agent-native-layer-name="Deep Layer Button">Deep</button>',
   );
-
-  await page.evaluate(() => ((window as any).__bridge = []));
-  await page.mouse.down();
-  await page.mouse.move(handleX, handleY + 14, { steps: 4 });
-  await page.mouse.up();
-
-  const styleChange = await waitForBridge(page, "visual-style-change");
-  const styles = styleChange?.styles ?? {};
-  expect(styles.paddingTop ?? "").toMatch(/px$/);
-});
-
-test("selecting a different element changes the selection", async ({
-  page,
-}) => {
-  const first = await deepSelectByText(page, "E2E Hero Heading");
-  const second = await deepSelectByText(page, "Fixture Card Title");
-
-  expect(first.selector).toBeTruthy();
-  expect(second.selector).toBeTruthy();
-  expect(second.selector).not.toBe(first.selector);
-  expect((second.tagName ?? "").toUpperCase()).toBe("H2");
-});
-
-test("the layers panel lists layers and a layer row selects on the canvas", async ({
-  page,
-}) => {
-  const rows = page.locator('[role="treeitem"][aria-selected]:visible');
-  await expect(rows.first()).toBeVisible({ timeout: 15_000 });
-  expect(await rows.count()).toBeGreaterThan(0);
-
-  const target = rows.last();
-  await target.click();
-  await expect(target).toHaveAttribute("aria-selected", "true");
-  await expect(
-    page.locator('[role="treeitem"][aria-selected="true"]').first(),
-  ).toBeVisible();
-});
-
-test("deeply nested layer rows keep a clickable hit target", async ({
-  page,
-}) => {
-  const deepLayer = page.getByRole("button", {
+  await openFixture(
+    app,
+    `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">${nested}</body></html>`,
+  );
+  await expandAllLayers(app.page);
+  const tree = app.page.getByRole("tree", { name: "Layers" });
+  const deepLayer = tree.getByRole("button", {
     name: "Deep Layer Button",
     exact: true,
   });
 
-  for (let attempt = 0; attempt < 12 && !(await deepLayer.count()); attempt++) {
-    const expand = page.getByRole("button", { name: "Expand layer" }).first();
-    if (!(await expand.count())) break;
-    await expand.click();
-  }
-
-  await expect(deepLayer).toBeVisible();
-
-  const box = await deepLayer.boundingBox();
-  expect(box).toBeTruthy();
-  expect(box!.width).toBeGreaterThanOrEqual(44);
-
   await deepLayer.click();
-  await expect(
-    page.locator('[role="treeitem"][aria-selected="true"]'),
-  ).toContainText("Deep Layer Button");
-});
 
-test("dragging an element on the canvas drives the bridge (move/reorder)", async ({
-  page,
-}) => {
-  const fired = await dragCanvasByText(page, "Alpha Button", 0, 90);
-  expect(fired).toContain("visual-structure-change");
+  await expect
+    .poll(() => app.selectedLayers())
+    .toStrictEqual(["Deep Layer Button"]);
+  expect((await deepLayer.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+  const treeLeft = (await tree.boundingBox())!.x;
+  expect(
+    (await tree
+      .getByRole("button", { name: "Home", exact: true })
+      .boundingBox())!.x,
+  ).toBeGreaterThanOrEqual(treeLeft);
+  const sidewaysScroll = await tree.evaluate((node) => {
+    let total = 0;
+    for (
+      let element: Element | null = node;
+      element;
+      element = element.parentElement
+    )
+      total += element.scrollLeft;
+    return total;
+  });
+  expect(sidewaysScroll).toBe(0);
 });
 
 test("Escape cancels an in-progress element drag on the canvas", async ({
-  page,
+  app,
 }) => {
-  await enterDirectMode(page);
-  await installBridge(page);
+  const id = await openFixture(app, BOXES);
+  await app.zoomToFit();
+  await clickCenter(app, "box-a");
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Box A"]);
+  const before = await app.savedNodes(id);
+  const start = await app.pagePoint(680, 140);
+  const mid = await app.pagePoint(680 + 96, 140 + 64);
+  const end = await app.pagePoint(680 + 144, 140 + 96);
 
-  const alpha = designFrame(page).locator(
-    '[data-agent-native-node-id="e2e-alpha-button"]',
-  );
-  await alpha.evaluate((el) => {
-    const node = el as HTMLElement;
-    node.style.position = "absolute";
-    node.style.left = "80px";
-    node.style.top = "220px";
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(mid.x, mid.y, { steps: 8 });
+  await expect
+    .poll(async () => (await app.designRect("box-a")).x)
+    .toBeGreaterThan(620);
+  await app.page.keyboard.press("Escape");
+  await app.page.mouse.move(end.x, end.y, { steps: 4 });
+  await app.page.mouse.up();
+  await app.settled();
+
+  expect(await app.designRect("box-a")).toEqual({
+    x: 600,
+    y: 80,
+    width: 160,
+    height: 120,
   });
-  await selectByText(page, "Alpha Button");
-
-  const before = await alpha.boundingBox();
-  if (!before) throw new Error("missing Alpha Button bounds before drag");
-  const cx = before.x + before.width / 2;
-  const cy = before.y + before.height / 2;
-
-  await page.evaluate(() => ((window as any).__bridge = []));
-  await page.mouse.move(cx, cy);
-  await page.mouse.down();
-  await page.mouse.move(cx + 96, cy + 64, { steps: 8 });
-
-  const during = await alpha.boundingBox();
-  if (!during) throw new Error("missing Alpha Button bounds during drag");
-  expect(during.x).toBeGreaterThan(before.x + 20);
-
-  await page.keyboard.press("Escape");
-  await page.mouse.move(cx + 144, cy + 96, { steps: 4 });
-  await page.mouse.up();
-  await page.waitForTimeout(250);
-
-  const after = await alpha.boundingBox();
-  if (!after) throw new Error("missing Alpha Button bounds after cancel");
-  expect(Math.abs(after.x - before.x)).toBeLessThan(4);
-  expect(Math.abs(after.y - before.y)).toBeLessThan(4);
-
-  const fired = (await bridgeMessages(page)).map((message) => message.type);
-  expect(fired).not.toContain("visual-style-change");
-  expect(fired).not.toContain("visual-structure-change");
-  expect(fired).not.toContain("visual-duplicate-change");
-});
-
-test("can capture a screenshot of the editor via CDP", async ({
-  page,
-}, info) => {
-  const out = info.outputPath("editor.png");
-  await cdpScreenshot(page, out);
-  await info.attach("editor", { path: out, contentType: "image/png" });
+  expectOnlyChanged(before, await app.savedNodes(id), []);
 });

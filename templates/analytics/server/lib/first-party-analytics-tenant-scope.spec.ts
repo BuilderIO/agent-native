@@ -10,43 +10,74 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
-const database = vi.hoisted(() => ({
-  client: null as null | {
-    query: (
-      sql: string,
-      args: unknown[],
-    ) => Promise<{ rows: unknown[]; affectedRows?: number }>;
-    transaction: <T>(
-      callback: (tx: {
-        query: (
-          sql: string,
-          args: unknown[],
-        ) => Promise<{ rows: unknown[]; affectedRows?: number }>;
-      }) => Promise<T>,
-    ) => Promise<T>;
-  },
-}));
+const database = vi.hoisted(() => {
+  // PGlite has one protocol connection. Keep database operations serial while
+  // exercising concurrent Analytics requests and cache-key isolation.
+  const state = { queue: Promise.resolve() };
+  return {
+    client: null as null | {
+      query: (
+        sql: string,
+        args: unknown[],
+      ) => Promise<{ rows: unknown[]; affectedRows?: number }>;
+      transaction: <T>(
+        callback: (tx: {
+          query: (
+            sql: string,
+            args: unknown[],
+          ) => Promise<{ rows: unknown[]; affectedRows?: number }>;
+        }) => Promise<T>,
+      ) => Promise<T>;
+    },
+    runExclusive: async <T>(operation: () => Promise<T>): Promise<T> => {
+      const previous = state.queue;
+      let release!: () => void;
+      state.queue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        return await operation();
+      } finally {
+        release();
+      }
+    },
+    waitForOperations: () => state.queue,
+  };
+});
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({
     execute: async ({ sql, args }: { sql: string; args?: unknown[] }) => {
-      if (!database.client) throw new Error("test database is not open");
-      const result = await database.client.query(sql, args ?? []);
-      return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+      const client = database.client;
+      if (!client) throw new Error("test database is not open");
+      return database.runExclusive(async () => {
+        const result = await client.query(sql, args ?? []);
+        return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+      });
     },
     transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
-      if (!database.client) throw new Error("test database is not open");
-      return database.client.transaction((tx) =>
-        callback({
-          execute: async ({ sql, args }: { sql: string; args?: unknown[] }) => {
-            const result = await tx.query(sql, args ?? []);
-            return {
-              rows: result.rows,
-              rowsAffected: result.affectedRows ?? 0,
-            };
-          },
-        }),
+      const client = database.client;
+      if (!client) throw new Error("test database is not open");
+      return database.runExclusive(() =>
+        client.transaction((tx) =>
+          callback({
+            execute: async ({
+              sql,
+              args,
+            }: {
+              sql: string;
+              args?: unknown[];
+            }) => {
+              const result = await tx.query(sql, args ?? []);
+              return {
+                rows: result.rows,
+                rowsAffected: result.affectedRows ?? 0,
+              };
+            },
+          }),
+        ),
       );
     },
   }),
@@ -123,6 +154,7 @@ describe("first-party session recording reads follow the app's sharing rules (PG
   });
 
   afterEach(async () => {
+    await database.waitForOperations();
     database.client = null;
     await client?.close();
   });
