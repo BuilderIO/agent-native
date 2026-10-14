@@ -109,6 +109,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
+import type { SqlQueryFreshness } from "@/lib/sql-query-freshness";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -1184,6 +1185,63 @@ function ConfigWarning({ keys }: { keys: string[] }) {
   );
 }
 
+/** The time alone for today's fetch, with the date once it is older. */
+function fetchedTimeFormat(fetchedAt: string): Intl.DateTimeFormatOptions {
+  const fetched = new Date(fetchedAt);
+  const now = new Date();
+  const today =
+    fetched.getFullYear() === now.getFullYear() &&
+    fetched.getMonth() === now.getMonth() &&
+    fetched.getDate() === now.getDate();
+  return today
+    ? { hour: "numeric", minute: "2-digit" }
+    : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+}
+
+function SqlChartFreshnessText({
+  freshness,
+}: {
+  freshness: SqlQueryFreshness;
+}) {
+  const t = useT();
+  const formatters = useFormatters();
+  const { fetchedAt, cache } = freshness;
+  const parts = [
+    fetchedAt
+      ? t("sqlDashboard.fetchedAt", {
+          time: formatters.formatDate(fetchedAt, fetchedTimeFormat(fetchedAt)),
+        })
+      : t("sqlDashboard.fetchTimeUnknown"),
+  ];
+  if (cache === "app-cache") parts.push(t("sqlDashboard.cacheApp"));
+  else if (cache === "provider-cache")
+    parts.push(t("sqlDashboard.cacheProvider"));
+  else if (cache === "restored") parts.push(t("sqlDashboard.cacheRestored"));
+  else if (cache === "unknown") parts.push(t("sqlDashboard.cacheUnknown"));
+  // The overlay wrapper ignores pointer events so it never blocks the chart;
+  // the chip re-enables them so its full-timestamp title can show on hover.
+  return (
+    <span
+      data-dashboard-report-freshness={cache}
+      title={
+        fetchedAt
+          ? formatters.formatDate(fetchedAt, {
+              dateStyle: "long",
+              timeStyle: "medium",
+            })
+          : undefined
+      }
+      className="pointer-events-auto absolute right-0 top-0 z-10 inline-flex items-center rounded-full border bg-background/90 px-2 py-0.5 text-xs text-muted-foreground shadow-sm"
+    >
+      {fetchedAt ? (
+        <time dateTime={fetchedAt}>{parts.join(" · ")}</time>
+      ) : (
+        parts.join(" · ")
+      )}
+    </span>
+  );
+}
+
 function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
   const t = useT();
   const formatters = useFormatters();
@@ -1283,6 +1341,7 @@ export function SqlChart({
     isFetching: queryIsFetching,
     isPlaceholderData: queryIsPlaceholderData,
     error: queryError,
+    freshness: queryFreshness,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
@@ -1294,6 +1353,7 @@ export function SqlChart({
       retainPreviousScope,
       retainWhilePaused: retainWhileOffscreen,
       reuseCompletedOnEnable: retainWhileOffscreen,
+      snapshots: !isSection && !isExtension && !resultOverride,
     },
   );
 
@@ -1471,6 +1531,10 @@ export function SqlChart({
       >
         {t("sqlDashboard.previousFilters")}
       </span>
+    </div>
+  ) : queryFreshness ? (
+    <div className="pointer-events-none relative h-0">
+      <SqlChartFreshnessText freshness={queryFreshness} />
     </div>
   ) : null;
   const withConfigBanners = (node: ReactNode) => {

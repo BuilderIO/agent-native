@@ -1240,6 +1240,12 @@ export default {
     updating: "Wird aktualisiert",
     updatingPreviousFilters: "Vorherige Filter · Wird aktualisiert",
     previousFilters: "Vorherige Filter",
+    fetchedAt: "Abgerufen {{time}}",
+    fetchTimeUnknown: "Abrufzeit unbekannt",
+    cacheApp: "Im Cache",
+    cacheProvider: "BigQuery-Cache",
+    cacheRestored: "Gespeicherte Kopie",
+    cacheUnknown: "Cache-Status unbekannt",
     downloadCsv: "Laden Sie CSV herunter",
     copyTable: "Tabelle kopieren",
     multiColumnSortHelp:

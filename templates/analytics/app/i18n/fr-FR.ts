@@ -1237,6 +1237,12 @@ export default {
     updating: "Mise à jour",
     updatingPreviousFilters: "Filtres précédents · Mise à jour",
     previousFilters: "Filtres précédents",
+    fetchedAt: "Récupéré {{time}}",
+    fetchTimeUnknown: "Heure de récupération inconnue",
+    cacheApp: "En cache",
+    cacheProvider: "Cache BigQuery",
+    cacheRestored: "Copie enregistrée",
+    cacheUnknown: "État du cache inconnu",
     downloadCsv: "Télécharger CSV",
     copyTable: "Copier le tableau",
     multiColumnSortHelp:

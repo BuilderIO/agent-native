@@ -1211,6 +1211,12 @@ export default {
     updating: "更新中",
     updatingPreviousFilters: "前のフィルター · 更新中",
     previousFilters: "前のフィルター",
+    fetchedAt: "{{time}} に取得",
+    fetchTimeUnknown: "取得時刻は不明",
+    cacheApp: "キャッシュ",
+    cacheProvider: "BigQuery キャッシュ",
+    cacheRestored: "保存済みコピー",
+    cacheUnknown: "キャッシュの状態は不明",
     downloadCsv: "CSVをダウンロード",
     copyTable: "テーブルをコピー",
     multiColumnSortHelp:

@@ -1193,6 +1193,12 @@ export default {
     updating: "업데이트 중",
     updatingPreviousFilters: "이전 필터 · 업데이트 중",
     previousFilters: "이전 필터",
+    fetchedAt: "{{time}}에 가져옴",
+    fetchTimeUnknown: "가져온 시간 알 수 없음",
+    cacheApp: "캐시됨",
+    cacheProvider: "BigQuery 캐시",
+    cacheRestored: "저장된 사본",
+    cacheUnknown: "캐시 상태 알 수 없음",
     downloadCsv: "CSV 다운로드",
     copyTable: "표 복사",
     multiColumnSortHelp:

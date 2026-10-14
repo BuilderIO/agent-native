@@ -31,6 +31,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (value: string) => value,
+    formatNumber: (value: number) => String(value),
+  }),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -38,7 +42,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@/lib/cost-tracker", () => ({ addBytesProcessed: vi.fn() }));
+vi.mock("@/lib/cost-tracker", () => ({
+  addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
+}));
 
 vi.mock("@dnd-kit/core", () => ({
   useDraggable: () => ({

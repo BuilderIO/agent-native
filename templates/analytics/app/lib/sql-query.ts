@@ -9,11 +9,19 @@ import { useEffect, useRef } from "react";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
-import { addBytesProcessed } from "./cost-tracker";
+import { recordQueryCost } from "./cost-tracker";
 import {
   DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
 } from "./prefetch-keys";
+import {
+  describeSqlQueryFreshness,
+  type SqlQueryFreshness,
+} from "./sql-query-freshness";
+import {
+  readSqlQuerySnapshotForSession,
+  writeSqlQuerySnapshotForSession,
+} from "./sql-query-snapshot-session";
 
 export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
 
@@ -21,6 +29,14 @@ export interface SqlQueryResult {
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
+  /** The app's own result cache served these rows. */
+  cached?: boolean;
+  /** BigQuery answered from its query cache; absent means it did not say. */
+  providerCacheHit?: boolean;
+  /** Rows were cut short by a server cap. */
+  truncated?: boolean;
+  /** When the app first received these rows, not when the warehouse ran them. */
+  fetchedAt?: string;
 }
 
 type PendingSqlQuerySlot = {
@@ -139,40 +155,138 @@ type DashboardPanelQueryResponse = SqlQueryResult & {
   message?: string;
 };
 
+type SqlQueryTimingStatus = "success" | "error" | "cancelled" | "timeout";
+
+/** Sources whose queries scan BigQuery, so a lost request may still bill. */
+function scansBigQuery(source: DataSourceType): boolean {
+  return source === "bigquery" || source === "first-party";
+}
+
+/**
+ * One line per query with durations and outcome only. No SQL, rows, account
+ * or credentials, so it is safe to leave on in production.
+ */
+function logSqlQueryTiming(timing: {
+  status: SqlQueryTimingStatus;
+  source: DataSourceType;
+  cacheType: "none" | "app" | "provider" | "unknown";
+  forceRefresh: boolean;
+  queueMs: number;
+  requestMs: number;
+  totalMs: number;
+}): void {
+  console.info("[sql-query] timing", {
+    ...timing,
+    queueMs: Math.round(timing.queueMs),
+    requestMs: Math.round(timing.requestMs),
+    totalMs: Math.round(timing.totalMs),
+  });
+}
+
+function responseMetadata(data: DashboardPanelQueryResponse): {
+  cached?: boolean;
+  providerCacheHit?: boolean;
+  truncated?: boolean;
+  fetchedAt?: string;
+} {
+  const metadata: ReturnType<typeof responseMetadata> = {};
+  if (typeof data.cached === "boolean") metadata.cached = data.cached;
+  if (typeof data.providerCacheHit === "boolean") {
+    metadata.providerCacheHit = data.providerCacheHit;
+  }
+  if (typeof data.truncated === "boolean") metadata.truncated = data.truncated;
+  if (data.fetchedAt !== undefined) {
+    if (
+      typeof data.fetchedAt === "string" &&
+      Number.isFinite(Date.parse(data.fetchedAt))
+    ) {
+      metadata.fetchedAt = data.fetchedAt;
+    } else {
+      // Left absent so the panel says the time is unknown rather than guessing.
+      console.warn("[sql-query] ignored an unreadable fetchedAt");
+    }
+  }
+  return metadata;
+}
+
 export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
   options?: { reportScreenshot?: boolean; forceRefresh?: boolean },
 ): Promise<SqlQueryResult> {
+  const startedAt = performance.now();
+  const forceRefresh = Boolean(options?.forceRefresh && source === "bigquery");
   const deadline = createDeadlineSignal(
     signal,
     DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
   );
   let release: (() => void) | undefined;
   let data: DashboardPanelQueryResponse;
+  let dispatchedAt: number | undefined;
+  let queueMs = 0;
+  let requestMs = 0;
+  let status: SqlQueryTimingStatus = "success";
+  let cacheType: "none" | "app" | "provider" | "unknown" = "unknown";
   try {
     release = await acquireSqlQuerySlot(source, deadline.signal);
+    dispatchedAt = performance.now();
+    queueMs = dispatchedAt - startedAt;
     data = await callAction<DashboardPanelQueryResponse>(
       "query-dashboard-panel",
       {
         query: sql,
         source,
-        ...(options?.forceRefresh && source === "bigquery"
-          ? { forceRefresh: true }
-          : {}),
+        ...(forceRefresh ? { forceRefresh: true } : {}),
       },
       {
         signal: deadline.signal,
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
       },
     );
+    requestMs = performance.now() - dispatchedAt;
+  } catch (error) {
+    const now = performance.now();
+    if (dispatchedAt === undefined) queueMs = now - startedAt;
+    else requestMs = now - dispatchedAt;
+    status = signal?.aborted
+      ? "cancelled"
+      : deadline.signal.aborted
+        ? "timeout"
+        : "error";
+    // A query still waiting for a slot never reached the warehouse. One that
+    // was sent may have scanned before it failed, so its cost is unknown.
+    if (dispatchedAt !== undefined && scansBigQuery(source)) {
+      recordQueryCost({
+        status: status === "cancelled" ? "cancelled" : "error",
+      });
+    }
+    logSqlQueryTiming({
+      status,
+      source,
+      cacheType,
+      forceRefresh,
+      queueMs,
+      requestMs,
+      totalMs: now - startedAt,
+    });
+    throw error;
   } finally {
     release?.();
     deadline.cleanup();
   }
 
   if (typeof data?.error === "string") {
+    // A refusal in the body (missing key, unsupported backend) ran no scan.
+    logSqlQueryTiming({
+      status: "error",
+      source,
+      cacheType,
+      forceRefresh,
+      queueMs,
+      requestMs,
+      totalMs: performance.now() - startedAt,
+    });
     throw new Error(
       typeof data.message === "string" && data.message
         ? data.message
@@ -180,13 +294,36 @@ export async function executeSqlQuery(
     );
   }
 
-  if (data.bytesProcessed) {
-    addBytesProcessed(data.bytesProcessed);
-  }
+  const metadata = responseMetadata(data);
+  recordQueryCost({
+    status: "success",
+    cached: metadata.cached,
+    providerCacheHit: metadata.providerCacheHit,
+    bytesProcessed: data.bytesProcessed,
+  });
+  // "none" is a claim that both layers missed; a response that does not say
+  // so for each layer is unknown, never a miss.
+  cacheType = metadata.cached
+    ? "app"
+    : metadata.providerCacheHit
+      ? "provider"
+      : metadata.cached === false && metadata.providerCacheHit === false
+        ? "none"
+        : "unknown";
+  logSqlQueryTiming({
+    status,
+    source,
+    cacheType,
+    forceRefresh,
+    queueMs,
+    requestMs,
+    totalMs: performance.now() - startedAt,
+  });
 
   return {
     rows: data.rows ?? [],
     schema: data.schema,
+    ...metadata,
   };
 }
 
@@ -223,6 +360,13 @@ export function useSqlQuery(
      * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
+    /**
+     * Saves each successful result in this tab's session storage and, after a
+     * reload, shows the saved copy for this exact account, SQL and source while
+     * the query's one normal fetch runs. The copy keeps its original fetch
+     * time and is marked `restored` in `freshness`; it is never fresh data.
+     */
+    snapshots?: boolean;
   },
 ) {
   // The signed-in user and org are part of the cache key, so one account's
@@ -244,30 +388,56 @@ export function useSqlQuery(
     accountScope: string;
     retainScope: string;
   } | null>(null);
-  const successfulRefreshToken = useRef(0);
   const refreshToken = options?.refreshToken ?? 0;
   const wantsQuery = options?.enabled ?? true;
   const enabled = wantsQuery && sessionReady;
   const latestRefreshToken = useRef(refreshToken);
   const latestStartedRefreshToken = useRef(refreshToken);
   latestRefreshToken.current = refreshToken;
+  // A manual refresh bypasses the caches for the query it was requested on,
+  // and only that one, until that query succeeds. It is recorded while
+  // rendering because the fetch it triggers can start before any effect runs.
+  const pendingManualRefresh = useRef<{
+    token: number;
+    queryKeyHash: string;
+  } | null>(null);
+  const observedRefreshToken = useRef(refreshToken);
+  if (refreshToken > observedRefreshToken.current) {
+    observedRefreshToken.current = refreshToken;
+    pendingManualRefresh.current = { token: refreshToken, queryKeyHash };
+  } else if (
+    pendingManualRefresh.current &&
+    pendingManualRefresh.current.queryKeyHash !== queryKeyHash
+  ) {
+    // The request failed or was superseded, and the panel has moved to
+    // another query: that one is an ordinary automatic load.
+    pendingManualRefresh.current = null;
+  }
   const previousRefreshToken = useRef(refreshToken);
   const previousEnabled = useRef(enabled);
+  const snapshotKey = JSON.stringify([queryKey, sql, source]);
   const queryClient = useQueryClient();
   const query = useQuery<SqlQueryResult>({
     queryKey: scopedQueryKey,
     queryFn: async ({ signal }) => {
-      const currentRefreshToken = latestRefreshToken.current;
-      latestStartedRefreshToken.current = currentRefreshToken;
-      const forceRefresh = currentRefreshToken > successfulRefreshToken.current;
+      latestStartedRefreshToken.current = latestRefreshToken.current;
+      const manual = pendingManualRefresh.current;
+      const forceRefresh = manual?.queryKeyHash === queryKeyHash;
       const result = await executeSqlQuery(sql, source, signal, {
         reportScreenshot: options?.reportScreenshot,
         forceRefresh,
       });
-      successfulRefreshToken.current = Math.max(
-        successfulRefreshToken.current,
-        currentRefreshToken,
-      );
+      if (forceRefresh && pendingManualRefresh.current === manual) {
+        pendingManualRefresh.current = null;
+      }
+      if (options?.snapshots) {
+        writeSqlQuerySnapshotForSession({
+          accountScope,
+          queryKey: snapshotKey,
+          result,
+          signal,
+        });
+      }
       return result;
     },
     enabled,
@@ -304,15 +474,15 @@ export function useSqlQuery(
     const refreshTokenChanged = refreshToken > previousRefreshToken.current;
     previousRefreshToken.current = refreshToken;
     if (!enabled) return;
-    const enablingPendingRefresh =
-      !wasEnabled && refreshToken > successfulRefreshToken.current;
-    if (
-      (!refreshTokenChanged && !enablingPendingRefresh) ||
-      refreshToken <= successfulRefreshToken.current
-    ) {
+    const pending = pendingManualRefresh.current;
+    const enablingPendingRefresh = !wasEnabled && pending !== null;
+    if (!pending || (!refreshTokenChanged && !enablingPendingRefresh)) {
       return;
     }
-    if (query.isFetching && latestStartedRefreshToken.current >= refreshToken) {
+    if (
+      query.isFetching &&
+      latestStartedRefreshToken.current >= pending.token
+    ) {
       return;
     }
     void queryClient
@@ -327,12 +497,57 @@ export function useSqlQuery(
     refreshToken,
   ]);
 
+  // The saved copy is read once per account and query, and only for a query
+  // with nothing in memory. Once the query has data the copy is spent, so a
+  // later cache eviction cannot bring back rows older than ones already shown.
+  const restoredCopy = useRef<{
+    id: string;
+    result: SqlQueryResult | null;
+  } | null>(null);
+  const restoreId = `${accountScope}
+${snapshotKey}`;
+  let restored: SqlQueryResult | null = null;
+  if (options?.snapshots && sessionReady && query.data === undefined) {
+    if (restoredCopy.current?.id !== restoreId) {
+      const read = readSqlQuerySnapshotForSession({
+        accountScope,
+        queryKey: snapshotKey,
+      });
+      restoredCopy.current = {
+        id: restoreId,
+        result: read.status === "hit" ? read.snapshot.result : null,
+      };
+    }
+    restored = restoredCopy.current.result;
+  } else if (query.data !== undefined && restoredCopy.current) {
+    restoredCopy.current = { id: restoreId, result: null };
+  }
+
+  const freshnessOf = (
+    data: SqlQueryResult | undefined,
+    isRestored: boolean,
+  ): SqlQueryFreshness | undefined =>
+    describeSqlQueryFreshness(data, { source, restored: isRestored });
   if (!sessionReady && wantsQuery) {
     return {
       ...query,
       data: undefined,
       isPlaceholderData: false,
       isLoading: true,
+      freshness: undefined,
+    };
+  }
+  if (
+    restored &&
+    query.data === undefined &&
+    (enabled || (options?.retainWhilePaused && sessionReady))
+  ) {
+    return {
+      ...query,
+      data: restored,
+      isPlaceholderData: false,
+      isLoading: false,
+      freshness: freshnessOf(restored, true),
     };
   }
   const held = lastShown.current;
@@ -348,7 +563,8 @@ export function useSqlQuery(
       data: held.data,
       isPlaceholderData: held.queryKeyHash !== queryKeyHash,
       isLoading: false,
+      freshness: freshnessOf(held.data, false),
     };
   }
-  return query;
+  return { ...query, freshness: freshnessOf(query.data, false) };
 }

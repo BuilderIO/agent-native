@@ -1179,6 +1179,12 @@ export default {
     updating: "अपडेट हो रहा है",
     updatingPreviousFilters: "पिछले फ़िल्टर · अपडेट हो रहा है",
     previousFilters: "पिछले फ़िल्टर",
+    fetchedAt: "{{time}} पर प्राप्त",
+    fetchTimeUnknown: "प्राप्ति का समय अज्ञात",
+    cacheApp: "कैश किया हुआ",
+    cacheProvider: "BigQuery कैश",
+    cacheRestored: "सहेजी गई प्रति",
+    cacheUnknown: "कैश की स्थिति अज्ञात",
     downloadCsv: "CSV डाउनलोड करें",
     copyTable: "तालिका कॉपी करें",
     multiColumnSortHelp:

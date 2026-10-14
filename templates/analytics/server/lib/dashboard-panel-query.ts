@@ -35,6 +35,9 @@ export interface DashboardPanelQueryResult {
   schema: { name: string; type: string }[];
   truncated?: boolean;
   bytesProcessed?: number;
+  cached?: boolean;
+  fetchedAt?: string;
+  providerCacheHit?: boolean;
 }
 
 export interface UnsupportedBackendResponse {
