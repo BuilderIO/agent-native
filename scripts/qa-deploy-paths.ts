@@ -162,7 +162,16 @@ function onCleanup(label: string, run: () => Promise<void> | void): void {
   cleanups.push({ label, run });
 }
 
-async function runCleanups(): Promise<string[]> {
+// One drain serves every caller. A cancellation and the run it interrupts both
+// finish by cleaning up, and the second must wait for the first: returning
+// early would let the process exit with a cleanup still in flight.
+let cleanupRun: Promise<string[]> | undefined;
+
+function runCleanups(): Promise<string[]> {
+  return (cleanupRun ??= drainCleanups());
+}
+
+async function drainCleanups(): Promise<string[]> {
   const failures: string[] = [];
   while (cleanups.length > 0) {
     const { label, run } = cleanups.pop()!;
@@ -178,6 +187,51 @@ async function runCleanups(): Promise<string[]> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+// Commands and the server run in their own process group because `pnpm`, `npx`
+// and `docker` leave descendants that keep the output pipes open: signalling
+// only the direct child would leave `close` unfired and cleanup unreached.
+function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    // ESRCH is the group having already exited; anything else means a process
+    // may still be running.
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+      warn(
+        `could not signal process group ${child.pid}: ${errorMessage(error)}`,
+      );
+    }
+  }
+}
+
+// Commands still running, so a cancellation can end them before cleanup runs:
+// an in-flight create or deploy would otherwise recreate what cleanup deleted.
+const activeRuns = new Set<ChildProcess>();
+
+async function stopActiveRuns(): Promise<void> {
+  const running = [...activeRuns];
+  const closed = Promise.all(
+    running.map(
+      (child) =>
+        new Promise<void>((resolve) => child.once("close", () => resolve())),
+    ),
+  );
+  for (const child of running) killGroup(child, "SIGTERM");
+  const killer = setTimeout(() => {
+    for (const child of running) killGroup(child, "SIGKILL");
+  }, 5_000);
+  let giveUp: NodeJS.Timeout | undefined;
+  await Promise.race([
+    closed,
+    new Promise<void>((resolve) => {
+      giveUp = setTimeout(resolve, 10_000);
+    }),
+  ]);
+  clearTimeout(killer);
+  clearTimeout(giveUp);
 }
 
 interface RunOptions {
@@ -196,8 +250,11 @@ async function runLive(
   const child = spawn(cmd, args, {
     cwd: options.cwd,
     env: options.env ?? baseEnv(),
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  activeRuns.add(child);
+  child.once("close", () => activeRuns.delete(child));
   const output: string[] = [];
   const append = (chunk: Buffer | string) => {
     const text = redact(chunk.toString());
@@ -210,8 +267,8 @@ async function runLive(
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
-    setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+    killGroup(child, "SIGTERM");
+    setTimeout(() => killGroup(child, "SIGKILL"), 5_000).unref();
   }, options.timeoutMs);
   try {
     const result = await new Promise<{
@@ -461,11 +518,13 @@ async function startNodeServer(
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   let child: ChildProcess | undefined;
+  let closed = true;
   let exitMessage: string | null = null;
   const output: string[] = [];
 
   const launch = () => {
     exitMessage = null;
+    closed = false;
     const next = spawn("pnpm", ["start"], {
       cwd: appDir,
       env: { ...env, NODE_ENV: "production", PORT: String(port) },
@@ -481,28 +540,24 @@ async function startNodeServer(
     next.once("exit", (code, signal) => {
       exitMessage = `The server exited early (code ${String(code)}, signal ${String(signal)}).`;
     });
+    next.once("close", () => {
+      closed = true;
+    });
     child = next;
   };
 
+  // Waits for `close`, not `exit`: a server killed by a signal has an
+  // `exitCode` of null, and descendants can outlive it holding the pipes, so
+  // the group is signalled until `close` has actually fired.
   const stop = async () => {
     const running = child;
-    if (!running?.pid || running.exitCode !== null) return;
-    const closed = new Promise<void>((resolve) =>
+    if (!running?.pid || closed) return;
+    const closing = new Promise<void>((resolve) =>
       running.once("close", () => resolve()),
     );
-    process.kill(-running.pid, "SIGTERM");
-    const killer = setTimeout(() => {
-      try {
-        process.kill(-running.pid!, "SIGKILL");
-      } catch (error) {
-        // ESRCH is the group having exited between the checks; anything else
-        // means the server may still be running.
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-          warn(`could not kill the server: ${errorMessage(error)}`);
-        }
-      }
-    }, 10_000);
-    await closed;
+    killGroup(running, "SIGTERM");
+    const killer = setTimeout(() => killGroup(running, "SIGKILL"), 10_000);
+    await closing;
     clearTimeout(killer);
   };
 
@@ -977,6 +1032,7 @@ async function main(): Promise<void> {
   let failure: string | null = null;
   const interrupted = async (signal: NodeJS.Signals) => {
     log(`received ${signal}; cleaning up`);
+    await stopActiveRuns();
     await runCleanups();
     process.exit(130);
   };
