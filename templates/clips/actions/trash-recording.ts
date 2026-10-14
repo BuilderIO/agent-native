@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -29,8 +29,6 @@ export default defineAction({
     const [existing] = await db
       .select({
         id: schema.recordings.id,
-        status: schema.recordings.status,
-        trashedAt: schema.recordings.trashedAt,
         recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
@@ -38,17 +36,31 @@ export default defineAction({
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const now = new Date().toISOString();
-    await db
+    const notReady = ne(schema.recordings.status, "ready");
+    // Only the call that moves the row into the trash claims it, so two
+    // overlapping requests cannot both report the same discard.
+    const claimed = await db
       .update(schema.recordings)
       .set({ trashedAt: now, updatedAt: now })
       .where(
-        args.skipIfReady
-          ? and(
-              eq(schema.recordings.id, args.id),
-              ne(schema.recordings.status, "ready"),
-            )
-          : eq(schema.recordings.id, args.id),
-      );
+        and(
+          eq(schema.recordings.id, args.id),
+          isNull(schema.recordings.trashedAt),
+          ...(args.skipIfReady ? [notReady] : []),
+        ),
+      )
+      .returning({ status: schema.recordings.status });
+    if (claimed.length === 0) {
+      // Re-trashing an already-trashed row refreshes its timestamp, as before.
+      await db
+        .update(schema.recordings)
+        .set({ trashedAt: now, updatedAt: now })
+        .where(
+          args.skipIfReady
+            ? and(eq(schema.recordings.id, args.id), notReady)
+            : eq(schema.recordings.id, args.id),
+        );
+    }
 
     const [after] = await db
       .select({
@@ -61,10 +73,11 @@ export default defineAction({
     const trashedAt = after?.trashedAt ?? null;
     const skipped = Boolean(args.skipIfReady) && !trashedAt;
 
-    // Closes the funnel for a row that never became ready (a recorder
-    // dropping a row it opened, or a user trashing a stuck upload); without
-    // it, recording_created minus ready/failed/cancelled reads it as silent.
-    if (!existing.trashedAt && trashedAt && existing.status !== "ready") {
+    // Closes the funnel for a row still in flight (a recorder dropping a row
+    // it opened, or a user trashing a stuck upload). Ready and failed rows
+    // already closed with recording_ready / recording_failed.
+    const discardedStatus = claimed[0]?.status;
+    if (discardedStatus === "uploading" || discardedStatus === "processing") {
       try {
         track(
           "recording_discarded",
@@ -74,7 +87,7 @@ export default defineAction({
             output_id: args.id,
             output_type: "clip",
             recording_platform: existing.recordingPlatform ?? "unknown",
-            status_at_discard: existing.status,
+            status_at_discard: discardedStatus,
           },
           recordingTrackingSource(getCurrentOwnerEmail()),
         );

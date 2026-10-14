@@ -163,7 +163,14 @@ export default defineAction({
       recordingId: id,
       userId: ownerEmail,
       platform: args.recordingPlatform,
-      source: args.recordingSource,
+      // The desktop app and extension only create rows from their recorders,
+      // and their builds already in users' hands never send a source.
+      source:
+        args.recordingSource ??
+        (args.recordingPlatform === "desktop" ||
+        args.recordingPlatform === "extension"
+          ? "recorder"
+          : undefined),
       attemptId: args.recordingAttemptId,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,

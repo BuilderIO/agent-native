@@ -299,7 +299,7 @@ describe("recording_created", () => {
           output_type: "clip",
           recording_attempt_id: "rec-1",
           recording_platform: "desktop",
-          recording_source: "unknown",
+          recording_source: "recorder",
           has_audio: true,
           has_camera: true,
         },
@@ -328,6 +328,36 @@ describe("recording_created", () => {
       recording_platform: "mobile",
       recording_source: "local_copy_upload",
     });
+  });
+
+  it("treats desktop and extension rows without a source as recorder captures, and nothing else", async () => {
+    await action.run(
+      { id: "rec-ext", recordingPlatform: "extension" },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      { id: "rec-web", recordingPlatform: "web" },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      {
+        id: "rec-desk",
+        recordingPlatform: "desktop",
+        recordingSource: "file_upload",
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(
+      createdCalls().map(([, props]) => [
+        props.output_id,
+        props.recording_source,
+      ]),
+    ).toEqual([
+      ["rec-ext", "recorder"],
+      ["rec-web", "unknown"],
+      ["rec-desk", "file_upload"],
+    ]);
   });
 
   it("reports a recording with no platform as unknown, not a guess", async () => {

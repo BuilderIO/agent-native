@@ -28,35 +28,58 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: () => ({ eq: true }),
+  isNull: () => ({ untrashed: true }),
   ne: () => ({ notReady: true }),
 }));
-vi.mock("../server/db/index.js", () => ({
-  schema: {
-    recordings: {
-      id: "id",
-      status: "status",
-      trashedAt: "trashed_at",
-      recordingPlatform: "recording_platform",
+vi.mock("../server/db/index.js", () => {
+  type Condition = { and?: Array<Record<string, boolean>> };
+  const matches = (condition: Condition) => {
+    const parts = condition.and ?? [condition as Record<string, boolean>];
+    const row = state.row!;
+    return parts.every(
+      (part) =>
+        (!part.untrashed || row.trashedAt === null) &&
+        (!part.notReady || row.status !== "ready"),
+    );
+  };
+  return {
+    schema: {
+      recordings: {
+        id: "id",
+        status: "status",
+        trashedAt: "trashed_at",
+        recordingPlatform: "recording_platform",
+      },
     },
-  },
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: async () => (state.row ? [{ ...state.row }] : []),
+    getDb: () => ({
+      select: () => ({
+        from: () => ({
+          where: async () => (state.row ? [{ ...state.row }] : []),
+        }),
+      }),
+      update: () => ({
+        set: (values: { trashedAt: string }) => ({
+          where: (condition: Condition) => {
+            let rows: Array<{ status: string }> | null = null;
+            const run = () => {
+              if (rows) return rows;
+              rows = [];
+              if (state.row && matches(condition)) {
+                state.row.trashedAt = values.trashedAt;
+                rows = [{ status: state.row.status }];
+              }
+              return rows;
+            };
+            return {
+              returning: async () => run(),
+              then: (resolve: (value: unknown) => void) => resolve(run()),
+            };
+          },
+        }),
       }),
     }),
-    update: () => ({
-      set: (values: { trashedAt: string }) => ({
-        where: async (condition: { and?: unknown[] }) => {
-          if (!state.row) return;
-          const skipReady = Array.isArray(condition?.and);
-          if (skipReady && state.row.status === "ready") return;
-          state.row.trashedAt = values.trashedAt;
-        },
-      }),
-    }),
-  }),
-}));
+  };
+});
 
 import trashRecording from "./trash-recording";
 
@@ -107,6 +130,35 @@ describe("trash-recording recording_discarded", () => {
     row("ready");
     await action.run({ id: "rec-1", skipIfReady: true });
 
+    expect(discarded()).toHaveLength(0);
+  });
+
+  it("does not close a failed row twice: recording_failed already closed it", async () => {
+    row("failed");
+
+    await action.run({ id: "rec-1" });
+
+    expect(state.row?.trashedAt).toBeTruthy();
+    expect(discarded()).toHaveLength(0);
+  });
+
+  it("reports one discard when two trash requests overlap", async () => {
+    row("uploading");
+
+    await Promise.all([
+      action.run({ id: "rec-1", skipIfReady: true }),
+      action.run({ id: "rec-1", skipIfReady: true }),
+    ]);
+
+    expect(discarded()).toHaveLength(1);
+  });
+
+  it("still refreshes the timestamp when an already-trashed row is trashed again", async () => {
+    row("uploading", "2026-10-01T00:00:00.000Z");
+
+    await action.run({ id: "rec-1" });
+
+    expect(state.row?.trashedAt).not.toBe("2026-10-01T00:00:00.000Z");
     expect(discarded()).toHaveLength(0);
   });
 
