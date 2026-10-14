@@ -6,10 +6,11 @@ import {
   type ActionRunContext,
 } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
-import type {
-  ProviderApiDocsOptions,
-  ProviderApiRequestArgs,
-  ProviderApiRuntime,
+import {
+  providerApiRequestNeedsApproval,
+  type ProviderApiDocsOptions,
+  type ProviderApiRequestArgs,
+  type ProviderApiRuntime,
 } from "../index.js";
 import { rejectFailedProviderResult } from "../result-outcome.js";
 import { stagingExecuteRequest, type StagingRequestArgs } from "../staging.js";
@@ -344,16 +345,10 @@ export function createProviderApiRequestAction<
     ...(options.toolCallable === undefined
       ? {}
       : { toolCallable: options.toolCallable }),
-    ...(options.needsApproval === undefined
-      ? {}
-      : {
-          needsApproval: options.needsApproval as
-            | boolean
-            | ((
-                args: unknown,
-                ctx?: ActionRunContext,
-              ) => boolean | Promise<boolean>),
-        }),
+    needsApproval: (options.needsApproval ??
+      providerApiRequestNeedsApproval) as
+      | boolean
+      | ((args: unknown, ctx?: ActionRunContext) => boolean | Promise<boolean>),
     planMode: {
       effect: (args) => {
         const request = args as ProviderRequestActionArgs;

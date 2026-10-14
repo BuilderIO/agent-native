@@ -148,6 +148,7 @@ export function createRunCodeEntry(
         "  - `providerFetch(provider, path, init?)` — authenticated call to a registered provider via the provider-api-request action.",
         "    Returns the parsed JSON result (or throws on error).",
         "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
+        "    Reads only: a request that changes provider data needs approval, so call provider-api-request directly for it.",
         "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
         "  - `providerRequest(provider, path, init?)` — same authenticated call, but returns the full provider-api envelope with request, response status/headers, truncation, and body metadata.",
         "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
@@ -680,16 +681,21 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
       );
     }
 
+    const childArgs =
+      options.mode === "tool-orchestration"
+        ? boundToolOrchestrationArgs(toolName, args)
+        : args;
+    const approvalRequired = await callNeedsApproval(
+      entry,
+      childArgs,
+      options.context,
+    );
     const isReadOnlyAction =
       entry.readOnly === true &&
       entry.agentTool !== false &&
       entry.uiOnly !== true &&
       entry.toolCallable !== false &&
-      isCallableWithoutApproval(entry);
-    const childArgs =
-      options.mode === "tool-orchestration"
-        ? boundToolOrchestrationArgs(toolName, args)
-        : args;
+      !approvalRequired;
 
     if (options.mode === "tool-orchestration") {
       if (callBudget && callBudget.count >= callBudget.max) {
@@ -698,14 +704,17 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
           `Tool-orchestration child-call budget exceeded (${callBudget.max}). Aggregate the current results or increase maxToolCalls within its limit.`,
         );
       }
-      if (!isAllowedToolOrchestrationCall(toolName, childArgs, entry)) {
+      if (
+        approvalRequired ||
+        !isAllowedToolOrchestrationCall(toolName, childArgs, entry)
+      ) {
         throw new BridgeInvocationError(
           403,
           `Tool "${toolName}" is not permitted by tool-orchestration. Only read-only tools and GET/HEAD provider or web reads without staging or saving files are allowed; call mutating tools directly.`,
         );
       }
     } else {
-      if (!isCallableWithoutApproval(entry)) {
+      if (approvalRequired) {
         throw new BridgeInvocationError(
           403,
           `Tool "${toolName}" requires approval and cannot be called from sandbox code. Call it directly as a native tool.`,
@@ -1039,17 +1048,29 @@ function isAllowedToolOrchestrationCall(
   args: Record<string, unknown>,
   entry: ActionEntry,
 ): boolean {
-  if (toolName === "workspace-files") {
-    return isCallableWithoutApproval(entry) && isReadOnlyWorkspaceRequest(args);
-  }
+  if (toolName === "workspace-files") return isReadOnlyWorkspaceRequest(args);
   if (toolName === "provider-api-request") {
     return isReadOnlyProviderApiRequest(args, entry);
   }
   return isReadOnlyOrchestrationAction(args, entry);
 }
 
-function isCallableWithoutApproval(entry: ActionEntry): boolean {
-  return entry.needsApproval === undefined || entry.needsApproval === false;
+// A needsApproval function is evaluated per call, as the agent loop does, so a
+// tool that only gates its writes (provider-api-request) still reads from
+// sandbox code. A throwing gate fails closed.
+async function callNeedsApproval(
+  entry: ActionEntry,
+  args: Record<string, unknown>,
+  context: ActionRunContext | undefined,
+): Promise<boolean> {
+  if (typeof entry.needsApproval !== "function") {
+    return entry.needsApproval === true;
+  }
+  try {
+    return Boolean(await entry.needsApproval(args, context));
+  } catch {
+    return true;
+  }
 }
 
 function isReadOnlyWorkspaceRequest(args: Record<string, unknown>): boolean {
@@ -1063,7 +1084,6 @@ function isReadOnlyProviderApiRequest(
 ): boolean {
   if (
     !entry.tool ||
-    !isCallableWithoutApproval(entry) ||
     entry.agentTool === false ||
     entry.uiOnly === true ||
     entry.allowInPlanMode === false
@@ -1084,7 +1104,6 @@ function isReadOnlyOrchestrationAction(
 ): boolean {
   if (
     !entry.tool ||
-    !isCallableWithoutApproval(entry) ||
     entry.agentTool === false ||
     entry.uiOnly === true ||
     entry.toolCallable === false ||

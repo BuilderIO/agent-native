@@ -891,6 +891,67 @@ describe("run-code bridge", () => {
     expect(ran).toBe(true);
   });
 
+  it("asks a per-call approval gate before each sandbox provider request", async () => {
+    const sent: string[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        needsApproval: (args: { method?: string }) =>
+          String(args.method ?? "GET") !== "GET",
+        run: async (args) => {
+          sent.push(String(args.method));
+          return JSON.stringify({ response: { status: 200, json: { ok: 1 } } });
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        console.log(JSON.stringify(await providerFetch("stripe", "/v1/charges")));
+        try { await providerFetch("stripe", "/v1/refunds", { method: "POST", body: { charge: "ch_1" } }); }
+        catch (error) { console.error(error.message); }
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"ok":1');
+    expect(result).toContain(
+      'Tool "provider-api-request" requires approval and cannot be called from sandbox code',
+    );
+    expect(sent).toEqual(["GET"]);
+  });
+
+  it("fails closed when a per-call approval gate throws", async () => {
+    let ran = false;
+    const actions: Record<string, ActionEntry> = {
+      "flaky-gate": {
+        tool,
+        readOnly: true,
+        needsApproval: () => {
+          throw new Error("policy store unavailable");
+        },
+        run: async () => {
+          ran = true;
+          return { ok: true };
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: `
+        try { await appAction("flaky-gate"); }
+        catch (error) { console.error(error.message); }
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('Tool "flaky-gate" requires approval');
+    expect(ran).toBe(false);
+  });
+
   it("keeps the data-program emit contract in Run mode", async () => {
     const result = await executeSandboxCode({
       code: `${buildDataProgramPrelude({ region: "us" })}\nemit([{ value: 1 }]);`,

@@ -207,6 +207,25 @@ describe("provider API action factories", () => {
     expect(docs.readOnly).toBe(true);
   });
 
+  it("gates provider writes by default and keeps an explicit opt-out", async () => {
+    const request = createProviderApiRequestAction({ executeRequest: vi.fn() });
+    const gate = request.needsApproval;
+    expect(typeof gate).toBe("function");
+    if (typeof gate !== "function") return;
+    const ask = (method: string, path: string) =>
+      gate({ provider: "hubspot", method, path } as never);
+    expect(await ask("GET", "/crm/v3/objects/deals")).toBe(false);
+    expect(await ask("POST", "/crm/v3/objects/deals/search")).toBe(false);
+    expect(await ask("POST", "/crm/v3/objects/deals")).toBe(true);
+    expect(await ask("DELETE", "/crm/v3/objects/deals/1")).toBe(true);
+
+    const optedOut = createProviderApiRequestAction(
+      { executeRequest: vi.fn() },
+      { needsApproval: false },
+    );
+    expect(optedOut.needsApproval).toBe(false);
+  });
+
   it("types approval predicates from the caller's request schema output", () => {
     const requestSchema = z.object({
       provider: z.literal("figma"),

@@ -398,6 +398,14 @@ export interface ProviderApiConfig {
   corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
   bodyOkField?: string;
+  /**
+   * POST endpoints that only read, relative to `defaultBaseUrl`. `*` matches
+   * one path segment. Every other non-GET/HEAD request needs approval, so list
+   * only endpoints the provider documents as unable to change state or spend
+   * credits: a query endpoint that accepts DML (BigQuery jobs, GraphQL) does
+   * not belong here.
+   */
+  readOnlyPostPaths?: readonly string[];
 }
 
 export interface ProviderApiPlaceholder {
@@ -879,6 +887,14 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "ga4",
     label: "Google Analytics Data API",
     defaultBaseUrl: "https://analyticsdata.googleapis.com/v1beta",
+    readOnlyPostPaths: [
+      "/properties/*:runReport",
+      "/properties/*:runPivotReport",
+      "/properties/*:batchRunReports",
+      "/properties/*:batchRunPivotReports",
+      "/properties/*:runRealtimeReport",
+      "/properties/*:checkCompatibility",
+    ],
     auth: {
       type: "google-service-account",
       scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
@@ -1093,6 +1109,11 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "gong",
     label: "Gong",
     defaultBaseUrl: "https://api.gong.io/v2",
+    readOnlyPostPaths: [
+      "/calls/extensive",
+      "/calls/transcript",
+      "/users/extensive",
+    ],
     baseUrlCredentialKey: "GONG_API_BASE",
     auth: {
       type: "basic",
@@ -1363,6 +1384,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "hubspot",
     label: "HubSpot",
     defaultBaseUrl: "https://api.hubapi.com",
+    readOnlyPostPaths: [
+      "/crm/v3/objects/*/search",
+      "/crm/v3/objects/*/batch/read",
+    ],
     auth: {
       type: "oauth-bearer-or-bearer-key",
       oauthProvider: "hubspot",
@@ -1443,6 +1468,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "jira",
     label: "Jira Cloud",
     defaultBaseUrl: "https://example.atlassian.net",
+    readOnlyPostPaths: ["/rest/api/3/search", "/rest/api/3/search/jql"],
     baseUrlCredentialKey: "JIRA_BASE_URL",
     auth: {
       type: "oauth-bearer-or-basic",
@@ -1502,6 +1528,11 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "notion",
     label: "Notion",
     defaultBaseUrl: "https://api.notion.com/v1",
+    readOnlyPostPaths: [
+      "/search",
+      "/databases/*/query",
+      "/data_sources/*/query",
+    ],
     auth: {
       type: "oauth-bearer-or-bearer-key",
       oauthProvider: "notion",
@@ -1553,6 +1584,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "posthog",
     label: "PostHog",
     defaultBaseUrl: "https://app.posthog.com",
+    readOnlyPostPaths: ["/api/projects/*/query"],
     baseUrlCredentialKey: "POSTHOG_HOST",
     auth: {
       type: "bearer",
@@ -1756,6 +1788,59 @@ export function getProviderApiConfig(
   );
   if (!config) throw new Error(`Unsupported provider API: ${provider}`);
   return config;
+}
+
+const providerPathPattern = (pattern: string) =>
+  new RegExp(
+    `^${pattern
+      .split("*")
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("[^/]+")}$`,
+  );
+
+function requestPathname(path: string, defaultBaseUrl: string): string {
+  const absolute = /^https?:\/\//i.test(path);
+  let pathname = new URL(
+    absolute ? path : path.startsWith("/") ? path : `/${path}`,
+    "https://provider.invalid",
+  ).pathname;
+  if (absolute) {
+    const basePath = new URL(defaultBaseUrl).pathname.replace(/\/+$/, "");
+    if (basePath && pathname.startsWith(`${basePath}/`)) {
+      pathname = pathname.slice(basePath.length);
+    }
+  }
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}
+
+/**
+ * Whether a provider-api-request call can change provider state and so needs
+ * a person's approval. GET and HEAD read; a POST reads only when its provider
+ * lists the endpoint in `readOnlyPostPaths`. Custom providers have no such
+ * list, so every write method on them needs approval.
+ */
+export function providerApiRequestNeedsApproval(args: {
+  provider?: unknown;
+  method?: unknown;
+  path?: unknown;
+}): boolean {
+  const method = String(args.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD") return false;
+  if (method !== "POST") return true;
+  const provider = typeof args.provider === "string" ? args.provider : "";
+  if (!isProviderApiId(provider) || typeof args.path !== "string") return true;
+  if (/(^|\/)(\.|%2e){1,2}(\/|[?#]|$)/i.test(args.path)) return true;
+  const config = PROVIDER_CONFIGS[provider];
+  if (!config.readOnlyPostPaths?.length) return true;
+  let pathname: string;
+  try {
+    pathname = requestPathname(args.path, config.defaultBaseUrl);
+  } catch {
+    return true;
+  }
+  return !config.readOnlyPostPaths.some((pattern) =>
+    providerPathPattern(pattern).test(pathname),
+  );
 }
 
 export function mergeProviderApiConfigs(
