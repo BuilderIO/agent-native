@@ -39,7 +39,7 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   http: false,
   grounding: true,
-  run: async ({ operation, allowCreditRequest, arguments: args }) => {
+  run: async ({ operation, allowCreditRequest, arguments: args }, context) => {
     const tools = await listGongNativeTools();
 
     if (!allowCreditRequest) {
@@ -99,6 +99,7 @@ export default defineAction({
     const startedAt = Date.now();
     const result = await callMcpTool(tool.serverId, tool.name, args, {
       providerId: GONG_MCP_PROVIDER_ID,
+      context,
     });
     return {
       connected: true,
