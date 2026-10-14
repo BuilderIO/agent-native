@@ -298,34 +298,19 @@ describe("staging caps", () => {
     _resetInitPromiseForTests();
   });
 
-  it("rejects when row count would exceed MAX_ROWS_PER_APP", async () => {
-    const existingRows = Array.from(
-      { length: MAX_ROWS_PER_APP - 1 },
-      (_, i) => ({
-        id: i,
-      }),
-    );
-    await upsertStagedDataset({
-      id: "ds_existing",
-      appId: "cappedapp",
-      ownerEmail: "ada@example.com",
-      name: "existing",
-      rows: existingRows,
-      columns: ["id"],
-    });
-
+  it("rejects a single dataset larger than MAX_ROWS_PER_APP and names that cause", async () => {
     await expect(
       upsertStagedDataset({
-        id: "ds_new",
+        id: "ds_huge",
         appId: "cappedapp",
         ownerEmail: "ada@example.com",
-        name: "new",
-        rows: Array.from({ length: 5 }, (_, i) => ({
-          id: i + MAX_ROWS_PER_APP,
+        name: "huge",
+        rows: Array.from({ length: MAX_ROWS_PER_APP + 1 }, (_, i) => ({
+          id: i,
         })),
         columns: ["id"],
       }),
-    ).rejects.toThrow(/cap exceeded/i);
+    ).rejects.toThrow(/cap exceeded: this dataset alone has/i);
   });
 });
 

@@ -1559,6 +1559,10 @@ export function createAgentChatPlugin(
                     ...(typeof def.agentTool === "boolean"
                       ? { agentTool: def.agentTool }
                       : {}),
+                    ...(typeof def.retrySafe === "boolean" ||
+                    typeof def.retrySafe === "function"
+                      ? { retrySafe: def.retrySafe }
+                      : {}),
                     ...(def.chatUI &&
                     typeof def.chatUI === "object" &&
                     !Array.isArray(def.chatUI)

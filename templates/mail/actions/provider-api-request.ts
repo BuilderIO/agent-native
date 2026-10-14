@@ -68,6 +68,27 @@ const PaginationSchema = z
   })
   .optional();
 
+// Reversible label writes an automation may make without send approval. Every
+// other non-GET Gmail call stays gated, so an endpoint missing from a list
+// (permanent delete, settings that forward or auto-reply, message insert or
+// import, delegates, sendAs) can never bypass approval.
+const GMAIL_LABEL_WRITE =
+  /^users\/[^/]+\/(?:messages\/(?:batchModify|[^/]+\/(?:modify|trash|untrash))|threads\/[^/]+\/(?:modify|trash|untrash))$/;
+
+// Matched on the decoded, slash-collapsed path so `%6dodify`, `//users/...`
+// and `..` segments cannot slip past. A malformed encoding throws, and callers
+// treat a throwing gate as approval required.
+function isReversibleGmailLabelWrite(method: string, path: string): boolean {
+  if (method !== "POST") return false;
+  const [pathname = ""] = path.split(/[?#]/, 1);
+  const segments = decodeURIComponent(pathname).split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return false;
+  }
+  if (segments[0] === "gmail" && segments[1] === "v1") segments.splice(0, 2);
+  return GMAIL_LABEL_WRITE.test(segments.join("/"));
+}
+
 export default createProviderApiRequestAction(
   { executeRequest: executeProviderApiRequest },
   {
@@ -213,12 +234,15 @@ export default createProviderApiRequestAction(
     http: false,
     toolCallable: false,
     needsApproval: (
-      args: { provider: string; method?: string },
+      args: { provider: string; method?: string; path: string },
       ctx?: ActionRunContext,
-    ) =>
-      args.provider === "gmail" &&
-      !["GET", "HEAD"].includes(String(args.method ?? "GET").toUpperCase())
+    ) => {
+      const method = String(args.method ?? "GET").toUpperCase();
+      return args.provider === "gmail" &&
+        !["GET", "HEAD"].includes(method) &&
+        !isReversibleGmailLabelWrite(method, args.path)
         ? requiresEmailSendApproval(ctx)
-        : false,
+        : false;
+    },
   },
 );

@@ -22,6 +22,7 @@ import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallEmitsChange,
   actionCallIsReadOnly,
+  actionCallIsRetrySafe,
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
@@ -1150,6 +1151,8 @@ export interface ActionEntry {
     result: any,
   ) => import("../action.js").ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
+  /** See `ActionDefinition.retrySafe`. */
+  retrySafe?: boolean | ((input: any) => boolean);
   dedupe?: boolean;
   toolCallable?: boolean;
   agentDiscoveryAvailable?: (
@@ -7056,7 +7059,7 @@ export async function runAgentLoop(opts: {
             fallbackModelAttempted = true;
             send({
               type: "activity",
-              label: `${model} is rate limited — switching to ${fallbackModel}`,
+              label: "Model is rate limited — switching to a backup model",
             });
             send({ type: "clear" });
             model = fallbackModel;
@@ -7065,7 +7068,9 @@ export async function runAgentLoop(opts: {
             usage.cacheReadTokens = 0;
             usage.cacheWriteTokens = 0;
             usage.model = fallbackModel;
-            retry = -1;
+            // The sibling shares the throttled quota, so it gets this one
+            // attempt; a fresh retry budget only re-hits the same limit.
+            retry = maxRetriesForError(err) - 1;
             continue;
           }
         }
@@ -7511,6 +7516,9 @@ export async function runAgentLoop(opts: {
       const actionIsReadOnly = actionEntry
         ? actionCallIsReadOnly(actionEntry, toolCall.input, false)
         : false;
+      const actionRetrySafe = actionEntry
+        ? actionCallIsRetrySafe(actionEntry, toolCall.input)
+        : false;
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
         toolCall.input,
@@ -7550,6 +7558,16 @@ export async function runAgentLoop(opts: {
       ) => {
         if (event.outcomeUnknown) {
           unknownWriteToolNames.add(toolCall.name);
+        }
+        // A write that errored after it was invoked may still have committed,
+        // retry-safe or not, so cached reads of its target are stale.
+        if (
+          event.outcomeUnknown ||
+          (event.isError &&
+            actionInvoked &&
+            !actionIsReadOnly &&
+            !actionRefused)
+        ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
         }
@@ -8060,8 +8078,8 @@ export async function runAgentLoop(opts: {
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) and its result is unknown. ` +
-              `Check whether it completed before asking me to retry.`,
+              `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+              `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
             errorCode: "write_tool_outcome_unknown",
           };
           return {
@@ -8242,6 +8260,10 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        // A deadline or abort after invocation leaves a zombie that may still
+        // commit, so a retry-safe action stays blocked for it; an error the
+        // handler returned does not.
+        let toolResultLost = false;
         let toolErrorCode: string | undefined;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -8329,6 +8351,7 @@ export async function runAgentLoop(opts: {
               toolCall.input as Record<string, string>,
               actionContext,
               actionExecutionOutcome,
+              actionEntry,
             );
           };
           const actionPromise = Promise.resolve(
@@ -8572,6 +8595,9 @@ export async function runAgentLoop(opts: {
           }
         } catch (err: any) {
           actionRefused = actionExecutionOutcome.refused;
+          toolResultLost =
+            signal.aborted ||
+            isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
@@ -8698,7 +8724,10 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? actionInvoked && !actionIsReadOnly && !actionRefused
+            ? actionInvoked &&
+              !actionIsReadOnly &&
+              !actionRefused &&
+              (!actionRetrySafe || toolResultLost)
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }
             : receipt
@@ -10148,6 +10177,8 @@ export interface ContinuationDispatchBudget {
   maxDispatchAttempts: number;
   dispatchResponseTimeoutMs: number;
   backoffCapMs: number;
+  /** Total sleep allowed while the target answers 429/502/503/504/520. */
+  overloadWaitBudgetMs: number;
 }
 
 export function resolveContinuationDispatchBudget(opts: {
@@ -10159,6 +10190,9 @@ export function resolveContinuationDispatchBudget(opts: {
       maxDispatchAttempts: 3,
       dispatchResponseTimeoutMs: 15_000,
       backoffCapMs: Infinity,
+      // Durable-background chaining is entered from the foreground function,
+      // which a host kills about 60s in, so it waits no longer than that tier.
+      overloadWaitBudgetMs: 10_000,
     };
   }
   if (opts.workerProvenInBackgroundFunction) {
@@ -10166,12 +10200,17 @@ export function resolveContinuationDispatchBudget(opts: {
       maxDispatchAttempts: 5,
       dispatchResponseTimeoutMs: 15_000,
       backoffCapMs: 4_000,
+      // The chain starts 2 minutes before the 15-minute background budget;
+      // five hung dispatches plus backoff already take about 82s of that.
+      overloadWaitBudgetMs: 30_000,
     };
   }
+  // A hosted foreground function is killed soon after its soft timeout.
   return {
     maxDispatchAttempts: 2,
     dispatchResponseTimeoutMs: 10_000,
     backoffCapMs: Infinity,
+    overloadWaitBudgetMs: 10_000,
   };
 }
 

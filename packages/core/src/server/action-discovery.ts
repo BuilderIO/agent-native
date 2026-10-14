@@ -1,5 +1,6 @@
 import nodePath from "node:path";
 
+import { ACTION_EXECUTION_KEY } from "../action.js";
 import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
@@ -156,6 +157,21 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
+  }
+  if (
+    typeof entry.retrySafe === "boolean" ||
+    typeof entry.retrySafe === "function"
+  ) {
+    out.retrySafe = entry.retrySafe;
+  }
+  // Without the key an app wrapper around `run` cannot be recognized as the
+  // same action, and every validation failure reads as an unknown write.
+  const executionKey = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  if (executionKey !== null && typeof executionKey === "object") {
+    Object.defineProperty(out, ACTION_EXECUTION_KEY, {
+      value: executionKey,
+      enumerable: true,
+    });
   }
   if (typeof entry.endsTurn === "boolean") {
     out.endsTurn = entry.endsTurn;

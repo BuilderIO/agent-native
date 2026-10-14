@@ -878,6 +878,10 @@ export default defineAction({
       height: 680,
     }),
   },
+  // Only `ops` edits by array index, which a replay shifts. `config` replaces
+  // the whole config and `panelOrder` moves listed ids to the front, so both
+  // reach the same end state when re-run; a call naming no mode fails first.
+  retrySafe: (input) => input.ops === undefined,
   run: async (args, actionContext) => {
     const dashboardId = resolveDashboardId(args);
     const modeCount = [args.ops, args.panelOrder, args.config].filter(

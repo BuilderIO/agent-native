@@ -295,7 +295,12 @@ type ProviderRequestActionArgs = StagingRequestArgs & {
 const STAGED_DATASET_CAP_ERROR = /Staged dataset (?:byte )?cap exceeded/i;
 
 function rethrowStagingError(error: unknown): never {
-  if (error instanceof Error && STAGED_DATASET_CAP_ERROR.test(error.message)) {
+  if (
+    error instanceof Error &&
+    STAGED_DATASET_CAP_ERROR.test(error.message) &&
+    // A single dataset over the whole cap is not fixed by deleting others.
+    !/this dataset alone/i.test(error.message)
+  ) {
     throw new Error(
       `${error.message} Recover by deleting older staged datasets with list-staged-datasets/delete-staged-dataset, or switch this request to saveToFile / a smaller staged result before trying again.`,
       { cause: error },
@@ -366,6 +371,15 @@ export function createProviderApiRequestAction<
       omittedProperties: ["stageAs", "saveToFile"],
       description:
         "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
+    },
+    // A GET or HEAD only reads the provider; re-staging under the same name or
+    // re-saving the same file replaces the result. A cap or validation error
+    // from stageAs must not stop the run for every later provider call.
+    retrySafe: (args) => {
+      const method = String(
+        (args as ProviderRequestActionArgs).method ?? "GET",
+      ).toUpperCase();
+      return method === "GET" || method === "HEAD";
     },
     audit: {
       recordInputs: false,

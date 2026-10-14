@@ -20,6 +20,27 @@ export function actionCallIsReadOnly(
 }
 
 /**
+ * Whether re-running this call after an error or a lost result is safe. An
+ * action opts in with `retrySafe`; an undeclared action is not, so an
+ * ambiguous write keeps blocking the run.
+ */
+export function actionCallIsRetrySafe(
+  entry: { retrySafe?: boolean | ((input: any) => boolean) },
+  params: unknown,
+): boolean {
+  const { retrySafe } = entry;
+  if (typeof retrySafe === "boolean") return retrySafe;
+  if (typeof retrySafe !== "function") return false;
+  try {
+    return retrySafe(params) === true;
+  } catch {
+    // coercion-ok: a throwing predicate declares nothing, so the call stays
+    // conservative (blocked) rather than being treated as safe to replay.
+    return false;
+  }
+}
+
+/**
  * Whether a successful call should publish an `action` change event.
  *
  * Read-only calls never do. An unclassified call does, on purpose: staying

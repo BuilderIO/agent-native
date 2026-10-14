@@ -206,6 +206,8 @@ export default defineAction({
       height: 680,
     }),
   },
+  // Not retrySafe, even with a caller slideId: run inserts without checking for
+  // an existing id, so a replay appends a second copy of the slide.
   http: { method: "POST" },
   mcpAnnotations: {
     readOnlyHint: false,

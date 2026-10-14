@@ -16,7 +16,10 @@ import {
   type ProviderCorpusJobStatus,
 } from "./corpus-jobs-store.js";
 import type { ProviderApiMethod, ProviderApiRequestArgs } from "./index.js";
-import { getStagedDatasetRows } from "./staged-datasets-store.js";
+import {
+  getStagedDatasetMeta,
+  getStagedDatasetRows,
+} from "./staged-datasets-store.js";
 
 type ProviderCorpusRuntime = {
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
@@ -860,11 +863,19 @@ async function loadBatchSourceItems(
 ): Promise<unknown[]> {
   if (batch.items.length > 0) return batch.items;
   if (!batch.inputDatasetId) return [];
-  return getStagedDatasetRows({
+  const scope = {
     id: batch.inputDatasetId,
     appId: job.appId,
     ownerEmail: job.ownerEmail,
-  });
+  };
+  // An empty read cannot tell "no items" from "dataset evicted or missing", and
+  // the job would then pause as a normal budget stop with no error.
+  if (!(await getStagedDatasetMeta(scope))) {
+    throw new Error(
+      `Input dataset ${batch.inputDatasetId} was not found. It may have been evicted to make room for newer staged data; stage it again and restart the job.`,
+    );
+  }
+  return getStagedDatasetRows(scope);
 }
 
 function cleanRequest(request: ProviderRequest): ProviderApiRequestArgs {

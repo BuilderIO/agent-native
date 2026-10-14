@@ -13771,7 +13771,7 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
-        error: expect.stringContaining("interrupted 2 time(s)"),
+        error: expect.stringContaining("2 earlier attempts"),
       }),
     );
   });
@@ -18186,21 +18186,22 @@ describe("runAgentLoop model fallback", () => {
         "claude-sonnet-5",
       ]);
       expect(usage.model).toBe("claude-sonnet-5");
-      expect(
-        events.some(
-          (event) =>
-            event.type === "activity" &&
-            event.label.includes("claude-haiku-4-5") &&
-            event.label.includes("claude-sonnet-5"),
-        ),
-      ).toBe(true);
+      const switchLabels = events.flatMap((event) =>
+        event.type === "activity" && event.label.includes("switching to")
+          ? [event.label]
+          : [],
+      );
+      expect(switchLabels).toEqual([
+        "Model is rate limited — switching to a backup model",
+      ]);
+      expect(JSON.stringify(events)).not.toContain("claude-");
       expect(JSON.stringify(events)).toContain("recovered");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("falls through to the terminal error when the fallback model is ALSO rate limited", async () => {
+  it("gives the fallback model exactly one attempt and then surfaces the error when it is ALSO rate limited", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -18241,8 +18242,9 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
+      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(1);
       expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+      expect(modelsUsed.at(-1)).toBe("claude-sonnet-5");
     } finally {
       vi.useRealTimers();
     }

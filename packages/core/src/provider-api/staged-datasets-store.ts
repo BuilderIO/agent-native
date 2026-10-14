@@ -4,6 +4,7 @@ import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 export const MAX_ROWS_PER_APP = 200_000;
 export const MAX_BYTES_PER_APP = 50 * 1024 * 1024;
+export const STAGED_DATASET_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 let _initPromise: Promise<void> | undefined;
 
@@ -125,6 +126,91 @@ async function getAppByteSize(appId: string): Promise<number> {
   return Number(rows[0]?.total ?? 0);
 }
 
+export interface StagedDatasetEvictionCandidate {
+  id: string;
+  owner_email: string;
+  byte_size: number;
+  row_count: number;
+  updated_at: number;
+}
+
+/**
+ * Picks which datasets of an app to drop so a write fits. Datasets older than
+ * `staleBefore` always go (any owner); then the writer's own datasets, then
+ * other owners', least recently written first, until both caps hold. `fits` is
+ * false when dropping every candidate still leaves the write over a cap, in
+ * which case callers must evict nothing.
+ */
+export function selectStagedDatasetsToEvict(options: {
+  candidates: StagedDatasetEvictionCandidate[];
+  ownerEmail: string;
+  projectedBytes: number;
+  projectedRows: number;
+  staleBefore?: number;
+  maxBytes?: number;
+  maxRows?: number;
+}): { evictIds: string[]; fits: boolean } {
+  const maxBytes = options.maxBytes ?? MAX_BYTES_PER_APP;
+  const maxRows = options.maxRows ?? MAX_ROWS_PER_APP;
+  const staleBefore = options.staleBefore ?? 0;
+  const rank = (c: StagedDatasetEvictionCandidate) =>
+    c.updated_at < staleBefore
+      ? 0
+      : c.owner_email === options.ownerEmail
+        ? 1
+        : 2;
+  let bytes = options.projectedBytes;
+  let rows = options.projectedRows;
+  const evictIds: string[] = [];
+  const ordered = [...options.candidates].sort(
+    (a, b) => rank(a) - rank(b) || a.updated_at - b.updated_at,
+  );
+  for (const candidate of ordered) {
+    const stale = rank(candidate) === 0;
+    if (!stale && bytes <= maxBytes && rows <= maxRows) break;
+    evictIds.push(candidate.id);
+    bytes -= candidate.byte_size;
+    rows -= candidate.row_count;
+  }
+  return { evictIds, fits: bytes <= maxBytes && rows <= maxRows };
+}
+
+async function planStagedDatasetEviction(options: {
+  db: DbExec;
+  appId: string;
+  ownerEmail: string;
+  excludeId: string;
+  projectedBytes: number;
+  projectedRows: number;
+  now: number;
+}): Promise<{ evict: { id: string; updatedAt: number }[]; fits: boolean }> {
+  const { rows } = await options.db.execute({
+    sql: `SELECT id, owner_email, byte_size, row_count, updated_at FROM staged_datasets WHERE app_id = ? AND id <> ?`,
+    args: [options.appId, options.excludeId],
+  });
+  const candidates = rows.map((r) => ({
+    id: r.id as string,
+    owner_email: r.owner_email as string,
+    byte_size: Number(r.byte_size),
+    row_count: Number(r.row_count),
+    updated_at: Number(r.updated_at),
+  }));
+  const { evictIds, fits } = selectStagedDatasetsToEvict({
+    candidates,
+    ownerEmail: options.ownerEmail,
+    projectedBytes: options.projectedBytes,
+    projectedRows: options.projectedRows,
+    staleBefore: options.now - STAGED_DATASET_MAX_AGE_MS,
+  });
+  const updatedAtById = new Map(candidates.map((c) => [c.id, c.updated_at]));
+  return {
+    fits,
+    evict: fits
+      ? evictIds.map((id) => ({ id, updatedAt: updatedAtById.get(id) ?? 0 }))
+      : [],
+  };
+}
+
 export async function upsertStagedDataset(
   options: UpsertDatasetOptions,
 ): Promise<StagedDatasetMeta> {
@@ -146,44 +232,51 @@ export async function upsertStagedDataset(
     ? [...existingRows, ...options.rows]
     : options.rows;
 
+  const serialized = allRows.map((row) => JSON.stringify(row));
+  const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
+
   const currentAppRows = await getAppRowCount(options.appId);
   const currentDatasetRows = options.append
     ? existingRows.length
     : await (async () => {
         const { rows } = await db.execute({
-          sql: `SELECT row_count FROM staged_datasets WHERE id = ?`,
-          args: [id],
+          sql: `SELECT row_count FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+          args: [id, options.appId, options.ownerEmail],
         });
         return Number(rows[0]?.row_count ?? 0);
       })();
-  const netNewRows = allRows.length - currentDatasetRows;
-  if (currentAppRows + netNewRows > MAX_ROWS_PER_APP) {
-    throw new Error(
-      `Staged dataset cap exceeded: this app already has ${currentAppRows} rows stored ` +
-        `(limit ${MAX_ROWS_PER_APP}). Delete older datasets before staging more data.`,
-    );
-  }
-
-  const serialized = allRows.map((row) => JSON.stringify(row));
-  const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
-
   const currentAppBytes = await getAppByteSize(options.appId);
-  const existingDatasetBytes = options.append
-    ? await (async () => {
-        const { rows } = await db.execute({
-          sql: `SELECT byte_size FROM staged_datasets WHERE id = ?`,
-          args: [id],
-        });
-        return Number(rows[0]?.byte_size ?? 0);
-      })()
-    : 0;
-  const netNewBytes = byteSize - existingDatasetBytes;
-  if (currentAppBytes + netNewBytes > MAX_BYTES_PER_APP) {
-    throw new Error(
-      `Staged dataset byte cap exceeded: this app already stores ` +
-        `${(currentAppBytes / 1024 / 1024).toFixed(1)} MB (limit 50 MB). ` +
-        `Delete older datasets before staging more data.`,
-    );
+  const { rows: existingMeta } = await db.execute({
+    sql: `SELECT byte_size FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+    args: [id, options.appId, options.ownerEmail],
+  });
+  const existingDatasetBytes = Number(existingMeta[0]?.byte_size ?? 0);
+  const projectedRows = currentAppRows + allRows.length - currentDatasetRows;
+  const projectedBytes = currentAppBytes + byteSize - existingDatasetBytes;
+
+  let evict: { id: string; updatedAt: number }[] = [];
+  if (projectedRows > MAX_ROWS_PER_APP || projectedBytes > MAX_BYTES_PER_APP) {
+    const plan = await planStagedDatasetEviction({
+      db,
+      appId: options.appId,
+      ownerEmail: options.ownerEmail,
+      excludeId: id,
+      projectedBytes,
+      projectedRows,
+      now,
+    });
+    if (!plan.fits) {
+      throw new Error(
+        allRows.length > MAX_ROWS_PER_APP
+          ? `Staged dataset cap exceeded: this dataset alone has ${allRows.length} rows ` +
+              `(limit ${MAX_ROWS_PER_APP} per app, shared by all datasets). Stage fewer rows.`
+          : `Staged dataset byte cap exceeded: this dataset alone is ` +
+              `${(byteSize / 1024 / 1024).toFixed(1)} MB ` +
+              `(limit ${MAX_BYTES_PER_APP / 1024 / 1024} MB per app, shared by all datasets). ` +
+              `Stage fewer rows or columns.`,
+      );
+    }
+    evict = plan.evict;
   }
 
   const columns = options.columns.length
@@ -192,6 +285,19 @@ export async function upsertStagedDataset(
   const columnsJson = JSON.stringify(columns);
 
   await withDbTransaction(db, async (tx) => {
+    // Eviction commits or rolls back with the write it makes room for. Each
+    // delete is guarded by the updated_at it was planned against, so a dataset
+    // refreshed since the plan was read is left alone.
+    for (const victim of evict) {
+      await tx.execute({
+        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ? AND EXISTS (SELECT 1 FROM staged_datasets WHERE id = ? AND app_id = ? AND updated_at = ?)`,
+        args: [victim.id, victim.id, options.appId, victim.updatedAt],
+      });
+      await tx.execute({
+        sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND updated_at = ?`,
+        args: [victim.id, options.appId, victim.updatedAt],
+      });
+    }
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [id],
