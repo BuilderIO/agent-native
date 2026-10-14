@@ -17,7 +17,11 @@ import {
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import { base64ByteLength, parseBase64DataUrl } from "../shared/data-url.js";
+import {
+  base64ByteLength,
+  isBase64,
+  parseBase64DataUrl,
+} from "../shared/data-url.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -2176,6 +2180,11 @@ export function normalizeBuilderAgentAttachments(
       if (!dataUrl || dataUrl.mediaType !== attachment.contentType) {
         throw invalidAttachment(
           "Image and PDF Builder attachments require a matching base64 dataUrl",
+        );
+      }
+      if (!isBase64(dataUrl.data)) {
+        throw invalidAttachment(
+          "Image and PDF Builder attachments require valid base64 data",
         );
       }
       size = base64ByteLength(dataUrl.data);

@@ -1836,6 +1836,19 @@ describe("Builder callback CSRF state", () => {
           { type: "url", value: "ftp://example.test/a.txt" },
         ]),
       ).toThrow(ActionContractError);
+      for (const data of ["@@@@", "ab=c", "abcde", "ab="]) {
+        expect(() =>
+          normalizeBuilderAgentAttachments([
+            {
+              type: "upload",
+              contentType: "application/pdf",
+              name: "spec.pdf",
+              dataUrl: `data:application/pdf;base64,${data}`,
+              id: "file-pdf",
+            },
+          ]),
+        ).toThrow(ActionContractError);
+      }
     });
 
     it("omits attachments when none are supplied", async () => {

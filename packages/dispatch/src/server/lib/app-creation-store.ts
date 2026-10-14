@@ -2902,8 +2902,6 @@ export async function startWorkspaceAppCreation(input: {
   });
   assertValidWorkspaceAppId(initial.appId);
   requireWorkspaceAppOrgId();
-  // Fail before provisioning or reserving anything: a bad attachment is the
-  // caller's to fix, not a Builder outage.
   normalizeBuilderAgentAttachments(input.attachments);
   const isLocal = isLocalAppCreationRuntime();
 
