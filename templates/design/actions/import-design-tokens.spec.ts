@@ -1828,23 +1828,46 @@ Bad radius: 12px} body { color: red
   it("matches typed math and attr substitutions to token dimensions", async () => {
     const result = await action.run({
       designId: "design_1",
-      source: "paste",
-      text: [
-        "--font-weight-invalid: calc(12px)",
-        "--font-weight-valid: calc(400)",
-        "--duration-invalid: calc(12px)",
-        "--duration-valid: calc(1s)",
-        "--font-weight-fallback-invalid: var(--weight, calc(12px))",
-        "--font-weight-fallback-valid: var(--weight, calc(400))",
-        "--duration-fallback-invalid: var(--duration, calc(12px))",
-        "--duration-fallback-valid: var(--duration, calc(1s))",
-        "--spacing-attr-no-syntax: calc(attr(data-gap, 2px) + 1px)",
-        "--spacing-attr-explicit-syntax: calc(attr(data-gap length, 2px) + 1px)",
-      ].join("; "),
+      source: "files",
+      files: [
+        {
+          filename: "tokens.css",
+          content: `:root {\n${[
+            "--font-weight-invalid: calc(12px)",
+            "--font-weight-valid: calc(400)",
+            "--duration-invalid: calc(12px)",
+            "--duration-valid: calc(1s)",
+            "--font-weight-fallback-invalid: var(--weight, calc(12px))",
+            "--font-weight-fallback-valid: var(--weight, calc(400))",
+            "--duration-fallback-invalid: var(--duration, calc(12px))",
+            "--duration-fallback-valid: var(--duration, calc(1s))",
+            "--spacing-attr-no-syntax: calc(attr(data-gap, 2px) + 1px)",
+            "--spacing-attr-explicit-syntax: calc(attr(data-gap length, 2px) + 1px)",
+            "--spacing-attr-union: calc(attr(data-gap length | percentage, 2px) + 1px)",
+            "--spacing-attr-typed-union: calc(attr(data-gap type(<length> | <percentage>), 2px) + 1px)",
+            "--spacing-attr-number-product: calc(attr(data-scale number, 2) * 1px)",
+            "--spacing-attr-number-addition: calc(attr(data-scale number, 2) + 1px)",
+            "--spacing-attr-px-unit: calc(attr(data-scale px, 2px) + 1px)",
+            "--spacing-margin-auto-fallback: attr(data-gap type(<length>), auto)",
+            "--spacing-margin-invalid-fallback: attr(data-gap type(<length>), not-a-margin-value)",
+            "--font-family-valid: attr(data-font custom-ident, Inter)",
+            "--font-family-no-type: attr(data-font)",
+            "--font-family-invalid: attr(data-gap length, serif)",
+            "--custom-css-image: attr(data-image type(<image>))",
+            "--custom-css-image-plus: attr(data-image type(<image>+))",
+            "--custom-css-image-hash: attr(data-image type(<image>#))",
+            "--custom-css-url-plus: attr(data-url type(<url>+))",
+            "--custom-css-url-hash: attr(data-url type(<url>#))",
+            "--type-scale-invalid: attr(data-color color, serif)",
+            "--motion-invalid: attr(data-gap length, ease)",
+            "--motion-transition-invalid: calc(12px) slide 1s ease",
+          ].join(";\n")}\n}`,
+        },
+      ],
     });
 
-    expect(result.importedCount).toBe(5);
-    expect(result.rejectedCount).toBe(5);
+    expect(result.importedCount).toBe(13);
+    expect(result.rejectedCount).toBe(16);
     expect(result.tokens.map((token) => token.cssVar)).toEqual(
       expect.arrayContaining([
         "--font-weight-valid",
@@ -1852,6 +1875,13 @@ Bad radius: 12px} body { color: red
         "--font-weight-fallback-valid",
         "--duration-fallback-valid",
         "--spacing-attr-explicit-syntax",
+        "--spacing-attr-union",
+        "--spacing-attr-typed-union",
+        "--spacing-attr-number-product",
+        "--spacing-attr-px-unit",
+        "--spacing-margin-auto-fallback",
+        "--font-family-valid",
+        "--font-family-no-type",
       ]),
     );
     expect(result.tokens.map((token) => token.cssVar)).not.toEqual(
@@ -1861,6 +1891,17 @@ Bad radius: 12px} body { color: red
         "--font-weight-fallback-invalid",
         "--duration-fallback-invalid",
         "--spacing-attr-no-syntax",
+        "--spacing-attr-number-addition",
+        "--spacing-margin-invalid-fallback",
+        "--font-family-invalid",
+        "--custom-css-image",
+        "--custom-css-image-plus",
+        "--custom-css-image-hash",
+        "--custom-css-url-plus",
+        "--custom-css-url-hash",
+        "--type-scale-invalid",
+        "--motion-invalid",
+        "--motion-transition-invalid",
       ]),
     );
   });

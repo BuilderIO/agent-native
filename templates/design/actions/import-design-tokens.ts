@@ -1307,6 +1307,28 @@ function splitCssFunctionArguments(value: string): string[] {
   return parts;
 }
 
+function cssFunctionFirstArgumentEnd(value: string): number {
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if (char === "," && depth === 0) return index;
+  }
+
+  return value.length;
+}
+
 function readSingleCssIdentifier(value: string): string | null {
   let parsed: csstree.CssNode;
   try {
@@ -1409,10 +1431,7 @@ function isValidCssSubstitutionFunction(name: string, args: string): boolean {
   if (!attrName) return false;
   if (!readSingleCssIdentifier(attrName[1] ?? "")) return false;
   if (attrName[2] && !readSingleCssIdentifier(attrName[2])) return false;
-  const syntax = attrName[3]?.trim();
-  if (syntax && !isValidCssAttrSyntax(syntax)) return false;
-
-  return true;
+  return cssAttrSyntaxComponents(args) !== null;
 }
 
 function readCssFunctionAt(
@@ -1505,8 +1524,170 @@ type CssMathDimension =
 type CssMathReplacement = {
   start: number;
   end: number;
-  dimension?: "number" | "unknown";
+  dimension?: CssMathDimension;
 };
+
+function cssAttrUnitDimension(unit: string): CssMathDimension | null {
+  const normalized = unit.toLowerCase();
+  if (normalized === "%") return "percentage";
+  if (["deg", "grad", "rad", "turn"].includes(normalized)) return "angle";
+  if (normalized === "fr") return "flex";
+  if (["hz", "khz"].includes(normalized)) return "frequency";
+  if (["dpcm", "dpi", "dppx", "x"].includes(normalized)) {
+    return "resolution";
+  }
+  if (["ms", "s"].includes(normalized)) return "time";
+  if (
+    [
+      "cap",
+      "ch",
+      "cm",
+      "cqmax",
+      "cqmin",
+      "cqb",
+      "cqh",
+      "cqi",
+      "cqw",
+      "dvb",
+      "dvh",
+      "dvi",
+      "dvmax",
+      "dvmin",
+      "dvw",
+      "ex",
+      "ic",
+      "in",
+      "lh",
+      "lvb",
+      "lvh",
+      "lvi",
+      "lvmax",
+      "lvmin",
+      "lvw",
+      "mm",
+      "pc",
+      "pt",
+      "px",
+      "q",
+      "rem",
+      "rlh",
+      "svb",
+      "svh",
+      "svi",
+      "svmax",
+      "svmin",
+      "svw",
+      "vb",
+      "vh",
+      "vi",
+      "vmax",
+      "vmin",
+      "vw",
+    ].includes(normalized)
+  ) {
+    return "length";
+  }
+  return null;
+}
+
+function cssAttrSyntaxComponents(args: string): string[] | null {
+  const head = splitCssFunctionArguments(args)[0]?.trim() ?? "";
+  const attrHead = head.match(
+    /^([^\s|]+)(?:\s*\|\s*([^\s|]+))?(?:\s+([\s\S]*))?$/,
+  );
+  if (!attrHead) return null;
+  const syntax = attrHead[3]?.trim();
+  if (!syntax) return ["string"];
+
+  const typeSyntax = readSingleCssFunctionArguments(syntax, "type");
+  if (typeSyntax !== null) {
+    if (!isValidCssAttrSyntax(typeSyntax)) return null;
+    const normalizedTypeSyntax =
+      readSingleCssString(typeSyntax) ?? typeSyntax.trim().toLowerCase();
+    return normalizedTypeSyntax.split("|").map((component) => component.trim());
+  }
+
+  const normalizedType = syntax.toLowerCase();
+  if (normalizedType === "raw-string") return ["string"];
+  if (normalizedType === "number") return ["number"];
+  const unitDimension = cssAttrUnitDimension(syntax);
+  if (unitDimension) return [unitDimension];
+  if (!isValidCssAttrSyntax(syntax)) return null;
+  const normalizedSyntax =
+    readSingleCssString(syntax) ?? syntax.trim().toLowerCase();
+  return normalizedSyntax.split("|").map((component) => component.trim());
+}
+
+function cssAttrMathDimension(args: string): CssMathDimension {
+  const components = cssAttrSyntaxComponents(args);
+  if (!components?.length) return "invalid";
+
+  const dimensions = components.map((component): CssMathDimension => {
+    if (component.endsWith("+") || component.endsWith("#")) return "invalid";
+    const type =
+      component.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase() ?? component;
+    if (type === "integer") return "number";
+    if (
+      [
+        "angle",
+        "flex",
+        "frequency",
+        "length",
+        "length-percentage",
+        "number",
+        "percentage",
+        "resolution",
+        "time",
+      ].includes(type)
+    ) {
+      return type as CssMathDimension;
+    }
+    return "invalid";
+  });
+
+  return dimensions
+    .slice(1)
+    .reduce(
+      (dimension, next) => compatibleCssMathDimensions(dimension, next),
+      dimensions[0]!,
+    );
+}
+
+function cssAttrPlaceholder(token: ImportedDesignToken, args: string): string {
+  const fallback = splitCssFunctionArguments(args).slice(1).join(",").trim();
+  if (fallback) return fallback;
+
+  const firstComponent = cssAttrSyntaxComponents(args)?.[0];
+  const type =
+    firstComponent?.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase() ??
+    firstComponent;
+  switch (type) {
+    case "angle":
+      return "1deg";
+    case "custom-ident":
+      return "token";
+    case "flex":
+      return "1fr";
+    case "frequency":
+      return "1hz";
+    case "integer":
+    case "number":
+      return "1";
+    case "length":
+    case "length-percentage":
+      return "1px";
+    case "percentage":
+      return "1%";
+    case "resolution":
+      return "1dppx";
+    case "string":
+      return '"token"';
+    case "time":
+      return "1s";
+    default:
+      return cssSubstitutionPlaceholders(token)[0] ?? "initial";
+  }
+}
 
 function parseCssMathExpression(
   value: string,
@@ -1540,7 +1721,10 @@ function parseCssMathExpression(
         replacements.push({
           start,
           end: functionValue.end,
-          dimension: "unknown",
+          dimension:
+            name === "attr"
+              ? cssAttrMathDimension(functionValue.args)
+              : "unknown",
         });
       }
     });
@@ -2483,6 +2667,11 @@ function isValidRelativeColorComponent(
 
 function hasUnsafeCssValueFunction(value: string): boolean {
   let unsafe = false;
+  const attrArgumentRanges: {
+    end: number;
+    replacement: string;
+    start: number;
+  }[] = [];
   csstree.tokenize(value, (type, start, end) => {
     if (unsafe) return;
     if (type === csstree.tokenTypes.Url || type === csstree.tokenTypes.BadUrl) {
@@ -2491,14 +2680,52 @@ function hasUnsafeCssValueFunction(value: string): boolean {
     }
     if (type !== csstree.tokenTypes.Function) return;
 
-    const name = csstree.ident.decode(value.slice(start, end - 1));
-    unsafe =
-      name.toLowerCase() === "url" || name.toLowerCase() === "expression";
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (name === "url" || name === "expression") unsafe = true;
+    if (name !== "attr") return;
+
+    const functionValue = readCssFunctionAt(value, end);
+    if (!functionValue) {
+      unsafe = true;
+      return;
+    }
+    const firstArgumentEnd = cssFunctionFirstArgumentEnd(functionValue.args);
+    const firstArgument = functionValue.args.slice(0, firstArgumentEnd);
+    const attrHead = firstArgument
+      .trim()
+      .match(/^([^\s|]+)(?:\s*\|\s*([^\s|]+))?(?:\s+([\s\S]*))?$/);
+    const attrName = attrHead
+      ? `${attrHead[1]}${attrHead[2] ? `|${attrHead[2]}` : ""}`
+      : "x";
+    attrArgumentRanges.push({
+      start: end,
+      end: end + firstArgumentEnd,
+      replacement: `${firstArgument.match(/^\s*/)?.[0] ?? ""}${attrName}`,
+    });
+    if (
+      cssAttrSyntaxComponents(functionValue.args)?.some((component) => {
+        const normalizedComponent = component.replace(/[+#]$/, "");
+        const type =
+          normalizedComponent.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase() ??
+          normalizedComponent.toLowerCase();
+        return type === "url" || type === "image";
+      })
+    ) {
+      unsafe = true;
+    }
   });
   if (unsafe) return true;
 
+  let treeValue = value;
+  for (let index = attrArgumentRanges.length - 1; index >= 0; index -= 1) {
+    const range = attrArgumentRanges[index]!;
+    treeValue = `${treeValue.slice(0, range.start)}${range.replacement}${treeValue.slice(range.end)}`;
+  }
+
   try {
-    csstree.walk(csstree.parse(value, { context: "value" }), (node) => {
+    csstree.walk(csstree.parse(treeValue, { context: "value" }), (node) => {
       if (node.type !== "Function") return;
       const functionName = csstree.ident.decode(node.name).toLowerCase();
       if (functionName === "attr") {
@@ -2671,13 +2898,20 @@ function importedTokenMathDimensions(
     if (/tracking|letter[-_]?spacing/.test(name)) {
       return new Set(["length", "unknown"]);
     }
-    return null;
+    return new Set([
+      "length",
+      "length-percentage",
+      "number",
+      "percentage",
+      "unknown",
+    ]);
   }
   if (token.type === "motion") {
     if (/duration|delay/.test(name)) return new Set(["time", "unknown"]);
     if (/easing|ease|timing/.test(name)) {
       return new Set(["number", "percentage", "unknown"]);
     }
+    return new Set(["time", "number", "percentage", "unknown"]);
   }
   return null;
 }
@@ -2691,7 +2925,9 @@ function importedTokenAttrTypes(
   }
   if (token.type === "typography") {
     if (/weight/.test(name)) return new Set(["integer", "number"]);
-    if (/font[-_]?family/.test(name)) return null;
+    if (/font[-_]?family/.test(name)) {
+      return new Set(["custom-ident", "string"]);
+    }
     if (/size|text/.test(name)) {
       return new Set(["length", "length-percentage", "percentage"]);
     }
@@ -2705,12 +2941,22 @@ function importedTokenAttrTypes(
       ]);
     }
     if (/tracking|letter[-_]?spacing/.test(name)) return new Set(["length"]);
+    return new Set([
+      "custom-ident",
+      "integer",
+      "length",
+      "length-percentage",
+      "number",
+      "percentage",
+      "string",
+    ]);
   }
   if (token.type === "motion") {
     if (/duration|delay/.test(name)) return new Set(["time"]);
     if (/easing|ease|timing/.test(name)) {
       return new Set(["integer", "number", "percentage"]);
     }
+    return new Set(["custom-ident", "integer", "number", "percentage", "time"]);
   }
   return null;
 }
@@ -2754,26 +3000,38 @@ function hasCompatibleCssMathDimensions(
 function hasCompatibleCssAttrSyntax(
   token: ImportedDesignToken,
   args: string,
+  value: string,
+  start: number,
+  end: number,
 ): boolean {
   const expectedTypes = importedTokenAttrTypes(token);
+  const components = cssAttrSyntaxComponents(args);
+  if (!components) return false;
+
+  let insideCssMathFunction = false;
+  csstree.tokenize(value, (type, functionStart, tokenEnd) => {
+    if (insideCssMathFunction || type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(functionStart, tokenEnd - 1))
+      .toLowerCase();
+    if (!cssMathFunctions.has(name)) return;
+    const functionValue = readCssFunctionAt(value, tokenEnd);
+    insideCssMathFunction = Boolean(
+      functionValue && functionStart < start && functionValue.end >= end,
+    );
+  });
+
+  if (insideCssMathFunction) {
+    return cssAttrMathDimension(args) !== "invalid";
+  }
   if (!expectedTypes) return true;
 
-  const head = splitCssFunctionArguments(args)[0]?.trim() ?? "";
-  const syntax = head.match(
-    /^([^\s|]+)(?:\s*\|\s*([^\s|]+))?(?:\s+([\s\S]*))?$/,
-  )?.[3];
-  if (!syntax) return false;
-  const normalizedSyntax =
-    readSingleCssString(syntax) ?? syntax.trim().toLowerCase();
-  const components = normalizedSyntax
-    .split("|")
-    .map((component) => component.trim());
-  if (components.length !== 1) return false;
-  const component = components[0]!;
-  if (component.endsWith("+") || component.endsWith("#")) return false;
-  const type =
-    component.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase() ?? component;
-  return expectedTypes.has(type);
+  return components.every((component) => {
+    if (component.endsWith("+") || component.endsWith("#")) return false;
+    const type =
+      component.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase() ?? component;
+    return expectedTypes.has(type);
+  });
 }
 
 function matchesImportedTokenGrammar(
@@ -2816,7 +3074,11 @@ function isValidTypedCssTokenValue(
   depth = 0,
 ): boolean {
   if (depth > 5) return false;
-  const ranges: { end: number; fallback?: string; start: number }[] = [];
+  const ranges: {
+    end: number;
+    placeholders?: string[];
+    start: number;
+  }[] = [];
   let valid = true;
 
   csstree.tokenize(value, (type, start, end) => {
@@ -2835,20 +3097,45 @@ function isValidTypedCssTokenValue(
     }
     if (
       name === "attr" &&
-      !hasCompatibleCssAttrSyntax(token, functionValue.args)
+      !hasCompatibleCssAttrSyntax(
+        token,
+        functionValue.args,
+        value,
+        start,
+        functionValue.end,
+      )
     ) {
       valid = false;
       return;
     }
 
     const parts = splitCssFunctionArguments(functionValue.args);
-    if (parts.length > 1 && parts.slice(1).join(",").trim()) {
+    if (
+      name !== "attr" &&
+      parts.length > 1 &&
+      parts.slice(1).join(",").trim()
+    ) {
       valid = isValidTypedCssTokenValue(
         token,
         parts.slice(1).join(",").trim(),
         depth + 1,
       );
       if (!valid) return;
+    }
+
+    if (name === "attr") {
+      if (
+        !ranges.some(
+          (range) => range.start < start && range.end >= functionValue.end,
+        )
+      ) {
+        ranges.push({
+          start,
+          end: functionValue.end,
+          placeholders: [cssAttrPlaceholder(token, functionValue.args)],
+        });
+      }
+      return;
     }
 
     if (
@@ -2883,7 +3170,7 @@ function isValidTypedCssTokenValue(
       return matchesImportedTokenGrammar(token, candidate);
     }
 
-    for (const placeholder of placeholders) {
+    for (const placeholder of ranges[index]!.placeholders ?? placeholders) {
       replacements[index] = placeholder;
       if (matchesWith(index + 1, replacements)) return true;
     }
