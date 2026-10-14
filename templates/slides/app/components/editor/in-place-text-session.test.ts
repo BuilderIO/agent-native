@@ -2619,6 +2619,31 @@ describe("in-place text session: undo", () => {
     expect(session.historyStats().byteEvictions).toBe(0);
   });
 
+  it("keeps 500 Latin-1 history entries compact under the 256 MiB budget", () => {
+    const operationCount = 500;
+    const originalText = "x".repeat(380_000);
+    const el = mount(`<p id="t">${originalText}</p>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, originalText.slice(0, 16)), 0);
+    const originalHtml = el.innerHTML;
+    const aligns = ["left", "right"] as const;
+
+    for (let i = 0; i < operationCount; i++) {
+      session.commands.align(aligns[i % 2]);
+    }
+
+    const history = session.historyStats();
+    expect(history.peakBytes).toBeGreaterThan(150 * 1024 * 1024);
+    expect(history.peakBytes).toBeLessThan(256 * 1024 * 1024);
+    expect(history.initialStateEvicted).toBe(false);
+    expect(history.byteEvictions).toBe(0);
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(operationCount);
+    expect(el.innerHTML).toBe(originalHtml);
+  });
+
   it("keeps a 500-operation history for a two-byte text block within the budget", () => {
     const operationCount = 500;
     const originalText = "x".repeat(380_000) + ZWSP;
