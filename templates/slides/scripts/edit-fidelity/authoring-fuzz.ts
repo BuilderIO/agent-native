@@ -2112,6 +2112,7 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
+  let slashHoverThemesChecked = false;
   currentBrowserSessionId = uniquePendingBrowserSessionId(
     [...watchedRequests.keys()].map((request) => ({
       method: request.method(),
@@ -4653,37 +4654,64 @@ export async function runAuthoringFuzz(
           .getAttribute("data-value")
       : null;
     await options.nth(1).hover();
-    const hoverState = await editor.evaluate((root: HTMLElement) => {
-      const activeId = root.getAttribute("aria-activedescendant");
-      const activeOption = activeId ? document.getElementById(activeId) : null;
-      const hoveredOption = document.querySelector<HTMLElement>(
-        '[role="option"]:hover',
-      );
-      return {
-        focused: document.activeElement === root,
-        activeCommand: activeOption?.getAttribute("data-value") ?? null,
-        hoveredCommand: hoveredOption?.getAttribute("data-value") ?? null,
-        activeBackground: activeOption
-          ? getComputedStyle(activeOption).backgroundColor
-          : null,
-        hoveredBackground: hoveredOption
-          ? getComputedStyle(hoveredOption).backgroundColor
-          : null,
-      };
-    });
-    if (
-      !initialCommand ||
-      !hoverState.focused ||
-      hoverState.activeCommand !== initialCommand ||
-      !hoverState.hoveredCommand ||
-      hoverState.hoveredCommand === initialCommand ||
-      !hoverState.activeBackground ||
-      !hoverState.hoveredBackground ||
-      hoverState.activeBackground === hoverState.hoveredBackground
-    ) {
-      throw new Error(
-        `slash menu hover changed or obscured keyboard selection (${JSON.stringify({ initialCommand, hoverState })})`,
-      );
+    if (!slashHoverThemesChecked) {
+      const originalTheme = await page.evaluate(() => ({
+        light: document.documentElement.classList.contains("light"),
+        dark: document.documentElement.classList.contains("dark"),
+      }));
+      try {
+        for (const theme of ["light", "dark"] as const) {
+          await page.evaluate((nextTheme: "light" | "dark") => {
+            const root = document.documentElement;
+            root.classList.toggle("light", nextTheme === "light");
+            root.classList.toggle("dark", nextTheme === "dark");
+          }, theme);
+          const hoverState = await editor.evaluate((root: HTMLElement) => {
+            const activeId = root.getAttribute("aria-activedescendant");
+            const activeOption = activeId
+              ? document.getElementById(activeId)
+              : null;
+            const hoveredOption = document.querySelector<HTMLElement>(
+              '[role="option"]:hover',
+            );
+            return {
+              focused: document.activeElement === root,
+              activeCommand: activeOption?.getAttribute("data-value") ?? null,
+              hoveredCommand: hoveredOption?.getAttribute("data-value") ?? null,
+              activeBackground: activeOption
+                ? getComputedStyle(activeOption).backgroundColor
+                : null,
+              hoveredBackground: hoveredOption
+                ? getComputedStyle(hoveredOption).backgroundColor
+                : null,
+            };
+          });
+          if (
+            !initialCommand ||
+            !hoverState.focused ||
+            hoverState.activeCommand !== initialCommand ||
+            !hoverState.hoveredCommand ||
+            hoverState.hoveredCommand === initialCommand ||
+            !hoverState.activeBackground ||
+            !hoverState.hoveredBackground ||
+            hoverState.activeBackground === hoverState.hoveredBackground
+          ) {
+            throw new Error(
+              `slash menu hover changed or obscured keyboard selection in ${theme} theme (${JSON.stringify({ initialCommand, hoverState })})`,
+            );
+          }
+        }
+      } finally {
+        await page.evaluate(
+          ({ light, dark }: { light: boolean; dark: boolean }) => {
+            const root = document.documentElement;
+            root.classList.toggle("light", light);
+            root.classList.toggle("dark", dark);
+          },
+          originalTheme,
+        );
+      }
+      slashHoverThemesChecked = true;
     }
     const focused = await editor.evaluate(
       (root: HTMLElement) => document.activeElement === root,

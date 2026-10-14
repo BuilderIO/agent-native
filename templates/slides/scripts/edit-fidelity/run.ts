@@ -5924,8 +5924,11 @@ async function runAuthoringFuzzQa(
       const monitorCleanupPage = (target: Page) => {
         if (!authoringSucceeded || monitoredPages.has(target)) return;
         trackCleanupRequests(target);
-        target.on("console", onConsole);
-        target.on("pageerror", onPageError);
+        // The warm home page can have an unrelated host-session poll.
+        if (target === page) {
+          target.on("console", onConsole);
+          target.on("pageerror", onPageError);
+        }
         target.on("response", onResponse);
         monitoredPages.add(target);
       };
