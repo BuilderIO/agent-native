@@ -617,6 +617,62 @@ describe("upsertStagedDataset eviction", () => {
   });
 });
 
+describe("upsertStagedDataset append", () => {
+  beforeEach(() => {
+    _metaStore.clear();
+    _rowStore.clear();
+    _log.length = 0;
+    _txCounter = 0;
+    _resetInitPromiseForTests();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads the stored rows under the app lock, in the write's transaction", async () => {
+    seed("ds_log", { byte_size: 20, updated_at: NOW - DAY });
+    _rowStore.set("ds_log", ['{"n":1}', '{"n":2}']);
+
+    const meta = await upsertStagedDataset({
+      id: "ds_log",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "ds_log",
+      rows: [{ n: 3 }],
+      columns: [],
+      append: true,
+    });
+
+    expect(meta.rowCount).toBe(3);
+    expect(_rowStore.get("ds_log")).toEqual(['{"n":1}', '{"n":2}', '{"n":3}']);
+    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
+    const read = _log.findIndex((e) =>
+      /SELECT row_data FROM staged_dataset_rows/i.test(e.sql),
+    );
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThan(lock);
+    expect(_log[read]?.tx).toBe(_log[lock]?.tx);
+  });
+
+  it("appends to nothing when the dataset does not exist yet", async () => {
+    const meta = await upsertStagedDataset({
+      id: "ds_new",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "ds_new",
+      rows: [{ n: 1 }],
+      columns: [],
+      append: true,
+    });
+
+    expect(meta.rowCount).toBe(1);
+    expect(_rowStore.get("ds_new")).toEqual(['{"n":1}']);
+  });
+});
+
 describe("upsertStagedDataset superseded ids", () => {
   beforeEach(() => {
     _metaStore.clear();

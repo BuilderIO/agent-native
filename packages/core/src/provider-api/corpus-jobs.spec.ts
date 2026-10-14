@@ -190,6 +190,16 @@ vi.mock("../server/request-context.js", () => ({
   }),
 }));
 
+const stagedStore = vi.hoisted(() => ({
+  getStagedDatasetRows: vi.fn(),
+  getStagedDatasetMeta: vi.fn(),
+}));
+vi.mock("./staged-datasets-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./staged-datasets-store.js")>()),
+  getStagedDatasetRows: stagedStore.getStagedDatasetRows,
+  getStagedDatasetMeta: stagedStore.getStagedDatasetMeta,
+}));
+
 const { createProviderCorpusJobAction, createProviderCorpusJobReadAction } =
   await import("./corpus-jobs.js");
 const {
@@ -356,6 +366,107 @@ describe("provider corpus jobs", () => {
     expect(second.job.status).toBe("completed");
     expect(second.coverage.batchesProcessed).toBe(2);
     expect(batches).toEqual([["c1", "c2"], ["c3"]]);
+  });
+
+  describe("batch input from a staged dataset", () => {
+    const meta = (updatedAt: number) => ({
+      id: "ds_input",
+      name: "cohort",
+      rowCount: 0,
+      updatedAt,
+    });
+
+    function startFromDataset() {
+      const seen: unknown[] = [];
+      const action = createProviderCorpusJobAction({
+        appId: "analytics",
+        getRuntime: () => ({
+          executeRequest: async (args) => {
+            seen.push((args.body as any).filter.callIds);
+            return providerEnvelope({ callTranscripts: [] });
+          },
+        }),
+      });
+      const run = () =>
+        action.run({
+          operation: "start",
+          name: "transcripts",
+          mode: "batch-search",
+          request: {
+            provider: "fake",
+            method: "POST",
+            path: "/calls/transcript",
+            body: { filter: {} },
+          },
+          batch: {
+            inputDatasetId: "ds_input",
+            batchSize: 5,
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          },
+          search: {
+            query: "Figma MCP",
+            textPaths: ["transcript"],
+            idPaths: ["callId"],
+          },
+          limits: { batchBudget: 1 },
+        }) as Promise<any>;
+      return { run, seen };
+    }
+
+    beforeEach(() => {
+      stagedStore.getStagedDatasetRows.mockReset();
+      stagedStore.getStagedDatasetMeta.mockReset();
+    });
+
+    it("fails clearly when the dataset is gone instead of finishing an empty batch", async () => {
+      stagedStore.getStagedDatasetMeta.mockResolvedValue(null);
+      stagedStore.getStagedDatasetRows.mockResolvedValue([]);
+
+      const result = await startFromDataset().run();
+
+      expect(result.job.status).toBe("failed");
+      expect(result.error).toMatch(/was not found/);
+    });
+
+    it("fails when the dataset is evicted between the row read and the version check", async () => {
+      stagedStore.getStagedDatasetMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce(null);
+      stagedStore.getStagedDatasetRows.mockResolvedValue([]);
+
+      const result = await startFromDataset().run();
+
+      expect(result.job.status).toBe("failed");
+      expect(result.error).toMatch(/was not found/);
+    });
+
+    it("reads again when the dataset is re-staged between the row read and the version check", async () => {
+      stagedStore.getStagedDatasetMeta
+        .mockResolvedValueOnce(meta(100))
+        .mockResolvedValueOnce(meta(200))
+        .mockResolvedValue(meta(200));
+      stagedStore.getStagedDatasetRows
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([{ id: "c1" }, { id: "c2" }]);
+
+      const { run, seen } = startFromDataset();
+      await run();
+
+      expect(seen).toEqual([[{ id: "c1" }, { id: "c2" }]]);
+    });
+
+    it("treats an unchanged empty dataset as no items, not as a failure", async () => {
+      stagedStore.getStagedDatasetMeta.mockResolvedValue(meta(100));
+      stagedStore.getStagedDatasetRows.mockResolvedValue([]);
+
+      const { run, seen } = startFromDataset();
+      const result = await run();
+
+      expect(seen).toEqual([]);
+      expect(result.job.status).not.toBe("failed");
+      expect(result.error ?? null).toBeNull();
+    });
   });
 
   it("pauses with quota_wait and preserves resumable progress", async () => {

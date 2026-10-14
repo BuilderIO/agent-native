@@ -205,6 +205,19 @@ export function selectStagedDatasetsToEvict(options: {
   return { evictIds, fits: bytes <= maxBytes && rows <= maxRows };
 }
 
+function prepareDatasetRows(
+  rows: Record<string, unknown>[],
+  columns: string[],
+) {
+  const serialized = rows.map((row) => JSON.stringify(row));
+  return {
+    rows,
+    serialized,
+    byteSize: serialized.reduce((sum, s) => sum + s.length, 0),
+    columns: columns.length ? columns : deriveColumns(rows),
+  };
+}
+
 export async function upsertStagedDataset(
   options: UpsertDatasetOptions,
 ): Promise<StagedDatasetMeta> {
@@ -213,35 +226,20 @@ export async function upsertStagedDataset(
   const now = Date.now();
   const id = options.id || generateId();
 
-  let existingRows: Record<string, unknown>[] = [];
-  if (options.append) {
-    existingRows = await getStagedDatasetRows({
-      id,
-      appId: options.appId,
-      ownerEmail: options.ownerEmail,
-    });
-  }
+  // An append builds on the rows stored at the moment it holds the app lock, so
+  // it is prepared inside the transaction below; anything else is prepared here
+  // to keep the lock short.
+  const upfront = options.append
+    ? null
+    : prepareDatasetRows(options.rows, options.columns);
 
-  const allRows = options.append
-    ? [...existingRows, ...options.rows]
-    : options.rows;
-
-  const serialized = allRows.map((row) => JSON.stringify(row));
-  const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
-
-  const columns = options.columns.length
-    ? options.columns
-    : deriveColumns(allRows);
-  const columnsJson = JSON.stringify(columns);
-
-  const updatedAt = await withDbTransaction(db, async (tx) => {
+  const { updatedAt, prepared } = await withDbTransaction(db, async (tx) => {
     // Totals, eviction and the write all happen under this lock in this
     // transaction: nothing is planned against a stale snapshot, and a failure
     // rolls the evictions back with the write.
     await lockStagedDatasetApp(tx, options.appId);
-    // A caller-chosen or legacy id can still name another owner's dataset. The
-    // owner-scoped reads above would count it as absent and the id-keyed write
-    // would then replace its rows in place.
+    // A caller-chosen or legacy id can still name another owner's dataset, and
+    // the id-keyed write below would replace its rows in place.
     const { rows: idOwner } = await tx.execute({
       sql: `SELECT app_id, owner_email, updated_at FROM staged_datasets WHERE id = ?`,
       args: [id],
@@ -255,6 +253,26 @@ export async function upsertStagedDataset(
         `Staged dataset id ${id} belongs to another owner. Use a different name.`,
       );
     }
+    let prepared = upfront;
+    if (!prepared) {
+      // The owner check above passed, so a stored dataset under this id is
+      // this writer's.
+      const existing = idOwner[0]
+        ? (
+            await tx.execute({
+              sql: `SELECT row_data FROM staged_dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC`,
+              args: [id],
+            })
+          ).rows.map(
+            (r) => JSON.parse(r.row_data as string) as Record<string, unknown>,
+          )
+        : [];
+      prepared = prepareDatasetRows(
+        [...existing, ...options.rows],
+        options.columns,
+      );
+    }
+    const { rows: allRows, serialized, byteSize } = prepared;
     // Readers verify a dataset did not change mid-read by comparing this value,
     // so a replacement has to move it even inside the same millisecond or on a
     // clock behind the previous writer's.
@@ -356,14 +374,14 @@ export async function upsertStagedDataset(
         options.appId,
         options.ownerEmail,
         options.name,
-        columnsJson,
+        JSON.stringify(prepared.columns),
         allRows.length,
         byteSize,
         now,
         writtenAt,
       ],
     });
-    return writtenAt;
+    return { updatedAt: writtenAt, prepared };
   });
 
   return {
@@ -371,9 +389,9 @@ export async function upsertStagedDataset(
     appId: options.appId,
     ownerEmail: options.ownerEmail,
     name: options.name,
-    columns,
-    rowCount: allRows.length,
-    byteSize,
+    columns: prepared.columns,
+    rowCount: prepared.rows.length,
+    byteSize: prepared.byteSize,
     createdAt: now,
     updatedAt,
   };
