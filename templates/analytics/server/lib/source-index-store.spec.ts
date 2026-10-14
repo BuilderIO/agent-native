@@ -445,7 +445,7 @@ describe("mergeSourceIndexBundles", () => {
     });
   });
 
-  it("keeps newly rebuilt sources with unknown timestamps unknown", () => {
+  it("keeps imported Sigma sources unknown when no build timestamp is supplied", () => {
     const current = parseSourceIndexBundle({
       schemaVersion: 1,
       generatedAt: "2026-10-01T00:00:00.000Z",
@@ -495,6 +495,82 @@ describe("mergeSourceIndexBundles", () => {
     );
     expect(sourceIndexSourcesFreshness(merged)).toMatchObject({
       sourceCount: 2,
+      unknownTimestampCount: 1,
+      fresh: false,
+    });
+  });
+
+  it("keeps imported entries unknown while a successful Sigma build receives fresh metadata", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [
+        {
+          id: "manual-import",
+          sourceKind: "code",
+          contentFingerprint: "c".repeat(64),
+        },
+      ],
+      entries: [
+        {
+          id: "legacy-event",
+          metric: "event:legacy_signup",
+          definition: "Imported signup event.",
+          source: "manual-import",
+          sourceKind: "code",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "dbt",
+          sourceKind: "dbt",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+          contentFingerprint: "b".repeat(64),
+        },
+        {
+          id: "sigma",
+          sourceKind: "sigma",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+          contentFingerprint: "a".repeat(64),
+        },
+      ],
+      entries: [
+        {
+          id: "model-users",
+          metric: "model:users",
+          definition: "User profile records.",
+          source: "dbt",
+        },
+        {
+          id: "sigma-example",
+          metric: "Members by workspace",
+          definition: "Reviewed example.",
+          source: "sigma",
+        },
+      ],
+    });
+
+    const merged = mergeSourceIndexBundles(current, update);
+    const importedEntry = sourceIndexDictionaryEntries(merged).find(
+      ({ id }) => id === "index-legacy-event",
+    );
+
+    expect(merged.sources.find(({ id }) => id === "sigma")?.generatedAt).toBe(
+      "2026-10-12T00:00:00.000Z",
+    );
+    expect(
+      merged.sources.find(({ id }) => id === "manual-import")?.generatedAt,
+    ).toBeUndefined();
+    expect(importedEntry).toMatchObject({
+      sourceIndexStale: true,
+      sourceIndexFreshnessUnknown: true,
+    });
+    expect(sourceIndexSourcesFreshness(merged)).toMatchObject({
+      sourceCount: 3,
       unknownTimestampCount: 1,
       fresh: false,
     });

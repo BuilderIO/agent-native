@@ -1149,14 +1149,34 @@ describe("compileSourceIndex", () => {
     ).rejects.toMatchObject({ code: "invalid_yaml_scalar" });
   });
 
-  it("reads Sigma credentials only from ai-services/.env and excludes them from the generated bundle", async () => {
+  it("uses Sigma workbook freshness without changing the pinned bundle or dbt timestamps", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
     const aiServicesRoot = path.join(root, "ai-services");
     const manifestPath = path.join(root, "review.json");
     const envPath = path.join(aiServicesRoot, ".env");
-    await mkdir(dbtRoot, { recursive: true });
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
     await mkdir(aiServicesRoot, { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "example.sql"),
+      "SELECT 1 AS example_id",
+    );
+    execFileSync("git", ["init", "-q"], { cwd: dbtRoot });
+    execFileSync("git", ["config", "user.name", "Source Index Test"], {
+      cwd: dbtRoot,
+    });
+    execFileSync("git", ["config", "user.email", "source-index@example.test"], {
+      cwd: dbtRoot,
+    });
+    execFileSync("git", ["add", "models/example.sql"], { cwd: dbtRoot });
+    execFileSync("git", ["commit", "-q", "-m", "Add synthetic model"], {
+      cwd: dbtRoot,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: "2024-02-03T04:05:06Z",
+        GIT_COMMITTER_DATE: "2024-02-03T04:05:06Z",
+      },
+    });
     await writeFile(
       envPath,
       [
@@ -1184,7 +1204,13 @@ describe("compileSourceIndex", () => {
         if (url.pathname === "/v2/workbooks") {
           return new Response(
             JSON.stringify({
-              entries: [{ workbookId: "workbook-1", name: "Reviewed metrics" }],
+              entries: [
+                {
+                  workbookId: "workbook-1",
+                  name: "Reviewed metrics",
+                  updatedAt: "2026-10-08T00:00:00.000Z",
+                },
+              ],
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -1221,11 +1247,20 @@ describe("compileSourceIndex", () => {
       generatedAt: "2026-10-09T00:00:00.000Z",
     });
     const serialized = JSON.stringify(bundle);
-    expect(bundle.entries).toHaveLength(1);
-    expect(bundle.entries[0]).toMatchObject({ sourceKind: "sigma" });
+    expect(bundle.generatedAt).toBe("2026-10-09T00:00:00.000Z");
+    expect(bundle.entries).toHaveLength(2);
+    expect(
+      bundle.entries.find((entry) => entry.sourceKind === "sigma"),
+    ).toBeDefined();
     expect(
       bundle.sources.find((source) => source.id === "sigma"),
-    ).not.toHaveProperty("generatedAt");
+    ).toMatchObject({
+      sourceKind: "sigma",
+      generatedAt: "2026-10-08T00:00:00.000Z",
+    });
+    expect(
+      bundle.sources.find((source) => source.id === "dbt")?.generatedAt,
+    ).toBe("2024-02-03T04:05:06.000Z");
     expect(serialized).not.toContain("fake-sigma-client-id");
     expect(serialized).not.toContain("fake-sigma-client-secret");
     expect(serialized).not.toContain("fake-token");

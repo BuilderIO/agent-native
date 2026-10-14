@@ -2227,6 +2227,140 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("accepts row-level roster SQL with a CTE, filtered subquery, comment, and terminator", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-membership-cte-dashboard",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "membership-roster",
+                title: "Workspace Membership",
+                sql: `WITH member_rows AS (
+                  SELECT m.user_id, m.workspace_id, m.role
+                  FROM workspace_memberships AS m
+                )
+                SELECT user_id, workspace_id, role
+                FROM member_rows
+                -- COUNT(*) appears in this note only; the roster is row-level.
+                WHERE user_id IN (SELECT user_id FROM eligible_users);`,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "workspace-membership-cte-dashboard",
+      panelId: "membership-roster",
+    });
+  });
+
+  it("accepts set-operation rosters only when each branch has member identity", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-membership-union-dashboard",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "membership-roster",
+                title: "Workspace Membership",
+                sql: "SELECT m.user_id, m.workspace_id, m.role FROM workspace_memberships m UNION ALL SELECT a.user_id, a.workspace_id, a.role FROM archived_memberships a",
+              },
+            ],
+          },
+        },
+        {
+          id: "workspace-membership-union-role-alias-dashboard",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "membership-roster",
+                title: "Workspace Membership",
+                sql: "SELECT m.user_id, m.workspace_id, m.role FROM workspace_memberships m UNION ALL SELECT a.role AS user_id, a.role AS workspace_id, a.role FROM archived_memberships a",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "workspace-membership-union-dashboard",
+      panelId: "membership-roster",
+    });
+  });
+
+  it("does not treat selected role aliases as member or workspace identity", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "role-alias-is-not-identity",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "membership-roster",
+                title: "Workspace Membership",
+                sql: "SELECT m.role AS user_id, m.role AS workspace_id, m.role FROM workspace_memberships m",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not treat an organization billing email alias as member identity", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "organization-billing-email-is-not-member-email",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "membership-roster",
+                title: "Workspace Membership",
+                sql: "SELECT o.billing_email AS member_email, o.id AS workspace_id, m.role FROM workspace_memberships m JOIN organizations o ON m.workspace_id = o.id AND m.user_id IS NOT NULL",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it("uses one transitive trust and scope order across catalog kinds", () => {
     const dashboards = [
       {

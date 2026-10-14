@@ -384,7 +384,7 @@ function candidateTextFields(
     candidate.panelDescription,
     candidate.query
       ? typeof candidate.query === "string"
-        ? candidate.query
+        ? (stripSqlComments(candidate.query) ?? candidate.query)
         : JSON.stringify(candidate.query)
       : "",
   ].filter((value): value is string => Boolean(value));
@@ -513,7 +513,13 @@ function hasAggregateShape(candidate: AnalyticsQueryCatalogCandidate) {
           candidate.columnsUsed,
           candidate.grain,
         ]
-      : [candidate.query ? JSON.stringify(candidate.query) : ""];
+      : [
+          typeof candidate.query === "string"
+            ? (stripSqlComments(candidate.query) ?? candidate.query)
+            : candidate.query
+              ? JSON.stringify(candidate.query)
+              : "",
+        ];
   const searchable = fields
     .filter(Boolean)
     .join(" ")
@@ -702,7 +708,9 @@ function dashboardQueryText(
   >,
 ): string {
   return typeof candidate.query === "string"
-    ? candidate.query.toLowerCase().replace(/[_-]+/g, " ")
+    ? (stripSqlComments(candidate.query) ?? candidate.query)
+        .toLowerCase()
+        .replace(/[_-]+/g, " ")
     : JSON.stringify(candidate.query ?? "")
         .toLowerCase()
         .replace(/[_-]+/g, " ");
@@ -812,45 +820,157 @@ function splitTopLevelSqlList(value: string): string[] | null {
   return expressions.some((expression) => !expression) ? null : expressions;
 }
 
-function parseSimpleDashboardMembershipQuery(
-  sql: string,
-): { selectExpressions: string[]; groupByExpressions: string[] | null } | null {
+function stripSqlComments(sql: string): string | null {
+  const output: string[] = [];
+  let quote: "'" | '"' | "`" | null = null;
+  let blockComment = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (blockComment) {
+      if (character === "*" && sql[index + 1] === "/") {
+        blockComment = false;
+        output.push(" ");
+        index += 1;
+      } else if (character === "\n") {
+        output.push("\n");
+      }
+      continue;
+    }
+    if (quote) {
+      output.push(character);
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          output.push(sql[index + 1]!);
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        if (sql[index + 1] !== undefined) {
+          output.push(sql[index + 1]!);
+          index += 1;
+        }
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      output.push(character);
+    } else if (character === "-" && sql[index + 1] === "-") {
+      while (index < sql.length && sql[index] !== "\n") index += 1;
+      if (sql[index] === "\n") output.push("\n");
+    } else if (character === "/" && sql[index + 1] === "*") {
+      blockComment = true;
+      output.push(" ");
+      index += 1;
+    } else {
+      output.push(character);
+    }
+  }
+  return blockComment ? null : output.join("");
+}
+
+function stripSingleTrailingSqlTerminator(sql: string): string | null {
+  const semicolonPositions: number[] = [];
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (character === "\\") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === ";") {
+      semicolonPositions.push(index);
+    }
+  }
+  if (quote) return null;
+  if (semicolonPositions.length === 0) return sql.trim();
+  const finalNonWhitespace = sql.trimEnd().length - 1;
   if (
-    /^\s*with\b/i.test(sql) ||
-    /\(\s*select\b/i.test(sql) ||
-    /\b(?:union|intersect|except)\b/i.test(sql) ||
-    /--|\/\*/.test(sql) ||
-    /;/.test(sql)
+    semicolonPositions.length !== 1 ||
+    semicolonPositions[0] !== finalNonWhitespace
   ) {
     return null;
   }
-  if (!splitTopLevelSqlList(sql)) return null;
-  const select = findTopLevelSqlKeyword(sql, "select");
-  const from = select ? findTopLevelSqlKeyword(sql, "from", select.end) : null;
-  if (!select || !from || findTopLevelSqlKeyword(sql, "select", select.end)) {
+  return sql.slice(0, finalNonWhitespace).trim();
+}
+
+function splitTopLevelSqlSetOperations(sql: string): string[] | null {
+  const parts: string[] = [];
+  let start = 0;
+  while (start < sql.length) {
+    const operator = ["union", "intersect", "except"]
+      .map((keyword) => findTopLevelSqlKeyword(sql, keyword, start))
+      .filter(
+        (match): match is { start: number; end: number } => match !== null,
+      )
+      .sort((left, right) => left.start - right.start)[0];
+    if (!operator) break;
+    const part = sql.slice(start, operator.start).trim();
+    if (!part) return null;
+    parts.push(part);
+
+    let next = operator.end;
+    const modifier = sql.slice(next).match(/^\s+(?:all|distinct)\b/i);
+    if (modifier) next += modifier[0].length;
+    start = next;
+  }
+  const finalPart = sql.slice(start).trim();
+  if (!finalPart) return null;
+  parts.push(finalPart);
+  return parts;
+}
+
+function parseSimpleDashboardMembershipSelect(sql: string): {
+  sql: string;
+  selectExpressions: string[];
+  groupByExpressions: string[] | null;
+} | null {
+  const statement = sql.trim();
+  if (!statement) return null;
+  if (!splitTopLevelSqlList(statement)) return null;
+  const select = findTopLevelSqlKeyword(statement, "select");
+  const from = select
+    ? findTopLevelSqlKeyword(statement, "from", select.end)
+    : null;
+  if (
+    !select ||
+    !from ||
+    findTopLevelSqlKeyword(statement, "select", select.end)
+  ) {
     return null;
   }
   const selectExpressions = splitTopLevelSqlList(
-    sql.slice(select.end, from.start),
+    statement.slice(select.end, from.start),
   );
   if (!selectExpressions) return null;
 
-  const groupBy = findTopLevelSqlKeyword(sql, "group by", from.end);
+  const groupBy = findTopLevelSqlKeyword(statement, "group by", from.end);
   if (!groupBy) {
     if (
-      findTopLevelSqlKeyword(sql, "having", from.end) ||
-      findTopLevelSqlKeyword(sql, "qualify", from.end)
+      findTopLevelSqlKeyword(statement, "having", from.end) ||
+      findTopLevelSqlKeyword(statement, "qualify", from.end)
     ) {
       return null;
     }
-    return { selectExpressions, groupByExpressions: null };
+    return { sql: statement, selectExpressions, groupByExpressions: null };
   }
   const clauseEnd = ["order by", "having", "qualify", "limit", "fetch"]
-    .map((keyword) => findTopLevelSqlKeyword(sql, keyword, groupBy.end))
+    .map((keyword) => findTopLevelSqlKeyword(statement, keyword, groupBy.end))
     .filter((match): match is { start: number; end: number } => match !== null)
-    .reduce((end, match) => Math.min(end, match.start), sql.length);
+    .reduce((end, match) => Math.min(end, match.start), statement.length);
   const rawGroupByExpressions = splitTopLevelSqlList(
-    sql.slice(groupBy.end, clauseEnd),
+    statement.slice(groupBy.end, clauseEnd),
   );
   if (!rawGroupByExpressions) return null;
   const groupByExpressions = rawGroupByExpressions.map((expression) => {
@@ -871,30 +991,67 @@ function parseSimpleDashboardMembershipQuery(
       return null;
     }
   }
-  return { selectExpressions, groupByExpressions };
+  return { sql: statement, selectExpressions, groupByExpressions };
 }
 
-function hasDashboardProjectionEntity(
-  expressions: string[],
-  entity: "user" | "organization",
-  query: string,
-): boolean {
-  const normalizedExpressions = expressions
-    .join(" ")
-    .toLowerCase()
-    .replace(/[_-]+/g, " ");
-  const directMatch =
-    entity === "user"
-      ? hasMembershipIdentityKey(normalizedExpressions) ||
-        /\b(?:user|member|person)\s+(?:email|key|name)\b|\bemail\b/.test(
-          normalizedExpressions,
-        )
-      : hasOrganizationIdentityKey(normalizedExpressions) ||
-        /\b(?:organization|org|workspace|team)\s+(?:key|name)\b/.test(
-          normalizedExpressions,
-        );
-  if (directMatch) return true;
+function parseSimpleDashboardMembershipQuery(sql: string): Array<{
+  sql: string;
+  selectExpressions: string[];
+  groupByExpressions: string[] | null;
+}> | null {
+  const withoutComments = stripSqlComments(sql);
+  const statement = withoutComments
+    ? stripSingleTrailingSqlTerminator(withoutComments)
+    : null;
+  if (!statement || !statement.trim()) return null;
+  const branches = splitTopLevelSqlSetOperations(statement);
+  if (!branches) return null;
+  const parsed = branches.map(parseSimpleDashboardMembershipSelect);
+  if (parsed.some((branch) => branch === null)) return null;
+  return parsed as Array<{
+    sql: string;
+    selectExpressions: string[];
+    groupByExpressions: string[] | null;
+  }>;
+}
 
+function splitDashboardProjectionAlias(expression: string): {
+  expression: string;
+  alias: string | null;
+} {
+  const trimmed = expression.trim();
+  const asKeyword = findTopLevelSqlKeyword(trimmed, "as");
+  const identifier = (value: string) => {
+    const match = value
+      .trim()
+      .match(
+        /^(?:"([a-z_][a-z0-9_$]*)"|`([a-z_][a-z0-9_$]*)`|([a-z_][a-z0-9_$]*))$/i,
+      );
+    return match ? (match[1] ?? match[2] ?? match[3]!).toLowerCase() : null;
+  };
+  if (asKeyword) {
+    const source = trimmed.slice(0, asKeyword.start).trim();
+    const alias = identifier(trimmed.slice(asKeyword.end));
+    if (source && alias) return { expression: source, alias };
+  }
+
+  const implicitAlias = trimmed.match(
+    /^(.*\S)\s+(?:"([a-z_][a-z0-9_$]*)"|`([a-z_][a-z0-9_$]*)`|([a-z_][a-z0-9_$]*))$/i,
+  );
+  if (implicitAlias) {
+    return {
+      expression: implicitAlias[1]!.trim(),
+      alias: (
+        implicitAlias[2] ??
+        implicitAlias[3] ??
+        implicitAlias[4]!
+      ).toLowerCase(),
+    };
+  }
+  return { expression: trimmed, alias: null };
+}
+
+function dashboardRelationAliases(query: string): Map<string, string> {
   const aliases = new Map<string, string>();
   const aliasKeywords = new Set([
     "cross",
@@ -911,8 +1068,9 @@ function hasDashboardProjectionEntity(
     "outer",
     "right",
     "qualify",
-    "union",
     "where",
+    "window",
+    "union",
   ]);
   for (const match of query.matchAll(
     /\b(?:from|join)\s+([a-z0-9_."`]+)(?:\s+(?:as\s+)?([a-z][a-z0-9_]*))?/gi,
@@ -924,25 +1082,85 @@ function hasDashboardProjectionEntity(
         ? candidateAlias
         : table;
     aliases.set(alias.toLowerCase(), table.toLowerCase());
+    aliases.set(table.toLowerCase(), table.toLowerCase());
   }
-  return expressions.some((expression) => {
-    for (const [alias, table] of aliases) {
-      const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (!new RegExp(`\\b${escapedAlias}\\s*\\.`, "i").test(expression)) {
-        continue;
-      }
-      const normalizedTable = table.replace(/[_-]+/g, " ");
-      if (
-        entity === "user"
-          ? /\b(?:users?|members?|people|persons?)\b/.test(normalizedTable)
-          : /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
-              normalizedTable,
-            )
-      ) {
+  return aliases;
+}
+
+function simpleSqlIdentifierPath(expression: string): string[] | null {
+  const pathPattern =
+    /^(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*)(?:\s*\.\s*(?:"[a-z_][a-z0-9_$]*"|`[a-z_][a-z0-9_$]*`|[a-z_][a-z0-9_$]*))*$/i;
+  if (!pathPattern.test(expression.trim())) return null;
+  return expression
+    .trim()
+    .split(".")
+    .map((part) => part.trim().replace(/["`]/g, "").toLowerCase());
+}
+
+function hasDashboardProjectionEntity(
+  expressions: string[],
+  entity: "user" | "organization",
+  query: string,
+  aliasExpressions = expressions,
+): boolean {
+  const relationAliases = dashboardRelationAliases(query);
+  const selectedAliases = new Map<string, string>();
+  for (const projection of aliasExpressions) {
+    const parsed = splitDashboardProjectionAlias(projection);
+    if (parsed.alias) selectedAliases.set(parsed.alias, parsed.expression);
+  }
+
+  const isUserTable = (table: string | undefined) =>
+    table !== undefined &&
+    /\b(?:users?|members?|people|persons?)\b/.test(
+      table.replace(/[_-]+/g, " "),
+    );
+  const isOrganizationTable = (table: string | undefined) =>
+    table !== undefined &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(
+      table.replace(/[_-]+/g, " "),
+    );
+
+  return expressions.some((projection) => {
+    const parsed = splitDashboardProjectionAlias(projection);
+    let sourceExpression = parsed.expression;
+    const selectedAlias = simpleSqlIdentifierPath(sourceExpression);
+    if (selectedAlias?.length === 1) {
+      sourceExpression =
+        selectedAliases.get(selectedAlias[0]!) ?? sourceExpression;
+    }
+    const path = simpleSqlIdentifierPath(sourceExpression);
+    if (!path) return false;
+    const column = path[path.length - 1]!;
+    const qualifier = path.length > 1 ? path[path.length - 2]! : undefined;
+    const table = qualifier ? relationAliases.get(qualifier) : undefined;
+    const normalizedColumn = column.replace(/[_-]+/g, " ");
+
+    if (entity === "user") {
+      if (hasMembershipIdentityKey(normalizedColumn)) return true;
+      if (/\b(?:user|member|person)\s+(?:email|key)\b/.test(normalizedColumn)) {
         return true;
       }
+      if (isUserTable(table)) {
+        return /^(?:id|email|email_address|full_name|display_name|name)$/.test(
+          column,
+        );
+      }
+      // Explicitly named user/member email columns can be unqualified in a
+      // membership projection. A bare `email` or an aliased billing email is
+      // ambiguous and must not prove member identity.
+      return /^(?:user|member|person)_email$/.test(column);
     }
-    return false;
+
+    if (hasOrganizationIdentityKey(normalizedColumn)) return true;
+    if (
+      /\b(?:organization|org|workspace|team)\s+(?:key|name)\b/.test(
+        normalizedColumn,
+      )
+    ) {
+      return true;
+    }
+    return isOrganizationTable(table) && /^(?:id|name|slug|key)$/.test(column);
   });
 }
 
@@ -955,48 +1173,60 @@ function hasRowLevelDashboardMembershipOutput(
   if (typeof candidate.query !== "string") return false;
   const parsed = parseSimpleDashboardMembershipQuery(candidate.query);
   if (!parsed) return false;
-  const queryText = candidate.query.toLowerCase().replace(/[_-]+/g, " ");
-  if (
-    !hasMembershipIdentityKey(queryText) ||
-    !hasOrganizationIdentityKey(queryText) ||
-    !hasMembershipRelationEvidence(queryText) ||
-    !hasDashboardProjectionEntity(
-      parsed.selectExpressions,
-      "user",
-      candidate.query,
-    ) ||
-    !hasDashboardProjectionEntity(
-      parsed.selectExpressions,
-      "organization",
-      candidate.query,
-    )
-  ) {
-    return false;
-  }
-  if (!parsed.groupByExpressions) return !hasAggregateShape(candidate);
-  const normalizedGroupBy = parsed.groupByExpressions
+  const queryText = parsed
+    .map((branch) => branch.sql)
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
   if (
-    /\b(?:date|day|week|month|quarter|year|period|snapshot)\b/.test(
-      normalizedGroupBy,
-    )
+    !hasMembershipIdentityKey(queryText) ||
+    !hasOrganizationIdentityKey(queryText) ||
+    !hasMembershipRelationEvidence(queryText)
   ) {
     return false;
   }
-  return (
-    hasDashboardProjectionEntity(
-      parsed.groupByExpressions,
-      "user",
-      candidate.query,
-    ) &&
-    hasDashboardProjectionEntity(
-      parsed.groupByExpressions,
-      "organization",
-      candidate.query,
-    )
-  );
+  return parsed.every((branch) => {
+    if (
+      !hasDashboardProjectionEntity(
+        branch.selectExpressions,
+        "user",
+        branch.sql,
+      ) ||
+      !hasDashboardProjectionEntity(
+        branch.selectExpressions,
+        "organization",
+        branch.sql,
+      )
+    ) {
+      return false;
+    }
+    if (!branch.groupByExpressions) return !hasAggregateShape(candidate);
+    const normalizedGroupBy = branch.groupByExpressions
+      .join(" ")
+      .toLowerCase()
+      .replace(/[_-]+/g, " ");
+    if (
+      /\b(?:date|day|week|month|quarter|year|period|snapshot)\b/.test(
+        normalizedGroupBy,
+      )
+    ) {
+      return false;
+    }
+    return (
+      hasDashboardProjectionEntity(
+        branch.groupByExpressions,
+        "user",
+        branch.sql,
+        branch.selectExpressions,
+      ) &&
+      hasDashboardProjectionEntity(
+        branch.groupByExpressions,
+        "organization",
+        branch.sql,
+        branch.selectExpressions,
+      )
+    );
+  });
 }
 
 function hasMembershipRelationEvidence(value: string): boolean {
@@ -1046,7 +1276,11 @@ function hasExplicitActivityEvidence(
           candidate.table,
           candidate.semanticModel,
         ]
-      : [candidate.query];
+      : [
+          typeof candidate.query === "string"
+            ? (stripSqlComments(candidate.query) ?? candidate.query)
+            : candidate.query,
+        ];
   const searchable = values
     .filter((value): value is string => typeof value === "string")
     .join(" ")
@@ -1083,7 +1317,13 @@ function hasActiveOnlyMembershipEvidence(
           candidate.table,
           candidate.semanticModel,
         ]
-      : [candidate.panelTitle, candidate.panelDescription, candidate.query];
+      : [
+          candidate.panelTitle,
+          candidate.panelDescription,
+          typeof candidate.query === "string"
+            ? (stripSqlComments(candidate.query) ?? candidate.query)
+            : candidate.query,
+        ];
   const searchable = values
     .filter((value): value is string => typeof value === "string")
     .join(" ")
