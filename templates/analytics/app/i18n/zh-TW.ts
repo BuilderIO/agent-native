@@ -212,6 +212,8 @@ export default {
     sigmaUnsupported: "不支援",
     sigmaNoElements: "找不到活頁簿元素。",
     sigmaNoImportable: "目前沒有可匯入的元素，請查看下方說明。",
+    sigmaPreviewOnly:
+      "目前僅供預覽：Sigma 未提供 Analytics 可驗證的 BigQuery 專案對應資訊，因此在該資訊可用前，匯入功能會維持停用。",
     sigmaPreviewTruncated: "顯示 {{total}} 個元素中的 {{shown}} 個。",
     sigmaImportWorkbook: "匯入活頁簿",
     sigmaImporting: "正在匯入活頁簿…",

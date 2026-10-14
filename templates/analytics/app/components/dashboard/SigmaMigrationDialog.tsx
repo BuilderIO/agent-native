@@ -51,6 +51,7 @@ type SigmaWorkbook = {
   dashboardName?: string;
   dashboardUrl?: string;
   canRecoverMissingDashboard?: boolean;
+  canRetryStaleClaim?: boolean;
   flaggedCount?: number;
   migratedByTeammate?: boolean;
   retryableByCurrentUser: boolean;
@@ -91,6 +92,7 @@ type SigmaWorkbookInspection = {
   importableCount: number;
   unsupportedCount: number;
   reviewRequiredCount: number;
+  sourceMappingRequiredCount: number;
   analyticsBigQueryReady: boolean;
   bigQuerySetupUrl: string;
   elements: SigmaWorkbookElement[];
@@ -305,7 +307,8 @@ export function SigmaMigrationDialog({
     selectedWorkbook?.retryableByCurrentUser !== false &&
     (selectedWorkbook?.status !== "migrated" ||
       selectedWorkbook?.canRecoverMissingDashboard === true) &&
-    selectedWorkbook?.status !== "migrating";
+    (selectedWorkbook?.status !== "migrating" ||
+      selectedWorkbook?.canRetryStaleClaim === true);
   const isImported =
     migrationResult?.status === "completed" ||
     migrationResult?.status === "already_migrated" ||
@@ -673,7 +676,8 @@ export function SigmaMigrationDialog({
                         </>
                       ) : null}
 
-                      {selectedWorkbook.status === "migrating" ||
+                      {(selectedWorkbook.status === "migrating" &&
+                        selectedWorkbook.canRetryStaleClaim !== true) ||
                       migrationInProgress ? (
                         <p
                           className="text-sm text-muted-foreground"
@@ -765,7 +769,10 @@ export function SigmaMigrationDialog({
             >
               {t("sidebar.cancel")}
             </Button>
-            {connected && !needsConnectionSelection && selectedWorkbook ? (
+            {connected &&
+            !needsConnectionSelection &&
+            selectedWorkbook &&
+            (canImport || migrateWorkbook.isPending) ? (
               <Button
                 type="button"
                 onClick={() => void handleImport()}
@@ -778,7 +785,9 @@ export function SigmaMigrationDialog({
                 ) : null}
                 {migrateWorkbook.isPending
                   ? t("dashboardOverview.sigmaImporting")
-                  : t("dashboardOverview.sigmaImportWorkbook")}
+                  : selectedWorkbook.canRetryStaleClaim
+                    ? t("dashboardOverview.sigmaRetry")
+                    : t("dashboardOverview.sigmaImportWorkbook")}
               </Button>
             ) : null}
           </DialogFooter>
@@ -838,6 +847,11 @@ function WorkbookPreview({
       {inspection.betaRepresentationWarning ? (
         <p className="text-sm text-muted-foreground">
           {t("dashboardOverview.sigmaBetaRepresentationWarning")}
+        </p>
+      ) : null}
+      {inspection.sourceMappingRequiredCount > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {t("dashboardOverview.sigmaPreviewOnly")}
         </p>
       ) : null}
       {inspection.elements.length === 0 ? (
@@ -990,6 +1004,10 @@ function isWorkbookListResult(
           typeof workbook.dashboardId === "string") &&
         (workbook.dashboardName === undefined ||
           typeof workbook.dashboardName === "string") &&
+        (workbook.canRecoverMissingDashboard === undefined ||
+          typeof workbook.canRecoverMissingDashboard === "boolean") &&
+        (workbook.canRetryStaleClaim === undefined ||
+          typeof workbook.canRetryStaleClaim === "boolean") &&
         (workbook.flaggedCount === undefined ||
           (typeof workbook.flaggedCount === "number" &&
             workbook.flaggedCount >= 0)) &&
@@ -1018,6 +1036,8 @@ function isWorkbookInspection(
     result.unsupportedCount >= 0 &&
     typeof result.reviewRequiredCount === "number" &&
     result.reviewRequiredCount >= 0 &&
+    typeof result.sourceMappingRequiredCount === "number" &&
+    result.sourceMappingRequiredCount >= 0 &&
     typeof result.analyticsBigQueryReady === "boolean" &&
     typeof result.bigQuerySetupUrl === "string" &&
     typeof result.betaRepresentationWarning === "boolean" &&

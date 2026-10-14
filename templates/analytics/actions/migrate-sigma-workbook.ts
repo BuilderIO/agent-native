@@ -299,12 +299,12 @@ function dashboardUrl(dashboardId: string): string {
 
 export default defineAction({
   description:
-    "Import a Sigma workbook into a private Analytics SQL dashboard. Requires a connected Analytics BigQuery source, a verified Sigma source-project mapping, and explicit user confirmation. Unsupported elements remain visible as review callouts; chart visuals are imported as tables without a parity claim.",
+    "Reserved for Sigma workbook imports after Analytics can verify the Sigma BigQuery source-project mapping. The current Sigma API does not expose that mapping, so this action remains fail-closed and is not available to the agent; use list-sigma-workbooks and inspect-sigma-workbook for the read-only preview.",
   schema: migrateSchema,
   http: { method: "POST" },
   needsApproval: true,
   mcpTool: false,
-  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  publicAgent: { expose: false, readOnly: false, requiresAuth: true },
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"
@@ -458,7 +458,12 @@ export default defineAction({
         email: context.email,
         orgId: context.orgId,
       });
-      if (existing && existing.ownerEmail.toLowerCase() !== context.userEmail) {
+      if (
+        existing &&
+        (existing.ownerEmail.toLowerCase() !== context.userEmail ||
+          existing.visibility !== "private" ||
+          existing.orgId !== context.orgId)
+      ) {
         fail("A private dashboard already uses this migration ID.", {
           errorCode: "dashboard_id_conflict",
           statusCode: 409,

@@ -81,6 +81,8 @@ export default {
     sigmaNoElements: "워크북 요소를 찾지 못했습니다.",
     sigmaNoImportable:
       "가져올 준비가 된 요소가 없습니다. 아래 안내를 확인하세요.",
+    sigmaPreviewOnly:
+      "현재는 미리보기만 가능합니다. Sigma는 Analytics가 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않으므로 해당 매핑을 확인할 수 있을 때까지 가져오기가 비활성화됩니다.",
     sigmaPreviewTruncated: "{{total}}개 중 {{shown}}개 요소 표시 중입니다.",
     sigmaImportWorkbook: "워크북 가져오기",
     sigmaImporting: "워크북 가져오는 중…",

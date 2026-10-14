@@ -368,11 +368,7 @@ describe("Analytics first-request baseline", () => {
       LAZY_TOOLS.filter((name) => initialToolNames.includes(name)),
     ).toEqual([]);
 
-    const sigmaTools = [
-      "list-sigma-workbooks",
-      "inspect-sigma-workbook",
-      "migrate-sigma-workbook",
-    ];
+    const sigmaTools = ["list-sigma-workbooks", "inspect-sigma-workbook"];
     const sigmaFound = searchToolRegistry(leanRegistry, {
       names: sigmaTools,
     });

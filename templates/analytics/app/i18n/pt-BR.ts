@@ -83,6 +83,8 @@ export default {
     sigmaNoElements: "Nenhum elemento foi encontrado nesta pasta de trabalho.",
     sigmaNoImportable:
       "Nenhum elemento está pronto para importação. Confira as observações abaixo.",
+    sigmaPreviewOnly:
+      "Por enquanto, somente visualização: o Sigma não fornece um mapeamento de projeto do BigQuery que o Analytics possa verificar. A importação ficará desativada até que esse mapeamento esteja disponível.",
     sigmaPreviewTruncated: "Exibindo {{shown}} de {{total}} elementos.",
     sigmaImportWorkbook: "Importar pasta de trabalho",
     sigmaImporting: "Importando pasta de trabalho…",

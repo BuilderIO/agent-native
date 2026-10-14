@@ -81,6 +81,8 @@ export default {
     sigmaUnsupported: "غير مدعوم",
     sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
     sigmaNoImportable: "لا توجد عناصر جاهزة للاستيراد. راجع الملاحظات أدناه.",
+    sigmaPreviewOnly:
+      "المعاينة فقط حاليًا: لا تكشف Sigma عن تعيين لمشروع BigQuery يمكن لـ Analytics التحقق منه، لذا يظل الاستيراد معطّلًا حتى يتوفر هذا التعيين.",
     sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
     sigmaImportWorkbook: "استيراد المصنف",
     sigmaImporting: "جارٍ استيراد المصنف…",

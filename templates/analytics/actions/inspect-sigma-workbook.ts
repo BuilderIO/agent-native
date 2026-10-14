@@ -112,7 +112,7 @@ export function summarizeSigmaElementReview(args: {
 
 export default defineAction({
   description:
-    "Inspect a Sigma workbook before import. Returns element names, source compatibility, and review warnings without returning SQL or workbook payloads. BigQuery elements stay blocked until Analytics can verify the Sigma source project mapping.",
+    "Preview a Sigma workbook without returning SQL or workbook payloads. Sigma imports remain preview-only because the current connection API does not expose a BigQuery project mapping Analytics can verify.",
   schema: inspectSchema,
   http: { method: "GET" },
   readOnly: true,
@@ -131,6 +131,19 @@ export default defineAction({
       connectionId: selection.selected.id,
       workbookId: args.workbookId,
     });
+    if (
+      inspection.diagnostics.some(
+        (diagnostic) => diagnostic.severity === "error",
+      )
+    ) {
+      fail(
+        "Sigma source connection details could not be verified. Retry the workbook preview.",
+        {
+          errorCode: "sigma_source_inspection_failed",
+          statusCode: 503,
+        },
+      );
+    }
     const analyticsBigQueryReady = await hasAnalyticsBigQuerySource(context);
     const elements = summarizeSigmaElementReview({
       inspection,
@@ -143,6 +156,9 @@ export default defineAction({
     const reviewRequiredCount = elements.filter(
       (element) =>
         !element.importable || element.reason === "visualization_review",
+    ).length;
+    const sourceMappingRequiredCount = elements.filter(
+      (element) => element.reason === "source_mapping_required",
     ).length;
     return {
       workbook: {
@@ -157,6 +173,7 @@ export default defineAction({
       importableCount,
       unsupportedCount,
       reviewRequiredCount,
+      sourceMappingRequiredCount,
       elements,
       betaRepresentationWarning: true,
     };

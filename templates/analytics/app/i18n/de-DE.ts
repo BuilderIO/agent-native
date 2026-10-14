@@ -83,6 +83,8 @@ export default {
     sigmaNoElements: "In dieser Arbeitsmappe wurden keine Elemente gefunden.",
     sigmaNoImportable:
       "Es sind keine Elemente zum Import bereit. Lies die Hinweise unten.",
+    sigmaPreviewOnly:
+      "Vorerst nur Vorschau: Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics überprüfen kann. Der Import bleibt deaktiviert, bis diese Zuordnung verfügbar ist.",
     sigmaPreviewTruncated:
       "{{shown}} von {{total}} Elementen werden angezeigt.",
     sigmaImportWorkbook: "Arbeitsmappe importieren",

@@ -83,6 +83,8 @@ export default {
     sigmaNoElements: "No se han encontrado elementos en este libro de trabajo.",
     sigmaNoImportable:
       "No hay elementos listos para importar. Revisa las notas siguientes.",
+    sigmaPreviewOnly:
+      "Solo vista previa por ahora: Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar. La importación seguirá desactivada hasta que esa asignación esté disponible.",
     sigmaPreviewTruncated: "Se muestran {{shown}} de {{total}} elementos.",
     sigmaImportWorkbook: "Importar libro de trabajo",
     sigmaImporting: "Importando libro de trabajo…",

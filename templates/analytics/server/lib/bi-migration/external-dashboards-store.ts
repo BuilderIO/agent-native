@@ -98,6 +98,7 @@ const SummarySchema = z.object({
   status: z.enum(["not_started", "migrating", "migrated", "failed"]),
   targetDashboardId: z.string().nullable(),
   migratedByCurrentUser: z.boolean(),
+  canRetryStaleClaim: z.boolean(),
   failureCode: z.enum(EXTERNAL_DASHBOARD_FAILURE_CODES).nullable(),
   providerStatus: z.number().nullable(),
   elementDiagnostics: z
@@ -245,6 +246,14 @@ function toSummary(
 ): ExternalDashboardSummary {
   const migratedByCurrentUser =
     row.originalMigratorEmail?.trim().toLowerCase() === userEmail;
+  const migrationClaimedAt = row.migrationClaimedAt
+    ? Date.parse(row.migrationClaimedAt)
+    : Number.NaN;
+  const canRetryStaleClaim =
+    row.status === "migrating" &&
+    migratedByCurrentUser &&
+    Number.isFinite(migrationClaimedAt) &&
+    migrationClaimedAt <= Date.now() - EXTERNAL_DASHBOARD_CLAIM_STALE_AFTER_MS;
   return SummarySchema.parse({
     id: row.id,
     provider: row.provider,
@@ -254,6 +263,7 @@ function toSummary(
     status: row.status,
     targetDashboardId: migratedByCurrentUser ? row.targetDashboardId : null,
     migratedByCurrentUser,
+    canRetryStaleClaim,
     failureCode: row.failureCode,
     providerStatus: row.providerStatus,
     elementDiagnostics: JSON.parse(row.elementDiagnostics),

@@ -33,7 +33,7 @@ const listSchema = z.object({
 
 export default defineAction({
   description:
-    "List Sigma workbooks accessible to the granted Analytics Sigma connection. Returns workbook metadata, migration status, retry eligibility, and a dashboard link only when the current user owns and can access the private imported dashboard. Use inspect-sigma-workbook before migrate-sigma-workbook.",
+    "List Sigma workbooks accessible to the granted Analytics Sigma connection. Returns workbook metadata, preview status, retry eligibility, and a dashboard link only when the current user owns and can access the private imported dashboard. Sigma workbook imports remain disabled until the source project mapping can be verified.",
   schema: listSchema,
   http: { method: "GET" },
   readOnly: true,
@@ -135,6 +135,9 @@ export default defineAction({
         migration.targetDashboardId &&
         !migrationDashboard
           ? { canRecoverMissingDashboard: true }
+          : {}),
+        ...(migration?.status === "migrating" && migration.canRetryStaleClaim
+          ? { canRetryStaleClaim: true }
           : {}),
         ...(migration?.flaggedCount
           ? { flaggedCount: migration.flaggedCount }

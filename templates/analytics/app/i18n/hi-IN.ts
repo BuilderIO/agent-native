@@ -78,6 +78,8 @@ export default {
     sigmaUnsupported: "असमर्थित",
     sigmaNoElements: "वर्कबुक में कोई एलिमेंट नहीं मिला।",
     sigmaNoImportable: "कोई एलिमेंट आयात के लिए तैयार नहीं है। नीचे दिए गए नोट देखें।",
+    sigmaPreviewOnly:
+      "अभी केवल पूर्वावलोकन: Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके। यह मैपिंग उपलब्ध होने तक आयात बंद रहेगा।",
     sigmaPreviewTruncated: "{{total}} में से {{shown}} एलिमेंट दिखाए गए हैं।",
     sigmaImportWorkbook: "वर्कबुक आयात करें",
     sigmaImporting: "वर्कबुक आयात हो रही है…",

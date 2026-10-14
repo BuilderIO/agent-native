@@ -83,6 +83,8 @@ export default {
     sigmaNoElements: "Aucun élément n’a été trouvé dans ce classeur.",
     sigmaNoImportable:
       "Aucun élément n’est prêt à être importé. Consultez les remarques ci-dessous.",
+    sigmaPreviewOnly:
+      "Aperçu uniquement pour le moment : Sigma ne fournit pas de correspondance de projet BigQuery qu’Analytics puisse vérifier. L’importation restera désactivée jusqu’à ce que cette correspondance soit disponible.",
     sigmaPreviewTruncated: "{{shown}} éléments sur {{total}} affichés.",
     sigmaImportWorkbook: "Importer le classeur",
     sigmaImporting: "Importation du classeur…",

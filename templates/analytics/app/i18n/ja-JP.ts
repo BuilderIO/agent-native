@@ -82,6 +82,8 @@ export default {
     sigmaNoElements: "ワークブックに要素が見つかりませんでした。",
     sigmaNoImportable:
       "インポートできる要素がありません。下のメモを確認してください。",
+    sigmaPreviewOnly:
+      "現在はプレビューのみです。Sigma は Analytics が検証できる BigQuery プロジェクトの対応関係を公開していないため、その情報が利用可能になるまでインポートは無効です。",
     sigmaPreviewTruncated: "{{total}} 件中 {{shown}} 件を表示しています。",
     sigmaImportWorkbook: "ワークブックをインポート",
     sigmaImporting: "ワークブックをインポート中…",

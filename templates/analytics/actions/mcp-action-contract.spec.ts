@@ -23,6 +23,7 @@ type ActionDefinition = {
   mcpTool?: boolean;
   readOnly?: boolean;
   needsApproval?: unknown;
+  publicAgent?: { expose?: boolean };
   tool: {
     description: string;
     parameters?: { properties?: Record<string, unknown> };
@@ -191,6 +192,7 @@ describe("Analytics direct MCP tools", () => {
     expect(actions["migrate-sigma-workbook"].mcpTool).toBe(false);
     expect(actions["migrate-sigma-workbook"].readOnly).not.toBe(true);
     expect(actions["migrate-sigma-workbook"].needsApproval).toBe(true);
+    expect(actions["migrate-sigma-workbook"].publicAgent?.expose).toBe(false);
   });
 
   it("classifies every direct read as read-only so mcp:read tokens can call it", () => {

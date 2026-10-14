@@ -78,6 +78,8 @@ export default {
     sigmaUnsupported: "不支持",
     sigmaNoElements: "未找到工作簿元素。",
     sigmaNoImportable: "没有可导入的元素。请查看下方说明。",
+    sigmaPreviewOnly:
+      "目前仅供预览：Sigma 未提供 Analytics 可验证的 BigQuery 项目映射，因此在该映射可用前，导入功能会保持禁用。",
     sigmaPreviewTruncated: "显示 {{total}} 个元素中的 {{shown}} 个。",
     sigmaImportWorkbook: "导入工作簿",
     sigmaImporting: "正在导入工作簿…",

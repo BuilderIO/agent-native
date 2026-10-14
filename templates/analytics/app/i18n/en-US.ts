@@ -248,6 +248,8 @@ export default {
     sigmaNoElements: "No workbook elements were found.",
     sigmaNoImportable:
       "No elements are ready to import. Review the notes below.",
+    sigmaPreviewOnly:
+      "Preview only for now: Sigma does not expose a BigQuery project mapping Analytics can verify, so importing is disabled until that mapping is available.",
     sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
     sigmaImportWorkbook: "Import workbook",
     sigmaImporting: "Importing workbook…",

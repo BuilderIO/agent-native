@@ -244,4 +244,30 @@ describe("migrate-sigma-workbook", () => {
       { email: context.email, orgId: context.orgId },
     );
   });
+
+  it("does not overwrite an imported dashboard after it is shared", async () => {
+    configureImportableWorkbook();
+    mocks.claimMigration.mockResolvedValue({
+      claimed: true,
+      claimToken: "00000000-0000-4000-8000-000000000001",
+    });
+    mocks.getDashboard.mockResolvedValue({
+      id: expectedDashboardId,
+      kind: "sql",
+      ownerEmail: context.userEmail,
+      orgId: context.orgId,
+      visibility: "org",
+      config: { name: "Sigma: Revenue" },
+    });
+
+    await expect(
+      migrateSigmaWorkbook.run({
+        workbookId,
+        connectionId: "connection_1",
+        remigrate: true,
+      }),
+    ).rejects.toMatchObject({ errorCode: "dashboard_id_conflict" });
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
 });

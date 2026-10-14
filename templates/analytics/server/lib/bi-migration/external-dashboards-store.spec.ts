@@ -254,6 +254,21 @@ describe("external dashboard migration store", () => {
        WHERE org_id = $2 AND provider = $3 AND source_id = $4`,
       [staleAt, "org-1", "sigma", "workbook_3"],
     );
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_3"],
+      }),
+    ).resolves.toMatchObject([{ canRetryStaleClaim: true }]);
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_3"],
+      }),
+    ).resolves.toMatchObject([{ canRetryStaleClaim: false }]);
+    state.userEmail = "alice@example.com";
 
     const recovered = await store.claimExternalDashboard({
       provider: "sigma",
