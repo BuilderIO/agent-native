@@ -2107,6 +2107,7 @@ describe("queryFirstPartyAnalytics", () => {
 
   it("records query pressure when a cached query times out with no remaining waiters", async () => {
     vi.useFakeTimers();
+    healthMocks.classify.mockReturnValueOnce("raw-events");
     healthMocks.outcome.mockReturnValueOnce("timeout");
     let markQueryStarted!: () => void;
     const queryStarted = new Promise<void>((resolve) => {
