@@ -20,9 +20,11 @@ export function formatPercent(val: number | null | undefined): string {
 export function formatCurrency(val: number | null | undefined): string {
   if (val == null) return "-";
   const abs = Math.abs(val);
-  if (abs >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `$${(val / 1_000).toFixed(1)}k`;
-  return `$${val.toFixed(0)}`;
+  const rounded = Math.round(val);
+  const sign = val < 0 && (abs >= 1_000 || rounded !== 0) ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}k`;
+  return `${sign}$${Math.abs(rounded)}`;
 }
 
 export function formatDate(value: any): string {

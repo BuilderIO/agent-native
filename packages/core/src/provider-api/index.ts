@@ -330,6 +330,8 @@ export type ProviderApiAuthKind =
   | {
       type: "google-service-account";
       scopes: readonly string[];
+      oauthProvider?: string;
+      workspaceProvider?: string;
     }
   | {
       type: "oauth-bearer";
@@ -723,10 +725,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/bigquery",
       ],
+      oauthProvider: "google",
+      workspaceProvider: "bigquery",
     },
     credentialKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     ],
     docsUrls: ["https://cloud.google.com/bigquery/docs/reference/rest"],
     specUrls: ["https://bigquery.googleapis.com/$discovery/rest?version=v2"],
@@ -2243,7 +2247,14 @@ export async function resolveProviderApiOAuthAccessToken(
               tokenLabel: auth.tokenLabel,
               workspaceProvider: auth.workspaceProvider,
             }
-          : null;
+          : auth.type === "google-service-account" && auth.oauthProvider
+            ? {
+                type: "oauth-bearer" as const,
+                oauthProvider: auth.oauthProvider,
+                tokenLabel: "Google OAuth token",
+                workspaceProvider: auth.workspaceProvider,
+              }
+            : null;
   if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
@@ -2253,6 +2264,11 @@ export async function resolveProviderApiOAuthAccessToken(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
+  if (args.provider === "bigquery" && ctx.credentialScope === "org") {
+    throw new Error(
+      "Personal BigQuery OAuth is unavailable for org-only credential scope.",
+    );
+  }
   const credential = oauthAuth.workspaceProvider
     ? await resolveOptionalConnectionBoundOAuthBearerToken({
         auth: oauthAuth,
@@ -4016,6 +4032,48 @@ async function resolveAuth(
     };
   }
   if (auth.type === "google-service-account") {
+    if (
+      auth.oauthProvider &&
+      auth.workspaceProvider &&
+      !(auth.workspaceProvider === "bigquery" && ctx.credentialScope === "org")
+    ) {
+      let oauthCredential: ProviderApiResolvedCredential | null;
+      try {
+        oauthCredential = await resolveOptionalConnectionBoundOAuthBearerToken({
+          auth: {
+            type: "oauth-bearer",
+            oauthProvider: auth.oauthProvider,
+            tokenLabel: "Google OAuth token",
+            workspaceProvider: auth.workspaceProvider,
+          },
+          runtime,
+          ctx,
+          workspaceProvider: auth.workspaceProvider,
+          connectionId: args.connectionId,
+          accountId: args.accountId,
+        });
+      } catch (error) {
+        if (
+          auth.workspaceProvider !== "bigquery" ||
+          !(error instanceof AgentConnectionRequiredError) ||
+          error.provider !== "bigquery" ||
+          error.reason !== "reauthorize"
+        ) {
+          throw error;
+        }
+        if (args.connectionId?.trim() || args.accountId?.trim()) {
+          throw error;
+        }
+        oauthCredential = null;
+      }
+      if (oauthCredential) {
+        return {
+          headers: { Authorization: `Bearer ${oauthCredential.value}` },
+          credentialSources: [omitCredentialValue(oauthCredential)],
+          secretValues: [oauthCredential.value],
+        };
+      }
+    }
     const token = await getGoogleServiceAccountToken(auth.scopes, runtime, ctx);
     return {
       headers: { Authorization: `Bearer ${token}` },
@@ -4648,13 +4706,35 @@ async function resolveOAuthBearerToken(options: {
     );
   }
   const tokens = account.tokens as OAuthTokens;
-  const token = await getValidOAuthAccessToken({
-    oauthProvider: options.auth.oauthProvider,
-    accountId: account.accountId,
-    ownerEmail,
-    tokens,
-    salesforceLoginUrl: options.salesforceLoginUrl,
-  });
+  const preserveSharedGoogleGrant =
+    options.auth.oauthProvider === "google" &&
+    Boolean(options.auth.workspaceProvider);
+  let token: string;
+  try {
+    token = await getValidOAuthAccessToken({
+      oauthProvider: options.auth.oauthProvider,
+      accountId: account.accountId,
+      ownerEmail,
+      tokens,
+      preserveTokensOnPermanentFailure: preserveSharedGoogleGrant,
+      salesforceLoginUrl: options.salesforceLoginUrl,
+    });
+  } catch (error) {
+    if (
+      preserveSharedGoogleGrant &&
+      options.auth.workspaceProvider &&
+      isPermanentGoogleOAuthRefreshFailure(error)
+    ) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.auth.workspaceProvider,
+        connectionId: options.connectionId,
+        message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+        reason: "reauthorize",
+      });
+    }
+    throw error;
+  }
   return {
     key: `${options.auth.oauthProvider.toUpperCase()}_OAUTH_TOKEN`,
     value: token,
@@ -4739,12 +4819,17 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   allowUnbound?: boolean;
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
+  const requestedAccountId = options.accountId?.trim();
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
   try {
     resolved = await resolveWorkspaceConnectionForApp({
       appId: options.runtime.appId,
       provider: options.workspaceProvider,
       connectionId: requestedConnectionId,
+      accountId: requestedAccountId,
+      ...(options.workspaceProvider === "bigquery"
+        ? { connectionOwnerEmail: options.ctx.userEmail }
+        : {}),
       requireConnected: true,
     });
   } catch (error) {
@@ -4752,12 +4837,20 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       error instanceof Error &&
       error.message === "Workspace connections require an authenticated user."
     ) {
+      if (requestedConnectionId || requestedAccountId) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.workspaceProvider,
+          connectionId: requestedConnectionId,
+          message: "Sign in to use the selected workspace connection.",
+        });
+      }
       return null;
     }
     throw error;
   }
   if (!resolved.available || !resolved.connection) {
-    if (requestedConnectionId) {
+    if (requestedConnectionId || requestedAccountId) {
       return throwWorkspaceConnectionRequired({
         runtime: options.runtime,
         provider: options.workspaceProvider,
@@ -4787,10 +4880,9 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
     );
   }
-  const requestedAccountId = options.accountId?.trim();
   if (requestedAccountId && requestedAccountId !== connectionAccountId) {
     throw new Error(
-      `${options.auth.tokenLabel} account ${requestedAccountId} does not match workspace connection ${requestedConnectionId}.`,
+      `${options.auth.tokenLabel} account binding does not match the requested workspace connection.`,
     );
   }
   const credential = await resolveOAuthBearerToken({

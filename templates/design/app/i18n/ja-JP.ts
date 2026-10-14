@@ -865,7 +865,6 @@ export default {
       tokens: "トークン",
       threads: "スレッド",
       label: "デザインワークスペース",
-      account: "アカウント",
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
     },
@@ -1201,6 +1200,17 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "貼り付けたトークンをインポート",
       importedCount: "{{count}} 個のトークンをインポートしました",
+      importing: "トークンをインポートしています…",
+      importedWithSkipped:
+        "{{count}} 個のトークンをインポートしました。無効な値またはファイルを {{skipped}} 件スキップしました。",
+      importedWithOmissions:
+        "{{count}} 個のトークンをインポートしました。無効な項目を {{skipped}} 件スキップしました。上限により未処理（トークン数：{{omittedTokens}}、ファイル数：{{omittedFiles}}）。",
+      importedWithReadFailures:
+        "{{count}} 個のトークンをインポートしましたが、{{readFailures}} 件のファイルを読み込めませんでした。再選択してもう一度お試しください。",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} 個のトークンをインポートしました。{{readFailures}} 件のファイルを読み込めませんでした。無効な項目 {{skipped}} 件もスキップされ、上限によりトークン {{omittedTokens}} 個とファイル {{omittedFiles}} 件が未処理です。読み込めなかったファイルを再選択してもう一度お試しください。",
+      noTokensFound:
+        "有効なトークンが見つかりません。ファイル形式と値を確認してください。",
       count: "{{count}} 個のトークン",
       search: "トークンを検索",
       noMatches: "一致するトークンがありません",
@@ -1324,6 +1334,7 @@ export default {
       htmlPlaceholder: "<main>単体 HTML をここに貼り付け...</main>",
       importHtml: "HTML をインポート",
       chooseHtmlFile: "HTML ファイルを選択",
+      allSupportedFiles: "対応しているすべてのファイル",
       githubTitle: "GitHub",
       githubDescription:
         "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",

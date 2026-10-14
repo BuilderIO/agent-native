@@ -155,6 +155,7 @@ import {
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+import { withFirstPartyCache } from "./first-party-analytics-cache";
 import {
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
@@ -2084,6 +2085,98 @@ describe("queryFirstPartyAnalytics", () => {
     ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
   });
 
+  it("records query pressure for an uncached Postgres timeout", async () => {
+    healthMocks.classify.mockReturnValueOnce("raw-events");
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
+    execute.mockImplementation(() => new Promise(() => {}));
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: null },
+        { cache: false, timeoutMs: 20 },
+      ),
+    ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
+
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "alice@example.com" }),
+      expect.objectContaining({ outcome: "timeout", queryClass: "raw-events" }),
+    );
+  });
+
+  it("records query pressure when a cached query times out with no remaining waiters", async () => {
+    vi.useFakeTimers();
+    healthMocks.classify.mockReturnValueOnce("raw-events");
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    execute.mockImplementation(({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        return Promise.resolve({ rows: [], rowsAffected: 0 });
+      }
+      if (sql.includes("first_party_analytics_query")) {
+        markQueryStarted();
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ rows: [], rowsAffected: 0 });
+    });
+
+    try {
+      const query = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "cached-timeout@example.com", orgId: null },
+        { cache: true, timeoutMs: 100 },
+      );
+      const queryOutcome = query.then(
+        () => null,
+        (error: Error) => error,
+      );
+      await queryStarted;
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(queryOutcome).resolves.toBeInstanceOf(
+        FirstPartyAnalyticsQueryTimeoutError,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "cached-timeout@example.com" }),
+      expect.objectContaining({ outcome: "timeout", queryClass: "raw-events" }),
+    );
+  });
+
+  it("does not record query pressure when the uncached caller aborts", async () => {
+    backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    execute.mockImplementation(({ sql }: { sql: string }) => {
+      if (sql.includes("first_party_analytics_query")) {
+        markQueryStarted();
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ rows: [], rowsAffected: 0 });
+    });
+
+    const controller = new AbortController();
+    const query = queryFirstPartyAnalytics(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+      { cache: false, signal: controller.signal },
+    );
+    await queryStarted;
+    controller.abort(new DOMException("caller left", "AbortError"));
+
+    await expect(query).rejects.toHaveProperty("name", "AbortError");
+    expect(healthMocks.record).not.toHaveBeenCalled();
+  });
+
   it("does not materialize the scoped raw event CTE on Postgres execution", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
@@ -2268,7 +2361,7 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
-  it("coalesces concurrent cached reads after verification takes different time", async () => {
+  it("coalesces cached reads when the joining deadline is later", async () => {
     let now = 5_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     expressionGuard.mockImplementation(async () => {
@@ -2313,9 +2406,304 @@ describe("queryFirstPartyAnalytics", () => {
           input.sql.includes("SELECT result FROM first_party_analytics_cache"),
         ),
       ).toHaveLength(1);
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("first_party_analytics_query"),
+        ),
+      ).toHaveLength(1);
     } finally {
       releaseCache();
       dateNow.mockRestore();
+    }
+  });
+
+  it("keeps a coalesced query alive when one caller aborts", async () => {
+    const initialNow = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(initialNow);
+    let releaseCache!: () => void;
+    let markCacheStarted!: () => void;
+    const cacheStarted = new Promise<void>((resolve) => {
+      markCacheStarted = resolve;
+    });
+    const cacheGate = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    let releaseQuery!: () => void;
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    const queryGate = new Promise<void>((resolve) => {
+      releaseQuery = resolve;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        markCacheStarted();
+        await cacheGate;
+        return { rows: [], rowsAffected: 0 };
+      }
+      markQueryStarted();
+      await queryGate;
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    const query = "SELECT COUNT(*) FROM analytics_events";
+    const scope = { userEmail: "shared-cancel@example.test", orgId: null };
+    const firstController = new AbortController();
+    try {
+      const first = queryFirstPartyAnalytics(query, scope, {
+        cache: true,
+        signal: firstController.signal,
+      });
+      await cacheStarted;
+      const second = queryFirstPartyAnalytics(query, scope, { cache: true });
+      await vi.waitFor(() => expect(expressionGuard).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      releaseCache();
+      await queryStarted;
+
+      firstController.abort(new DOMException("caller left", "AbortError"));
+      await expect(first).rejects.toHaveProperty("name", "AbortError");
+      releaseQuery();
+
+      await expect(second).resolves.toMatchObject({
+        rows: [{ count: "1" }],
+      });
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("SELECT result FROM first_party_analytics_cache"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("first_party_analytics_query"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      releaseCache();
+      releaseQuery();
+      dateNow.mockRestore();
+    }
+  });
+
+  it("keeps a later-deadline coalesced query alive after the earlier waiter expires", async () => {
+    vi.useFakeTimers();
+    let markComputeStarted!: () => void;
+    const computeStarted = new Promise<void>((resolve) => {
+      markComputeStarted = resolve;
+    });
+    let resolveCompute!: (result: {
+      rows: Array<{ count: string }>;
+      schema: Array<{ name: string; type: string }>;
+    }) => void;
+    let computeSignal: AbortSignal | undefined;
+    const compute = vi.fn((_timeoutMs: number, signal: AbortSignal) => {
+      return new Promise<{
+        rows: Array<{ count: string }>;
+        schema: Array<{ name: string; type: string }>;
+      }>((resolve, reject) => {
+        computeSignal = signal;
+        resolveCompute = resolve;
+        markComputeStarted();
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    });
+
+    const key = `deadline-isolation-${Math.random()}`;
+    try {
+      const first = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const firstTimedOut = expect(first).rejects.toThrow(/timed out/);
+      await computeStarted;
+      await vi.advanceTimersByTimeAsync(50);
+      const second = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 150,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(50);
+
+      await firstTimedOut;
+      expect(computeSignal?.aborted).toBe(false);
+      resolveCompute({
+        rows: [{ count: "1" }],
+        schema: [{ name: "count", type: "string" }],
+      });
+      await expect(second).resolves.toEqual({
+        rows: [{ count: "1" }],
+        schema: [{ name: "count", type: "string" }],
+      });
+      expect(compute).toHaveBeenCalledTimes(1);
+    } finally {
+      if (computeSignal && !computeSignal.aborted) {
+        resolveCompute({
+          rows: [{ count: "1" }],
+          schema: [{ name: "count", type: "string" }],
+        });
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps retries across successive coalesced deadline extensions", async () => {
+    vi.useFakeTimers();
+    const result = {
+      rows: [{ count: "1" }],
+      schema: [{ name: "count", type: "string" }],
+    };
+    const timeoutError = new Error(
+      "First-party analytics query timed out after 100ms",
+    );
+    let markFirstAttemptStarted!: () => void;
+    const firstAttemptStarted = new Promise<void>((resolve) => {
+      markFirstAttemptStarted = resolve;
+    });
+    let rejectFirstAttempt: ((error: Error) => void) | undefined;
+    let rejectRetry: ((error: Error) => void) | undefined;
+    let markRetryStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      markRetryStarted = resolve;
+    });
+    let retrySignal: AbortSignal | undefined;
+    const compute = vi
+      .fn()
+      .mockImplementationOnce(
+        (_timeoutMs: number, signal: AbortSignal) =>
+          new Promise<typeof result>((_resolve, reject) => {
+            rejectFirstAttempt = reject;
+            markFirstAttemptStarted();
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      )
+      .mockImplementationOnce(
+        (_timeoutMs: number, signal: AbortSignal) =>
+          new Promise<typeof result>((_resolve, reject) => {
+            retrySignal = signal;
+            rejectRetry = reject;
+            markRetryStarted();
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      );
+
+    const key = `deadline-retry-${Math.random()}`;
+    try {
+      const first = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const firstTimedOut = expect(first).rejects.toThrow(/timed out/);
+      await firstAttemptStarted;
+      await vi.advanceTimersByTimeAsync(50);
+
+      const second = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const secondTimedOut = expect(second).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(50);
+      await firstTimedOut;
+      rejectFirstAttempt?.(timeoutError);
+      await retryStarted;
+      expect(compute.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([
+        100, 100,
+      ]);
+
+      const third = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const thirdTimedOut = expect(third).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(50);
+      await secondTimedOut;
+      expect(retrySignal?.aborted).toBe(false);
+      rejectRetry?.(timeoutError);
+
+      await thirdTimedOut;
+      expect(compute).toHaveBeenCalledTimes(2);
+    } finally {
+      rejectFirstAttempt?.(timeoutError);
+      rejectRetry?.(timeoutError);
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves shared-query errors after the creator's waiter times out", async () => {
+    vi.useFakeTimers();
+
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    let markSecondVerification!: () => void;
+    const secondVerification = new Promise<void>((resolve) => {
+      markSecondVerification = resolve;
+    });
+    let verificationCount = 0;
+    expressionGuard.mockImplementation(async () => {
+      verificationCount += 1;
+      if (verificationCount === 3) markSecondVerification();
+    });
+
+    const sharedFailure = new Error("shared database read failed");
+    let rejectQuery!: (error: Error) => void;
+    let cacheReadCount = 0;
+    let queryCount = 0;
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        cacheReadCount += 1;
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (sql.includes("first_party_analytics_query")) {
+        queryCount += 1;
+        markQueryStarted();
+        return await new Promise((_, reject) => {
+          rejectQuery = reject;
+        });
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    const scope = { userEmail: "shared-timeout@example.test", orgId: null };
+    try {
+      const first = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 100 },
+      );
+      const firstOutcome = first.then(
+        () => null,
+        (error: Error) => error,
+      );
+      await queryStarted;
+
+      await vi.advanceTimersByTimeAsync(50);
+      const second = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 100 },
+      );
+      await secondVerification;
+      await vi.advanceTimersByTimeAsync(50);
+
+      const firstError = await firstOutcome;
+      expect(firstError?.message).toMatch(/timed out/);
+      expect(cacheReadCount).toBe(1);
+      expect(queryCount).toBe(1);
+
+      rejectQuery(sharedFailure);
+      await expect(second).rejects.toBe(sharedFailure);
+      expect(healthMocks.outcome).toHaveBeenCalledWith(sharedFailure);
+    } finally {
+      if (queryCount && rejectQuery) rejectQuery(sharedFailure);
+      vi.useRealTimers();
     }
   });
 

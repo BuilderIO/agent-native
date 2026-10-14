@@ -43,6 +43,7 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
+import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   AUTO_CONTINUE_PROMPT,
@@ -888,6 +889,16 @@ function runtimePartToProtocolPart(
           name: part.toolName,
           input: part.input,
           inputText: part.inputText,
+          ...(part.approval?.approvalKey
+            ? {
+                approvalKey: part.approval.askId
+                  ? approvalKeyForHistory(part.approval.approvalKey)
+                  : part.approval.approvalKey,
+              }
+            : {}),
+          ...(part.approval?.askId
+            ? { approvalAskId: part.approval.askId }
+            : {}),
         },
       } satisfies DataPart;
     case "tool-result":
@@ -900,6 +911,10 @@ function runtimePartToProtocolPart(
           result: part.result,
           resultText: part.resultText,
           isError: part.isError,
+          ...(typeof part.approvalPause === "boolean"
+            ? { approvalPause: part.approvalPause }
+            : {}),
+          ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
         },
       } satisfies DataPart;
     case "data":
@@ -971,6 +986,18 @@ function protocolPartToRuntimePart(
           ...(typeof data.inputText === "string"
             ? { inputText: data.inputText }
             : {}),
+          ...(typeof data.approvalKey === "string" &&
+          data.approvalKey.length > 0
+            ? {
+                approval: {
+                  approvalKey: data.approvalKey,
+                  ...(typeof data.approvalAskId === "string" &&
+                  data.approvalAskId.length > 0
+                    ? { askId: data.approvalAskId }
+                    : {}),
+                },
+              }
+            : {}),
         };
       }
       if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
@@ -989,6 +1016,13 @@ function protocolPartToRuntimePart(
             ? { resultText: data.resultText }
             : {}),
           ...(data.isError === true ? { isError: true } : {}),
+          ...(typeof data.approvalPause === "boolean"
+            ? { approvalPause: data.approvalPause }
+            : {}),
+          ...(typeof data.approvalAskId === "string" &&
+          data.approvalAskId.length > 0
+            ? { approvalAskId: data.approvalAskId }
+            : {}),
         };
       }
       return {
@@ -2378,13 +2412,16 @@ export function createAgentKitProtocolAdapter(
         );
         if (invocation) run.actions.set(event.toolCall.id, invocation);
         const messageId = runtimeToolMessageId(run, event.toolCall.metadata);
-        const toolCall = runtimeToolToProtocolTool(
-          event.toolCall,
-          "running",
-          undefined,
-          undefined,
-          messageId,
-        );
+        const toolCall = {
+          ...runtimeToolToProtocolTool(
+            event.toolCall,
+            "running",
+            undefined,
+            undefined,
+            messageId,
+          ),
+          runId: run.runId,
+        };
         if (messageId) {
           run.pendingToolMessageAssociations.delete(toolCall.id);
         } else {
@@ -2441,17 +2478,31 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         const invocation = run.actions.get(event.toolCallId);
         const previousTool = run.activeTools.get(event.toolCallId);
-        const metadata = mergeProtocolMetadata(
-          previousTool?.metadata,
-          invocation?.metadata,
-          event.metadata,
-          base.metadata,
-          {
-            ...(event.completedSideEffect ? { completedSideEffect: true } : {}),
-            ...(event.chatUI ? { chatUI: event.chatUI } : {}),
-            ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
-          },
-        );
+        const metadata =
+          mergeProtocolMetadata(
+            previousTool?.metadata,
+            invocation?.metadata,
+            event.metadata,
+            base.metadata,
+            {
+              ...(event.completedSideEffect
+                ? { completedSideEffect: true }
+                : {}),
+              ...(event.chatUI ? { chatUI: event.chatUI } : {}),
+              ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
+            },
+          ) ?? {};
+        if (event.approvalPause === true) {
+          metadata.approvalPause = true;
+          if (event.approvalAskId) {
+            metadata.approvalAskId = event.approvalAskId;
+          }
+        } else {
+          delete metadata.approvalPause;
+          delete metadata.approvalAskId;
+        }
+        const protocolMetadata =
+          Object.keys(metadata).length > 0 ? metadata : undefined;
         const actionResult = invocation
           ? actionResultFromTool({
               invocation,
@@ -2459,7 +2510,7 @@ export function createAgentKitProtocolAdapter(
               result: event.result,
               resultText: event.resultText,
               error,
-              metadata,
+              metadata: protocolMetadata,
             })
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
@@ -2478,8 +2529,9 @@ export function createAgentKitProtocolAdapter(
           status,
           output: event.result !== undefined ? event.result : event.resultText,
           error,
+          runId: run.runId,
           ...(messageId ? { messageId } : {}),
-          ...(metadata ? { metadata } : {}),
+          ...(protocolMetadata ? { metadata: protocolMetadata } : {}),
         };
         if (messageId) {
           run.pendingToolMessageAssociations.delete(event.toolCallId);

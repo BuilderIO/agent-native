@@ -30,9 +30,9 @@ Pages, Blocks, Collections, Search, history, and recovery form one trustworthy m
 
 **Example workflow:** A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context.
 
-**What works today:** Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. Page saves and external edits use revision and retry identities, while editor recovery fences delayed stale drafts after confirmed saves. An early local pass of the current save-session repair preserved independent two-tab and browser/MCP edits with canonical read-back.
+**What works today:** Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. October's two-tab convergence work added a repeatable loss test, kept concurrent words, reduced false conflict warnings, hardened durable saves and recovery, and measured save outcomes (#6656, #6721, #6737, #6984, #7028, #7033, #7111). A reported beta two-tab check converged 18 edits with every save returning 200.
 
-**What remains:** The September 23 hosted beta two-tab pass still lost later independent edits and opened version-choice recovery. The current repair needs full local R01–R08 and authenticated repaired-beta acceptance. Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity also remain incomplete.
+**What remains:** Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need proof. F1 remains in validation: the R01–R08 gate and authenticated beta acceptance remain open; the two-tab result alone does not make it Available.
 
 **What this Feature includes:**
 
@@ -161,9 +161,9 @@ Comments, Discussion, messages, notifications, and history stay anchored to the 
 
 **Example workflow:** A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together.
 
-**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. An early local pass of the current save-session repair preserved independent two-tab and browser/MCP edits with canonical read-back and an idempotent replay receipt.
+**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. October's two-tab convergence stack keeps more concurrent edits durable, reduces false conflict warnings, improves recovery and agent-edit visibility, and measures save outcomes (#6656, #6721, #6737, #6984, #7028, #7033, #7111). A reported beta two-tab check converged 18 edits with every save returning 200.
 
-**What remains:** The deployed September 23 two-tab beta pass failed with missing independent edits and a version-choice dialog; the current repair still needs full local R01–R08 and authenticated repaired-beta acceptance. Every Page and Collection also needs universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions.
+**What remains:** Every Page and Collection still needs universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions. Collaboration durability still needs the R01–R08 gate and authenticated beta acceptance.
 
 **What this Feature includes:**
 
@@ -206,9 +206,9 @@ Accept or reject proposed human and agent changes in the ordinary Content interf
 
 **Example workflow:** An agent revises a live article and its metadata; the editor reviews the rendered Page, accepts the stronger passages, rejects an incorrect Property change, and leaves the remaining suggestions pending for another pass.
 
-**What works today:** Source change sets, Builder review machinery, audit records, and document snapshots prove several parts of the review loop and provide useful donor implementations.
+**What works today:** Suggestions ship in Content's document editor: people and agents can propose text changes, review them in place, and accept or reject them. Recent work preserves Suggesting-mode drafts, supports text inside tables and other nested blocks, groups rewritten phrases, refuses unplaceable accepts, and keeps comment AI suggestions in their thread (#6627, #6661, #6716, #6720, #6729, #7258, #7372).
 
-**What remains:** Content needs one generic typed diff and suggestion system that reviews bodies, Properties, Blocks, and filtered record sets directly in their ordinary renderers.
+**What remains:** The generic typed review contract still needs complete Property, Block, and filtered-record coverage, durable disposition and conflict semantics, and end-to-end human/agent parity across the ordinary renderers.
 
 **What this Feature includes:**
 
@@ -648,7 +648,7 @@ Resolve or create one canonical Page in the chosen Collection, preserve provenan
 
 **Example workflow:** Someone shares a customer interview URL from their phone to the Research Collection; Content reuses the canonical Source Page, preserves the transcript and provenance, and lets the Collection's Rules extract companies and open questions.
 
-**What works today:** Content can already import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with useful provenance and Collection destinations in several paths.
+**What works today:** Content can import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with provenance and Collection destinations in several paths. Markdown file import now previews conversion losses, records source provenance, and offers guarded Undo through the UI or Action (#6865, #6902).
 
 **What remains:** Every entrance needs one Capture contract with remembered destination, canonical deduplication, idempotency, snapshot handling, Template application, receipts, and clean downstream enrichment.
 
@@ -808,9 +808,9 @@ Import or migrate a foreign corpus with resumable progress, provenance, repair, 
 
 **Example workflow:** A team imports a large Notion workspace, closes the browser halfway through, resumes without duplicate Pages, and reviews a conversion report showing transformed Properties and unresolved assets.
 
-**What works today:** Markdown and MDX import, Notion workflows, Builder pulls, local-folder synchronization, provenance, and provider identities already support several bounded migration paths.
+**What works today:** Markdown import now has a reader that reports preserved, converted, and lost content (#6865), plus preview, file provenance, an Import History entry, retry-safe application, and guarded Undo (#6902). Notion workflows, Builder pulls, local-folder synchronization, and provider identities support other bounded migration paths.
 
-**What remains:** Large migrations need durable server-side orchestration, checkpoints, idempotent deduplication, broader schema fidelity, conversion reports, asset repair, resumability, and explicit partial-failure recovery.
+**What remains:** Large migrations still need durable server-side orchestration, checkpoints, idempotent deduplication across a corpus, broader schema fidelity, asset repair, resumability, and explicit partial-failure recovery. The Markdown conversion report does not yet cover every adapter.
 
 **What this Feature includes:**
 
@@ -830,13 +830,13 @@ Import or migrate a foreign corpus with resumable progress, provenance, repair, 
 
 Mount and edit the same canonical Content object inside an authorized host without forking identity or permissions.
 
-**Status:** Planned
+**Status:** Partially implemented
 
 **Example workflow:** A planner mounts the canonical project brief inside another Agent-Native app, edits it through the same Actions, and sees the change, history, and permissions remain identical when opening it later in Content.
 
-**What works today:** Agent-Native toolkits already share Content components across sibling apps, and Content exposes reusable Actions and object identities that hosts can call without duplicating business logic.
+**What works today:** The ChatGPT Content widget opens an editable canonical document with the app's document layout, top bar, formatting toolbar, and Share controls. Artifact-scoped write grants and scoped read tickets support that editor, with load and access fixes across the widget path (#6856, #6909, #6913, #6918, #6923, #6945, #7149, #7257, #7317).
 
-**What remains:** A canonical embeddable surface needs host grants, viewer-scoped authorization, shared editing and history, stable mounting contracts, responsive presentation, and later MCP App compatibility.
+**What remains:** The widget still needs real-host and full lifecycle proof. A general Page or View mount contract, host grants across applications, viewer-scoped authorization, shared history and concurrent-update parity, responsive navigation, and broader MCP App compatibility remain unproven.
 
 **What this Feature includes:**
 

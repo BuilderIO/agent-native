@@ -290,6 +290,9 @@ const messages = {
     transcriptionCompleted: "转录完成",
     transcriptNotReady: "成绩单尚未准备好",
     tryAfterTranscription: "转录完成后重试。",
+    silenceTranscriptUnavailableTitle: "无法使用此转录文本来移除静音片段",
+    silenceTranscriptUnavailableDescription:
+      "尝试生成新的转录文本，然后再次移除静音片段。",
     titleGenerationQueued: "正在生成标题…",
     descriptionQueued: "正在生成描述…",
     chapterQueued: "正在生成章节…",

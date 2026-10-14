@@ -73,6 +73,9 @@ vi.mock("@agent-native/creative-context/server", () => ({
   resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 import action from "./generate-screens.js";
 
 describe("generate-screens", () => {
@@ -156,6 +159,19 @@ describe("generate-screens", () => {
         },
       ],
     });
+  });
+
+  it("plans screens without recording a generation attempt", async () => {
+    track.mockReset();
+    await action.run({
+      designId: "design_123",
+      prompt: "Add onboarding",
+      screens: [{ title: "Onboarding" }, { title: "Empty State" }],
+    });
+
+    // The generate-design calls that fill these targets are the attempts; a
+    // terminal event here would count every plan as a zero-file failure.
+    expect(track).not.toHaveBeenCalled();
   });
 
   it("deep-links external hosts into overview mode", () => {

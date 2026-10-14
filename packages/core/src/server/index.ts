@@ -19,6 +19,7 @@ export {
   type AppConfig,
   type AppConfigInput,
 } from "../app-config/index.js";
+export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
@@ -135,6 +136,7 @@ export {
 export {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   hasGoogleAuthIdentity,
   setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";

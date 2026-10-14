@@ -36,6 +36,7 @@ import {
   fillPaintName,
   GRADIENT_NAMES,
   readFillField,
+  showsChevron,
   showsOpacity,
 } from "../inspector/fill-field-reading";
 import {
@@ -1020,7 +1021,7 @@ export function FillProperties({
                     draggable
                     {...fillDrag.getRowProps(index)}
                   >
-                    <InspectorGridCell span={3}>
+                    <InspectorGridCell span={1}>
                       <RowDragHandle
                         label={t("editPanel.labels.reorderLayer")}
                         dropIndicator={
@@ -1069,7 +1070,12 @@ export function FillProperties({
                         trigger={
                           <button
                             type="button"
-                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 pl-8 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                            title={
+                              layerReading.kind === "wide"
+                                ? (solidFillColor ?? undefined)
+                                : undefined
+                            }
+                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                           >
                             <FillFieldFace
                               reading={layerReading}
@@ -1088,7 +1094,7 @@ export function FillProperties({
                               }
                               // A gradient's opacity is the field beside the
                               // row, which leaves no room for the chevron.
-                              chevron={!gradient}
+                              chevron={!gradient && showsChevron(layerReading)}
                               opacity={
                                 gradient ||
                                 !showsOpacity(layerReading, layerOpacity)

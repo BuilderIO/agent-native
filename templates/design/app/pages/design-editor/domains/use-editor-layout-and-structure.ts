@@ -86,6 +86,7 @@ import {
 import { measureFreeformGeometry } from "../measure-child-rects";
 import { resolveOverviewScreenSourceType } from "../pending-edits";
 import { buildActiveFileNodeIdSet } from "../selection-state";
+import { areCommentPinsHidden } from "../tool-state";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -138,6 +139,7 @@ export function useEditorLayoutAndStructure({
   const {
     t,
     id,
+    mode,
     setMode,
     setActiveTool,
     viewMode,
@@ -951,6 +953,7 @@ export function useEditorLayoutAndStructure({
     toggle: toggleViewSetting,
   } = useViewSettings({ enabled: isSignedIn });
   const { commentsHidden } = viewSettings;
+  const commentPinsHidden = areCommentPinsHidden({ commentsHidden, mode });
   const showComments = useCallback(
     () => updateViewSettings({ commentsHidden: false }),
     [updateViewSettings],
@@ -1641,6 +1644,7 @@ export function useEditorLayoutAndStructure({
     handleAddAutoLayout,
     handleToggleUi,
     commentsHidden,
+    commentPinsHidden,
     viewSettings,
     updateViewSettings,
     toggleViewSetting,

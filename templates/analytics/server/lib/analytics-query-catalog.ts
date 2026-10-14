@@ -122,6 +122,9 @@ export type AnalyticsQueryCatalogCandidate =
       action?: string;
       table?: string;
       columnsUsed?: string;
+      sqlProjectedColumns?: string;
+      inferredMembershipKeys?: string[];
+      inferredMembershipKeyRoles?: { user: string; organization: string };
       queryTemplate?: string;
       knownGotchas?: string;
       commonQuestions?: string;
@@ -191,6 +194,22 @@ export type AnalyticsDictionarySearchResult = {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function membershipKeyRoles(
+  value: unknown,
+): { user: string; organization: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const roles = value as Record<string, unknown>;
+  const user = text(roles.user);
+  const organization = text(roles.organization);
+  return user &&
+    organization &&
+    user.toLowerCase() !== organization.toLowerCase()
+    ? { user, organization }
+    : undefined;
 }
 
 async function listFavoriteDashboardIds(email: string): Promise<Set<string>> {
@@ -299,6 +318,7 @@ function candidateTextFields(
       candidate.definition,
       candidate.table,
       candidate.columnsUsed,
+      candidate.sqlProjectedColumns,
       candidate.grain,
       candidate.primaryEntity,
       candidate.semanticModel,
@@ -396,6 +416,7 @@ function hasMembershipRoleField(candidate: AnalyticsQueryCatalogCandidate) {
     candidate.kind === "data-dictionary"
       ? [
           candidate.columnsUsed,
+          candidate.sqlProjectedColumns,
           candidate.table,
           candidate.joinPattern,
           candidate.semanticModel,
@@ -423,6 +444,36 @@ function hasMembershipIdentityKey(columns: string): boolean {
 
 function hasOrganizationIdentityKey(columns: string): boolean {
   return /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
+}
+
+function hasInferredMembershipIdentityKeys(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  if (
+    candidate.kind !== "data-dictionary" ||
+    candidate.origin !== "source-index" ||
+    candidate.sourceKind !== "dbt"
+  ) {
+    return false;
+  }
+  const roles = candidate.inferredMembershipKeyRoles;
+  if (!roles) return false;
+  const inferredKeys = new Set(
+    (candidate.inferredMembershipKeys ?? []).map((key) => key.toLowerCase()),
+  );
+  const projectedColumns = new Set(
+    (candidate.sqlProjectedColumns ?? "")
+      .split(",")
+      .map((column) => column.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  return (
+    roles.user.toLowerCase() !== roles.organization.toLowerCase() &&
+    inferredKeys.has(roles.user.toLowerCase()) &&
+    inferredKeys.has(roles.organization.toLowerCase()) &&
+    projectedColumns.has(roles.user.toLowerCase()) &&
+    projectedColumns.has(roles.organization.toLowerCase())
+  );
 }
 
 function isStaleGeneratedSourceIndexEntry(
@@ -469,7 +520,9 @@ function hasMembershipRosterEvidence(
       ? (candidate.columnsUsed ?? "").toLowerCase().replace(/[_-]+/g, " ")
       : "";
   const hasMembershipKeys =
-    hasMembershipIdentityKey(columns) && hasOrganizationIdentityKey(columns);
+    (hasMembershipIdentityKey(columns) &&
+      hasOrganizationIdentityKey(columns)) ||
+    hasInferredMembershipIdentityKeys(candidate);
   if (candidate.kind === "dashboard-panel") {
     const queryText = dashboardQueryText(candidate);
     const hasUserKey = hasMembershipIdentityKey(queryText);
@@ -911,6 +964,7 @@ function dictionaryCandidates(
       { value: entry.definition, weight: 12 },
       { value: entry.table, weight: 8 },
       { value: entry.columnsUsed, weight: 6 },
+      { value: entry.sqlProjectedColumns, weight: 4 },
       { value: entry.queryTemplate, weight: 5 },
       { value: entry.source, weight: 5 },
       { value: entry.action, weight: 5 },
@@ -950,6 +1004,10 @@ function dictionaryCandidates(
     const status = sourceEntryStatus(entry.status);
     const id = text(entry.id);
     const metric = text(entry.metric);
+    const inferredMembershipKeyRoles =
+      isSourceIndex && entrySourceKind === "dbt"
+        ? membershipKeyRoles(entry.inferredMembershipKeyRoles)
+        : undefined;
     if (!id || !metric) return [];
     return [
       {
@@ -957,7 +1015,9 @@ function dictionaryCandidates(
         origin: isSourceIndex
           ? ("source-index" as const)
           : ("data-dictionary" as const),
-        score: score + (entry.approved === true ? 12 : 0),
+        score:
+          score +
+          (entry.approved === true && entry.sourceIndexStale !== true ? 12 : 0),
         matchedTerms,
         exactMatchedTerms,
         id,
@@ -971,6 +1031,18 @@ function dictionaryCandidates(
         ...(text(entry.columnsUsed)
           ? { columnsUsed: text(entry.columnsUsed) }
           : {}),
+        ...(text(entry.sqlProjectedColumns)
+          ? { sqlProjectedColumns: text(entry.sqlProjectedColumns) }
+          : {}),
+        ...(isSourceIndex &&
+        entrySourceKind === "dbt" &&
+        Array.isArray(entry.inferredMembershipKeys) &&
+        entry.inferredMembershipKeys.every(
+          (key): key is string => typeof key === "string",
+        )
+          ? { inferredMembershipKeys: entry.inferredMembershipKeys }
+          : {}),
+        ...(inferredMembershipKeyRoles ? { inferredMembershipKeyRoles } : {}),
         ...(text(entry.queryTemplate)
           ? { queryTemplate: text(entry.queryTemplate) }
           : {}),
@@ -1104,6 +1176,7 @@ function candidateQueryRankingTierForTerms(
   if (
     candidate.kind === "data-dictionary" &&
     candidate.approved === true &&
+    !isStaleGeneratedSourceIndexEntry(candidate) &&
     hasExactQueryCoverage
   ) {
     return 2;
@@ -1130,6 +1203,7 @@ export function candidateQueryPriority(
   trust: number;
   activeSubsetSpecificity: number;
   scope: number;
+  freshness: number;
 } {
   const rankingIntent = stripNonPositiveInstructions(search);
   const requestedScope = requestedSemanticScope(rankingIntent);
@@ -1180,6 +1254,7 @@ export function candidateQueryPriority(
             candidateSemanticScope(candidate),
             requestedScope,
           ),
+    freshness: staleSourceIndex ? 0 : 1,
   };
 }
 
@@ -1311,6 +1386,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
         return b.activeSubsetSpecificity - a.activeSubsetSpecificity;
       }
       if (b.scope !== a.scope) return b.scope - a.scope;
+      if (b.freshness !== a.freshness) return b.freshness - a.freshness;
       if (b.coverage !== a.coverage) return b.coverage - a.coverage;
       if (b.candidate.score !== a.candidate.score) {
         return b.candidate.score - a.candidate.score;

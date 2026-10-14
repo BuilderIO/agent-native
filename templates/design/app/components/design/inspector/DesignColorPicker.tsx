@@ -152,6 +152,7 @@ import {
 import {
   fillPaintName,
   readFillField,
+  showsChevron,
   showsOpacity,
 } from "./fill-field-reading";
 import type { GlslShaderPanelContext } from "./GlslShaderPanel";
@@ -1717,7 +1718,10 @@ export function DesignColorPicker({
           <PopoverAnchor asChild>
             <div
               className={cn(
-                "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-1.5 pr-0 !text-[11px] shadow-none",
+                "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-1.5 !text-[11px] shadow-none",
+                // The chevron button runs to the right edge; without it the
+                // reading takes the room and keeps the field's padding.
+                showsChevron(fieldReading) ? "pr-0" : "pr-1.5",
                 "hover:bg-[var(--design-editor-panel-raised-bg)]",
                 disabled && "pointer-events-none opacity-50",
               )}
@@ -1738,6 +1742,7 @@ export function DesignColorPicker({
                     reading={fieldReading}
                     alpha={opacityToAlpha(effectiveOpacity)}
                     ariaLabel={copy.rowHex}
+                    title={fieldTitle}
                     disabled={disabled}
                     onCommit={commitFieldText}
                   />
@@ -1781,17 +1786,19 @@ export function DesignColorPicker({
                   {/* The chevron opens the picker like the swatch does. It is
                       not a second trigger: Radix treats only one element as
                       the trigger, and a press on it would read as outside. */}
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    aria-hidden="true"
-                    disabled={disabled}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => handleOpenChange(!open)}
-                    className="-ml-1.5 flex h-full w-3.5 shrink-0 items-center justify-center focus-visible:outline-none"
-                  >
-                    <FillFieldChevron />
-                  </button>
+                  {showsChevron(fieldReading) && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      disabled={disabled}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => handleOpenChange(!open)}
+                      className="-ml-1.5 flex h-full w-3.5 shrink-0 items-center justify-center focus-visible:outline-none"
+                    >
+                      <FillFieldChevron />
+                    </button>
+                  )}
                 </>
               ) : (
                 <PopoverTrigger asChild>

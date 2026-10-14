@@ -852,7 +852,6 @@ export default {
       tokens: "토큰",
       threads: "스레드",
       label: "디자인 작업공간",
-      account: "계정",
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
     },
@@ -1188,6 +1187,17 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "붙여넣은 토큰 가져오기",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      importing: "토큰을 가져오는 중…",
+      importedWithSkipped:
+        "{{count}}개 토큰을 가져왔습니다. 잘못된 값 또는 파일 {{skipped}}개를 건너뛰었습니다.",
+      importedWithOmissions:
+        "{{count}}개 토큰을 가져왔습니다. 잘못된 항목 {{skipped}}개를 건너뛰었습니다. 가져오기 제한으로 미처리된 수 (토큰: {{omittedTokens}}, 파일: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "토큰 {{count}}개를 가져왔지만 파일 {{readFailures}}개를 읽지 못했습니다. 다시 선택해 시도하세요.",
+      importedWithReadFailuresAndOmissions:
+        "토큰 {{count}}개를 가져왔습니다. 파일 {{readFailures}}개를 읽지 못했습니다. 잘못된 항목 {{skipped}}개도 건너뛰었고, 제한으로 토큰 {{omittedTokens}}개와 파일 {{omittedFiles}}개를 처리하지 못했습니다. 읽지 못한 파일을 다시 선택해 시도하세요.",
+      noTokensFound:
+        "유효한 토큰을 찾지 못했습니다. 파일 형식과 토큰 값을 확인하세요.",
       count: "토큰 {{count}}개",
       search: "토큰 검색",
       noMatches: "일치하는 토큰이 없습니다",
@@ -1309,6 +1319,7 @@ export default {
       htmlPlaceholder: "<main>독립 HTML을 여기에 붙여넣기...</main>",
       importHtml: "HTML 가져오기",
       chooseHtmlFile: "HTML 파일 선택",
+      allSupportedFiles: "지원되는 모든 파일",
       githubTitle: "GitHub",
       githubDescription:
         "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
