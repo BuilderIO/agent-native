@@ -12,6 +12,36 @@ describe("recordingProcessingTransition", () => {
     ).toBe("processing");
   });
 
+  it("dismisses the progress toast while a recording waits for storage", () => {
+    expect(
+      recordingProcessingTransition(null, {
+        recordingId: "rec_a",
+        phase: "waiting-storage",
+      }),
+    ).toBe("dismissed");
+    expect(
+      recordingProcessingTransition(
+        { recordingId: "rec_a", phase: "uploading" },
+        { recordingId: "rec_a", phase: "waiting-storage" },
+      ),
+    ).toBe("dismissed");
+    expect(
+      recordingProcessingTransition(
+        { recordingId: "rec_a", phase: "waiting-storage" },
+        { recordingId: "rec_a", phase: "waiting-storage" },
+      ),
+    ).toBeNull();
+  });
+
+  it("resumes progress after storage becomes available", () => {
+    expect(
+      recordingProcessingTransition(
+        { recordingId: "rec_a", phase: "waiting-storage" },
+        { recordingId: "rec_a", phase: "uploading" },
+      ),
+    ).toBe("processing");
+  });
+
   it("completes processing only for a transition on the same recording", () => {
     expect(
       recordingProcessingTransition(

@@ -390,7 +390,7 @@ describe("realtime voice inline preferences", () => {
     expect(resolveRealtimeVoiceLanguagePreference("invalid", "fr-FR")).toBe(
       "fr",
     );
-    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("minimal");
+    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("low");
     expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
     expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
     expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
@@ -749,6 +749,7 @@ describe("realtime voice session route", () => {
           type: "responses",
           responses: {
             model: "gpt-6-luna",
+            reasoning: { effort: "low" },
             tool_choice: "auto",
             tools: [
               expect.objectContaining({ type: "function", name: "navigate" }),

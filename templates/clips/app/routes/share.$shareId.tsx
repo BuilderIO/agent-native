@@ -851,8 +851,12 @@ export default function ShareRoute() {
     const hasMedia = isImageRecording(recording)
       ? Boolean(recording.imageUrl || recording.thumbnailUrl)
       : Boolean(recording.videoUrl);
-    const phase =
-      recording.status === "ready"
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const phase = storageSetupFailure
+      ? "waiting-storage"
+      : recording.status === "ready"
         ? hasMedia
           ? "ready"
           : "processing"
@@ -863,7 +867,9 @@ export default function ShareRoute() {
       dismissProcessingToast();
     }
     const transition = recordingProcessingTransition(previous, current);
-    if (transition === "processing") {
+    if (transition === "dismissed") {
+      dismissProcessingToast();
+    } else if (transition === "processing") {
       startProcessingToast(
         phase === "uploading"
           ? t("sharePage.uploadingAssembling")
@@ -880,6 +886,7 @@ export default function ShareRoute() {
     dismissProcessingToast,
     failProcessingToast,
     recording?.id,
+    recording?.failureReason,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,

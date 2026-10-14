@@ -83,7 +83,7 @@ const REALTIME_VOICE_BUILT_INS = new Set([
   "cedar",
 ]);
 const REALTIME_VOICE_REASONING_EFFORT = {
-  instant: "minimal",
+  instant: "low",
   balanced: "low",
   deep: "medium",
 } as const;
@@ -194,7 +194,7 @@ export function resolveRealtimeVoiceLanguagePreference(
 
 export function resolveRealtimeVoiceReasoningEffort(
   value: string | null | undefined,
-): "minimal" | "low" | "medium" {
+): "low" | "medium" {
   const normalized = value?.trim().toLowerCase();
   return normalized &&
     Object.prototype.hasOwnProperty.call(
