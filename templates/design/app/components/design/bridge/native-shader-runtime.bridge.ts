@@ -449,7 +449,20 @@ type NestedBackdropTransaction = {
   deterministic: boolean;
   active: Set<string>;
   complete: Set<string>;
-  staged: Map<string, { mount: Mount; texture: GPUTexture }>;
+  staged: Map<
+    string,
+    {
+      mount: Mount;
+      texture: GPUTexture;
+      resources?: NativeFrameResourceScratch<GPUTexture>;
+      statefulFrame?: NativeStatefulEncodedFrame;
+      sourceEpoch: number | null;
+      instancePayload: string;
+      definitionHash: string;
+      localTime: number;
+      inputEpochs: NonNullable<Mount["pendingGraphInputEpochs"]>;
+    }
+  >;
   authoredEpochs: Map<string, number>;
   noncontributing: Set<string>;
 };
@@ -626,6 +639,7 @@ type Mount = {
     textures: Set<GPUTexture>;
     buffers: Set<GPUBuffer>;
   } | null;
+  statefulCandidate: Mount["stateful"];
   statefulFrame: NativeStatefulEncodedFrame | null;
 };
 type DraftPreview = {
@@ -648,6 +662,7 @@ type DraftPreview = {
   simulationFrame: NativeSimulationFrame | null;
   pointerHistory: NativePointerHistory | null;
   stateful: Mount["stateful"];
+  statefulCandidate: Mount["stateful"];
   statefulFrame: NativeStatefulEncodedFrame | null;
   statefulResources: Map<string, GPUTexture>;
   feedback: Mount["feedback"];
@@ -4039,13 +4054,62 @@ class NativeShaderRuntime {
   }
 
   private releaseStateful(mount: Mount): void {
-    if (mount.stateful) mount.pointerHistory?.invalidate();
+    if (mount.stateful || mount.statefulCandidate)
+      mount.pointerHistory?.invalidate();
     mount.statefulFrame?.abandon();
     mount.statefulFrame = null;
+    mount.statefulCandidate?.executor.dispose();
+    mount.statefulCandidate = null;
     mount.stateful?.executor.dispose();
     mount.stateful = null;
     mount.target.removeAttribute("data-an-native-stateful-dropped-steps");
     mount.target.removeAttribute("data-an-native-stateful-dropped-seconds");
+  }
+
+  private promoteStatefulFrame(
+    mount: Mount,
+    frame: NativeStatefulEncodedFrame,
+    draft: DraftPreview | null = null,
+  ): void {
+    const candidate = draft ? draft.statefulCandidate : mount.statefulCandidate;
+    const published = draft ? draft.stateful : mount.stateful;
+    const stateful = candidate ?? published;
+    if (!stateful)
+      throw new NativeSourceError(
+        "stateful-frame-invalid",
+        "The encoded stateful session is unavailable.",
+      );
+    frame.promote();
+    stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
+    stateful.pendingSourceRevision = null;
+    stateful.droppedSteps += stateful.pendingDroppedSteps;
+    stateful.pendingDroppedSteps = 0;
+    if (candidate) {
+      if (draft) {
+        draft.stateful = candidate;
+        draft.statefulCandidate = null;
+        draft.statefulFrame = null;
+      } else {
+        mount.stateful = candidate;
+        mount.statefulCandidate = null;
+        mount.statefulFrame = null;
+      }
+      if (published && published !== candidate) {
+        published.executor.dispose();
+        mount.pointerHistory?.invalidate();
+      }
+    } else if (draft) draft.statefulFrame = null;
+    else mount.statefulFrame = null;
+    mount.target.setAttribute(
+      "data-an-native-stateful-dropped-steps",
+      String(stateful.droppedSteps),
+    );
+    const graph = (draft?.definition ?? mount.definition).resourceGraph;
+    const fixedDt = isStatefulResourceGraph(graph) ? graph.timing.fixedDt : 0;
+    mount.target.setAttribute(
+      "data-an-native-stateful-dropped-seconds",
+      (stateful.droppedSteps * fixedDt).toFixed(3),
+    );
   }
 
   private async disposeFeedback(
@@ -4978,6 +5042,7 @@ class NativeShaderRuntime {
       feedback: null,
       feedbackFrame: null,
       stateful: null,
+      statefulCandidate: null,
       statefulFrame: null,
     };
     if (definition.simulation || definition.interaction)
@@ -5503,7 +5568,10 @@ class NativeShaderRuntime {
         "effect-layer-dependency-unavailable",
         "The previous processor has no current output geometry.",
       );
-    const captureInsets = nativeTargetOverflowInsets(mount.target);
+    const captureInsets = nativeTargetOverflowInsets(
+      mount.target,
+      mount.instance.placement === "layer",
+    );
     const planned = planNativeChainedEffectExtent({
       extent: mount.definition.extent,
       captureInsets: previous ? undefined : captureInsets,
@@ -8194,23 +8262,31 @@ class NativeShaderRuntime {
         throw new NativeSourceError(error.code, error.message);
       throw error;
     }
-    const prior = draft ? draft.stateful : mount.stateful;
-    if (
-      prior &&
-      (prior.definitionHash !== definitionHash ||
-        prior.seed !== instance.seed ||
-        prior.sourceIdentity !== sourceIdentity ||
-        prior.sourceWidth !== (source?.width ?? mount.width) ||
-        prior.sourceHeight !== (source?.height ?? mount.height) ||
-        prior.seekRevision !== (instance.timing.seekRevision ?? 0) ||
-        nativeStatefulResetValuesChanged(
-          prior.resetPropertyValues,
-          resetPropertyValues,
-        ))
-    ) {
-      if (draft) this.releaseDraftResources(draft);
-      else this.releaseStateful(mount);
-    }
+    const target = resolveNativeStatefulTargetStep(
+      time,
+      graph.timing.fixedDt,
+      graph.timing.maxStepIndex,
+      deterministic,
+    );
+    if (target === null)
+      throw new NativeSourceError(
+        "stateful-step-limit",
+        "The requested fixed step is outside the graph limit.",
+      );
+    const published = draft ? draft.stateful : mount.stateful;
+    const needsCandidate =
+      !published ||
+      published.definitionHash !== definitionHash ||
+      published.seed !== instance.seed ||
+      published.sourceIdentity !== sourceIdentity ||
+      published.sourceWidth !== (source?.width ?? mount.width) ||
+      published.sourceHeight !== (source?.height ?? mount.height) ||
+      published.seekRevision !== (instance.timing.seekRevision ?? 0) ||
+      nativeStatefulResetValuesChanged(
+        published.resetPropertyValues,
+        resetPropertyValues,
+      ) ||
+      target < published.executor.lastCompletedStep;
     const pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
     const device = this.device!;
     const epoch = this.deviceEpoch;
@@ -8245,7 +8321,7 @@ class NativeShaderRuntime {
       );
     if (!mount.pendingGraphInputEpochs)
       mount.pendingGraphInputEpochs = new Map();
-    if (!(draft ? draft.stateful : mount.stateful)) {
+    if (needsCandidate) {
       const stateNames = new Set(graph.stateResources);
       const plannedBytes = plan.passes.reduce((sum, pass) => {
         const spec = declared.get(pass.output)!;
@@ -8321,22 +8397,13 @@ class NativeShaderRuntime {
         textures,
         buffers,
       };
-      if (draft) draft.stateful = stateful;
-      else mount.stateful = stateful;
+      if (draft) draft.statefulCandidate = stateful;
+      else mount.statefulCandidate = stateful;
     }
-    const stateful = (draft ? draft.stateful : mount.stateful)!;
+    const stateful = needsCandidate
+      ? (draft ? draft.statefulCandidate : mount.statefulCandidate)!
+      : published!;
     const completed = stateful.executor.lastCompletedStep;
-    const target = resolveNativeStatefulTargetStep(
-      time,
-      graph.timing.fixedDt,
-      graph.timing.maxStepIndex,
-      deterministic,
-    );
-    if (target === null)
-      throw new NativeSourceError(
-        "stateful-step-limit",
-        "The requested fixed step is outside the graph limit.",
-      );
     if (
       completed < 0 &&
       deterministic &&
@@ -8348,24 +8415,6 @@ class NativeShaderRuntime {
         "stateful-source-history-unavailable",
         "Sequential source history must begin at the first fixed step.",
       );
-    if (target < completed) {
-      if (draft) this.releaseDraftResources(draft);
-      else this.releaseStateful(mount);
-      return this.statefulResourcePasses(
-        mount,
-        source,
-        time,
-        encoder,
-        definition,
-        instance,
-        sourceRevision,
-        deterministic,
-        sourceIdentity,
-        sourceReplaySafety,
-        externalTextures,
-        inputEpochs,
-      );
-    }
     const maxSteps = Math.min(
       graph.timing.maxStepsPerCall,
       Math.floor(128 / plan.passes.length),
@@ -11595,6 +11644,14 @@ class NativeShaderRuntime {
         candidate.target !== target &&
         candidate.target.contains(target),
     );
+    if (
+      owners.filter((candidate) => candidate.instance.placement === "layer")
+        .length > 1
+    )
+      throw new NativeSourceError(
+        "source-group-local-chain-unsupported",
+        "source-group-local-chain-unsupported",
+      );
     const nearest = owners.find((candidate) =>
       owners.every(
         (other) =>
@@ -11648,7 +11705,6 @@ class NativeShaderRuntime {
       child.instance.placement !== "backdrop" ||
       child.definition.simulation ||
       child.definition.feedback ||
-      isStatefulResourceGraph(child.definition.resourceGraph) ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -11674,6 +11730,12 @@ class NativeShaderRuntime {
         "source-group-local-geometry-unsupported",
         "source-group-local-geometry-unsupported",
       );
+    const resources = new NativeFrameResourceScratch(
+      child.resourceTextures,
+      [],
+    );
+    child.resourceTextures = resources.scratch;
+    let staged = false;
     transaction.active.add(child.instance.id);
     try {
       let source = child.resourceTextures.get("__native_group_local_source");
@@ -11756,16 +11818,40 @@ class NativeShaderRuntime {
           ? "__native_group_local_final_a"
           : "__native_group_local_final_b",
       );
-      await this.present(child, finished, encoder);
-      transaction.staged.set(child.instance.id, {
-        mount: child,
-        texture: finished,
-      });
       const authoredEpoch = child.provider?.authoredSourceEpoch?.();
       if (authoredEpoch !== undefined)
         transaction.authoredEpochs.set(child.instance.id, authoredEpoch);
+      if (child.definition.resourceGraph && !child.pendingGraphInputEpochs)
+        throw new NativeSourceError(
+          "linear-resource-frame-invalid",
+          "The nested graph input revision is unavailable.",
+        );
+      transaction.staged.set(child.instance.id, {
+        mount: child,
+        texture: finished,
+        resources,
+        statefulFrame: child.statefulFrame ?? undefined,
+        sourceEpoch: child.provider?.sourceEpoch?.() ?? null,
+        instancePayload: JSON.stringify(child.instance),
+        definitionHash: child.definitionHash,
+        localTime: childTime,
+        inputEpochs: new Map(child.pendingGraphInputEpochs ?? []),
+      });
+      child.statefulFrame = null;
+      staged = true;
       return finished;
     } finally {
+      child.resourceTextures = resources.committed;
+      if (!staged) {
+        child.statefulFrame?.abandon();
+        child.statefulFrame = null;
+        child.statefulCandidate?.executor.dispose();
+        child.statefulCandidate = null;
+        for (const texture of resources.rollback())
+          if (!this.textureRetirement.includes(texture))
+            this.textureRetirement.push(texture);
+      }
+      if (!staged) child.pendingGraphInputEpochs = null;
       transaction.active.delete(child.instance.id);
     }
   }
@@ -11788,7 +11874,6 @@ class NativeShaderRuntime {
       child.instance.placement !== "backdrop" ||
       child.definition.simulation ||
       child.definition.feedback ||
-      isStatefulResourceGraph(child.definition.resourceGraph) ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -11806,6 +11891,12 @@ class NativeShaderRuntime {
         "effect-dependency-cycle",
         "effect-dependency-cycle",
       );
+    const resources = new NativeFrameResourceScratch(
+      child.resourceTextures,
+      [],
+    );
+    child.resourceTextures = resources.scratch;
+    let staged = false;
     transaction.active.add(child.instance.id);
     try {
       if (!child.provider)
@@ -11927,13 +12018,38 @@ class NativeShaderRuntime {
           ? "__native_group_local_final_a"
           : "__native_group_local_final_b",
       );
+      transaction.authoredEpochs.set(child.instance.id, authoredSourceEpoch);
+      if (child.definition.resourceGraph && !child.pendingGraphInputEpochs)
+        throw new NativeSourceError(
+          "linear-resource-frame-invalid",
+          "The nested graph input revision is unavailable.",
+        );
       transaction.staged.set(child.instance.id, {
         mount: child,
         texture: finished,
+        resources,
+        statefulFrame: child.statefulFrame ?? undefined,
+        sourceEpoch: child.provider.sourceEpoch?.() ?? null,
+        instancePayload: JSON.stringify(child.instance),
+        definitionHash: child.definitionHash,
+        localTime: childTime,
+        inputEpochs: new Map(child.pendingGraphInputEpochs ?? []),
       });
-      transaction.authoredEpochs.set(child.instance.id, authoredSourceEpoch);
+      child.statefulFrame = null;
+      staged = true;
       return finished;
     } finally {
+      child.resourceTextures = resources.committed;
+      if (!staged) {
+        child.statefulFrame?.abandon();
+        child.statefulFrame = null;
+        child.statefulCandidate?.executor.dispose();
+        child.statefulCandidate = null;
+        for (const texture of resources.rollback())
+          if (!this.textureRetirement.includes(texture))
+            this.textureRetirement.push(texture);
+      }
+      if (!staged) child.pendingGraphInputEpochs = null;
       transaction.active.delete(child.instance.id);
     }
   }
@@ -12123,7 +12239,10 @@ class NativeShaderRuntime {
     const mountHeightBeforeLayout = mount.height;
     this.layout(mount);
     const assertCaptureOriginCurrent = (): void => {
-      const current = nativeTargetOverflowInsets(mount.target);
+      const current = nativeTargetOverflowInsets(
+        mount.target,
+        mount.instance.placement === "layer",
+      );
       if (
         current.top !== mount.captureInsets.top ||
         current.right !== mount.captureInsets.right ||
@@ -12184,6 +12303,18 @@ class NativeShaderRuntime {
       throw new NativeSourceError(
         "source-group-local-chain-unsupported",
         "source-group-local-chain-unsupported",
+      );
+    const nestedStatefulChild = nestedChildren.some((child) =>
+      isStatefulResourceGraph(child.definition.resourceGraph),
+    );
+    if (
+      nestedStatefulChild &&
+      mount.instance.placement === "layer" &&
+      (!mount.isTopLayer || draft)
+    )
+      throw new NativeSourceError(
+        "source-group-local-effect-unsupported",
+        "source-group-local-effect-unsupported",
       );
     if (nestedChildren.length) {
       for (const child of nestedChildren) {
@@ -12293,6 +12424,7 @@ class NativeShaderRuntime {
     let gpuSample: NativeGpuScopedSample | null = null;
     let profileSubmitted = false;
     let submitted = false;
+    let gpuValidated = false;
     let restorationAttempted = false;
     let detachedFillPresentation = false;
     let priorOutputRetirement: GPUTexture | null = null;
@@ -12369,6 +12501,8 @@ class NativeShaderRuntime {
             staged.mount !== child ||
             noncontributing ||
             clipState === "empty" ||
+            (staged.sourceEpoch !== null &&
+              child.provider?.sourceEpoch?.() !== staged.sourceEpoch) ||
             (nestedTransaction.authoredEpochs.has(child.instance.id) &&
               child.provider?.authoredSourceEpoch?.() !==
                 nestedTransaction.authoredEpochs.get(child.instance.id))
@@ -12377,6 +12511,19 @@ class NativeShaderRuntime {
               "source-epoch-stale",
               "source-epoch-stale",
             );
+          for (const [name, { capture, sourceEpoch }] of staged.inputEpochs)
+            if (
+              !this.authoredInputCaptureCurrent(
+                child,
+                name,
+                capture,
+                sourceEpoch,
+              )
+            )
+              throw new NativeSourceError(
+                "input-authored-source-stale",
+                `Authored input ${capture.nodeId} changed before GPU submission.`,
+              );
         } else if (!noncontributing) {
           throw new NativeSourceError(
             "native-dependency-missing",
@@ -12664,7 +12811,14 @@ class NativeShaderRuntime {
         mount.outputTexture.width === mount.width &&
         mount.outputTexture.height === mount.height &&
         canDetachPresentationFromSources(scene);
-      if (detachedCandidate) {
+      const retainedLayerPublication =
+        mount.instance.placement === "layer" &&
+        mount.isTopLayer &&
+        (nestedStatefulChild ||
+          !!activeDefinition.simulation ||
+          !!activeDefinition.feedback ||
+          isStatefulResourceGraph(activeDefinition.resourceGraph));
+      if (detachedCandidate || retainedLayerPublication) {
         unpublishedLayerState = {
           outputTexture: mount.outputTexture,
           fillTextTexture: mount.fillTextTexture,
@@ -12683,11 +12837,13 @@ class NativeShaderRuntime {
               .map((name) => [name, mount.target.getAttribute(name)!]),
           ),
         };
-        frameResources = new NativeFrameResourceScratch(
-          mount.resourceTextures,
-          source === mount.resourceTextures.get("source") ? ["source"] : [],
-        );
-        mount.resourceTextures = frameResources.scratch;
+        if (detachedCandidate) {
+          frameResources = new NativeFrameResourceScratch(
+            mount.resourceTextures,
+            source === mount.resourceTextures.get("source") ? ["source"] : [],
+          );
+          mount.resourceTextures = frameResources.scratch;
+        }
       }
       if (draft) {
         publishedDraftResources = mount.resourceTextures;
@@ -12700,6 +12856,13 @@ class NativeShaderRuntime {
           [...mount.resourceTextures.keys()],
         );
         simulationFrameResources = true;
+        mount.resourceTextures = frameResources.scratch;
+      }
+      if (retainedLayerPublication && !frameResources) {
+        frameResources = new NativeFrameResourceScratch(
+          mount.resourceTextures,
+          source === mount.resourceTextures.get("source") ? ["source"] : [],
+        );
         mount.resourceTextures = frameResources.scratch;
       }
       const staticPassKey = nativeStaticGeneratorPassKey({
@@ -12718,6 +12881,15 @@ class NativeShaderRuntime {
         instancePreviewActive:
           this.instancePreview?.instanceId === mount.instance.id,
       });
+      const outputName =
+        activeDefinition.output ?? activeDefinition.passes[0]?.output;
+      const retainedOutput = outputName
+        ? (mount.resourceTextures.get(outputName) ?? null)
+        : null;
+      const cachedOutput = mount.staticGeneratorPassCache.read(
+        staticPassKey,
+        retainedOutput,
+      );
       if (mount.instance.placement === "fill" && mount.isTopLayer) {
         if (!unpublishedLayerState)
           unpublishedLayerState = {
@@ -12745,26 +12917,12 @@ class NativeShaderRuntime {
               ...(source === mount.resourceTextures.get("source")
                 ? ["source"]
                 : []),
-              ...(staticPassKey
-                ? [
-                    activeDefinition.output ??
-                      activeDefinition.passes[0]?.output,
-                  ].filter((name): name is string => !!name)
-                : []),
+              ...(cachedOutput && outputName ? [outputName] : []),
             ],
           );
           mount.resourceTextures = frameResources.scratch;
         }
       }
-      const outputName =
-        activeDefinition.output ?? activeDefinition.passes[0]?.output;
-      const retainedOutput = outputName
-        ? (mount.resourceTextures.get(outputName) ?? null)
-        : null;
-      const cachedOutput = mount.staticGeneratorPassCache.read(
-        staticPassKey,
-        retainedOutput,
-      );
       if (cachedOutput) mount.pendingGraphInputEpochs = new Map();
       const effectPassesStarted = hostWallPhases ? performance.now() : 0;
       const output =
@@ -13103,6 +13261,7 @@ class NativeShaderRuntime {
       if (
         frameResources &&
         !detachedCandidate &&
+        !retainedLayerPublication &&
         !simulationFrameResources &&
         !(mount.instance.placement === "fill" && mount.isTopLayer)
       )
@@ -13112,6 +13271,7 @@ class NativeShaderRuntime {
         );
       const twoSurface =
         detachedCandidate ||
+        retainedLayerPublication ||
         (mount.instance.placement === "fill" && mount.isTopLayer)
           ? this.preparePresentationPair(mount, device)
           : null;
@@ -13212,6 +13372,8 @@ class NativeShaderRuntime {
         draft?.simulationFrame ?? mount.simulationFrame
       )?.transaction.markSubmitted();
       (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
+      for (const staged of nestedTransaction?.staged.values() ?? [])
+        staged.statefulFrame?.markSubmitted();
       if (gpuSample) {
         this.gpuProfiler?.afterSubmit(gpuSample);
         profileSubmitted = true;
@@ -13232,6 +13394,7 @@ class NativeShaderRuntime {
           `WebGPU rejected effect ${mount.instance.id}: ${gpuError.message}`,
         );
       }
+      gpuValidated = true;
       if (
         nestedTransaction &&
         (mount.provider.authoredSourceEpoch?.() !== nestedAuthoredEpoch ||
@@ -13305,6 +13468,21 @@ class NativeShaderRuntime {
           assertStatelessCurrent();
           assertTwoSurfacePublishable();
         });
+      for (const staged of nestedTransaction?.staged.values() ?? [])
+        if (staged.statefulFrame)
+          await staged.statefulFrame.settle(() => {
+            assertNestedChildren();
+            assertCaptureOriginCurrent();
+            assertStatelessCurrent();
+            assertTwoSurfacePublishable();
+            if (this.device !== device)
+              throw new NativeSourceError(
+                "stateful-frame-invalid",
+                "stateful-frame-invalid",
+              );
+          });
+      for (const staged of nestedTransaction?.staged.values() ?? [])
+        this.refreshAuthoredPaint(staged.mount);
       assertCaptureOriginCurrent();
       assertStatelessCurrent();
       assertTwoSurfacePublishable();
@@ -13352,11 +13530,7 @@ class NativeShaderRuntime {
           );
         }
       }
-      if (
-        simulationFrameResources &&
-        frameResources &&
-        mount.instance.placement !== "fill"
-      ) {
+      if (simulationFrameResources && frameResources && !twoSurface) {
         const staleResources = frameResources.retiredOnCommit();
         frameResources.commit();
         if (draft) draft.resources = frameResources.scratch;
@@ -13394,27 +13568,7 @@ class NativeShaderRuntime {
         );
       }
       if (statefulFrame) {
-        const stateful = (draft ? draft.stateful : mount.stateful)!;
-        statefulFrame.promote();
-        if (draft) draft.statefulFrame = null;
-        else mount.statefulFrame = null;
-        stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
-        stateful.pendingSourceRevision = null;
-        stateful.droppedSteps += stateful.pendingDroppedSteps;
-        stateful.pendingDroppedSteps = 0;
-        mount.target.setAttribute(
-          "data-an-native-stateful-dropped-steps",
-          String(stateful.droppedSteps),
-        );
-        const activeGraph = (draft?.definition ?? mount.definition)
-          .resourceGraph;
-        const fixedDt = isStatefulResourceGraph(activeGraph)
-          ? activeGraph.timing.fixedDt
-          : 0;
-        mount.target.setAttribute(
-          "data-an-native-stateful-dropped-seconds",
-          (stateful.droppedSteps * fixedDt).toFixed(3),
-        );
+        this.promoteStatefulFrame(mount, statefulFrame, draft);
       }
       const prior = mount.outputTexture;
       mount.outputTexture = finished;
@@ -13620,7 +13774,10 @@ class NativeShaderRuntime {
       );
       if (twoSurface) {
         const staleResources = frameResources!.retiredOnCommit();
-        if (mount.instance.placement === "fill")
+        if (
+          mount.instance.placement === "fill" ||
+          (retainedLayerPublication && !mount.suppressed)
+        )
           this.suppressOriginal(mount, true);
         commitPresentationProvenance();
         if (
@@ -13663,36 +13820,123 @@ class NativeShaderRuntime {
           nestedTransaction?.noncontributing ?? [],
         );
       }
-      for (const {
-        mount: child,
-        texture,
-      } of nestedTransaction?.staged.values() ?? []) {
+      for (const staged of nestedTransaction?.staged.values() ?? []) {
+        const {
+          mount: child,
+          texture,
+          resources,
+          statefulFrame: childStatefulFrame,
+        } = staged;
         const previous = child.outputTexture;
+        const previousOwnedByStateful =
+          !!previous && !!child.stateful?.textures.has(previous);
+        const previousOwnedByResources =
+          !!previous &&
+          !!resources &&
+          [...resources.committed.values()].includes(previous);
+        if (childStatefulFrame)
+          this.promoteStatefulFrame(child, childStatefulFrame);
+        staged.statefulFrame = undefined;
+        if (resources) {
+          const staleResources = resources.retiredOnCommit();
+          resources.commit();
+          staged.resources = undefined;
+          child.resourceTextures = resources.scratch;
+          for (const stale of staleResources)
+            if (!this.textureRetirement.includes(stale))
+              this.textureRetirement.push(stale);
+        }
         child.outputTexture = texture;
-        if (previous && previous !== texture) {
+        child.committedSourceEpoch = staged.sourceEpoch;
+        child.committedInstancePayload = staged.instancePayload;
+        child.committedDefinitionHash = staged.definitionHash;
+        child.committedLocalTime = staged.localTime;
+        child.committedInputEpochs = staged.inputEpochs;
+        child.pendingGraphInputEpochs = null;
+        if (
+          previous &&
+          previous !== texture &&
+          !previousOwnedByStateful &&
+          !previousOwnedByResources &&
+          !this.textureRetirement.includes(previous)
+        ) {
           for (const [name, resource] of child.resourceTextures)
             if (resource === previous) child.resourceTextures.delete(name);
           this.textureRetirement.push(previous);
         }
         child.frameCount += 1;
         this.activeMounts.add(child);
-        this.suppressOriginal(child);
+        this.suppressOriginal(child, true);
         child.target.setAttribute(
           "data-an-native-frames",
           String(child.frameCount),
         );
         complete.add(child.instance.id);
       }
+      const nestedCaughtUp = [
+        ...(nestedTransaction?.staged.values() ?? []),
+      ].every(({ mount: child }) => child.simulationCaughtUp);
+      const sceneCaughtUp =
+        (draft?.caughtUp ?? mount.simulationCaughtUp) && nestedCaughtUp;
+      if (nestedTransaction?.staged.size) {
+        mount.target.setAttribute(
+          "data-an-native-status",
+          sceneCaughtUp ? "ready" : "last-good",
+        );
+        if (sceneCaughtUp) {
+          mount.target.removeAttribute("data-an-native-error");
+          mount.target.removeAttribute("data-an-native-error-message");
+        } else {
+          mount.target.setAttribute(
+            "data-an-native-error",
+            "simulation-catching-up",
+          );
+          mount.target.setAttribute(
+            "data-an-native-error-message",
+            "Particle simulation is still catching up to the presentation clock.",
+          );
+        }
+      }
       active.delete(mount.instance.id);
       complete.add(mount.instance.id);
       try {
-        for (const { mount: child } of nestedTransaction?.staged.values() ?? [])
-          this.postStatus(child.instance.id, child.instance.nodeId, "ready");
+        for (const { mount: child } of nestedTransaction?.staged.values() ??
+          []) {
+          const caughtUp = child.simulationCaughtUp;
+          child.target.setAttribute(
+            "data-an-native-status",
+            caughtUp ? "ready" : "last-good",
+          );
+          if (caughtUp) {
+            child.target.removeAttribute("data-an-native-error");
+            child.target.removeAttribute("data-an-native-error-message");
+          } else {
+            child.target.setAttribute(
+              "data-an-native-error",
+              "simulation-catching-up",
+            );
+            child.target.setAttribute(
+              "data-an-native-error-message",
+              "Particle simulation is still catching up to the presentation clock.",
+            );
+          }
+          this.postStatus(
+            child.instance.id,
+            child.instance.nodeId,
+            caughtUp ? "ready" : "last-good",
+            caughtUp
+              ? undefined
+              : {
+                  code: "simulation-catching-up",
+                  message: "simulation-catching-up",
+                },
+          );
+        }
         this.postStatus(
           mount.instance.id,
           mount.instance.nodeId,
-          (draft?.caughtUp ?? mount.simulationCaughtUp) ? "ready" : "last-good",
-          (draft?.caughtUp ?? mount.simulationCaughtUp)
+          sceneCaughtUp ? "ready" : "last-good",
+          sceneCaughtUp
             ? undefined
             : {
                 code: "simulation-catching-up",
@@ -13708,6 +13952,23 @@ class NativeShaderRuntime {
     } catch (error) {
       mount.staticGeneratorPassCache.invalidate();
       if (mirrorCandidate) this.publishedPresentationMirror.discard();
+      for (const staged of nestedTransaction?.staged.values() ?? []) {
+        if (staged.statefulFrame) {
+          if (submitted && !gpuValidated)
+            await staged.statefulFrame.rejectSubmitted(error);
+          else staged.statefulFrame.abandon();
+          staged.statefulFrame = undefined;
+        }
+        staged.mount.statefulCandidate?.executor.dispose();
+        staged.mount.statefulCandidate = null;
+        staged.mount.pendingGraphInputEpochs = null;
+        if (staged.resources) {
+          for (const texture of staged.resources.rollback())
+            if (!this.textureRetirement.includes(texture))
+              this.textureRetirement.push(texture);
+          staged.resources = undefined;
+        }
+      }
       const simulationFrame = draft?.simulationFrame ?? mount.simulationFrame;
       let simulationCleanupFailure: unknown;
       if (simulationFrame) {
@@ -13790,16 +14051,24 @@ class NativeShaderRuntime {
       const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
       if (draft) draft.statefulFrame = null;
       else mount.statefulFrame = null;
-      const stateful = draft ? draft.stateful : mount.stateful;
+      const stateful =
+        (draft ? draft.statefulCandidate : mount.statefulCandidate) ??
+        (draft ? draft.stateful : mount.stateful);
       if (stateful) {
         stateful.pendingSourceRevision = null;
         stateful.pendingDroppedSteps = 0;
       }
       if (statefulFrame) {
-        if (submitted) await statefulFrame.rejectSubmitted(error);
+        if (submitted && !gpuValidated)
+          await statefulFrame.rejectSubmitted(error);
         else statefulFrame.abandon();
-        if (draft) this.releaseDraftResources(draft);
-        else this.releaseStateful(mount);
+      }
+      if (draft?.statefulCandidate) {
+        draft.statefulCandidate.executor.dispose();
+        draft.statefulCandidate = null;
+      } else if (mount.statefulCandidate) {
+        mount.statefulCandidate.executor.dispose();
+        mount.statefulCandidate = null;
       }
       const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
       if (draft) draft.feedbackFrame = null;
@@ -14766,6 +15035,8 @@ class NativeShaderRuntime {
     this.releaseDraftSimulation(draft);
     draft.statefulFrame?.abandon();
     draft.statefulFrame = null;
+    draft.statefulCandidate?.executor.dispose();
+    draft.statefulCandidate = null;
     draft.stateful?.executor.dispose();
     draft.stateful = null;
     for (const texture of draft.statefulResources.values())
@@ -15224,6 +15495,7 @@ class NativeShaderRuntime {
           ? new NativePointerHistory(request.time)
           : null,
       stateful: null,
+      statefulCandidate: null,
       statefulFrame: null,
       statefulResources: new Map(),
       feedback: null,

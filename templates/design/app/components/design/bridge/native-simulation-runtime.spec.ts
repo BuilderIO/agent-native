@@ -296,9 +296,21 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   const target = document.createElement("div");
   target.style.overflowX = "visible";
   target.style.overflowY = "visible";
+  target.style.boxShadow = "none";
+  target.style.outlineStyle = "none";
   const canvas = document.createElement("canvas");
   canvas.width = 128;
   canvas.height = 64;
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => {
+    let configuration: Record<string, unknown> | null = null;
+    return {
+      getConfiguration: () => configuration,
+      configure: (next: Record<string, unknown>) => {
+        configuration = next;
+      },
+      unconfigure() {},
+    } as unknown as GPUCanvasContext;
+  });
   target.append(canvas);
   document.body.append(target);
   let sourceEpoch = 0;
@@ -306,7 +318,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     instance,
     target,
     canvas,
-    context: {},
+    context: canvas.getContext("webgpu"),
     captureInsets: { top: 0, right: 0, bottom: 0, left: 0 },
     isTopLayer: true,
     suppressed: false,
@@ -1040,6 +1052,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     provider: fillProvider,
     authoredFillPaint: {},
     resourceTextures: new Map(),
+    presentationPair: null,
     simulation: null,
     simulationFrame: null,
     outputExtent: {
@@ -1648,6 +1661,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   const liveFrost = {
     ...frostMount,
     definition: staticFillDefinition,
+    definitionHash: await hashEffectDefinition(staticFillDefinition),
     provider: frostProvider,
     canvas: frostCanvas,
     width: 70,
@@ -1661,6 +1675,31 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       sourceHeight: 40,
     },
     resourceTextures: new Map(),
+    committedSourceEpoch: null as number | null,
+    committedInstancePayload: null as string | null,
+    committedDefinitionHash: null as string | null,
+    committedLocalTime: null as number | null,
+    committedInputEpochs: new Map(),
+    authoredInputs: new Map(),
+    pendingGraphInputEpochs: null as Map<
+      string,
+      { capture: unknown; sourceEpoch: number }
+    > | null,
+    stateful: null as {
+      executor: { dispose(): void };
+      textures: Set<object>;
+    } | null,
+    statefulCandidate: null as {
+      executor: { dispose(): void };
+      textures: Set<object>;
+    } | null,
+    statefulFrame: null as {
+      markSubmitted(): void;
+      settle(): Promise<void>;
+      promote(): void;
+      rejectSubmitted(error: unknown): Promise<void>;
+      abandon(): void;
+    } | null,
     frameCount: 0,
   };
   let secondFrost: typeof liveFrost | null = null;
@@ -1680,15 +1719,64 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     effectPasses(...args: unknown[]): Promise<object>;
   };
   const originalEffectPasses = nestedRuntime.effectPasses.bind(nestedRuntime);
+  let failChildBeforeRegistration = false;
+  let stageStatefulChild = false;
+  let partialChildFrame = false;
+  let childInputEpoch = 0;
+  const childInputCapture = {
+    nodeId: "guide-node",
+    capturedSourceEpoch: 0,
+    capturedAuthoredEpoch: 0,
+    provider: {
+      sourceEpoch: () => childInputEpoch,
+      authoredSourceEpoch: () => 0,
+    },
+    borrowedImages: null,
+    borrowed: null,
+  };
+  const abandonedChildFrame = vi.fn();
+  const disposedChildCandidate = vi.fn();
+  const submittedStatefulChild = vi.fn();
+  const settledStatefulChild = vi.fn(async () => {});
+  const promotedStatefulChild = vi.fn();
+  const rejectedStatefulChild = vi.fn(async () => {});
   const nestedEffectPasses = vi
     .spyOn(nestedRuntime, "effectPasses")
-    .mockImplementation(async (candidate: unknown, ...args: unknown[]) =>
-      candidate === liveFrost
+    .mockImplementation(async (candidate: unknown, ...args: unknown[]) => {
+      if (candidate === liveFrost && failChildBeforeRegistration) {
+        liveFrost.statefulCandidate = {
+          executor: { dispose: disposedChildCandidate },
+          textures: new Set(),
+        };
+        liveFrost.statefulFrame = {
+          markSubmitted: submittedStatefulChild,
+          settle: settledStatefulChild,
+          promote: promotedStatefulChild,
+          rejectSubmitted: rejectedStatefulChild,
+          abandon: abandonedChildFrame,
+        };
+        throw new Error("child-encode-failed-before-staging");
+      }
+      if (candidate === liveFrost && stageStatefulChild) {
+        liveFrost.simulationCaughtUp = !partialChildFrame;
+        liveFrost.authoredInputs.set("guide", childInputCapture);
+        liveFrost.pendingGraphInputEpochs = new Map([
+          ["guide", { capture: childInputCapture, sourceEpoch: 0 }],
+        ]);
+        liveFrost.statefulFrame = {
+          markSubmitted: submittedStatefulChild,
+          settle: settledStatefulChild,
+          promote: promotedStatefulChild,
+          rejectSubmitted: rejectedStatefulChild,
+          abandon: abandonedChildFrame,
+        };
+      }
+      return candidate === liveFrost
         ? frostSource
         : candidate === secondFrost
           ? secondSource
-          : originalEffectPasses(candidate, ...args),
-    );
+          : originalEffectPasses(candidate, ...args);
+    });
   const originalFinish = runtime.finish.bind(runtime);
   const nestedFinish = vi
     .spyOn(runtime, "finish")
@@ -1738,6 +1826,11 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
   expect(prefixFlags).toEqual([true]);
   expect(liveFrost.outputTexture).toBe(frostSource);
+  expect(liveFrost.committedInstancePayload).toBe(
+    JSON.stringify(liveFrost.instance),
+  );
+  expect(liveFrost.committedDefinitionHash).toBe(liveFrost.definitionHash);
+  expect(liveFrost.committedLocalTime).toBe(0);
   expect(staticFillMount.fillCommittedNativeChildren).toContain(
     liveFrost.instance.id,
   );
@@ -1747,6 +1840,12 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     ),
   ).toBe(true);
   const publishedFill = staticFillMount.outputTexture;
+  const publishedChildSession = {
+    executor: { dispose: vi.fn() },
+    textures: new Set<object>(),
+  };
+  liveFrost.stateful = publishedChildSession;
+  stageStatefulChild = true;
   let releasePrefixValidation!: () => void;
   const prefixValidation = new Promise<void>((resolve) => {
     releasePrefixValidation = resolve;
@@ -1771,15 +1870,75 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   await expect(stalePrefix).rejects.toMatchObject({
     code: "source-epoch-stale",
   });
-  expect(prefixFlags).toEqual([true, false]);
+  stageStatefulChild = false;
+  expect(submittedStatefulChild).toHaveBeenCalledOnce();
+  expect(settledStatefulChild).not.toHaveBeenCalled();
+  expect(promotedStatefulChild).not.toHaveBeenCalled();
+  expect(rejectedStatefulChild).not.toHaveBeenCalled();
+  expect(abandonedChildFrame).toHaveBeenCalledOnce();
+  expect(liveFrost.stateful).toBe(publishedChildSession);
+  expect(publishedChildSession.executor.dispose).not.toHaveBeenCalled();
+  expect(liveFrost.committedInstancePayload).toBe(
+    JSON.stringify(liveFrost.instance),
+  );
+  liveFrost.stateful = null;
+  abandonedChildFrame.mockClear();
+  stageStatefulChild = true;
+  let releaseChildInputValidation!: () => void;
+  const childInputValidation = new Promise<void>((resolve) => {
+    releaseChildInputValidation = resolve;
+  });
+  device.popErrorScope = async () => {
+    await childInputValidation;
+    return null;
+  };
+  const beforeChildInputSubmission = submittedFrames;
+  const staleChildInput = runtime.renderMount(
+    staticFillMount,
+    0,
+    true,
+    new Set(),
+    new Set(),
+  );
+  await vi.waitFor(() =>
+    expect(submittedFrames).toBe(beforeChildInputSubmission + 1),
+  );
+  childInputEpoch = 1;
+  releaseChildInputValidation();
+  await expect(staleChildInput).rejects.toMatchObject({
+    code: "input-authored-source-stale",
+  });
+  stageStatefulChild = false;
+  childInputEpoch = 0;
+  device.popErrorScope = popNestedValidation;
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  expect(staticFillMount.outputTexture).toBe(publishedFill);
+  expect(liveFrost.committedInputEpochs.size).toBe(0);
+  abandonedChildFrame.mockClear();
+  expect(prefixFlags).toEqual([true, false, false]);
   expect(staticFillMount.outputTexture).toBe(publishedFill);
   expect(liveFrost.outputTexture).toBe(frostSource);
   device.popErrorScope = popNestedValidation;
+  const publishedChildResources = liveFrost.resourceTextures;
+  const publishedChildState = liveFrost.stateful;
+  failChildBeforeRegistration = true;
+  await expect(
+    runtime.renderMount(staticFillMount, 0, true, new Set(), new Set()),
+  ).rejects.toThrow("child-encode-failed-before-staging");
+  failChildBeforeRegistration = false;
+  expect(abandonedChildFrame).toHaveBeenCalledOnce();
+  expect(disposedChildCandidate).toHaveBeenCalledOnce();
+  expect(liveFrost.resourceTextures).toBe(publishedChildResources);
+  expect(liveFrost.stateful).toBe(publishedChildState);
+  expect(liveFrost.statefulCandidate).toBeNull();
+  expect(liveFrost.statefulFrame).toBeNull();
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  expect(staticFillMount.outputTexture).toBe(publishedFill);
   fillEpoch = 0;
   fillTarget.removeAttribute("data-an-native-fill-instance");
   expect(staticFillMount.outputTexture).toBe(publishedFill);
   await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
-  expect(prefixFlags).toEqual([true, false, true]);
+  expect(prefixFlags).toEqual([true, false, false, false, true]);
   expect(fillTarget.getAttribute("data-an-native-fill-instance")).toBe(
     staticFillInstance.id,
   );
@@ -1836,6 +1995,41 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   ]);
   await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
   expect(nextFrost.outputTexture).toBe(secondSource);
+  runtime.mounts = new Map<string, object>([
+    [staticFillInstance.id, staticFillMount],
+    [liveFrost.instance.id, liveFrost],
+  ]);
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 110, y: 10, width: 70, height: 40 },
+      nativeInstanceId: liveFrost.instance.id,
+    },
+  ];
+  const partialSession = {
+    executor: { dispose: vi.fn() },
+    textures: new Set<object>(),
+    sourceRevision: "",
+    pendingSourceRevision: "source-step",
+    droppedSteps: 0,
+    pendingDroppedSteps: 0,
+  };
+  liveFrost.stateful = partialSession;
+  stageStatefulChild = true;
+  partialChildFrame = true;
+  await runtime.renderMount(staticFillMount, 10, false, new Set(), new Set());
+  expect(promotedStatefulChild).toHaveBeenCalled();
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  expect(liveFrost.target.getAttribute("data-an-native-status")).toBe(
+    "last-good",
+  );
+  expect(liveFrost.target.getAttribute("data-an-native-error")).toBe(
+    "simulation-catching-up",
+  );
+  expect(fillTarget.getAttribute("data-an-native-status")).toBe("last-good");
+  expect(fillTarget.getAttribute("data-an-native-error")).toBe(
+    "simulation-catching-up",
+  );
   childCanvasPresent.mockRestore();
   nestedCompose.mockRestore();
   nestedFinish.mockRestore();

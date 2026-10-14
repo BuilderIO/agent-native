@@ -355,7 +355,7 @@ function fakeGpu(
   releasePreviewRestore: () => void;
 } {
   p3Supported = !!options.p3Supported;
-  completeCanvasConfiguration = !!options.completeCanvasConfiguration;
+  completeCanvasConfiguration = options.completeCanvasConfiguration !== false;
   toneMappingStandard = options.toneMappingStandard;
   const state: FakeGpuState = {
     textures: [],
@@ -1976,6 +1976,8 @@ describe("atomic backdrop scene presentation", () => {
       }
     ).mounts;
     expect(mounts.get("nested-deep-effect")?.outputTexture).toBeFalsy();
+    expect(mounts.get("nested-inner-effect")?.outputTexture).toBeFalsy();
+    expect(mounts.get("nested-outer-effect")?.outputTexture).toBeFalsy();
     expect(gpu.state.submitted).toBe(submissionsBefore);
     expect(
       [inner, outer].map((element) =>
@@ -2899,7 +2901,7 @@ describe("atomic backdrop scene presentation", () => {
           !script.hasAttribute("data-an-native-authored-opacity"),
       ),
     ).toBe(true);
-    active.dispose();
+    await active.dispose();
     expect(target.hasAttribute("data-an-native-scene-suppressed")).toBe(false);
     expect(target.hasAttribute("data-an-native-authored-opacity")).toBe(false);
     expect(getComputedStyle(target).opacity).toBe("0.4");
@@ -3475,7 +3477,7 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
     expect(maximumInFlight).toBe(1);
   });
 
-  it("detaches a replaced graph texture before a refused allocation and retries without a destroyed cache entry", async () => {
+  it("retains the published graph texture through a refused replacement and retires it after retry", async () => {
     fakeGpu();
     const active = await startRuntime(true);
     active.pause();
@@ -3526,18 +3528,20 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
       .mockImplementation((width, height, format, usage, mipLevels) => {
         if (format === "rgba16float" && !mount.resourceTextures.has("color")) {
           refused = true;
-          expect(internals.textureBytes.has(previous)).toBe(false);
+          expect(internals.textureBytes.has(previous)).toBe(true);
           throw refusal;
         }
         return allocate(width, height, format, usage, mipLevels);
       });
     await active.scan();
+    expect(internals.textureBytes.has(previous)).toBe(true);
+    expect(mount.resourceTextures.get("color")).toBe(previous);
     await expect(active.renderAt(0)).rejects.toMatchObject({
       code: "native-render-incomplete",
     });
     expect(refused).toBe(true);
-    expect(mount.resourceTextures.has("color")).toBe(false);
-    expect(previous.destroy).toHaveBeenCalledOnce();
+    expect(mount.resourceTextures.get("color")).toBe(previous);
+    expect(previous.destroy).not.toHaveBeenCalled();
     allocation.mockRestore();
     await expect(active.renderAt(0)).resolves.toMatchObject({ failures: [] });
     const replacement = mount.resourceTextures.get("color");
@@ -4374,9 +4378,17 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
     expect(
       document.querySelector('[data-an-native-status="ready"]'),
     ).not.toBeNull();
-    const textureCount = state.textures.length;
+    const internals = active as unknown as {
+      textureBytes: Map<object, number>;
+    };
+    const liveTextureBytes = () =>
+      [...internals.textureBytes.values()].reduce(
+        (sum, bytes) => sum + bytes,
+        0,
+      );
+    const bytesBeforeScan = liveTextureBytes();
     await active.scan();
-    expect(state.textures.length).toBe(textureCount);
+    expect(liveTextureBytes()).toBe(bytesBeforeScan);
   });
   it("keeps an authored HDR request visible when the canvas falls back to SDR", async () => {
     fakeGpu({ toneMappingStandard: "observed" });
@@ -4394,7 +4406,7 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
     expect(active.colorCapability()).toMatchObject({
       requestedDynamicRange: "hdr",
       presentedDynamicRange: "sdr",
-      dynamicRangeReason: "float-canvas-unavailable",
+      dynamicRangeReason: "extended-tone-mapping-unavailable",
     });
     expect(
       document.documentElement.getAttribute(
@@ -4658,10 +4670,12 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
   it("holds the live native canvas and export density until a trusted vector consumer settles", async () => {
     const { state } = fakeGpu();
     const active = await startRuntime(true);
-    const canvas = document.querySelector<HTMLCanvasElement>(
-      "canvas[data-an-native-canvas]",
-    );
-    if (!canvas) throw new Error("Native presentation canvas was not mounted.");
+    const mount = (
+      active as unknown as {
+        mounts: Map<string, { canvas: HTMLCanvasElement }>;
+      }
+    ).mounts.get("test-instance");
+    if (!mount) throw new Error("Native presentation canvas was not mounted.");
     let entered!: () => void;
     let release!: () => void;
     const called = new Promise<void>((resolve) => {
@@ -4674,12 +4688,12 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
       { ...frame, pixelRatio: 2 },
       async (held) => {
         expect(held.document).toBe(document);
-        expect(held.runtimeCanvases).toEqual([canvas]);
+        expect(held.runtimeCanvases).toEqual([mount.canvas]);
         expect(held.pixels).toMatchObject({ width: 4, height: 4 });
         expect(held.viewport).toEqual({ width: 2, height: 2 });
         expect(held.pixelRatio).toBe(2);
         expect(held.signal.aborted).toBe(false);
-        expect(canvas.width).toBe(4);
+        expect(mount.canvas.width).toBe(4);
         entered();
         await hold;
         return "<svg/>";
@@ -4691,7 +4705,7 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
     });
     release();
     await expect(pending).resolves.toBe("<svg/>");
-    expect(canvas.width).toBe(2);
+    expect(mount.canvas.width).toBe(2);
     expect(state.copied).toBe(1);
   });
 
@@ -4722,13 +4736,27 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
   it("rejects an unready native presentation canvas instead of returning incomplete vector pixels", async () => {
     fakeGpu();
     const active = await startRuntime(true);
-    const canvas = document.querySelector("canvas[data-an-native-canvas]");
-    if (!canvas) throw new Error("Native presentation canvas was not mounted.");
-    Object.defineProperty(canvas, "isConnected", { value: false });
+    const mount = (
+      active as unknown as {
+        mounts: Map<string, { canvas: HTMLCanvasElement }>;
+      }
+    ).mounts.get("test-instance");
+    if (!mount) throw new Error("Native presentation canvas was not mounted.");
+    Object.defineProperty(mount.canvas, "isConnected", { value: false });
     const consume = vi.fn(async () => "<svg/>");
     await expect(
       active.renderCompositionVectorFrame(frame, consume),
-    ).rejects.toMatchObject({ code: "composition-instance-unready" });
+    ).rejects.toMatchObject({
+      code: "native-render-incomplete",
+      result: {
+        failures: [
+          expect.objectContaining({
+            code: "render-failed",
+            message: "presentation-front-disconnected",
+          }),
+        ],
+      },
+    });
     expect(consume).not.toHaveBeenCalled();
   });
 

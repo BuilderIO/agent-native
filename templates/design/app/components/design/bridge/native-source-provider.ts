@@ -795,34 +795,43 @@ function mediaPlacement(
   return { rect, uv };
 }
 
-function mediaHasSolidBackground(
-  element: HTMLElement,
-  suppliedStyle?: CSSStyleDeclaration,
-): boolean {
-  const style = suppliedStyle ?? getComputedStyle(element);
+function mediaBoxPaint(style: CSSStyleDeclaration): {
+  underlay: boolean;
+  overlay: boolean;
+} {
+  const borderImageSource = style.borderImageSource;
+  if (borderImageSource && borderImageSource !== "none") {
+    const outset = style.borderImageOutset?.trim().split(/\s+/) ?? [];
+    if (
+      outset.length === 0 ||
+      outset.length > 4 ||
+      outset.some((value) => !/^0+(?:\.0+)?(?:px)?$/.test(value))
+    )
+      throw new NativeSourceError(
+        "source-media-border-image-extent-unsupported",
+        "The authored media border image extends beyond the bounded paint capture.",
+      );
+  }
   const background = style.backgroundColor.replace(/\s+/g, "").toLowerCase();
   const transparent =
     background === "transparent" ||
     /^rgba\([^)]*,0(?:\.0+)?\)$/.test(background);
-  if (
-    style.backgroundImage !== "none" ||
-    style.boxShadow !== "none" ||
-    style.outlineStyle !== "none" ||
-    (!transparent &&
-      style.backgroundClip !== "border-box" &&
-      style.backgroundClip !== "padding-box") ||
+  const backgroundPaint = !transparent || style.backgroundImage !== "none";
+  const shadowPaint = style.boxShadow !== "none";
+  const borderPaint =
+    (!!borderImageSource && borderImageSource !== "none") ||
     [
       style.borderTopWidth,
       style.borderRightWidth,
       style.borderBottomWidth,
       style.borderLeftWidth,
-    ].some((width) => Number.parseFloat(width) > 0)
-  )
-    throw new NativeSourceError(
-      "source-media-own-paint-unsupported",
-      "Media background images, borders, outlines, shadows, and content-box background clips need a separate paint path.",
-    );
-  return !transparent;
+    ].some((width) => Number.parseFloat(width) > 0);
+  const outlinePaint =
+    style.outlineStyle !== "none" && style.outlineStyle !== "hidden";
+  return {
+    underlay: backgroundPaint || shadowPaint,
+    overlay: borderPaint || outlinePaint,
+  };
 }
 
 function sizeOf(element: HTMLElement | SVGSVGElement): {
@@ -1643,16 +1652,31 @@ function nativeBackdropReceiver(canvas: HTMLCanvasElement): HTMLElement {
   return sibling;
 }
 
-export function nativeTargetOverflowInsets(target: HTMLElement): {
+export function nativeTargetOverflowInsets(
+  target: HTMLElement,
+  includeOwnPaint = false,
+): {
   top: number;
   right: number;
   bottom: number;
   left: number;
 } {
-  const overflow = classifyNativeComputedOverflowClip(getComputedStyle(target));
+  const style = getComputedStyle(target);
+  const overflow = classifyNativeComputedOverflowClip(style);
   if (!overflow.ok)
     throw new NativeSourceError(`source-${overflow.reason}`, overflow.detail);
-  if (overflow.edge === "none") return { top: 0, right: 0, bottom: 0, left: 0 };
+  const paint = includeOwnPaint
+    ? readNativeCssPaintOutsets(style)
+    : {
+        kind: "ok" as const,
+        outsets: { top: 0, right: 0, bottom: 0, left: 0 },
+      };
+  if (paint.kind === "unreadable")
+    throw new NativeSourceError(
+      "source-paint-outset-unreadable",
+      `Cannot resolve computed ${paint.property} for source paint.`,
+    );
+  if (overflow.edge === "none") return paint.outsets;
   const clip = sourceClipPlan(
     target,
     target,
@@ -1669,10 +1693,10 @@ export function nativeTargetOverflowInsets(target: HTMLElement): {
   const width = target.offsetWidth;
   const height = target.offsetHeight;
   return {
-    top: Math.max(0, -clip.y),
-    right: Math.max(0, clip.x + clip.width - width),
-    bottom: Math.max(0, clip.y + clip.height - height),
-    left: Math.max(0, -clip.x),
+    top: Math.max(paint.outsets.top, -clip.y, 0),
+    right: Math.max(paint.outsets.right, clip.x + clip.width - width, 0),
+    bottom: Math.max(paint.outsets.bottom, clip.y + clip.height - height, 0),
+    left: Math.max(paint.outsets.left, -clip.x, 0),
   };
 }
 
@@ -2137,6 +2161,8 @@ type NativeOwnPaintPhase =
   | "outer-shadow"
   | "inset-shadow"
   | "outline"
+  | "media-underlay"
+  | "media-overlay"
   | "foreground"
   | "glyph";
 
@@ -2153,7 +2179,9 @@ function rasterOwnedStyleNodes(
     phase === "inner-coverage" ||
     phase === "outer-shadow" ||
     phase === "inset-shadow" ||
-    phase === "outline"
+    phase === "outline" ||
+    phase === "media-underlay" ||
+    phase === "media-overlay"
   )
     return [element];
   if (phase === "foreground" || phase === "glyph" || isSourceTextFlow(element))
@@ -2274,6 +2302,8 @@ function snapshotComputedStyle(element: Element): CSSStyleDeclaration {
     "background-image",
     "background-color",
     "background-clip",
+    "border-image-source",
+    "border-image-outset",
     "box-shadow",
     "outline-style",
     "mask-image",
@@ -2352,8 +2382,9 @@ function cloneOwnPaint(
     phase === "inner-coverage";
   const ownEffectPhase =
     phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline";
+  const mediaBoxPhase = phase === "media-underlay" || phase === "media-overlay";
   const clone =
-    boxPhase || ownEffectPhase
+    boxPhase || ownEffectPhase || mediaBoxPhase
       ? document.createElement("div")
       : (element.cloneNode(true) as HTMLElement);
   for (const node of [clone, ...clone.querySelectorAll<HTMLElement>("*")]) {
@@ -2372,7 +2403,7 @@ function cloneOwnPaint(
   if (fullTextFlow) preserveTextFlowStyles(element, clone);
   for (
     let index =
-      fullTextFlow || boxPhase || ownEffectPhase
+      fullTextFlow || boxPhase || ownEffectPhase || mediaBoxPhase
         ? -1
         : element.children.length - 1;
     index >= 0;
@@ -2494,6 +2525,22 @@ function cloneOwnPaint(
           )
           .join(", ") || "none";
       clone.style.outlineColor = "transparent";
+    }
+  }
+  if (mediaBoxPhase) {
+    const style = getComputedStyle(element);
+    for (const value of [style.backgroundImage, style.borderImageSource])
+      for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/g))
+        assertLocalAsset(match[1]);
+    if (phase === "media-underlay") {
+      clone.style.borderColor = "transparent";
+      clone.style.borderImageSource = "none";
+      clone.style.outlineColor = "transparent";
+      clone.style.outlineStyle = "none";
+    } else {
+      clone.style.backgroundColor = "transparent";
+      clone.style.backgroundImage = "none";
+      clone.style.boxShadow = "none";
     }
   }
   if (phase === "foreground" || phase === "glyph") {
@@ -2697,11 +2744,23 @@ function nativeOwnPaintCaptureBox(
   phase: NativeOwnPaintPhase,
   size: { width: number; height: number },
 ): NativeAffineBox {
-  if (phase !== "all" && phase !== "outer-shadow" && phase !== "outline")
+  if (
+    phase !== "all" &&
+    phase !== "outer-shadow" &&
+    phase !== "outline" &&
+    phase !== "media-underlay" &&
+    phase !== "media-overlay"
+  )
     return { x: 0, y: 0, ...size };
   const result = readNativeCssPaintOutsets(
     style,
-    phase === "all" ? "all" : phase,
+    phase === "all"
+      ? "all"
+      : phase === "media-underlay"
+        ? "outer-shadow"
+        : phase === "media-overlay"
+          ? "outline"
+          : phase,
   );
   if (result.kind === "unreadable")
     throw new NativeSourceError(
@@ -2715,6 +2774,115 @@ function nativeOwnPaintCaptureBox(
     width: size.width + left + right,
     height: size.height + top + bottom,
   };
+}
+
+async function inlineMediaPaintImages(
+  clone: HTMLElement,
+  phase: "media-underlay" | "media-overlay",
+  css: string,
+): Promise<void> {
+  if (!css || css === "none") return;
+  const tokens = [
+    ...css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi),
+  ];
+  if ((css.match(/url\(/gi) ?? []).length !== tokens.length)
+    throw new NativeSourceError(
+      "source-paint-image-url-unreadable",
+      "A CSS paint image URL could not be resolved for native capture.",
+    );
+  if (tokens.length > 8)
+    throw new NativeSourceError(
+      "source-paint-image-too-large",
+      "The CSS paint images exceed the bounded native capture size.",
+    );
+  let inlined = "";
+  let cursor = 0;
+  let embeddedLength = 0;
+  for (const token of tokens) {
+    const raw = (token[1] ?? token[2] ?? token[3] ?? "").trim();
+    if (!raw || raw.startsWith("#"))
+      throw new NativeSourceError(
+        "source-paint-image-url-unreadable",
+        "A CSS paint image URL could not be resolved for native capture.",
+      );
+    inlined += css.slice(cursor, token.index);
+    if (/^data:/i.test(raw)) {
+      inlined += token[0];
+    } else {
+      let sourceUrl: URL;
+      try {
+        assertLocalAsset(raw);
+        sourceUrl = new URL(raw, document.baseURI);
+      } catch (error) {
+        if (error instanceof NativeSourceError) throw error;
+        throw new NativeSourceError(
+          "source-paint-image-url-unreadable",
+          "A CSS paint image URL could not be resolved for native capture.",
+        );
+      }
+      const image = new Image();
+      image.src = sourceUrl.href;
+      try {
+        await image.decode();
+      } catch {
+        throw new NativeSourceError(
+          "source-paint-image-unavailable",
+          "The CSS paint image could not be decoded for native capture.",
+        );
+      }
+      const width = image.naturalWidth;
+      const height = image.naturalHeight;
+      if (
+        !Number.isSafeInteger(width) ||
+        !Number.isSafeInteger(height) ||
+        width <= 0 ||
+        height <= 0 ||
+        width > 4096 ||
+        height > 4096 ||
+        width * height > 8_388_608
+      )
+        throw new NativeSourceError(
+          "source-paint-image-too-large",
+          "The CSS paint image exceeds the bounded native capture size.",
+        );
+      const pixels = document.createElement("canvas");
+      pixels.width = width;
+      pixels.height = height;
+      const context = pixels.getContext("2d", { alpha: true });
+      if (!context)
+        throw new NativeSourceError(
+          "source-canvas-unavailable",
+          "A CSS paint image canvas is unavailable.",
+        );
+      let dataUrl: string;
+      try {
+        context.drawImage(image, 0, 0);
+        dataUrl = pixels.toDataURL("image/png");
+      } catch {
+        throw new NativeSourceError(
+          "source-paint-image-unreadable",
+          "The CSS paint image pixels could not be read for native capture.",
+        );
+      }
+      embeddedLength += dataUrl.length;
+      if (
+        !dataUrl.startsWith("data:image/png;base64,") ||
+        embeddedLength > 22_000_000
+      )
+        throw new NativeSourceError(
+          "source-paint-image-too-large",
+          "The CSS paint image exceeds the bounded native capture size.",
+        );
+      inlined += `url("${dataUrl}")`;
+    }
+    cursor = token.index + token[0].length;
+  }
+  const property =
+    phase === "media-underlay" ? "background-image" : "border-image-source";
+  clone.setAttribute(
+    "style",
+    `${clone.getAttribute("style") ?? ""};${property}:${inlined}${css.slice(cursor)}`,
+  );
 }
 
 async function rasterOwnPaint(
@@ -2771,6 +2939,19 @@ async function rasterOwnPaint(
       fillPaint,
       authoredTextPaint,
     );
+  if (phase === "media-underlay" || phase === "media-overlay") {
+    clone.style.display = "block";
+    clone.style.boxSizing = "border-box";
+    clone.style.width = `${size.width}px`;
+    clone.style.height = `${size.height}px`;
+    await inlineMediaPaintImages(
+      clone,
+      phase,
+      phase === "media-underlay"
+        ? style.backgroundImage
+        : style.borderImageSource,
+    );
+  }
   applyNativeCaptureOverflowClip(clone, overflow);
   const canvasText =
     phase !== "background" &&
@@ -2780,6 +2961,8 @@ async function rasterOwnPaint(
     phase !== "outer-shadow" &&
     phase !== "inset-shadow" &&
     phase !== "outline" &&
+    phase !== "media-underlay" &&
+    phase !== "media-overlay" &&
     (hasDirectText(element) ||
       isSourceTextFlow(element) ||
       phase === "foreground" ||
@@ -2902,51 +3085,6 @@ async function rasterOwnPaint(
       if (clipped) context.restore();
     }
   }
-}
-
-async function rasterMediaBackground(
-  element: HTMLElement,
-  canvas: HTMLCanvasElement,
-  density: number,
-): Promise<void> {
-  const size = sizeOf(element);
-  const width = Math.ceil(size.width * density);
-  const height = Math.ceil(size.height * density);
-  if (width > 4096 || height > 4096 || width * height > 8_388_608)
-    throw new NativeSourceError(
-      "source-too-large",
-      "A media background exceeds the bounded physical capture size.",
-    );
-  const style = getComputedStyle(element);
-  const radii = resolveNativeClipRadii({
-    width: size.width,
-    height: size.height,
-    cssPixelScale: 1,
-    topLeft: style.borderTopLeftRadius,
-    topRight: style.borderTopRightRadius,
-    bottomRight: style.borderBottomRightRadius,
-    bottomLeft: style.borderBottomLeftRadius,
-  });
-  if (!radii.ok)
-    throw new NativeSourceError("source-clip-unreadable", radii.detail);
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d", { alpha: true });
-  if (!context)
-    throw new NativeSourceError(
-      "source-canvas-unavailable",
-      "A 2D media background canvas is unavailable.",
-    );
-  context.save();
-  context.scale(width / size.width, height / size.height);
-  traceNativeRoundedBoxPath(
-    context,
-    { x: 0, y: 0, width: size.width, height: size.height },
-    radii.radii,
-  );
-  context.fillStyle = style.backgroundColor;
-  context.fill();
-  context.restore();
 }
 
 function motionOnlyStyleChange(before: string, after: string): boolean {
@@ -3369,10 +3507,16 @@ class SceneProvider implements NativeSceneProvider {
   private fillForegroundId = 0;
   private fillGlyphId = 0;
   private fillPaint: NativeFillBackgroundPaint | null = null;
-  private mediaBackgrounds = new Map<Element, CachedLeaf>();
+  private mediaPaintLeaves = new Map<
+    Element,
+    Partial<Record<"media-underlay" | "media-overlay", CachedLeaf>>
+  >();
+  private mediaPaintIds = new WeakMap<
+    Element,
+    Partial<Record<"media-underlay" | "media-overlay", number>>
+  >();
   private svgLeaves = new Map<SVGSVGElement, CachedLeaf<SVGSVGElement>>();
   private ids = new WeakMap<Element, number>();
-  private backgroundIds = new WeakMap<Element, number>();
   private nextId = 1;
   private assetRevision = 0;
   private sourceGeneration = 0;
@@ -3465,13 +3609,15 @@ class SceneProvider implements NativeSceneProvider {
           moved = true;
           continue;
         }
-        for (const cache of [
-          this.leaves,
-          this.mediaBackgrounds,
-          this.svgLeaves,
-        ])
+        for (const cache of [this.leaves, this.svgLeaves])
           for (const [element, leaf] of cache)
             if (record.target !== element && record.target.contains(element)) {
+              leaf.invalidate("ancestor-style");
+              changed = true;
+            }
+        for (const [element, phases] of this.mediaPaintLeaves)
+          if (record.target !== element && record.target.contains(element))
+            for (const leaf of Object.values(phases)) {
               leaf.invalidate("ancestor-style");
               changed = true;
             }
@@ -3603,7 +3749,8 @@ class SceneProvider implements NativeSceneProvider {
     for (const leaf of this.fillBoxLeaves.values()) leaf.invalidate(reason);
     this.fillForegroundLeaf?.invalidate(reason);
     this.fillGlyphLeaf?.invalidate(reason);
-    for (const leaf of this.mediaBackgrounds.values()) leaf.invalidate(reason);
+    for (const phases of this.mediaPaintLeaves.values())
+      for (const leaf of Object.values(phases)) leaf.invalidate(reason);
     for (const leaf of this.svgLeaves.values()) leaf.invalidate(reason);
     this.onDirty();
   }
@@ -3701,7 +3848,10 @@ class SceneProvider implements NativeSceneProvider {
         this.fillBoxLeaves.size +
         Number(!!this.fillForegroundLeaf) +
         Number(!!this.fillGlyphLeaf) +
-        this.mediaBackgrounds.size +
+        [...this.mediaPaintLeaves.values()].reduce(
+          (count, phases) => count + Object.values(phases).length,
+          0,
+        ) +
         this.svgLeaves.size,
       createdLeaves: this.createdLeaves,
       retiredLeaves: this.retiredLeaves,
@@ -3825,15 +3975,6 @@ class SceneProvider implements NativeSceneProvider {
     if (!id) {
       id = this.nextId++;
       this.ids.set(element, id);
-    }
-    return id;
-  }
-
-  private backgroundId(element: Element): number {
-    let id = this.backgroundIds.get(element);
-    if (!id) {
-      id = this.nextId++;
-      this.backgroundIds.set(element, id);
     }
     return id;
   }
@@ -3972,48 +4113,188 @@ class SceneProvider implements NativeSceneProvider {
     );
   }
 
-  private recordMediaBackground(
+  private recordMediaBoxPaint(
     element: HTMLElement,
-    common: Omit<
-      NativeSourceRecord,
-      "kind" | "source" | "nativeInstanceId" | "width" | "height" | "revision"
-    >,
-    ancestorClip: NativeSourceRecord["clip"],
+    phase: "media-underlay" | "media-overlay",
     out: NativeSourceRecord[],
     metrics?: NativeSourceReadSceneMetrics,
     memo?: SourceGeometryMemo,
+    allowVisibleTargetOverflow = false,
   ): void | Promise<void> {
-    let leaf = this.mediaBackgrounds.get(element);
+    const style = getComputedStyle(element);
+    const size = sourceLayoutSize(
+      element,
+      this.target,
+      this.coordinateSpace,
+      memo,
+    );
+    const ownBox = nativeOwnPaintCaptureBox(style, phase, size);
+    const geometry = relativeAffine(
+      element,
+      this.target,
+      this.coordinateSpace,
+      ownBox,
+      getComputedStyle,
+      size,
+      memo,
+    );
+    const sourceClip = sourceClipPlan(
+      element,
+      this.target,
+      this.coordinateSpace,
+      false,
+      null,
+      0,
+      "content",
+      getComputedStyle,
+      memo,
+      allowVisibleTargetOverflow,
+      geometry.rect,
+      element === this.target,
+    );
+    if (
+      intersect(geometry.rect, sourceClip.clip).width <= 0 ||
+      intersect(geometry.rect, sourceClip.clip).height <= 0
+    )
+      return;
+    const isolationPath = this.isolationPath(
+      element,
+      sourceClip.groupClips,
+      false,
+    );
+    if (!isolationPath) return;
+    let phases = this.mediaPaintLeaves.get(element);
+    if (!phases) {
+      phases = {};
+      this.mediaPaintLeaves.set(element, phases);
+    }
+    let ids = this.mediaPaintIds.get(element);
+    if (!ids) {
+      ids = {};
+      this.mediaPaintIds.set(element, ids);
+    }
+    let key = ids[phase];
+    if (!key) {
+      key = this.nextId++;
+      ids[phase] = key;
+    }
+    let leaf = phases[phase];
     if (!leaf) {
-      const key = this.backgroundId(element);
-      this.trackLeaf(element, key, "media-background");
+      this.trackLeaf(
+        element,
+        key,
+        phase === "media-underlay" ? "media-background" : "own-paint",
+      );
       leaf = new CachedLeaf(
         element,
         () => this.recordLeafCapture(key),
         () => this.density,
-        rasterMediaBackground,
+        (node, canvas, density) => rasterOwnPaint(node, canvas, density, phase),
         this.onDirty,
         (reason) => this.recordLeafInvalidation(key, reason),
         (observation) => this.recordLeafObservedAttribute(key, observation),
       );
-      this.mediaBackgrounds.set(element, leaf);
+      phases[phase] = leaf;
     }
+    const overflow = classifyNativeComputedOverflowClip(style);
+    if (!overflow.ok)
+      throw new NativeSourceError(`source-${overflow.reason}`, overflow.detail);
+    const ownClip =
+      overflow.edge === "none"
+        ? { x: 0, y: 0, ...size }
+        : sourceClipPlan(
+            element,
+            element,
+            "target-local",
+            false,
+            overflow.edge,
+            overflow.outset,
+          ).groupClips[0]?.clip.localBox;
+    if (!ownClip)
+      throw new NativeSourceError(
+        "source-clip-unreadable",
+        "The media paint capture clip has no local geometry.",
+      );
+    const expectedCapture = planNativeCaptureRoi({
+      ownBox,
+      clipBox: ownClip,
+      density: this.density,
+      maxDimension: 4096,
+      maxPixels: 8_388_608,
+    });
+    if (!expectedCapture.ok)
+      throw new NativeSourceError(
+        `source-${expectedCapture.reason}`,
+        "The current media paint geometry cannot be represented.",
+      );
     return afterMaybePromise(
-      this.readSceneLeaf(leaf, metrics, "background", memo),
+      this.readSceneLeaf(leaf, metrics, phase, memo),
       (source) => {
+        const capture = nativeCaptureRoi(source);
+        const expanded =
+          ownBox.x < 0 ||
+          ownBox.y < 0 ||
+          ownBox.width > size.width ||
+          ownBox.height > size.height;
+        if (!capture && (expanded || overflow.outset > 0))
+          throw new NativeSourceError(
+            "source-capture-geometry-missing",
+            "The media paint raster has no committed source origin.",
+          );
+        assertCurrentCaptureRoi(
+          capture,
+          expectedCapture.plan,
+          expanded || overflow.outset > 0,
+        );
+        const capturedBox = capture?.cssBox ?? ownBox;
+        const captured = relativeAffine(
+          element,
+          this.target,
+          this.coordinateSpace,
+          capturedBox,
+          getComputedStyle,
+          size,
+          memo,
+        );
         out.push({
-          ...common,
-          key: this.backgroundId(element),
+          key,
+          node: element,
+          coordinateSpace: this.coordinateSpace,
           kind: "dom",
           source,
           width: source.width,
           height: source.height,
           revision: leaf.revision,
-          clip: ancestorClip,
+          rect: captured.rect,
+          localBox: capturedBox,
+          localToTarget: captured.localToTarget,
+          clip: sourceClip.clip,
           clips: [],
+          groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+            id: `clip:${this.id(node)}`,
+            clip,
+          })),
+          isolationPath,
+          opacity: 1,
         });
       },
     );
+  }
+
+  private retireMediaBoxPaint(
+    element: HTMLElement,
+    phase: "media-underlay" | "media-overlay",
+  ): void {
+    const phases = this.mediaPaintLeaves.get(element);
+    const leaf = phases?.[phase];
+    if (!leaf) return;
+    leaf.dispose();
+    delete phases[phase];
+    const ids = this.mediaPaintIds.get(element);
+    if (ids) delete ids[phase];
+    this.retiredLeaves += 1;
+    if (Object.values(phases).length === 0)
+      this.mediaPaintLeaves.delete(element);
   }
 
   private isolationPath(
@@ -4601,13 +4882,15 @@ class SceneProvider implements NativeSceneProvider {
     );
     const contentVisible =
       sourceClip.clip.width > 0 && sourceClip.clip.height > 0;
-    const hasMediaBackground = media && mediaHasSolidBackground(element, style);
-    const backgroundBounds = intersect(box, sourceClip.ancestorClip);
-    const backgroundVisible =
-      hasMediaBackground &&
-      backgroundBounds.width > 0 &&
-      backgroundBounds.height > 0;
-    if (!contentVisible && !backgroundVisible) return;
+    const mediaPaint = media ? mediaBoxPaint(style) : null;
+    if (mediaPaint) {
+      if (!mediaPaint.underlay)
+        this.retireMediaBoxPaint(element, "media-underlay");
+      if (!mediaPaint.overlay)
+        this.retireMediaBoxPaint(element, "media-overlay");
+    }
+    if (!contentVisible && !mediaPaint?.underlay && !mediaPaint?.overlay)
+      return;
     const isolationPath = this.isolationPath(
       element,
       sourceClip.groupClips,
@@ -4639,16 +4922,38 @@ class SceneProvider implements NativeSceneProvider {
       isolationPath,
       opacity: 1,
     };
-    if (!contentVisible && backgroundVisible) {
+    const recordMediaPaint = (
+      appendContent: () => void,
+    ): void | Promise<void> => {
+      const appendContentAndOverlay = (): void | Promise<void> => {
+        if (contentVisible) appendContent();
+        if (mediaPaint?.overlay)
+          return this.recordMediaBoxPaint(
+            element,
+            "media-overlay",
+            out,
+            metrics,
+            memo,
+            allowVisibleTargetOverflow,
+          );
+      };
+      if (mediaPaint?.underlay)
+        return afterMaybePromise(
+          this.recordMediaBoxPaint(
+            element,
+            "media-underlay",
+            out,
+            metrics,
+            memo,
+            allowVisibleTargetOverflow,
+          ),
+          appendContentAndOverlay,
+        );
+      return appendContentAndOverlay();
+    };
+    if (media && !contentVisible) {
       recordStyles.clear();
-      return this.recordMediaBackground(
-        element,
-        common,
-        sourceClip.ancestorClip,
-        out,
-        metrics,
-        memo,
-      );
+      return recordMediaPaint(() => undefined);
     }
     const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
     if (element instanceof HTMLImageElement) {
@@ -4694,22 +4999,8 @@ class SceneProvider implements NativeSceneProvider {
           revision: this.assetRevision,
         });
       };
-      if (hasMediaBackground) {
-        recordStyles.clear();
-        return afterMaybePromise(
-          this.recordMediaBackground(
-            element,
-            common,
-            sourceClip.ancestorClip,
-            out,
-            metrics,
-            memo,
-          ),
-          appendImage,
-        );
-      }
-      appendImage();
-      return;
+      recordStyles.clear();
+      return recordMediaPaint(appendImage);
     }
     if (element instanceof HTMLVideoElement) {
       assertLocalAsset(element.currentSrc || element.src);
@@ -4756,22 +5047,8 @@ class SceneProvider implements NativeSceneProvider {
           revision: ++this.assetRevision,
         });
       };
-      if (hasMediaBackground) {
-        recordStyles.clear();
-        return afterMaybePromise(
-          this.recordMediaBackground(
-            element,
-            common,
-            sourceClip.ancestorClip,
-            out,
-            metrics,
-            memo,
-          ),
-          appendVideo,
-        );
-      }
-      appendVideo();
-      return;
+      recordStyles.clear();
+      return recordMediaPaint(appendVideo);
     }
     if (element instanceof HTMLCanvasElement) {
       if (nativeInstanceId) {
@@ -4826,21 +5103,8 @@ class SceneProvider implements NativeSceneProvider {
             revision: ++this.assetRevision,
           });
         };
-        if (hasMediaBackground) {
-          recordStyles.clear();
-          return afterMaybePromise(
-            this.recordMediaBackground(
-              element,
-              common,
-              sourceClip.ancestorClip,
-              out,
-              metrics,
-              memo,
-            ),
-            appendCanvas,
-          );
-        }
-        appendCanvas();
+        recordStyles.clear();
+        return recordMediaPaint(appendCanvas);
       }
       return;
     }
@@ -5822,13 +6086,15 @@ class SceneProvider implements NativeSceneProvider {
           this.retiredLeaves += 1;
         }
       }
-      for (const [element, leaf] of this.mediaBackgrounds) {
+      for (const [element, phases] of this.mediaPaintLeaves)
         if (!live.has(element)) {
-          leaf.dispose();
-          this.mediaBackgrounds.delete(element);
-          this.retiredLeaves += 1;
+          for (const leaf of Object.values(phases)) {
+            leaf.dispose();
+            this.retiredLeaves += 1;
+          }
+          this.mediaPaintLeaves.delete(element);
+          this.mediaPaintIds.delete(element);
         }
-      }
       for (const [element, leaf] of this.svgLeaves) {
         if (!live.has(element)) {
           leaf.dispose();
@@ -5948,8 +6214,10 @@ class SceneProvider implements NativeSceneProvider {
     this.fillForegroundLeaf = null;
     this.fillGlyphLeaf?.dispose();
     this.fillGlyphLeaf = null;
-    for (const leaf of this.mediaBackgrounds.values()) leaf.dispose();
-    this.mediaBackgrounds.clear();
+    for (const phases of this.mediaPaintLeaves.values())
+      for (const leaf of Object.values(phases)) leaf.dispose();
+    this.mediaPaintLeaves.clear();
+    this.mediaPaintIds = new WeakMap();
     for (const leaf of this.svgLeaves.values()) leaf.dispose();
     this.svgLeaves.clear();
     if (this.viewportBackgroundCanvas) {

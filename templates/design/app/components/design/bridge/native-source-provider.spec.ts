@@ -119,6 +119,8 @@ describe("native raster style snapshots", () => {
       await expect(provider!.readScene()).resolves.toEqual([]);
       expect(item).not.toHaveBeenCalled();
       expect(getPropertyValue.mock.calls.map(([name]) => name)).toEqual([
+        "border-image-source",
+        "border-image-outset",
         "overflow-clip-margin",
         "-webkit-mask-image",
         "mask-border-source",
@@ -671,6 +673,345 @@ describe("expanded HTML capture clip", () => {
       code: "source-paint-outset-unreadable",
     });
   });
+});
+
+describe("decorated authored media", () => {
+  it("keeps intrinsic image sampling between expanded box underlay and border/outline overlay", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    } as typeof ResizeObserver;
+    const target = document.createElement("div");
+    const media = document.createElement("img");
+    media.src = "/shaders/source.png";
+    media.style.cssText =
+      "position:absolute;left:80px;top:10px;width:80px;height:60px;object-fit:contain;overflow:hidden";
+    target.append(media);
+    document.body.append(target);
+    for (const [element, x, y, width, height] of [
+      [target, 0, 0, 140, 100],
+      [media, 80, 10, 80, 60],
+    ] as const) {
+      Object.defineProperties(element, {
+        offsetLeft: { configurable: true, value: x },
+        offsetTop: { configurable: true, value: y },
+        offsetWidth: { configurable: true, value: width },
+        offsetHeight: { configurable: true, value: height },
+      });
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(x, y, width, height),
+      );
+    }
+    Object.defineProperties(media, {
+      complete: { configurable: true, value: true },
+      naturalWidth: { configurable: true, value: 100 },
+      naturalHeight: { configurable: true, value: 100 },
+    });
+    let backgroundImage = "none";
+    let borderImageSource = "none";
+    let borderImageOutset = "0";
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        new Proxy(computed(element), {
+          get(style, property) {
+            if (property === "display") return "block";
+            if (property === "visibility") return "visible";
+            if (property === "opacity") return "1";
+            if (property === "mixBlendMode") return "normal";
+            if (property === "filter" || property === "backdropFilter")
+              return "none";
+            if (property === "maskImage" || property === "clipPath")
+              return "none";
+            if (property === "overflowX" || property === "overflowY")
+              return element === media || target.style.overflow === "hidden"
+                ? "hidden"
+                : "visible";
+            if (property === "backgroundImage")
+              return element === media ? backgroundImage : "none";
+            if (property === "backgroundColor")
+              return element === media
+                ? media.style.backgroundColor || "rgb(12, 24, 36)"
+                : "rgba(0, 0, 0, 0)";
+            if (property === "borderImageSource")
+              return element === media ? borderImageSource : "none";
+            if (property === "borderImageOutset")
+              return element === media ? borderImageOutset : "0";
+            if (property === "backgroundClip") return "content-box";
+            if (property === "boxShadow")
+              return element === media
+                ? media.style.boxShadow || "none"
+                : "none";
+            if (property === "outlineStyle")
+              return element === media && !!media.style.outlineStyle
+                ? media.style.outlineStyle
+                : "none";
+            if (property === "outlineWidth")
+              return element === media
+                ? media.style.outlineWidth || "0px"
+                : "0px";
+            if (property === "outlineOffset")
+              return element === media
+                ? media.style.outlineOffset || "0px"
+                : "0px";
+            if (
+              typeof property === "string" &&
+              /^(border(Top|Right|Bottom|Left)Width|border.*Radius|padding(Top|Right|Bottom|Left))$/.test(
+                property,
+              )
+            )
+              return element === media && property.endsWith("Width")
+                ? /^(?:\d|\.)/.test(media.style.borderTopWidth)
+                  ? media.style.borderTopWidth
+                  : "0px"
+                : "0px";
+            const value = Reflect.get(style, property, style);
+            return typeof value === "function" ? value.bind(style) : value;
+          },
+        }),
+    );
+    const captures: string[] = [];
+    const drawnImages: string[] = [];
+    class CapturedImage {
+      naturalWidth = 4;
+      naturalHeight = 4;
+      currentSrc = "";
+      set src(value: string) {
+        this.currentSrc = value;
+        captures.push(decodeURIComponent(value));
+      }
+      async decode() {}
+    }
+    vi.stubGlobal("Image", CapturedImage);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect() {},
+      drawImage(image: CapturedImage) {
+        drawnImages.push(image.currentSrc);
+      },
+    } as unknown as CanvasRenderingContext2D);
+    const encodedPaint = "data:image/png;base64,cGFpbnQ=";
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      encodedPaint,
+    );
+    const provider = createNativeSceneProvider(target, "layer");
+    expect(provider).not.toBeNull();
+    try {
+      media.style.border = "2px solid rgb(0, 0, 0)";
+      await mutationTurn();
+      const plain = (await provider!.readScene()).find(
+        (record) => record.node === media && record.kind === "image",
+      );
+      media.style.boxShadow = "rgb(0, 0, 0) 12px 0px 0px 0px";
+      media.style.outline = "3px solid rgb(0, 0, 0)";
+      media.style.outlineOffset = "2px";
+      await mutationTurn();
+      const records = (await provider!.readScene()).filter(
+        (record) => record.node === media,
+      );
+      expect(records.map((record) => record.kind)).toEqual([
+        "dom",
+        "image",
+        "dom",
+      ]);
+      expect(records[1]).toMatchObject({
+        source: media,
+        uv: plain?.uv,
+        rect: plain?.rect,
+      });
+      expect(records[0]!.localBox.x).toBe(0);
+      expect(records[0]!.localBox.width).toBeGreaterThan(80);
+      expect(records[2]!.localBox.x).toBeLessThan(0);
+      expect(records[0]!.key).not.toBe(records[2]!.key);
+      expect(captures.length).toBeGreaterThanOrEqual(4);
+      expect(
+        captures.slice(-2).every((capture) => !capture.includes("<img")),
+      ).toBe(true);
+      expect(
+        captures
+          .slice(-2)
+          .every((capture) => capture.includes("box-sizing: border-box")),
+      ).toBe(true);
+      expect(nativeTargetOverflowInsets(media, true)).toEqual({
+        top: 5,
+        right: 14,
+        bottom: 5,
+        left: 5,
+      });
+      target.style.overflow = "hidden";
+      const clipped = (await provider!.readScene()).filter(
+        (record) => record.node === media,
+      );
+      expect(clipped[0]!.rect.width).toBe(records[0]!.rect.width);
+      expect(clipped[0]!.clip.width).toBe(140);
+
+      media.style.border = "none";
+      media.style.outline = "none";
+      await mutationTurn();
+      const withoutOverlay = (await provider!.readScene()).filter(
+        (record) => record.node === media,
+      );
+      expect(withoutOverlay.map((record) => record.kind)).toEqual([
+        "dom",
+        "image",
+      ]);
+      media.style.border = "2px solid rgb(24, 0, 0)";
+      media.style.outline = "3px solid rgb(24, 0, 0)";
+      await mutationTurn();
+      const restoredOverlay = (await provider!.readScene()).filter(
+        (record) => record.node === media,
+      );
+      expect(restoredOverlay.map((record) => record.kind)).toEqual([
+        "dom",
+        "image",
+        "dom",
+      ]);
+      expect(restoredOverlay[2]!.key).not.toBe(records[2]!.key);
+
+      media.style.backgroundColor = "transparent";
+      media.style.boxShadow = "none";
+      await mutationTurn();
+      const withoutUnderlay = (await provider!.readScene()).filter(
+        (record) => record.node === media,
+      );
+      expect(withoutUnderlay.map((record) => record.kind)).toEqual([
+        "image",
+        "dom",
+      ]);
+      media.style.boxShadow = "rgb(24, 0, 0) 12px 0px 0px 0px";
+      await mutationTurn();
+      const restoredUnderlay = (await provider!.readScene()).filter(
+        (record) => record.node === media,
+      );
+      expect(restoredUnderlay[0]!.key).not.toBe(records[0]!.key);
+
+      borderImageSource = 'url("/shaders/border.png")';
+      borderImageOutset = "2px";
+      await expect(provider!.readScene()).rejects.toMatchObject({
+        code: "source-media-border-image-extent-unsupported",
+      });
+      borderImageOutset = "0";
+      media.style.borderLeftColor = "rgb(28, 0, 0)";
+      await mutationTurn();
+      expect(
+        (await provider!.readScene())
+          .filter((record) => record.node === media)
+          .map((record) => record.kind),
+      ).toEqual(["dom", "image", "dom"]);
+      expect(drawnImages).toContain("http://localhost:3000/shaders/border.png");
+      expect(captures[captures.length - 1]).toContain(encodedPaint);
+
+      backgroundImage = 'url("/shaders/paper.png")';
+      media.style.backgroundColor = "rgb(1, 2, 3)";
+      await mutationTurn();
+      await provider!.readScene();
+      expect(drawnImages).toContain("http://localhost:3000/shaders/paper.png");
+    } finally {
+      provider?.dispose();
+    }
+  });
+
+  it.each(["video", "canvas"] as const)(
+    "keeps %s source pixels between independent box-paint records",
+    async (tag) => {
+      globalThis.ResizeObserver = class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      } as typeof ResizeObserver;
+      const target = document.createElement("div");
+      const media = document.createElement(tag);
+      if (media instanceof HTMLVideoElement) {
+        media.src = "/shaders/scene.mp4";
+        Object.defineProperties(media, {
+          videoWidth: { configurable: true, value: 80 },
+          videoHeight: { configurable: true, value: 60 },
+          readyState: {
+            configurable: true,
+            value: HTMLMediaElement.HAVE_CURRENT_DATA,
+          },
+        });
+      } else {
+        media.width = 80;
+        media.height = 60;
+      }
+      target.append(media);
+      document.body.append(target);
+      for (const element of [target, media]) {
+        Object.defineProperties(element, {
+          offsetWidth: { configurable: true, value: 80 },
+          offsetHeight: { configurable: true, value: 60 },
+        });
+        vi.spyOn(element, "getBoundingClientRect").mockReturnValue(
+          new DOMRect(0, 0, 80, 60),
+        );
+      }
+      vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
+        computedStyleSnapshot({
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          position: "static",
+          transform: "none",
+          transformOrigin: "0px 0px",
+          translate: "none",
+          rotate: "none",
+          scale: "none",
+          perspective: "none",
+          transformStyle: "flat",
+          isolation: "auto",
+          zIndex: "auto",
+          order: "0",
+          mixBlendMode: "normal",
+          filter: "none",
+          backdropFilter: "none",
+          backgroundImage: "none",
+          backgroundColor:
+            element === media ? "rgb(12, 24, 36)" : "rgba(0, 0, 0, 0)",
+          backgroundClip: "content-box",
+          boxShadow: "none",
+          outlineStyle: "none",
+          clipPath: "none",
+          maskImage: "none",
+          overflowX: "visible",
+          overflowY: "visible",
+          imageRendering: "auto",
+          objectFit: "fill",
+          objectPosition: "50% 50%",
+          borderTopWidth: element === media ? "2px" : "0px",
+          borderRightWidth: element === media ? "2px" : "0px",
+          borderBottomWidth: element === media ? "2px" : "0px",
+          borderLeftWidth: element === media ? "2px" : "0px",
+          borderTopLeftRadius: "0px",
+          borderTopRightRadius: "0px",
+          borderBottomRightRadius: "0px",
+          borderBottomLeftRadius: "0px",
+          paddingTop: "0px",
+          paddingRight: "0px",
+          paddingBottom: "0px",
+          paddingLeft: "0px",
+        }),
+      );
+      vi.spyOn(CachedLeaf.prototype, "read").mockResolvedValue(
+        document.createElement("canvas"),
+      );
+      const provider = createNativeSceneProvider(target, "layer");
+      try {
+        const records = (await provider!.readScene()).filter(
+          (record) => record.node === media,
+        );
+        expect(records.map((record) => record.kind)).toEqual([
+          "dom",
+          tag,
+          "dom",
+        ]);
+        expect(records[1]!.source).toBe(media);
+        expect(records[0]!.key).not.toBe(records[2]!.key);
+      } finally {
+        provider?.dispose();
+      }
+    },
+  );
 });
 
 describe("native presentation visibility", () => {

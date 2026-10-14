@@ -4265,6 +4265,20 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
         pairMount as typeof pairMount & { stateful: object }
       ).stateful;
       expect(defaultEnumState).toBeTruthy();
+      const retainedResetOutput = pairMount.outputTexture;
+      pairMount.instance = {
+        ...publishedStatefulInstance,
+        params: { amount: 0.5, detect: "dark" },
+      };
+      nextValidationError = "candidate reset rejected";
+      expect((await internal.renderInternal(0, true)).failures).toEqual([
+        expect.objectContaining({ code: "gpu-validation" }),
+      ]);
+      expect(pairMount.outputTexture).toBe(retainedResetOutput);
+      expect(
+        (pairMount as typeof pairMount & { stateful: object }).stateful,
+      ).toBe(defaultEnumState);
+      pairMount.instance = publishedStatefulInstance;
       manifest.textContent = JSON.stringify({
         schemaVersion: 2,
         definitions: [publishedStatefulDefinition],
@@ -4971,9 +4985,11 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           params: { rayCount: 31 },
         };
         await drawFrame();
+        const changedOutput = staticFill.resourceTextures.get("color")!;
+        expect(changedOutput).not.toBe(passOutput);
         expect(
-          rendered.filter((textureId) => textureId === passOutput.id),
-        ).toHaveLength(firstPassDraws + 1);
+          rendered.filter((textureId) => textureId === changedOutput.id),
+        ).toHaveLength(1);
         staticFill.instance = {
           ...staticFill.instance,
           params: { rayCount: 32 },
@@ -4982,13 +4998,13 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
         await expect(drawFrame()).rejects.toMatchObject({
           code: "gpu-validation",
         });
-        const drawsAfterFailure = rendered.filter(
-          (textureId) => textureId === passOutput.id,
-        ).length;
+        expect(staticFill.resourceTextures.get("color")).toBe(changedOutput);
         await drawFrame();
+        const retriedOutput = staticFill.resourceTextures.get("color")!;
+        expect(retriedOutput).not.toBe(changedOutput);
         expect(
-          rendered.filter((textureId) => textureId === passOutput.id),
-        ).toHaveLength(drawsAfterFailure + 1);
+          rendered.filter((textureId) => textureId === retriedOutput.id),
+        ).toHaveLength(1);
       } finally {
         staticFillProbe.activeMounts.delete(staticFill);
         staticFillProbe.mounts.delete(staticFillInstance.id);

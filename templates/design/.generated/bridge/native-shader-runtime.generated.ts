@@ -8401,21 +8401,31 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     uv.height = rect.height / height;
     return { rect, uv };
   }
-  function mediaHasSolidBackground(element, suppliedStyle) {
-    const style = suppliedStyle ?? getComputedStyle(element);
+  function mediaBoxPaint(style) {
+    const borderImageSource = style.borderImageSource;
+    if (borderImageSource && borderImageSource !== "none") {
+      const outset = style.borderImageOutset?.trim().split(/\\s+/) ?? [];
+      if (outset.length === 0 || outset.length > 4 || outset.some((value) => !/^0+(?:\\.0+)?(?:px)?$/.test(value)))
+        throw new NativeSourceError(
+          "source-media-border-image-extent-unsupported",
+          "The authored media border image extends beyond the bounded paint capture."
+        );
+    }
     const background = style.backgroundColor.replace(/\\s+/g, "").toLowerCase();
     const transparent = background === "transparent" || /^rgba\\([^)]*,0(?:\\.0+)?\\)$/.test(background);
-    if (style.backgroundImage !== "none" || style.boxShadow !== "none" || style.outlineStyle !== "none" || !transparent && style.backgroundClip !== "border-box" && style.backgroundClip !== "padding-box" || [
+    const backgroundPaint = !transparent || style.backgroundImage !== "none";
+    const shadowPaint = style.boxShadow !== "none";
+    const borderPaint = !!borderImageSource && borderImageSource !== "none" || [
       style.borderTopWidth,
       style.borderRightWidth,
       style.borderBottomWidth,
       style.borderLeftWidth
-    ].some((width) => Number.parseFloat(width) > 0))
-      throw new NativeSourceError(
-        "source-media-own-paint-unsupported",
-        "Media background images, borders, outlines, shadows, and content-box background clips need a separate paint path."
-      );
-    return !transparent;
+    ].some((width) => Number.parseFloat(width) > 0);
+    const outlinePaint = style.outlineStyle !== "none" && style.outlineStyle !== "hidden";
+    return {
+      underlay: backgroundPaint || shadowPaint,
+      overlay: borderPaint || outlinePaint
+    };
   }
   function sizeOf(element) {
     const rect = element.getBoundingClientRect();
@@ -9013,11 +9023,21 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       );
     return sibling;
   }
-  function nativeTargetOverflowInsets(target) {
-    const overflow = classifyNativeComputedOverflowClip(getComputedStyle(target));
+  function nativeTargetOverflowInsets(target, includeOwnPaint = false) {
+    const style = getComputedStyle(target);
+    const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
-    if (overflow.edge === "none") return { top: 0, right: 0, bottom: 0, left: 0 };
+    const paint = includeOwnPaint ? readNativeCssPaintOutsets(style) : {
+      kind: "ok",
+      outsets: { top: 0, right: 0, bottom: 0, left: 0 }
+    };
+    if (paint.kind === "unreadable")
+      throw new NativeSourceError(
+        "source-paint-outset-unreadable",
+        \`Cannot resolve computed \${paint.property} for source paint.\`
+      );
+    if (overflow.edge === "none") return paint.outsets;
     const clip = sourceClipPlan(
       target,
       target,
@@ -9034,10 +9054,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const width = target.offsetWidth;
     const height = target.offsetHeight;
     return {
-      top: Math.max(0, -clip.y),
-      right: Math.max(0, clip.x + clip.width - width),
-      bottom: Math.max(0, clip.y + clip.height - height),
-      left: Math.max(0, -clip.x)
+      top: Math.max(paint.outsets.top, -clip.y, 0),
+      right: Math.max(paint.outsets.right, clip.x + clip.width - width, 0),
+      bottom: Math.max(paint.outsets.bottom, clip.y + clip.height - height, 0),
+      left: Math.max(paint.outsets.left, -clip.x, 0)
     };
   }
   function assertCurrentCaptureRoi(committed, expected, requiresExpandedCapture) {
@@ -9312,7 +9332,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   function rasterOwnedStyleNodes(element, phase) {
     if (element instanceof SVGSVGElement)
       return [element, ...element.querySelectorAll("*")];
-    if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage" || phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline")
+    if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage" || phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline" || phase === "media-underlay" || phase === "media-overlay")
       return [element];
     if (phase === "foreground" || phase === "glyph" || isSourceTextFlow(element))
       return [element, ...element.querySelectorAll("*")];
@@ -9417,6 +9437,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "background-image",
       "background-color",
       "background-clip",
+      "border-image-source",
+      "border-image-outset",
       "box-shadow",
       "outline-style",
       "mask-image",
@@ -9473,7 +9495,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   function cloneOwnPaint(element, preserveNativeTextFlow = false, phase = "all", fillPaint, authoredTextPaint) {
     const boxPhase = phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage";
     const ownEffectPhase = phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline";
-    const clone = boxPhase || ownEffectPhase ? document.createElement("div") : element.cloneNode(true);
+    const mediaBoxPhase = phase === "media-underlay" || phase === "media-overlay";
+    const clone = boxPhase || ownEffectPhase || mediaBoxPhase ? document.createElement("div") : element.cloneNode(true);
     for (const node of [clone, ...clone.querySelectorAll("*")]) {
       node.removeAttribute("data-an-native-fill-suppressed");
       node.removeAttribute("data-an-native-text-suppressed");
@@ -9482,7 +9505,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const fullTextFlow = phase === "foreground" || phase === "glyph" || phase === "all" && (preserveNativeTextFlow ? isPureTextFlow(element) : isSourceTextFlow(element));
     const ownText = !boxPhase && hasDirectText(element);
     if (fullTextFlow) preserveTextFlowStyles(element, clone);
-    for (let index = fullTextFlow || boxPhase || ownEffectPhase ? -1 : element.children.length - 1; index >= 0; index -= 1) {
+    for (let index = fullTextFlow || boxPhase || ownEffectPhase || mediaBoxPhase ? -1 : element.children.length - 1; index >= 0; index -= 1) {
       const child = element.children[index];
       const copy = clone.children[index];
       const style = getComputedStyle(child);
@@ -9571,6 +9594,22 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           (shadow) => /\\binset\\b/.test(shadow) === (phase === "inset-shadow")
         ).join(", ") || "none";
         clone.style.outlineColor = "transparent";
+      }
+    }
+    if (mediaBoxPhase) {
+      const style = getComputedStyle(element);
+      for (const value of [style.backgroundImage, style.borderImageSource])
+        for (const match of value.matchAll(/url\\(["']?([^"')]+)["']?\\)/g))
+          assertLocalAsset(match[1]);
+      if (phase === "media-underlay") {
+        clone.style.borderColor = "transparent";
+        clone.style.borderImageSource = "none";
+        clone.style.outlineColor = "transparent";
+        clone.style.outlineStyle = "none";
+      } else {
+        clone.style.backgroundColor = "transparent";
+        clone.style.backgroundImage = "none";
+        clone.style.boxShadow = "none";
       }
     }
     if (phase === "foreground" || phase === "glyph") {
@@ -9721,11 +9760,11 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     );
   }
   function nativeOwnPaintCaptureBox(style, phase, size) {
-    if (phase !== "all" && phase !== "outer-shadow" && phase !== "outline")
+    if (phase !== "all" && phase !== "outer-shadow" && phase !== "outline" && phase !== "media-underlay" && phase !== "media-overlay")
       return { x: 0, y: 0, ...size };
     const result = readNativeCssPaintOutsets(
       style,
-      phase === "all" ? "all" : phase
+      phase === "all" ? "all" : phase === "media-underlay" ? "outer-shadow" : phase === "media-overlay" ? "outline" : phase
     );
     if (result.kind === "unreadable")
       throw new NativeSourceError(
@@ -9739,6 +9778,98 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       width: size.width + left + right,
       height: size.height + top + bottom
     };
+  }
+  async function inlineMediaPaintImages(clone, phase, css) {
+    if (!css || css === "none") return;
+    const tokens = [
+      ...css.matchAll(/url\\(\\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\\s*\\)/gi)
+    ];
+    if ((css.match(/url\\(/gi) ?? []).length !== tokens.length)
+      throw new NativeSourceError(
+        "source-paint-image-url-unreadable",
+        "A CSS paint image URL could not be resolved for native capture."
+      );
+    if (tokens.length > 8)
+      throw new NativeSourceError(
+        "source-paint-image-too-large",
+        "The CSS paint images exceed the bounded native capture size."
+      );
+    let inlined = "";
+    let cursor = 0;
+    let embeddedLength = 0;
+    for (const token of tokens) {
+      const raw = (token[1] ?? token[2] ?? token[3] ?? "").trim();
+      if (!raw || raw.startsWith("#"))
+        throw new NativeSourceError(
+          "source-paint-image-url-unreadable",
+          "A CSS paint image URL could not be resolved for native capture."
+        );
+      inlined += css.slice(cursor, token.index);
+      if (/^data:/i.test(raw)) {
+        inlined += token[0];
+      } else {
+        let sourceUrl;
+        try {
+          assertLocalAsset(raw);
+          sourceUrl = new URL(raw, document.baseURI);
+        } catch (error) {
+          if (error instanceof NativeSourceError) throw error;
+          throw new NativeSourceError(
+            "source-paint-image-url-unreadable",
+            "A CSS paint image URL could not be resolved for native capture."
+          );
+        }
+        const image = new Image();
+        image.src = sourceUrl.href;
+        try {
+          await image.decode();
+        } catch {
+          throw new NativeSourceError(
+            "source-paint-image-unavailable",
+            "The CSS paint image could not be decoded for native capture."
+          );
+        }
+        const width = image.naturalWidth;
+        const height = image.naturalHeight;
+        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width > 4096 || height > 4096 || width * height > 8388608)
+          throw new NativeSourceError(
+            "source-paint-image-too-large",
+            "The CSS paint image exceeds the bounded native capture size."
+          );
+        const pixels = document.createElement("canvas");
+        pixels.width = width;
+        pixels.height = height;
+        const context = pixels.getContext("2d", { alpha: true });
+        if (!context)
+          throw new NativeSourceError(
+            "source-canvas-unavailable",
+            "A CSS paint image canvas is unavailable."
+          );
+        let dataUrl;
+        try {
+          context.drawImage(image, 0, 0);
+          dataUrl = pixels.toDataURL("image/png");
+        } catch {
+          throw new NativeSourceError(
+            "source-paint-image-unreadable",
+            "The CSS paint image pixels could not be read for native capture."
+          );
+        }
+        embeddedLength += dataUrl.length;
+        if (!dataUrl.startsWith("data:image/png;base64,") || embeddedLength > 22e6)
+          throw new NativeSourceError(
+            "source-paint-image-too-large",
+            "The CSS paint image exceeds the bounded native capture size."
+          );
+        inlined += \`url("\${dataUrl}")\`;
+      }
+      cursor = token.index + token[0].length;
+    }
+    const property = phase === "media-underlay" ? "background-image" : "border-image-source";
+    clone.setAttribute(
+      "style",
+      \`\${clone.getAttribute("style") ?? ""};\${property}:\${inlined}\${css.slice(cursor)}\`
+    );
   }
   async function rasterOwnPaint(element, canvas, density, phase = "all", fillPaint, glyphClone, glyphColors, authoredTextPaint) {
     const size = sizeOf(element);
@@ -9780,8 +9911,19 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       fillPaint,
       authoredTextPaint
     );
+    if (phase === "media-underlay" || phase === "media-overlay") {
+      clone.style.display = "block";
+      clone.style.boxSizing = "border-box";
+      clone.style.width = \`\${size.width}px\`;
+      clone.style.height = \`\${size.height}px\`;
+      await inlineMediaPaintImages(
+        clone,
+        phase,
+        phase === "media-underlay" ? style.backgroundImage : style.borderImageSource
+      );
+    }
     applyNativeCaptureOverflowClip(clone, overflow);
-    const canvasText = phase !== "background" && phase !== "border" && phase !== "coverage" && phase !== "inner-coverage" && phase !== "outer-shadow" && phase !== "inset-shadow" && phase !== "outline" && (hasDirectText(element) || isSourceTextFlow(element) || phase === "foreground" || phase === "glyph") && nativeTextFlowUsesDocumentFont(element);
+    const canvasText = phase !== "background" && phase !== "border" && phase !== "coverage" && phase !== "inner-coverage" && phase !== "outer-shadow" && phase !== "inset-shadow" && phase !== "outline" && phase !== "media-underlay" && phase !== "media-overlay" && (hasDirectText(element) || isSourceTextFlow(element) || phase === "foreground" || phase === "glyph") && nativeTextFlowUsesDocumentFont(element);
     if (canvasText) {
       if (!isPureTextFlow(element))
         throw new NativeSourceError(
@@ -9893,46 +10035,6 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         if (clipped) context.restore();
       }
     }
-  }
-  async function rasterMediaBackground(element, canvas, density) {
-    const size = sizeOf(element);
-    const width = Math.ceil(size.width * density);
-    const height = Math.ceil(size.height * density);
-    if (width > 4096 || height > 4096 || width * height > 8388608)
-      throw new NativeSourceError(
-        "source-too-large",
-        "A media background exceeds the bounded physical capture size."
-      );
-    const style = getComputedStyle(element);
-    const radii = resolveNativeClipRadii({
-      width: size.width,
-      height: size.height,
-      cssPixelScale: 1,
-      topLeft: style.borderTopLeftRadius,
-      topRight: style.borderTopRightRadius,
-      bottomRight: style.borderBottomRightRadius,
-      bottomLeft: style.borderBottomLeftRadius
-    });
-    if (!radii.ok)
-      throw new NativeSourceError("source-clip-unreadable", radii.detail);
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: true });
-    if (!context)
-      throw new NativeSourceError(
-        "source-canvas-unavailable",
-        "A 2D media background canvas is unavailable."
-      );
-    context.save();
-    context.scale(width / size.width, height / size.height);
-    traceNativeRoundedBoxPath(
-      context,
-      { x: 0, y: 0, width: size.width, height: size.height },
-      radii.radii
-    );
-    context.fillStyle = style.backgroundColor;
-    context.fill();
-    context.restore();
   }
   function motionOnlyStyleChange(before, after) {
     const oldStyle = document.createElement("div").style;
@@ -10249,10 +10351,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.fillForegroundId = 0;
       this.fillGlyphId = 0;
       this.fillPaint = null;
-      this.mediaBackgrounds = /* @__PURE__ */ new Map();
+      this.mediaPaintLeaves = /* @__PURE__ */ new Map();
+      this.mediaPaintIds = /* @__PURE__ */ new WeakMap();
       this.svgLeaves = /* @__PURE__ */ new Map();
       this.ids = /* @__PURE__ */ new WeakMap();
-      this.backgroundIds = /* @__PURE__ */ new WeakMap();
       this.nextId = 1;
       this.assetRevision = 0;
       this.sourceGeneration = 0;
@@ -10323,13 +10425,15 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             moved = true;
             continue;
           }
-          for (const cache of [
-            this.leaves,
-            this.mediaBackgrounds,
-            this.svgLeaves
-          ])
+          for (const cache of [this.leaves, this.svgLeaves])
             for (const [element, leaf] of cache)
               if (record5.target !== element && record5.target.contains(element)) {
+                leaf.invalidate("ancestor-style");
+                changed = true;
+              }
+          for (const [element, phases] of this.mediaPaintLeaves)
+            if (record5.target !== element && record5.target.contains(element))
+              for (const leaf of Object.values(phases)) {
                 leaf.invalidate("ancestor-style");
                 changed = true;
               }
@@ -10419,7 +10523,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       for (const leaf of this.fillBoxLeaves.values()) leaf.invalidate(reason);
       this.fillForegroundLeaf?.invalidate(reason);
       this.fillGlyphLeaf?.invalidate(reason);
-      for (const leaf of this.mediaBackgrounds.values()) leaf.invalidate(reason);
+      for (const phases of this.mediaPaintLeaves.values())
+        for (const leaf of Object.values(phases)) leaf.invalidate(reason);
       for (const leaf of this.svgLeaves.values()) leaf.invalidate(reason);
       this.onDirty();
     }
@@ -10486,7 +10591,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       return {
         readSceneCalls: this.readSceneCalls,
         captures: this.captures,
-        activeLeaves: this.leaves.size + this.fillBoxLeaves.size + Number(!!this.fillForegroundLeaf) + Number(!!this.fillGlyphLeaf) + this.mediaBackgrounds.size + this.svgLeaves.size,
+        activeLeaves: this.leaves.size + this.fillBoxLeaves.size + Number(!!this.fillForegroundLeaf) + Number(!!this.fillGlyphLeaf) + [...this.mediaPaintLeaves.values()].reduce(
+          (count, phases) => count + Object.values(phases).length,
+          0
+        ) + this.svgLeaves.size,
         createdLeaves: this.createdLeaves,
         retiredLeaves: this.retiredLeaves,
         invalidations: { ...this.invalidations },
@@ -10561,14 +10669,6 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (!id) {
         id = this.nextId++;
         this.ids.set(element, id);
-      }
-      return id;
-    }
-    backgroundId(element) {
-      let id = this.backgroundIds.get(element);
-      if (!id) {
-        id = this.nextId++;
-        this.backgroundIds.set(element, id);
       }
       return id;
     }
@@ -10675,38 +10775,167 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         })
       );
     }
-    recordMediaBackground(element, common, ancestorClip, out, metrics, memo) {
-      let leaf = this.mediaBackgrounds.get(element);
+    recordMediaBoxPaint(element, phase, out, metrics, memo, allowVisibleTargetOverflow = false) {
+      const style = getComputedStyle(element);
+      const size = sourceLayoutSize(
+        element,
+        this.target,
+        this.coordinateSpace,
+        memo
+      );
+      const ownBox = nativeOwnPaintCaptureBox(style, phase, size);
+      const geometry = relativeAffine(
+        element,
+        this.target,
+        this.coordinateSpace,
+        ownBox,
+        getComputedStyle,
+        size,
+        memo
+      );
+      const sourceClip = sourceClipPlan(
+        element,
+        this.target,
+        this.coordinateSpace,
+        false,
+        null,
+        0,
+        "content",
+        getComputedStyle,
+        memo,
+        allowVisibleTargetOverflow,
+        geometry.rect,
+        element === this.target
+      );
+      if (intersect(geometry.rect, sourceClip.clip).width <= 0 || intersect(geometry.rect, sourceClip.clip).height <= 0)
+        return;
+      const isolationPath = this.isolationPath(
+        element,
+        sourceClip.groupClips,
+        false
+      );
+      if (!isolationPath) return;
+      let phases = this.mediaPaintLeaves.get(element);
+      if (!phases) {
+        phases = {};
+        this.mediaPaintLeaves.set(element, phases);
+      }
+      let ids = this.mediaPaintIds.get(element);
+      if (!ids) {
+        ids = {};
+        this.mediaPaintIds.set(element, ids);
+      }
+      let key = ids[phase];
+      if (!key) {
+        key = this.nextId++;
+        ids[phase] = key;
+      }
+      let leaf = phases[phase];
       if (!leaf) {
-        const key = this.backgroundId(element);
-        this.trackLeaf(element, key, "media-background");
+        this.trackLeaf(
+          element,
+          key,
+          phase === "media-underlay" ? "media-background" : "own-paint"
+        );
         leaf = new CachedLeaf(
           element,
           () => this.recordLeafCapture(key),
           () => this.density,
-          rasterMediaBackground,
+          (node, canvas, density) => rasterOwnPaint(node, canvas, density, phase),
           this.onDirty,
           (reason) => this.recordLeafInvalidation(key, reason),
           (observation) => this.recordLeafObservedAttribute(key, observation)
         );
-        this.mediaBackgrounds.set(element, leaf);
+        phases[phase] = leaf;
       }
+      const overflow = classifyNativeComputedOverflowClip(style);
+      if (!overflow.ok)
+        throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
+      const ownClip = overflow.edge === "none" ? { x: 0, y: 0, ...size } : sourceClipPlan(
+        element,
+        element,
+        "target-local",
+        false,
+        overflow.edge,
+        overflow.outset
+      ).groupClips[0]?.clip.localBox;
+      if (!ownClip)
+        throw new NativeSourceError(
+          "source-clip-unreadable",
+          "The media paint capture clip has no local geometry."
+        );
+      const expectedCapture = planNativeCaptureRoi({
+        ownBox,
+        clipBox: ownClip,
+        density: this.density,
+        maxDimension: 4096,
+        maxPixels: 8388608
+      });
+      if (!expectedCapture.ok)
+        throw new NativeSourceError(
+          \`source-\${expectedCapture.reason}\`,
+          "The current media paint geometry cannot be represented."
+        );
       return afterMaybePromise(
-        this.readSceneLeaf(leaf, metrics, "background", memo),
+        this.readSceneLeaf(leaf, metrics, phase, memo),
         (source) => {
+          const capture = nativeCaptureRoi(source);
+          const expanded = ownBox.x < 0 || ownBox.y < 0 || ownBox.width > size.width || ownBox.height > size.height;
+          if (!capture && (expanded || overflow.outset > 0))
+            throw new NativeSourceError(
+              "source-capture-geometry-missing",
+              "The media paint raster has no committed source origin."
+            );
+          assertCurrentCaptureRoi(
+            capture,
+            expectedCapture.plan,
+            expanded || overflow.outset > 0
+          );
+          const capturedBox = capture?.cssBox ?? ownBox;
+          const captured = relativeAffine(
+            element,
+            this.target,
+            this.coordinateSpace,
+            capturedBox,
+            getComputedStyle,
+            size,
+            memo
+          );
           out.push({
-            ...common,
-            key: this.backgroundId(element),
+            key,
+            node: element,
+            coordinateSpace: this.coordinateSpace,
             kind: "dom",
             source,
             width: source.width,
             height: source.height,
             revision: leaf.revision,
-            clip: ancestorClip,
-            clips: []
+            rect: captured.rect,
+            localBox: capturedBox,
+            localToTarget: captured.localToTarget,
+            clip: sourceClip.clip,
+            clips: [],
+            groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+              id: \`clip:\${this.id(node)}\`,
+              clip
+            })),
+            isolationPath,
+            opacity: 1
           });
         }
       );
+    }
+    retireMediaBoxPaint(element, phase) {
+      const phases = this.mediaPaintLeaves.get(element);
+      const leaf = phases?.[phase];
+      if (!leaf) return;
+      leaf.dispose();
+      delete phases[phase];
+      const ids = this.mediaPaintIds.get(element);
+      if (ids) delete ids[phase];
+      this.retiredLeaves += 1;
+      if (Object.values(phases).length === 0)
+        this.mediaPaintLeaves.delete(element);
     }
     isolationPath(element, groupClips, ownOpacityBaked, layerOutputOpacityDeferred = false, readStyle = getComputedStyle) {
       const isBackdropCanvas = (node) => node instanceof HTMLCanvasElement && node.hasAttribute("data-an-native-backdrop-presentation") && !!node.getAttribute("data-an-native-canvas");
@@ -11131,10 +11360,15 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         fillOwnEffectPhase
       );
       const contentVisible = sourceClip.clip.width > 0 && sourceClip.clip.height > 0;
-      const hasMediaBackground = media && mediaHasSolidBackground(element, style);
-      const backgroundBounds = intersect(box, sourceClip.ancestorClip);
-      const backgroundVisible = hasMediaBackground && backgroundBounds.width > 0 && backgroundBounds.height > 0;
-      if (!contentVisible && !backgroundVisible) return;
+      const mediaPaint = media ? mediaBoxPaint(style) : null;
+      if (mediaPaint) {
+        if (!mediaPaint.underlay)
+          this.retireMediaBoxPaint(element, "media-underlay");
+        if (!mediaPaint.overlay)
+          this.retireMediaBoxPaint(element, "media-overlay");
+      }
+      if (!contentVisible && !mediaPaint?.underlay && !mediaPaint?.overlay)
+        return;
       const isolationPath = this.isolationPath(
         element,
         sourceClip.groupClips,
@@ -11160,16 +11394,36 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         isolationPath,
         opacity: 1
       };
-      if (!contentVisible && backgroundVisible) {
+      const recordMediaPaint = (appendContent) => {
+        const appendContentAndOverlay = () => {
+          if (contentVisible) appendContent();
+          if (mediaPaint?.overlay)
+            return this.recordMediaBoxPaint(
+              element,
+              "media-overlay",
+              out,
+              metrics,
+              memo,
+              allowVisibleTargetOverflow
+            );
+        };
+        if (mediaPaint?.underlay)
+          return afterMaybePromise(
+            this.recordMediaBoxPaint(
+              element,
+              "media-underlay",
+              out,
+              metrics,
+              memo,
+              allowVisibleTargetOverflow
+            ),
+            appendContentAndOverlay
+          );
+        return appendContentAndOverlay();
+      };
+      if (media && !contentVisible) {
         recordStyles.clear();
-        return this.recordMediaBackground(
-          element,
-          common,
-          sourceClip.ancestorClip,
-          out,
-          metrics,
-          memo
-        );
+        return recordMediaPaint(() => void 0);
       }
       const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
       if (element instanceof HTMLImageElement) {
@@ -11215,22 +11469,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             revision: this.assetRevision
           });
         };
-        if (hasMediaBackground) {
-          recordStyles.clear();
-          return afterMaybePromise(
-            this.recordMediaBackground(
-              element,
-              common,
-              sourceClip.ancestorClip,
-              out,
-              metrics,
-              memo
-            ),
-            appendImage
-          );
-        }
-        appendImage();
-        return;
+        recordStyles.clear();
+        return recordMediaPaint(appendImage);
       }
       if (element instanceof HTMLVideoElement) {
         assertLocalAsset(element.currentSrc || element.src);
@@ -11273,22 +11513,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             revision: ++this.assetRevision
           });
         };
-        if (hasMediaBackground) {
-          recordStyles.clear();
-          return afterMaybePromise(
-            this.recordMediaBackground(
-              element,
-              common,
-              sourceClip.ancestorClip,
-              out,
-              metrics,
-              memo
-            ),
-            appendVideo
-          );
-        }
-        appendVideo();
-        return;
+        recordStyles.clear();
+        return recordMediaPaint(appendVideo);
       }
       if (element instanceof HTMLCanvasElement) {
         if (nativeInstanceId) {
@@ -11343,21 +11569,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
               revision: ++this.assetRevision
             });
           };
-          if (hasMediaBackground) {
-            recordStyles.clear();
-            return afterMaybePromise(
-              this.recordMediaBackground(
-                element,
-                common,
-                sourceClip.ancestorClip,
-                out,
-                metrics,
-                memo
-              ),
-              appendCanvas
-            );
-          }
-          appendCanvas();
+          recordStyles.clear();
+          return recordMediaPaint(appendCanvas);
         }
         return;
       }
@@ -12134,13 +12347,15 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             this.retiredLeaves += 1;
           }
         }
-        for (const [element, leaf] of this.mediaBackgrounds) {
+        for (const [element, phases] of this.mediaPaintLeaves)
           if (!live.has(element)) {
-            leaf.dispose();
-            this.mediaBackgrounds.delete(element);
-            this.retiredLeaves += 1;
+            for (const leaf of Object.values(phases)) {
+              leaf.dispose();
+              this.retiredLeaves += 1;
+            }
+            this.mediaPaintLeaves.delete(element);
+            this.mediaPaintIds.delete(element);
           }
-        }
         for (const [element, leaf] of this.svgLeaves) {
           if (!live.has(element)) {
             leaf.dispose();
@@ -12236,8 +12451,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.fillForegroundLeaf = null;
       this.fillGlyphLeaf?.dispose();
       this.fillGlyphLeaf = null;
-      for (const leaf of this.mediaBackgrounds.values()) leaf.dispose();
-      this.mediaBackgrounds.clear();
+      for (const phases of this.mediaPaintLeaves.values())
+        for (const leaf of Object.values(phases)) leaf.dispose();
+      this.mediaPaintLeaves.clear();
+      this.mediaPaintIds = /* @__PURE__ */ new WeakMap();
       for (const leaf of this.svgLeaves.values()) leaf.dispose();
       this.svgLeaves.clear();
       if (this.viewportBackgroundCanvas) {
@@ -22176,13 +22393,57 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
     }
     releaseStateful(mount) {
-      if (mount.stateful) mount.pointerHistory?.invalidate();
+      if (mount.stateful || mount.statefulCandidate)
+        mount.pointerHistory?.invalidate();
       mount.statefulFrame?.abandon();
       mount.statefulFrame = null;
+      mount.statefulCandidate?.executor.dispose();
+      mount.statefulCandidate = null;
       mount.stateful?.executor.dispose();
       mount.stateful = null;
       mount.target.removeAttribute("data-an-native-stateful-dropped-steps");
       mount.target.removeAttribute("data-an-native-stateful-dropped-seconds");
+    }
+    promoteStatefulFrame(mount, frame, draft = null) {
+      const candidate = draft ? draft.statefulCandidate : mount.statefulCandidate;
+      const published = draft ? draft.stateful : mount.stateful;
+      const stateful = candidate ?? published;
+      if (!stateful)
+        throw new NativeSourceError(
+          "stateful-frame-invalid",
+          "The encoded stateful session is unavailable."
+        );
+      frame.promote();
+      stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
+      stateful.pendingSourceRevision = null;
+      stateful.droppedSteps += stateful.pendingDroppedSteps;
+      stateful.pendingDroppedSteps = 0;
+      if (candidate) {
+        if (draft) {
+          draft.stateful = candidate;
+          draft.statefulCandidate = null;
+          draft.statefulFrame = null;
+        } else {
+          mount.stateful = candidate;
+          mount.statefulCandidate = null;
+          mount.statefulFrame = null;
+        }
+        if (published && published !== candidate) {
+          published.executor.dispose();
+          mount.pointerHistory?.invalidate();
+        }
+      } else if (draft) draft.statefulFrame = null;
+      else mount.statefulFrame = null;
+      mount.target.setAttribute(
+        "data-an-native-stateful-dropped-steps",
+        String(stateful.droppedSteps)
+      );
+      const graph = (draft?.definition ?? mount.definition).resourceGraph;
+      const fixedDt = isStatefulResourceGraph(graph) ? graph.timing.fixedDt : 0;
+      mount.target.setAttribute(
+        "data-an-native-stateful-dropped-seconds",
+        (stateful.droppedSteps * fixedDt).toFixed(3)
+      );
     }
     async disposeFeedback(feedback) {
       const retired = await Promise.allSettled([...feedback.retirements]);
@@ -22509,6 +22770,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         feedback: null,
         feedbackFrame: null,
         stateful: null,
+        statefulCandidate: null,
         statefulFrame: null
       };
       if (definition.simulation || definition.interaction)
@@ -22923,7 +23185,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-layer-dependency-unavailable",
           "The previous processor has no current output geometry."
         );
-      const captureInsets = nativeTargetOverflowInsets(mount.target);
+      const captureInsets = nativeTargetOverflowInsets(
+        mount.target,
+        mount.instance.placement === "layer"
+      );
       const planned = planNativeChainedEffectExtent({
         extent: mount.definition.extent,
         captureInsets: previous ? void 0 : captureInsets,
@@ -25185,14 +25450,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           throw new NativeSourceError(error.code, error.message);
         throw error;
       }
-      const prior2 = draft ? draft.stateful : mount.stateful;
-      if (prior2 && (prior2.definitionHash !== definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== (source?.width ?? mount.width) || prior2.sourceHeight !== (source?.height ?? mount.height) || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeStatefulResetValuesChanged(
-        prior2.resetPropertyValues,
+      const target = resolveNativeStatefulTargetStep(
+        time,
+        graph.timing.fixedDt,
+        graph.timing.maxStepIndex,
+        deterministic
+      );
+      if (target === null)
+        throw new NativeSourceError(
+          "stateful-step-limit",
+          "The requested fixed step is outside the graph limit."
+        );
+      const published = draft ? draft.stateful : mount.stateful;
+      const needsCandidate = !published || published.definitionHash !== definitionHash || published.seed !== instance.seed || published.sourceIdentity !== sourceIdentity || published.sourceWidth !== (source?.width ?? mount.width) || published.sourceHeight !== (source?.height ?? mount.height) || published.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeStatefulResetValuesChanged(
+        published.resetPropertyValues,
         resetPropertyValues
-      ))) {
-        if (draft) this.releaseDraftResources(draft);
-        else this.releaseStateful(mount);
-      }
+      ) || target < published.executor.lastCompletedStep;
       const pipelines = /* @__PURE__ */ new Map();
       const device = this.device;
       const epoch = this.deviceEpoch;
@@ -25223,7 +25496,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       if (!mount.pendingGraphInputEpochs)
         mount.pendingGraphInputEpochs = /* @__PURE__ */ new Map();
-      if (!(draft ? draft.stateful : mount.stateful)) {
+      if (needsCandidate) {
         const stateNames = new Set(graph.stateResources);
         const plannedBytes = plan.passes.reduce((sum, pass) => {
           const spec = declared.get(pass.output);
@@ -25284,45 +25557,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           textures,
           buffers
         };
-        if (draft) draft.stateful = stateful2;
-        else mount.stateful = stateful2;
+        if (draft) draft.statefulCandidate = stateful2;
+        else mount.statefulCandidate = stateful2;
       }
-      const stateful = draft ? draft.stateful : mount.stateful;
+      const stateful = needsCandidate ? draft ? draft.statefulCandidate : mount.statefulCandidate : published;
       const completed = stateful.executor.lastCompletedStep;
-      const target = resolveNativeStatefulTargetStep(
-        time,
-        graph.timing.fixedDt,
-        graph.timing.maxStepIndex,
-        deterministic
-      );
-      if (target === null)
-        throw new NativeSourceError(
-          "stateful-step-limit",
-          "The requested fixed step is outside the graph limit."
-        );
       if (completed < 0 && deterministic && graph.sourceHistory === "sequential-captures" && target > 0 && sourceReplaySafety !== "immutable")
         throw new NativeSourceError(
           "stateful-source-history-unavailable",
           "Sequential source history must begin at the first fixed step."
         );
-      if (target < completed) {
-        if (draft) this.releaseDraftResources(draft);
-        else this.releaseStateful(mount);
-        return this.statefulResourcePasses(
-          mount,
-          source,
-          time,
-          encoder,
-          definition,
-          instance,
-          sourceRevision,
-          deterministic,
-          sourceIdentity,
-          sourceReplaySafety,
-          externalTextures,
-          inputEpochs
-        );
-      }
       const maxSteps = Math.min(
         graph.timing.maxStepsPerCall,
         Math.floor(128 / plan.passes.length)
@@ -27847,6 +28091,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const owners = [...this.mounts.values()].filter(
         (candidate) => (candidate.instance.placement === "layer" || candidate.instance.placement === "fill" && candidate.isTopLayer) && candidate.target !== target && candidate.target.contains(target)
       );
+      if (owners.filter((candidate) => candidate.instance.placement === "layer").length > 1)
+        throw new NativeSourceError(
+          "source-group-local-chain-unsupported",
+          "source-group-local-chain-unsupported"
+        );
       const nearest = owners.find(
         (candidate) => owners.every(
           (other) => other === candidate || other.target.contains(candidate.target)
@@ -27875,7 +28124,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-dependency-cycle",
           "effect-dependency-cycle"
         );
-      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || isStatefulResourceGraph(child.definition.resourceGraph) || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -27889,6 +28138,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "source-group-local-geometry-unsupported",
           "source-group-local-geometry-unsupported"
         );
+      const resources = new NativeFrameResourceScratch(
+        child.resourceTextures,
+        []
+      );
+      child.resourceTextures = resources.scratch;
+      let staged = false;
       transaction.active.add(child.instance.id);
       try {
         let source = child.resourceTextures.get("__native_group_local_source");
@@ -27955,21 +28210,45 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           child.definition,
           child.frameCount % 2 === 0 ? "__native_group_local_final_a" : "__native_group_local_final_b"
         );
-        await this.present(child, finished, encoder);
-        transaction.staged.set(child.instance.id, {
-          mount: child,
-          texture: finished
-        });
         const authoredEpoch = child.provider?.authoredSourceEpoch?.();
         if (authoredEpoch !== void 0)
           transaction.authoredEpochs.set(child.instance.id, authoredEpoch);
+        if (child.definition.resourceGraph && !child.pendingGraphInputEpochs)
+          throw new NativeSourceError(
+            "linear-resource-frame-invalid",
+            "The nested graph input revision is unavailable."
+          );
+        transaction.staged.set(child.instance.id, {
+          mount: child,
+          texture: finished,
+          resources,
+          statefulFrame: child.statefulFrame ?? void 0,
+          sourceEpoch: child.provider?.sourceEpoch?.() ?? null,
+          instancePayload: JSON.stringify(child.instance),
+          definitionHash: child.definitionHash,
+          localTime: childTime,
+          inputEpochs: new Map(child.pendingGraphInputEpochs ?? [])
+        });
+        child.statefulFrame = null;
+        staged = true;
         return finished;
       } finally {
+        child.resourceTextures = resources.committed;
+        if (!staged) {
+          child.statefulFrame?.abandon();
+          child.statefulFrame = null;
+          child.statefulCandidate?.executor.dispose();
+          child.statefulCandidate = null;
+          for (const texture of resources.rollback())
+            if (!this.textureRetirement.includes(texture))
+              this.textureRetirement.push(texture);
+        }
+        if (!staged) child.pendingGraphInputEpochs = null;
         transaction.active.delete(child.instance.id);
       }
     }
     async stageFillLocalBackdrop(parent, child, prefix, prefixExtent, encoder, transaction, authoredSourceEpoch) {
-      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || isStatefulResourceGraph(child.definition.resourceGraph) || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -27979,6 +28258,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-dependency-cycle",
           "effect-dependency-cycle"
         );
+      const resources = new NativeFrameResourceScratch(
+        child.resourceTextures,
+        []
+      );
+      child.resourceTextures = resources.scratch;
+      let staged = false;
       transaction.active.add(child.instance.id);
       try {
         if (!child.provider)
@@ -28012,8 +28297,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         ))
           throw new NativeSourceError("source-epoch-stale", "source-epoch-stale");
         const overrides = /* @__PURE__ */ new Map([[parent.instance.id, prefix]]);
-        for (const [id, staged] of transaction.staged)
-          overrides.set(id, staged.texture);
+        for (const [id, staged2] of transaction.staged)
+          overrides.set(id, staged2.texture);
         for (const record5 of records) {
           if (!record5.nativeInstanceId || record5.sourceRole === "ancestor-fill-prefix")
             continue;
@@ -28072,13 +28357,38 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           child.definition,
           child.frameCount % 2 === 0 ? "__native_group_local_final_a" : "__native_group_local_final_b"
         );
+        transaction.authoredEpochs.set(child.instance.id, authoredSourceEpoch);
+        if (child.definition.resourceGraph && !child.pendingGraphInputEpochs)
+          throw new NativeSourceError(
+            "linear-resource-frame-invalid",
+            "The nested graph input revision is unavailable."
+          );
         transaction.staged.set(child.instance.id, {
           mount: child,
-          texture: finished
+          texture: finished,
+          resources,
+          statefulFrame: child.statefulFrame ?? void 0,
+          sourceEpoch: child.provider.sourceEpoch?.() ?? null,
+          instancePayload: JSON.stringify(child.instance),
+          definitionHash: child.definitionHash,
+          localTime: childTime,
+          inputEpochs: new Map(child.pendingGraphInputEpochs ?? [])
         });
-        transaction.authoredEpochs.set(child.instance.id, authoredSourceEpoch);
+        child.statefulFrame = null;
+        staged = true;
         return finished;
       } finally {
+        child.resourceTextures = resources.committed;
+        if (!staged) {
+          child.statefulFrame?.abandon();
+          child.statefulFrame = null;
+          child.statefulCandidate?.executor.dispose();
+          child.statefulCandidate = null;
+          for (const texture of resources.rollback())
+            if (!this.textureRetirement.includes(texture))
+              this.textureRetirement.push(texture);
+        }
+        if (!staged) child.pendingGraphInputEpochs = null;
         transaction.active.delete(child.instance.id);
       }
     }
@@ -28238,7 +28548,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const mountHeightBeforeLayout = mount.height;
       this.layout(mount);
       const assertCaptureOriginCurrent = () => {
-        const current = nativeTargetOverflowInsets(mount.target);
+        const current = nativeTargetOverflowInsets(
+          mount.target,
+          mount.instance.placement === "layer"
+        );
         if (current.top !== mount.captureInsets.top || current.right !== mount.captureInsets.right || current.bottom !== mount.captureInsets.bottom || current.left !== mount.captureInsets.left)
           throw new NativeSourceError(
             "source-capture-geometry-stale",
@@ -28274,6 +28587,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         throw new NativeSourceError(
           "source-group-local-chain-unsupported",
           "source-group-local-chain-unsupported"
+        );
+      const nestedStatefulChild = nestedChildren.some(
+        (child) => isStatefulResourceGraph(child.definition.resourceGraph)
+      );
+      if (nestedStatefulChild && mount.instance.placement === "layer" && (!mount.isTopLayer || draft))
+        throw new NativeSourceError(
+          "source-group-local-effect-unsupported",
+          "source-group-local-effect-unsupported"
         );
       if (nestedChildren.length) {
         for (const child of nestedChildren) {
@@ -28345,6 +28666,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let gpuSample = null;
       let profileSubmitted = false;
       let submitted = false;
+      let gpuValidated = false;
       let restorationAttempted = false;
       let detachedFillPresentation = false;
       let priorOutputRetirement = null;
@@ -28393,11 +28715,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             child.instance.id
           );
           if (staged) {
-            if (staged.mount !== child || noncontributing || clipState === "empty" || nestedTransaction.authoredEpochs.has(child.instance.id) && child.provider?.authoredSourceEpoch?.() !== nestedTransaction.authoredEpochs.get(child.instance.id))
+            if (staged.mount !== child || noncontributing || clipState === "empty" || staged.sourceEpoch !== null && child.provider?.sourceEpoch?.() !== staged.sourceEpoch || nestedTransaction.authoredEpochs.has(child.instance.id) && child.provider?.authoredSourceEpoch?.() !== nestedTransaction.authoredEpochs.get(child.instance.id))
               throw new NativeSourceError(
                 "source-epoch-stale",
                 "source-epoch-stale"
               );
+            for (const [name, { capture, sourceEpoch }] of staged.inputEpochs)
+              if (!this.authoredInputCaptureCurrent(
+                child,
+                name,
+                capture,
+                sourceEpoch
+              ))
+                throw new NativeSourceError(
+                  "input-authored-source-stale",
+                  \`Authored input \${capture.nodeId} changed before GPU submission.\`
+                );
           } else if (!noncontributing) {
             throw new NativeSourceError(
               "native-dependency-missing",
@@ -28606,7 +28939,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
         };
         const detachedCandidate = sourceEpoch !== void 0 && !nativeMountNeedsContinuousSourceFrames(mount) && mount.isTopLayer && visibleLayoutUnchanged && mount.instance.placement === "layer" && mount.suppressed && mount.canvas.isConnected && mount.canvas.style.visibility === "visible" && !this.compositionAbort && !this.compositionPixelBusy && !mount.previousLayerId && !mount.previousFillId && !mount.definition.simulation && !mount.definition.feedback && !mount.definition.resourceGraph && !draft && !!mount.outputTexture && mount.outputTexture.width === mount.width && mount.outputTexture.height === mount.height && canDetachPresentationFromSources(scene);
-        if (detachedCandidate) {
+        const retainedLayerPublication = mount.instance.placement === "layer" && mount.isTopLayer && (nestedStatefulChild || !!activeDefinition.simulation || !!activeDefinition.feedback || isStatefulResourceGraph(activeDefinition.resourceGraph));
+        if (detachedCandidate || retainedLayerPublication) {
           unpublishedLayerState = {
             outputTexture: mount.outputTexture,
             fillTextTexture: mount.fillTextTexture,
@@ -28622,11 +28956,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               mount.target.getAttributeNames().filter((name) => name.startsWith("data-an-native-")).map((name) => [name, mount.target.getAttribute(name)])
             )
           };
-          frameResources = new NativeFrameResourceScratch(
-            mount.resourceTextures,
-            source === mount.resourceTextures.get("source") ? ["source"] : []
-          );
-          mount.resourceTextures = frameResources.scratch;
+          if (detachedCandidate) {
+            frameResources = new NativeFrameResourceScratch(
+              mount.resourceTextures,
+              source === mount.resourceTextures.get("source") ? ["source"] : []
+            );
+            mount.resourceTextures = frameResources.scratch;
+          }
         }
         if (draft) {
           publishedDraftResources = mount.resourceTextures;
@@ -28639,6 +28975,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             [...mount.resourceTextures.keys()]
           );
           simulationFrameResources = true;
+          mount.resourceTextures = frameResources.scratch;
+        }
+        if (retainedLayerPublication && !frameResources) {
+          frameResources = new NativeFrameResourceScratch(
+            mount.resourceTextures,
+            source === mount.resourceTextures.get("source") ? ["source"] : []
+          );
           mount.resourceTextures = frameResources.scratch;
         }
         const staticPassKey = nativeStaticGeneratorPassKey({
@@ -28656,6 +28999,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           draftActive: !!draft,
           instancePreviewActive: this.instancePreview?.instanceId === mount.instance.id
         });
+        const outputName = activeDefinition.output ?? activeDefinition.passes[0]?.output;
+        const retainedOutput = outputName ? mount.resourceTextures.get(outputName) ?? null : null;
+        const cachedOutput = mount.staticGeneratorPassCache.read(
+          staticPassKey,
+          retainedOutput
+        );
         if (mount.instance.placement === "fill" && mount.isTopLayer) {
           if (!unpublishedLayerState)
             unpublishedLayerState = {
@@ -28678,20 +29027,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               mount.resourceTextures,
               [
                 ...source === mount.resourceTextures.get("source") ? ["source"] : [],
-                ...staticPassKey ? [
-                  activeDefinition.output ?? activeDefinition.passes[0]?.output
-                ].filter((name) => !!name) : []
+                ...cachedOutput && outputName ? [outputName] : []
               ]
             );
             mount.resourceTextures = frameResources.scratch;
           }
         }
-        const outputName = activeDefinition.output ?? activeDefinition.passes[0]?.output;
-        const retainedOutput = outputName ? mount.resourceTextures.get(outputName) ?? null : null;
-        const cachedOutput = mount.staticGeneratorPassCache.read(
-          staticPassKey,
-          retainedOutput
-        );
         if (cachedOutput) mount.pendingGraphInputEpochs = /* @__PURE__ */ new Map();
         const effectPassesStarted = hostWallPhases ? performance.now() : 0;
         const output = cachedOutput ?? await this.effectPasses(
@@ -28969,12 +29310,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "draft-superseded",
             "A newer draft request replaced this GPU frame."
           );
-        if (frameResources && !detachedCandidate && !simulationFrameResources && !(mount.instance.placement === "fill" && mount.isTopLayer))
+        if (frameResources && !detachedCandidate && !retainedLayerPublication && !simulationFrameResources && !(mount.instance.placement === "fill" && mount.isTopLayer))
           throw new NativeSourceError(
             "presentation-frame-stale",
             "The detached presentation source changed during the frame."
           );
-        const twoSurface = detachedCandidate || mount.instance.placement === "fill" && mount.isTopLayer ? this.preparePresentationPair(mount, device) : null;
+        const twoSurface = detachedCandidate || retainedLayerPublication || mount.instance.placement === "fill" && mount.isTopLayer ? this.preparePresentationPair(mount, device) : null;
         const assertTwoSurfacePublishable = () => {
           if (!twoSurface) return;
           assertCurrentPresentation();
@@ -29062,6 +29403,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.retainedPresentationWitness = false;
         (draft?.simulationFrame ?? mount.simulationFrame)?.transaction.markSubmitted();
         (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
+        for (const staged of nestedTransaction?.staged.values() ?? [])
+          staged.statefulFrame?.markSubmitted();
         if (gpuSample) {
           this.gpuProfiler?.afterSubmit(gpuSample);
           profileSubmitted = true;
@@ -29081,6 +29424,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             \`WebGPU rejected effect \${mount.instance.id}: \${gpuError.message}\`
           );
         }
+        gpuValidated = true;
         if (nestedTransaction && (mount.provider.authoredSourceEpoch?.() !== nestedAuthoredEpoch || this.renderEpoch !== renderEpoch || this.device !== device))
           throw new NativeSourceError("source-epoch-stale", "source-epoch-stale");
         for (const child of nestedChildren) {
@@ -29143,6 +29487,21 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             assertStatelessCurrent();
             assertTwoSurfacePublishable();
           });
+        for (const staged of nestedTransaction?.staged.values() ?? [])
+          if (staged.statefulFrame)
+            await staged.statefulFrame.settle(() => {
+              assertNestedChildren();
+              assertCaptureOriginCurrent();
+              assertStatelessCurrent();
+              assertTwoSurfacePublishable();
+              if (this.device !== device)
+                throw new NativeSourceError(
+                  "stateful-frame-invalid",
+                  "stateful-frame-invalid"
+                );
+            });
+        for (const staged of nestedTransaction?.staged.values() ?? [])
+          this.refreshAuthoredPaint(staged.mount);
         assertCaptureOriginCurrent();
         assertStatelessCurrent();
         assertTwoSurfacePublishable();
@@ -29187,7 +29546,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           }
         }
-        if (simulationFrameResources && frameResources && mount.instance.placement !== "fill") {
+        if (simulationFrameResources && frameResources && !twoSurface) {
           const staleResources = frameResources.retiredOnCommit();
           frameResources.commit();
           if (draft) draft.resources = frameResources.scratch;
@@ -29225,24 +29584,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         }
         if (statefulFrame) {
-          const stateful = draft ? draft.stateful : mount.stateful;
-          statefulFrame.promote();
-          if (draft) draft.statefulFrame = null;
-          else mount.statefulFrame = null;
-          stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
-          stateful.pendingSourceRevision = null;
-          stateful.droppedSteps += stateful.pendingDroppedSteps;
-          stateful.pendingDroppedSteps = 0;
-          mount.target.setAttribute(
-            "data-an-native-stateful-dropped-steps",
-            String(stateful.droppedSteps)
-          );
-          const activeGraph = (draft?.definition ?? mount.definition).resourceGraph;
-          const fixedDt = isStatefulResourceGraph(activeGraph) ? activeGraph.timing.fixedDt : 0;
-          mount.target.setAttribute(
-            "data-an-native-stateful-dropped-seconds",
-            (stateful.droppedSteps * fixedDt).toFixed(3)
-          );
+          this.promoteStatefulFrame(mount, statefulFrame, draft);
         }
         const prior2 = mount.outputTexture;
         mount.outputTexture = finished;
@@ -29405,7 +29747,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
         if (twoSurface) {
           const staleResources = frameResources.retiredOnCommit();
-          if (mount.instance.placement === "fill")
+          if (mount.instance.placement === "fill" || retainedLayerPublication && !mount.suppressed)
             this.suppressOriginal(mount, true);
           commitPresentationProvenance();
           if (priorOutputRetirement && ![...frameResources.scratch.values()].includes(priorOutputRetirement))
@@ -29445,36 +29787,109 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             nestedTransaction?.noncontributing ?? []
           );
         }
-        for (const {
-          mount: child,
-          texture
-        } of nestedTransaction?.staged.values() ?? []) {
+        for (const staged of nestedTransaction?.staged.values() ?? []) {
+          const {
+            mount: child,
+            texture,
+            resources,
+            statefulFrame: childStatefulFrame
+          } = staged;
           const previous = child.outputTexture;
+          const previousOwnedByStateful = !!previous && !!child.stateful?.textures.has(previous);
+          const previousOwnedByResources = !!previous && !!resources && [...resources.committed.values()].includes(previous);
+          if (childStatefulFrame)
+            this.promoteStatefulFrame(child, childStatefulFrame);
+          staged.statefulFrame = void 0;
+          if (resources) {
+            const staleResources = resources.retiredOnCommit();
+            resources.commit();
+            staged.resources = void 0;
+            child.resourceTextures = resources.scratch;
+            for (const stale of staleResources)
+              if (!this.textureRetirement.includes(stale))
+                this.textureRetirement.push(stale);
+          }
           child.outputTexture = texture;
-          if (previous && previous !== texture) {
+          child.committedSourceEpoch = staged.sourceEpoch;
+          child.committedInstancePayload = staged.instancePayload;
+          child.committedDefinitionHash = staged.definitionHash;
+          child.committedLocalTime = staged.localTime;
+          child.committedInputEpochs = staged.inputEpochs;
+          child.pendingGraphInputEpochs = null;
+          if (previous && previous !== texture && !previousOwnedByStateful && !previousOwnedByResources && !this.textureRetirement.includes(previous)) {
             for (const [name, resource] of child.resourceTextures)
               if (resource === previous) child.resourceTextures.delete(name);
             this.textureRetirement.push(previous);
           }
           child.frameCount += 1;
           this.activeMounts.add(child);
-          this.suppressOriginal(child);
+          this.suppressOriginal(child, true);
           child.target.setAttribute(
             "data-an-native-frames",
             String(child.frameCount)
           );
           complete.add(child.instance.id);
         }
+        const nestedCaughtUp = [
+          ...nestedTransaction?.staged.values() ?? []
+        ].every(({ mount: child }) => child.simulationCaughtUp);
+        const sceneCaughtUp = (draft?.caughtUp ?? mount.simulationCaughtUp) && nestedCaughtUp;
+        if (nestedTransaction?.staged.size) {
+          mount.target.setAttribute(
+            "data-an-native-status",
+            sceneCaughtUp ? "ready" : "last-good"
+          );
+          if (sceneCaughtUp) {
+            mount.target.removeAttribute("data-an-native-error");
+            mount.target.removeAttribute("data-an-native-error-message");
+          } else {
+            mount.target.setAttribute(
+              "data-an-native-error",
+              "simulation-catching-up"
+            );
+            mount.target.setAttribute(
+              "data-an-native-error-message",
+              "Particle simulation is still catching up to the presentation clock."
+            );
+          }
+        }
         active.delete(mount.instance.id);
         complete.add(mount.instance.id);
         try {
-          for (const { mount: child } of nestedTransaction?.staged.values() ?? [])
-            this.postStatus(child.instance.id, child.instance.nodeId, "ready");
+          for (const { mount: child } of nestedTransaction?.staged.values() ?? []) {
+            const caughtUp = child.simulationCaughtUp;
+            child.target.setAttribute(
+              "data-an-native-status",
+              caughtUp ? "ready" : "last-good"
+            );
+            if (caughtUp) {
+              child.target.removeAttribute("data-an-native-error");
+              child.target.removeAttribute("data-an-native-error-message");
+            } else {
+              child.target.setAttribute(
+                "data-an-native-error",
+                "simulation-catching-up"
+              );
+              child.target.setAttribute(
+                "data-an-native-error-message",
+                "Particle simulation is still catching up to the presentation clock."
+              );
+            }
+            this.postStatus(
+              child.instance.id,
+              child.instance.nodeId,
+              caughtUp ? "ready" : "last-good",
+              caughtUp ? void 0 : {
+                code: "simulation-catching-up",
+                message: "simulation-catching-up"
+              }
+            );
+          }
           this.postStatus(
             mount.instance.id,
             mount.instance.nodeId,
-            draft?.caughtUp ?? mount.simulationCaughtUp ? "ready" : "last-good",
-            draft?.caughtUp ?? mount.simulationCaughtUp ? void 0 : {
+            sceneCaughtUp ? "ready" : "last-good",
+            sceneCaughtUp ? void 0 : {
               code: "simulation-catching-up",
               message: "simulation-catching-up"
             }
@@ -29488,6 +29903,23 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       } catch (error) {
         mount.staticGeneratorPassCache.invalidate();
         if (mirrorCandidate) this.publishedPresentationMirror.discard();
+        for (const staged of nestedTransaction?.staged.values() ?? []) {
+          if (staged.statefulFrame) {
+            if (submitted && !gpuValidated)
+              await staged.statefulFrame.rejectSubmitted(error);
+            else staged.statefulFrame.abandon();
+            staged.statefulFrame = void 0;
+          }
+          staged.mount.statefulCandidate?.executor.dispose();
+          staged.mount.statefulCandidate = null;
+          staged.mount.pendingGraphInputEpochs = null;
+          if (staged.resources) {
+            for (const texture of staged.resources.rollback())
+              if (!this.textureRetirement.includes(texture))
+                this.textureRetirement.push(texture);
+            staged.resources = void 0;
+          }
+        }
         const simulationFrame = draft?.simulationFrame ?? mount.simulationFrame;
         let simulationCleanupFailure;
         if (simulationFrame) {
@@ -29544,16 +29976,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
         if (draft) draft.statefulFrame = null;
         else mount.statefulFrame = null;
-        const stateful = draft ? draft.stateful : mount.stateful;
+        const stateful = (draft ? draft.statefulCandidate : mount.statefulCandidate) ?? (draft ? draft.stateful : mount.stateful);
         if (stateful) {
           stateful.pendingSourceRevision = null;
           stateful.pendingDroppedSteps = 0;
         }
         if (statefulFrame) {
-          if (submitted) await statefulFrame.rejectSubmitted(error);
+          if (submitted && !gpuValidated)
+            await statefulFrame.rejectSubmitted(error);
           else statefulFrame.abandon();
-          if (draft) this.releaseDraftResources(draft);
-          else this.releaseStateful(mount);
+        }
+        if (draft?.statefulCandidate) {
+          draft.statefulCandidate.executor.dispose();
+          draft.statefulCandidate = null;
+        } else if (mount.statefulCandidate) {
+          mount.statefulCandidate.executor.dispose();
+          mount.statefulCandidate = null;
         }
         const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
         if (draft) draft.feedbackFrame = null;
@@ -29731,6 +30169,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.releaseDraftSimulation(draft);
       draft.statefulFrame?.abandon();
       draft.statefulFrame = null;
+      draft.statefulCandidate?.executor.dispose();
+      draft.statefulCandidate = null;
       draft.stateful?.executor.dispose();
       draft.stateful = null;
       for (const texture of draft.statefulResources.values())
@@ -30093,6 +30533,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         simulationFrame: null,
         pointerHistory: definition.simulation || definition.interaction ? new NativePointerHistory(request.time) : null,
         stateful: null,
+        statefulCandidate: null,
         statefulFrame: null,
         statefulResources: /* @__PURE__ */ new Map(),
         feedback: null,
