@@ -71,10 +71,10 @@ Se os comandos falharem com erros de dependências peer, uma cópia antiga de um
 
 ## Escolha a configuração certa para o seu agente
 
-| Tipo de agente             | Exemplos                                              | Como funciona                                                    |
-| -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------- |
-| Agentes de terminal e IDE  | Claude Code, Codex, Cursor, GitHub Copilot no VS Code | Cole o prompt. O agente executa todos os comandos para você.     |
-| Agentes só de chat         | ChatGPT, Claude na web                                | Peça os comandos e depois execute-os você mesmo.                 |
+| Tipo de agente            | Exemplos                                              | Como funciona                                                |
+| ------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| Agentes de terminal e IDE | Claude Code, Codex, Cursor, GitHub Copilot no VS Code | Cole o prompt. O agente executa todos os comandos para você. |
+| Agentes só de chat        | ChatGPT, Claude na web                                | Peça os comandos e depois execute-os você mesmo.             |
 
 ### Agentes que não executam comandos {#chat-only-agents}
 
@@ -95,13 +95,13 @@ Dois agentes podem trabalhar no seu app, e eles fazem tarefas diferentes.
 - **O seu próprio agente** é aquele em que você colou o prompt, como Claude Code, Codex ou Cursor. Ele fica fora do app, no seu terminal ou editor.
 - **O agente do app** é o chat que já vem embutido no app. Você o abre no navegador enquanto o app está em execução.
 
-|                                     | Seu próprio agente (fora do app)                                                                                                                                | O agente do app (dentro do app)                                                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Onde você o usa                     | No seu terminal ou editor                                                                                                                                       | No chat do app, no navegador                                                                                                 |
-| Em que ele trabalha                 | Nos arquivos do seu projeto                                                                                                                                     | Nos dados do app e na tela que você está vendo                                                                               |
-| O que ele pode fazer                | Criar o projeto, instalar pacotes, executar `pnpm dev`, escrever e alterar ações, páginas e tabelas do banco de dados, e preparar uma implantação               | Chamar as ações do app como ferramentas, ler e atualizar os dados do app e responder perguntas sobre o que está na tela      |
-| Precisa de um LLM conectado ao app  | Não, ele usa o próprio modelo                                                                                                                                   | Sim. Veja [Conecte um LLM](/docs/getting-started#connect-an-llm)                                                             |
-| Melhor para                         | Construir e alterar o app                                                                                                                                       | Usar o app e fazer o trabalho do dia a dia                                                                                   |
+|                                    | Seu próprio agente (fora do app)                                                                                                                  | O agente do app (dentro do app)                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Onde você o usa                    | No seu terminal ou editor                                                                                                                         | No chat do app, no navegador                                                                                            |
+| Em que ele trabalha                | Nos arquivos do seu projeto                                                                                                                       | Nos dados do app e na tela que você está vendo                                                                          |
+| O que ele pode fazer               | Criar o projeto, instalar pacotes, executar `pnpm dev`, escrever e alterar ações, páginas e tabelas do banco de dados, e preparar uma implantação | Chamar as ações do app como ferramentas, ler e atualizar os dados do app e responder perguntas sobre o que está na tela |
+| Precisa de um LLM conectado ao app | Não, ele usa o próprio modelo                                                                                                                     | Sim. Veja [Conecte um LLM](/docs/getting-started#connect-an-llm)                                                        |
+| Melhor para                        | Construir e alterar o app                                                                                                                         | Usar o app e fazer o trabalho do dia a dia                                                                              |
 
 O seu próprio agente constrói o app. O agente do app o faz funcionar. Quando o seu próprio agente adiciona uma ação, o agente do app pode chamá-la na hora, porque os dois usam a mesma ação.
 

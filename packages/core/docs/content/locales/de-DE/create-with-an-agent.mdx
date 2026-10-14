@@ -73,10 +73,10 @@ Wenn die Befehle mit Peer-Dependency-Fehlern fehlschlagen, kann eine alte Kopie 
 
 ## Die passende Einrichtung für Ihren Agenten wählen
 
-| Agententyp                | Beispiele                                             | So funktioniert es                                                    |
-| ------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------- |
-| Terminal- und IDE-Agenten | Claude Code, Codex, Cursor, GitHub Copilot in VS Code | Fügen Sie den Prompt ein. Der Agent führt jeden Befehl für Sie aus.   |
-| Reine Chat-Agenten        | ChatGPT, Claude im Web                                | Fragen Sie nach den Befehlen und führen Sie sie dann selbst aus.      |
+| Agententyp                | Beispiele                                             | So funktioniert es                                                  |
+| ------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Terminal- und IDE-Agenten | Claude Code, Codex, Cursor, GitHub Copilot in VS Code | Fügen Sie den Prompt ein. Der Agent führt jeden Befehl für Sie aus. |
+| Reine Chat-Agenten        | ChatGPT, Claude im Web                                | Fragen Sie nach den Befehlen und führen Sie sie dann selbst aus.    |
 
 ### Agenten, die keine Befehle ausführen können {#chat-only-agents}
 
@@ -97,13 +97,13 @@ An Ihrer App können zwei Agenten arbeiten, und sie haben unterschiedliche Aufga
 - **Ihr eigener Agent** ist der, in den Sie den Prompt eingefügt haben, zum Beispiel Claude Code, Codex oder Cursor. Er lebt außerhalb der App, in Ihrem Terminal oder Editor.
 - **Der Agent der App** ist der Chat, der fest in die App eingebaut ist. Sie öffnen ihn im Browser, während die App läuft.
 
-|                                      | Ihr eigener Agent (außerhalb der App)                                                                                                                | Der Agent der App (in der App)                                                                                           |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Wo Sie ihn nutzen                    | In Ihrem Terminal oder Editor                                                                                                                        | Im Chat der App im Browser                                                                                               |
-| Woran er arbeitet                    | An den Dateien Ihres Projekts                                                                                                                        | An den Daten der App und dem Bildschirm, den Sie gerade ansehen                                                          |
-| Was er kann                          | Das Projekt erstellen, Pakete installieren, `pnpm dev` ausführen, Actions, Seiten und Datenbanktabellen schreiben und ändern und ein Deployment vorbereiten | Die Actions der App als Tools aufrufen, die Daten der App lesen und aktualisieren und Fragen zum Bildschirm beantworten |
-| Braucht ein mit der App verbundenes LLM | Nein, er nutzt sein eigenes Modell                                                                                                                | Ja. Siehe [Ein LLM verbinden](/docs/getting-started#connect-an-llm)                                                      |
-| Am besten geeignet für               | Die App bauen und ändern                                                                                                                             | Die App nutzen und ihre alltägliche Arbeit erledigen                                                                     |
+|                                         | Ihr eigener Agent (außerhalb der App)                                                                                                                       | Der Agent der App (in der App)                                                                                          |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Wo Sie ihn nutzen                       | In Ihrem Terminal oder Editor                                                                                                                               | Im Chat der App im Browser                                                                                              |
+| Woran er arbeitet                       | An den Dateien Ihres Projekts                                                                                                                               | An den Daten der App und dem Bildschirm, den Sie gerade ansehen                                                         |
+| Was er kann                             | Das Projekt erstellen, Pakete installieren, `pnpm dev` ausführen, Actions, Seiten und Datenbanktabellen schreiben und ändern und ein Deployment vorbereiten | Die Actions der App als Tools aufrufen, die Daten der App lesen und aktualisieren und Fragen zum Bildschirm beantworten |
+| Braucht ein mit der App verbundenes LLM | Nein, er nutzt sein eigenes Modell                                                                                                                          | Ja. Siehe [Ein LLM verbinden](/docs/getting-started#connect-an-llm)                                                     |
+| Am besten geeignet für                  | Die App bauen und ändern                                                                                                                                    | Die App nutzen und ihre alltägliche Arbeit erledigen                                                                    |
 
 Ihr eigener Agent baut die App. Der Agent der App betreibt sie. Wenn Ihr eigener Agent eine Action hinzufügt, kann der Agent der App sie sofort aufrufen, weil beide dieselbe Action nutzen.
 
