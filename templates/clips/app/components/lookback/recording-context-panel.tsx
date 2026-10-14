@@ -7,8 +7,6 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs";
-import { CLIPS_LOOKBACK_CONTEXT } from "@shared/labs";
 import { IconArrowsMaximize, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
@@ -83,25 +81,23 @@ export function useRecordingContextItems(
   );
 }
 
-// The Transcript tab's entry point. Renders nothing unless the lab is on and the
-// clip has context items, so clips without earlier screen time look unchanged.
-// Pass the definition to useLabState, not its bare key: a key reads as on until
-// the server answers.
+// The Transcript tab's entry point. Renders nothing unless the clip has context
+// items, so clips without earlier screen time look unchanged. It is shown to
+// every viewer of the clip: earlier screen time is shared with the clip.
 export function RecordingContextSection({
   recordingId,
+  canManage = true,
 }: {
   recordingId: string | undefined;
+  canManage?: boolean;
 }) {
-  const lab = useLabState(CLIPS_LOOKBACK_CONTEXT);
   const location = useLocation();
   const { session } = useSession();
   const queryClient = useQueryClient();
   useDbSync({
     queryClient,
     realtime:
-      isAuthenticatedRecordingPath(location.pathname, !!session) &&
-      lab.enabled &&
-      recordingId
+      isAuthenticatedRecordingPath(location.pathname, !!session) && recordingId
         ? {
             reason: "desktop finishes earlier screen time",
           }
@@ -118,22 +114,26 @@ export function RecordingContextSection({
           CONTEXT_SYNC_ACTIONS.has(event.key),
       ),
   });
-  const itemsQuery = useRecordingContextItems(recordingId, lab.enabled);
+  const itemsQuery = useRecordingContextItems(recordingId, true);
   const { isError, error } = itemsQuery;
   useEffect(() => {
     if (isError) captureClientException(error);
   }, [error, isError]);
 
-  if (!recordingId || !lab.enabled || !itemsQuery.data?.items.length) {
+  if (!recordingId || !itemsQuery.data?.items.length) {
     return null;
   }
-  return <RecordingContextPanel recordingId={recordingId} />;
+  return (
+    <RecordingContextPanel recordingId={recordingId} canManage={canManage} />
+  );
 }
 
 export function RecordingContextPanel({
   recordingId,
+  canManage = true,
 }: {
   recordingId: string;
+  canManage?: boolean;
 }) {
   const t = useT();
   const itemsQuery = useRecordingContextItems(recordingId, true);
@@ -160,7 +160,11 @@ export function RecordingContextPanel({
         <ul className="flex flex-col gap-5">
           {items.map((item) => (
             <li key={item.id}>
-              <ContextItemCard item={item} onRemoved={markRemoved} />
+              <ContextItemCard
+                item={item}
+                canManage={canManage}
+                onRemoved={markRemoved}
+              />
             </li>
           ))}
         </ul>
@@ -178,7 +182,7 @@ export function RecordingContextPanel({
   return (
     <div className="max-h-80 shrink-0 overflow-y-auto border-b border-border px-4 py-4">
       {content}
-      {visibleCount > 0 ? (
+      {visibleCount > 0 && canManage ? (
         <p className="mt-4 text-xs text-muted-foreground">
           {t("lookbackContext.editHint")}
         </p>
@@ -204,9 +208,11 @@ function ContextPanelSkeleton() {
 
 function ContextItemCard({
   item,
+  canManage,
   onRemoved,
 }: {
   item: RecordingContextItem;
+  canManage: boolean;
   onRemoved: (id: string) => void;
 }) {
   const t = useT();
@@ -264,7 +270,7 @@ function ContextItemCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {item.status === "failed" ? (
+          {item.status === "failed" && canManage ? (
             <Button
               type="button"
               variant="outline"
@@ -286,15 +292,17 @@ function ContextItemCard({
               {t("lookbackContext.larger")}
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="outline-destructive"
-            size="sm"
-            onClick={() => setRemoveOpen(true)}
-          >
-            <IconTrash className="size-4" aria-hidden="true" />
-            {t("lookbackContext.removeAction")}
-          </Button>
+          {canManage ? (
+            <Button
+              type="button"
+              variant="outline-destructive"
+              size="sm"
+              onClick={() => setRemoveOpen(true)}
+            >
+              <IconTrash className="size-4" aria-hidden="true" />
+              {t("lookbackContext.removeAction")}
+            </Button>
+          ) : null}
         </div>
       </div>
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>

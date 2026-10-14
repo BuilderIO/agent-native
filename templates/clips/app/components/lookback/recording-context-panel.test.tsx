@@ -25,7 +25,6 @@ const queryState = vi.hoisted(() => ({
   },
 }));
 
-const labState = vi.hoisted(() => ({ enabled: true }));
 const sessionState = vi.hoisted(() => ({ authenticated: true }));
 const queryOptions = vi.hoisted(() => ({
   current: undefined as
@@ -73,10 +72,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
-}));
-
-vi.mock("@agent-native/core/client/labs", () => ({
-  useLabState: () => ({ enabled: labState.enabled }),
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -382,7 +377,7 @@ describe("RecordingContextPanel", () => {
 });
 
 // The Transcript tab renders this section above the transcript; it owns the
-// lab and item gate, so these cases pin what the tab shows.
+// item gate, so these cases pin what the tab shows.
 describe("RecordingContextSection", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -394,7 +389,6 @@ describe("RecordingContextSection", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    labState.enabled = true;
     sessionState.authenticated = true;
     queryOptions.current = undefined;
     syncOptions.current = undefined;
@@ -420,7 +414,7 @@ describe("RecordingContextSection", () => {
     );
   }
 
-  it("renders the panel when the lab is on and the clip has items", () => {
+  it("renders the panel when the clip has items", () => {
     setQuery({
       isSuccess: true,
       isPending: false,
@@ -436,19 +430,38 @@ describe("RecordingContextSection", () => {
     );
   });
 
-  it("renders nothing and does not query when the lab is off, even with items", () => {
-    labState.enabled = false;
+  it("shows a viewer the context without remove or edit controls", () => {
     setQuery({
       isSuccess: true,
       isPending: false,
       data: { items: [item({})] },
     });
+    act(() =>
+      root.render(
+        <MemoryRouter initialEntries={["/r/rec_1"]}>
+          <QueryClientProvider client={queryClient}>
+            <RecordingContextSection recordingId="rec_1" canManage={false} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      ),
+    );
+    expect(container.textContent).toContain("Screen before recording");
+    expect(container.querySelector("video")).not.toBeNull();
+    expect(container.textContent).not.toContain("Remove earlier screen time");
+    expect(container.textContent).not.toContain(
+      "Edit the window in Clips Desktop.",
+    );
+  });
+
+  it("renders nothing for a clip without items", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [] },
+    });
     render();
     expect(container.innerHTML).toBe("");
-    expect(queryOptions.current?.enabled).toBe(false);
-    expect((syncOptions.current as { realtime?: unknown }).realtime).toBe(
-      undefined,
-    );
+    expect(queryOptions.current?.enabled).toBe(true);
   });
 
   it("refreshes only this clip's context when the desktop changes it", () => {

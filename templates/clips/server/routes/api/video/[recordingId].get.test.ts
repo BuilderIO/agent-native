@@ -79,7 +79,9 @@ vi.mock("../../../lib/share-password.js", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
   eq: vi.fn(),
+  ne: vi.fn(),
 }));
 
 vi.mock("../../../db/index.js", () => ({
@@ -90,6 +92,11 @@ vi.mock("../../../db/index.js", () => ({
       visibility: "recordings.visibility",
       videoUrl: "recordings.videoUrl",
       editsJson: "recordings.editsJson",
+    },
+    recordingContextItems: {
+      recordingId: "recordingContextItems.recordingId",
+      mediaRecordingId: "recordingContextItems.mediaRecordingId",
+      status: "recordingContextItems.status",
     },
   },
 }));
@@ -107,6 +114,22 @@ import handler from "./[recordingId].get";
 function createDbWithSelectResult(rows: unknown[]) {
   return {
     select: vi.fn(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => rows),
+      };
+      return builder;
+    }),
+  };
+}
+
+// Rows are handed out per select call, in order; later calls get no rows.
+function createDbWithSelectSequence(...results: unknown[][]) {
+  let call = 0;
+  return {
+    select: vi.fn(() => {
+      const rows = results[call++] ?? [];
       const builder = {
         from: vi.fn(() => builder),
         where: vi.fn(() => builder),
@@ -696,5 +719,80 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toBeInstanceOf(Response);
     expect(event.status).not.toBe(500);
     expect(fetch).toHaveBeenCalled();
+  });
+  describe("earlier-screen-time footage", () => {
+    const footageRow = {
+      visibility: "private",
+      videoUrl: "https://cdn.example.com/footage.mp4",
+      ownerEmail: "owner@example.com",
+      organizationId: null,
+    };
+
+    it("is served under the access of the clip it is attached to", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockImplementation(async (_type, id) =>
+        id === "clip-1"
+          ? {
+              role: "viewer",
+              resource: { visibility: "public", password: null },
+            }
+          : null,
+      );
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("media", {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(mockResolveAccess).toHaveBeenCalledWith("recording", "clip-1");
+      expect(mockResolveAccess).not.toHaveBeenCalledWith("recording", "rec-1");
+      expect(result).toBeInstanceOf(Response);
+      expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+        "https://cdn.example.com/footage.mp4",
+      );
+    });
+
+    it("is refused when the clip is private to the viewer", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ visibility: "private", organizationId: null }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue(null);
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(403);
+      expect(result).toEqual({ error: "Forbidden" });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("requires the clip's password, not the footage's", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: { visibility: "public", password: "hashed-secret" },
+      });
+
+      const event = makeEvent();
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(401);
+      expect(result).toEqual({
+        error: "Password required",
+        passwordRequired: true,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 });

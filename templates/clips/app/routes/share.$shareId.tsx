@@ -120,6 +120,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
+import { missingShareRetryDelayMs } from "@/lib/missing-share-retry";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   isRecordingWaitingForStorage,
@@ -395,8 +396,6 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
-const MISSING_SHARE_RETRY_LIMIT = 8;
-const MISSING_SHARE_RETRY_INTERVAL_MS = [250, 500, 1000, 2000] as const;
 
 function SharePageSkeleton() {
   return (
@@ -763,13 +762,12 @@ export default function ShareRoute() {
       const status = (q.state.data as { status?: number } | undefined)?.status;
       const updateCount =
         queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      if (
-        status === 404 &&
-        !loaderData.accessDeniedStatus &&
-        updateCount < MISSING_SHARE_RETRY_LIMIT
-      ) {
-        return MISSING_SHARE_RETRY_INTERVAL_MS[updateCount - 1] ?? 2000;
-      }
+      const retryDelay = missingShareRetryDelayMs({
+        status,
+        updateCount,
+        loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
+      });
+      if (retryDelay !== null) return retryDelay;
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -1246,13 +1244,13 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
-  // The loader sets accessDeniedStatus only after it found the recording, so a
-  // 404 from the API is then a denial, not a share row that isn't written yet.
   const retryingMissingShare =
-    dataQ.data?.status === 404 &&
-    !loaderData.accessDeniedStatus &&
-    (queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0) <
-      MISSING_SHARE_RETRY_LIMIT;
+    missingShareRetryDelayMs({
+      status: dataQ.data?.status,
+      updateCount:
+        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0,
+      loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
+    }) !== null;
 
   if (
     dataQ.isLoading ||

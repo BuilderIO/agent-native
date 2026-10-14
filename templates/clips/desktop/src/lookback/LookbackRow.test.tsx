@@ -115,12 +115,12 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 describe("LookbackRow with Rewind off", () => {
-  it("stays enabled and reads Rewind off without offering any preset", () => {
+  it("stays enabled and reads Off without offering any preset", () => {
     const handlers = render({ seconds: 30, rewindOn: false });
 
     expect(trigger().disabled).toBe(false);
-    expect(trigger().textContent).toContain("Rewind off");
-    expect(host.querySelector(".rewind-live-note")).toBeNull();
+    expect(trigger().textContent).toContain("Off");
+    expect(trigger().textContent).not.toContain("None");
     expect(trigger().textContent).not.toContain("30 s");
     expect(buttonWithText("Turn on Rewind")).toBeUndefined();
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
@@ -192,36 +192,29 @@ describe("LookbackRow with Rewind on", () => {
 
     openMenu();
     expect(menuItemTexts()).toEqual([
-      "Off",
+      "None",
       "30 s",
       "5 min",
       "45 s",
       "2 min",
       "Custom…",
-      "Turn off Rewind",
+      "Turn off",
       "What is this?",
     ]);
   });
 
-  it("says Rewind is still saving when Include last is Off and can turn it off", () => {
-    const handlers = render({ seconds: 0, rewindOn: true });
+  it("reads None when Include last is unset and shows no status note", () => {
+    render({ seconds: 0, rewindOn: true });
 
-    expect(trigger().textContent).toContain("Off");
-    expect(host.querySelector(".rewind-live-note")?.textContent).toContain(
-      "Rewind is saving recent screen time on this device.",
-    );
-
-    act(() =>
-      host.querySelector<HTMLButtonElement>(".rewind-live-off")?.click(),
-    );
-    expect(handlers.onTurnOffRewind).toHaveBeenCalledTimes(1);
+    expect(trigger().textContent).toContain("None");
+    expect(host.querySelector('[role="status"]')).toBeNull();
   });
 
   it("turns Rewind off from the menu without changing the length", () => {
     const handlers = render({ seconds: 300, rewindOn: true });
 
     openMenu();
-    act(() => menuItemWithText("Turn off Rewind")?.click());
+    act(() => menuItemWithText("Turn off")?.click());
 
     expect(handlers.onTurnOffRewind).toHaveBeenCalledTimes(1);
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();

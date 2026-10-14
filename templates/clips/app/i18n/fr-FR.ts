@@ -6,6 +6,7 @@ const messages = {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
     off: "Désactivé",
+    none: "Aucun",
     custom: "Personnalisé…",
     customLabel: "Durée personnalisée",
     customAmount: "Durée",
@@ -17,11 +18,7 @@ const messages = {
     customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
     customErrorTooLong: "Limitez-la à 5 min maximum.",
     turnOnRewind: "Activer Rewind",
-    rewindOff: "Rewind désactivé",
-    turnOffRewind: "Désactiver Rewind",
-    turnOff: "Désactiver",
-    rewindOnNote:
-      "Rewind enregistre l'historique récent de l'écran sur cet appareil.",
+    turnOffRewind: "Désactiver",
     turnOffRewindFailed:
       "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
     rewindOffTitle: "Activer Rewind",

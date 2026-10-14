@@ -78,7 +78,7 @@ export function LookbackRow({
   const valueLabel =
     shownSeconds > 0
       ? lookbackLabel(shownSeconds)
-      : t(rewindOn ? "lookbackContext.off" : "lookbackContext.rewindOff");
+      : t(rewindOn ? "lookbackContext.none" : "lookbackContext.off");
   const customErrorText = customError
     ? {
         empty: t("lookbackContext.customErrorEmpty"),
@@ -158,7 +158,7 @@ export function LookbackRow({
           onValueChange={(value) => onSecondsChange(Number(value))}
         >
           <DropdownMenuRadioItem value="0">
-            {t("lookbackContext.off")}
+            {t("lookbackContext.none")}
           </DropdownMenuRadioItem>
           {SCREEN_HISTORY_PRESETS.map((preset) => (
             <DropdownMenuRadioItem key={preset} value={String(preset)}>
@@ -243,95 +243,79 @@ export function LookbackRow({
   );
 
   return (
-    <>
-      <Popover open={customOpen} onOpenChange={setCustomOpen}>
-        <PopoverAnchor asChild>
-          <div className={`row ${disabled ? "row-off" : "row-on"} gap-2`}>
-            <span className="row-icon" aria-hidden>
-              <IconHistory size={20} stroke={1.75} />
-            </span>
-            {control}
-          </div>
-        </PopoverAnchor>
-        <PopoverContent
-          align="start"
-          side="bottom"
-          sideOffset={6}
-          data-popover-resize-overlay="true"
-          className="w-[248px] p-3"
-        >
-          <form className="grid gap-2" onSubmit={submitCustom}>
-            <span className="text-xs font-medium">
-              {t("lookbackContext.customLabel")}
-            </span>
-            <div className="flex items-center gap-2">
-              <Input
-                aria-label={t("lookbackContext.customAmount")}
-                inputMode="numeric"
-                autoComplete="off"
-                autoFocus
-                value={amount}
-                onChange={(event) => {
-                  setAmount(event.target.value);
-                  setCustomError(null);
-                }}
-                className="h-8 w-20"
-              />
-              <Select
-                value={unit}
-                onValueChange={(next) => setUnit(next as LookbackUnit)}
-              >
-                <SelectTrigger
-                  aria-label={t("lookbackContext.customUnit")}
-                  className="h-8 flex-1"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="seconds">
-                    {t("lookbackContext.unitSeconds")}
-                  </SelectItem>
-                  <SelectItem value="minutes">
-                    {t("lookbackContext.unitMinutes")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {customErrorText ? (
-              <p role="alert" className="text-xs text-destructive">
-                {customErrorText}
-              </p>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setCustomOpen(false)}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" size="sm">
-                {t("lookbackContext.customSave")}
-              </Button>
-            </div>
-          </form>
-        </PopoverContent>
-      </Popover>
-      {rewindOn ? (
-        <div className="rewind-live-note" role="status">
-          <span className="rewind-live-dot" aria-hidden />
-          <span className="flex-1">{t("lookbackContext.rewindOnNote")}</span>
-          <button
-            type="button"
-            className="rewind-live-off"
-            disabled={disabled}
-            onClick={onTurnOffRewind}
-          >
-            {t("lookbackContext.turnOff")}
-          </button>
+    <Popover open={customOpen} onOpenChange={setCustomOpen}>
+      <PopoverAnchor asChild>
+        <div className={`row ${disabled ? "row-off" : "row-on"} gap-2`}>
+          <span className="row-icon" aria-hidden>
+            <IconHistory size={20} stroke={1.75} />
+          </span>
+          {control}
         </div>
-      ) : null}
-    </>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        data-popover-resize-overlay="true"
+        className="w-[248px] p-3"
+      >
+        <form className="grid gap-2" onSubmit={submitCustom}>
+          <span className="text-xs font-medium">
+            {t("lookbackContext.customLabel")}
+          </span>
+          <div className="flex items-center gap-2">
+            <Input
+              aria-label={t("lookbackContext.customAmount")}
+              inputMode="numeric"
+              autoComplete="off"
+              autoFocus
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+                setCustomError(null);
+              }}
+              className="h-8 w-20"
+            />
+            <Select
+              value={unit}
+              onValueChange={(next) => setUnit(next as LookbackUnit)}
+            >
+              <SelectTrigger
+                aria-label={t("lookbackContext.customUnit")}
+                className="h-8 flex-1"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="seconds">
+                  {t("lookbackContext.unitSeconds")}
+                </SelectItem>
+                <SelectItem value="minutes">
+                  {t("lookbackContext.unitMinutes")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {customErrorText ? (
+            <p role="alert" className="text-xs text-destructive">
+              {customErrorText}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setCustomOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" size="sm">
+              {t("lookbackContext.customSave")}
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }

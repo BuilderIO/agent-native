@@ -18,11 +18,6 @@ describe("authenticated recording route loading", () => {
     expect(route).not.toContain("buildSignInReturnHref");
   });
 
-  it("does not poll a 404 as a missing share once the loader found the clip", () => {
-    const route = readRoute("share.$shareId.tsx");
-    expect(route.match(/!loaderData\.accessDeniedStatus &&/g)).toHaveLength(2);
-  });
-
   it("lets public shares proceed when session status is unavailable", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain("status: sessionStatus,");
@@ -109,9 +104,6 @@ describe("authenticated recording route loading", () => {
 
   it("keeps transient missing share records loading while retrying locally", () => {
     const route = readRoute("share.$shareId.tsx");
-    expect(route).toContain("const MISSING_SHARE_RETRY_LIMIT = 8;");
-    expect(route).toContain("status === 404 &&");
-    expect(route).toContain("updateCount < MISSING_SHARE_RETRY_LIMIT");
     expect(route).toContain("retryingMissingShare ||");
     expect(route).toContain("getQueryState(shareQueryKey)?.dataUpdateCount");
   });

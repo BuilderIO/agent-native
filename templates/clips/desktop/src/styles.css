@@ -500,46 +500,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
 }
 
-.rewind-live-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: -2px 0 4px;
-  padding: 0 10px 0 40px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--fg-muted);
-}
-
-.rewind-live-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 9999px;
-  background: #dc2626;
-}
-
-.rewind-live-off {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  font: inherit;
-  font-weight: 500;
-  color: var(--fg);
-  cursor: pointer;
-}
-
-.rewind-live-off:hover:not(:disabled) {
-  background: hsl(var(--ui-muted) / 0.8);
-}
-
-.rewind-live-off:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .media-device-row .row,
 .system-audio-row {
   display: grid;
