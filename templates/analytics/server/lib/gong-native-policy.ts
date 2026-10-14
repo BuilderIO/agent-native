@@ -23,7 +23,9 @@ function parsePolicy(
   scope: GongNativeInsightsPolicy["scope"],
 ): GongNativeInsightsPolicy {
   return {
-    enabled: value?.enabled === true,
+    // Unconfigured means on: Gong's semantic MCP is the answer path for
+    // account/deal questions, and a stored value fails closed unless it is true.
+    enabled: value == null ? true : value.enabled === true,
     configured: value != null,
     scope,
     updatedAt: typeof value?.updatedAt === "string" ? value.updatedAt : null,

@@ -1126,6 +1126,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
+      "To answer a question about a Gong account, deal, customer, or topic, use Gong's connected MCP tools (ask_account, ask_deal, generate_brief) when available; Gong searches the calls server-side and answers in one request. Do not page /calls or /calls/extensive to answer a question. Use the REST endpoints below only for exact counts, verbatim quotes, or proof of absence across all calls.",
       "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
       "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
     ],

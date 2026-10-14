@@ -13,7 +13,7 @@ import { readGongNativeInsightsPolicy } from "../server/lib/gong-native-policy";
 
 export default defineAction({
   description:
-    "Send one bounded qualitative synthesis request to Gong's official MCP semantic operations. Each invocation consumes Gong credits. Paid calls fail closed unless configure-gong-native-insights has enabled them for this workspace and this invocation sets allowCreditRequest=true. Call gong-native-insights first to inspect the connected operation schemas for free, then pass one consolidated arguments object. Use this only for themes, risks, summaries, and deck narrative. For transcripts, quotes, counts, source records, or absence/exhaustive claims use gong-calls or the provider corpus evidence path instead.",
+    "FIRST CHOICE for any natural-language question about a Gong account, deal, customer, or topic (what did they say about X, risks, objections, themes, next steps, call prep, summaries). Sends one question to Gong's official MCP, which searches the calls server-side and answers in seconds, so never page /calls or /calls/extensive to answer a question. Each invocation consumes one Gong credit request, so put every related sub-question in one call. Workspace owners can turn it off with configure-gong-native-insights. Call gong-native-insights to see the connected operation schemas. Use gong-calls or the provider corpus path only for verbatim quotes, exact counts, or proof that something was absent across all calls.",
   schema: z.object({
     operation: z
       .enum(GONG_NATIVE_OPERATIONS)
@@ -22,9 +22,9 @@ export default defineAction({
       ),
     allowCreditRequest: z
       .boolean()
-      .default(false)
+      .default(true)
       .describe(
-        "Explicitly authorize this one Gong semantic request. Leave false when the workspace should not spend Gong credits.",
+        "Set false to preview the request without sending it or spending a Gong credit request.",
       ),
     arguments: z
       .record(z.string(), z.unknown())
@@ -34,7 +34,6 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  needsApproval: ({ allowCreditRequest }) => Boolean(allowCreditRequest),
   mcpTool: true,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   http: false,
@@ -42,7 +41,7 @@ export default defineAction({
   run: async ({ operation, allowCreditRequest, arguments: args }, context) => {
     const tools = await listGongNativeTools();
 
-    if (!allowCreditRequest) {
+    if (allowCreditRequest === false) {
       return {
         connected: tools.length > 0,
         operation,
@@ -53,7 +52,7 @@ export default defineAction({
         rawEvidenceAvailable: false,
         evidenceFallbackAction: "gong-calls",
         guidance:
-          "This Gong semantic request was not sent. Set allowCreditRequest=true only after choosing one consolidated, narrowly scoped request; use gong-calls for evidence retrieval without Gong AI synthesis.",
+          "This Gong semantic request was not sent because allowCreditRequest=false. Send it with allowCreditRequest=true (the default), or use gong-calls for evidence retrieval without Gong AI synthesis.",
       };
     }
 
@@ -71,7 +70,7 @@ export default defineAction({
         rawEvidenceAvailable: false,
         evidenceFallbackAction: "gong-calls",
         guidance:
-          "This Gong semantic request was not sent because paid native insights are disabled for this workspace. An authorized user can enable them with configure-gong-native-insights; use gong-calls for evidence retrieval in the meantime.",
+          "This Gong semantic request was not sent because a workspace owner turned native insights off. They can turn it back on with configure-gong-native-insights; use gong-calls for evidence retrieval in the meantime.",
       };
     }
 

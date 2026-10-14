@@ -46,22 +46,14 @@ describe("run-gong-native-insight", () => {
     });
   });
 
-  it("requires approval before an explicitly authorized paid request", () => {
-    expect(typeof action.needsApproval).toBe("function");
-    if (typeof action.needsApproval !== "function") return;
+  it("sends by default without a per-call approval or credit flag", async () => {
+    expect(action.needsApproval).toBeUndefined();
+    callMcpToolMock.mockResolvedValue({ answer: "ok" });
 
-    expect(
-      action.needsApproval({
-        operation: "ask_account",
-        allowCreditRequest: true,
-      }),
-    ).toBe(true);
-    expect(
-      action.needsApproval({
-        operation: "ask_account",
-        allowCreditRequest: false,
-      }),
-    ).toBe(false);
+    await expect(
+      action.run({ operation: "ask_account", arguments: { account: "Acme" } }),
+    ).resolves.toMatchObject({ creditRequests: 1 });
+    expect(callMcpToolMock).toHaveBeenCalledOnce();
   });
 
   it("passes one consolidated request to the connected Gong operation", async () => {
