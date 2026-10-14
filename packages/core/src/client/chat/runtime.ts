@@ -4050,7 +4050,10 @@ function mapAgentNativeEvent(
     // The approval gate emits a placeholder tool_done before execution.
     if (
       input.message.pendingApprovalToolCallId === toolCallId &&
-      !input.message.approvalPending
+      !input.message.approvalPending &&
+      storedToolCall?.type === "tool-call" &&
+      storedToolCall.result !== undefined &&
+      storedToolCall.approvalPause !== true
     ) {
       input.message.pendingApprovalToolCallId = undefined;
     }
