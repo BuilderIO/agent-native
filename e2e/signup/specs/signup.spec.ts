@@ -223,11 +223,10 @@ for (const target of targets) {
     });
 
     if (target.app === "chat") {
-      await test.step("wait for Chat to finish its first-run thread handoff", async () => {
-        await verificationPage.waitForURL(
-          (url) => /^\/chat\/[^/]+\/?$/.test(url.pathname),
-          { waitUntil: "domcontentloaded" },
-        );
+      await test.step("confirm Chat's Get started landing", async () => {
+        await expect
+          .poll(() => new URL(verificationPage.url()).pathname)
+          .toBe("/home");
       });
     }
 
