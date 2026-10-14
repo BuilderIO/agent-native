@@ -24,6 +24,12 @@ import {
 
 const REQUIRED_CORE_COVERAGE = [
   {
+    shard: "position-1b",
+    file: "select-layer-context-menu.spec.ts",
+    title:
+      "Select layer on a non-active overview screen preserves exact screen and layer identity",
+  },
+  {
     shard: "drag-1a",
     file: "interaction-selection.spec.ts",
     title: "cmd+click deep-selects Kid B directly with no prior selection",
@@ -222,6 +228,28 @@ const REQUIRED_CORE_COVERAGE = [
     title:
       "Cmd+Shift+R places a zero-size flow text root at its measured origin",
   },
+  {
+    shard: "inspector-1b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R places a stylesheet-sized transformed copy at the target bounds",
+  },
+  {
+    shard: "drag-1b",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R replaces wrapped inline text at its measured origin",
+  },
+  {
+    shard: "position-1a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R preserves a top-only transform origin on the copied layer",
+  },
+  {
+    shard: "position-2a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R places a margin-offset copy at the target bounds",
+  },
 ] as const;
 
 test("required core Design interaction coverage has explicit regression pins", () => {
@@ -243,7 +271,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 75);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 80);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

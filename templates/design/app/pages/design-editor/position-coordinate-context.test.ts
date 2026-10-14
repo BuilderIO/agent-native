@@ -271,6 +271,65 @@ describe("measurePositionCoordinateContext board render offset", () => {
 });
 
 describe("measureAbsoluteSiblingVisualOrigin", () => {
+  it("measures an inline target whose used dimensions are auto", () => {
+    const parent = document.createElement("div");
+    parent.style.cssText =
+      "position:relative;width:300px;height:200px;box-sizing:border-box";
+    mockRect(parent, { x: 100, y: 200, width: 300, height: 200 });
+    mockSingleClientRect(parent);
+    append(parent);
+    const target = document.createElement("span");
+    target.style.cssText = "display:inline;width:auto;height:auto";
+    mockRect(target, { x: 145, y: 257, width: 80, height: 20 });
+    target.getClientRects = () =>
+      [target.getBoundingClientRect()] as unknown as DOMRectList;
+    parent.appendChild(target);
+    expect(
+      measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+    ).toEqual({ x: 45, y: 57 });
+  });
+
+  it("measures every wrapped inline fragment through a skewed parent", () => {
+    stubMatrixReadOnly();
+    const parent = document.createElement("div");
+    parent.style.cssText =
+      "position:relative;width:300px;height:200px;box-sizing:border-box;transform:matrix(1, 1, 1, 2, 0, 0)";
+    mockRect(parent, { x: 100, y: 200, width: 500, height: 700 });
+    mockSingleClientRect(parent);
+    append(parent);
+    const target = document.createElement("span");
+    target.style.cssText = "display:inline;width:auto;height:auto";
+    mockRect(target, { x: 202, y: 359, width: 100, height: 131 });
+    target.getClientRects = () =>
+      [
+        { x: 202, y: 359, width: 100, height: 120 },
+        { x: 210, y: 400, width: 70, height: 90 },
+      ] as unknown as DOMRectList;
+    parent.appendChild(target);
+    expect(
+      measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+    ).toEqual({ x: 20, y: 57 });
+  });
+
+  it("reports unknown when fragment dimensions cannot be recovered uniquely", () => {
+    stubMatrixReadOnly();
+    const parent = document.createElement("div");
+    parent.style.cssText =
+      "position:relative;width:300px;height:200px;box-sizing:border-box;transform:matrix(1, 1, -1, 1, 0, 0)";
+    mockRect(parent, { x: -100, y: 200, width: 500, height: 500 });
+    mockSingleClientRect(parent);
+    append(parent);
+    const target = document.createElement("span");
+    target.style.cssText = "display:inline;width:auto;height:auto";
+    mockRect(target, { x: 68, y: 302, width: 100, height: 100 });
+    target.getClientRects = () =>
+      [target.getBoundingClientRect()] as unknown as DOMRectList;
+    parent.appendChild(target);
+    expect(
+      measureAbsoluteSiblingVisualOrigin(target, window, { x: 0, y: 0 }),
+    ).toBeNull();
+  });
+
   it.each([
     [
       "throws",

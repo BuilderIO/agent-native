@@ -4091,7 +4091,13 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
-    if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
+    if (
+      parent.type === "text" &&
+      INLINE_TEXT_TAGS.has(node.tag) &&
+      node.layerNameSource !== "attribute"
+    ) {
+      continue;
+    }
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
     childIds.add(treeNode.id);

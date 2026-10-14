@@ -26,12 +26,16 @@ import type {
   Point,
   VisibleCanvasRect,
 } from "@/components/design/multi-screen/types";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  PortableStyleSnapshot,
+} from "@/components/design/types";
 import {
   getDesignClipboardLayerEntries,
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
+import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -43,6 +47,7 @@ import {
   figmaPasteImageNoticeDismissed,
 } from "@/lib/figma-paste-image-notice";
 
+import { measurePreparedCloneVisualOffset } from "../clone-and-pen-edit";
 import {
   bridgeSourceIdForCodeLayerNode,
   elementInfoFromCodeLayerNode,
@@ -78,6 +83,7 @@ import {
 } from "../commands/system-clipboard-paste";
 import { runUngroupSelection } from "../commands/ungroup-selection";
 import { withMeasuredGeometry } from "../editor-helpers";
+import { isStandaloneHttpUrl } from "../editor-state";
 import { resolveFigmaPasteScene } from "../figma-paste-scene";
 import {
   autoHeightScreenIds,
@@ -87,6 +93,7 @@ import {
   getBoardSelectionFitBounds,
 } from "../overview-camera";
 import { resolvePastePlacementForSelection } from "../paste-placement";
+import { positionCoordinateRenderOffsetForWindow } from "../position-coordinate-context";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
@@ -232,9 +239,11 @@ export function useEditorClipboard({
   const { recordPendingLiveStructureEdit } = editorScreenChangeHandlers;
 
   const getRenderedElementInfoForSelector = useCallback(
-    (selector: string): ElementInfo | null => {
-      if (!activeFile) return null;
-      const projection = buildCodeLayerProjection(getFreshActiveContent(), {
+    (selector: string): ElementInfo | null | undefined => {
+      if (!activeFile) return undefined;
+      const content = getFreshActiveContent();
+      if (isStandaloneHttpUrl(activeFile.content ?? content)) return undefined;
+      const projection = buildCodeLayerProjection(content, {
         source: { kind: "design-file", fileId: activeFile.id },
       });
       const node = projection.nodes.find((candidate) =>
@@ -249,6 +258,58 @@ export function useEditorClipboard({
       return measured.absoluteSiblingVisualOrigin ? measured : null;
     },
     [activeFile, getFreshActiveContent],
+  );
+  const getPreparedCloneVisualOffset = useCallback(
+    (
+      selector: string,
+      layerHtml: string,
+      styleSnapshot?: PortableStyleSnapshot,
+      managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot,
+      sourceFileId?: string,
+    ):
+      | { x: number; y: number; styleSnapshot?: PortableStyleSnapshot }
+      | null
+      | undefined => {
+      if (!activeFile || typeof document === "undefined") return undefined;
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(activeFile.id)}"]`,
+      );
+      if (!frame) return undefined;
+      let view: Window | null;
+      let doc: Document | null;
+      try {
+        view = frame.contentWindow;
+        doc = frame.contentDocument;
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name === "SecurityError"
+        ) {
+          return undefined;
+        }
+        throw error;
+      }
+      if (!view || !doc) return undefined;
+      try {
+        const target = doc.querySelector(selector);
+        const renderOffset = positionCoordinateRenderOffsetForWindow(view);
+        if (!target || !renderOffset) return null;
+        return measurePreparedCloneVisualOffset(target, layerHtml, {
+          styleSnapshot,
+          managedStyleSnapshot,
+          preserveSourceAuthoredRootStyles:
+            sourceFileId !== undefined && sourceFileId === activeFile.id,
+          view,
+          renderOffset,
+        });
+      } catch {
+        // coercion-ok: inaccessible preview geometry makes paste-to-replace fail visibly.
+        return null;
+      }
+    },
+    [activeFile?.id],
   );
 
   const canUploadDesignMedia =
@@ -1220,6 +1281,7 @@ export function useEditorClipboard({
             getCanvasClipboardEntries,
             getFreshActiveContent,
             getRenderedElementInfoForSelector,
+            getPreparedCloneVisualOffset,
             runtimeStructureInsertRevisionRef,
             selectInsertedLayers,
             selectedCanvasSelector,
@@ -1253,6 +1315,7 @@ export function useEditorClipboard({
       getCanvasClipboardEntries,
       getFreshActiveContent,
       getRenderedElementInfoForSelector,
+      getPreparedCloneVisualOffset,
       selectedCanvasSelector,
       selectInsertedLayers,
       selectedElement?.boundingRect,

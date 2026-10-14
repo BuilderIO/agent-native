@@ -3,6 +3,8 @@
 import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
+import type { PortableStyleSnapshot } from "@/components/design/types";
+
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
 import type { DesignFile } from "../types";
 import { runPasteToReplace } from "./paste-to-replace";
@@ -65,6 +67,458 @@ describe("runPasteToReplace with pasted OS content", () => {
       );
     },
   );
+
+  it("uses measured clone bounds for stylesheet-sized paste replacement", () => {
+    const target = buildCodeLayerProjection(CONTENT_WITH_IDS, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.style.top === "40px")!;
+    const applyLocalContentUpdate = vi.fn();
+    const getPreparedCloneVisualOffset = vi.fn(() => ({ x: 13, y: 17 }));
+    const layerHtml =
+      '<div class="responsive-card" data-agent-native-layer-name="Frame" style="position:absolute;width:auto;height:auto;margin-left:13px;margin-top:17px;transform:scale(1.2);transform-origin:top">Frame</div>';
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content: CONTENT_WITH_IDS } as DesignFile,
+        applyLocalContentUpdate,
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => CONTENT_WITH_IDS,
+        getRenderedElementInfoForSelector: () => ({
+          tagName: "div",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          absoluteSiblingVisualOrigin: { x: 300, y: 40 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        }),
+        getPreparedCloneVisualOffset,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: target.selectors[0]!,
+        selectedElement: {
+          tagName: "div",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest: vi.fn(),
+        t: (key) => key,
+      },
+      layerHtml,
+    );
+
+    expect(getPreparedCloneVisualOffset).toHaveBeenCalledWith(
+      target.selectors[0],
+      layerHtml,
+      undefined,
+      undefined,
+      undefined,
+    );
+    const next = applyLocalContentUpdate.mock.calls[0]![0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Frame"]',
+    )!;
+    expect([replacement.style.left, replacement.style.top]).toEqual([
+      "287px",
+      "23px",
+    ]);
+    expect([replacement.style.width, replacement.style.height]).toEqual([
+      "auto",
+      "auto",
+    ]);
+    expect([replacement.style.marginLeft, replacement.style.marginTop]).toEqual(
+      ["13px", "17px"],
+    );
+    expect(replacement.style.transformOrigin).toBe("top");
+    expect(
+      doc.querySelector('[data-agent-native-node-id="target"]'),
+    ).toBeNull();
+  });
+
+  it("uses the measured same-file root snapshot while preserving descendant styles", () => {
+    const target = buildCodeLayerProjection(CONTENT_WITH_IDS, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.style.top === "40px")!;
+    const applyLocalContentUpdate = vi.fn();
+    const layerHtml =
+      '<div class="authored-card" data-agent-native-layer-name="Frame"><span>Child</span></div>';
+    const sourceSnapshot: PortableStyleSnapshot = {
+      version: 1 as const,
+      nodes: [
+        { path: [], styles: { color: "rgb(12, 34, 56)" } },
+        { path: [0], styles: { fontWeight: "700" } },
+      ],
+    };
+    const prunedSnapshot: PortableStyleSnapshot = {
+      version: 1 as const,
+      nodes: [
+        { path: [], styles: {} },
+        { path: [0], styles: { fontWeight: "700" } },
+      ],
+    };
+    const getPreparedCloneVisualOffset = vi.fn(() => ({
+      x: 13,
+      y: 17,
+      styleSnapshot: prunedSnapshot,
+    }));
+
+    runPasteToReplace({
+      activeFile: { id: "screen-1", content: CONTENT_WITH_IDS } as DesignFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      getCanvasClipboardEntries: () => [
+        {
+          html: layerHtml,
+          sourceFileId: "screen-1",
+          portableStyleSnapshot: sourceSnapshot,
+        },
+      ],
+      getFreshActiveContent: () => CONTENT_WITH_IDS,
+      getRenderedElementInfoForSelector: () => ({
+        tagName: "div",
+        selector: target.selectors[0]!,
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+        absoluteSiblingVisualOrigin: { x: 300, y: 40 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+      getPreparedCloneVisualOffset,
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectInsertedLayers: vi.fn(),
+      selectedCanvasSelector: target.selectors[0]!,
+      selectedElement: {
+        tagName: "div",
+        selector: target.selectors[0]!,
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      setRuntimeStructureInsertRequest: vi.fn(),
+      t: (key) => key,
+    });
+
+    expect(getPreparedCloneVisualOffset).toHaveBeenCalledWith(
+      target.selectors[0],
+      layerHtml,
+      sourceSnapshot,
+      undefined,
+      "screen-1",
+    );
+    const next = applyLocalContentUpdate.mock.calls[0]![0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Frame"]',
+    )!;
+    expect(replacement.style.color).toBe("");
+    expect(replacement.getAttribute("data-agent-native-preserve-styles")).toBe(
+      "true",
+    );
+    expect(replacement.querySelector("span")?.style.fontWeight).toBe("700");
+  });
+
+  it("keeps the original portable snapshot for a cross-screen replacement", () => {
+    const target = buildCodeLayerProjection(CONTENT_WITH_IDS, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.style.top === "40px")!;
+    const applyLocalContentUpdate = vi.fn();
+    const layerHtml =
+      '<div class="authored-card" data-agent-native-layer-name="Frame">Frame</div>';
+    const snapshot = {
+      version: 1 as const,
+      nodes: [{ path: [], styles: { color: "rgb(12, 34, 56)" } }],
+    };
+    const getPreparedCloneVisualOffset = vi.fn(() => ({ x: 13, y: 17 }));
+
+    runPasteToReplace({
+      activeFile: { id: "screen-1", content: CONTENT_WITH_IDS } as DesignFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      getCanvasClipboardEntries: () => [
+        {
+          html: layerHtml,
+          sourceFileId: "screen-source",
+          portableStyleSnapshot: snapshot,
+        },
+      ],
+      getFreshActiveContent: () => CONTENT_WITH_IDS,
+      getRenderedElementInfoForSelector: () => ({
+        tagName: "div",
+        selector: target.selectors[0]!,
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+        absoluteSiblingVisualOrigin: { x: 300, y: 40 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }),
+      getPreparedCloneVisualOffset,
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectInsertedLayers: vi.fn(),
+      selectedCanvasSelector: target.selectors[0]!,
+      selectedElement: {
+        tagName: "div",
+        selector: target.selectors[0]!,
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      setRuntimeStructureInsertRequest: vi.fn(),
+      t: (key) => key,
+    });
+
+    expect(getPreparedCloneVisualOffset).toHaveBeenCalledWith(
+      target.selectors[0],
+      layerHtml,
+      snapshot,
+      undefined,
+      "screen-source",
+    );
+    const next = applyLocalContentUpdate.mock.calls[0]![0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Frame"]',
+    )!;
+    expect(replacement.style.color).toBe("rgb(12, 34, 56)");
+  });
+
+  it("leaves source content unchanged when clone geometry is unavailable", () => {
+    const target = buildCodeLayerProjection(CONTENT_WITH_IDS, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.style.top === "40px")!;
+    const applyLocalContentUpdate = vi.fn();
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content: CONTENT_WITH_IDS } as DesignFile,
+        applyLocalContentUpdate,
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => CONTENT_WITH_IDS,
+        getRenderedElementInfoForSelector: () => ({
+          tagName: "div",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          absoluteSiblingVisualOrigin: { x: 300, y: 40 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        }),
+        getPreparedCloneVisualOffset: () => null,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: target.selectors[0]!,
+        selectedElement: {
+          tagName: "div",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest: vi.fn(),
+        t: (key) => key,
+      },
+      '<div data-agent-native-layer-name="Frame" style="width:auto;height:auto">Frame</div>',
+    );
+
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the trusted target position path when same-origin geometry is absent", () => {
+    const target = buildCodeLayerProjection(CONTENT_WITH_IDS, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find((node) => node.style.top === "40px")!;
+    const applyLocalContentUpdate = vi.fn();
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content: CONTENT_WITH_IDS } as DesignFile,
+        applyLocalContentUpdate,
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => CONTENT_WITH_IDS,
+        getRenderedElementInfoForSelector: () => ({
+          tagName: "div",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          absoluteSiblingVisualOrigin: { x: 300, y: 40 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        }),
+        getPreparedCloneVisualOffset: () => undefined,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: target.selectors[0]!,
+        selectedElement: {
+          tagName: "div",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest: vi.fn(),
+        t: (key) => key,
+      },
+      '<div data-agent-native-layer-name="Frame" style="position:absolute;width:24px;height:24px">Frame</div>',
+    );
+
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    const next = applyLocalContentUpdate.mock.calls[0]![0] as string;
+    const doc = new DOMParser().parseFromString(next, "text/html");
+    const replacement = doc.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Frame"]',
+    )!;
+    expect([replacement.style.left, replacement.style.top]).toEqual([
+      "300px",
+      "40px",
+    ]);
+  });
+
+  it("keeps trusted live-url geometry when the source projection is unavailable", () => {
+    const activeUrl = "http://localhost:8210/preview";
+    const setRuntimeStructureInsertRequest = vi.fn();
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content: activeUrl } as DesignFile,
+        applyLocalContentUpdate: vi.fn(),
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => activeUrl,
+        getRenderedElementInfoForSelector: () => undefined,
+        getPreparedCloneVisualOffset: () => undefined,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: "#target",
+        selectedElement: {
+          tagName: "div",
+          selector: "#target",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 300, y: 40, width: 200, height: 100 },
+          runtimeSelector: "#runtime-target",
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest,
+        t: (key) => key,
+      },
+      '<div data-agent-native-layer-name="Frame" style="position:absolute;width:24px;height:24px">Frame</div>',
+    );
+
+    expect(setRuntimeStructureInsertRequest).toHaveBeenCalledOnce();
+    const request = setRuntimeStructureInsertRequest.mock.calls[0]![0];
+    const prepared = new DOMParser().parseFromString(request.html, "text/html");
+    const replacement = prepared.querySelector<HTMLElement>(
+      '[data-agent-native-layer-name="Frame"]',
+    )!;
+    expect([replacement.style.left, replacement.style.top]).toEqual([
+      "300px",
+      "40px",
+    ]);
+    expect(request.anchor.selector).toBe("#runtime-target");
+  });
+
+  it("does not use trusted live-url geometry after a direct clone measurement fails", () => {
+    const activeUrl = "http://localhost:8210/preview";
+    const setRuntimeStructureInsertRequest = vi.fn();
+    const toastError = vi.spyOn(toast, "error");
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content: activeUrl } as DesignFile,
+        applyLocalContentUpdate: vi.fn(),
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => activeUrl,
+        getRenderedElementInfoForSelector: () => undefined,
+        getPreparedCloneVisualOffset: () => null,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: "#target",
+        selectedElement: {
+          tagName: "div",
+          selector: "#target",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 300, y: 40, width: 200, height: 100 },
+          runtimeSelector: "#runtime-target",
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest,
+        t: (key) => key,
+      },
+      '<div data-agent-native-layer-name="Frame" style="position:absolute;width:24px;height:24px">Frame</div>',
+    );
+
+    expect(setRuntimeStructureInsertRequest).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+    toastError.mockRestore();
+  });
+
+  it("does not use trusted live-url geometry after target measurement fails", () => {
+    const activeUrl = "http://localhost:8210/preview";
+    const setRuntimeStructureInsertRequest = vi.fn();
+    const toastError = vi.spyOn(toast, "error");
+
+    runPasteToReplace(
+      {
+        activeFile: { id: "screen-1", content: activeUrl } as DesignFile,
+        applyLocalContentUpdate: vi.fn(),
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => activeUrl,
+        getRenderedElementInfoForSelector: () => null,
+        getPreparedCloneVisualOffset: () => undefined,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: "#target",
+        selectedElement: {
+          tagName: "div",
+          selector: "#target",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 300, y: 40, width: 200, height: 100 },
+          runtimeSelector: "#runtime-target",
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest,
+        t: (key) => key,
+      },
+      '<div data-agent-native-layer-name="Frame" style="position:absolute;width:24px;height:24px">Frame</div>',
+    );
+
+    expect(setRuntimeStructureInsertRequest).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+    toastError.mockRestore();
+  });
 
   it("replaces the enclosing whole-text layer when a nested span is selected", () => {
     const content = `<!doctype html><html><body><main data-agent-native-node-id="root"><section data-agent-native-node-id="holder" data-agent-native-layer-name="Holder" style="position:absolute;left:120px;top:120px;width:500px;height:320px"><div data-agent-native-node-id="caption" data-agent-native-layer-name="Caption" style="position:absolute;left:40px;top:60px;font-size:28px"><span style="text-decoration: underline">klsajfk</span></div></section></main></body></html>`;

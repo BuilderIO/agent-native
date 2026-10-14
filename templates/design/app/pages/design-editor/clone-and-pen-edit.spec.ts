@@ -17,14 +17,68 @@ import {
 } from "@shared/component-model";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { PortableStyleSnapshot } from "@/components/design/types";
+
 import {
   insertClonedHtmlLayers,
   extractLayerPosition,
+  measurePreparedCloneVisualOffset,
   prepareClonedHtmlLayersForLiveInsert,
   preserveClipboardLayerName,
 } from "./clone-and-pen-edit";
 
 const LIVE_URL = "http://localhost:5173/products?preview=1";
+
+function testRect(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): DOMRect {
+  return {
+    x,
+    y,
+    width,
+    height,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+    left: x,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function mockPreparedProbeGeometry(
+  parent: HTMLElement,
+  onProbeRect?: (element: Element) => void,
+) {
+  const getClientRects = vi
+    .spyOn(Element.prototype, "getClientRects")
+    .mockImplementation(function (this: Element) {
+      return this === parent ||
+        this.getAttribute("data-agent-native-edit-overlay") ===
+          "paste-position-probe"
+        ? ([testRect(0, 0, 400, 300)] as unknown as DOMRectList)
+        : ([] as unknown as DOMRectList);
+    });
+  const getBoundingClientRect = vi
+    .spyOn(Element.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: Element) {
+      if (this === parent) return testRect(0, 0, 400, 300);
+      if (
+        this.getAttribute("data-agent-native-edit-overlay") ===
+        "paste-position-probe"
+      ) {
+        onProbeRect?.(this);
+        return testRect(0, 0, 100, 50);
+      }
+      return testRect(0, 0, 0, 0);
+    });
+  return () => {
+    getClientRects.mockRestore();
+    getBoundingClientRect.mockRestore();
+  };
+}
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -142,19 +196,372 @@ describe("extractLayerPosition", () => {
     expect(clone.style.top).toBe("85px");
   });
 
-  it("pastes a rotated layer with no explicit height instead of refusing the clone", () => {
+  it("pastes an auto-height rotated card with measured visual geometry", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
         '<div style="position:absolute;left:40px;top:60px;width:260px;transform:rotate(2deg)">Card</div>',
       ],
-      { positions: [{ x: 50, y: 40, space: "visual" }] },
+      {
+        positions: [
+          {
+            x: 50,
+            y: 40,
+            space: "visual",
+            visualOffset: { x: -2, y: -5 },
+          },
+        ],
+      },
     );
 
     expect(result).not.toBeNull();
     const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
-    expect(clone.style.left).toBe("50px");
-    expect(clone.style.top).toBe("40px");
+    expect([clone.style.left, clone.style.top]).toEqual(["52px", "45px"]);
+    expect(clone.style.width).toBe("260px");
+    expect(clone.style.height).toBe("");
+    expect(clone.style.transform).toBe("rotate(2deg)");
+  });
+
+  it("preserves fractional visual offsets when placing a clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      ['<div style="width:100px;height:50px">Card</div>'],
+      {
+        positions: [
+          {
+            x: 34,
+            y: 109,
+            space: "visual",
+            visualOffset: { x: 0.25, y: 0.75 },
+          },
+        ],
+      },
+    );
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect([clone.style.left, clone.style.top]).toEqual([
+      "33.75px",
+      "108.25px",
+    ]);
+  });
+
+  it("refuses visual placement when auto transformed geometry was not measured", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div class="responsive-card" style="position:absolute;width:auto;height:auto;transform:rotate(2deg)">Card</div>',
+      ],
+      { positions: [{ x: 50, y: 40, space: "visual" }] },
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("normalizes a single top transform-origin keyword", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 0;
+        readonly b = 1;
+        readonly c = -1;
+        readonly d = 0;
+        readonly e = 0;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="width:100px;height:50px;transform:rotate(90deg);transform-origin:top">Card</div>',
+      ],
+      { positions: [{ x: 50, y: 60, space: "visual" }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect([clone.style.left, clone.style.top]).toEqual(["50px", "110px"]);
+    expect(clone.style.transformOrigin).toBe("top");
+  });
+
+  it("includes explicit pixel margins in unmeasured visual placement", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 1;
+        readonly b = 0;
+        readonly c = 0;
+        readonly d = 1;
+        readonly e = 5;
+        readonly f = 6;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="width:100px;height:50px;margin-left:13px;margin-top:17px;transform:translate(5px,6px)">Card</div>',
+      ],
+      { positions: [{ x: 50, y: 40, space: "visual" }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect([clone.style.left, clone.style.top]).toEqual(["32px", "17px"]);
+    expect([clone.style.marginLeft, clone.style.marginTop]).toEqual([
+      "13px",
+      "17px",
+    ]);
+  });
+
+  it("cleans the preview probe and imported styles when geometry is unavailable", () => {
+    const parent = document.createElement("div");
+    parent.style.position = "relative";
+    const target = document.createElement("div");
+    parent.append(target);
+    document.body.append(parent);
+    Object.defineProperty(parent, "getBoxQuads", {
+      value: () => [
+        {
+          p1: { x: 0, y: 0 },
+          p2: { x: 300, y: 0 },
+          p3: { x: 300, y: 200 },
+          p4: { x: 0, y: 200 },
+        },
+      ],
+    });
+
+    const observedProbeWithStyles: boolean[] = [];
+    const getClientRects = vi
+      .spyOn(Element.prototype, "getClientRects")
+      .mockImplementation(function (this: Element) {
+        if (
+          this.getAttribute("data-agent-native-edit-overlay") ===
+          "paste-position-probe"
+        ) {
+          observedProbeWithStyles.push(
+            parent.contains(this) &&
+              this.nextElementSibling === target &&
+              document.head.querySelector(
+                'style[data-agent-native-breakpoints][data-agent-native-edit-overlay="paste-position-probe-style"]',
+              ) !== null,
+          );
+        }
+        return [] as unknown as DOMRectList;
+      });
+
+    let offset: { x: number; y: number } | null;
+    try {
+      offset = measurePreparedCloneVisualOffset(
+        target,
+        '<div data-agent-native-node-id="source" class="copy-card" style="width:auto;height:auto;transform:scale(1.2)">Card</div>',
+        {
+          managedStyleSnapshot: {
+            version: 1,
+            breakpoints: [
+              {
+                maxWidthPx: 900,
+                nodeId: "source",
+                property: "width",
+                value: "320px",
+              },
+            ],
+            interactionStates: [],
+          },
+          view: window,
+          renderOffset: { x: 0, y: 0 },
+        },
+      );
+    } finally {
+      getClientRects.mockRestore();
+      parent.remove();
+    }
+
+    expect(offset).toBeNull();
+    expect(observedProbeWithStyles).toEqual([true]);
+    expect(
+      document.querySelector(
+        '[data-agent-native-edit-overlay="paste-position-probe"]',
+      ),
+    ).toBeNull();
+    expect(
+      document.head.querySelector(
+        'style[data-agent-native-edit-overlay="paste-position-probe-style"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("prunes matching same-file root styles and preserves descendant snapshots", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".same-file-card{width:120px;height:60px;color:rgb(12,34,56);font-family:Arial;transform:scale(1.2);transform-origin:top}.same-file-card span{font-weight:700}";
+    document.head.append(style);
+    const parent = document.createElement("div");
+    parent.style.cssText = "position:relative;width:400px;height:300px";
+    const target = document.createElement("div");
+    parent.append(target);
+    document.body.append(parent);
+    const source = document.createElement("div");
+    source.className = "same-file-card";
+    source.innerHTML = "<span>Text</span>";
+    document.body.append(source);
+
+    const rootComputed = window.getComputedStyle(source);
+    const childComputed = window.getComputedStyle(source.firstElementChild!);
+    const childFontWeight = childComputed.fontWeight;
+    const styleSnapshot: PortableStyleSnapshot = {
+      version: 1 as const,
+      nodes: [
+        {
+          path: [],
+          styles: {
+            width: rootComputed.width,
+            height: rootComputed.height,
+            color: rootComputed.color,
+            "font-family": rootComputed.getPropertyValue("font-family"),
+            transform: rootComputed.transform,
+            transformOrigin: rootComputed.transformOrigin,
+            position: "absolute",
+            left: "0px",
+            top: "0px",
+            right: "4px",
+            bottom: "5px",
+            visibility: "hidden",
+            pointerEvents: "none",
+          },
+        },
+        { path: [0], styles: { fontWeight: childFontWeight } },
+      ],
+    };
+    const probeInlineStyles: string[] = [];
+    const probeGeometry: string[][] = [];
+    const restoreGeometry = mockPreparedProbeGeometry(parent, (element) => {
+      probeInlineStyles.push(element.getAttribute("style") ?? "");
+      const probe = element as HTMLElement;
+      probeGeometry.push([
+        probe.style.position,
+        probe.style.left,
+        probe.style.top,
+        probe.style.right,
+        probe.style.bottom,
+        probe.style.visibility,
+        probe.style.pointerEvents,
+      ]);
+    });
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 1;
+        readonly b = 0;
+        readonly c = 0;
+        readonly d = 1;
+        readonly e = 0;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+
+    let measured: ReturnType<typeof measurePreparedCloneVisualOffset>;
+    try {
+      measured = measurePreparedCloneVisualOffset(
+        target,
+        '<div class="same-file-card" data-agent-native-node-id="source"><span>Text</span></div>',
+        {
+          styleSnapshot,
+          preserveSourceAuthoredRootStyles: true,
+          view: window,
+          renderOffset: { x: 0, y: 0 },
+        },
+      );
+    } finally {
+      restoreGeometry();
+      parent.remove();
+      source.remove();
+      style.remove();
+    }
+
+    expect(measured).not.toBeNull();
+    expect(measured?.styleSnapshot).toEqual({
+      version: 1,
+      nodes: [
+        {
+          path: [],
+          styles: {
+            position: "absolute",
+            left: "0px",
+            top: "0px",
+            right: "4px",
+            bottom: "5px",
+            visibility: "hidden",
+            pointerEvents: "none",
+          },
+        },
+        { path: [0], styles: { fontWeight: childFontWeight } },
+      ],
+    });
+    expect(probeGeometry).toEqual([
+      ["absolute", "0px", "0px", "", "", "hidden", "none"],
+    ]);
+    expect(probeInlineStyles).toHaveLength(1);
+    expect(probeInlineStyles[0]).not.toMatch(
+      /(?:width|height|color|font-family|transform|transform-origin):/u,
+    );
+  });
+
+  it("retains a root override when the destination cascade differs", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".target-context .inheriting-copy{color:rgb(80,90,100)}";
+    document.head.append(style);
+    const sourceContext = document.createElement("div");
+    sourceContext.className = "source-context";
+    const source = document.createElement("div");
+    source.className = "inheriting-copy";
+    source.style.color = "rgb(12, 34, 56)";
+    sourceContext.append(source);
+    document.body.append(sourceContext);
+    const parent = document.createElement("div");
+    parent.className = "target-context";
+    parent.style.cssText = "position:relative;width:400px;height:300px";
+    const target = document.createElement("div");
+    parent.append(target);
+    document.body.append(parent);
+    const sourceColor = window.getComputedStyle(source).color;
+    const probeStyles: string[] = [];
+    const restoreGeometry = mockPreparedProbeGeometry(parent, (element) => {
+      probeStyles.push((element as HTMLElement).style.color);
+    });
+    let measured: ReturnType<typeof measurePreparedCloneVisualOffset>;
+    try {
+      measured = measurePreparedCloneVisualOffset(
+        target,
+        '<div class="inheriting-copy" data-agent-native-node-id="source">Text</div>',
+        {
+          styleSnapshot: {
+            version: 1,
+            nodes: [{ path: [], styles: { color: sourceColor } }],
+          },
+          preserveSourceAuthoredRootStyles: true,
+          view: window,
+          renderOffset: { x: 0, y: 0 },
+        },
+      );
+    } finally {
+      restoreGeometry();
+      parent.remove();
+      sourceContext.remove();
+      style.remove();
+    }
+
+    expect(measured?.styleSnapshot?.nodes).toEqual([
+      { path: [], styles: { color: sourceColor } },
+    ]);
+    expect(probeStyles).toEqual([sourceColor]);
   });
 
   it("places a scaled layer by its transformed bounds around a percentage origin", () => {

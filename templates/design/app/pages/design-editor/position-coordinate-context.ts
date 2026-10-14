@@ -327,17 +327,60 @@ function borderBoxCorners(
     return corners.every((quad) => quad.every(finitePoint)) ? corners : null;
   }
 
-  const rect = element.getBoundingClientRect();
-  if (element.getClientRects().length !== 1) return null;
-  const dimensions = borderBoxDimensions(element, view);
-  if (
-    !dimensions ||
-    ![rect.x, rect.y, transform.a, transform.b, transform.c, transform.d].every(
-      Number.isFinite,
-    )
-  ) {
+  const fragments = Array.from(element.getClientRects());
+  if (fragments.length === 0) return null;
+  const dimensions =
+    fragments.length === 1 ? borderBoxDimensions(element, view) : null;
+  const rects =
+    fragments.length === 1 ? [element.getBoundingClientRect()] : fragments;
+  const quads: Point[][] = [];
+  for (const rect of rects) {
+    const box = dimensions ?? fragmentDimensions(rect, transform);
+    if (
+      !box ||
+      ![
+        rect.x,
+        rect.y,
+        transform.a,
+        transform.b,
+        transform.c,
+        transform.d,
+      ].every(Number.isFinite)
+    ) {
+      return null;
+    }
+    quads.push(affineBoxCorners(rect, box, transform));
+  }
+  return quads;
+}
+
+function fragmentDimensions(
+  rect: Pick<DOMRect, "width" | "height">,
+  transform: PositionTransform,
+): { width: number; height: number } | null {
+  const a = Math.abs(transform.a);
+  const b = Math.abs(transform.b);
+  const c = Math.abs(transform.c);
+  const d = Math.abs(transform.d);
+  const determinant = a * d - b * c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
     return null;
   }
+  const width = (d * rect.width - c * rect.height) / determinant;
+  const height = (a * rect.height - b * rect.width) / determinant;
+  return Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width >= 0 &&
+    height >= 0
+    ? { width, height }
+    : null;
+}
+
+function affineBoxCorners(
+  rect: Pick<DOMRect, "x" | "y">,
+  dimensions: { width: number; height: number },
+  transform: PositionTransform,
+): Point[] {
   const xOffsets = [
     0,
     transform.a * dimensions.width,
@@ -355,27 +398,25 @@ function borderBoxCorners(
     y: rect.y - Math.min(...yOffsets),
   };
   return [
-    [
-      firstCorner,
-      {
-        x: firstCorner.x + transform.a * dimensions.width,
-        y: firstCorner.y + transform.b * dimensions.width,
-      },
-      {
-        x:
-          firstCorner.x +
-          transform.a * dimensions.width +
-          transform.c * dimensions.height,
-        y:
-          firstCorner.y +
-          transform.b * dimensions.width +
-          transform.d * dimensions.height,
-      },
-      {
-        x: firstCorner.x + transform.c * dimensions.height,
-        y: firstCorner.y + transform.d * dimensions.height,
-      },
-    ],
+    firstCorner,
+    {
+      x: firstCorner.x + transform.a * dimensions.width,
+      y: firstCorner.y + transform.b * dimensions.width,
+    },
+    {
+      x:
+        firstCorner.x +
+        transform.a * dimensions.width +
+        transform.c * dimensions.height,
+      y:
+        firstCorner.y +
+        transform.b * dimensions.width +
+        transform.d * dimensions.height,
+    },
+    {
+      x: firstCorner.x + transform.c * dimensions.height,
+      y: firstCorner.y + transform.d * dimensions.height,
+    },
   ];
 }
 

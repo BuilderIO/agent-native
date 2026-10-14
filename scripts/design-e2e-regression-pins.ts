@@ -455,6 +455,34 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title:
       "Cmd+Shift+R places a zero-size flow text root at its measured origin",
   },
+  {
+    shard: "inspector-1b",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R places a stylesheet-sized transformed copy at the target bounds",
+  },
+  {
+    shard: "drag-1b",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R replaces wrapped inline text at its measured origin",
+  },
+  {
+    shard: "position-1a",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Cmd+Shift+R preserves a top-only transform origin on the copied layer",
+  },
+  {
+    shard: "position-2a",
+    file: "canvas-chords.spec.ts",
+    title: "Cmd+Shift+R places a margin-offset copy at the target bounds",
+  },
+  {
+    shard: "position-1b",
+    file: "select-layer-context-menu.spec.ts",
+    title:
+      "Select layer on a non-active overview screen preserves exact screen and layer identity",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

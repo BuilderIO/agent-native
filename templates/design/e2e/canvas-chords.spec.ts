@@ -1,4 +1,4 @@
-import { type BrowserContext, type Page } from "@playwright/test";
+import { type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 import { appPath, designFrame } from "./helpers";
 import {
@@ -134,6 +134,88 @@ const ZERO_SIZE_FLOW_INLINE_TEXT_HTML = `<!doctype html>
   </body>
 </html>`;
 
+const REPLACEMENT_GEOMETRY_STYLES = `
+  .copy-auto-transform {
+    position: absolute;
+    left: 520px;
+    top: 260px;
+    width: auto;
+    height: auto;
+    padding: 11px 14px;
+    border: 2px solid #14532d;
+    background: #22c55e;
+    font: 20px/1.3 system-ui, sans-serif;
+    transform: matrix(0, 1, -1, 0, 0.25, 0.25);
+    transform-origin: 0 0;
+  }
+  .copy-plain {
+    position: absolute;
+    left: 520px;
+    top: 260px;
+    width: 92px;
+    height: 54px;
+    background: #22c55e;
+  }
+  .copy-top-origin {
+    position: absolute;
+    left: 520px;
+    top: 260px;
+    width: 132px;
+    height: 72px;
+    padding: 8px 12px;
+    background: #22c55e;
+    transform: matrix(0, 1, -1, 0, 0.25, 0.25);
+    transform-origin: top;
+  }
+  .copy-margin-offset {
+    position: absolute;
+    left: 520px;
+    top: 260px;
+    width: 92px;
+    height: 54px;
+    margin: 13px 0 0 17px;
+    background: #22c55e;
+  }
+`;
+
+function flowReplacementGeometryHtml(copyClass: string) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Canvas Chords Replacement Geometry</title>
+    <style>${REPLACEMENT_GEOMETRY_STYLES}</style>
+  </head>
+  <body style="margin:0;font-family:system-ui,sans-serif;background:#fff;color:#111">
+    <main data-agent-native-node-id="geo-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:640px">
+      <div data-agent-native-node-id="geo-before" data-agent-native-layer-name="Before" style="height:86px">Before content</div>
+      <div data-agent-native-node-id="geo-caption" data-agent-native-layer-name="Caption" style="position:static;margin:23px 0 0 34px;padding:7px 11px;font-size:28px;line-height:36px">Prefix text <span data-agent-native-node-id="geo-underline" data-agent-native-layer-name="Underlined phrase" style="text-decoration:underline">klsajfk</span> suffix text</div>
+      <div data-agent-native-node-id="geo-after" data-agent-native-layer-name="After" style="margin-top:19px">After content</div>
+      <div data-agent-native-node-id="geo-source" data-agent-native-layer-name="Replacement source" class="${copyClass}">Replacement source</div>
+    </main>
+  </body>
+</html>`;
+}
+
+const WRAPPED_INLINE_REPLACEMENT_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Canvas Chords Wrapped Inline Replacement</title>
+    <style>${REPLACEMENT_GEOMETRY_STYLES}</style>
+  </head>
+  <body style="margin:0;font-family:system-ui,sans-serif;background:#fff;color:#111">
+    <main data-agent-native-node-id="wrap-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:640px">
+      <div data-agent-native-node-id="wrap-parent" data-agent-native-layer-name="Copy Target" style="position:relative;width:302px;padding:10px 12px;font-size:20px;line-height:32px">
+        <div data-agent-native-node-id="wrap-before" data-agent-native-layer-name="Before" style="height:24px">Before content</div>
+        <span data-agent-native-node-id="wrap-caption" data-agent-native-layer-name="Caption">Several words wrap onto another line before <span data-agent-native-node-id="wrap-underline" data-agent-native-layer-name="Underlined phrase" style="text-decoration:underline">the selected phrase</span> and continue across the narrow text box.</span>
+        <div data-agent-native-node-id="wrap-after" data-agent-native-layer-name="After" style="margin-top:12px">After content</div>
+        <div data-agent-native-node-id="wrap-source" data-agent-native-layer-name="Replacement source" class="copy-plain">Replacement source</div>
+      </div>
+    </main>
+  </body>
+</html>`;
+
 const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -202,6 +284,24 @@ function expectFlowReplacement(
   expect(after.get("flow-after")?.text).toBe("After content");
 }
 
+async function clickFirstVisibleTextFragment(
+  app: App,
+  target: Locator,
+): Promise<void> {
+  const position = await target.evaluate((element) => {
+    const fragment = Array.from(element.getClientRects()).find(
+      (rect) => rect.width > 0 && rect.height > 0,
+    );
+    if (!fragment) throw new Error("Underlined phrase has no visible fragment");
+    return {
+      x: fragment.left + fragment.width / 2,
+      y: fragment.top + fragment.height / 2,
+    };
+  });
+  const point = await app.pagePoint(position.x, position.y);
+  await app.page.mouse.click(point.x, point.y);
+}
+
 async function replaceFlowTextTarget(
   app: App,
   context: BrowserContext,
@@ -213,9 +313,7 @@ async function replaceFlowTextTarget(
   await selectLayerRow(app.page, "Replacement source");
   await pressEditorKey(app.page, `ControlOrMeta+C`);
   const underline = app.node("flow-underline");
-  const box = await underline.boundingBox();
-  if (!box) throw new Error("Underlined phrase has no browser bounding box");
-  await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await clickFirstVisibleTextFragment(app, underline);
   await expect.poll(() => app.selectedLayers()).toEqual(["Underlined phrase"]);
   await pressEditorKey(app.page, `ControlOrMeta+Shift+R`);
   await expect
@@ -223,6 +321,116 @@ async function replaceFlowTextTarget(
     .toBe(false);
   await app.settled();
   return app.savedNodes(designId);
+}
+
+async function replacementCssSnapshot(app: App, nodeId: string) {
+  return app.node(nodeId).evaluate((element) => {
+    const computed = getComputedStyle(element);
+    const authored = (element as HTMLElement).style;
+    return {
+      className: element.getAttribute("class"),
+      display: computed.display,
+      position: computed.position,
+      boxSizing: computed.boxSizing,
+      width: computed.width,
+      height: computed.height,
+      marginTop: computed.marginTop,
+      marginRight: computed.marginRight,
+      marginBottom: computed.marginBottom,
+      marginLeft: computed.marginLeft,
+      paddingTop: computed.paddingTop,
+      paddingRight: computed.paddingRight,
+      paddingBottom: computed.paddingBottom,
+      paddingLeft: computed.paddingLeft,
+      borderTopWidth: computed.borderTopWidth,
+      borderRightWidth: computed.borderRightWidth,
+      borderBottomWidth: computed.borderBottomWidth,
+      borderLeftWidth: computed.borderLeftWidth,
+      borderTopColor: computed.borderTopColor,
+      borderRadius: computed.borderRadius,
+      backgroundColor: computed.backgroundColor,
+      color: computed.color,
+      transform: computed.transform,
+      transformOrigin: computed.transformOrigin,
+      fontFamily: computed.fontFamily,
+      fontSize: computed.fontSize,
+      fontWeight: computed.fontWeight,
+      lineHeight: computed.lineHeight,
+      authoredWidth: authored.width,
+      authoredHeight: authored.height,
+      authoredTransform: authored.transform,
+      authoredTransformOrigin: authored.transformOrigin,
+    };
+  });
+}
+
+async function renderedBounds(app: App, nodeId: string) {
+  return app.node(nodeId).evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+}
+
+async function replaceGeometryTextTarget(
+  app: App,
+  context: BrowserContext,
+  designId: string,
+  targetId: string,
+  underlineId: string,
+) {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(appPath("/")).origin,
+  });
+  await selectLayerRow(app.page, "Replacement source");
+  await pressEditorKey(app.page, "ControlOrMeta+C");
+  const underline = app.node(underlineId);
+  await clickFirstVisibleTextFragment(app, underline);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Underlined phrase"]);
+  await pressEditorKey(app.page, "ControlOrMeta+Shift+R");
+  await expect
+    .poll(async () => (await app.savedNodes(designId)).has(targetId))
+    .toBe(false);
+  await app.settled();
+  return app.savedNodes(designId);
+}
+
+async function expectGeometryReplacement(
+  app: App,
+  before: Map<string, SavedNode>,
+  after: Map<string, SavedNode>,
+  targetId: string,
+  underlineId: string,
+  sourceId: string,
+  targetBounds: { x: number; y: number },
+  sourceCss: Awaited<ReturnType<typeof replacementCssSnapshot>>,
+) {
+  expect(targetBounds.x).toBeGreaterThan(0);
+  expect(targetBounds.y).toBeGreaterThan(0);
+  const copies = newNodes(before, after);
+  expect(copies, "one replacement sibling").toHaveLength(1);
+  const copy = copies[0]!;
+  const target = before.get(targetId)!;
+  expect(after.has(targetId)).toBe(false);
+  expect(after.has(underlineId)).toBe(false);
+  expect(copy.parent).toBe(target.parent);
+  const originalChildren = childrenOf(before, target.parent!);
+  expect(childrenOf(after, target.parent!)).toEqual(
+    originalChildren.map((id) => (id === targetId ? copy.id : id)),
+  );
+  expect(copy.attrs.class).toBe(before.get(sourceId)?.attrs.class);
+  expectOnlyChanged(before, after, [targetId, underlineId, copy.id]);
+  expect(after.get(sourceId)).toMatchObject({
+    parent: before.get(sourceId)?.parent,
+    attrs: before.get(sourceId)?.attrs,
+    text: before.get(sourceId)?.text,
+  });
+  await expect(app.node(copy.id)).toBeVisible();
+  const copyBounds = await renderedBounds(app, copy.id);
+  expect({ x: copyBounds.x, y: copyBounds.y }).toEqual({
+    x: targetBounds.x,
+    y: targetBounds.y,
+  });
+  expect(await replacementCssSnapshot(app, copy.id)).toEqual(sourceCss);
 }
 
 /** The node's own markup, parsed: its direct text and element children. */
@@ -655,6 +863,145 @@ test.describe("canvas chords", () => {
     expect(expectedPosition.underlineHeight).toBeGreaterThan(0);
     const after = await replaceFlowTextTarget(app, context, id);
     expectFlowReplacement(before, after, expectedPosition);
+  });
+
+  test("Cmd+Shift+R places a stylesheet-sized transformed copy at the target bounds", async ({
+    app,
+    context,
+  }) => {
+    const { id, before } = await openChords(
+      app,
+      flowReplacementGeometryHtml("copy-auto-transform"),
+    );
+    const targetBounds = await renderedBounds(app, "geo-caption");
+    const sourceCss = await replacementCssSnapshot(app, "geo-source");
+    expect(sourceCss.authoredWidth).toBe("");
+    expect(sourceCss.authoredHeight).toBe("");
+    expect(parseFloat(sourceCss.width)).toBeGreaterThan(0);
+    expect(parseFloat(sourceCss.height)).toBeGreaterThan(0);
+    expect(sourceCss.transform).not.toBe("none");
+    expect(sourceCss.transformOrigin).not.toBe("50% 50%");
+
+    const after = await replaceGeometryTextTarget(
+      app,
+      context,
+      id,
+      "geo-caption",
+      "geo-underline",
+    );
+    await expectGeometryReplacement(
+      app,
+      before,
+      after,
+      "geo-caption",
+      "geo-underline",
+      "geo-source",
+      targetBounds,
+      sourceCss,
+    );
+  });
+
+  test("Cmd+Shift+R replaces wrapped inline text at its measured origin", async ({
+    app,
+    context,
+  }) => {
+    const { id, before } = await openChords(
+      app,
+      WRAPPED_INLINE_REPLACEMENT_HTML,
+    );
+    const targetBounds = await renderedBounds(app, "wrap-caption");
+    const targetFragments = await app
+      .node("wrap-caption")
+      .evaluate((element) => element.getClientRects().length);
+    expect(
+      targetFragments,
+      "Caption wraps across multiple lines",
+    ).toBeGreaterThan(1);
+    const sourceCss = await replacementCssSnapshot(app, "wrap-source");
+
+    const after = await replaceGeometryTextTarget(
+      app,
+      context,
+      id,
+      "wrap-caption",
+      "wrap-underline",
+    );
+    await expectGeometryReplacement(
+      app,
+      before,
+      after,
+      "wrap-caption",
+      "wrap-underline",
+      "wrap-source",
+      targetBounds,
+      sourceCss,
+    );
+  });
+
+  test("Cmd+Shift+R preserves a top-only transform origin on the copied layer", async ({
+    app,
+    context,
+  }) => {
+    const { id, before } = await openChords(
+      app,
+      flowReplacementGeometryHtml("copy-top-origin"),
+    );
+    const targetBounds = await renderedBounds(app, "geo-caption");
+    const sourceCss = await replacementCssSnapshot(app, "geo-source");
+    expect(sourceCss.transform).not.toBe("none");
+    expect(sourceCss.transformOrigin).toMatch(/\s0(?:px|%)$/);
+
+    const after = await replaceGeometryTextTarget(
+      app,
+      context,
+      id,
+      "geo-caption",
+      "geo-underline",
+    );
+    await expectGeometryReplacement(
+      app,
+      before,
+      after,
+      "geo-caption",
+      "geo-underline",
+      "geo-source",
+      targetBounds,
+      sourceCss,
+    );
+  });
+
+  test("Cmd+Shift+R places a margin-offset copy at the target bounds", async ({
+    app,
+    context,
+  }) => {
+    const { id, before } = await openChords(
+      app,
+      flowReplacementGeometryHtml("copy-margin-offset"),
+    );
+    const targetBounds = await renderedBounds(app, "geo-caption");
+    const sourceCss = await replacementCssSnapshot(app, "geo-source");
+    expect([sourceCss.marginTop, sourceCss.marginLeft]).toEqual([
+      "13px",
+      "17px",
+    ]);
+
+    const after = await replaceGeometryTextTarget(
+      app,
+      context,
+      id,
+      "geo-caption",
+      "geo-underline",
+    );
+    await expectGeometryReplacement(
+      app,
+      before,
+      after,
+      "geo-caption",
+      "geo-underline",
+      "geo-source",
+      targetBounds,
+      sourceCss,
+    );
   });
 
   test("clicking an inline child inside a text layer selects it and does not duplicate its text", async ({

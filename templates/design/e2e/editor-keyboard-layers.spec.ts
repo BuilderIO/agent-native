@@ -126,6 +126,22 @@ function count(value: string, needle: string): number {
   return value.split(needle).length - 1;
 }
 
+async function savedHtmlWithCardCount(
+  app: App,
+  designId: string,
+  expectedCards: number,
+  filename = "index.html",
+) {
+  let html = "";
+  await expect
+    .poll(async () => {
+      html = await app.savedHtml(designId, filename);
+      return count(html, 'data-agent-native-layer-name="Copy Card"');
+    })
+    .toBe(expectedCards);
+  return html;
+}
+
 /** The pasted cards keep the source's rules, font and image, and none of the peer's rules leak in. */
 function expectStyledCards(html: string, cards: number) {
   expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(cards);
@@ -192,7 +208,7 @@ test.describe("editor keyboard layer clipboard", () => {
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
 
-    const pastedHtml = await app.savedHtml(targetId);
+    const pastedHtml = await savedHtmlWithCardCount(app, targetId, 1);
     expectStyledCards(pastedHtml, 1);
     const pasted = savedNodeMap(pastedHtml);
     const [card] = idsNamed(pasted, "Copy Card");
@@ -217,7 +233,7 @@ test.describe("editor keyboard layer clipboard", () => {
     await page.keyboard.press(`${PRIMARY}+z`);
     await app.settled();
     expect(
-      await app.savedHtml(targetId),
+      await savedHtmlWithCardCount(app, targetId, 0),
       "one undo removes the whole paste",
     ).toBe(seededTarget);
 
@@ -229,12 +245,14 @@ test.describe("editor keyboard layer clipboard", () => {
     await page.bringToFront();
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    expectStyledCards(await app.savedHtml(targetId), 1);
+    const onePastedHtml = await savedHtmlWithCardCount(app, targetId, 1);
+    expectStyledCards(onePastedHtml, 1);
 
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    expectStyledCards(await app.savedHtml(targetId), 2);
-    const twice = await app.savedNodes(targetId);
+    const twoPastedHtml = await savedHtmlWithCardCount(app, targetId, 2);
+    expectStyledCards(twoPastedHtml, 2);
+    const twice = savedNodeMap(twoPastedHtml);
     expect
       .soft(
         idsNamed(twice, "Copy Card").map((id) => twice.get(id)?.parent),
@@ -244,10 +262,11 @@ test.describe("editor keyboard layer clipboard", () => {
 
     await page.keyboard.press(`${PRIMARY}+z`);
     await app.settled();
-    expectStyledCards(await app.savedHtml(targetId), 1);
+    const onceAfterUndoHtml = await savedHtmlWithCardCount(app, targetId, 1);
+    expectStyledCards(onceAfterUndoHtml, 1);
     await page.keyboard.press(`${PRIMARY}+z`);
     await app.settled();
-    expect(await app.savedHtml(targetId)).toBe(seededTarget);
+    expect(await savedHtmlWithCardCount(app, targetId, 0)).toBe(seededTarget);
   });
 
   test("keeps two responsive pastes distinct across settled undo and redo", async ({
@@ -262,11 +281,11 @@ test.describe("editor keyboard layer clipboard", () => {
 
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    const oneHtml = await app.savedHtml(id, "target.html");
+    const oneHtml = await savedHtmlWithCardCount(app, id, 1, "target.html");
     expectStyledCards(oneHtml, 1);
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    const twoHtml = await app.savedHtml(id, "target.html");
+    const twoHtml = await savedHtmlWithCardCount(app, id, 2, "target.html");
     expectStyledCards(twoHtml, 2);
     const two = savedNodeMap(twoHtml);
     expect
@@ -284,17 +303,25 @@ test.describe("editor keyboard layer clipboard", () => {
 
     await page.keyboard.press(`${PRIMARY}+z`);
     await app.settled();
-    expect(await app.savedHtml(id, "target.html")).toBe(oneHtml);
+    expect(await savedHtmlWithCardCount(app, id, 1, "target.html")).toBe(
+      oneHtml,
+    );
     await page.keyboard.press(`${PRIMARY}+z`);
     await app.settled();
-    expect(await app.savedHtml(id, "target.html")).toBe(seededTarget);
+    expect(await savedHtmlWithCardCount(app, id, 0, "target.html")).toBe(
+      seededTarget,
+    );
 
     await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await app.settled();
-    expect(await app.savedHtml(id, "target.html")).toBe(oneHtml);
+    expect(await savedHtmlWithCardCount(app, id, 1, "target.html")).toBe(
+      oneHtml,
+    );
     await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await app.settled();
-    expect(await app.savedHtml(id, "target.html")).toBe(twoHtml);
+    expect(await savedHtmlWithCardCount(app, id, 2, "target.html")).toBe(
+      twoHtml,
+    );
   });
 
   test("pastes a nested selected layer on the same screen and another screen with fresh ids after reload", async ({
@@ -309,7 +336,7 @@ test.describe("editor keyboard layer clipboard", () => {
 
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    const source = await app.savedNodes(id);
+    const source = savedNodeMap(await savedHtmlWithCardCount(app, id, 2));
     const sourceCopy = addedIds(sourceBefore, source);
     const [sourceCard] = sourceCopy.filter(
       (node) =>
@@ -340,7 +367,9 @@ test.describe("editor keyboard layer clipboard", () => {
     await selectScreen(page, "Target");
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    const target = await app.savedNodes(id, "target.html");
+    const target = savedNodeMap(
+      await savedHtmlWithCardCount(app, id, 1, "target.html"),
+    );
     const targetCopy = addedIds(targetBefore, target);
     expect(targetCopy.filter((node) => sourceBefore.has(node))).toEqual([]);
     const [targetCard] = idsNamed(target, "Copy Card");
@@ -376,7 +405,9 @@ test.describe("editor keyboard layer clipboard", () => {
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
 
-    const target = await app.savedNodes(id, "target.html");
+    const target = savedNodeMap(
+      await savedHtmlWithCardCount(app, id, 1, "target.html"),
+    );
     const pasted = addedIds(targetBefore, target);
     expect(pasted.filter((node) => sourceBefore.has(node))).toEqual([]);
     const [card] = idsNamed(target, "Copy Card");
@@ -453,14 +484,14 @@ test.describe("editor keyboard layer clipboard", () => {
     await selectLayer(page, "Copy Card");
     await page.keyboard.press(`${PRIMARY}+x`);
     await app.settled();
-    const cut = await app.savedNodes(id);
+    const cut = savedNodeMap(await savedHtmlWithCardCount(app, id, 0));
     expect(idsNamed(cut, "Copy Card")).toStrictEqual([]);
     expect(childrenOf(cut, "source-root")).toStrictEqual(["source-peer"]);
 
     await selectScreen(page, "Target");
     await page.keyboard.press(`${PRIMARY}+v`);
     await app.settled();
-    const targetHtml = await app.savedHtml(id, "target.html");
+    const targetHtml = await savedHtmlWithCardCount(app, id, 1, "target.html");
     expectStyledCards(targetHtml, 1);
     const target = savedNodeMap(targetHtml);
     expect(childrenOf(target, "target-body")).toStrictEqual([

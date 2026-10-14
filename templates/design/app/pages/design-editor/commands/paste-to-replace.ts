@@ -9,9 +9,11 @@ import { toast } from "sonner";
 
 import type {
   ElementInfo,
+  PortableStyleSnapshot,
   RuntimeStructureInsertRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 import {
   insertClonedHtmlLayers,
   prepareClonedHtmlLayersForLiveInsert,
@@ -44,7 +46,19 @@ export interface PasteToReplaceArgs {
   canEditDesign: boolean;
   getCanvasClipboardEntries: () => CanvasLayerClipboardEntry[];
   getFreshActiveContent: () => string;
-  getRenderedElementInfoForSelector?: (selector: string) => ElementInfo | null;
+  getRenderedElementInfoForSelector?: (
+    selector: string,
+  ) => ElementInfo | null | undefined;
+  getPreparedCloneVisualOffset?: (
+    selector: string,
+    layerHtml: string,
+    styleSnapshot?: PortableStyleSnapshot,
+    managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot,
+    sourceFileId?: string,
+  ) =>
+    | { x: number; y: number; styleSnapshot?: PortableStyleSnapshot }
+    | null
+    | undefined;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   selectInsertedLayers: (
     screenId: string,
@@ -91,6 +105,7 @@ export function runPasteToReplace(
     getCanvasClipboardEntries,
     getFreshActiveContent,
     getRenderedElementInfoForSelector,
+    getPreparedCloneVisualOffset,
     runtimeStructureInsertRevisionRef,
     selectInsertedLayers,
     selectedCanvasSelector,
@@ -119,14 +134,41 @@ export function runPasteToReplace(
   const baseContent = getFreshActiveContent();
   const targetStoredContent = activeFile.content ?? baseContent;
   if (isStandaloneHttpUrl(targetStoredContent)) {
+    const renderedTarget = getRenderedElementInfoForSelector?.(targetSelector);
+    const livePosition =
+      renderedTarget === undefined
+        ? { x: targetPosition.x, y: targetPosition.y }
+        : (renderedTarget?.absoluteSiblingVisualOrigin ?? null);
+    const visualOffset = getPreparedCloneVisualOffset?.(
+      targetSelector,
+      layerHtml,
+      styleSnapshot ?? undefined,
+      entries[0]?.managedStyleSnapshot,
+      entries[0]?.sourceFileId,
+    );
+    if (
+      !livePosition ||
+      (getPreparedCloneVisualOffset !== undefined && visualOffset === null)
+    ) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     const prepared = prepareClonedHtmlLayersForLiveInsert(
       targetStoredContent,
       [layerHtml],
       {
         positions: [
-          { x: targetPosition.x, y: targetPosition.y, space: "visual" },
+          {
+            ...livePosition,
+            space: "visual",
+            ...(visualOffset
+              ? { visualOffset: { x: visualOffset.x, y: visualOffset.y } }
+              : {}),
+          },
         ],
-        styleSnapshots: [styleSnapshot],
+        styleSnapshots: [visualOffset?.styleSnapshot ?? styleSnapshot],
       },
     );
     const html = prepared?.htmlFragments[0];
@@ -198,6 +240,13 @@ export function runPasteToReplace(
   const hasAuthoredPosition = authoredLeft !== null && authoredTop !== null;
   const targetGeometry =
     getRenderedElementInfoForSelector?.(replacementSelector);
+  const cloneVisualOffset = getPreparedCloneVisualOffset?.(
+    replacementSelector,
+    layerHtml,
+    styleSnapshot ?? undefined,
+    entries[0]?.managedStyleSnapshot,
+    entries[0]?.sourceFileId,
+  );
   const useLiveGeometry = getRenderedElementInfoForSelector !== undefined;
   const useAbsoluteAuthoredPosition =
     !useLiveGeometry &&
@@ -208,7 +257,10 @@ export function runPasteToReplace(
     : useAbsoluteAuthoredPosition
       ? { x: authoredLeft, y: authoredTop }
       : null;
-  if (!position) {
+  if (
+    !position ||
+    (getPreparedCloneVisualOffset !== undefined && cloneVisualOffset === null)
+  ) {
     failed();
     return;
   }
@@ -219,9 +271,17 @@ export function runPasteToReplace(
       {
         ...position,
         space: useAbsoluteAuthoredPosition ? "layout" : "visual",
+        ...(cloneVisualOffset
+          ? {
+              visualOffset: {
+                x: cloneVisualOffset.x,
+                y: cloneVisualOffset.y,
+              },
+            }
+          : {}),
       },
     ],
-    styleSnapshots: [styleSnapshot],
+    styleSnapshots: [cloneVisualOffset?.styleSnapshot ?? styleSnapshot],
     managedStyleSnapshots: [entries[0]?.managedStyleSnapshot],
   });
   if (!inserted) {
