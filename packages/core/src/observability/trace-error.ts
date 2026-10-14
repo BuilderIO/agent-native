@@ -50,7 +50,7 @@ export function redactToolErrorMessage(
   value: string,
   options: { truncated?: boolean } = {},
 ): string {
-  const redacted = value
+  const labeled = value
     .replace(PRIVATE_KEY_BLOCK_PATTERN, "[REDACTED]")
     .replace(QUOTED_CREDENTIAL_PATTERN, "$1$2[REDACTED]$2")
     .replace(
@@ -72,15 +72,21 @@ export function redactToolErrorMessage(
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
     .replace(SIGNED_URL_QUERY_CREDENTIAL_PATTERN, "$1[REDACTED]$3")
     .replace(URI_USERINFO_PATTERN, "$1[REDACTED]@")
-    .replace(INCOMPLETE_URI_USERINFO_PATTERN, "$1[REDACTED]")
+    .replace(INCOMPLETE_URI_USERINFO_PATTERN, "$1[REDACTED]");
+  const redacted = redactStandaloneTokens(labeled);
+  if (!options.truncated) return redacted;
+  return redacted.replace(TRUNCATED_URI_AUTHORITY_PATTERN, "$1[REDACTED]");
+}
+
+/** JWTs, provider API keys, and access tokens that appear without a label, including one cut off at the end. */
+export function redactStandaloneTokens(value: string): string {
+  return value
     .replace(INCOMPLETE_STANDALONE_API_KEY_PATTERN, "[REDACTED]")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]")
     .replace(PROVIDER_TOKEN_PATTERN, "[REDACTED]")
     .replace(INCOMPLETE_PROVIDER_TOKEN_PATTERN, "[REDACTED]")
     .replace(STANDALONE_JWT_PATTERN, "[REDACTED]")
     .replace(INCOMPLETE_STANDALONE_JWT_PATTERN, "[REDACTED]");
-  if (!options.truncated) return redacted;
-  return redacted.replace(TRUNCATED_URI_AUTHORITY_PATTERN, "$1[REDACTED]");
 }
 
 function boundToolErrorMessage(redacted: string): string {

@@ -216,6 +216,7 @@
     "./client/sign-in-landing": "./dist/client/sign-in-landing.js",
     "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/route-state": "./dist/client/route-state.js",
+    "./client/recorder": "./dist/client/recorder.js",
     "./observability/actions/list-observability-reviews": "./dist/observability/actions/list-observability-reviews.js",
     "./observability/actions/get-observability-review-app": "./dist/observability/actions/get-observability-review-app.js",
     "./observability/actions/get-observability-review-detail": "./dist/observability/actions/get-observability-review-detail.js",
