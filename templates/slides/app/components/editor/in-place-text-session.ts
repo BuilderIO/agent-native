@@ -255,7 +255,7 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
 export const IN_PLACE_TEXT_UNDO_LIMIT = 4096;
-export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 384 * 1024 * 1024;
+export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 128 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
@@ -412,15 +412,30 @@ interface TextOffsets {
   backward: boolean;
 }
 
+interface SnapshotHtmlDelta {
+  baseLength: number;
+  prefix: number;
+  suffix: number;
+  baseMiddleLength: number;
+  baseMiddleHash: readonly [number, number];
+  replacement: Uint8Array | Uint16Array;
+}
+
 interface Snapshot extends TextOffsets {
   tag: string;
   attributes: [string, string][];
-  html: string;
+  html: string | SnapshotHtmlDelta;
+  metadataByteSize: number;
   byteSize: number;
+  initialState: boolean;
   /** Whether the session's temporary layout reservation is applied. */
   layoutReservationApplied: boolean;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
+}
+
+interface FullSnapshot extends Omit<Snapshot, "html"> {
+  html: string;
 }
 
 /** One pasted line and the pasted UL/OL elements it was nested in, outermost first. */
@@ -1812,7 +1827,7 @@ export function startInPlaceTextSession(
     return true;
   }
 
-  function snapshot(selection = selectionOffsets(true)): Snapshot {
+  function snapshot(selection = selectionOffsets(true)): FullSnapshot {
     const tag = el.tagName;
     const attributes = Array.from(
       el.attributes,
@@ -1831,25 +1846,150 @@ export function startInPlaceTextSession(
       }
     }
     const html = el.innerHTML;
+    const authorZwsp = Array.from(authorZwspOrdinals());
+    const metadataByteSize =
+      retainedStringByteLength(tag) +
+      attributes.reduce(
+        (size, [name, value]) =>
+          size +
+          retainedStringByteLength(name) +
+          retainedStringByteLength(value),
+        0,
+      ) +
+      authorZwsp.length * 8 +
+      128;
     return {
       tag,
       attributes,
       html,
-      byteSize:
-        retainedStringByteLength(tag) +
-        retainedStringByteLength(html) +
-        attributes.reduce(
-          (size, [name, value]) =>
-            size +
-            retainedStringByteLength(name) +
-            retainedStringByteLength(value),
-          0,
-        ) +
-        65,
+      metadataByteSize,
+      byteSize: metadataByteSize + retainedStringByteLength(html),
+      initialState: tag === initialRootTagName && html === startHtml,
       layoutReservationApplied,
-      authorZwsp: Array.from(authorZwspOrdinals()),
+      authorZwsp,
       ...selection,
     };
+  }
+
+  function historyHtmlHash(value: string): readonly [number, number] {
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    const sample =
+      value.length <= 8192
+        ? value
+        : `${value.slice(0, 4096)}\u0000${value.slice(-4096)}`;
+    for (let index = 0; index < sample.length; index += 1) {
+      const code = sample.charCodeAt(index);
+      first = Math.imul(first ^ code, 0x01000193);
+      second = Math.imul(second ^ (code + index), 0x85ebca6b);
+    }
+    return [first >>> 0, second >>> 0];
+  }
+
+  function encodeHistoryText(
+    value: string,
+    byteLength: number,
+  ): Uint8Array | Uint16Array {
+    if (byteLength === value.length) {
+      const bytes = new Uint8Array(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        bytes[index] = value.charCodeAt(index);
+      }
+      return bytes;
+    }
+    const codeUnits = new Uint16Array(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      codeUnits[index] = value.charCodeAt(index);
+    }
+    return codeUnits;
+  }
+
+  function decodeHistoryText(value: Uint8Array | Uint16Array) {
+    const chunks: string[] = [];
+    for (let start = 0; start < value.length; start += 8192) {
+      chunks.push(
+        String.fromCharCode(...Array.from(value.subarray(start, start + 8192))),
+      );
+    }
+    return chunks.join("");
+  }
+
+  function compactSnapshot(snapshot: Snapshot | undefined, baseHtml: string) {
+    if (!snapshot || typeof snapshot.html !== "string") return;
+    const targetHtml = snapshot.html;
+    let prefix = 0;
+    const commonLength = Math.min(targetHtml.length, baseHtml.length);
+    while (
+      prefix < commonLength &&
+      targetHtml.charCodeAt(prefix) === baseHtml.charCodeAt(prefix)
+    ) {
+      prefix += 1;
+    }
+    let suffix = 0;
+    const commonTailLength = Math.min(
+      targetHtml.length - prefix,
+      baseHtml.length - prefix,
+    );
+    while (
+      suffix < commonTailLength &&
+      targetHtml.charCodeAt(targetHtml.length - suffix - 1) ===
+        baseHtml.charCodeAt(baseHtml.length - suffix - 1)
+    ) {
+      suffix += 1;
+    }
+    const replacement = targetHtml.slice(prefix, targetHtml.length - suffix);
+    const replacementByteLength = retainedStringByteLength(replacement);
+    const deltaByteSize = replacementByteLength + 96;
+    const targetByteLength = snapshot.byteSize - snapshot.metadataByteSize;
+    if (deltaByteSize >= targetByteLength * 0.75) return;
+    const baseMiddle = baseHtml.slice(prefix, baseHtml.length - suffix);
+    const encodedReplacement = encodeHistoryText(
+      replacement,
+      replacementByteLength,
+    );
+    snapshot.html = {
+      baseLength: baseHtml.length,
+      prefix,
+      suffix,
+      baseMiddleLength: baseMiddle.length,
+      baseMiddleHash: historyHtmlHash(baseMiddle),
+      replacement: encodedReplacement,
+    };
+    snapshot.byteSize =
+      snapshot.metadataByteSize + encodedReplacement.byteLength + 96;
+  }
+
+  function materializeSnapshotHtml(snapshot: Snapshot, baseHtml: string) {
+    if (typeof snapshot.html === "string") return snapshot.html;
+    const delta = snapshot.html;
+    if (
+      baseHtml.length !== delta.baseLength ||
+      delta.prefix + delta.suffix > baseHtml.length
+    ) {
+      throw new Error("undo history base no longer matches its snapshot");
+    }
+    const baseEnd = baseHtml.length - delta.suffix;
+    const baseMiddle = baseHtml.slice(delta.prefix, baseEnd);
+    const [firstHash, secondHash] = historyHtmlHash(baseMiddle);
+    if (
+      baseMiddle.length !== delta.baseMiddleLength ||
+      firstHash !== delta.baseMiddleHash[0] ||
+      secondHash !== delta.baseMiddleHash[1]
+    ) {
+      throw new Error("undo history content no longer matches its snapshot");
+    }
+    if (
+      delta.prefix === baseHtml.length &&
+      delta.suffix === 0 &&
+      delta.replacement.length === 0
+    ) {
+      return baseHtml;
+    }
+    return (
+      baseHtml.slice(0, delta.prefix) +
+      decodeHistoryText(delta.replacement) +
+      baseHtml.slice(baseEnd)
+    );
   }
 
   function rootAttributesChanged() {
@@ -1894,16 +2034,14 @@ export function startInPlaceTextSession(
         historyByteEvictions += 1;
         historyBytesEvicted += removed.byteSize;
       }
-      if (removed.tag === initialRootTagName && removed.html === startHtml) {
-        initialHistoryStateEvicted = true;
-      }
+      if (removed.initialState) initialHistoryStateEvicted = true;
       bytes -= removed.byteSize;
     }
     retainedHistoryBytes = bytes;
     publishHistoryStats();
   }
 
-  function restore(state: Snapshot) {
+  function restore(state: Snapshot, html: string) {
     if (el.tagName !== state.tag) rebind(retag(el, state.tag));
     for (const attribute of Array.from(el.attributes)) {
       if (!state.attributes.some(([name]) => name === attribute.name)) {
@@ -1913,15 +2051,15 @@ export function startInPlaceTextSession(
     for (const [name, value] of state.attributes) {
       if (el.getAttribute(name) !== value) el.setAttribute(name, value);
     }
-    el.innerHTML = state.html;
+    el.innerHTML = html;
     authorZwsp = new Set(state.authorZwsp);
     zwspText = el.textContent!;
     selectOffsets(state, true);
   }
 
-  function restoreHistory(state: Snapshot) {
+  function restoreHistory(state: Snapshot, html: string) {
     captureReservationParentHeight();
-    restore(state);
+    restore(state, html);
     if (reservationEnabled && state.layoutReservationApplied) {
       el.style.cssText = el.getAttribute("style") ?? "";
     }
@@ -1938,14 +2076,14 @@ export function startInPlaceTextSession(
       layoutReservationApplied && Number.isFinite(restoredHeight)
         ? Math.max(0, restoredHeight)
         : initialLayout.height;
-    if (reservationEnabled && state.html !== startHtml) {
+    if (reservationEnabled && html !== startHtml) {
       preserveLayoutReservation(true);
     }
     publishHistoryStats();
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
-  function checkpoint(kind: EditKind, boundary = false, before?: Snapshot) {
+  function checkpoint(kind: EditKind, boundary = false, before?: FullSnapshot) {
     edited = true;
     const now = Date.now();
     const selection = before ?? selectionOffsets(true);
@@ -1961,9 +2099,12 @@ export function startInPlaceTextSession(
       lastEdit.after.backward === selection.backward;
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
+    const previous = undoStack.at(-1);
+    if (previous && typeof previous.html === "string") {
+      compactSnapshot(previous, before?.html ?? el.innerHTML);
+    }
     redoStack.length = 0;
     undoStack.push(before ?? snapshot(selection));
-    trimHistory();
   }
 
   function edit(kind: EditKind, mutate: () => void | boolean) {
@@ -1977,6 +2118,10 @@ export function startInPlaceTextSession(
       mutate();
     }
     reshapeAtCaret();
+    if (kind === "command") {
+      compactSnapshot(undoStack.at(-1), el.innerHTML);
+    }
+    trimHistory();
     notify(kind === "command");
   }
 
@@ -1992,21 +2137,28 @@ export function startInPlaceTextSession(
       after: null,
     };
     if (!mutate()) return false;
+    compactSnapshot(undoStack.at(-1), before.html);
     redoStack.length = 0;
     undoStack.push(before);
+    compactSnapshot(before, el.innerHTML);
     trimHistory();
     notify(true);
     return true;
   }
 
   function undo() {
-    const state = active ? undoStack.pop() : undefined;
+    const state = active ? undoStack.at(-1) : undefined;
     if (!state) return false;
-    redoStack.push(snapshot());
+    const baseHtml = el.innerHTML;
+    const restoredHtml = materializeSnapshotHtml(state, baseHtml);
+    const current = snapshot();
+    compactSnapshot(current, restoredHtml);
+    undoStack.pop();
+    redoStack.push(current);
     trimHistory();
     restoringHistory = true;
     try {
-      restoreHistory(state);
+      restoreHistory(state, restoredHtml);
       lastEdit = null;
       notify();
     } finally {
@@ -2016,13 +2168,18 @@ export function startInPlaceTextSession(
   }
 
   function redo() {
-    const state = active ? redoStack.pop() : undefined;
+    const state = active ? redoStack.at(-1) : undefined;
     if (!state) return false;
-    undoStack.push(snapshot());
+    const baseHtml = el.innerHTML;
+    const restoredHtml = materializeSnapshotHtml(state, baseHtml);
+    const current = snapshot();
+    compactSnapshot(current, restoredHtml);
+    redoStack.pop();
+    undoStack.push(current);
     trimHistory();
     restoringHistory = true;
     try {
-      restoreHistory(state);
+      restoreHistory(state, restoredHtml);
       lastEdit = null;
       notify();
     } finally {
@@ -5046,6 +5203,8 @@ export function startInPlaceTextSession(
           reshape(dragSource);
           notify();
         }
+        compactSnapshot(undoStack.at(-1), el.innerHTML);
+        trimHistory();
       } else {
         command(() => insertClipboard(data, at));
       }
@@ -5109,6 +5268,12 @@ export function startInPlaceTextSession(
       dragSource = selectionRange()?.startContainer ?? null;
     } else if (!input.isComposing) {
       reshapeAtCaret();
+    }
+    if (
+      !input.isComposing &&
+      !(input.inputType === "deleteByDrag" && dragDeleted)
+    ) {
+      trimHistory();
     }
     notify(isStructuralInputType(input.inputType));
   }
@@ -5403,6 +5568,7 @@ export function startInPlaceTextSession(
       if (!active) return;
       reshapeAtCaret();
       applyMarkdownShortcut();
+      trimHistory();
       notify();
     }, 0);
   }

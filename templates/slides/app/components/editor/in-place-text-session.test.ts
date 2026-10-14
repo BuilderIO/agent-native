@@ -2619,7 +2619,7 @@ describe("in-place text session: undo", () => {
     expect(session.historyStats().byteEvictions).toBe(0);
   });
 
-  it("keeps 500 Latin-1 history entries compact under the 256 MiB budget", () => {
+  it("stores differences instead of repeating large Latin-1 snapshots", () => {
     const operationCount = 500;
     const originalText = "x".repeat(380_000);
     const el = mount(`<p id="t">${originalText}</p>`);
@@ -2633,8 +2633,7 @@ describe("in-place text session: undo", () => {
     }
 
     const history = session.historyStats();
-    expect(history.peakBytes).toBeGreaterThan(150 * 1024 * 1024);
-    expect(history.peakBytes).toBeLessThan(256 * 1024 * 1024);
+    expect(history.peakBytes).toBeLessThan(1024 * 1024);
     expect(history.initialStateEvicted).toBe(false);
     expect(history.byteEvictions).toBe(0);
 
@@ -2644,7 +2643,7 @@ describe("in-place text session: undo", () => {
     expect(el.innerHTML).toBe(originalHtml);
   });
 
-  it("keeps a 500-operation history for a two-byte text block within the budget", () => {
+  it("stores differences instead of repeating two-byte snapshots", () => {
     const operationCount = 500;
     const originalText = "x".repeat(380_000) + ZWSP;
     const el = mount(`<p id="t">${originalText}</p>`);
@@ -2658,7 +2657,7 @@ describe("in-place text session: undo", () => {
     }
 
     const history = session.historyStats();
-    expect(history.peakBytes).toBeGreaterThan(340 * 1024 * 1024);
+    expect(history.peakBytes).toBeLessThan(1024 * 1024);
     expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
     expect(history.retainedBytes).toBeLessThanOrEqual(
       IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
@@ -2670,6 +2669,60 @@ describe("in-place text session: undo", () => {
     while (session.undo()) undone++;
     expect(undone).toBe(operationCount);
     expect(el.innerHTML).toBe(originalHtml);
+  });
+
+  it("restores 500 one-character edits to a large text block through undo and redo", () => {
+    const operationCount = 500;
+    const originalText = "x".repeat(380_000);
+    const el = mount(`<p id="t">${originalText}</p>`);
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, 16);
+    const originalHtml = el.innerHTML;
+    let offset = 190_000;
+
+    for (let i = 0; i < operationCount; i++) {
+      expect(
+        session.apply(() => {
+          text.insertData(offset, "y");
+          offset += 1;
+        }),
+      ).toBe(true);
+    }
+
+    const finalHtml = el.innerHTML;
+    expect(session.historyStats().peakBytes).toBeLessThan(2 * 1024 * 1024);
+    expect(session.historyStats().initialStateEvicted).toBe(false);
+    expect(session.historyStats().byteEvictions).toBe(0);
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(operationCount);
+    expect(el.innerHTML).toBe(originalHtml);
+
+    let redone = 0;
+    while (session.redo()) redone++;
+    expect(redone).toBe(operationCount);
+    expect(el.innerHTML).toBe(finalHtml);
+  });
+
+  it("keeps history intact when its expected base was changed externally", () => {
+    const initialText = `${"a".repeat(256)}bc`;
+    const el = mount(`<p id="t">${initialText}</p>`);
+    const activeSession = startInPlaceTextSession(el);
+    session = activeSession;
+    const text = el.firstChild as Text;
+    caret(text, 256);
+    activeSession.apply(() => text.insertData(256, "x"));
+
+    text.replaceData(256, 1, "y");
+    const changedHtml = el.innerHTML;
+
+    expect(() => activeSession.undo()).toThrow(
+      "undo history content no longer matches its snapshot",
+    );
+    expect(el.innerHTML).toBe(changedHtml);
+    expect(activeSession.historyStats().undoDepth).toBe(1);
   });
 
   it("keeps redo available after a no-op Tab command", () => {
@@ -2686,22 +2739,24 @@ describe("in-place text session: undo", () => {
     expect(textOf(el, "OneX").data).toBe("OneX");
   });
 
-  it("keeps oversized snapshots within the retained-string budget", () => {
+  it("does not retain repeated copies of unchanged oversized HTML", () => {
     const large = "x".repeat(Math.floor(IN_PLACE_TEXT_UNDO_BYTE_LIMIT * 0.55));
     const el = mount(`<p id="t">${large}</p>`);
     session = startInPlaceTextSession(el);
     const aligns = ["left", "right"] as const;
     session.commands.align("center");
     session.commands.align(aligns[0]);
+    expect(session.historyStats().peakBytes).toBeLessThan(1024 * 1024);
+    expect(session.historyStats().byteEvictions).toBe(0);
+    expect(session.historyStats().initialStateEvicted).toBe(false);
+    expect(session.undo()).toBe(true);
     expect(session.undo()).toBe(true);
     expect(session.undo()).toBe(false);
     expect(el.textContent).toBe(large);
-    expect(session.historyStats().byteEvictions).toBeGreaterThan(0);
-    expect(session.historyStats().bytesEvicted).toBeGreaterThan(0);
     expect(session.historyStats().retainedBytes).toBeLessThanOrEqual(
       IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
     );
-    expect(session.historyStats().initialStateEvicted).toBe(true);
+    expect(session.historyStats().initialStateEvicted).toBe(false);
   });
 });
 
