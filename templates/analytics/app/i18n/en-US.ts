@@ -217,6 +217,77 @@ export default {
     moveDashboard: "Move dashboard",
     folderCreateFailed: "Couldn't create folder",
     moveFailed: "Couldn't move dashboard",
+    importFromSigma: "Import from Sigma",
+    sigmaConnection: "Sigma connection",
+    sigmaConnectedTo: "Connected to {{name}}",
+    sigmaChooseConnection: "Sigma connection",
+    sigmaChooseConnectionPlaceholder: "Choose a connection",
+    sigmaChooseConnectionDescription:
+      "Choose the Sigma workspace to browse its workbooks.",
+    sigmaNoConnection: "Sigma isn't connected",
+    sigmaNoConnectionDescription:
+      "Open Dispatch and ask it to connect Sigma to Analytics. Credentials stay in Vault.",
+    sigmaOpenDispatch: "Set up in Dispatch",
+    sigmaWorkbooksLoadFailed: "Couldn't load Sigma workbooks",
+    sigmaRetryConnection: "Check the connection and try again.",
+    sigmaRetry: "Retry",
+    sigmaNoWorkbooks: "No Sigma workbooks are available.",
+    sigmaWorkbook: "Workbook",
+    sigmaChooseWorkbook: "Choose a workbook",
+    sigmaStatusNotImported: "Not imported",
+    sigmaStatusImporting: "Importing",
+    sigmaStatusImported: "Imported",
+    sigmaStatusFailed: "Import failed",
+    sigmaPreviewTitle: "Workbook preview",
+    sigmaPreviewFailed: "Couldn't preview this workbook",
+    sigmaRetryPreview: "Try again to load the workbook preview.",
+    sigmaImportableCount: "{{count}} importable",
+    sigmaUnsupportedCount: "{{count}} unsupported",
+    sigmaImportable: "Importable",
+    sigmaUnsupported: "Unsupported",
+    sigmaNoElements: "No workbook elements were found.",
+    sigmaNoImportable: "This workbook has no supported elements to import.",
+    sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
+    sigmaImportWorkbook: "Import workbook",
+    sigmaImporting: "Importing workbook…",
+    sigmaImportInProgress:
+      "An import for this workbook is already in progress.",
+    sigmaMigrationFailed: "Couldn't import this workbook. Try again.",
+    sigmaMigrationResultInvalid:
+      "The import response was incomplete. Reload the workbook list to check its status.",
+    sigmaImportComplete: "Dashboard created",
+    sigmaImportSummary:
+      "{{imported}} elements imported; {{unsupported}} unsupported elements skipped.",
+    sigmaAlreadyImported: "This workbook has already been imported.",
+    sigmaImportedNoDashboard:
+      "The imported dashboard isn't available to open from this account.",
+    sigmaReviewRequiredCount: "{{count}} need review",
+    sigmaBigQueryRequired:
+      "Connect an Analytics BigQuery source before importing supported elements.",
+    sigmaSetupBigQuery: "Set up BigQuery",
+    sigmaBetaRepresentationWarning:
+      "This beta import may represent some visualizations differently from Sigma.",
+    sigmaReasonUnsupportedElement:
+      "This element type is not supported for import.",
+    sigmaReasonBigQueryRequired:
+      "Connect an Analytics BigQuery source to import this element.",
+    sigmaReasonUnsupportedSource:
+      "This element uses a source that is not supported for import.",
+    sigmaReasonQueryUnavailable:
+      "Sigma did not return an importable query for this element.",
+    sigmaReasonUnsafeSql: "This query pattern cannot be imported safely.",
+    sigmaReasonVisualizationReview:
+      "The data can be imported, but verify its visualization after import.",
+    sigmaImportedByTeammate: "Imported by a teammate",
+    sigmaFlaggedCount: "{{count}} flagged for review",
+    sigmaMoreWorkbooksFailed: "Could not load more workbooks",
+    sigmaLoadingMore: "Loading workbooks…",
+    sigmaLoadMore: "Load more workbooks",
+    sigmaOpenDashboard: "Open dashboard",
+    sigmaReviewWithAgent: "Review with agent",
+    sigmaReviewContext: "Imported Sigma dashboard",
+    sigmaReviewPrompt:
+      "Review the imported Sigma dashboard {{name}}. Check the imported panels and unsupported elements, then suggest any corrections.",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",

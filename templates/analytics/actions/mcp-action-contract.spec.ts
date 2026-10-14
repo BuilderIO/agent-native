@@ -63,12 +63,15 @@ const DIRECT_MCP_READS = [
   "list-error-issues",
   "list-session-recordings",
   "list-sql-dashboards",
+  "list-sigma-workbooks",
+  "inspect-sigma-workbook",
   "match-error-issues",
   "search-analytics-query-catalog",
   "search-dashboard-references",
 ];
 
 const DIRECT_MCP_WRITES = [
+  "migrate-sigma-workbook",
   "run-gong-native-insight",
   "update-analytics-public-key",
 ];
@@ -84,7 +87,7 @@ const VETOED = [
   "search-bigquery-schema",
 ];
 
-// Left off the default connector; the full-catalog opt-in can still serve them.
+// UI, bulk replay, and unapproved writes stay off the read-scoped catalog.
 const DEFAULT_CONNECTOR_EXCLUDED = [
   "get-session-replay-events",
   "navigate",
@@ -181,10 +184,13 @@ describe("Analytics direct MCP tools", () => {
       expect(actions[name].mcpTool, name).not.toBe(true);
     }
     for (const [name, action] of Object.entries(actions)) {
-      if (/^(seed|ensure|migrate|purge)-/.test(name)) {
+      if (/^(seed|ensure|purge)-/.test(name)) {
         expect(action.mcpTool, name).not.toBe(true);
       }
     }
+    expect(actions["migrate-sigma-workbook"].mcpTool).toBe(true);
+    expect(actions["migrate-sigma-workbook"].readOnly).not.toBe(true);
+    expect(actions["migrate-sigma-workbook"].needsApproval).toBe(true);
   });
 
   it("classifies every direct read as read-only so mcp:read tokens can call it", () => {

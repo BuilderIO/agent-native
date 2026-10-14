@@ -51,6 +51,77 @@ export default {
     moveDashboard: "ダッシュボードを移動",
     folderCreateFailed: "フォルダーを作成できませんでした",
     moveFailed: "ダッシュボードを移動できませんでした",
+    importFromSigma: "Sigma からインポート",
+    sigmaConnection: "Sigma 接続",
+    sigmaConnectedTo: "{{name}} に接続済み",
+    sigmaChooseConnection: "Sigma 接続",
+    sigmaChooseConnectionPlaceholder: "接続を選択",
+    sigmaChooseConnectionDescription:
+      "ワークブックを表示する Sigma ワークスペースを選択してください。",
+    sigmaNoConnection: "Sigma が接続されていません",
+    sigmaNoConnectionDescription:
+      "Dispatch を開き、Sigma を Analytics に接続するよう依頼してください。認証情報は Vault に保存されます。",
+    sigmaOpenDispatch: "Dispatch で設定",
+    sigmaWorkbooksLoadFailed: "Sigma のワークブックを読み込めませんでした",
+    sigmaRetryConnection: "接続を確認して、もう一度お試しください。",
+    sigmaRetry: "再試行",
+    sigmaNoWorkbooks: "利用できる Sigma ワークブックはありません。",
+    sigmaWorkbook: "ワークブック",
+    sigmaChooseWorkbook: "ワークブックを選択",
+    sigmaStatusNotImported: "未インポート",
+    sigmaStatusImporting: "インポート中",
+    sigmaStatusImported: "インポート済み",
+    sigmaStatusFailed: "インポートに失敗しました",
+    sigmaPreviewTitle: "ワークブックのプレビュー",
+    sigmaPreviewFailed: "このワークブックをプレビューできませんでした",
+    sigmaRetryPreview: "ワークブックのプレビューを再読み込みしてください。",
+    sigmaImportableCount: "インポート可能 {{count}} 件",
+    sigmaUnsupportedCount: "未対応 {{count}} 件",
+    sigmaImportable: "インポート可能",
+    sigmaUnsupported: "未対応",
+    sigmaNoElements: "ワークブックに要素が見つかりませんでした。",
+    sigmaNoImportable: "このワークブックにはインポート可能な要素がありません。",
+    sigmaPreviewTruncated: "{{total}} 件中 {{shown}} 件を表示しています。",
+    sigmaImportWorkbook: "ワークブックをインポート",
+    sigmaImporting: "ワークブックをインポート中…",
+    sigmaImportInProgress: "このワークブックはすでにインポート中です。",
+    sigmaMigrationFailed:
+      "ワークブックをインポートできませんでした。もう一度お試しください。",
+    sigmaMigrationResultInvalid:
+      "インポートの応答が不完全でした。状態を確認するため、ワークブック一覧を再読み込みしてください。",
+    sigmaImportComplete: "ダッシュボードを作成しました",
+    sigmaImportSummary:
+      "{{imported}} 件をインポートし、未対応の {{unsupported}} 件をスキップしました。",
+    sigmaAlreadyImported: "このワークブックはすでにインポートされています。",
+    sigmaImportedNoDashboard:
+      "ダッシュボードはインポートされましたが、このアカウントからは開けません。",
+    sigmaReviewRequiredCount: "{{count}} 件の確認が必要",
+    sigmaBigQueryRequired:
+      "対応する要素をインポートするには、Analytics の BigQuery ソースを接続してください。",
+    sigmaSetupBigQuery: "BigQuery を設定",
+    sigmaBetaRepresentationWarning:
+      "ベータ版のインポートでは、一部の可視化が Sigma と異なる表示になる場合があります。",
+    sigmaReasonUnsupportedElement:
+      "この要素タイプはインポートに対応していません。",
+    sigmaReasonBigQueryRequired:
+      "この要素をインポートするには、Analytics の BigQuery ソースを接続してください。",
+    sigmaReasonUnsupportedSource:
+      "この要素のソースはインポートに対応していません。",
+    sigmaReasonQueryUnavailable:
+      "この要素のインポート可能なクエリが Sigma から返されませんでした。",
+    sigmaReasonUnsafeSql: "このクエリ形式は安全にインポートできません。",
+    sigmaReasonVisualizationReview:
+      "データはインポートできますが、インポート後に可視化を確認してください。",
+    sigmaImportedByTeammate: "チームメンバーがインポート済み",
+    sigmaFlaggedCount: "{{count}} 件を要確認としてマーク",
+    sigmaMoreWorkbooksFailed: "追加のワークブックを読み込めませんでした",
+    sigmaLoadingMore: "ワークブックを読み込み中…",
+    sigmaLoadMore: "ワークブックをさらに読み込む",
+    sigmaOpenDashboard: "ダッシュボードを開く",
+    sigmaReviewWithAgent: "エージェントとレビュー",
+    sigmaReviewContext: "インポートした Sigma ダッシュボード",
+    sigmaReviewPrompt:
+      "インポートした Sigma ダッシュボード {{name}} をレビューしてください。インポート済みのパネルと未対応の要素を確認し、修正案を提示してください。",
   },
   sidebar: {
     collapseSidebar: "サイドバーを折りたたむ",

@@ -51,6 +51,82 @@ export default {
     moveDashboard: "Mover painel",
     folderCreateFailed: "Não foi possível criar a pasta",
     moveFailed: "Não foi possível mover o painel",
+    importFromSigma: "Importar do Sigma",
+    sigmaConnection: "Conexão do Sigma",
+    sigmaConnectedTo: "Conectado a {{name}}",
+    sigmaChooseConnection: "Conexão do Sigma",
+    sigmaChooseConnectionPlaceholder: "Escolha uma conexão",
+    sigmaChooseConnectionDescription:
+      "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
+    sigmaNoConnection: "O Sigma não está conectado",
+    sigmaNoConnectionDescription:
+      "Abra o Dispatch e peça para conectar o Sigma ao Analytics. As credenciais permanecem no Vault.",
+    sigmaOpenDispatch: "Configurar no Dispatch",
+    sigmaWorkbooksLoadFailed:
+      "Não foi possível carregar as pastas de trabalho do Sigma",
+    sigmaRetryConnection: "Verifique a conexão e tente novamente.",
+    sigmaRetry: "Tentar novamente",
+    sigmaNoWorkbooks: "Nenhuma pasta de trabalho do Sigma está disponível.",
+    sigmaWorkbook: "Pasta de trabalho",
+    sigmaChooseWorkbook: "Escolha uma pasta de trabalho",
+    sigmaStatusNotImported: "Não importado",
+    sigmaStatusImporting: "Importando",
+    sigmaStatusImported: "Importado",
+    sigmaStatusFailed: "Falha na importação",
+    sigmaPreviewTitle: "Prévia da pasta de trabalho",
+    sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
+    sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",
+    sigmaImportableCount: "{{count}} importáveis",
+    sigmaUnsupportedCount: "{{count}} sem suporte",
+    sigmaImportable: "Importável",
+    sigmaUnsupported: "Sem suporte",
+    sigmaNoElements: "Nenhum elemento foi encontrado nesta pasta de trabalho.",
+    sigmaNoImportable:
+      "Esta pasta de trabalho não tem elementos compatíveis para importar.",
+    sigmaPreviewTruncated: "Exibindo {{shown}} de {{total}} elementos.",
+    sigmaImportWorkbook: "Importar pasta de trabalho",
+    sigmaImporting: "Importando pasta de trabalho…",
+    sigmaImportInProgress:
+      "A importação desta pasta de trabalho já está em andamento.",
+    sigmaMigrationFailed:
+      "Não foi possível importar esta pasta de trabalho. Tente novamente.",
+    sigmaMigrationResultInvalid:
+      "A resposta da importação estava incompleta. Atualize a lista de pastas de trabalho para verificar o status.",
+    sigmaImportComplete: "Painel criado",
+    sigmaImportSummary:
+      "{{imported}} elementos importados; {{unsupported}} elementos sem suporte ignorados.",
+    sigmaAlreadyImported: "Esta pasta de trabalho já foi importada.",
+    sigmaImportedNoDashboard:
+      "O painel foi importado, mas não pode ser aberto por esta conta.",
+    sigmaReviewRequiredCount: "{{count}} precisam de revisão",
+    sigmaBigQueryRequired:
+      "Conecte uma fonte BigQuery do Analytics antes de importar elementos compatíveis.",
+    sigmaSetupBigQuery: "Configurar BigQuery",
+    sigmaBetaRepresentationWarning:
+      "Esta importação beta pode representar algumas visualizações de forma diferente do Sigma.",
+    sigmaReasonUnsupportedElement:
+      "Este tipo de elemento não é compatível com a importação.",
+    sigmaReasonBigQueryRequired:
+      "Conecte uma fonte BigQuery do Analytics para importar este elemento.",
+    sigmaReasonUnsupportedSource:
+      "Este elemento usa uma fonte que não é compatível com a importação.",
+    sigmaReasonQueryUnavailable:
+      "O Sigma não retornou uma consulta importável para este elemento.",
+    sigmaReasonUnsafeSql:
+      "Este padrão de consulta não pode ser importado com segurança.",
+    sigmaReasonVisualizationReview:
+      "Os dados podem ser importados, mas confira a visualização depois.",
+    sigmaImportedByTeammate: "Importado por um colega da equipe",
+    sigmaFlaggedCount: "{{count}} marcados para revisão",
+    sigmaMoreWorkbooksFailed:
+      "Não foi possível carregar mais pastas de trabalho",
+    sigmaLoadingMore: "Carregando pastas de trabalho…",
+    sigmaLoadMore: "Carregar mais pastas de trabalho",
+    sigmaOpenDashboard: "Abrir painel",
+    sigmaReviewWithAgent: "Revisar com o agente",
+    sigmaReviewContext: "Painel importado do Sigma",
+    sigmaReviewPrompt:
+      "Revise o painel importado do Sigma {{name}}. Confira os painéis importados e os elementos sem suporte e sugira correções.",
   },
   sidebar: {
     collapseSidebar: "Recolher barra lateral",

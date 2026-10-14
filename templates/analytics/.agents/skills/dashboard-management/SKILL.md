@@ -235,6 +235,20 @@ catalog template. Existing dashboards remain readable while the native
 replacement is validated. Bespoke interaction flows, arbitrary layouts, and
 visualizations outside these contracts may remain Custom Blocks.
 
+## Sigma workbook imports
+
+For an explicitly requested Sigma migration, list workbooks with
+`list-sigma-workbooks`, inspect the selected workbook with
+`inspect-sigma-workbook`, and call `migrate-sigma-workbook` only after the user
+chooses to import it. The feature is controlled by
+`analytics.sigma-dashboard-migration` and requires a granted Sigma connection
+plus an Analytics BigQuery source. It creates a private snapshot in the user's
+personal `Sigma` folder. BigQuery-backed read-only SQL is imported as tables;
+other source types and unsupported elements become review callouts. Preserve
+the migration warnings and never describe the result as parity-complete or
+automatically synchronized. Sigma's workbook-code API is public Beta and can
+omit unsupported workbook features before the importer receives the response.
+
 The source tree ships four provider-free v2 manifests in
 `server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,
 Cross-sell, and Win / Loss. They intentionally contain no customer names,

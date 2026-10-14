@@ -51,6 +51,82 @@ export default {
     moveDashboard: "Dashboard verschieben",
     folderCreateFailed: "Ordner konnte nicht erstellt werden",
     moveFailed: "Dashboard konnte nicht verschoben werden",
+    importFromSigma: "Aus Sigma importieren",
+    sigmaConnection: "Sigma-Verbindung",
+    sigmaConnectedTo: "Verbunden mit {{name}}",
+    sigmaChooseConnection: "Sigma-Verbindung",
+    sigmaChooseConnectionPlaceholder: "Verbindung auswählen",
+    sigmaChooseConnectionDescription:
+      "Wähle den Sigma-Arbeitsbereich aus, dessen Arbeitsmappen du anzeigen möchtest.",
+    sigmaNoConnection: "Sigma ist nicht verbunden",
+    sigmaNoConnectionDescription:
+      "Öffne Dispatch und bitte es, Sigma mit Analytics zu verbinden. Zugangsdaten bleiben im Vault.",
+    sigmaOpenDispatch: "In Dispatch einrichten",
+    sigmaWorkbooksLoadFailed:
+      "Sigma-Arbeitsmappen konnten nicht geladen werden",
+    sigmaRetryConnection: "Überprüfe die Verbindung und versuche es erneut.",
+    sigmaRetry: "Erneut versuchen",
+    sigmaNoWorkbooks: "Keine Sigma-Arbeitsmappen verfügbar.",
+    sigmaWorkbook: "Arbeitsmappe",
+    sigmaChooseWorkbook: "Arbeitsmappe auswählen",
+    sigmaStatusNotImported: "Nicht importiert",
+    sigmaStatusImporting: "Wird importiert",
+    sigmaStatusImported: "Importiert",
+    sigmaStatusFailed: "Import fehlgeschlagen",
+    sigmaPreviewTitle: "Arbeitsmappenvorschau",
+    sigmaPreviewFailed: "Diese Arbeitsmappe konnte nicht angezeigt werden",
+    sigmaRetryPreview: "Lade die Arbeitsmappenvorschau erneut.",
+    sigmaImportableCount: "{{count}} importierbar",
+    sigmaUnsupportedCount: "{{count}} nicht unterstützt",
+    sigmaImportable: "Importierbar",
+    sigmaUnsupported: "Nicht unterstützt",
+    sigmaNoElements: "In dieser Arbeitsmappe wurden keine Elemente gefunden.",
+    sigmaNoImportable:
+      "Diese Arbeitsmappe enthält keine unterstützten Elemente zum Importieren.",
+    sigmaPreviewTruncated:
+      "{{shown}} von {{total}} Elementen werden angezeigt.",
+    sigmaImportWorkbook: "Arbeitsmappe importieren",
+    sigmaImporting: "Arbeitsmappe wird importiert…",
+    sigmaImportInProgress: "Der Import dieser Arbeitsmappe läuft bereits.",
+    sigmaMigrationFailed:
+      "Diese Arbeitsmappe konnte nicht importiert werden. Versuche es erneut.",
+    sigmaMigrationResultInvalid:
+      "Die Importantwort war unvollständig. Lade die Arbeitsmappenliste neu, um den Status zu prüfen.",
+    sigmaImportComplete: "Dashboard erstellt",
+    sigmaImportSummary:
+      "{{imported}} Elemente importiert; {{unsupported}} nicht unterstützte Elemente übersprungen.",
+    sigmaAlreadyImported: "Diese Arbeitsmappe wurde bereits importiert.",
+    sigmaImportedNoDashboard:
+      "Das importierte Dashboard kann von diesem Konto aus nicht geöffnet werden.",
+    sigmaReviewRequiredCount: "{{count}} zur Überprüfung",
+    sigmaBigQueryRequired:
+      "Verbinde eine Analytics-BigQuery-Quelle, bevor du unterstützte Elemente importierst.",
+    sigmaSetupBigQuery: "BigQuery einrichten",
+    sigmaBetaRepresentationWarning:
+      "Dieser Beta-Import kann einige Visualisierungen anders als Sigma darstellen.",
+    sigmaReasonUnsupportedElement:
+      "Dieser Elementtyp wird beim Import nicht unterstützt.",
+    sigmaReasonBigQueryRequired:
+      "Verbinde eine Analytics-BigQuery-Quelle, um dieses Element zu importieren.",
+    sigmaReasonUnsupportedSource:
+      "Dieses Element verwendet eine nicht unterstützte Quelle.",
+    sigmaReasonQueryUnavailable:
+      "Sigma hat für dieses Element keine importierbare Abfrage zurückgegeben.",
+    sigmaReasonUnsafeSql:
+      "Dieses Abfragemuster kann nicht sicher importiert werden.",
+    sigmaReasonVisualizationReview:
+      "Die Daten können importiert werden. Überprüfe die Visualisierung danach.",
+    sigmaImportedByTeammate: "Von einem Teammitglied importiert",
+    sigmaFlaggedCount: "{{count}} zur Überprüfung markiert",
+    sigmaMoreWorkbooksFailed:
+      "Weitere Arbeitsmappen konnten nicht geladen werden",
+    sigmaLoadingMore: "Arbeitsmappen werden geladen…",
+    sigmaLoadMore: "Weitere Arbeitsmappen laden",
+    sigmaOpenDashboard: "Dashboard öffnen",
+    sigmaReviewWithAgent: "Mit Agent überprüfen",
+    sigmaReviewContext: "Importiertes Sigma-Dashboard",
+    sigmaReviewPrompt:
+      "Überprüfe das importierte Sigma-Dashboard {{name}}. Kontrolliere die importierten Panels und nicht unterstützten Elemente und schlage Korrekturen vor.",
   },
   sidebar: {
     collapseSidebar: "Seitenleiste einklappen",
