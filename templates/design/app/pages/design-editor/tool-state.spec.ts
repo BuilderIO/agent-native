@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DESIGN_EDITOR_TOOLS,
+  areCommentPinsHidden,
   commandRequestsAnnotate,
   getDesignBottomToolbarMode,
   normalizeDesignLeftPanel,
@@ -390,6 +391,23 @@ describe("Annotate lab gate", () => {
       }),
     ).toBeNull();
   });
+
+  it("hides comment pins in Interact even when comments are shown", () => {
+    expect(
+      areCommentPinsHidden({ commentsHidden: false, mode: "interact" }),
+    ).toBe(true);
+    expect(
+      areCommentPinsHidden({ commentsHidden: true, mode: "interact" }),
+    ).toBe(true);
+  });
+
+  it.each(["edit", "annotate"] as const)(
+    "follows the show-comments setting in %s mode",
+    (mode) => {
+      expect(areCommentPinsHidden({ commentsHidden: false, mode })).toBe(false);
+      expect(areCommentPinsHidden({ commentsHidden: true, mode })).toBe(true);
+    },
+  );
 
   it("recognises a command that asks for Annotate or Draw", () => {
     expect(commandRequestsAnnotate({ mode: "annotate" })).toBe(true);

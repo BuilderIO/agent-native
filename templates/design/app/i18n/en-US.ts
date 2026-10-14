@@ -787,7 +787,6 @@ export default {
       tokens: "Tokens",
       threads: "Threads",
       label: "Design workspace",
-      account: "Account",
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
     },
@@ -1117,13 +1116,22 @@ export default {
       importCssOrTailwind: "CSS or Tailwind file…",
       importClipboard: "Paste from clipboard",
       importFromDesign: "Generate from design",
-      importing: "Importing tokens…",
-      importNone: "No tokens found",
       importFailed: "Couldn't import tokens: {{message}}",
       clipboardBlocked:
         "Couldn't read the clipboard. Allow clipboard access and try again.",
       clipboardEmpty: "The clipboard is empty",
       importedCount: "Imported {{count}} tokens",
+      importing: "Importing tokens…",
+      importedWithSkipped:
+        "Imported {{count}} tokens. Skipped {{skipped}} invalid values or files.",
+      importedWithOmissions:
+        "Imported {{count}} tokens. Skipped {{skipped}} invalid items. Not processed due to limits (tokens: {{omittedTokens}}, files: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "Imported {{count}} tokens. Could not read {{readFailures}} files. Reselect them and try again.",
+      importedWithReadFailuresAndOmissions:
+        "Imported {{count}} tokens. Could not read {{readFailures}} files. Also skipped {{skipped}} invalid items and left {{omittedTokens}} tokens and {{omittedFiles}} files unprocessed due to limits. Reselect unreadable files and try again.",
+      noTokensFound:
+        "No valid tokens were found. Check the file format and token values.",
       count: "{{count}} tokens",
       search: "Search tokens",
       noMatches: "No matching tokens",
@@ -1261,6 +1269,7 @@ export default {
       htmlPlaceholder: "<main>Paste standalone HTML here...</main>",
       importHtml: "Import HTML",
       chooseHtmlFile: "Choose HTML file",
+      allSupportedFiles: "All supported files",
       githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",

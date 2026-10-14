@@ -848,7 +848,6 @@ export default {
       tokens: "الرموز",
       threads: "المحادثات",
       label: "مساحة عمل التصميم",
-      account: "الحساب",
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
     },
@@ -1175,12 +1174,21 @@ export default {
       importCssOrTailwind: "ملف CSS أو Tailwind…",
       importClipboard: "لصق من الحافظة",
       importFromDesign: "إنشاء من التصميم",
-      importing: "جارٍ استيراد الرموز المميزة…",
-      importNone: "لم يتم العثور على رموز مميزة",
       importFailed: "تعذّر استيراد الرموز المميزة: {{message}}",
       clipboardBlocked: "تعذّرت قراءة الحافظة. اسمح بالوصول ثم حاول مرة أخرى.",
       clipboardEmpty: "الحافظة فارغة",
       importedCount: "تم استيراد {{count}} رمزا",
+      importing: "جارٍ استيراد الرموز…",
+      importedWithSkipped:
+        "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من القيم أو الملفات غير الصالحة.",
+      importedWithOmissions:
+        "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من العناصر غير الصالحة. لم تتم المعالجة بسبب الحدود (الرموز: {{omittedTokens}}، الملفات: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "تم استيراد {{count}} من الرموز، وتعذرت قراءة {{readFailures}} من الملفات. أعد تحديدها ثم حاول مرة أخرى.",
+      importedWithReadFailuresAndOmissions:
+        "تم استيراد {{count}} من الرموز. تعذرت قراءة {{readFailures}} من الملفات. تم أيضًا تخطي {{skipped}} من العناصر غير الصالحة، ولم تُعالج {{omittedTokens}} من الرموز و{{omittedFiles}} من الملفات بسبب الحدود. أعد تحديد الملفات التي تعذرت قراءتها ثم حاول مرة أخرى.",
+      noTokensFound:
+        "لم يتم العثور على رموز صالحة. تحقق من تنسيق الملف والقيم.",
       count: "{{count}} رمز",
       search: "البحث في الرموز",
       noMatches: "لا توجد رموز مطابقة",
@@ -1316,6 +1324,7 @@ export default {
       htmlPlaceholder: "<main>الصق HTML مستقلا هنا...</main>",
       importHtml: "استيراد HTML",
       chooseHtmlFile: "اختر ملف HTML",
+      allSupportedFiles: "جميع الملفات المدعومة",
       githubTitle: "GitHub",
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
       localTitle: "تطبيق محلي",

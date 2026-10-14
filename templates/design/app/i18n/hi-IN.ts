@@ -850,7 +850,6 @@ export default {
       tokens: "टोकन",
       threads: "थ्रेड",
       label: "डिज़ाइन कार्यक्षेत्र",
-      account: "खाता",
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
@@ -1178,13 +1177,21 @@ export default {
       importCssOrTailwind: "CSS या Tailwind फ़ाइल…",
       importClipboard: "क्लिपबोर्ड से पेस्ट करें",
       importFromDesign: "डिज़ाइन से जनरेट करें",
-      importing: "टोकन इंपोर्ट किए जा रहे हैं…",
-      importNone: "कोई टोकन नहीं मिला",
       importFailed: "टोकन इंपोर्ट नहीं किए जा सके: {{message}}",
       clipboardBlocked:
         "क्लिपबोर्ड नहीं पढ़ा जा सका। एक्सेस की अनुमति दें और फिर से कोशिश करें।",
       clipboardEmpty: "क्लिपबोर्ड खाली है",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      importing: "टोकन इम्पोर्ट हो रहे हैं…",
+      importedWithSkipped:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य मान या फाइलें छोड़ी गईं।",
+      importedWithOmissions:
+        "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य आइटम छोड़े गए। सीमा के कारण प्रोसेस नहीं हुए (टोकन: {{omittedTokens}}, फाइलें: {{omittedFiles}})।",
+      importedWithReadFailures:
+        "{{count}} टोकन इम्पोर्ट हुए, लेकिन {{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। उन्हें फिर से चुनकर दोबारा कोशिश करें।",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} टोकन इम्पोर्ट हुए। {{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। {{skipped}} अमान्य आइटम भी छोड़े गए और सीमा के कारण {{omittedTokens}} टोकन तथा {{omittedFiles}} फ़ाइलें प्रोसेस नहीं हुईं। न पढ़ी जा सकी फ़ाइलें फिर से चुनकर दोबारा कोशिश करें।",
+      noTokensFound: "कोई मान्य टोकन नहीं मिला। फाइल के फ़ॉर्मैट और टोकन मान जांचें।",
       count: "{{count}} टोकन",
       search: "टोकन खोजें",
       noMatches: "कोई मेल खाता टोकन नहीं",
@@ -1321,6 +1328,7 @@ export default {
       htmlPlaceholder: "<main>Standalone HTML यहाँ paste करें...</main>",
       importHtml: "HTML आयात करें",
       chooseHtmlFile: "HTML file चुनें",
+      allSupportedFiles: "सभी समर्थित फ़ाइलें",
       githubTitle: "GitHub",
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",

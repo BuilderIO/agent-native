@@ -86,9 +86,10 @@ export function guessTokenType(name: string, value: string): DesignTokenType {
   if (isColorTokenValue(v)) return "color";
   if (/radius|rounded/.test(n)) return "radius";
   if (/shadow|elevation|drop/.test(n)) return "shadow";
-  if (/opacity|alpha/.test(n)) return "opacity";
+  // Not "alpha": color tokens name their alpha channel that way.
+  if (/opacity/.test(n)) return "opacity";
   if (/duration|easing|ease|transition|animation|motion|delay/.test(n)) {
-    return isMotionValue(v) ? "motion" : "other";
+    return "motion";
   }
   if (/letter|tracking/.test(n)) return "letter-spacing";
   if (/line-?height|leading/.test(n)) return "line-height";

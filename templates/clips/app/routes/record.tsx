@@ -4365,7 +4365,7 @@ export default function RecordRoute() {
                 connectedDescription={t(
                   "recordRoute.storageConnectedReopeningRecorder",
                 )}
-                connectSource="clips_record_storage_setup_card"
+                connectSource="clips_record_error_storage_setup_card"
                 connectFlow="record"
               />
             </div>

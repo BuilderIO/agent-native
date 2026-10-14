@@ -1,3 +1,4 @@
+import { isAgentConnectionRequiredError } from "@agent-native/core/action";
 import {
   isProviderApiId,
   resolveProviderApiOAuthAccessToken,
@@ -183,12 +184,18 @@ async function resolveWorkspaceOAuthProviderCredential(
   if (options.workspaceConnection === false) return null;
   const provider = options.provider.trim().toLowerCase();
   if (!isProviderApiId(provider)) return null;
+  if (provider === "bigquery" && options.ctx.credentialScope === "org") {
+    return null;
+  }
 
   const requestedConnectionId = options.connectionId?.trim() || undefined;
   const resolvedConnection = await resolveWorkspaceConnectionForApp({
     appId: ANALYTICS_APP_ID,
     provider,
     connectionId: requestedConnectionId,
+    ...(provider === "bigquery"
+      ? { connectionOwnerEmail: options.ctx.userEmail }
+      : {}),
     requireConnected: true,
   });
   if (
@@ -314,6 +321,27 @@ export async function resolveAnalyticsProviderCredential(
   }
 
   return null;
+}
+
+export async function resolveBigQueryOAuthCredential(
+  ctx: CredentialContext,
+): Promise<AnalyticsProviderCredential | null> {
+  try {
+    return await resolveAnalyticsProviderCredential({
+      provider: "bigquery",
+      keys: [],
+      ctx,
+    });
+  } catch (error) {
+    if (
+      isAgentConnectionRequiredError(error) &&
+      error.provider === "bigquery" &&
+      error.reason === "reauthorize"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function resolveAnalyticsGongCredentials(

@@ -1,15 +1,18 @@
 name: Push Builder Code starter template to starter
 
+# Runs only after a stable publish, from the published core's release tag.
+# Building from main HEAD paired unreleased template changes (scripts calling
+# new CLI commands) with the previous published core, breaking every app
+# scaffolded in between.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "templates/chat/**"
-      - "packages/core/src/templates/builder-code-starter/**"
-      - ".github/workflows/push-starter-template.yml"
   repository_dispatch:
     types: [agent-native-packages-published]
   workflow_dispatch:
+    inputs:
+      core_version:
+        description: "Published @agent-native/core version to mirror (default: npm latest)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -23,9 +26,85 @@ jobs:
     name: Materialize and push template branch
     runs-on: ubuntu-latest
     steps:
+      # The dispatch payload's sha is not trusted: the auto-publish recovery
+      # redispatch sends the branch HEAD, not the release commit. Dispatches
+      # mirror npm `latest`, so a late or retried event cannot roll back.
+      - name: Resolve the published release tag
+        id: source
+        env:
+          CORE_VERSION_INPUT: ${{ inputs.core_version }}
+          PUBLISHED_PACKAGES: ${{ github.event.client_payload.publishedPackages }}
+        run: |
+          set -euo pipefail
+          # Registry failures retry, then fail loudly: no later dispatch will
+          # retry this run.
+          npm_view() {
+            local out attempt
+            for attempt in 1 2 3; do
+              if out="$(npm view "$@" --prefer-online 2>/dev/null)"; then
+                printf '%s' "$out"; return 0
+              fi
+              echo "npm registry lookup failed (attempt ${attempt}/3); retrying in 5s..." >&2
+              sleep 5
+            done
+            echo "::error::Could not reach npm for: npm view $*" >&2
+            return 1
+          }
+          version="${CORE_VERSION_INPUT:-}"
+          if [ -z "$version" ]; then
+            # Right after a publish, `latest` can still read the previous
+            # release; wait for it to reach the version this dispatch announced.
+            expected="$(printf '%s' "${PUBLISHED_PACKAGES:-[]}" \
+              | jq -r 'if type == "string" then fromjson else . end | .[]? | select(.name == "@agent-native/core") | .version' \
+              | head -n 1)"
+            reached() {
+              [ -z "$expected" ] ||
+                [ "$(printf '%s\n%s\n' "$expected" "$version" | sort -V | head -n 1)" = "$expected" ]
+            }
+            for attempt in $(seq 1 20); do
+              version="$(npm_view @agent-native/core version)"
+              reached && break
+              echo "npm latest is ${version}; waiting for ${expected} (attempt ${attempt}/20)..."
+              sleep 15
+            done
+            if ! reached; then
+              echo "::error::npm latest is still ${version} after waiting for the dispatched core ${expected}."
+              exit 1
+            fi
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Not a stable core version: ${version}"
+            exit 1
+          fi
+          versions="$(npm_view @agent-native/core versions --json)"
+          if ! printf '%s' "$versions" \
+            | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
+            echo "::error::@agent-native/core@${version} is not published on npm."
+            exit 1
+          fi
+          tag="refs/tags/@agent-native/core@${version}"
+          if [ -z "$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "$tag")" ]; then
+            echo "::error::Release tag ${tag} does not exist; cannot locate the commit core ${version} was published from."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "ref=${tag}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: main
+          ref: ${{ steps.source.outputs.ref }}
+
+      - name: Require the release commit to pin the resolved core version
+        env:
+          CORE_VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          set -euo pipefail
+          pinned="$(jq -r .version packages/core/package.json)"
+          if [ "$pinned" != "$CORE_VERSION" ]; then
+            echo "::error::Tag for core ${CORE_VERSION} checks out packages/core at ${pinned}; refusing to mirror a mismatched template."
+            exit 1
+          fi
+          echo "Mirroring the builder-code-starter template from the core ${CORE_VERSION} release commit."
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -34,53 +113,17 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
-      - name: Gate on the pinned core version being published
-        id: gate
-        run: |
-          set -euo pipefail
-          version="$(node -p "require('./packages/core/package.json').version")"
-          # Fetch the published version list. A successful query (exit 0) is an
-          # authoritative answer, so membership is definitive. A failed query
-          # means the registry was unreachable (timeout / DNS / 5xx / rate
-          # limit) — NOT that the version is unpublished; retry, then fail
-          # loudly, because a silent publishable=false on a template-only push
-          # has no guaranteed later dispatch to retry it.
-          versions=""; ok=""
-          for attempt in 1 2 3; do
-            if versions="$(npm view "@agent-native/core" versions --json --prefer-online 2>/dev/null)"; then
-              ok=1; break
-            fi
-            echo "npm registry lookup failed (attempt ${attempt}/3); retrying in 5s..."
-            sleep 5
-          done
-          if [ -z "$ok" ]; then
-            echo "::error::Could not reach npm to check @agent-native/core@${version}; failing rather than silently skipping."
-            exit 1
-          fi
-          if printf '%s' "$versions" \
-            | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
-            echo "core ${version} is on npm — mirroring HEAD."
-            echo "publishable=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "core ${version} is not on npm yet (publish in flight); skipping."
-            echo "The publish dispatch will re-run this once ${version} lands."
-            echo "publishable=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.gate.outputs.publishable == 'true'
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
       # builder-code-starter is a layer over templates/chat: materialize copies Chat,
       # then applies the starter's deletions, unified-diff patches, new files,
       # and package.json fields.
       - name: Materialize the bundled builder-code-starter template
-        if: steps.gate.outputs.publishable == 'true'
         run: >-
           pnpm exec tsx packages/core/src/cli/index.ts template materialize
           --template builder-code-starter --name app --out ./dist/template
 
       - name: Pin toolkit to the published core's compatible range
-        if: steps.gate.outputs.publishable == 'true'
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/core/package.json').version")"
@@ -118,7 +161,6 @@ jobs:
 
       - name: Generate app token
         id: app-token
-        if: steps.gate.outputs.publishable == 'true'
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
@@ -127,7 +169,6 @@ jobs:
           repositories: builder-agent-native-starter
 
       - name: Push to starter template branch
-        if: steps.gate.outputs.publishable == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |

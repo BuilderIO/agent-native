@@ -2286,14 +2286,18 @@ export default defineAction({
             expectedValue: processingUploadState,
             nextValue: waitingStorageState,
           },
-          {
-            key: mediaVerificationStateKey(id),
-            expectedValue:
-              verificationStateRaw && typeof verificationStateRaw === "object"
-                ? (verificationStateRaw as Record<string, unknown>)
-                : null,
-            nextValue: null,
-          },
+          ...(verificationStateRaw && typeof verificationStateRaw === "object"
+            ? [
+                {
+                  key: mediaVerificationStateKey(id),
+                  expectedValue: verificationStateRaw as Record<
+                    string,
+                    unknown
+                  >,
+                  nextValue: null,
+                },
+              ]
+            : []),
         ]);
         if (!waitingStoragePublished) {
           throw new Error(

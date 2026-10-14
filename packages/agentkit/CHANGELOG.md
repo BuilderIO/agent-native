@@ -1,5 +1,14 @@
 # @agent-native/agentkit
 
+## 0.208.0
+
+### Patch Changes
+
+- 0fb4de3: Keep completed responses available when terminal replay catch-up is incomplete.
+- afe2ee7: Preserve completed tool history and render legacy Plan blocks through their authoring controls.
+- Release all public npm packages with a patch version bump.
+- 0fb4de3: Report exhausted terminal catch-up transport failures through the normal stream error path.
+
 ## 0.207.1
 
 ### Patch Changes

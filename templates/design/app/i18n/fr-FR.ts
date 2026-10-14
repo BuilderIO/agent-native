@@ -870,7 +870,6 @@ export default {
       tokens: "Jetons",
       threads: "Discussions",
       label: "Espace de travail Design",
-      account: "Compte",
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
     },
@@ -1202,13 +1201,22 @@ export default {
       importCssOrTailwind: "Fichier CSS ou Tailwind…",
       importClipboard: "Coller depuis le presse-papiers",
       importFromDesign: "Générer depuis le design",
-      importing: "Importation des tokens…",
-      importNone: "Aucun token trouvé",
       importFailed: "Impossible d’importer les tokens : {{message}}",
       clipboardBlocked:
         "Impossible de lire le presse-papiers. Autorisez l’accès et réessayez.",
       clipboardEmpty: "Le presse-papiers est vide",
       importedCount: "{{count}} jetons importés",
+      importing: "Importation des jetons…",
+      importedWithSkipped:
+        "{{count}} jetons importés. {{skipped}} valeurs ou fichiers non valides ignorés.",
+      importedWithOmissions:
+        "{{count}} jetons importés. {{skipped}} éléments non valides ignorés. Non traités en raison des limites (jetons : {{omittedTokens}}, fichiers : {{omittedFiles}}).",
+      importedWithReadFailures:
+        "{{count}} jetons importés, mais {{readFailures}} fichiers n'ont pas pu être lus. Sélectionnez-les à nouveau et réessayez.",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} jetons importés. {{readFailures}} fichiers n'ont pas pu être lus. {{skipped}} éléments non valides ont aussi été ignorés, et les limites ont laissé {{omittedTokens}} jetons et {{omittedFiles}} fichiers non traités. Sélectionnez à nouveau les fichiers illisibles et réessayez.",
+      noTokensFound:
+        "Aucun jeton valide trouvé. Vérifiez le format du fichier et les valeurs.",
       count: "{{count}} jetons",
       search: "Rechercher des jetons",
       noMatches: "Aucun jeton correspondant",
@@ -1347,6 +1355,7 @@ export default {
       htmlPlaceholder: "<main>Collez le HTML autonome ici...</main>",
       importHtml: "Importer HTML",
       chooseHtmlFile: "Choisir un fichier HTML",
+      allSupportedFiles: "Tous les fichiers pris en charge",
       githubTitle: "GitHub",
       githubDescription:
         "Bientôt : importer des écrans et composants directement depuis un dépôt.",

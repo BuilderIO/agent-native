@@ -773,6 +773,10 @@ const messages = {
     generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
     generationOutcomeUnresolved:
       "无法确认幻灯片是否已创建。请先检查演示文稿，再重试。",
+    partialGenerationFailed:
+      "我们没能完成幻灯片制作。继续之前，请查看已创建的幻灯片和您的原始请求。",
+    originalPrompt: "你输入的内容",
+    backToHome: "返回主页",
     checkedDeckTryAgain: "我已检查演示文稿，重试",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",

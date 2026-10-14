@@ -111,6 +111,24 @@ describe("resolveTweaksToCssVars", () => {
     expect(isSafeCssTokenValue("red} body { color: black")).toBe(false);
     expect(isSafeCssTokenValue("red/* comment */")).toBe(false);
     expect(isSafeCssTokenValue("<style>body{color:red}</style>")).toBe(false);
+    expect(
+      isSafeCssTokenValue(
+        "calc(attr(data-gap type(<length> | <percentage>), 2px) + 1px)",
+      ),
+    ).toBe(true);
+    expect(isSafeCssTokenValue("attr(data-url type(<url>), none)")).toBe(false);
+    expect(isSafeCssTokenValue("attr(data-url type(<url>+), none)")).toBe(
+      false,
+    );
+    expect(isSafeCssTokenValue("attr(data-url type(<url>#), none)")).toBe(
+      false,
+    );
+    expect(isSafeCssTokenValue("attr(data-image type(<image>))")).toBe(false);
+    expect(isSafeCssTokenValue("attr(data-image type(<image>+))")).toBe(false);
+    expect(isSafeCssTokenValue("attr(data-image type(<image>#))")).toBe(false);
+    expect(
+      isSafeCssTokenValue("attr(data-gap type(<length>), </style><script>)"),
+    ).toBe(false);
     expect(isSafeCssTokenValue("oklch(70% 0.12 240)")).toBe(true);
     expect(isSafeCssTokenValue("color(display-p3 0.9175 0.2003 0.1386)")).toBe(
       true,

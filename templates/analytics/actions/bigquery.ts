@@ -232,7 +232,7 @@ export default defineAction({
         /Token exchange failed/i.test(msg)
       ) {
         stopForBigQueryNotConfigured(
-          "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
+          "BigQuery isn't connected for this user yet. Open Settings -> Data sources and connect Google OAuth, or add BIGQUERY_PROJECT_ID and a service-account JSON key.",
         );
       }
       if (/BigQuery query timed out/i.test(msg)) {

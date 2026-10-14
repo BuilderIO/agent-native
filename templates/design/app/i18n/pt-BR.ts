@@ -862,7 +862,6 @@ export default {
       tokens: "Tokens de design",
       threads: "Conversas",
       label: "Área de trabalho de design",
-      account: "Conta",
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
     },
@@ -1192,13 +1191,22 @@ export default {
       importCssOrTailwind: "Arquivo CSS ou Tailwind…",
       importClipboard: "Colar da área de transferência",
       importFromDesign: "Gerar a partir do design",
-      importing: "Importando tokens…",
-      importNone: "Nenhum token encontrado",
       importFailed: "Não foi possível importar os tokens: {{message}}",
       clipboardBlocked:
         "Não foi possível ler a área de transferência. Permita o acesso e tente novamente.",
       clipboardEmpty: "A área de transferência está vazia",
       importedCount: "{{count}} tokens importados",
+      importing: "Importando tokens…",
+      importedWithSkipped:
+        "{{count}} tokens importados. {{skipped}} valores ou arquivos inválidos foram ignorados.",
+      importedWithOmissions:
+        "{{count}} tokens importados. {{skipped}} itens inválidos foram ignorados. Não processados devido aos limites (tokens: {{omittedTokens}}, arquivos: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "{{count}} tokens importados, mas não foi possível ler {{readFailures}} arquivo(s). Selecione-os novamente e tente outra vez.",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} tokens importados. Não foi possível ler {{readFailures}} arquivo(s). Também foram ignorados {{skipped}} itens inválidos, e os limites deixaram {{omittedTokens}} tokens e {{omittedFiles}} arquivos sem processamento. Selecione novamente os arquivos ilegíveis e tente outra vez.",
+      noTokensFound:
+        "Nenhum token válido foi encontrado. Verifique o formato do arquivo e os valores.",
       count: "{{count}} tokens",
       search: "Pesquisar tokens",
       noMatches: "Nenhum token correspondente",
@@ -1337,6 +1345,7 @@ export default {
       htmlPlaceholder: "<main>Cole HTML independente aqui...</main>",
       importHtml: "Importar HTML",
       chooseHtmlFile: "Escolher arquivo HTML",
+      allSupportedFiles: "Todos os arquivos compatíveis",
       githubTitle: "GitHub",
       githubDescription:
         "Em breve: importe telas e componentes diretamente de um repositório.",

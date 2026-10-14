@@ -402,11 +402,10 @@ const messages = {
     zoomMeetingIdsDescription:
       "必填。每行一個 Zoom 會議 ID，對應主持人已同意加入的週期性會議系列（可包含空格）。每次會議的 ID 保持不變。",
     zoomLookbackDays: "回溯天數",
-    zoomIncludeSummaries: "匯入 AI Companion 摘要",
     invalidZoomMeetingIds:
       "無效的 Zoom 會議 ID：{{entries}}。請使用會議邀請中的號碼，例如 123 4567 8901。",
     zoomDescription:
-      "Brain 每小時僅從已核准的系列匯入逐字稿（開啟後也匯入摘要）。Zoom 帳戶中的其他會議絕不會被下載。變更清單會重新掃描回溯期間。",
+      "Brain 每小時僅從已核准的系列匯入逐字稿。Zoom 帳戶中的其他會議絕不會被下載。變更清單會重新掃描回溯期間。",
     zoomAdminOnly:
       "只有組織擁有者和管理員可以變更 Zoom 設定。你仍然可以重新命名此來源。",
     approvedRepositories: "核准的儲存庫",

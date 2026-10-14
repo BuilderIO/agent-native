@@ -871,7 +871,6 @@ export default {
       tokens: "Design-Tokens",
       threads: "Threads",
       label: "Design-Arbeitsbereich",
-      account: "Konto",
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
@@ -1202,13 +1201,22 @@ export default {
       importCssOrTailwind: "CSS- oder Tailwind-Datei…",
       importClipboard: "Aus Zwischenablage einfügen",
       importFromDesign: "Aus Design generieren",
-      importing: "Tokens werden importiert…",
-      importNone: "Keine Tokens gefunden",
       importFailed: "Tokens konnten nicht importiert werden: {{message}}",
       clipboardBlocked:
         "Zwischenablage konnte nicht gelesen werden. Erlaube den Zugriff und versuche es erneut.",
       clipboardEmpty: "Die Zwischenablage ist leer",
       importedCount: "{{count}} Tokens importiert",
+      importing: "Tokens werden importiert…",
+      importedWithSkipped:
+        "{{count}} Tokens importiert. {{skipped}} ungültige Werte oder Dateien übersprungen.",
+      importedWithOmissions:
+        "{{count}} Tokens importiert. {{skipped}} ungültige Elemente übersprungen. Wegen der Importlimits nicht verarbeitet (Tokens: {{omittedTokens}}, Dateien: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "{{count}} Tokens importiert. {{readFailures}} Dateien konnten nicht gelesen werden. Wähle sie erneut aus und versuche es noch einmal.",
+      importedWithReadFailuresAndOmissions:
+        "{{count}} Tokens importiert. {{readFailures}} Dateien konnten nicht gelesen werden. Außerdem wurden {{skipped}} ungültige Elemente übersprungen; wegen der Limits blieben {{omittedTokens}} Tokens und {{omittedFiles}} Dateien unverarbeitet. Wähle die unlesbaren Dateien erneut aus und versuche es noch einmal.",
+      noTokensFound:
+        "Keine gültigen Tokens gefunden. Prüfe das Dateiformat und die Tokenwerte.",
       count: "{{count}} Tokens",
       search: "Tokens suchen",
       noMatches: "Keine passenden Tokens",
@@ -1347,6 +1355,7 @@ export default {
       htmlPlaceholder: "<main>Eigenständiges HTML hier einfügen...</main>",
       importHtml: "HTML importieren",
       chooseHtmlFile: "HTML-Datei wählen",
+      allSupportedFiles: "Alle unterstützten Dateien",
       githubTitle: "GitHub",
       githubDescription:
         "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",

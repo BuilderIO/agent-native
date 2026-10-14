@@ -1294,7 +1294,6 @@ export default {
       tokens: "權杖",
       threads: "討論串",
       label: "設計工作區",
-      account: "帳戶",
       collapse: "收合側邊欄",
       expand: "展開側邊欄",
     },
@@ -1307,12 +1306,20 @@ export default {
       importCssOrTailwind: "CSS 或 Tailwind 檔案…",
       importClipboard: "從剪貼簿貼上",
       importFromDesign: "從設計產生",
-      importing: "正在匯入權杖…",
-      importNone: "找不到權杖",
       importFailed: "無法匯入權杖：{{message}}",
       clipboardBlocked: "無法讀取剪貼簿。請允許存取後再試一次。",
       clipboardEmpty: "剪貼簿是空的",
       importedCount: "已匯入 {{count}} 個權杖",
+      importing: "正在匯入權杖…",
+      importedWithSkipped:
+        "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效值或檔案。",
+      importedWithOmissions:
+        "已匯入 {{count}} 個權杖，已略過 {{skipped}} 個無效項目。因匯入限制未處理的數量：權杖 {{omittedTokens}}，檔案 {{omittedFiles}}。",
+      importedWithReadFailures:
+        "已匯入 {{count}} 個權杖，但無法讀取 {{readFailures}} 個檔案。請重新選取並重試。",
+      importedWithReadFailuresAndOmissions:
+        "已匯入 {{count}} 個權杖。無法讀取 {{readFailures}} 個檔案。另略過了 {{skipped}} 個無效項目，且因匯入限制未處理 {{omittedTokens}} 個權杖和 {{omittedFiles}} 個檔案。請重新選取無法讀取的檔案並重試。",
+      noTokensFound: "找不到有效權杖。請檢查檔案格式和權杖值。",
       count: "{{count}} 個權杖",
       search: "搜尋權杖",
       noMatches: "沒有符合的權杖",
@@ -1445,6 +1452,7 @@ export default {
       htmlPlaceholder: "<main>在此貼上獨立 HTML...</main>",
       importHtml: "匯入 HTML",
       chooseHtmlFile: "選擇 HTML 檔案",
+      allSupportedFiles: "所有支援的檔案",
       githubTitle: "GitHub",
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
       localTitle: "本機 app",
