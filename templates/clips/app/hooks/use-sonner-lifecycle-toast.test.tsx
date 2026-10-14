@@ -32,6 +32,16 @@ function Probe() {
       <button type="button" onClick={() => lifecycle.error("Unavailable")}>
         error
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          lifecycle.error("Unavailable", {
+            action: { label: "Retry", onClick: () => undefined },
+          })
+        }
+      >
+        actionable error
+      </button>
     </div>
   );
 }
@@ -87,5 +97,25 @@ describe("useSonnerLifecycleToast", () => {
       duration: 6_000,
       id: "lifecycle-toast",
     });
+  });
+
+  it("keeps terminal errors with recovery actions available", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<Probe />));
+
+    const buttons = container.querySelectorAll("button");
+    act(() => (buttons[0] as HTMLButtonElement).click());
+    act(() => (buttons[4] as HTMLButtonElement).click());
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Unavailable",
+      expect.objectContaining({
+        action: expect.objectContaining({ label: "Retry" }),
+        duration: Number.POSITIVE_INFINITY,
+        id: "lifecycle-toast",
+      }),
+    );
   });
 });
