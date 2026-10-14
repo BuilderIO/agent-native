@@ -57,6 +57,7 @@ pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
 const POPOVER_BLUR_SETTLE: Duration = Duration::from_millis(100);
+#[cfg(any(target_os = "macos", test))]
 const MACOS_CONTROL_CENTER_BUNDLE_IDENTIFIER: &str = "com.apple.controlcenter";
 
 fn popover_blur_delay(elapsed: Duration, bubble_dragging: bool) -> Option<Duration> {
@@ -69,44 +70,13 @@ fn popover_blur_delay(elapsed: Duration, bubble_dragging: bool) -> Option<Durati
     }
 }
 
-fn should_ignore_popover_blur_for_control_center(
+#[cfg(any(target_os = "macos", test))]
+fn should_keep_popover_open_for_control_center(
     camera_bubble_visible: bool,
     frontmost_bundle_identifier: Option<&str>,
 ) -> bool {
     camera_bubble_visible
         && frontmost_bundle_identifier == Some(MACOS_CONTROL_CENTER_BUNDLE_IDENTIFIER)
-}
-
-#[cfg(target_os = "macos")]
-fn frontmost_application_bundle_identifier() -> Option<String> {
-    use objc2::msg_send;
-    use objc2::runtime::{AnyClass, AnyObject};
-
-    unsafe {
-        let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
-        let cls: &AnyClass = AnyClass::get(&class_name)?;
-        let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
-        if workspace.is_null() {
-            return None;
-        }
-        let app: *mut AnyObject = msg_send![workspace, frontmostApplication];
-        if app.is_null() {
-            return None;
-        }
-        let bundle_identifier: *mut AnyObject = msg_send![app, bundleIdentifier];
-        if bundle_identifier.is_null() {
-            return None;
-        }
-        let utf8_ptr: *const i8 = msg_send![bundle_identifier, UTF8String];
-        if utf8_ptr.is_null() {
-            return None;
-        }
-        Some(
-            std::ffi::CStr::from_ptr(utf8_ptr)
-                .to_string_lossy()
-                .into_owned(),
-        )
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -121,8 +91,8 @@ fn control_center_is_frontmost_with_camera_bubble_visible(app_handle: &AppHandle
             return false;
         }
     };
-    let frontmost_bundle_identifier = frontmost_application_bundle_identifier();
-    should_ignore_popover_blur_for_control_center(
+    let frontmost_bundle_identifier = clips::frontmost_bundle_identifier();
+    should_keep_popover_open_for_control_center(
         camera_bubble_visible,
         frontmost_bundle_identifier.as_deref(),
     )
@@ -161,22 +131,26 @@ pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
     let delayed_app_handle = (*app_handle).clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(delay).await;
-        let still_current = delayed_app_handle
-            .try_state::<PopoverShownAt>()
-            .and_then(|state| state.0.lock().ok().map(|guard| *guard == shown_at))
-            .unwrap_or(false);
-        if !still_current
-            || clips::is_bubble_dragging()
-            || (is_recording_active(&delayed_app_handle)
-                && clips::popover_is_parked(&delayed_app_handle))
-            || !config::auto_hide_popover_enabled(&delayed_app_handle)
-            || delayed_handle.is_focused().unwrap_or(true)
-        {
-            return;
-        }
-        if control_center_is_frontmost_with_camera_bubble_visible(&delayed_app_handle) {
-            dlog!("[clips-tray] popover blur ignored while Control Center is active");
-            return;
+        loop {
+            let still_current = delayed_app_handle
+                .try_state::<PopoverShownAt>()
+                .and_then(|state| state.0.lock().ok().map(|guard| *guard == shown_at))
+                .unwrap_or(false);
+            if !still_current
+                || clips::is_bubble_dragging()
+                || (is_recording_active(&delayed_app_handle)
+                    && clips::popover_is_parked(&delayed_app_handle))
+                || !config::auto_hide_popover_enabled(&delayed_app_handle)
+                || delayed_handle.is_focused().unwrap_or(true)
+            {
+                return;
+            }
+            if !control_center_is_frontmost_with_camera_bubble_visible(&delayed_app_handle) {
+                break;
+            }
+            dlog!("[clips-tray] popover blur waiting while Control Center is active");
+            // Control Center can close without sending another blur event to the popover.
+            tokio::time::sleep(POPOVER_BLUR_SETTLE).await;
         }
         clips::hide_popover(&delayed_app_handle);
     });
@@ -620,7 +594,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        popover_blur_delay, should_ignore_popover_blur_for_control_center, POPOVER_BLUR_GUARD,
+        popover_blur_delay, should_keep_popover_open_for_control_center, POPOVER_BLUR_GUARD,
         POPOVER_BLUR_SETTLE,
     };
     use std::time::Duration;
@@ -639,19 +613,19 @@ mod tests {
     }
 
     #[test]
-    fn only_ignores_blur_for_visible_camera_bubble_when_control_center_is_frontmost() {
-        assert!(should_ignore_popover_blur_for_control_center(
+    fn keeps_popover_open_only_for_visible_camera_bubble_when_control_center_is_frontmost() {
+        assert!(should_keep_popover_open_for_control_center(
             true,
             Some("com.apple.controlcenter")
         ));
-        assert!(!should_ignore_popover_blur_for_control_center(
+        assert!(!should_keep_popover_open_for_control_center(
             false,
             Some("com.apple.controlcenter")
         ));
-        assert!(!should_ignore_popover_blur_for_control_center(
+        assert!(!should_keep_popover_open_for_control_center(
             true,
             Some("com.apple.systempreferences")
         ));
-        assert!(!should_ignore_popover_blur_for_control_center(true, None));
+        assert!(!should_keep_popover_open_for_control_center(true, None));
     }
 }

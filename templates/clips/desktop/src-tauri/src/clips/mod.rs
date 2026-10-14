@@ -2863,11 +2863,12 @@ fn read_clipboard() -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn frontmost_bundle_identifier() -> Option<String> {
+pub(crate) fn frontmost_bundle_identifier() -> Option<String> {
     use objc2::msg_send;
+    use objc2::rc::autoreleasepool;
     use objc2::runtime::{AnyClass, AnyObject};
 
-    unsafe {
+    autoreleasepool(|_| unsafe {
         let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
         let cls: &AnyClass = AnyClass::get(&class_name)?;
         let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
@@ -2880,7 +2881,7 @@ fn frontmost_bundle_identifier() -> Option<String> {
         }
         let bundle_id: *mut AnyObject = msg_send![app, bundleIdentifier];
         ns_string_to_owned(bundle_id)
-    }
+    })
 }
 
 #[cfg(target_os = "macos")]
