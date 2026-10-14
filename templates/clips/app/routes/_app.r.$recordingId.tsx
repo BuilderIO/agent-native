@@ -1129,7 +1129,6 @@ export default function RecordingPage() {
         ...(transcriptFailureReason
           ? { description: transcriptFailureReason }
           : {}),
-        duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
     } else {
@@ -1386,7 +1385,6 @@ export default function RecordingPage() {
         ...(generatedWorkflow.error
           ? { description: generatedWorkflow.error }
           : {}),
-        duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
     } else {
@@ -1452,7 +1450,6 @@ export default function RecordingPage() {
               },
             }
           : {}),
-        duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
     }
@@ -1712,7 +1709,6 @@ export default function RecordingPage() {
                 },
               }
             : {}),
-        duration: Number.POSITIVE_INFINITY,
       },
     );
   };
@@ -1733,7 +1729,6 @@ export default function RecordingPage() {
         description: t("recordingPage.retryFailed", {
           message: actionErrorMessage(err) ?? t("recordingPage.networkError"),
         }),
-        duration: Number.POSITIVE_INFINITY,
       });
     },
   });
@@ -1896,7 +1891,6 @@ export default function RecordingPage() {
       failWorkflowToast(t("recordingPage.workflowFailed"), {
         description:
           actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
-        duration: Number.POSITIVE_INFINITY,
       });
     },
   });
