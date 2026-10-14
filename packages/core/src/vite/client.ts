@@ -2796,20 +2796,29 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
 }
 
 function toolkitTablerIconSsrStubPlugin(cwd: string): Plugin | null {
-  const toolkitRoot = findLocalToolkitSourceRoot(cwd);
+  const toolkitRoot = findToolkitPackageRoot(cwd);
   if (!toolkitRoot) return null;
 
-  const catalogPath = path.join(toolkitRoot, "src/icons/catalog.ts");
+  const catalogPaths = new Set(
+    [
+      path.join(toolkitRoot, "src/icons/catalog.ts"),
+      path.join(toolkitRoot, "dist/icons/catalog.js"),
+    ]
+      .filter((catalogPath) => fs.existsSync(catalogPath))
+      .map((catalogPath) => fs.realpathSync(catalogPath)),
+  );
   const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
   return {
     name: "agent-native-toolkit-tabler-chunk-loaders-ssr",
     enforce: "pre",
     resolveId(id, importer, options) {
+      if (!options?.ssr || id !== "./tabler-chunk-loaders.js" || !importer) {
+        return null;
+      }
+      const importerPath = path.resolve(importer.split("?")[0]);
       if (
-        !options?.ssr ||
-        id !== "./tabler-chunk-loaders.js" ||
-        !importer ||
-        path.resolve(importer.split("?")[0]) !== catalogPath
+        !fs.existsSync(importerPath) ||
+        !catalogPaths.has(fs.realpathSync(importerPath))
       ) {
         return null;
       }
@@ -4737,11 +4746,13 @@ function createAgentNativeConfig(
   mode = process.env.NODE_ENV === "production" ? "production" : "development",
   projectConfig?: AgentNativeConfigInput,
   workspaceConfig?: AgentNativeConfigInput,
+  isSsrBuild = false,
 ): AgentNativeUserConfig {
   const cwd = process.cwd();
   const optionalSsrExternals = isBuildCommand(command)
     ? getMissingCoreOptionalPeers(cwd)
     : [];
+  const optionalBuildExternals = isSsrBuild ? optionalSsrExternals : [];
   const usesAgentKit = hasDep("@agent-native/agentkit", cwd);
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
@@ -5020,7 +5031,7 @@ function createAgentNativeConfig(
     build: {
       ...userBuild,
       rolldownOptions: {
-        external: optionalSsrExternals,
+        external: optionalBuildExternals,
         experimental: {
           lazyBarrel: _buildRolldownOptions?.experimental?.lazyBarrel ?? true,
         },
@@ -5165,6 +5176,7 @@ function createAgentNativeConfigPlugin(
         env.mode,
         projectConfig,
         workspaceConfig,
+        env.isSsrBuild === true,
       );
     },
   };

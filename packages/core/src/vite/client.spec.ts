@@ -3677,7 +3677,7 @@ describe("Vite SSR optional dependencies", () => {
       ) as any;
       const config = await configPlugin.config(
         { root: appRoot, plugins: [] },
-        { command: "build", mode: "production" },
+        { command: "build", mode: "production", isSsrBuild: true },
       );
 
       expect(config.ssr.external).toContain("prettier");
@@ -3796,6 +3796,164 @@ describe("Vite SSR optional dependencies", () => {
     }
   });
 
+  it("ignores nested peers that Core cannot resolve", () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-nested-peer-"));
+    const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");
+    const otelRoot = path.join(appRoot, "node_modules/@agent-native/otel");
+    const nestedApiRoot = path.join(
+      otelRoot,
+      "node_modules/@opentelemetry/api",
+    );
+    fs.mkdirSync(coreRoot, { recursive: true });
+    fs.mkdirSync(nestedApiRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "nested-peer-app",
+        dependencies: {
+          "@agent-native/core": "0.208.0",
+          "@agent-native/otel": "0.1.0",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependenciesMeta: {
+          "@opentelemetry/api": { optional: true },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(otelRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/otel",
+        peerDependencies: { "@opentelemetry/api": "^1.9.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(nestedApiRoot, "package.json"),
+      JSON.stringify({ name: "@opentelemetry/api", version: "1.9.1" }),
+    );
+
+    try {
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain(
+        "@opentelemetry/api",
+      );
+
+      const hoistedApiRoot = path.join(
+        appRoot,
+        "node_modules/@opentelemetry/api",
+      );
+      fs.mkdirSync(hoistedApiRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(hoistedApiRoot, "package.json"),
+        JSON.stringify({ name: "@opentelemetry/api", version: "1.9.1" }),
+      );
+      expect(getMissingCoreOptionalPeers(appRoot)).not.toContain(
+        "@opentelemetry/api",
+      );
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps missing optional peers out of browser externals and applies client stubs", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-client-peers-"));
+    const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");
+    const optionalPeerPath = path.join(
+      coreRoot,
+      "dist/shared/optional-peer.js",
+    );
+    fs.mkdirSync(path.dirname(optionalPeerPath), { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "client-peers-app",
+        dependencies: { "@agent-native/core": "0.208.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        main: "./dist/index.js",
+        exports: {
+          ".": "./dist/index.js",
+          "./shared/optional-peer": "./dist/shared/optional-peer.js",
+        },
+        peerDependenciesMeta: { "@sentry/browser": { optional: true } },
+      }),
+    );
+    fs.writeFileSync(path.join(coreRoot, "dist/index.js"), "export {};\n");
+    fs.writeFileSync(
+      optionalPeerPath,
+      "export class OptionalPeerDependencyError extends Error {}\n",
+    );
+    const entryPath = path.join(appRoot, "entry.ts");
+    fs.writeFileSync(
+      entryPath,
+      'import { captureException } from "@sentry/browser"; captureException(new Error("expected"));\n',
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugins = flatPlugins(agentNative()) as any[];
+      const configPlugin = plugins.find(
+        (plugin) => plugin.name === "agent-native-config",
+      );
+      const clientStubPlugin = plugins.find(
+        (plugin) => plugin.name === "agent-native-client-optional-peer-stub",
+      );
+      const clientConfig = await configPlugin.config(
+        { root: appRoot, plugins: [] },
+        { command: "build", mode: "development", isSsrBuild: false },
+      );
+      const ssrConfig = await configPlugin.config(
+        { root: appRoot, plugins: [] },
+        { command: "build", mode: "development", isSsrBuild: true },
+      );
+
+      expect(ssrConfig.build.rolldownOptions.external).toContain(
+        "@sentry/browser",
+      );
+      expect(clientConfig.build.rolldownOptions.external).not.toContain(
+        "@sentry/browser",
+      );
+      expect(clientStubPlugin.resolveId("@sentry/browser")).toBe(
+        "\0agent-native-client-optional-peer-stub:@sentry/browser",
+      );
+      const buildResult: any = await build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [clientStubPlugin],
+        root: appRoot,
+        build: {
+          emptyOutDir: true,
+          minify: false,
+          outDir: path.join(appRoot, "dist"),
+          rolldownOptions: {
+            ...clientConfig.build.rolldownOptions,
+            input: entryPath,
+          },
+        },
+      });
+      const output = (Array.isArray(buildResult) ? buildResult : [buildResult])
+        .flatMap(({ output }) => output)
+        .filter((chunk: any) => chunk.type === "chunk")
+        .map((chunk: any) => chunk.code)
+        .join("\n");
+      expect(output).toContain(
+        'new OptionalPeerDependencyError("@sentry/browser")',
+      );
+      expect(output).not.toMatch(/from ["']@sentry\/browser["']/u);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the browser-only Tabler icon loader out of SSR chunks", async () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-tabler-ssr-"));
     const coreRoot = path.resolve(
@@ -3830,6 +3988,64 @@ describe("Vite SSR optional dependencies", () => {
       ).toBe(stubId);
       expect(
         await plugin.resolveId("./tabler-chunk-loaders.js", importer, {
+          ssr: false,
+        }),
+      ).toBeNull();
+      const stub = await import(
+        `data:text/javascript,${encodeURIComponent(await plugin.load(stubId))}`
+      );
+      expect(() => stub.default()).toThrow(
+        "Tabler icons are available only in the browser",
+      );
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("stubs the Tabler icon loader in published Toolkit packages", async () => {
+    const appRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-published-toolkit-ssr-"),
+    );
+    const toolkitRoot = path.join(
+      appRoot,
+      "node_modules/@agent-native/toolkit",
+    );
+    const catalogPath = path.join(toolkitRoot, "dist/icons/catalog.js");
+    fs.mkdirSync(path.dirname(catalogPath), { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({ name: "published-toolkit-app" }),
+    );
+    fs.writeFileSync(
+      path.join(toolkitRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/toolkit",
+        main: "./dist/index.js",
+      }),
+    );
+    fs.writeFileSync(path.join(toolkitRoot, "dist/index.js"), "export {};\n");
+    fs.writeFileSync(
+      catalogPath,
+      'export { default } from "./tabler-chunk-loaders.js";\n',
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (entry) =>
+          entry.name === "agent-native-toolkit-tabler-chunk-loaders-ssr",
+      ) as any;
+      const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
+
+      expect(plugin).toBeDefined();
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", catalogPath, {
+          ssr: true,
+        }),
+      ).toBe(stubId);
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", catalogPath, {
           ssr: false,
         }),
       ).toBeNull();

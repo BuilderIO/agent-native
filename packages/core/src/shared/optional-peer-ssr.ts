@@ -99,7 +99,7 @@ function findDependencyManifestPath(
   return null;
 }
 
-function getRuntimeDependencyNames(cwd: string): Set<string> {
+function getRuntimeDependencyNames(cwd: string, coreRoot: string): Set<string> {
   const appPackage = JSON.parse(
     fs.readFileSync(path.join(cwd, "package.json"), "utf8"),
   ) as {
@@ -123,7 +123,9 @@ function getRuntimeDependencyNames(cwd: string): Set<string> {
     );
     if (!manifestPath) continue;
 
-    dependencies.add(current.name);
+    if (findDependencyManifestPath(current.name, coreRoot)) {
+      dependencies.add(current.name);
+    }
     const realManifestPath = fs.realpathSync(manifestPath);
     if (visited.has(realManifestPath)) continue;
     visited.add(realManifestPath);
@@ -155,7 +157,7 @@ export function getMissingCoreOptionalPeers(cwd: string): string[] {
   ) as {
     peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   };
-  const runtimeDependencies = getRuntimeDependencyNames(cwd);
+  const runtimeDependencies = getRuntimeDependencyNames(cwd, coreRoot);
   const bundledIngestionPeers = new Set<string>(
     CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
   );
