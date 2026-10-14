@@ -192,7 +192,8 @@ export function runApplyLocalContentUpdate(
         : null,
   });
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
 
   if (!previewOnly) {
     acknowledgeAuthoritativeClipboardMutation({
@@ -220,6 +221,9 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      ...(options.shaderWriteCompletion && options.serverAccepted
+        ? { isCheckpoint: true }
+        : {}),
     };
     if (viewModeRef.current === "overview") {
       recordContentHistoryEntry(
@@ -242,6 +246,9 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      ...(options.shaderWriteCompletion && options.serverAccepted
+        ? { isCheckpoint: true }
+        : {}),
       selectionBefore: options.selectionBefore,
     });
   }
@@ -300,7 +307,7 @@ export function runApplyLocalContentUpdate(
   if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
-  if (ydoc && writeLiveDoc && !previewOnly) {
+  if (ydoc && writeLiveDoc && !previewOnly && !options.serverAccepted) {
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {

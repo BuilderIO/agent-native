@@ -141,7 +141,10 @@ import {
   useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { hitTestResponderMarkup } from "./design-canvas/hit-test";
-import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import {
+  withLocalRuntimes,
+  withNativeShaderRuntime,
+} from "./design-canvas/local-runtime";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
@@ -13750,15 +13753,17 @@ const Screen = memo(function Screen({
     if (!staticSrcdocNeeded) return "";
     // One injection for all three bridges: each separate one rescans the whole
     // screen for its closing body tag.
-    return injectSessionReplayIframeBootstrap(
-      injectDocumentMarkup(
-        getEmbeddedFrameDocumentContent({
-          content: withLocalRuntimes(screen.content),
-          fitBodyToFrame,
-        }),
-        STATIC_PREVIEW_TWEAK_BRIDGE +
-          hitTestResponderMarkup(screen.content) +
-          CONTENT_SIZE_REPORT_BRIDGE,
+    return withNativeShaderRuntime(
+      injectSessionReplayIframeBootstrap(
+        injectDocumentMarkup(
+          getEmbeddedFrameDocumentContent({
+            content: withLocalRuntimes(screen.content),
+            fitBodyToFrame,
+          }),
+          STATIC_PREVIEW_TWEAK_BRIDGE +
+            hitTestResponderMarkup(screen.content) +
+            CONTENT_SIZE_REPORT_BRIDGE,
+        ),
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -5774,6 +5774,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
   }
 
+  function authoredOpacityForEditor(
+    el: Element,
+    computedOpacity: string,
+  ): string {
+    if (
+      !el.hasAttribute("data-an-native-fill-suppressed") &&
+      !el.hasAttribute("data-an-native-layer-suppressed") &&
+      !el.hasAttribute("data-an-native-scene-suppressed")
+    )
+      return computedOpacity;
+    var saved = el.getAttribute("data-an-native-authored-opacity");
+    var opacity = saved === null || !saved.trim() ? NaN : Number(saved);
+    if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+      throw Object.assign(new Error("Native authored opacity is unavailable"), {
+        code: "native-authored-opacity-unavailable",
+      });
+    return String(opacity);
+  }
+
   type TypedStyleValue =
     | { status: "available"; value: string | undefined }
     | { status: "failed"; error: unknown };
@@ -5972,7 +5991,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
-      var value = cs[property] || cs.getPropertyValue(property);
+      var value =
+        property === "opacity"
+          ? authoredOpacityForEditor(el, cs.opacity)
+          : cs[property] || cs.getPropertyValue(property);
       var inlineValue = hostStyle && hostStyle.getPropertyValue(property);
       if (
         typeof value === "string" &&
@@ -6770,6 +6792,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    computed.opacity = authoredOpacityForEditor(el, cs.opacity);
+    if (!vectorPaintTarget(el)) computed.vectorOpacity = computed.opacity;
     var paintTarget =
       vectorPaintTarget(el) ||
       (el.tagName.toLowerCase() === "path" &&
@@ -7049,7 +7073,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       layers.push({
         backgroundColor: paint.backgroundColor,
         backgroundImage: paint.backgroundImage,
-        opacity: paint.opacity,
+        opacity: authoredOpacityForEditor(node, paint.opacity),
         mixBlendMode: paint.mixBlendMode,
       });
       node = node.parentElement;

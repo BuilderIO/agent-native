@@ -179,6 +179,87 @@ async function measurePositionContext(
 }
 
 describe("editor chrome selection overlays", () => {
+  it("reports authored image opacity while a native Layer suppresses its source", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><head><style>
+        [data-an-native-layer-suppressed] { opacity: 0 !important; }
+      </style></head><body>
+        <img id="source-image" data-agent-native-node-id="source-image"
+          data-an-native-layer-suppressed data-an-native-authored-opacity="0.65"
+          alt="Source image" style="width:100px;height:80px;opacity:0.65">
+      </body></html>`);
+      await page.evaluate(() => {
+        const testWindow = window as Window & {
+          __nativeSelections?: ElementInfo[];
+          __nativeMeasurements?: ElementInfo[];
+        };
+        testWindow.__nativeSelections = [];
+        testWindow.__nativeMeasurements = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select")
+            testWindow.__nativeSelections?.push(event.data.payload);
+          if (event.data?.type === "agent-native:selection-measured")
+            testWindow.__nativeMeasurements?.push(event.data.payload);
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      expect(
+        await page
+          .locator("#source-image")
+          .evaluate((element) => getComputedStyle(element).opacity),
+      ).toBe("0");
+
+      await select(page, "#source-image");
+      const suppressed = await page.evaluate(() => {
+        const entries = (
+          window as Window & { __nativeSelections?: ElementInfo[] }
+        ).__nativeSelections;
+        return entries?.[entries.length - 1];
+      });
+      expect(suppressed?.computedStyles.opacity).toBe("0.65");
+      expect(
+        await page
+          .locator("#source-image")
+          .evaluate((element) => (element as HTMLElement).style.opacity),
+      ).toBe("0.65");
+      expect(suppressed?.portableStyleSnapshot?.nodes[0]?.styles.opacity).toBe(
+        "0.65",
+      );
+
+      await page.locator("#source-image").evaluate((element) => {
+        element.removeAttribute("data-an-native-layer-suppressed");
+        (element as HTMLElement).style.opacity = "0.4";
+      });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "agent-native:measure-selection",
+            screenId: "selection-chrome",
+            correlationId: "restored-opacity",
+            selector: "#source-image",
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          (window as Window & { __nativeMeasurements?: ElementInfo[] })
+            .__nativeMeasurements?.length,
+      );
+      const restored = await page.evaluate(() => {
+        const entries = (
+          window as Window & { __nativeMeasurements?: ElementInfo[] }
+        ).__nativeMeasurements;
+        return entries?.[entries.length - 1];
+      });
+      expect(restored?.computedStyles.opacity).toBe("0.4");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("omits position context when the board content offset is unreadable", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

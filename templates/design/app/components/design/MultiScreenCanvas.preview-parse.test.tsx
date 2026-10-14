@@ -82,7 +82,7 @@ it("mounts a static preview only once the worker has parsed its screen", async (
     (_, index) => ({
       id: `inline-${index}`,
       filename: `inline-${index}.html`,
-      content: `<!doctype html><html><body>inline ${index}</body></html>`,
+      content: `<!doctype html><html><body>inline ${index}<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body></html>`,
     }),
   );
   await act(async () => {
@@ -132,4 +132,11 @@ it("mounts a static preview only once the worker has parsed its screen", async (
   await nextFrames();
 
   expect(previewIds()).toEqual([parsedScreen.id]);
+  expect(
+    container.querySelector<HTMLIFrameElement>(
+      "iframe[data-screen-static-preview]",
+    )?.srcdoc,
+  ).toContain(
+    'data-agent-native-native-shader-runtime data-runtime-version="2"',
+  );
 });

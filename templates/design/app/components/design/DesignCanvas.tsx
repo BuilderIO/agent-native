@@ -169,7 +169,10 @@ import {
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
-import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import {
+  withLocalRuntimes,
+  withNativeShaderRuntime,
+} from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import {
   applyMotionPathEdit,
@@ -1323,11 +1326,17 @@ function runtimeDocumentNeedsReload(
   const scriptSignature = (html: string) => {
     const headEnd = html.search(/<\/head\s*>/i);
     const boundary = headEnd === -1 ? 0 : headEnd;
-    return Array.from(
-      html.matchAll(SCRIPT_ELEMENT_RE),
-      (match) =>
-        `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`,
-    ).join("\n");
+    return Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => {
+      if (
+        /\btype\s*=\s*["']application\/x-agent-native-effects["']/i.test(
+          match[0],
+        )
+      )
+        return null;
+      return `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`;
+    })
+      .filter((signature) => signature !== null)
+      .join("\n");
   };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
@@ -3610,7 +3619,10 @@ export function DesignCanvas({
     if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(frameDocument);
     }
-    return injectSessionReplayIframeBootstrap(frameDocument);
+    return withNativeShaderRuntime(
+      injectSessionReplayIframeBootstrap(frameDocument),
+      true,
+    );
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,

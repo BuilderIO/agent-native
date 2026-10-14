@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ElementInfo } from "@/components/design/types";
 
 import { runRenderPngBlob } from "./commands/render-png-blob";
+import { captureNativeCurrentFramePng } from "./native-current-frame-png";
 import {
   PngCaptureError,
   renderExportDocumentCanvas,
@@ -36,6 +37,11 @@ vi.mock("./png-export-render", async (importOriginal) => {
       cropCanvasToRect(...args),
   };
 });
+vi.mock("./native-current-frame-png", () => ({
+  captureNativeCurrentFramePng: vi.fn(
+    async () => new Blob(["committed native pixels"], { type: "image/png" }),
+  ),
+}));
 
 function elementInfo(partial: Partial<ElementInfo>): ElementInfo {
   return { tagName: "DIV", ...partial } as ElementInfo;
@@ -72,7 +78,38 @@ function renderArgs(
 afterEach(() => {
   cropCanvasToRect.mockClear();
   vi.mocked(renderExportDocumentCanvas).mockClear();
+  vi.mocked(captureNativeCurrentFramePng).mockClear();
   document.body.innerHTML = "";
+});
+
+describe("runRenderPngBlob native frame", () => {
+  it("uses the mounted committed frame and saved source pins for a native document PNG", async () => {
+    const manifest = document.createElement("script");
+    manifest.type = "application/x-agent-native-effects";
+    document.body.appendChild(manifest);
+    const args = {
+      ...renderArgs(null),
+      designId: "design-1",
+      fileId: "file-1",
+    };
+
+    const blob = await runRenderPngBlob(args, {
+      scope: "document",
+      settings: { scale: 1 },
+    });
+
+    expect(await blob.text()).toBe("committed native pixels");
+    expect(captureNativeCurrentFramePng).toHaveBeenCalledWith({
+      designId: "design-1",
+      fileId: "file-1",
+      iframe: expect.any(Object),
+      pixelRatio: 1,
+    });
+    expect(renderExportDocumentCanvas).not.toHaveBeenCalled();
+    await expect(
+      runRenderPngBlob(args, { scope: "element", settings: { scale: 1 } }),
+    ).rejects.toBeInstanceOf(PngCaptureError);
+  });
 });
 
 describe("resolveExportCropTarget", () => {

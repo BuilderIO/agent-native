@@ -1,4 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { NATIVE_EFFECT_SCRIPT_TYPE } from "@shared/native-effects";
 
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
@@ -9,6 +10,7 @@ import {
 } from "@/pages/design-editor/export-capture";
 import { prepareExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
 import type { ExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
+import { captureNativeCurrentFramePng } from "@/pages/design-editor/native-current-frame-png";
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
 import {
   PngCaptureError,
@@ -19,6 +21,8 @@ import {
 } from "@/pages/design-editor/png-export-render";
 
 export interface RenderPngBlobArgs {
+  designId?: string;
+  fileId?: string;
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
@@ -100,6 +104,8 @@ export function resolveSelectedScreensExportBounds(args: {
 export async function runRenderPngBlob(
   {
     activeCanvasSourceType,
+    designId,
+    fileId,
     canvasFrameGeometryById,
     overviewScreens,
     releaseScreenFromExport,
@@ -136,6 +142,15 @@ export async function runRenderPngBlob(
       for (const screenId of selectedScreenIds) {
         try {
           const target = await resolvePngCaptureTarget(scope, screenId);
+          if (
+            target.doc?.querySelector(
+              `script[type="${NATIVE_EFFECT_SCRIPT_TYPE}"]`,
+            )
+          )
+            throw new PngCaptureError(
+              "blob-failed",
+              "native screen composite is unavailable",
+            );
           const prepared = await prepareExportCaptureTarget(target);
           preparedTargets.push(prepared);
           captureSources.push({ screenId, ...prepared });
@@ -215,6 +230,36 @@ export async function runRenderPngBlob(
     > | null = null;
     try {
       const target = await resolvePngCaptureTarget(scope);
+      if (
+        target.doc?.querySelector(`script[type="${NATIVE_EFFECT_SCRIPT_TYPE}"]`)
+      ) {
+        if (
+          scope !== "document" ||
+          format !== "png" ||
+          activeCanvasSourceType !== "inline" ||
+          !designId ||
+          !fileId
+        )
+          throw new PngCaptureError(
+            "blob-failed",
+            "native still needs a saved current scene",
+          );
+        const width = target.iframe.clientWidth;
+        const height = target.iframe.clientHeight;
+        const pixelRatio = Math.min(
+          requestedExportScale,
+          4,
+          4096 / Math.max(1, width),
+          4096 / Math.max(1, height),
+          Math.sqrt(8_388_608 / Math.max(1, width * height)),
+        );
+        return await captureNativeCurrentFramePng({
+          designId,
+          fileId,
+          iframe: target.iframe,
+          pixelRatio,
+        });
+      }
       prepared = await prepareExportCaptureTarget(target);
       const { cropSelection, doc, iframe } = {
         ...target,

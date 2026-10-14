@@ -13,6 +13,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +48,11 @@ import {
   useGlslShaderSession,
   type GlslShaderPanelContext,
 } from "./GlslShaderPanel";
+import {
+  NativeShaderPanel,
+  persistNativeShaderEdit,
+  selectedNativeInstances,
+} from "./NativeShaderPanel";
 import type { ScrubInputChangeMeta } from "./ScrubInput";
 
 /** How the picker takes the shader off the element when the paint changes. */
@@ -344,18 +350,42 @@ export function ShaderPane({
 }) {
   const t = useT();
   const session = useGlslShaderSession({ mode: "fill", context });
+  const nativeFill = selectedNativeInstances(
+    context.content,
+    context.nodeId,
+    "fill",
+    context.selector,
+  ).instances;
   const sessionRef = useRef(session);
   sessionRef.current = session;
   useEffect(() => {
     controllerRef.current = {
       hasShader: () =>
-        Boolean(sessionRef.current.nodeMount || sessionRef.current.activeDef),
-      remove: () => sessionRef.current.removeFromNode(),
+        Boolean(
+          nativeFill.length ||
+          sessionRef.current.nodeMount ||
+          sessionRef.current.activeDef,
+        ),
+      remove: async () => {
+        if (nativeFill[0]) {
+          try {
+            await persistNativeShaderEdit(context, {
+              kind: "remove",
+              instanceId: nativeFill[0].id,
+            });
+            return true;
+          } catch {
+            toast.error(t("editPanel.shaders.saveFailed"));
+            return false;
+          }
+        }
+        return sessionRef.current.removeFromNode();
+      },
     };
     return () => {
       controllerRef.current = null;
     };
-  }, [controllerRef]);
+  }, [controllerRef, context, nativeFill[0]?.id]);
 
   const { activeDef, busy } = session;
   const inert = disabled || busy;
@@ -385,6 +415,10 @@ export function ShaderPane({
         </Button>
       </div>
     );
+  }
+
+  if (!activeDef && context.fileId && !context.editSource) {
+    return <NativeShaderPanel context={context} placement="fill" />;
   }
 
   if (activeDef) {

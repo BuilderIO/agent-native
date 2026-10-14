@@ -5171,6 +5171,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
+    function authoredOpacityForEditor(el, computedOpacity) {
+      if (!el.hasAttribute("data-an-native-fill-suppressed") && !el.hasAttribute("data-an-native-layer-suppressed") && !el.hasAttribute("data-an-native-scene-suppressed"))
+        return computedOpacity;
+      var saved = el.getAttribute("data-an-native-authored-opacity");
+      var opacity = saved === null || !saved.trim() ? NaN : Number(saved);
+      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+        throw Object.assign(new Error("Native authored opacity is unavailable"), {
+          code: "native-authored-opacity-unavailable"
+        });
+      return String(opacity);
+    }
     function typedStyleValue(el, property) {
       var typedElement = el;
       if (typeof typedElement.computedStyleMap !== "function") {
@@ -5298,7 +5309,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
-        var value = cs[property2] || cs.getPropertyValue(property2);
+        var value = property2 === "opacity" ? authoredOpacityForEditor(el, cs.opacity) : cs[property2] || cs.getPropertyValue(property2);
         var inlineValue = hostStyle && hostStyle.getPropertyValue(property2);
         if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2] && !portableValueRendersNothing(el, property2, cs))) {
           styles[property2] = value;
@@ -5931,6 +5942,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      computed.opacity = authoredOpacityForEditor(el, cs.opacity);
+      if (!vectorPaintTarget(el)) computed.vectorOpacity = computed.opacity;
       var paintTarget = vectorPaintTarget(el) || (el.tagName.toLowerCase() === "path" && el.hasAttribute("data-an-pen-nodes") ? el : null);
       var penNodesOwner = paintTarget && paintTarget.hasAttribute("data-an-pen-nodes") ? paintTarget : el;
       if (paintTarget && paintTarget.getAttribute("fill-opacity") === "0" && (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") === 0) {
@@ -6125,7 +6138,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         layers.push({
           backgroundColor: paint.backgroundColor,
           backgroundImage: paint.backgroundImage,
-          opacity: paint.opacity,
+          opacity: authoredOpacityForEditor(node, paint.opacity),
           mixBlendMode: paint.mixBlendMode
         });
         node = node.parentElement;
