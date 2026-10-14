@@ -84,14 +84,64 @@ const V21_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V22_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v22-before-after.csv",
+    import.meta.url,
+  ),
+);
 function loadMeasuredComparisonCsv(): string {
-  return readFileSync(V21_COMPARISON_CSV, "utf8");
+  return readFileSync(V22_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("validates the measured v21 production-path comparison", () => {
+  it("validates the measured v22 production-path comparison", () => {
     const result = validateProductionPathComparisonCsv(
       loadMeasuredComparisonCsv(),
+    );
+
+    expect(result).toMatchObject({
+      cases: 25,
+      before: {
+        rows: 50,
+        top1: 46,
+        retrievalTop1: 46,
+        hitAt5: 46,
+        correctAbstentions: 0,
+        contractAccuracy: 46,
+        unexpectedMatches: 2,
+        failedRuns: 4,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
+        revision: "1da583a5059d855ef7f61dc1e017607416e123d9",
+        codeRevision:
+          "sha256:2e06c8bddad47a8ed932b60171383e064ed013910489bb7cb6331a2bc17b7f52",
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+      after: {
+        rows: 50,
+        top1: 48,
+        retrievalTop1: 48,
+        hitAt5: 48,
+        correctAbstentions: 2,
+        contractAccuracy: 50,
+        unexpectedMatches: 0,
+        failedRuns: 0,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
+        revision: "a1f50aedbc37362ddd52062be4a0bba8259d1f12",
+        codeRevision:
+          "sha256:9d53acff41c133f36c1313eb7f794bf03a6a01222bafdfaeff7c861b33f227cd",
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+    });
+    expect(result.before.revision).not.toBe(result.after.revision);
+    expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
+  });
+
+  it("still validates the preserved v21 comparison", () => {
+    const result = validateProductionPathComparisonCsv(
+      readFileSync(V21_COMPARISON_CSV, "utf8"),
     );
 
     expect(result).toMatchObject({
@@ -107,7 +157,8 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         revision: "8961aeb5a901eb8be8e821c10b957fa9203796c7",
         codeRevision:
           "sha256:75bd47c16935eabe816f1f00ec52ddf45b537eb303674dae577e86ee886c3030",
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        harnessRevision:
+          "sha256:523b5b1b338cf9326f5d8739358080ef7e2f5bb3e617388bc9ce75b151a59f06",
       },
       after: {
         rows: 48,
@@ -120,11 +171,10 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         revision: "a92e2383750d13563ee12331ec9708e6b93cd1e9",
         codeRevision:
           "sha256:6a91fd523eb3630b8f10e4338b3204d29595fcde9557a42bba1df49e7837b299",
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        harnessRevision:
+          "sha256:523b5b1b338cf9326f5d8739358080ef7e2f5bb3e617388bc9ce75b151a59f06",
       },
     });
-    expect(result.before.revision).not.toBe(result.after.revision);
-    expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
   });
 
   it("still validates the preserved v20 comparison", () => {
@@ -422,10 +472,12 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      rows: 48,
+      rows: 50,
       top1: 47,
       retrievalTop1: 47,
       hitAt5: 47,
+      correctAbstentions: 2,
+      contractAccuracy: 49,
       failedRuns: 1,
       abortedRuns: 1,
     });
@@ -466,7 +518,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   it("does not count production-path failure codes as completed runs", () => {
     const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
     const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
-    for (let index = afterStart; index < afterStart + 5; index += 1) {
+    for (let index = afterStart; index < afterStart + 6; index += 1) {
       const columns = rows[index]!.split(",");
       columns[7] = "0";
       columns[8] = "production_path_failed";
@@ -495,9 +547,50 @@ describe("Analytics synthetic production-path comparison artifact", () => {
       top1: 47,
       retrievalTop1: 47,
       hitAt5: 47,
+      correctAbstentions: 2,
+      contractAccuracy: 49,
       failedRuns: 1,
       abortedRuns: 0,
     });
+  });
+
+  it("rejects an abstention result for a case that expects a candidate", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
+    const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+    const columns = rows[afterStart]!.split(",");
+    columns[7] = "1";
+    columns[8] = "no_match_expected";
+    columns[9] = "";
+    columns[10] = "false";
+    rows[afterStart] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "Comparison CSV no-match outcomes must match the pinned abstention cases.",
+    );
+  });
+
+  it("rejects a ranked result for the pinned abstention case", () => {
+    const rows = loadMeasuredComparisonCsv().trimEnd().split(/\r?\n/);
+    const rowIndex = rows.findIndex((row, index) => {
+      if (index === 0) return false;
+      const columns = row.split(",");
+      return (
+        columns[0] === "aggregate-only-membership-abstains" &&
+        columns[1] === "after" &&
+        columns[6] === "1"
+      );
+    });
+    expect(rowIndex).toBeGreaterThan(0);
+    const columns = rows[rowIndex]!.split(",");
+    columns[7] = "1";
+    columns[8] = "rank_1";
+    columns[9] = "1";
+    columns[10] = "true";
+    rows[rowIndex] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "Comparison CSV no-match outcomes must match the pinned abstention cases.",
+    );
   });
 
   it("validates the preserved v10 measured comparison", async () => {

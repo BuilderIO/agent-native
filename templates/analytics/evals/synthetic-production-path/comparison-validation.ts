@@ -79,8 +79,12 @@ const V18_CASE_IDS = V17_CASE_IDS;
 const V19_CASE_IDS = V18_CASE_IDS;
 const V20_CASE_IDS = V19_CASE_IDS;
 const V21_CASE_IDS = V20_CASE_IDS;
+const V22_CASE_IDS = [
+  ...V21_CASE_IDS,
+  "aggregate-only-membership-abstains",
+] as const;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V21_CASE_IDS;
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V22_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -90,6 +94,7 @@ type PinnedEvaluation = {
   candidateCodeRevision: string;
   harnessRevision: string;
   caseIds: readonly string[];
+  noMatchCaseIds?: readonly string[];
   staleIndexMarker?: boolean;
   staleIndexCaseIds?: readonly string[];
   staleIndexMarkerPhases?: readonly ("before" | "after")[];
@@ -283,6 +288,25 @@ const PINNED_EVALUATIONS = [
     ],
     staleIndexMarkerPhases: ["before", "after"],
   },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v22",
+    baselineRevision: "1da583a5059d855ef7f61dc1e017607416e123d9",
+    baselineCodeRevision:
+      "sha256:2e06c8bddad47a8ed932b60171383e064ed013910489bb7cb6331a2bc17b7f52",
+    candidateRevision: "a1f50aedbc37362ddd52062be4a0bba8259d1f12",
+    candidateCodeRevision:
+      "sha256:9d53acff41c133f36c1313eb7f794bf03a6a01222bafdfaeff7c861b33f227cd",
+    harnessRevision:
+      "sha256:bf3c188894629f2300d071e32e5ba8a147e194bafd80251c0e9472e5ed57da93",
+    caseIds: V22_CASE_IDS,
+    noMatchCaseIds: ["aggregate-only-membership-abstains"],
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
   PINNED_EVALUATIONS.map(
@@ -332,11 +356,18 @@ const REASON_CODES = new Set([
   "action_failed",
   "usage_missing",
   "guard_not_applied",
+  "no_match_expected",
+  "unexpected_match",
 ]);
 const RANK_REASON_CODES = new Set([
   "rank_1",
   "ranked_below_1",
   "candidate_missing",
+]);
+const PRODUCTION_PATH_COMPLETION_REASON_CODES = new Set([
+  ...RANK_REASON_CODES,
+  "no_match_expected",
+  "unexpected_match",
 ]);
 const MIN_PRODUCTION_PATH_COMPLETION_RATE = 0.9;
 type Phase = "before" | "after";
@@ -367,11 +398,17 @@ type ComparisonRow = {
 
 export type PhaseComparisonSummary = {
   rows: number;
-  /** Runs that passed both the retrieval and production-path integrity scorers. */
+  /** Correct rank-1 retrievals that also passed production-path integrity. */
   top1: number;
   /** Retrieval rank counts remain visible even when another path check failed. */
   retrievalTop1: number;
   hitAt5: number;
+  /** Correctly abstained from returning a candidate when none was suitable. */
+  correctAbstentions: number;
+  /** All runs that passed the case contract, including correct abstentions. */
+  contractAccuracy: number;
+  /** Runs that returned a candidate for a case whose contract expected none. */
+  unexpectedMatches: number;
   failedRuns: number;
   abortedRuns: number;
   staleIndexMarked: number;
@@ -517,9 +554,18 @@ function summarizePhase(
   }
   return {
     rows: phaseRows.length,
-    top1: phaseRows.filter((row) => row.score === 1).length,
+    top1: phaseRows.filter(
+      (row) => row.score === 1 && row.reason_code === "rank_1",
+    ).length,
     retrievalTop1: phaseRows.filter((row) => row.expected_rank === 1).length,
     hitAt5: phaseRows.filter((row) => row.hit_at_5).length,
+    correctAbstentions: phaseRows.filter(
+      (row) => row.score === 1 && row.reason_code === "no_match_expected",
+    ).length,
+    contractAccuracy: phaseRows.filter((row) => row.score === 1).length,
+    unexpectedMatches: phaseRows.filter(
+      (row) => row.reason_code === "unexpected_match",
+    ).length,
     failedRuns: phaseRows.filter((row) => row.score === 0).length,
     abortedRuns: phaseRows.filter((row) => row.aborted).length,
     staleIndexMarked: phaseRows.filter((row) => row.stale_index_marked).length,
@@ -573,6 +619,22 @@ export function validateProductionPathComparisonCsv(
       throw new Error("Comparison CSV contains a duplicate case/run pair.");
     }
     rowsByPhaseAndPair.set(key, row);
+    const expectsNoMatch =
+      pinnedEvaluation.noMatchCaseIds?.includes(row.case_id) ?? false;
+    const reportsNoMatch = ["no_match_expected", "unexpected_match"].includes(
+      row.reason_code,
+    );
+    const reportsCandidateRank = ["rank_1", "ranked_below_1"].includes(
+      row.reason_code,
+    );
+    if (
+      (!expectsNoMatch && reportsNoMatch) ||
+      (expectsNoMatch && reportsCandidateRank)
+    ) {
+      throw new Error(
+        "Comparison CSV no-match outcomes must match the pinned abstention cases.",
+      );
+    }
     const expectedHitAt5 = row.expected_rank !== null && row.expected_rank <= 5;
     if (row.hit_at_5 !== expectedHitAt5) {
       throw new Error(
@@ -606,25 +668,55 @@ export function validateProductionPathComparisonCsv(
     }
     if (
       !RANK_REASON_CODES.has(row.reason_code) &&
+      row.reason_code !== "no_match_expected" &&
       (row.score !== 0 || row.expected_rank !== null || row.hit_at_5)
     ) {
       throw new Error(
         "Comparison CSV failure reasons cannot report a retrieval rank or hit.",
       );
     }
+    const productionPathCompleted =
+      row.completed &&
+      !row.aborted &&
+      row.find_data_calls === 1 &&
+      row.other_action_calls === 0 &&
+      row.failed_action_calls === 0 &&
+      row.llm_calls > 0;
     if (
       row.score === 1 &&
-      (row.reason_code !== "rank_1" ||
-        row.expected_rank !== 1 ||
-        !row.completed ||
-        row.aborted ||
-        row.find_data_calls !== 1 ||
-        row.other_action_calls !== 0 ||
-        row.failed_action_calls !== 0 ||
-        row.llm_calls === 0)
+      row.reason_code !== "rank_1" &&
+      row.reason_code !== "no_match_expected"
+    ) {
+      throw new Error(
+        "Comparison CSV has an invalid successful contract score.",
+      );
+    }
+    const hasExpectedSuccessfulOutcome =
+      row.reason_code === "rank_1"
+        ? row.expected_rank === 1
+        : row.expected_rank === null && !row.hit_at_5;
+    if (
+      row.score === 1 &&
+      (!productionPathCompleted || !hasExpectedSuccessfulOutcome)
     ) {
       throw new Error(
         "Comparison CSV has an invalid successful production-path score.",
+      );
+    }
+    if (row.reason_code === "no_match_expected" && row.score !== 1) {
+      throw new Error(
+        "Comparison CSV correct abstentions must pass the case contract.",
+      );
+    }
+    if (
+      row.reason_code === "unexpected_match" &&
+      (row.score !== 0 ||
+        row.expected_rank !== null ||
+        row.hit_at_5 ||
+        !productionPathCompleted)
+    ) {
+      throw new Error(
+        "Comparison CSV unexpected matches must be completed contract failures without a retrieval rank.",
       );
     }
     if (
@@ -761,7 +853,7 @@ export function validateProductionPathComparisonCsv(
     const phaseRows = rows.filter((row) => row.phase === phase);
     const completedRows = phaseRows.filter(
       (row) =>
-        RANK_REASON_CODES.has(row.reason_code) &&
+        PRODUCTION_PATH_COMPLETION_REASON_CODES.has(row.reason_code) &&
         row.completed &&
         !row.aborted &&
         row.find_data_calls === 1 &&

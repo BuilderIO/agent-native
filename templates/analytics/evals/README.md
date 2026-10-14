@@ -43,6 +43,29 @@ accuracy gain. No production index or data rows were written for this eval.
 
 ## Synthetic source and grain cases
 
+### Production-path retrieval comparison v22
+
+[`SYNTHETIC-analytics-production-path-v22-before-after.csv`](./synthetic-production-path/SYNTHETIC-analytics-production-path-v22-before-after.csv)
+records two runs each for 25 synthetic cases on baseline `1da583a5059d` and
+candidate `a1f50aedbc37`, using the same pinned production-path harness. The
+suite includes an abstention case where the only available membership source
+is a monthly aggregate.
+
+- Case-contract accuracy rose from 46/50 runs (92%) to 50/50 (100%).
+- Positive-source top-1 retrieval rose from 46/48 (95.8%) to 48/48 (100%).
+- Correct abstentions rose from 0/2 to 2/2; unexpected aggregate matches fell
+  from 2/2 to 0/2.
+- All 100 runs completed through the production agent loop, called `find-data`
+  exactly once, and had no aborts.
+
+This is a deterministic harness with a synthetic model and in-memory source
+index, not a hosted-model, BigQuery-connection, or production-latency test. Its
+small latency and token figures describe only the harness. It does not replay
+Brent's historical chat or establish broad real-world answer accuracy. The
+separate production-model artifact above remains a single redacted case where
+both phases failed the source-contract scorer because no production source
+index was configured at measurement time.
+
 `production-source-cases.eval.ts` adds seven synthetic questions. They ask for
 source selection, declared grain, and relation or field attribution; they do
 not use captured prompts, people, identifiers, event rows, or production result
