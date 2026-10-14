@@ -1,6 +1,7 @@
 import { fail } from "@agent-native/core/action";
 import {
   listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionForApp,
   type WorkspaceConnectionForApp,
 } from "@agent-native/core/workspace-connections";
 
@@ -46,13 +47,58 @@ export async function resolveSigmaConnectionSelection(
         statusCode: 403,
       });
     }
-    return { connections: options, selected, requiresSelection: false };
+    const verified = await resolveWorkspaceConnectionForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: SIGMA_PROVIDER_ID,
+      includeDisabled: true,
+      connectionId: selected.id,
+      requireConnected: true,
+    });
+    if (!verified.available || !verified.connection) {
+      fail("The selected Sigma connection is unavailable to Analytics.", {
+        errorCode: "sigma_connection_unavailable",
+        statusCode: 403,
+      });
+    }
+    return {
+      connections: options,
+      selected: {
+        id: verified.connection.id,
+        label:
+          verified.connection.label ||
+          verified.connection.accountLabel ||
+          "Sigma",
+        status: verified.connection.status,
+      },
+      requiresSelection: false,
+    };
   }
 
   if (usable.length === 1) {
+    // A list entry is only a picker hint; authorize the selected ID per request.
+    const verified = await resolveWorkspaceConnectionForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: SIGMA_PROVIDER_ID,
+      includeDisabled: true,
+      connectionId: usable[0]!.id,
+      requireConnected: true,
+    });
+    if (!verified.available || !verified.connection) {
+      fail("The selected Sigma connection is unavailable to Analytics.", {
+        errorCode: "sigma_connection_unavailable",
+        statusCode: 403,
+      });
+    }
     return {
       connections: options,
-      selected: usable[0]!,
+      selected: {
+        id: verified.connection.id,
+        label:
+          verified.connection.label ||
+          verified.connection.accountLabel ||
+          "Sigma",
+        status: verified.connection.status,
+      },
       requiresSelection: false,
     };
   }

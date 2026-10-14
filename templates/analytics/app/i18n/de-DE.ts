@@ -73,6 +73,7 @@ export default {
     sigmaStatusImporting: "Wird importiert",
     sigmaStatusImported: "Importiert",
     sigmaStatusFailed: "Import fehlgeschlagen",
+    sigmaArchived: "Archiviert",
     sigmaPreviewTitle: "Arbeitsmappenvorschau",
     sigmaPreviewFailed: "Diese Arbeitsmappe konnte nicht angezeigt werden",
     sigmaRetryPreview: "Lade die Arbeitsmappenvorschau erneut.",

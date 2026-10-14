@@ -203,6 +203,7 @@ export default {
     sigmaStatusImporting: "正在匯入",
     sigmaStatusImported: "已匯入",
     sigmaStatusFailed: "匯入失敗",
+    sigmaArchived: "已封存",
     sigmaPreviewTitle: "活頁簿預覽",
     sigmaPreviewFailed: "無法預覽此活頁簿",
     sigmaRetryPreview: "重試以載入活頁簿預覽。",

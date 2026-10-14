@@ -73,6 +73,7 @@ export default {
     sigmaStatusImporting: "Importando",
     sigmaStatusImported: "Importado",
     sigmaStatusFailed: "Error al importar",
+    sigmaArchived: "Archivado",
     sigmaPreviewTitle: "Vista previa del libro de trabajo",
     sigmaPreviewFailed: "No se ha podido previsualizar este libro de trabajo",
     sigmaRetryPreview: "Vuelve a intentar cargar la vista previa.",

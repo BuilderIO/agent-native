@@ -112,4 +112,23 @@ describe("list-sigma-workbooks", () => {
       "canRecoverMissingDashboard",
     );
   });
+
+  it("marks archived Sigma workbooks in the preview result", async () => {
+    mocks.listWorkbooks.mockResolvedValue({
+      workbooks: [
+        {
+          workbookId: "workbook_archived",
+          name: "Archived Revenue",
+          isArchived: true,
+        },
+      ],
+      nextPage: null,
+    });
+
+    const result: any = await listSigmaWorkbooks.run({});
+
+    expect(result.workbooks).toMatchObject([
+      { id: "workbook_archived", name: "Archived Revenue", isArchived: true },
+    ]);
+  });
 });

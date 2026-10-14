@@ -73,6 +73,7 @@ export default {
     sigmaStatusImporting: "Importando",
     sigmaStatusImported: "Importado",
     sigmaStatusFailed: "Falha na importação",
+    sigmaArchived: "Arquivado",
     sigmaPreviewTitle: "Prévia da pasta de trabalho",
     sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
     sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",

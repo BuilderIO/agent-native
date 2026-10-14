@@ -72,6 +72,7 @@ export default {
     sigmaStatusImporting: "جارٍ الاستيراد",
     sigmaStatusImported: "تم الاستيراد",
     sigmaStatusFailed: "فشل الاستيراد",
+    sigmaArchived: "مؤرشف",
     sigmaPreviewTitle: "معاينة المصنف",
     sigmaPreviewFailed: "تعذرت معاينة هذا المصنف",
     sigmaRetryPreview: "حاول مرة أخرى لتحميل معاينة المصنف.",

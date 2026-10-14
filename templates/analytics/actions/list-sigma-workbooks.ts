@@ -115,6 +115,9 @@ export default defineAction({
       return {
         id: workbook.workbookId,
         name: workbook.name,
+        ...(typeof workbook.isArchived === "boolean"
+          ? { isArchived: workbook.isArchived }
+          : {}),
         ...(workbook.path ? { path: workbook.path } : {}),
         ...(workbook.updatedAt ? { updatedAt: workbook.updatedAt } : {}),
         status,

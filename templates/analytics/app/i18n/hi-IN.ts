@@ -69,6 +69,7 @@ export default {
     sigmaStatusImporting: "आयात हो रहा है",
     sigmaStatusImported: "आयात किया गया",
     sigmaStatusFailed: "आयात विफल हुआ",
+    sigmaArchived: "संग्रहीत",
     sigmaPreviewTitle: "वर्कबुक पूर्वावलोकन",
     sigmaPreviewFailed: "इस वर्कबुक का पूर्वावलोकन नहीं हो सका",
     sigmaRetryPreview: "वर्कबुक पूर्वावलोकन लोड करने के लिए फिर कोशिश करें।",

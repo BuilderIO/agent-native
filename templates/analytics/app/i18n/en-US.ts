@@ -238,6 +238,7 @@ export default {
     sigmaStatusImporting: "Importing",
     sigmaStatusImported: "Imported",
     sigmaStatusFailed: "Import failed",
+    sigmaArchived: "Archived",
     sigmaPreviewTitle: "Workbook preview",
     sigmaPreviewFailed: "Couldn't preview this workbook",
     sigmaRetryPreview: "Try again to load the workbook preview.",

@@ -69,6 +69,7 @@ export default {
     sigmaStatusImporting: "正在导入",
     sigmaStatusImported: "已导入",
     sigmaStatusFailed: "导入失败",
+    sigmaArchived: "已归档",
     sigmaPreviewTitle: "工作簿预览",
     sigmaPreviewFailed: "无法预览此工作簿",
     sigmaRetryPreview: "重试以加载工作簿预览。",

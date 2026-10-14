@@ -71,6 +71,7 @@ export default {
     sigmaStatusImporting: "가져오는 중",
     sigmaStatusImported: "가져옴",
     sigmaStatusFailed: "가져오지 못함",
+    sigmaArchived: "보관됨",
     sigmaPreviewTitle: "워크북 미리보기",
     sigmaPreviewFailed: "이 워크북을 미리 볼 수 없습니다",
     sigmaRetryPreview: "워크북 미리보기를 다시 불러오세요.",

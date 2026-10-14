@@ -44,6 +44,7 @@ type Connection = {
 type SigmaWorkbook = {
   id: string;
   name: string;
+  isArchived?: boolean;
   path?: string;
   updatedAt?: string;
   status: "not_started" | "migrating" | "migrated" | "failed";
@@ -364,9 +365,10 @@ export function SigmaMigrationDialog({
     migrationResult?.status === "already_migrated" ||
     selectedWorkbook?.status === "migrated";
   const accessibleDashboardId =
-    !awaitingListConfirmation && selectedWorkbook?.status === "migrated"
+    dashboardIdFromMigrationResult(migrationResult) ??
+    (!awaitingListConfirmation && selectedWorkbook?.status === "migrated"
       ? (selectedWorkbook.dashboardId ?? null)
-      : null;
+      : null);
   const accessibleDashboardUrl = safeDashboardPath(accessibleDashboardId);
   const reviewTarget =
     selectedWorkbook &&
@@ -376,10 +378,11 @@ export function SigmaMigrationDialog({
       ? {
           dashboardId: accessibleDashboardId,
           dashboardName:
-            selectedWorkbook.dashboardName ??
-            (migrationResult?.status === "completed"
+            (migrationResult?.status === "completed" ||
+            migrationResult?.status === "already_migrated"
               ? migrationResult.dashboardName
               : undefined) ??
+            selectedWorkbook.dashboardName ??
             selectedWorkbook.name,
         }
       : null;
@@ -711,6 +714,11 @@ export function SigmaMigrationDialog({
                           {selectedWorkbook.name}
                         </h3>
                         <WorkbookStatusBadge status={selectedWorkbook.status} />
+                        {selectedWorkbook.isArchived ? (
+                          <Badge variant="outline">
+                            {t("dashboardOverview.sigmaArchived")}
+                          </Badge>
+                        ) : null}
                       </div>
                       {selectedWorkbook.status === "failed" &&
                       selectedWorkbook.retryableByCurrentUser === false ? (
@@ -1069,6 +1077,8 @@ function isWorkbookListResult(
       (workbook) =>
         typeof workbook.id === "string" &&
         typeof workbook.name === "string" &&
+        (workbook.isArchived === undefined ||
+          typeof workbook.isArchived === "boolean") &&
         ["not_started", "migrating", "migrated", "failed"].includes(
           workbook.status,
         ) &&
@@ -1143,6 +1153,8 @@ function isMigrationResult(value: unknown): value is SigmaMigrationResult {
     return (
       (result.dashboardId === undefined ||
         typeof result.dashboardId === "string") &&
+      (result.dashboardName === undefined ||
+        typeof result.dashboardName === "string") &&
       (result.dashboardUrl === undefined ||
         typeof result.dashboardUrl === "string")
     );
@@ -1163,4 +1175,12 @@ function isMigrationResult(value: unknown): value is SigmaMigrationResult {
 function safeDashboardPath(id: string | null) {
   if (!id || !/^[A-Za-z0-9_-]{1,200}$/.test(id)) return null;
   return `/dashboards/${encodeURIComponent(id)}`;
+}
+
+function dashboardIdFromMigrationResult(
+  result: SigmaMigrationResult | null,
+): string | null {
+  if (result?.status === "completed") return result.dashboardId;
+  if (result?.status === "already_migrated") return result.dashboardId ?? null;
+  return null;
 }

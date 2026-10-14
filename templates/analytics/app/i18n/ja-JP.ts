@@ -72,6 +72,7 @@ export default {
     sigmaStatusImporting: "インポート中",
     sigmaStatusImported: "インポート済み",
     sigmaStatusFailed: "インポートに失敗しました",
+    sigmaArchived: "アーカイブ済み",
     sigmaPreviewTitle: "ワークブックのプレビュー",
     sigmaPreviewFailed: "このワークブックをプレビューできませんでした",
     sigmaRetryPreview: "ワークブックのプレビューを再読み込みしてください。",

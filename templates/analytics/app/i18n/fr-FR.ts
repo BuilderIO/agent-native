@@ -73,6 +73,7 @@ export default {
     sigmaStatusImporting: "Importation en cours",
     sigmaStatusImported: "Importé",
     sigmaStatusFailed: "Échec de l’importation",
+    sigmaArchived: "Archivé",
     sigmaPreviewTitle: "Aperçu du classeur",
     sigmaPreviewFailed: "Impossible de prévisualiser ce classeur",
     sigmaRetryPreview: "Réessayez de charger l’aperçu du classeur.",
