@@ -49,6 +49,7 @@ function footerColumns(
       title: t("homepage.footer.framework"),
       links: [
         { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
+        { label: t("campaign.articles"), href: "/articles" },
         {
           label: t("nav.whatIsAgentNative"),
           href: localizedPath("/docs/what-is-agent-native"),
@@ -65,10 +66,13 @@ function footerColumns(
     },
     {
       title: t("homepage.footer.apps"),
-      links: FOOTER_APPS.map((app) => ({
-        label: app.name,
-        href: localizedPath(`/apps/${app.slug}`),
-      })),
+      links: [
+        { label: t("campaign.useCases"), href: "/use-cases" },
+        ...FOOTER_APPS.map((app) => ({
+          label: app.name,
+          href: localizedPath(`/apps/${app.slug}`),
+        })),
+      ],
     },
     {
       title: t("homepage.footer.ecosystem"),

@@ -1,6 +1,43 @@
 import enUS from "./en-US";
 
 const esES = {
+  campaign: {
+    useCases: "Casos de uso",
+    useCasesTitle:
+      "Trabajo recurrente, realizado con una app Agent-Native y tu agente de IA",
+    useCasesIntro: "Elige el trabajo que haces una y otra vez.",
+    articles: "Artículos",
+    articlesIntro:
+      "Respuestas prácticas sobre cómo realizar trabajo recurrente con apps Agent-Native y tu agente de IA.",
+    oldWay: "La forma anterior",
+    newWay: "La nueva forma",
+    alternative: "Una alternativa de código abierto a {{names}}",
+    usedBefore: "Usaba antes: {{names}}",
+    faqs: "Preguntas frecuentes",
+    faqTitle: "Respuestas a preguntas frecuentes",
+    goDeeper: "Profundiza",
+    screenshotTodo: "Captura pendiente",
+    copyPage: "Copiar página",
+    copyLink: "Copiar enlace",
+    copied: "Copiado",
+    copyFailed: "No se pudo copiar. Inténtalo de nuevo.",
+    breadcrumb: "Ruta de navegación",
+    readTime: "{{count}} min de lectura",
+    partOf: "Parte de:",
+    relatedResources: "Recursos relacionados",
+    moreArticles: "Más artículos de {{category}}",
+    showMore: "Mostrar más artículos",
+    allTopics: "Todos los temas",
+    topics: {
+      clips:
+        "Grabaciones de pantalla, reuniones y dictado que tu agente de IA puede usar",
+      design: "Prototipos interactivos con tu agente de IA",
+      slides: "Presentaciones acordes con tu marca con tu agente de IA",
+      plans:
+        "Planes visuales y resúmenes para tu agente de programación con IA",
+      analytics: "Preguntas en lenguaje natural, gráficos y paneles",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",

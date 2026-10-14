@@ -1,4 +1,39 @@
 const enUS = {
+  campaign: {
+    useCases: "Use cases",
+    useCasesTitle:
+      "Recurring work, done with an Agent-Native app and your AI agent",
+    useCasesIntro: "Pick the job you do again and again.",
+    articles: "Articles",
+    articlesIntro:
+      "Practical answers about getting recurring work done with Agent-Native apps and your AI agent.",
+    oldWay: "The old way",
+    newWay: "The new way",
+    alternative: "An open-source alternative to {{names}}",
+    usedBefore: "Used before: {{names}}",
+    faqs: "FAQs",
+    faqTitle: "Get answers to common questions",
+    goDeeper: "Go deeper",
+    screenshotTodo: "Screenshot TODO",
+    copyPage: "Copy page",
+    copyLink: "Copy link",
+    copied: "Copied",
+    copyFailed: "Could not copy. Please try again.",
+    breadcrumb: "Breadcrumb",
+    readTime: "{{count}} min read",
+    partOf: "Part of:",
+    relatedResources: "Related resources",
+    moreArticles: "More {{category}} articles",
+    showMore: "Show more articles",
+    allTopics: "All topics",
+    topics: {
+      clips: "Screen recordings, meetings, and dictation your AI agent can use",
+      design: "Interactive prototypes with your AI agent",
+      slides: "On-brand presentations with your AI agent",
+      plans: "Visual plans and recaps for your AI coding agent",
+      analytics: "Plain-language questions, charts, and dashboards",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",

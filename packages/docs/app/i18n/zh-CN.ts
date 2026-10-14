@@ -1,6 +1,40 @@
 import enUS from "./en-US";
 
 const zhCN = {
+  campaign: {
+    useCases: "使用场景",
+    useCasesTitle: "用 Agent-Native 应用和你的 AI 智能体完成日常重复工作",
+    useCasesIntro: "选择你反复执行的工作。",
+    articles: "文章",
+    articlesIntro:
+      "关于使用 Agent-Native 应用和 AI 智能体完成重复工作的实用解答。",
+    oldWay: "旧方式",
+    newWay: "新方式",
+    alternative: "{{names}} 的开源替代方案",
+    usedBefore: "之前使用：{{names}}",
+    faqs: "常见问题",
+    faqTitle: "获取常见问题的答案",
+    goDeeper: "深入了解",
+    screenshotTodo: "截图待补充",
+    copyPage: "复制页面",
+    copyLink: "复制链接",
+    copied: "已复制",
+    copyFailed: "无法复制，请重试。",
+    breadcrumb: "面包屑导航",
+    readTime: "阅读需 {{count}} 分钟",
+    partOf: "所属场景：",
+    relatedResources: "相关资源",
+    moreArticles: "更多 {{category}} 文章",
+    showMore: "显示更多文章",
+    allTopics: "所有主题",
+    topics: {
+      clips: "AI 智能体可使用的屏幕录制、会议和听写",
+      design: "与 AI 智能体一起创建交互式原型",
+      slides: "与 AI 智能体一起制作符合品牌风格的演示文稿",
+      plans: "为 AI 编码智能体提供可视化计划和回顾",
+      analytics: "用自然语言提问，查看图表和仪表板",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "无法确认 AI 是否已就绪。",

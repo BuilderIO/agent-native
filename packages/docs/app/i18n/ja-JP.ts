@@ -1,6 +1,41 @@
 import enUS from "./en-US";
 
 const jaJP = {
+  campaign: {
+    useCases: "ユースケース",
+    useCasesTitle:
+      "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなす",
+    useCasesIntro: "何度も繰り返す仕事を選んでください。",
+    articles: "記事",
+    articlesIntro:
+      "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなすための実践的な回答。",
+    oldWay: "従来の方法",
+    newWay: "新しい方法",
+    alternative: "{{names}} に代わるオープンソースの選択肢",
+    usedBefore: "以前の使用ツール：{{names}}",
+    faqs: "よくある質問",
+    faqTitle: "よくある質問への回答",
+    goDeeper: "詳しく知る",
+    screenshotTodo: "スクリーンショット準備中",
+    copyPage: "ページをコピー",
+    copyLink: "リンクをコピー",
+    copied: "コピーしました",
+    copyFailed: "コピーできませんでした。もう一度お試しください。",
+    breadcrumb: "パンくずリスト",
+    readTime: "読了 {{count}} 分",
+    partOf: "関連するユースケース：",
+    relatedResources: "関連リソース",
+    moreArticles: "{{category}} のその他の記事",
+    showMore: "記事をさらに表示",
+    allTopics: "すべてのトピック",
+    topics: {
+      clips: "AI エージェントが使える画面録画、会議、音声入力",
+      design: "AI エージェントと作るインタラクティブなプロトタイプ",
+      slides: "AI エージェントと作るブランドに合ったプレゼンテーション",
+      plans: "AI コーディングエージェント向けの視覚的な計画と振り返り",
+      analytics: "自然な言葉での質問、チャート、ダッシュボード",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",

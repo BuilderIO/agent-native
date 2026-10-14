@@ -1,6 +1,43 @@
 import enUS from "./en-US";
 
 const deDE = {
+  campaign: {
+    useCases: "Anwendungsfälle",
+    useCasesTitle:
+      "Wiederkehrende Arbeit, erledigt mit einer Agent-Native-App und deinem KI-Agenten",
+    useCasesIntro: "Wähle die Arbeit, die du immer wieder erledigst.",
+    articles: "Artikel",
+    articlesIntro:
+      "Praktische Antworten zur Erledigung wiederkehrender Arbeit mit Agent-Native-Apps und deinem KI-Agenten.",
+    oldWay: "Der bisherige Weg",
+    newWay: "Der neue Weg",
+    alternative: "Eine Open-Source-Alternative zu {{names}}",
+    usedBefore: "Bisher verwendet: {{names}}",
+    faqs: "Häufige Fragen",
+    faqTitle: "Antworten auf häufige Fragen",
+    goDeeper: "Mehr erfahren",
+    screenshotTodo: "Screenshot ausstehend",
+    copyPage: "Seite kopieren",
+    copyLink: "Link kopieren",
+    copied: "Kopiert",
+    copyFailed: "Kopieren fehlgeschlagen. Bitte erneut versuchen.",
+    breadcrumb: "Brotkrumennavigation",
+    readTime: "{{count}} Min. Lesezeit",
+    partOf: "Teil von:",
+    relatedResources: "Verwandte Ressourcen",
+    moreArticles: "Weitere {{category}}-Artikel",
+    showMore: "Weitere Artikel anzeigen",
+    allTopics: "Alle Themen",
+    topics: {
+      clips:
+        "Bildschirmaufnahmen, Meetings und Diktate, die dein KI-Agent nutzen kann",
+      design: "Interaktive Prototypen mit deinem KI-Agenten",
+      slides: "Markenkonforme Präsentationen mit deinem KI-Agenten",
+      plans:
+        "Visuelle Pläne und Zusammenfassungen für deinen KI-Coding-Agenten",
+      analytics: "Fragen in Alltagssprache, Diagramme und Dashboards",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable:

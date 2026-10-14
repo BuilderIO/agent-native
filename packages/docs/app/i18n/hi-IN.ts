@@ -1,6 +1,41 @@
 import enUS from "./en-US";
 
 const hiIN = {
+  campaign: {
+    useCases: "उपयोग के उदाहरण",
+    useCasesTitle:
+      "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करें",
+    useCasesIntro: "वह काम चुनें जो आप बार-बार करते हैं।",
+    articles: "लेख",
+    articlesIntro:
+      "Agent-Native ऐप और अपने AI एजेंट से बार-बार होने वाला काम पूरा करने के व्यावहारिक जवाब।",
+    oldWay: "पुराना तरीका",
+    newWay: "नया तरीका",
+    alternative: "{{names}} का एक ओपन-सोर्स विकल्प",
+    usedBefore: "पहले इस्तेमाल किया: {{names}}",
+    faqs: "अक्सर पूछे जाने वाले प्रश्न",
+    faqTitle: "आम सवालों के जवाब पाएँ",
+    goDeeper: "और जानें",
+    screenshotTodo: "स्क्रीनशॉट बाकी है",
+    copyPage: "पेज कॉपी करें",
+    copyLink: "लिंक कॉपी करें",
+    copied: "कॉपी हो गया",
+    copyFailed: "कॉपी नहीं हो सका। फिर से कोशिश करें।",
+    breadcrumb: "नेविगेशन पथ",
+    readTime: "पढ़ने में {{count}} मिनट",
+    partOf: "इसका भाग:",
+    relatedResources: "संबंधित संसाधन",
+    moreArticles: "{{category}} के और लेख",
+    showMore: "और लेख दिखाएँ",
+    allTopics: "सभी विषय",
+    topics: {
+      clips: "स्क्रीन रिकॉर्डिंग, बैठकें और डिक्टेशन जिन्हें आपका AI एजेंट इस्तेमाल कर सकता है",
+      design: "अपने AI एजेंट के साथ इंटरैक्टिव प्रोटोटाइप",
+      slides: "अपने AI एजेंट के साथ ब्रांड के अनुरूप प्रस्तुतियाँ",
+      plans: "अपने AI कोडिंग एजेंट के लिए विज़ुअल योजनाएँ और सारांश",
+      analytics: "सरल भाषा में सवाल, चार्ट और डैशबोर्ड",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",

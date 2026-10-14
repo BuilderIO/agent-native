@@ -1,6 +1,43 @@
 import enUS from "./en-US";
 
 const frFR = {
+  campaign: {
+    useCases: "Cas d’usage",
+    useCasesTitle:
+      "Le travail récurrent, réalisé avec une app Agent-Native et votre agent IA",
+    useCasesIntro: "Choisissez le travail que vous faites encore et encore.",
+    articles: "Articles",
+    articlesIntro:
+      "Des réponses pratiques pour réaliser le travail récurrent avec les apps Agent-Native et votre agent IA.",
+    oldWay: "L’ancienne méthode",
+    newWay: "La nouvelle méthode",
+    alternative: "Une alternative open source à {{names}}",
+    usedBefore: "Utilisait auparavant : {{names}}",
+    faqs: "FAQ",
+    faqTitle: "Des réponses aux questions fréquentes",
+    goDeeper: "Approfondir",
+    screenshotTodo: "Capture à ajouter",
+    copyPage: "Copier la page",
+    copyLink: "Copier le lien",
+    copied: "Copié",
+    copyFailed: "Impossible de copier. Réessayez.",
+    breadcrumb: "Fil d’Ariane",
+    readTime: "{{count}} min de lecture",
+    partOf: "Fait partie de :",
+    relatedResources: "Ressources associées",
+    moreArticles: "Plus d’articles {{category}}",
+    showMore: "Afficher plus d’articles",
+    allTopics: "Tous les sujets",
+    topics: {
+      clips:
+        "Enregistrements d’écran, réunions et dictées utilisables par votre agent IA",
+      design: "Prototypes interactifs avec votre agent IA",
+      slides: "Présentations conformes à votre marque avec votre agent IA",
+      plans:
+        "Plans visuels et récapitulatifs pour votre agent de développement IA",
+      analytics: "Questions en langage courant, graphiques et tableaux de bord",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",

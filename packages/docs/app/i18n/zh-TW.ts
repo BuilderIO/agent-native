@@ -1,4 +1,38 @@
 const messages = {
+  campaign: {
+    useCases: "使用情境",
+    useCasesTitle: "使用 Agent-Native 應用程式和你的 AI 代理完成日常重複工作",
+    useCasesIntro: "選擇你反覆執行的工作。",
+    articles: "文章",
+    articlesIntro:
+      "關於使用 Agent-Native 應用程式和 AI 代理完成重複工作的實用解答。",
+    oldWay: "舊方式",
+    newWay: "新方式",
+    alternative: "{{names}} 的開源替代方案",
+    usedBefore: "先前使用：{{names}}",
+    faqs: "常見問題",
+    faqTitle: "取得常見問題的答案",
+    goDeeper: "深入了解",
+    screenshotTodo: "截圖待補充",
+    copyPage: "複製頁面",
+    copyLink: "複製連結",
+    copied: "已複製",
+    copyFailed: "無法複製，請再試一次。",
+    breadcrumb: "麵包屑導覽",
+    readTime: "閱讀需 {{count}} 分鐘",
+    partOf: "所屬情境：",
+    relatedResources: "相關資源",
+    moreArticles: "更多 {{category}} 文章",
+    showMore: "顯示更多文章",
+    allTopics: "所有主題",
+    topics: {
+      clips: "AI 代理可使用的螢幕錄製、會議和聽寫",
+      design: "與 AI 代理一起建立互動式原型",
+      slides: "與 AI 代理一起製作符合品牌風格的簡報",
+      plans: "為 AI 程式碼代理提供視覺化計畫和回顧",
+      analytics: "用自然語言提問，查看圖表和儀表板",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "無法確認 AI 是否已就緒。",
