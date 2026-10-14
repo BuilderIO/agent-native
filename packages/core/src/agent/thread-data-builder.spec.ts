@@ -2145,6 +2145,89 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("replaces a paused call with its renewed approval pause", () => {
+    const toolCallId = "approved-release-call";
+    const turnId = "turn-approved-release";
+    const input = { release: "agentkit-acceptance" };
+    const makePausedMessage = (
+      runId: string,
+      askId: string,
+      approvalKey: string,
+    ) =>
+      buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: toolCallId,
+              tool: "accept-agentkit-release",
+              input,
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "approval_required",
+              tool: "accept-agentkit-release",
+              toolCallId,
+              approvalKey,
+              askId,
+              input,
+            },
+          },
+          {
+            seq: 2,
+            event: {
+              type: "tool_done",
+              id: toolCallId,
+              tool: "accept-agentkit-release",
+              result: "Awaiting human approval. This action did NOT execute.",
+              approvalPause: true,
+            },
+          },
+        ],
+        runId,
+        { turnId },
+      );
+    const firstPause = makePausedMessage(
+      "run-first-approval",
+      "approval-first",
+      "accept-agentkit-release:first-approval",
+    );
+    const renewedPause = makePausedMessage(
+      "run-renewed-approval",
+      "approval-renewed",
+      "accept-agentkit-release:renewed-approval",
+    );
+
+    expect(firstPause).not.toBeNull();
+    expect(renewedPause).not.toBeNull();
+    const firstRepo = foldAssistantTurn({ messages: [] }, firstPause!, {
+      turnId,
+      runId: "run-first-approval",
+    });
+    const renewedRepo = foldAssistantTurn(firstRepo, renewedPause!, {
+      turnId,
+      runId: "run-renewed-approval",
+    });
+    const toolCalls = renewedRepo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId,
+      approvalPause: true,
+      approval: {
+        askId: "approval-renewed",
+        approvalKey: approvalKeyForHistory(
+          "accept-agentkit-release:renewed-approval",
+        ),
+      },
+    });
+  });
+
   it("keeps an AgentKit approval continuation out of the legacy placeholder", () => {
     const approvedToolCallId = "accept-release-call";
     const releaseMessage = buildAssistantMessage(

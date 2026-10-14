@@ -4105,11 +4105,7 @@ function assistantContentWeight(content: unknown): number {
 function appendFoldedContent(existing: any[], incoming: any[]): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
-    if (
-      part?.type === "tool-call" &&
-      part.approvalPause !== true &&
-      part.result !== undefined
-    ) {
+    if (part?.type === "tool-call" && part.result !== undefined) {
       let pausedCallIndex = -1;
       for (let index = merged.length - 1; index >= 0; index -= 1) {
         const candidate = merged[index];

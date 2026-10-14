@@ -3969,6 +3969,128 @@ describe("createProductionAgentHandler", () => {
     expect(engine.stream).not.toHaveBeenCalled();
   });
 
+  it("keeps inline approval replay in the foreground with durable dispatch enabled", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const approvalId = "ask-inline-approval";
+    const input = {
+      attachment: {
+        type: "image",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+    };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-inline-approval");
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-existing",
+    });
+    mockFireInternalDispatch.mockClear();
+    const runAction = vi.fn(async () => "sent");
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Continue.",
+          threadId: "thread-inline-approval",
+          approvedToolCalls: [approvalKey],
+          approvedToolCallAskIds: [approvalId],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-inline-approval",
+                  name: "send-email",
+                  input,
+                  approvalKey,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-inline-approval",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      expect(event.res.status).toBe(409);
+      expect(response).toEqual({
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-existing",
+      });
+
+      expect(resolveApproval).toHaveBeenCalledWith(
+        expect.objectContaining({ approvalKeys: [approvalKey] }),
+      );
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      const slotOptions = (mockTryClaimRunSlot.mock.calls[0] as any)[3];
+      expect(slotOptions).toMatchObject({
+        dispatchMode: "foreground",
+      });
+      expect(slotOptions).not.toHaveProperty("dispatchPayload");
+      expect(runAction).not.toHaveBeenCalled();
+      expect(mockFireInternalDispatch).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("resolves and executes an approved call in a durable background worker", async () => {
     const approvalId = "ask-background-approval";
     const input = { to: "a@b.com" };

@@ -10885,7 +10885,7 @@ export function createProductionAgentHandler(
       }
       backgroundRunClaimedEarly = true;
     }
-    const dispatchToBackground =
+    let dispatchToBackground =
       !isBackgroundWorker &&
       isAgentChatDurableBackgroundEnabled({
         appOptIn: options.durableBackgroundRuns,
@@ -11049,6 +11049,14 @@ export function createProductionAgentHandler(
         code: "approved_tool_call_input_unavailable",
         retryable: false,
       };
+    }
+    if (dispatchToBackground && exactApprovedToolCall) {
+      const { containsInlineAttachmentPayload } =
+        await import("./thread-data-builder.js");
+      if (containsInlineAttachmentPayload(exactApprovedToolCall.input)) {
+        // The dispatch payload must not persist raw bytes; execute while this request still has them.
+        dispatchToBackground = false;
+      }
     }
     const approvedToolCallsForExecution = exactApprovedToolCall
       ? [
