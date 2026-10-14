@@ -110,4 +110,57 @@ describe("getBigQueryAccessToken", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("prefers configured service-account auth for first-party writes", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const serviceAccountJson = JSON.stringify({
+      type: "service_account",
+      client_email: "analytics@example.test",
+      private_key: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    });
+    mocks.credentialContext = {
+      userEmail: "writer@example.com",
+      orgId: "service-account-preference-test",
+    };
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+        ? serviceAccountJson
+        : key === "BIGQUERY_PROJECT_ID"
+          ? "warehouse-project"
+          : undefined,
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "service-account-token",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await expect(
+        getBigQueryAccessToken({ preferServiceAccount: true }),
+      ).resolves.toBe("service-account-token");
+      expect(mocks.resolveBigQueryOAuthCredential).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves transient OAuth lookup failures when no service account is selected", async () => {
+    const failure = new Error("OAuth refresh service unavailable");
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "BIGQUERY_PROJECT_ID" ? "warehouse-project" : undefined,
+    );
+    mocks.resolveBigQueryOAuthCredential.mockRejectedValueOnce(failure);
+
+    await expect(getBigQueryAccessToken()).rejects.toBe(failure);
+  });
 });

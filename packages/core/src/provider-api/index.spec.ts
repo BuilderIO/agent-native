@@ -2875,6 +2875,88 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("selects the matching same-owner BigQuery connection by account id", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "google-work-account",
+        displayName: "Work Google",
+        tokens: { access_token: "bigquery-work-oauth" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "bigquery-work-connection",
+        label: "Work Google",
+        accountId: "google-work-account",
+        ownerEmail: "ada@example.com",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+
+    await expect(
+      resolveProviderApiOAuthAccessToken(
+        { provider: "bigquery", accountId: "google-work-account" },
+        {
+          appId: "analytics",
+          providerIds: ["bigquery"],
+          getCredentialContext: () => credentialContext,
+        },
+      ),
+    ).resolves.toMatchObject({
+      accessToken: "bigquery-work-oauth",
+      accountId: "google-work-account",
+      connectionId: "bigquery-work-connection",
+    });
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "bigquery",
+        connectionOwnerEmail: "ada@example.com",
+        accountId: "google-work-account",
+      }),
+    );
+  });
+
+  it("does not use the service account when an explicit BigQuery account is missing", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const serviceAccountJson = JSON.stringify({
+      type: "service_account",
+      client_email: "analytics@example.test",
+      private_key: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics-bigquery-explicit-account-missing-test",
+      providerIds: ["bigquery"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) =>
+        key === "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+          ? {
+              key,
+              value: serviceAccountJson,
+              source: "app_local",
+              scope: "org",
+              scopeId: "org-1",
+            }
+          : null,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "bigquery",
+        method: "GET",
+        path: "/projects/test-project/datasets",
+        accountId: "missing-google-account",
+      }),
+    ).rejects.toThrow(/No matching workspace connection/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses the service account for org-only BigQuery provider requests", async () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const serviceAccountJson = JSON.stringify({

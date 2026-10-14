@@ -153,7 +153,7 @@ describe("handleTrackEvent", () => {
     }
   });
 
-  it("accepts the event when BigQuery OAuth is unavailable but service-account auth works", async () => {
+  it("uses configured service-account auth without resolving a personal OAuth grant", async () => {
     mocks.resolveCredential.mockImplementation(async (key: string) =>
       key === "BIGQUERY_PROJECT_ID"
         ? "test-project"
@@ -161,7 +161,6 @@ describe("handleTrackEvent", () => {
           ? "service-account-json"
           : undefined,
     );
-    mocks.resolveBigQueryOAuthCredential.mockResolvedValueOnce(null);
     mocks.getBigQueryAccessToken.mockResolvedValueOnce("service-account-token");
     mocks.readBody.mockResolvedValueOnce({
       event: "page_view",
@@ -180,13 +179,13 @@ describe("handleTrackEvent", () => {
         projectId: "test-project",
         oauthCredential: null,
       });
-      expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(1);
+      expect(mocks.resolveBigQueryOAuthCredential).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("uses service-account auth when BigQuery OAuth lookup fails temporarily", async () => {
+  it("skips BigQuery OAuth lookup when service-account credentials are configured", async () => {
     mocks.resolveCredential.mockImplementation(async (key: string) =>
       key === "BIGQUERY_PROJECT_ID"
         ? "test-project"
@@ -215,6 +214,7 @@ describe("handleTrackEvent", () => {
         projectId: "test-project",
         oauthCredential: null,
       });
+      expect(mocks.resolveBigQueryOAuthCredential).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }

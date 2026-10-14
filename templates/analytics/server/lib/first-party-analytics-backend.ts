@@ -663,7 +663,7 @@ export async function createFirstPartyAnalyticsInserter(
   const table = await getFirstPartyAnalyticsTable(configuredTable);
   return async (rows) => {
     if (!rows.length) return 0;
-    const token = await getBigQueryAccessToken();
+    const token = await getBigQueryAccessToken({ preferServiceAccount: true });
     const payloadRows = rows.map(firstPartyEventRowToBigQuery);
     const result = await insertPayloadRowsWithResults(
       table,
@@ -692,7 +692,7 @@ async function insertFirstPartyAnalyticsRowsWithResultsInternal(
   requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
   const [table, token] = await Promise.all([
     getFirstPartyAnalyticsTable(configuredTable),
-    getBigQueryAccessToken(),
+    getBigQueryAccessToken({ preferServiceAccount: true }),
   ]);
   const payloadRows = rows.map(firstPartyEventRowToBigQuery);
   return insertPayloadRowsWithResults(table, token, payloadRows, options);

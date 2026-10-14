@@ -30,6 +30,8 @@ const bigQueryProjectIdByRequest: RequestValueCache<string | undefined> =
   new WeakMap();
 const bigQueryOAuthCredentialByRequest: RequestValueCache<AnalyticsProviderCredential | null> =
   new WeakMap();
+const bigQueryServiceAccountByRequest: RequestValueCache<string | undefined> =
+  new WeakMap();
 
 const GOOGLE_REQUEST_MAX_ATTEMPTS = 4;
 const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
@@ -318,6 +320,7 @@ export async function getBigQueryAccessToken(
     signal?: AbortSignal;
     projectId?: string;
     oauthCredential?: AnalyticsProviderCredential | null;
+    preferServiceAccount?: boolean;
   } = {},
 ): Promise<string> {
   const { signal } = options;
@@ -340,20 +343,39 @@ export async function getBigQueryAccessToken(
   throwIfSignalAborted(signal);
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
 
-  const oauthCredential =
-    options.oauthCredential === undefined
-      ? await raceWithAbort(
-          requestContext
-            ? getRequestMemoizedPromise(
-                bigQueryOAuthCredentialByRequest,
-                requestContext,
-                cacheScope,
-                () => resolveBigQueryOAuthCredential(ctx),
-              )
-            : resolveBigQueryOAuthCredential(ctx),
-          signal,
-        )
-      : options.oauthCredential;
+  let oauthCredential = options.oauthCredential;
+  if (oauthCredential === undefined && options.preferServiceAccount) {
+    const serviceAccountScope = credentialCacheScope(
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      ctx,
+    );
+    const serviceAccountJson = await raceWithAbort(
+      requestContext
+        ? getRequestMemoizedPromise(
+            bigQueryServiceAccountByRequest,
+            requestContext,
+            serviceAccountScope,
+            () => resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+          )
+        : resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+      signal,
+    );
+    if (serviceAccountJson) return getAccessToken(signal);
+  }
+
+  if (oauthCredential === undefined) {
+    oauthCredential = await raceWithAbort(
+      requestContext
+        ? getRequestMemoizedPromise(
+            bigQueryOAuthCredentialByRequest,
+            requestContext,
+            cacheScope,
+            () => resolveBigQueryOAuthCredential(ctx),
+          )
+        : resolveBigQueryOAuthCredential(ctx),
+      signal,
+    );
+  }
   if (oauthCredential) return oauthCredential.value;
 
   return getAccessToken(signal);

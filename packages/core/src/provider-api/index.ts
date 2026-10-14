@@ -4819,12 +4819,14 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   allowUnbound?: boolean;
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
+  const requestedAccountId = options.accountId?.trim();
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
   try {
     resolved = await resolveWorkspaceConnectionForApp({
       appId: options.runtime.appId,
       provider: options.workspaceProvider,
       connectionId: requestedConnectionId,
+      accountId: requestedAccountId,
       ...(options.workspaceProvider === "bigquery"
         ? { connectionOwnerEmail: options.ctx.userEmail }
         : {}),
@@ -4835,12 +4837,20 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       error instanceof Error &&
       error.message === "Workspace connections require an authenticated user."
     ) {
+      if (requestedConnectionId || requestedAccountId) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.workspaceProvider,
+          connectionId: requestedConnectionId,
+          message: "Sign in to use the selected workspace connection.",
+        });
+      }
       return null;
     }
     throw error;
   }
   if (!resolved.available || !resolved.connection) {
-    if (requestedConnectionId) {
+    if (requestedConnectionId || requestedAccountId) {
       return throwWorkspaceConnectionRequired({
         runtime: options.runtime,
         provider: options.workspaceProvider,
@@ -4870,10 +4880,9 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
     );
   }
-  const requestedAccountId = options.accountId?.trim();
   if (requestedAccountId && requestedAccountId !== connectionAccountId) {
     throw new Error(
-      `${options.auth.tokenLabel} account ${requestedAccountId} does not match workspace connection ${requestedConnectionId}.`,
+      `${options.auth.tokenLabel} account binding does not match the requested workspace connection.`,
     );
   }
   const credential = await resolveOAuthBearerToken({

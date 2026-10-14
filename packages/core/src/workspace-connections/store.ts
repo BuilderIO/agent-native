@@ -114,6 +114,7 @@ export interface ListWorkspaceConnectionsForAppOptions {
 
 export interface ResolveWorkspaceConnectionForAppOptions extends ListWorkspaceConnectionsForAppOptions {
   connectionId?: string;
+  accountId?: string;
   connectionOwnerEmail?: string;
   requireConnected?: boolean;
 }
@@ -1392,6 +1393,7 @@ export async function resolveWorkspaceConnectionForApp({
   provider,
   includeDisabled = false,
   connectionId,
+  accountId,
   connectionOwnerEmail,
   requireConnected = false,
 }: ResolveWorkspaceConnectionForAppOptions): Promise<ResolvedWorkspaceConnectionForApp> {
@@ -1400,10 +1402,12 @@ export async function resolveWorkspaceConnectionForApp({
     "resolveWorkspaceConnectionForApp appId",
   );
   const normalizedConnectionId = connectionId?.trim();
+  const normalizedAccountId = accountId?.trim();
   const scope = requireWorkspaceConnectionScope();
   const requestedConnections = await listWorkspaceConnections({
     provider,
-    includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
+    includeDisabled:
+      includeDisabled || Boolean(normalizedConnectionId || normalizedAccountId),
   });
   const userConnections = await filterWorkspaceConnectionsForUser(
     requestedConnections,
@@ -1412,11 +1416,11 @@ export async function resolveWorkspaceConnectionForApp({
   const normalizedConnectionOwnerEmail = connectionOwnerEmail
     ?.trim()
     .toLowerCase();
-  const candidateConnections = normalizedConnectionId
-    ? userConnections.filter(
-        (connection) => connection.id === normalizedConnectionId,
-      )
-    : userConnections;
+  const candidateConnections = userConnections.filter(
+    (connection) =>
+      (!normalizedConnectionId || connection.id === normalizedConnectionId) &&
+      (!normalizedAccountId || connection.accountId === normalizedAccountId),
+  );
   const ownerFilteredConnections = normalizedConnectionOwnerEmail
     ? candidateConnections.filter(
         (connection) =>
@@ -1430,12 +1434,17 @@ export async function resolveWorkspaceConnectionForApp({
     connectionId: normalizedConnectionId,
   });
 
-  if (normalizedConnectionId && ownerFilteredConnections.length === 0) {
+  if (
+    (normalizedConnectionId || normalizedAccountId) &&
+    ownerFilteredConnections.length === 0
+  ) {
     return {
       available: false,
       connection: null,
       appAccess: null,
-      reason: `Workspace connection "${normalizedConnectionId}" was not found in the current request scope.`,
+      reason: normalizedConnectionId
+        ? `Workspace connection "${normalizedConnectionId}" was not found in the current request scope.`
+        : "Workspace connection for the requested account was not found in the current request scope.",
     };
   }
 

@@ -1542,6 +1542,55 @@ describe("workspace connection store", () => {
     expect(otherOwnerConnection.reason).toMatch(/not found/i);
   });
 
+  it("can select an owner's BigQuery connection by account id", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-alice-personal",
+          provider: "bigquery",
+          label: "Alice Personal Google",
+          accountId: "alice-personal-account",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-alice-work",
+          provider: "bigquery",
+          label: "Alice Work Google",
+          accountId: "alice-work-account",
+        }),
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          connectionOwnerEmail: "alice@example.com",
+          accountId: "alice-personal-account",
+          requireConnected: true,
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      connection: {
+        id: "bigquery-alice-personal",
+        ownerEmail: "alice@example.com",
+        accountId: "alice-personal-account",
+      },
+    });
+  });
+
   it("blocks connected OAuth grants that no longer meet provider scopes", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

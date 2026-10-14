@@ -1005,6 +1005,9 @@ describe("first-party BigQuery backend", () => {
     ).resolves.toBe(201);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getBigQueryAccessToken).toHaveBeenCalledWith({
+      preferServiceAccount: true,
+    });
     expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
     ).toMatchObject({ skipInvalidRows: true, ignoreUnknownValues: false });
