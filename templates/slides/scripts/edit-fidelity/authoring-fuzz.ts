@@ -5797,29 +5797,46 @@ export async function runAuthoringFuzz(
             const leadingSpaceToken = `space${activeIndex}`;
             await typeText(` ${leadingSpaceToken}`);
             await placeCaretAtToken(leadingSpaceToken, "start");
-            await snapshotEditorSiblings("capture", operation);
-            await editor.press("Backspace");
-            const whitespaceDelete = await editor.evaluate(
-              (root: HTMLElement, token: string) => {
-                const quote = [
+            const quoteState = async () =>
+              editor.evaluate((root: HTMLElement, token: string) => {
+                const quotes = [
                   ...(root.matches("blockquote") ? [root] : []),
                   ...Array.from(
                     root.querySelectorAll<HTMLElement>("blockquote"),
                   ),
-                ].find((block) => block.textContent?.includes(token));
+                ];
+                const quote = quotes
+                  .reverse()
+                  .find((block) => block.textContent?.includes(token));
+                const text =
+                  quote?.textContent
+                    ?.replaceAll("\u200b", "")
+                    .replaceAll("\u00a0", " ") ?? null;
+                const tokenStart = text?.indexOf(token) ?? -1;
                 return {
-                  text: quote?.textContent?.replaceAll("\u200b", "") ?? null,
+                  text,
                   tag: quote?.tagName ?? null,
+                  prefix: tokenStart < 0 ? null : text?.slice(0, tokenStart),
                 };
-              },
-              leadingSpaceToken,
-            );
+              }, leadingSpaceToken);
+            const quoteBeforeDelete = await quoteState();
+            if (
+              quoteBeforeDelete.tag !== "BLOCKQUOTE" ||
+              quoteBeforeDelete.prefix !== " "
+            ) {
+              throw new Error(
+                `${operation.kind} setup did not place the token after a leading space in a quote (${JSON.stringify(quoteBeforeDelete)})`,
+              );
+            }
+            await snapshotEditorSiblings("capture", operation);
+            await editor.press("Backspace");
+            const whitespaceDelete = await quoteState();
             if (
               whitespaceDelete.tag !== "BLOCKQUOTE" ||
               whitespaceDelete.text !== leadingSpaceToken
             ) {
               throw new Error(
-                `${operation.kind} did not preserve native leading-space deletion (${JSON.stringify(whitespaceDelete)})`,
+                `${operation.kind} did not preserve native leading-space deletion (${JSON.stringify({ before: quoteBeforeDelete, after: whitespaceDelete })})`,
               );
             }
             const whitespaceSiblingChanges = await snapshotEditorSiblings(

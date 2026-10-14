@@ -2257,6 +2257,38 @@ describe("in-place text session: deleting", () => {
     },
   );
 
+  it.each([
+    ["h2", "<h2> <strong>Heading</strong></h2>", "Heading"],
+    [
+      "blockquote",
+      "<blockquote><p> <strong>Quoted</strong></p></blockquote>",
+      "Quoted",
+    ],
+  ])(
+    "deletes whitespace in a previous text node before demoting a %s",
+    (tag, content, text) => {
+      const el = mount(`<div id="t">${content}</div>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, text), 0);
+      const leadingSpace = textNodes(el).find((node) => node.data === " ")!;
+      const token = textOf(el, text);
+      const selection = window.getSelection()!;
+
+      const keydown = key(el, { key: "Backspace" });
+      const modify = vi.spyOn(selection, "modify").mockImplementation(() => {
+        select(leadingSpace, 0, token, 0);
+      });
+      const input = beforeInput(el, "deleteContentBackward");
+
+      expect(keydown.defaultPrevented).toBe(false);
+      expect(input.defaultPrevented).toBe(true);
+      expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
+      expect(el.querySelector(tag)).not.toBeNull();
+      expect(el.textContent?.replaceAll(ZWSP, "")).toBe(text);
+      expect(el.querySelector("strong")?.textContent).toBe(text);
+    },
+  );
+
   it("makes a paragraph after a heading when Enter is at its end", () => {
     const el = mount('<div id="t"><h2>Heading</h2></div>');
     session = startInPlaceTextSession(el);

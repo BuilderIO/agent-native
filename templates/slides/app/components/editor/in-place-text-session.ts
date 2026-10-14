@@ -2686,6 +2686,14 @@ export function startInPlaceTextSession(
     return !hasRenderedContent(before.cloneContents());
   }
 
+  function hasTextBeforeCaret(caret: Range) {
+    const line = nearestLineBox(caret.startContainer, el);
+    const before = document.createRange();
+    before.selectNodeContents(line);
+    before.setEnd(caret.startContainer, caret.startOffset);
+    return before.toString().replaceAll(ZERO_WIDTH_SPACE, "").length > 0;
+  }
+
   function paragraphAfter(caret: Range, block: HTMLElement) {
     const after = document.createRange();
     after.selectNodeContents(block);
@@ -2873,7 +2881,11 @@ export function startInPlaceTextSession(
     }
     const block = nearestBlock(caret.startContainer, el);
     const demote = backwardDemotionBlock(caret);
-    if (demote && paragraphBefore(caret, demote)) {
+    if (
+      demote &&
+      paragraphBefore(caret, demote) &&
+      !hasTextBeforeCaret(caret)
+    ) {
       if (demote.tagName === "BLOCKQUOTE") plainifyQuote(demote);
       else if (demote === el)
         retagRoot(initialRootTagName === "DIV" ? "DIV" : "P");
@@ -5279,6 +5291,7 @@ export function startInPlaceTextSession(
         range &&
         demote &&
         paragraphBefore(range, demote) &&
+        !hasTextBeforeCaret(range) &&
         !isNativeDelete("deleteContentBackward", range)
       ) {
         event.preventDefault();
