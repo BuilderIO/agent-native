@@ -126,6 +126,7 @@ type LoadedWorkbookPage = { cursor?: string; workbooks: SigmaWorkbook[] };
 
 const EMPTY_CONNECTIONS: Connection[] = [];
 const EMPTY_WORKBOOKS: SigmaWorkbook[] = [];
+const SIGMA_PREVIEW_ELEMENT_LIMIT = 100;
 
 export function SigmaMigrationDialog({
   open,
@@ -878,6 +879,10 @@ function WorkbookPreview({
   inspection: SigmaWorkbookInspection;
   t: ReturnType<typeof useT>;
 }) {
+  const visibleElements = inspection.elements.slice(
+    0,
+    SIGMA_PREVIEW_ELEMENT_LIMIT,
+  );
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -919,34 +924,44 @@ function WorkbookPreview({
           {t("dashboardOverview.sigmaNoElements")}
         </p>
       ) : (
-        <ul className="max-h-56 divide-y overflow-y-auto rounded-md border border-border/60">
-          {inspection.elements.map((element) => (
-            <li
-              key={element.id}
-              className="flex min-w-0 items-start justify-between gap-3 px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{element.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {element.type}
-                </p>
-                {element.reason ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t(reasonTranslationKey(element.reason))}
-                  </p>
-                ) : null}
-              </div>
-              <Badge
-                variant={element.importable ? "secondary" : "outline"}
-                className="shrink-0"
+        <>
+          <ul className="max-h-56 divide-y overflow-y-auto rounded-md border border-border/60">
+            {visibleElements.map((element) => (
+              <li
+                key={element.id}
+                className="flex min-w-0 items-start justify-between gap-3 px-3 py-2.5"
               >
-                {element.importable
-                  ? t("dashboardOverview.sigmaImportable")
-                  : t("dashboardOverview.sigmaUnsupported")}
-              </Badge>
-            </li>
-          ))}
-        </ul>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{element.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {element.type}
+                  </p>
+                  {element.reason ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t(reasonTranslationKey(element.reason))}
+                    </p>
+                  ) : null}
+                </div>
+                <Badge
+                  variant={element.importable ? "secondary" : "outline"}
+                  className="shrink-0"
+                >
+                  {element.importable
+                    ? t("dashboardOverview.sigmaImportable")
+                    : t("dashboardOverview.sigmaUnsupported")}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+          {visibleElements.length < inspection.elements.length ? (
+            <p className="text-sm text-muted-foreground">
+              {t("dashboardOverview.sigmaPreviewTruncated", {
+                shown: visibleElements.length,
+                total: inspection.elements.length,
+              })}
+            </p>
+          ) : null}
+        </>
       )}
     </div>
   );
