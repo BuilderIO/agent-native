@@ -157,6 +157,19 @@ describe("provider-api-request approval gate", () => {
     ).resolves.toBe(true);
   });
 
+  it("does not decode a malformed path for a non-Gmail provider", async () => {
+    await expect(
+      gate(
+        {
+          provider: "hubspot",
+          method: "POST",
+          path: "/crm/v3/objects/%E0%A4%A",
+        },
+        "automation",
+      ),
+    ).resolves.toBe(false);
+  });
+
   it("leaves other providers ungated", async () => {
     await expect(
       gate(

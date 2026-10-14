@@ -868,14 +868,18 @@ async function loadBatchSourceItems(
     appId: job.appId,
     ownerEmail: job.ownerEmail,
   };
+  const items = await getStagedDatasetRows(scope);
+  if (items.length > 0) return items;
   // An empty read cannot tell "no items" from "dataset evicted or missing", and
-  // the job would then pause as a normal budget stop with no error.
+  // the job would then pause as a normal budget stop with no error. The
+  // metadata is read after the rows, so a dataset evicted in between still
+  // reads as missing instead of as an empty batch.
   if (!(await getStagedDatasetMeta(scope))) {
     throw new Error(
       `Input dataset ${batch.inputDatasetId} was not found. It may have been evicted to make room for newer staged data; stage it again and restart the job.`,
     );
   }
-  return getStagedDatasetRows(scope);
+  return items;
 }
 
 function cleanRequest(request: ProviderRequest): ProviderApiRequestArgs {

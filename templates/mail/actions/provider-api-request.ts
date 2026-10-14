@@ -237,17 +237,20 @@ export default createProviderApiRequestAction(
       args: { provider: string; method?: string; path: string },
       ctx?: ActionRunContext,
     ) => {
+      // Only Gmail paths are decoded: a malformed path on another provider
+      // would otherwise throw here and be held for approval.
+      if (args.provider !== "gmail") return false;
       const method = String(args.method ?? "GET").toUpperCase();
+      if (["GET", "HEAD"].includes(method)) return false;
       // The label-move exemption is for unattended automations; an interactive
       // caller keeps the approval every non-GET Gmail write already needed.
-      const exempt =
+      if (
         ctx?.caller === "automation" &&
-        isReversibleGmailLabelWrite(method, args.path);
-      return args.provider === "gmail" &&
-        !["GET", "HEAD"].includes(method) &&
-        !exempt
-        ? requiresEmailSendApproval(ctx)
-        : false;
+        isReversibleGmailLabelWrite(method, args.path)
+      ) {
+        return false;
+      }
+      return requiresEmailSendApproval(ctx);
     },
   },
 );

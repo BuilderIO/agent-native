@@ -108,24 +108,6 @@ export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   return Array.from(seen);
 }
 
-async function getAppRowCount(appId: string): Promise<number> {
-  const db = getDbExec();
-  const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(row_count), 0) as total FROM staged_datasets WHERE app_id = ?`,
-    args: [appId],
-  });
-  return Number(rows[0]?.total ?? 0);
-}
-
-async function getAppByteSize(appId: string): Promise<number> {
-  const db = getDbExec();
-  const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(byte_size), 0) as total FROM staged_datasets WHERE app_id = ?`,
-    args: [appId],
-  });
-  return Number(rows[0]?.total ?? 0);
-}
-
 export interface StagedDatasetEvictionCandidate {
   id: string;
   owner_email: string;
@@ -175,42 +157,6 @@ export function selectStagedDatasetsToEvict(options: {
   return { evictIds, fits: bytes <= maxBytes && rows <= maxRows };
 }
 
-async function planStagedDatasetEviction(options: {
-  db: DbExec;
-  appId: string;
-  ownerEmail: string;
-  excludeId: string;
-  projectedBytes: number;
-  projectedRows: number;
-  now: number;
-}): Promise<{ evict: { id: string; updatedAt: number }[]; fits: boolean }> {
-  const { rows } = await options.db.execute({
-    sql: `SELECT id, owner_email, byte_size, row_count, updated_at FROM staged_datasets WHERE app_id = ? AND id <> ?`,
-    args: [options.appId, options.excludeId],
-  });
-  const candidates = rows.map((r) => ({
-    id: r.id as string,
-    owner_email: r.owner_email as string,
-    byte_size: Number(r.byte_size),
-    row_count: Number(r.row_count),
-    updated_at: Number(r.updated_at),
-  }));
-  const { evictIds, fits } = selectStagedDatasetsToEvict({
-    candidates,
-    ownerEmail: options.ownerEmail,
-    projectedBytes: options.projectedBytes,
-    projectedRows: options.projectedRows,
-    staleBefore: options.now - STAGED_DATASET_MAX_AGE_MS,
-  });
-  const updatedAtById = new Map(candidates.map((c) => [c.id, c.updated_at]));
-  return {
-    fits,
-    evict: fits
-      ? evictIds.map((id) => ({ id, updatedAt: updatedAtById.get(id) ?? 0 }))
-      : [],
-  };
-}
-
 export async function upsertStagedDataset(
   options: UpsertDatasetOptions,
 ): Promise<StagedDatasetMeta> {
@@ -218,23 +164,6 @@ export async function upsertStagedDataset(
   const db = getDbExec();
   const now = Date.now();
   const id = options.id || generateId();
-
-  // Ids come from sanitized owner emails, so two owners can share one. The
-  // owner-scoped reads below would count the other owner's dataset as absent
-  // and the id-keyed write would then replace its rows in place.
-  const { rows: idOwner } = await db.execute({
-    sql: `SELECT app_id, owner_email FROM staged_datasets WHERE id = ?`,
-    args: [id],
-  });
-  if (
-    idOwner[0] &&
-    (idOwner[0].app_id !== options.appId ||
-      idOwner[0].owner_email !== options.ownerEmail)
-  ) {
-    throw new Error(
-      `Staged dataset id ${id} belongs to another owner. Use a different name.`,
-    );
-  }
 
   let existingRows: Record<string, unknown>[] = [];
   if (options.append) {
@@ -252,87 +181,87 @@ export async function upsertStagedDataset(
   const serialized = allRows.map((row) => JSON.stringify(row));
   const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
 
-  const currentAppRows = await getAppRowCount(options.appId);
-  const currentDatasetRows = options.append
-    ? existingRows.length
-    : await (async () => {
-        const { rows } = await db.execute({
-          sql: `SELECT row_count FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-          args: [id, options.appId, options.ownerEmail],
-        });
-        return Number(rows[0]?.row_count ?? 0);
-      })();
-  const currentAppBytes = await getAppByteSize(options.appId);
-  const { rows: existingMeta } = await db.execute({
-    sql: `SELECT byte_size FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-    args: [id, options.appId, options.ownerEmail],
-  });
-  const existingDatasetBytes = Number(existingMeta[0]?.byte_size ?? 0);
-  const projectedRows = currentAppRows + allRows.length - currentDatasetRows;
-  const projectedBytes = currentAppBytes + byteSize - existingDatasetBytes;
-
-  let evict: { id: string; updatedAt: number }[] = [];
-  if (projectedRows > MAX_ROWS_PER_APP || projectedBytes > MAX_BYTES_PER_APP) {
-    const plan = await planStagedDatasetEviction({
-      db,
-      appId: options.appId,
-      ownerEmail: options.ownerEmail,
-      excludeId: id,
-      projectedBytes,
-      projectedRows,
-      now,
-    });
-    if (!plan.fits) {
-      throw new Error(
-        allRows.length > MAX_ROWS_PER_APP
-          ? `Staged dataset cap exceeded: this dataset alone has ${allRows.length} rows ` +
-              `(limit ${MAX_ROWS_PER_APP} per app, shared by all datasets). Stage fewer rows.`
-          : `Staged dataset byte cap exceeded: this dataset alone is ` +
-              `${(byteSize / 1024 / 1024).toFixed(1)} MB ` +
-              `(limit ${MAX_BYTES_PER_APP / 1024 / 1024} MB per app, shared by all datasets). ` +
-              `Stage fewer rows or columns.`,
-      );
-    }
-    evict = plan.evict;
-  }
-
   const columns = options.columns.length
     ? options.columns
     : deriveColumns(allRows);
   const columnsJson = JSON.stringify(columns);
 
   await withDbTransaction(db, async (tx) => {
-    // Eviction commits or rolls back with the write it makes room for. Each
-    // delete is guarded by the updated_at it was planned against, so a dataset
-    // refreshed since the plan was read is left alone.
-    for (const victim of evict) {
-      await tx.execute({
-        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ? AND EXISTS (SELECT 1 FROM staged_datasets WHERE id = ? AND app_id = ? AND updated_at = ?)`,
-        args: [victim.id, victim.id, options.appId, victim.updatedAt],
-      });
-      await tx.execute({
-        sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND updated_at = ?`,
-        args: [victim.id, options.appId, victim.updatedAt],
-      });
+    // The caps are app-wide, so one writer per app plans and writes at a time.
+    // Totals, eviction and the write all happen under this lock in this
+    // transaction: nothing is planned against a stale snapshot, and a failure
+    // rolls the evictions back with the write.
+    await tx.execute({
+      sql: `SELECT pg_advisory_xact_lock(hashtext(?))`,
+      args: [`staged-datasets:${options.appId}`],
+    });
+    // Ids come from sanitized owner emails, so two owners can share one. The
+    // owner-scoped reads above would count the other owner's dataset as absent
+    // and the id-keyed write would then replace its rows in place.
+    const { rows: idOwner } = await tx.execute({
+      sql: `SELECT app_id, owner_email FROM staged_datasets WHERE id = ?`,
+      args: [id],
+    });
+    if (
+      idOwner[0] &&
+      (idOwner[0].app_id !== options.appId ||
+        idOwner[0].owner_email !== options.ownerEmail)
+    ) {
+      throw new Error(
+        `Staged dataset id ${id} belongs to another owner. Use a different name.`,
+      );
     }
-    // The plan was read outside this transaction, so a guarded delete may have
-    // skipped a dataset refreshed since, and a concurrent writer may have used
-    // the room. Re-check the caps here; throwing rolls the evictions back too.
-    if (evict.length > 0) {
-      const { rows: totals } = await tx.execute({
-        sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?`,
+    const { rows: others } = await tx.execute({
+      sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?`,
+      args: [options.appId, id],
+    });
+    const projectedRows = Number(others[0]?.total_rows ?? 0) + allRows.length;
+    const projectedBytes = Number(others[0]?.total_bytes ?? 0) + byteSize;
+
+    if (
+      projectedRows > MAX_ROWS_PER_APP ||
+      projectedBytes > MAX_BYTES_PER_APP
+    ) {
+      const { rows: peers } = await tx.execute({
+        sql: `SELECT id, owner_email, byte_size, row_count, updated_at FROM staged_datasets WHERE app_id = ? AND id <> ?`,
         args: [options.appId, id],
       });
-      if (
-        Number(totals[0]?.total_rows ?? 0) + allRows.length >
-          MAX_ROWS_PER_APP ||
-        Number(totals[0]?.total_bytes ?? 0) + byteSize > MAX_BYTES_PER_APP
-      ) {
+      const { evictIds, fits } = selectStagedDatasetsToEvict({
+        candidates: peers.map((r) => ({
+          id: r.id as string,
+          owner_email: r.owner_email as string,
+          byte_size: Number(r.byte_size),
+          row_count: Number(r.row_count),
+          updated_at: Number(r.updated_at),
+        })),
+        ownerEmail: options.ownerEmail,
+        projectedBytes,
+        projectedRows,
+        staleBefore: now - STAGED_DATASET_MAX_AGE_MS,
+      });
+      if (!fits) {
         throw new Error(
-          "Staged dataset cap exceeded: another write filled this app while older datasets were being evicted. Try again.",
+          allRows.length > MAX_ROWS_PER_APP
+            ? `Staged dataset cap exceeded: this dataset alone has ${allRows.length} rows ` +
+                `(limit ${MAX_ROWS_PER_APP} per app, shared by all datasets). Stage fewer rows.`
+            : `Staged dataset byte cap exceeded: this dataset alone is ` +
+                `${(byteSize / 1024 / 1024).toFixed(1)} MB ` +
+                `(limit ${MAX_BYTES_PER_APP / 1024 / 1024} MB per app, shared by all datasets). ` +
+                `Stage fewer rows or columns.`,
         );
       }
+      for (const victimId of evictIds) {
+        await tx.execute({
+          sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+          args: [victimId],
+        });
+        await tx.execute({
+          sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
+          args: [victimId, options.appId],
+        });
+      }
     }
+
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [id],

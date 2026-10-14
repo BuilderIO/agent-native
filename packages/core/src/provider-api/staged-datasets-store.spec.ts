@@ -36,6 +36,17 @@ function makeExec(tx: number | null) {
         _rowStore.delete(args[0] as string);
         return { rows: [], rowsAffected: 1 };
       }
+      if (/pg_advisory_xact_lock/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (
+        /DELETE FROM staged_datasets WHERE id = \? AND app_id = \?$/i.test(sql)
+      ) {
+        const entry = _metaStore.get(args[0] as string);
+        if (entry?.app_id !== args[1]) return { rows: [], rowsAffected: 0 };
+        _metaStore.delete(args[0] as string);
+        return { rows: [], rowsAffected: 1 };
+      }
       if (/DELETE FROM staged_dataset_rows WHERE dataset_id/i.test(sql)) {
         _rowStore.delete(args[0] as string);
         return { rows: [], rowsAffected: 1 };
@@ -492,21 +503,21 @@ describe("upsertStagedDataset eviction", () => {
     expect(_rowStore.get("ds_shared")).toEqual(['{"seed":true}']);
   });
 
-  it("aborts the write when the caps no longer hold after a guarded delete skipped a victim", async () => {
-    seed("ds_victim", { byte_size: 45 * MB, updated_at: NOW - 3 * DAY });
-    const original = _metaStore.get("ds_victim")!;
-    const refreshed = { ...original, updated_at: NOW - 1000 };
-    const realGet = _metaStore.get.bind(_metaStore);
-    vi.spyOn(_metaStore, "get").mockImplementation((key: string) =>
-      key === "ds_victim" ? refreshed : realGet(key),
+  it("takes the app lock before reading totals, in the write's own transaction", async () => {
+    seed("ds_peer", { byte_size: 1 * MB, updated_at: NOW - DAY });
+
+    await write("ds_next", [{ a: 1 }]);
+
+    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
+    const totals = _log.findIndex((e) => /AS total_rows/i.test(e.sql));
+    const insert = _log.findIndex((e) =>
+      /INSERT INTO staged_datasets/i.test(e.sql),
     );
-
-    await expect(
-      write("ds_next", [{ blob: "x".repeat(10 * MB) }]),
-    ).rejects.toThrow(/another write filled this app/);
-
-    expect(_metaStore.has("ds_next")).toBe(false);
-    vi.restoreAllMocks();
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(lock).toBeLessThan(totals);
+    expect(totals).toBeLessThan(insert);
+    expect(_log[lock]?.args).toEqual(["staged-datasets:analytics"]);
+    expect(_log[lock]?.tx).toBe(_log[insert]?.tx);
   });
 
   it("names the single-dataset cause and evicts nothing when bytes cannot fit", async () => {

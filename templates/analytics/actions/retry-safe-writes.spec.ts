@@ -82,6 +82,9 @@ describe("compose-dashboard retrySafe", () => {
     expect(retrySafe(composeDashboard, { dashboardId, metrics: ["dau"] })).toBe(
       true,
     );
+  });
+
+  it("refuses refreshExisting, which replaces matching panels without a fence", () => {
     expect(
       retrySafe(composeDashboard, {
         dashboardId,
@@ -89,7 +92,7 @@ describe("compose-dashboard retrySafe", () => {
         overwrite: false,
         refreshExisting: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("refuses overwrite, which replaces the whole config without a fence", () => {
