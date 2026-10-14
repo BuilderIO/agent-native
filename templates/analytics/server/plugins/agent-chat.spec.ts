@@ -1172,7 +1172,13 @@ describe("realDataFinalGuard", () => {
               changed: true,
               verified: true,
               summary: "Saved the dashboard.",
-              checks: [{ id: "pageviews-line", ok: true }],
+              checks: [
+                {
+                  id: "pageviews-line",
+                  ok: true,
+                  detail: "renders 12 row(s), columns [month, pageviews]",
+                },
+              ],
             },
           },
         ],
@@ -1180,6 +1186,39 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("still retries figures after a save that only checked a section panel", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. The table shows 43 accounts under 5% utilization.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary:
+                "Saved 1 op(s); 1 section/extension panel(s) not data-checked.",
+              checks: [
+                {
+                  id: "intro",
+                  ok: true,
+                  detail:
+                    "is a section panel with no data to run; only its config was checked",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ maxRetries: 2 });
   });
 
   it("still retries figures after a save that checked no panel", () => {
@@ -1207,9 +1246,26 @@ describe("realDataFinalGuard", () => {
     expect(result).toMatchObject({ maxRetries: 2 });
   });
 
+  it("does not treat an offer of the answer as a schema request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many accounts are under 5% utilization?",
+        draftText: "I can provide a table of the results if that helps.",
+        toolResults: [
+          { name: "bigquery", isError: false, content: '{"rows":[{"n":43}]}' },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it.each([
     "I need the table name before I can continue.",
+    "I need a table name before I can continue.",
     "To continue, please provide:\n- the dataset name\n- the column that holds usage",
+    "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
+    "Share the dataset name.",
   ])("retries a request for schema details: %s", (draftText) => {
     const result = realDataFinalGuard(
       guardContext({

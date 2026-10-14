@@ -25,6 +25,7 @@ import {
   type ChartPointLimit,
   type ConfigKeyIssue,
 } from "../../shared/panel-render-contract";
+import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
@@ -923,7 +924,7 @@ export function describePanelOutcome(panel: PanelVerification): string {
   if (panel.status === "ok" && panel.staticIssues.length === 0) {
     return panel.visualOnly
       ? `is a ${panel.chartType} panel with no data to run; only its config was checked`
-      : `renders ${panel.renderedRowCount} row(s), columns [${panel.columns.slice(0, 12).join(", ")}]${
+      : `${PANEL_RENDERED_PREFIX}${panel.renderedRowCount} row(s), columns [${panel.columns.slice(0, 12).join(", ")}]${
           panel.pointLimit
             ? `; the chart draws only the ${panel.pointLimit.keeps} ${panel.pointLimit.shown} of ${panel.pointLimit.total} points`
             : ""

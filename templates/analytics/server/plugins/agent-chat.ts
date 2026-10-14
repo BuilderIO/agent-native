@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import {
   retrieveAnalyticsPromptReferences,
@@ -326,14 +327,17 @@ export function analyticsExtraContext(): string {
 // "i need" form needs a direct object.
 const SCHEMA_DETAILS_NOUN =
   "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
+// Bare provide/share/send count only as an imperative opening a sentence or
+// line; mid-sentence they are the agent offering its answer ("I can provide a
+// table of the results").
 const SCHEMA_DETAILS_ASK =
-  "\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need (?:you to|the|your))\\b";
+  "(?:\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|tell me|i need (?:you to|an?|the|your))\\b|(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b)";
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
   `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
+  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
   "i",
 );
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
@@ -1210,17 +1214,20 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
-  // A verified dashboard save that rendered panels ran their SQL, so its
+  // A verified dashboard save that rendered a data panel ran its SQL, so its
   // receipt is the live-query evidence for the figures the draft quotes. A
-  // save with no panel checks (`noRenderAffected`) proves nothing about data.
+  // save that checked no panel (`noRenderAffected`) or only section and
+  // extension panels proves nothing about data.
   if (
     dataQueryAttempted ||
     hasSuccessfulDashboardSave(
       (context.toolResults ?? []).filter(
         ({ receipt }) =>
           receipt?.verified === true &&
-          (receipt.checks?.length ?? 0) > 0 &&
-          receipt.checks?.every((check) => check.ok),
+          receipt.checks?.every((check) => check.ok) &&
+          receipt.checks?.some((check) =>
+            check.detail?.startsWith(PANEL_RENDERED_PREFIX),
+          ),
       ),
     )
   ) {
