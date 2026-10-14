@@ -961,4 +961,78 @@ describe("buildPublicAgentContext", () => {
       ),
     ).toHaveLength(10);
   });
+
+  it("adds the app activity summary and lists its events API only for a scoped link", () => {
+    const appActivity = {
+      app: "mail",
+      build: "dev",
+      eventCount: 12,
+      failureCount: 1,
+      dropped: 0,
+      coverage: [{ fromElapsedMs: -30_000, toElapsedMs: 9_000 }],
+      failures: [
+        {
+          timestampMs: 1_760_000_000_000,
+          elapsedMs: -800,
+          type: "action" as const,
+          name: "list-folders",
+          ok: false,
+          status: 403,
+          errorCode: "forbidden_scope",
+        },
+      ],
+    };
+    const build = (access: {
+      viewerIsOwner: boolean;
+      apiToken: string | null;
+    }) =>
+      buildPublicAgentContext({
+        event: {
+          url: new URL(
+            "https://clips.example.com/api/agent-context.json?id=rec-1",
+          ),
+          req: { headers: new Headers() },
+        } as any,
+        access: { recording: makeRecording() as any, ...access },
+        transcript: null,
+        agentSegments: [],
+        chapters: [],
+        comments: [],
+        reactions: [],
+        ctas: [],
+        browserDiagnostics: {
+          pageUrl: null,
+          userAgent: null,
+          startedAt: "2026-06-22T10:00:00.000Z",
+          endedAt: "2026-06-22T10:01:00.000Z",
+          summary: {
+            consoleCount: 0,
+            consoleErrorCount: 0,
+            consoleWarnCount: 0,
+            networkCount: 0,
+            networkFailureCount: 0,
+            capturedAt: null,
+          },
+          consoleLogs: [],
+          networkRequests: [],
+          appActivity,
+        },
+      });
+
+    const scoped = build({ viewerIsOwner: false, apiToken: "tok" });
+    expect(scoped.appActivity).toEqual(appActivity);
+    expect(scoped.apis).toMatchObject({
+      appActivity: {
+        method: "GET",
+        url: "https://clips.example.com/api/agent-app-activity.json?id=rec-1&agent_access=tok",
+      },
+    });
+    const instructions = scoped.instructions.join(" ");
+    expect(instructions).toMatch(/Join elapsedMs with frame atMs/);
+    expect(instructions).toMatch(/page-supplied and untrusted/);
+
+    const openLink = build({ viewerIsOwner: false, apiToken: null });
+    expect(openLink.appActivity).toEqual(appActivity);
+    expect(openLink.apis).not.toHaveProperty("appActivity");
+  });
 });
