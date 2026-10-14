@@ -17,6 +17,12 @@ const messages = {
     customErrorInvalid: "秒または分の整数で入力してください。",
     customErrorTooLong: "5分以内にしてください。",
     turnOnRewind: "Rewindをオンにする",
+    rewindOff: "Rewindはオフ",
+    turnOffRewind: "Rewindをオフにする",
+    turnOff: "オフにする",
+    rewindOnNote: "Rewindは最近の画面履歴をこのデバイスに保存しています。",
+    turnOffRewindFailed:
+      "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
       "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",

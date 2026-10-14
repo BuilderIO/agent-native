@@ -15,6 +15,12 @@ const messages = {
     customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
     customErrorTooLong: "5분 이하로 입력하세요.",
     turnOnRewind: "Rewind 켜기",
+    rewindOff: "Rewind 꺼짐",
+    turnOffRewind: "Rewind 끄기",
+    turnOff: "끄기",
+    rewindOnNote: "Rewind가 최근 화면 기록을 이 기기에 저장하고 있습니다.",
+    turnOffRewindFailed:
+      "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
       "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",

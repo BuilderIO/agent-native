@@ -15,6 +15,11 @@ const messages = {
     customErrorInvalid: "请输入整数秒数或分钟数。",
     customErrorTooLong: "请不超过 5 分钟。",
     turnOnRewind: "开启 Rewind",
+    rewindOff: "Rewind 已关闭",
+    turnOffRewind: "关闭 Rewind",
+    turnOff: "关闭",
+    rewindOnNote: "Rewind 正在将最近的屏幕记录保存在此设备上。",
+    turnOffRewindFailed: "无法关闭 Rewind。请先停止录制，然后重试。",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
       "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",

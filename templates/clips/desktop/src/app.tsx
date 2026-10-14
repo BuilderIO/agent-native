@@ -1849,6 +1849,25 @@ export function App({
     setPopoverView("settings");
   }
 
+  // Stopping capture is refused while a clip is recording, so a failure here
+  // is reported instead of leaving the row claiming Rewind is off.
+  function turnOffRewind() {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: {
+        ...featureConfig,
+        screenMemory: {
+          ...DEFAULT_SCREEN_MEMORY_CONFIG,
+          ...featureConfig.screenMemory,
+          enabled: false,
+        },
+      },
+    }).catch((err) => {
+      console.error("[clips-tray] turn off rewind failed:", err);
+      setLookbackNotice(t("lookbackContext.turnOffRewindFailed"));
+    });
+  }
+
   function lookbackTarget() {
     return { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
   }
@@ -4825,6 +4844,7 @@ export function App({
               disabled={isRecording || recordingStartPending}
               onSecondsChange={chooseLookbackSeconds}
               onTurnOnRewind={openRewindConsent}
+              onTurnOffRewind={turnOffRewind}
             />
           ) : null}
         </div>

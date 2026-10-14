@@ -763,7 +763,11 @@ export default function ShareRoute() {
       const status = (q.state.data as { status?: number } | undefined)?.status;
       const updateCount =
         queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      if (status === 404 && updateCount < MISSING_SHARE_RETRY_LIMIT) {
+      if (
+        status === 404 &&
+        !loaderData.accessDeniedStatus &&
+        updateCount < MISSING_SHARE_RETRY_LIMIT
+      ) {
         return MISSING_SHARE_RETRY_INTERVAL_MS[updateCount - 1] ?? 2000;
       }
       const rec = payload?.recording;
@@ -1242,8 +1246,11 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
+  // The loader sets accessDeniedStatus only after it found the recording, so a
+  // 404 from the API is then a denial, not a share row that isn't written yet.
   const retryingMissingShare =
     dataQ.data?.status === 404 &&
+    !loaderData.accessDeniedStatus &&
     (queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0) <
       MISSING_SHARE_RETRY_LIMIT;
 

@@ -17,6 +17,13 @@ const messages = {
     customErrorInvalid: "Informe um número inteiro de segundos ou minutos.",
     customErrorTooLong: "Use no máximo 5 min.",
     turnOnRewind: "Ativar o Rewind",
+    rewindOff: "Rewind desativado",
+    turnOffRewind: "Desativar o Rewind",
+    turnOff: "Desativar",
+    rewindOnNote:
+      "O Rewind está salvando o histórico recente da tela neste dispositivo.",
+    turnOffRewindFailed:
+      "Não foi possível desativar o Rewind. Pare a gravação e tente novamente.",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
       "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",

@@ -15,6 +15,12 @@ const messages = {
     customErrorInvalid: "सेकंड या मिनट में पूरी संख्या दर्ज करें।",
     customErrorTooLong: "5 मिनट या उससे कम रखें।",
     turnOnRewind: "Rewind चालू करें",
+    rewindOff: "Rewind बंद",
+    turnOffRewind: "Rewind बंद करें",
+    turnOff: "बंद करें",
+    rewindOnNote: "Rewind हाल का स्क्रीन इतिहास इस डिवाइस पर सहेज रहा है।",
+    turnOffRewindFailed:
+      "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
       "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",

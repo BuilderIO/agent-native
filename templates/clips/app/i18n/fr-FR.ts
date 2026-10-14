@@ -17,6 +17,13 @@ const messages = {
     customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
     customErrorTooLong: "Limitez-la à 5 min maximum.",
     turnOnRewind: "Activer Rewind",
+    rewindOff: "Rewind désactivé",
+    turnOffRewind: "Désactiver Rewind",
+    turnOff: "Désactiver",
+    rewindOnNote:
+      "Rewind enregistre l'historique récent de l'écran sur cet appareil.",
+    turnOffRewindFailed:
+      "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
       "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",

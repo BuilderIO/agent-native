@@ -17,6 +17,11 @@ const messages = {
     customErrorInvalid: "أدخل عددًا صحيحًا من الثواني أو الدقائق.",
     customErrorTooLong: "اجعلها 5 دقائق أو أقل.",
     turnOnRewind: "تفعيل Rewind",
+    rewindOff: "Rewind متوقف",
+    turnOffRewind: "إيقاف Rewind",
+    turnOff: "إيقاف",
+    rewindOnNote: "يحفظ Rewind سجل الشاشة الأخير على هذا الجهاز.",
+    turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
       "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",

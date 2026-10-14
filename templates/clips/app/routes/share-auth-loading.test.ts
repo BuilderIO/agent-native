@@ -18,6 +18,11 @@ describe("authenticated recording route loading", () => {
     expect(route).not.toContain("buildSignInReturnHref");
   });
 
+  it("does not poll a 404 as a missing share once the loader found the clip", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route.match(/!loaderData\.accessDeniedStatus &&/g)).toHaveLength(2);
+  });
+
   it("lets public shares proceed when session status is unavailable", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain("status: sessionStatus,");

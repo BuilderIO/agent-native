@@ -15,6 +15,12 @@ const messages = {
     customErrorInvalid: "Enter a whole number of seconds or minutes.",
     customErrorTooLong: "Keep it to 5 min or less.",
     turnOnRewind: "Turn on Rewind",
+    rewindOff: "Rewind off",
+    turnOffRewind: "Turn off Rewind",
+    turnOff: "Turn off",
+    rewindOnNote: "Rewind is saving recent screen time on this device.",
+    turnOffRewindFailed:
+      "Couldn't turn off Rewind. Stop your recording and try again.",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
       "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
