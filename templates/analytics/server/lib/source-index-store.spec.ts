@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseSourceIndexBundle } from "./source-index-schema";
 import {
+  mergeSourceIndexBundles,
   SOURCE_INDEX_STALE_AFTER_DAYS,
   sourceIndexDictionaryEntries,
   sourceIndexFreshness,
@@ -193,5 +194,305 @@ describe("sourceIndexDictionaryEntries", () => {
       sourceIndexStale: true,
       approved: false,
     });
+  });
+
+  it("keeps each source's freshness separate in a merged index", () => {
+    const now = Date.parse("2026-10-13T00:00:00.000Z");
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "dbt",
+          revision: "abcdef123456",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+        {
+          id: "tracking-code",
+          revision: "fedcba654321",
+          generatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      entries: [
+        {
+          id: "active-users",
+          metric: "active users",
+          definition: "Current dbt definition.",
+          source: "dbt",
+        },
+        {
+          id: "signup-event",
+          metric: "signup event",
+          definition: "Older tracking definition.",
+          source: "tracking-code",
+        },
+      ],
+    });
+
+    expect(sourceIndexDictionaryEntries(bundle, undefined, now)).toMatchObject([
+      {
+        sourceIndexGeneratedAt: "2026-10-12T00:00:00.000Z",
+        sourceIndexStale: false,
+      },
+      {
+        sourceIndexGeneratedAt: "2026-01-01T00:00:00.000Z",
+        sourceIndexStale: true,
+      },
+    ]);
+  });
+});
+
+describe("mergeSourceIndexBundles", () => {
+  it("replaces matching sources while preserving other sources and entries", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [
+        {
+          id: "dbt",
+          sourceKind: "dbt",
+          revision: "111111111111",
+          generatedAt: "2026-10-01T00:00:00.000Z",
+        },
+        { id: "tracking-code", sourceKind: "code", revision: "222222222222" },
+        {
+          id: "sigma",
+          sourceKind: "sigma",
+          contentFingerprint: "a".repeat(64),
+        },
+      ],
+      entries: [
+        {
+          id: "old-users",
+          metric: "old users",
+          definition: "Old dbt source content.",
+          source: "dbt",
+          sourceKind: "dbt",
+        },
+        {
+          id: "signup-event",
+          metric: "signup event",
+          definition: "Tracking event from code.",
+          source: "tracking-code",
+        },
+        {
+          id: "dashboard-example",
+          metric: "dashboard example",
+          definition: "Reviewed Sigma example.",
+          source: "sigma",
+        },
+      ],
+      scanSummary: {
+        unsafeEntriesOmitted: 3,
+        unsafeFieldsOmitted: 4,
+        truncatedFields: 5,
+      },
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [{ id: "dbt", sourceKind: "dbt", revision: "333333333333" }],
+      entries: [
+        {
+          id: "new-users",
+          metric: "new users",
+          definition: "Updated dbt source content.",
+          source: "dbt",
+          sourceKind: "dbt",
+        },
+      ],
+      scanSummary: {
+        unsafeEntriesOmitted: 6,
+        unsafeFieldsOmitted: 7,
+        truncatedFields: 8,
+      },
+    });
+
+    const merged = mergeSourceIndexBundles(current, update);
+
+    expect(merged).toMatchObject({
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        { id: "tracking-code", generatedAt: current.generatedAt },
+        { id: "sigma", generatedAt: current.generatedAt },
+        {
+          id: "dbt",
+          revision: "333333333333",
+          generatedAt: update.generatedAt,
+        },
+      ],
+      entries: [
+        { id: "signup-event", source: "tracking-code" },
+        { id: "dashboard-example", source: "sigma" },
+        { id: "new-users", source: "dbt" },
+      ],
+    });
+    expect(merged.entries).not.toContainEqual(
+      expect.objectContaining({ id: "old-users" }),
+    );
+    expect(merged).not.toHaveProperty("scanSummary");
+  });
+
+  it("keeps colliding entry IDs unique across preserved sources", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [
+        { id: "tracking-code", sourceKind: "code", revision: "222222222222" },
+      ],
+      entries: [
+        {
+          id: "users",
+          metric: "users from code",
+          definition: "Existing event source.",
+          source: "tracking-code",
+          sourceKind: "code",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [{ id: "dbt", sourceKind: "dbt", revision: "333333333333" }],
+      entries: [
+        {
+          id: "users",
+          metric: "users from dbt",
+          definition: "New dbt model.",
+          source: "dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    const merged = mergeSourceIndexBundles(current, update);
+    expect(merged.entries).toHaveLength(2);
+    expect(new Set(merged.entries.map((entry) => entry.id)).size).toBe(2);
+    expect(merged.entries).toContainEqual(
+      expect.objectContaining({
+        id: "users",
+        source: "tracking-code",
+        definition: "Existing event source.",
+      }),
+    );
+    expect(merged.entries).toContainEqual(
+      expect.objectContaining({
+        source: "dbt",
+        definition: "New dbt model.",
+      }),
+    );
+  });
+
+  it("preserves a previous dbt repository when a configured repo changes", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-09-01T00:00:00.000Z",
+      sources: [
+        {
+          id: "analytics-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "old-org/analytics-dbt",
+          revision: "111111111111",
+          generatedAt: "2026-09-01T00:00:00.000Z",
+        },
+      ],
+      entries: [
+        {
+          id: "active-users",
+          metric: "active users",
+          definition: "Definition from the previous repository.",
+          source: "analytics-dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "analytics-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "new-org/analytics-dbt",
+          revision: "222222222222",
+          generatedAt: "2026-10-12T00:00:00.000Z",
+        },
+      ],
+      entries: [
+        {
+          id: "active-users",
+          metric: "active users",
+          definition: "Definition from the current repository.",
+          source: "analytics-dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    const firstMerge = mergeSourceIndexBundles(current, update);
+    const currentRepository = firstMerge.sources.find(
+      (source) => source.repositoryRef === "new-org/analytics-dbt",
+    );
+    expect(currentRepository).toBeDefined();
+    expect(currentRepository?.id).not.toBe("analytics-dbt");
+    expect(firstMerge.sources).toHaveLength(2);
+    expect(firstMerge.entries).toHaveLength(2);
+    expect(firstMerge.entries).toContainEqual(
+      expect.objectContaining({
+        id: "active-users",
+        source: "analytics-dbt",
+        definition: "Definition from the previous repository.",
+      }),
+    );
+    expect(firstMerge.entries).toContainEqual(
+      expect.objectContaining({
+        source: currentRepository?.id,
+        definition: "Definition from the current repository.",
+      }),
+    );
+
+    const refreshed = mergeSourceIndexBundles(firstMerge, update);
+    expect(refreshed.sources).toHaveLength(2);
+    expect(refreshed.entries).toHaveLength(2);
+    expect(
+      refreshed.sources.filter(
+        (source) => source.repositoryRef === "new-org/analytics-dbt",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not replace a source ID that belongs to another source type", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [{ id: "dbt", sourceKind: "code", revision: "222222222222" }],
+      entries: [
+        {
+          id: "users-event",
+          metric: "users event",
+          definition: "Tracking code source with a colliding ID.",
+          source: "dbt",
+          sourceKind: "code",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [{ id: "dbt", sourceKind: "dbt", revision: "333333333333" }],
+      entries: [
+        {
+          id: "users-model",
+          metric: "users model",
+          definition: "New dbt model.",
+          source: "dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    expect(() => mergeSourceIndexBundles(current, update)).toThrow(
+      "conflicting or unknown source types",
+    );
   });
 });

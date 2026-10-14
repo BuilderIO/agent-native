@@ -59,8 +59,11 @@ const SENSITIVE_TEXT =
 
 export interface SourceIndexSource {
   id: string;
+  sourceKind?: "dbt" | "code" | "sigma";
+  repositoryRef?: string;
   revision?: string;
   contentFingerprint: string;
+  generatedAt?: string;
 }
 
 export type SemanticScope =
@@ -3653,6 +3656,7 @@ export async function compileSourceIndex(
       kind === "dbt" ? await readDbtRoot(context) : await readCodeRoot(context);
     sources.push({
       id: context.id,
+      sourceKind: kind,
       ...(context.revision ? { revision: context.revision } : {}),
       contentFingerprint: scan.contentFingerprint,
     });
@@ -3675,7 +3679,7 @@ export async function compileSourceIndex(
       manifestPath: options.sigmaReviewedManifest,
       ...credentials,
     });
-    sources.push(sigma.source);
+    sources.push({ ...sigma.source, sourceKind: "sigma" });
     entries.push(
       ...sigma.entries.map((entry) => ({
         ...entry,

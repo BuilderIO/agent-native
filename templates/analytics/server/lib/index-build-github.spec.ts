@@ -150,6 +150,8 @@ describe("buildDbtSourceIndexFromGitHub", () => {
     expect(revision).toBe(SHA);
     expect(bundle.sources[0]).toMatchObject({
       id: "analytics-dbt",
+      sourceKind: "dbt",
+      repositoryRef: "acme/analytics-dbt",
       revision: SHA,
     });
     expect(bundle.entries[0]).toMatchObject({ sourceRevision: SHA });

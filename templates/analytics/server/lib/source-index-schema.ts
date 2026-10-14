@@ -34,10 +34,19 @@ const SENSITIVE_TEXT_FIELDS = [
 const sourceIndexSourceSchema = z
   .object({
     id: z.string().regex(SAFE_SOURCE),
+    sourceKind: z.enum(SOURCE_INDEX_KINDS).optional(),
+    repositoryRef: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/)
+      .optional(),
     revision: z.string().regex(GIT_REVISION).optional(),
     contentFingerprint: z
       .string()
       .regex(/^[a-f0-9]{64}$/i)
+      .optional(),
+    generatedAt: z.iso
+      .datetime()
+      .refine((value) => value.endsWith("Z"), "must be UTC ISO datetime")
       .optional(),
   })
   .strict()

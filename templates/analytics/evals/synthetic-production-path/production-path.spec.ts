@@ -382,7 +382,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v18";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v19";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
@@ -672,16 +672,10 @@ function assertEvalProvenance(
 /** Accept only the candidate harness as a changed file in the baseline tree. */
 function assertBaselineWorkingTreeStatus(statusOutput: string): void {
   const entries = statusOutput.split("\0").filter(Boolean);
-  const sourceEntries = entries.filter(
-    (entry) =>
-      !/^\?\? packages\/core-corpus\/corpus\.tmp-\d+-[a-f0-9]{8}\/?$/.test(
-        entry,
-      ),
-  );
   const onlyHarnessChanged =
-    sourceEntries.length === 1 &&
-    sourceEntries[0]!.slice(3) === BASELINE_HARNESS_PATH &&
-    ["??", " M"].includes(sourceEntries[0]!.slice(0, 2));
+    entries.length === 1 &&
+    entries[0]!.slice(3) === BASELINE_HARNESS_PATH &&
+    ["??", " M"].includes(entries[0]!.slice(0, 2));
   if (onlyHarnessChanged) {
     return;
   }
@@ -1266,7 +1260,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       assertBaselineWorkingTreeStatus(
         ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/\0`,
       ),
-    ).not.toThrow();
+    ).toThrow("only the candidate production-path harness may be modified");
     expect(() =>
       assertBaselineWorkingTreeStatus(
         ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/\0?? packages/core/src/unreviewed.ts\0`,
