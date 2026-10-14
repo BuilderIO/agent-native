@@ -494,6 +494,7 @@ export {
   type ActionRouteAuthAdapter,
   type ActionRouteResolvedCaller,
 } from "./action-routes.js";
+export { ActionRouteAuthRejection } from "./action-route-auth-rejection.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,
   readBrowserSessionIdHeader,

@@ -849,7 +849,10 @@ describe("listWorkspaceApps", () => {
 
   it("does not expose Dispatch when its access check is unavailable", async () => {
     stubManifest();
-    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce("unavailable");
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce({
+      status: "unavailable",
+      reason: "registry-timeout",
+    });
 
     const apps = await runWithRequestContext(
       { userEmail: "member@example.test", orgId: "org-123" },

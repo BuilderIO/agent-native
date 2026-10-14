@@ -273,6 +273,63 @@ export async function verifyA2AToken(
   return (await verifyA2ATokenInternal(token, event, audienceOptions)).payload;
 }
 
+export type A2ATokenFailureCause =
+  | "malformed"
+  | "secret-missing"
+  | "audience-unresolvable"
+  | "audience"
+  | "issuer"
+  | "expired"
+  | "signature"
+  | "invalid-claims"
+  | "org-binding";
+
+/**
+ * Names why the deployment secret refused a token that `verifyA2AToken`
+ * resolved no identity for. `verifyA2AToken` collapses a wrong audience, a
+ * wrong secret and an unbound organization into one empty identity; this
+ * re-checks the same inputs to tell them apart. Diagnostic only: it never
+ * grants anything, and its answer must not be used as an authorization result.
+ */
+export async function diagnoseA2ATokenFailure(
+  token: string,
+  event?: any,
+): Promise<A2ATokenFailureCause> {
+  let claims: jose.JWTPayload;
+  try {
+    claims = jose.decodeJwt(token);
+  } catch {
+    // coercion-ok: an undecodable token is the typed "malformed" cause.
+    return "malformed";
+  }
+  const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+  if (!secret) return "secret-missing";
+
+  const options: jose.JWTVerifyOptions = {};
+  if (typeof claims.aud !== "undefined") {
+    const audience = expectedJwtAudience(event);
+    if (!audience) return "audience-unresolvable";
+    options.audience = audience;
+  }
+  if (typeof claims.iss === "string" && claims.iss.length > 0) {
+    options.issuer = claims.iss;
+  }
+
+  try {
+    await jose.jwtVerify(token, new TextEncoder().encode(secret), options);
+    return "org-binding";
+  } catch (error) {
+    const { code, claim } = error as { code?: unknown; claim?: unknown };
+    if (code === "ERR_JWT_EXPIRED") return "expired";
+    if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") return "signature";
+    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+      if (claim === "aud") return "audience";
+      if (claim === "iss") return "issuer";
+    }
+    return "invalid-claims";
+  }
+}
+
 async function verifyA2ATokenInternal(
   token: string,
   event?: any,

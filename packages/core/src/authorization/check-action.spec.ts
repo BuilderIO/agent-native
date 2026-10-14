@@ -72,7 +72,10 @@ describe("checkAction", () => {
   });
 
   it("preserves workspace access outages as retryable 503 errors", async () => {
-    mocks.isWorkspaceAppAccessAllowed.mockResolvedValue("unavailable");
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValue({
+      status: "unavailable",
+      reason: "a2a-secret-missing",
+    });
 
     await expect(
       checkAction(

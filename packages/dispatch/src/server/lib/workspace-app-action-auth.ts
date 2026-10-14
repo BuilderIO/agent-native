@@ -1,4 +1,7 @@
-import { verifyA2AToken } from "@agent-native/core/a2a";
+import {
+  diagnoseA2ATokenFailure,
+  verifyA2AToken,
+} from "@agent-native/core/a2a";
 import {
   isOrgMember,
   resolveOrgByDomain,
@@ -8,12 +11,29 @@ import type {
   ActionRouteAuthAdapter,
   ActionRouteResolvedCaller,
 } from "@agent-native/core/server";
-import { getSession } from "@agent-native/core/server";
+import {
+  ActionRouteAuthRejection,
+  getSession,
+} from "@agent-native/core/server";
 
 export const WORKSPACE_APPS_ACTION_PATH =
   "/_agent-native/actions/list-workspace-apps";
 export const WORKSPACE_APP_CLAIM_ACTION_PATH =
   "/_agent-native/actions/claim-workspace-app-organization";
+
+const REGISTRY_AUTH_REFUSED = "Invalid workspace registry authorization";
+
+// The registry is re-asked on every request of every guarded app, so a single
+// misconfigured workspace would otherwise log the same refusal per request.
+const reportedRefusals = new Set<string>();
+
+function refuseRegistryCaller(reason: string): never {
+  if (!reportedRefusals.has(reason)) {
+    reportedRefusals.add(reason);
+    console.warn("[workspace-registry-auth] refused caller", { reason });
+  }
+  throw new ActionRouteAuthRejection(REGISTRY_AUTH_REFUSED, reason);
+}
 
 function isWorkspaceAppsActionPath(event: any): boolean {
   const rawUrl =
@@ -55,7 +75,7 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     const authorization = readAuthorizationHeader(event);
     if (!authorization) return null;
     if (!authorization.startsWith("Bearer ")) {
-      throw new Error("Invalid workspace registry authorization");
+      refuseRegistryCaller("malformed-authorization");
     }
 
     const hasRequestUrl =
@@ -72,11 +92,19 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     }
 
     const token = authorization.slice("Bearer ".length).trim();
-    if (!token) throw new Error("Invalid workspace registry authorization");
+    if (!token) refuseRegistryCaller("malformed-authorization");
 
     const identity = await verifyA2AToken(token, event);
     if (!identity.email) {
-      throw new Error("Invalid workspace registry authorization");
+      // An organization principal is a token that verified but may not name a
+      // user: its org secret equals the deploy secret, or only the org secret
+      // verified it. Anything else failed outright.
+      if (identity.identityAssurance === "organization") {
+        refuseRegistryCaller("token-without-user");
+      }
+      refuseRegistryCaller(
+        `token-not-verified:${await diagnoseA2ATokenFailure(token, event)}`,
+      );
     }
 
     const orgDomain = identity.orgDomain?.trim().toLowerCase();
@@ -86,17 +114,18 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       if (orgDomain) {
         const org = await resolveOrgByDomain(orgDomain);
         if (org && org.orgId !== claimedOrgId) {
-          throw new Error("Invalid workspace registry authorization");
+          refuseRegistryCaller("org-mismatch");
         }
       }
       if (!(await isOrgMember(claimedOrgId, identity.email))) {
-        throw new Error("Invalid workspace registry authorization");
+        refuseRegistryCaller("not-org-member");
       }
       orgId = claimedOrgId;
     } else if (orgDomain) {
       const org = await resolveOrgByDomain(orgDomain);
-      if (!org || !(await isOrgMember(org.orgId, identity.email))) {
-        throw new Error("Invalid workspace registry authorization");
+      if (!org) refuseRegistryCaller("org-unknown");
+      if (!(await isOrgMember(org.orgId, identity.email))) {
+        refuseRegistryCaller("not-org-member");
       }
       orgId = org.orgId;
     } else {

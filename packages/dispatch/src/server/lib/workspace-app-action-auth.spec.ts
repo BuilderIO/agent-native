@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  diagnoseA2ATokenFailure: vi.fn(),
   verifyA2AToken: vi.fn(),
   isOrgMember: vi.fn(),
   resolveOrgByDomain: vi.fn(),
@@ -8,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/a2a", () => ({
+  diagnoseA2ATokenFailure: mocks.diagnoseA2ATokenFailure,
   verifyA2AToken: mocks.verifyA2AToken,
 }));
 
@@ -60,6 +62,96 @@ describe("workspace app action auth", () => {
         eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer invalid"),
       ),
     ).rejects.toThrow("Invalid workspace registry authorization");
+  });
+
+  describe("names why a registry bearer was refused", () => {
+    async function refusalFor(authorization: string) {
+      return workspaceAppActionRouteAuth
+        .resolveCaller?.(eventFor(WORKSPACE_APPS_ACTION_PATH, authorization))
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+    }
+
+    it("reports why a token that did not verify was refused", async () => {
+      mocks.verifyA2AToken.mockResolvedValue({ email: null, orgDomain: null });
+      mocks.diagnoseA2ATokenFailure.mockResolvedValue("signature");
+
+      await expect(refusalFor("Bearer wrong-secret")).resolves.toMatchObject({
+        name: "ActionRouteAuthRejection",
+        message: "Invalid workspace registry authorization",
+        reason: "token-not-verified:signature",
+      });
+      expect(mocks.diagnoseA2ATokenFailure).toHaveBeenCalledWith(
+        "wrong-secret",
+        expect.anything(),
+      );
+    });
+
+    it("reports a verified token that was demoted to an organization principal", async () => {
+      mocks.verifyA2AToken.mockResolvedValue({
+        email: null,
+        orgDomain: "builder.io",
+        orgId: "org-builder",
+        identityAssurance: "organization",
+      });
+
+      await expect(refusalFor("Bearer demoted")).resolves.toMatchObject({
+        reason: "token-without-user",
+      });
+      expect(mocks.diagnoseA2ATokenFailure).not.toHaveBeenCalled();
+    });
+
+    it("reports an organization that does not exist here", async () => {
+      mocks.verifyA2AToken.mockResolvedValue({
+        email: "steve@builder.io",
+        orgDomain: "builder.io",
+      });
+      mocks.resolveOrgByDomain.mockResolvedValue(null);
+
+      await expect(refusalFor("Bearer verified")).resolves.toMatchObject({
+        reason: "org-unknown",
+      });
+    });
+
+    it("reports a caller who is not a member of the organization", async () => {
+      mocks.verifyA2AToken.mockResolvedValue({
+        email: "steve@builder.io",
+        orgDomain: "builder.io",
+      });
+      mocks.resolveOrgByDomain.mockResolvedValue({
+        orgId: "org-builder",
+        orgName: "Builder.io",
+      });
+      mocks.isOrgMember.mockResolvedValue(false);
+
+      await expect(refusalFor("Bearer verified")).resolves.toMatchObject({
+        reason: "not-org-member",
+      });
+    });
+
+    it("reports an organization claim that names a different organization", async () => {
+      mocks.verifyA2AToken.mockResolvedValue({
+        email: "steve@builder.io",
+        orgDomain: "builder.io",
+        orgId: "org-claimed",
+      });
+      mocks.resolveOrgByDomain.mockResolvedValue({
+        orgId: "org-local",
+        orgName: "Builder.io",
+      });
+
+      await expect(refusalFor("Bearer verified")).resolves.toMatchObject({
+        reason: "org-mismatch",
+      });
+    });
+
+    it("reports a malformed authorization header", async () => {
+      await expect(refusalFor("Basic abc")).resolves.toMatchObject({
+        reason: "malformed-authorization",
+      });
+    });
   });
 
   it.each([WORKSPACE_APPS_ACTION_PATH, WORKSPACE_APP_CLAIM_ACTION_PATH])(

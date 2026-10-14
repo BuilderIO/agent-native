@@ -3605,7 +3605,13 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: vi.fn(async () => "unavailable"),
+        isWorkspaceAppAccessAllowed: vi.fn(async () => ({
+          status: "unavailable",
+          reason: "registry-http-error",
+          upstreamStatus: 401,
+          audience: "https://workspace.example.test/dispatch",
+          detail: "token-not-verified:signature",
+        })),
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3624,6 +3630,10 @@ describe("server/auth", () => {
 
       await expect(guard(event)).resolves.toEqual({
         error: "Workspace app access is temporarily unavailable.",
+        code: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://workspace.example.test/dispatch",
+        detail: "token-not-verified:signature",
       });
       expect(event.res.status).toBe(503);
     });
