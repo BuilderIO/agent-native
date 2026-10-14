@@ -32,12 +32,16 @@ export function useSonnerLifecycleToast() {
       options?: LifecycleToastOptions,
     ) => {
       const id = toastIdRef.current;
+      const defaultDuration =
+        (kind === "error" || kind === "info") && options?.action
+          ? Number.POSITIVE_INFINITY
+          : 6_000;
       const duration =
         (kind === "error" || kind === "info") &&
         options?.duration === Number.POSITIVE_INFINITY &&
         !options.action
           ? 12_000
-          : (options?.duration ?? 6_000);
+          : (options?.duration ?? defaultDuration);
       const nextOptions = {
         ...options,
         duration,

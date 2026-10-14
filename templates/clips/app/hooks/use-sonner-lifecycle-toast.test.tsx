@@ -54,7 +54,6 @@ function Probe() {
         onClick={() =>
           lifecycle.error("Retry the export", {
             action: { label: "Retry", onClick: vi.fn() },
-            duration: Number.POSITIVE_INFINITY,
           })
         }
       >
