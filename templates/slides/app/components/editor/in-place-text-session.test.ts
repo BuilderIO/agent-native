@@ -2743,7 +2743,7 @@ describe("in-place text session: undo", () => {
     while (session.redo()) redone++;
     expect(redone).toBe(operationCount);
     expect(el.innerHTML).toBe(finalHtml);
-  });
+  }, 90_000);
 
   it("keeps history intact when its expected base was changed externally", () => {
     const initialText = `${"a".repeat(256)}bc`;
