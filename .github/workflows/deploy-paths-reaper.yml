@@ -1,0 +1,71 @@
+name: Deploy paths reaper
+
+# Deletes the Netlify sites and Postgres databases the deploy-path check leaked.
+# The check deletes what it creates on every exit, so this only finds
+# something when a runner was killed or a cleanup failed, which is exactly when
+# nothing else will. scripts/reap-deploy-paths.ts selects only names the check
+# generates (`an-deploy-ci-<epoch>-<suffix>`, `an_deploy_ci_<epoch>_...`) that
+# are at least two hours old, so it cannot touch a real site or database, nor a
+# run still in progress.
+#
+# A failed listing or delete fails this workflow, and
+# email-workflow-failures.yml emails it.
+
+on:
+  schedule:
+    - cron: "11 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: deploy-paths-reaper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reap:
+    name: Sweep leaked sites and databases
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Check the credentials
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in NETLIFY_AUTH_TOKEN DEPLOY_CHECK_DATABASE_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The $name secret is not available to this run."
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
+
+      # Scheduled runs delete; a manual dispatch defaults to a dry run.
+      - name: Sweep
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
+          dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(--max-age-minutes 120)
+          if [ "$dry_run" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          pnpm exec tsx scripts/reap-deploy-paths.ts "${args[@]}"

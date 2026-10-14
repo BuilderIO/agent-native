@@ -13,6 +13,7 @@ on:
       - Push chat template to starter
       - Publish packages
       - Deploy canary
+      - Deploy paths reaper
       - "🚀 Release everything"
       - Desktop App Release
       - Clips Desktop Release

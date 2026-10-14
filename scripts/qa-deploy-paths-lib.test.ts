@@ -9,13 +9,21 @@ import {
   containerReachableDatabaseUrl,
   databaseUrlFor,
   DEPLOY_DATABASE_NAME_PATTERN,
-  dockerfileBaseImages,
   DEPLOY_DOC_CONTRACTS,
+  DEPLOY_GUIDE_PATHS,
+  DEPLOY_SITE_NAME_PATTERN,
   DEPLOY_TARGETS,
   deployDatabaseName,
+  deployResourceAgeSeconds,
+  deploySiteName,
+  dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
   missingDocCommands,
+  PRESET_SHAPES,
+  redactSecrets,
+  secretsInUrl,
+  selectReapable,
   vendorDockerfile,
   vendorSpecifier,
 } from "./qa-deploy-paths-lib";
@@ -26,7 +34,7 @@ const repoRoot = path.resolve(
 );
 
 const dockerGuide = fs.readFileSync(
-  path.join(repoRoot, DEPLOY_DOC_CONTRACTS.docker.doc),
+  path.join(repoRoot, DEPLOY_DOC_CONTRACTS.docker[0]!.doc),
   "utf8",
 );
 
@@ -186,5 +194,127 @@ describe("database helpers", () => {
       () => deployDatabaseName("node", 1_791_930_000_000, "x; drop"),
       /Refusing/,
     );
+  });
+});
+
+describe("throwaway Netlify sites", () => {
+  it("names a site so a reaper can age it and never mistake another for it", () => {
+    const name = deploySiteName(1_791_930_000_123, "a1b2c3");
+    assert.equal(name, "an-deploy-ci-1791930000-a1b2c3");
+    assert.match(name, DEPLOY_SITE_NAME_PATTERN);
+    for (const other of [
+      "builder-io-slides",
+      "agent-native-docs",
+      "an-deploy-ci-17919-a1b2c3",
+      "an-deploy-ci-1791930000-A1B2C3",
+      "beta-an-deploy-ci-1791930000-a1b2c3",
+      "an-deploy-ci-1791930000-a1b2c3-prod",
+    ]) {
+      assert.doesNotMatch(other, DEPLOY_SITE_NAME_PATTERN);
+    }
+  });
+
+  it("refuses a suffix that would not match the reaper's pattern", () => {
+    assert.throws(() => deploySiteName(1_791_930_000_000, "X Y"), /Refusing/);
+  });
+
+  it("ages a database or a site from its name, and nothing else", () => {
+    const now = 1_791_933_600_000;
+    assert.equal(
+      deployResourceAgeSeconds("an-deploy-ci-1791930000-a1b2c3", now),
+      3600,
+    );
+    assert.equal(
+      deployResourceAgeSeconds("an_deploy_ci_1791930000_a1b2c3_netlify", now),
+      3600,
+    );
+    assert.equal(deployResourceAgeSeconds("test-an-deploy2", now), null);
+    assert.equal(deployResourceAgeSeconds("postgres", now), null);
+  });
+});
+
+describe("selectReapable", () => {
+  const now = 1_791_940_000_000;
+
+  it("selects only what this check created and left behind", () => {
+    assert.deepEqual(
+      selectReapable(
+        [
+          "an-deploy-ci-1791930000-a1b2c3",
+          "an_deploy_ci_1791930000_a1b2c3_node",
+          "test-an-deploy2",
+          "builder-io-slides",
+          "postgres",
+        ],
+        now,
+        7200,
+      ),
+      ["an-deploy-ci-1791930000-a1b2c3", "an_deploy_ci_1791930000_a1b2c3_node"],
+    );
+  });
+
+  it("leaves a run that is still in progress alone", () => {
+    const young = `an-deploy-ci-${Math.floor(now / 1000) - 60}-a1b2c3`;
+    assert.deepEqual(selectReapable([young], now, 7200), []);
+  });
+
+  it("keeps a resource exactly at the minimum age", () => {
+    const atLimit = `an-deploy-ci-${Math.floor(now / 1000) - 7200}-a1b2c3`;
+    assert.deepEqual(selectReapable([atLimit], now, 7200), [atLimit]);
+  });
+});
+
+describe("hosting presets", () => {
+  it("names the files each host's deploy command reads", () => {
+    assert.deepEqual(Object.keys(PRESET_SHAPES), ["netlify", "vercel"]);
+    assert.ok(
+      PRESET_SHAPES.netlify.files.includes(
+        ".netlify/functions-internal/server/main.mjs",
+      ),
+    );
+    assert.ok(
+      PRESET_SHAPES.vercel.files.includes(".vercel/output/config.json"),
+    );
+  });
+
+  it("scopes CI to the guides every target runs, and only those", () => {
+    assert.deepEqual([...DEPLOY_GUIDE_PATHS].sort(), [
+      "packages/core/docs/content/docker.mdx",
+      "packages/core/docs/content/netlify.mdx",
+      "packages/core/docs/content/node-js.mdx",
+      "packages/core/docs/content/vercel.mdx",
+    ]);
+  });
+});
+
+describe("secret redaction", () => {
+  it("hides a secret wherever it appears", () => {
+    assert.equal(
+      redactSecrets("set X=hunter2hunter2 then hunter2hunter2", [
+        "hunter2hunter2",
+      ]),
+      "set X=*** then ***",
+    );
+  });
+
+  it("ignores values too short to be a secret instead of mangling the log", () => {
+    assert.equal(redactSecrets("a b c node", ["a", "node"]), "a b c node");
+  });
+
+  it("hides a URL's password on its own, as a tool might print it", () => {
+    const parsed = new URL("postgres://host.neon.tech/db");
+    parsed.username = "owner";
+    parsed.password = "not-a-real-password";
+    const url = parsed.toString();
+    const secrets = secretsInUrl(url);
+    assert.equal(
+      redactSecrets("connecting with not-a-real-password now", secrets),
+      "connecting with *** now",
+    );
+    assert.equal(redactSecrets(`url=${url}`, secrets), "url=***");
+  });
+
+  it("treats a value that is not a URL as the secret itself", () => {
+    assert.deepEqual(secretsInUrl("not a url at all"), ["not a url at all"]);
   });
 });

@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DEPLOY_DOC_CONTRACTS } from "./qa-deploy-paths-lib.ts";
+import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -506,12 +506,8 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
 
 // The deploy-path check runs the commands these guides print, so an edit to a
 // guide has to reach it even when the change is docs-only.
-const DEPLOY_GUIDE_PATHS: ReadonlySet<string> = new Set(
-  Object.values(DEPLOY_DOC_CONTRACTS).map((contract) => contract.doc),
-);
-
 function isDeployGuidePath(path: string): boolean {
-  return DEPLOY_GUIDE_PATHS.has(normalizeChangedPath(path));
+  return DEPLOY_GUIDE_PATHS.includes(normalizeChangedPath(path));
 }
 
 function isDesignCanvasE2eSpecPath(path: string): boolean {

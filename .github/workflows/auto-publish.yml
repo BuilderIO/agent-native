@@ -127,6 +127,23 @@ jobs:
           echo "Stable release merge verified: $verified"
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
 
+  # The last check before npm. The Version Packages PR is merged by a bot with
+  # admin bypass, so no CI result stands between that merge and this run. This
+  # runs the documented deploy paths on the exact tree about to be published,
+  # and `release` waits for it, so a failure here uploads nothing. Only the
+  # publishing run is gated: the dispatch that opens the Version Packages PR
+  # publishes nothing.
+  deploy-gate:
+    name: Deploy paths (release gate)
+    needs: [verify-stable-merge]
+    if: ${{ github.event_name == 'push' && needs.verify-stable-merge.outputs.verified == 'true' }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: local
+
   detect-nightly-changes:
     name: Check for package changes since the last nightly
     if: ${{ github.event_name == 'schedule' }}
@@ -384,8 +401,12 @@ jobs:
 
   release:
     name: Prepare or publish stable npm packages
-    needs: [verify-stable-merge]
-    if: ${{ !inputs.redispatchDownstream && !inputs.devTag && needs.verify-stable-merge.outputs.verified == 'true' }}
+    needs: [verify-stable-merge, deploy-gate]
+    # `!cancelled()` because the gate is skipped on the dispatch that opens the
+    # Version Packages PR, and a skipped need would otherwise skip this job. The
+    # verifier must still have succeeded, and a publishing push must have
+    # passed the gate.
+    if: ${{ !cancelled() && needs.verify-stable-merge.result == 'success' && !inputs.redispatchDownstream && !inputs.devTag && needs.verify-stable-merge.outputs.verified == 'true' && (github.event_name != 'push' || needs.deploy-gate.result == 'success') }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:

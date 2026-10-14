@@ -1,9 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export type DeployTarget = "node" | "docker";
+export type DeployTarget = "node" | "docker" | "netlify" | "presets";
 
-export const DEPLOY_TARGETS: readonly DeployTarget[] = ["node", "docker"];
+export const DEPLOY_TARGETS: readonly DeployTarget[] = [
+  "node",
+  "docker",
+  "netlify",
+  "presets",
+];
+
+// Targets that run the app against a database the check creates for the run.
+export type DatabaseTarget = Exclude<DeployTarget, "presets">;
 
 export const CREATE_COMMAND =
   "npx --yes @agent-native/core@latest create my-app --standalone --template chat";
@@ -15,35 +23,101 @@ interface DocContract {
   commands: readonly string[];
 }
 
+const GUIDES = {
+  node: "packages/core/docs/content/node-js.mdx",
+  docker: "packages/core/docs/content/docker.mdx",
+  netlify: "packages/core/docs/content/netlify.mdx",
+  vercel: "packages/core/docs/content/vercel.mdx",
+} as const;
+
+const AUTH_SECRET_COMMAND =
+  'export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"';
+
 // The harness runs the guides' commands, so a guide that stops saying one of
 // them must fail here rather than leave the check proving a path nobody reads.
-export const DEPLOY_DOC_CONTRACTS: Record<DeployTarget, DocContract> = {
-  node: {
-    doc: "packages/core/docs/content/node-js.mdx",
-    commands: [
-      CREATE_COMMAND,
-      "corepack enable",
-      "pnpm install",
-      'export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"',
-      "pnpm migrate:production",
-      "NITRO_PRESET=node pnpm build",
-      "NODE_ENV=production",
-      "pnpm start",
-    ],
-  },
-  docker: {
-    doc: "packages/core/docs/content/docker.mdx",
-    commands: [
-      CREATE_COMMAND,
-      "corepack enable",
-      "pnpm install",
-      'export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"',
-      "pnpm migrate:production",
-      "docker build -t my-agent-native-app .",
-      "docker run --rm",
-      "-p 3000:3000",
-      "-e DATABASE_URL",
-      "-e BETTER_AUTH_SECRET",
+export const DEPLOY_DOC_CONTRACTS: Record<
+  DeployTarget,
+  readonly DocContract[]
+> = {
+  node: [
+    {
+      doc: GUIDES.node,
+      commands: [
+        CREATE_COMMAND,
+        "corepack enable",
+        "pnpm install",
+        AUTH_SECRET_COMMAND,
+        "pnpm migrate:production",
+        "NITRO_PRESET=node pnpm build",
+        "NODE_ENV=production",
+        "pnpm start",
+      ],
+    },
+  ],
+  docker: [
+    {
+      doc: GUIDES.docker,
+      commands: [
+        CREATE_COMMAND,
+        "corepack enable",
+        "pnpm install",
+        AUTH_SECRET_COMMAND,
+        "pnpm migrate:production",
+        "docker build -t my-agent-native-app .",
+        "docker run --rm",
+        "-p 3000:3000",
+        "-e DATABASE_URL",
+        "-e BETTER_AUTH_SECRET",
+      ],
+    },
+  ],
+  netlify: [
+    {
+      doc: GUIDES.netlify,
+      commands: [
+        CREATE_COMMAND,
+        "corepack enable",
+        "pnpm install",
+        AUTH_SECRET_COMMAND,
+        "npx netlify sites:create --name my-app",
+        'npx netlify env:set DATABASE_URL "$DATABASE_URL"',
+        'npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"',
+        "pnpm migrate:production",
+        "NITRO_PRESET=netlify pnpm build",
+        "npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
+      ],
+    },
+  ],
+  presets: [
+    {
+      doc: GUIDES.netlify,
+      commands: [CREATE_COMMAND, "NITRO_PRESET=netlify pnpm build"],
+    },
+    { doc: GUIDES.vercel, commands: ["NITRO_PRESET=vercel pnpm build"] },
+  ],
+};
+
+/** The guides every target runs, for scoping CI to an edit of one of them. */
+export const DEPLOY_GUIDE_PATHS: readonly string[] = [
+  ...new Set(
+    Object.values(DEPLOY_DOC_CONTRACTS).flatMap((contracts) =>
+      contracts.map((contract) => contract.doc),
+    ),
+  ),
+];
+
+// What each hosting preset's build must leave behind for the host's own deploy
+// command to find. A build that exits 0 without these deploys nothing.
+export const PRESET_SHAPES: Record<
+  "netlify" | "vercel",
+  { files: readonly string[] }
+> = {
+  netlify: { files: ["dist", ".netlify/functions-internal/server/main.mjs"] },
+  vercel: {
+    files: [
+      ".vercel/output/config.json",
+      ".vercel/output/functions/__server.func",
+      ".vercel/output/static",
     ],
   },
 };
@@ -59,17 +133,18 @@ export function assertDocContract(
   repoRoot: string,
   target: DeployTarget,
 ): void {
-  const { doc, commands } = DEPLOY_DOC_CONTRACTS[target];
-  const missing = missingDocCommands(
-    fs.readFileSync(path.join(repoRoot, doc), "utf8"),
-    commands,
-  );
-  if (missing.length === 0) return;
-  throw new Error(
-    `${doc} no longer contains the command(s) the ${target} deploy check runs:\n` +
-      missing.map((command) => `  ${command}`).join("\n") +
-      "\nChange the guide and scripts/qa-deploy-paths-lib.ts together, so the check keeps proving what the guide tells readers to do.",
-  );
+  for (const { doc, commands } of DEPLOY_DOC_CONTRACTS[target]) {
+    const missing = missingDocCommands(
+      fs.readFileSync(path.join(repoRoot, doc), "utf8"),
+      commands,
+    );
+    if (missing.length === 0) continue;
+    throw new Error(
+      `${doc} no longer contains the command(s) the ${target} deploy check runs:\n` +
+        missing.map((command) => `  ${command}`).join("\n") +
+        "\nChange the guide and scripts/qa-deploy-paths-lib.ts together, so the check keeps proving what the guide tells readers to do.",
+    );
+  }
 }
 
 /** Body of the fenced code block whose info string carries `filename="<name>"`. */
@@ -152,13 +227,15 @@ export function databaseUrlFor(adminUrl: string, database: string): string {
   return url.toString();
 }
 
-// The epoch lets a reaper age a leaked database from its name alone, and the
-// pattern keeps it from ever matching a database this check did not create.
+// The epoch lets a reaper age a leaked database or site from its name alone,
+// and the patterns keep it from ever matching one this check did not create.
 export const DEPLOY_DATABASE_NAME_PATTERN =
   /^an_deploy_ci_(\d{10})_[a-z0-9]{6}_[a-z]+$/;
 
+export const DEPLOY_SITE_NAME_PATTERN = /^an-deploy-ci-(\d{10})-[a-z0-9]{6}$/;
+
 export function deployDatabaseName(
-  target: DeployTarget,
+  target: DatabaseTarget,
   nowMs: number,
   randomSuffix: string,
 ): string {
@@ -167,4 +244,69 @@ export function deployDatabaseName(
     throw new Error(`Refusing to use "${name}" as a deploy-check database.`);
   }
   return name;
+}
+
+export function deploySiteName(nowMs: number, randomSuffix: string): string {
+  const name = `an-deploy-ci-${Math.floor(nowMs / 1000)}-${randomSuffix}`;
+  if (!DEPLOY_SITE_NAME_PATTERN.test(name)) {
+    throw new Error(`Refusing to use "${name}" as a deploy-check site.`);
+  }
+  return name;
+}
+
+/**
+ * Seconds since a deploy-check database or site was created, read from its
+ * name. Null for any name this check did not create, so a reaper cannot touch
+ * it.
+ */
+export function deployResourceAgeSeconds(
+  name: string,
+  nowMs: number,
+): number | null {
+  const match =
+    DEPLOY_DATABASE_NAME_PATTERN.exec(name) ??
+    DEPLOY_SITE_NAME_PATTERN.exec(name);
+  if (!match) return null;
+  return Math.floor(nowMs / 1000) - Number(match[1]);
+}
+
+/**
+ * The databases or sites old enough to be leaked: created by this check, and
+ * at least `minAgeSeconds` ago. A run still in progress is younger than any
+ * sensible minimum, so a reaper never deletes under a live run.
+ */
+export function selectReapable(
+  names: readonly string[],
+  nowMs: number,
+  minAgeSeconds: number,
+): string[] {
+  return names.filter((name) => {
+    const age = deployResourceAgeSeconds(name, nowMs);
+    return age !== null && age >= minAgeSeconds;
+  });
+}
+
+/**
+ * The text with every secret value replaced, whole and in the pieces a tool
+ * might print on its own (a URL's password).
+ */
+export function redactSecrets(text: string, secrets: Iterable<string>): string {
+  let redacted = text;
+  for (const secret of secrets) {
+    if (secret.length < 8) continue;
+    redacted = redacted.split(secret).join("***");
+  }
+  return redacted;
+}
+
+/** Values to redact for a URL that carries a password. */
+export function secretsInUrl(value: string): string[] {
+  try {
+    const url = new URL(value);
+    return [value, url.toString(), decodeURIComponent(url.password)].filter(
+      (part) => part.length > 0,
+    );
+  } catch {
+    return [value];
+  }
 }

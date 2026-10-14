@@ -1,14 +1,18 @@
 name: Deploy canary
 
-# Runs the documented Node.js and Docker deploy paths against what is actually
-# on npm, every day: `latest` is what the guides' `npx ... create` installs
-# today, and `nightly` is what the next stable release is built from. A
-# failure means a reader following a guide right now would hit it.
+# Runs the documented deploy paths against what is actually on npm, every day:
+# `latest` is what the guides' `npx ... create` installs today, and `nightly` is
+# what the next stable release is built from. A failure means a reader
+# following a guide right now would hit it.
 #
 # The pre-publish check is the `Deploy paths` job in ci.yml, which installs
 # this checkout's packages. This one cannot stop a bad release; it proves the
 # published packages work, including what a local pack cannot show (a missing
 # file in a published package, a leaked workspace: range).
+#
+# `paths` covers the Node.js and Docker guides and needs no credentials.
+# `hosts` deploys to a real Netlify site and needs the secrets deploy-hosts.yml
+# lists; without them it fails, rather than reporting a path as checked.
 #
 # Failures are emailed by email-workflow-failures.yml.
 
@@ -25,8 +29,8 @@ permissions:
   contents: read
 
 jobs:
-  canary:
-    name: npm@${{ matrix.npm_tag }}
+  paths:
+    name: Paths npm@${{ matrix.npm_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,3 +42,17 @@ jobs:
     with:
       source: npm
       npm_tag: ${{ matrix.npm_tag }}
+
+  hosts:
+    name: Hosts npm@${{ matrix.npm_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npm_tag: [latest, nightly]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-hosts.yml
+    with:
+      source: npm
+      npm_tag: ${{ matrix.npm_tag }}
+    secrets: inherit

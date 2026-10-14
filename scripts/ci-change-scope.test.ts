@@ -2443,6 +2443,8 @@ test("runs the deploy-path check for an edit to a guide it runs, even docs-only"
   for (const path of [
     "packages/core/docs/content/node-js.mdx",
     "packages/core/docs/content/docker.mdx",
+    "packages/core/docs/content/netlify.mdx",
+    "packages/core/docs/content/vercel.mdx",
   ]) {
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.docsOnly, true);

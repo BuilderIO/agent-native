@@ -402,6 +402,17 @@ store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
 | `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
 | `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
 
+### Deploy-path check
+
+Read by `scripts/qa-deploy-paths.ts`, `scripts/reap-deploy-paths.ts`, and
+`.github/workflows/deploy-hosts.yml`, never by application runtime code. The
+connection string is a live credential: store it only as a GitHub Actions
+secret.
+
+| Variable                    | Purpose                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEPLOY_CHECK_DATABASE_URL` | Connection string for the Postgres server on which the check creates one throwaway database per run, named `an_deploy_ci_<epoch>_<suffix>_<target>`, and drops it afterward. Use a role that can create databases and owns nothing else. |
+
 ### Signup agent review
 
 Read by the scheduled `Signup agent review` workflow and
