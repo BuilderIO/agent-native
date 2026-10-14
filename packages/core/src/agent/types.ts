@@ -403,6 +403,7 @@ export type AgentChatEvent =
         | "max_tokens"
         | "stop_sequence"
         | "error";
+      errorCode?: string;
     }
   | {
       type: "tool_start";

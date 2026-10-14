@@ -3053,6 +3053,65 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ]);
   });
 
+  it("labels a retried model call with its own error code", async () => {
+    const recorded: Array<{
+      instrument: string;
+      attributes?: Record<string, string | number>;
+    }> = [];
+    const instrument = (name: string) => {
+      const write = (
+        _value: number,
+        attributes?: Record<string, string | number>,
+      ) => recorded.push({ instrument: name, attributes });
+      return { record: write, add: write };
+    };
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: instrument,
+          createCounter: instrument,
+        }),
+      },
+    });
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "model_stream", status: "start" });
+          send({
+            type: "model_stream",
+            status: "end",
+            reason: "error",
+            errorCode: "http_429",
+          });
+          send({ type: "model_stream", status: "start" });
+          send({ type: "model_stream", status: "end", reason: "end_turn" });
+        },
+        loopOpts: {
+          engine: { name: "anthropic", supportedModels: ["claude-test"] },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-retry-metrics",
+        threadId: "thread-1",
+        userId: "user-1",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+    } finally {
+      unregister();
+    }
+
+    expect(
+      recorded
+        .filter((r) => r.instrument === "gen_ai.client.operation.duration")
+        .map((r) => r.attributes?.["error.type"]),
+    ).toEqual(["http_429", undefined]);
+  });
+
   it("exports each bracketed model call as a live child span", async () => {
     const { spans, runtime } = createRecordingTracer();
     __setAgentTraceRuntimeForTests(runtime as any);
