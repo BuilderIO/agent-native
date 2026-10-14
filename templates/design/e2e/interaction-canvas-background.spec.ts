@@ -11,6 +11,7 @@ import {
   createFixtureDesign,
   enterDirectMode,
   enterInteractView,
+  selectTool,
 } from "./helpers";
 
 async function postAction(
@@ -146,7 +147,7 @@ async function sampleXY(
 }
 
 async function drawFirstRectangle(page: Page): Promise<void> {
-  await page.locator('button[aria-label="Rectangle"]').first().click();
+  await selectTool(page, "Rectangle");
   await expect(
     page.locator('button[aria-label="Rectangle"]').first(),
   ).toHaveAttribute("aria-pressed", "true");
@@ -338,6 +339,7 @@ test("dark: canvas background does not flash light after dragging a shape", asyn
   }
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("dark: canvas background stays correct after grouping two shapes", async ({
   page,
 }) => {
@@ -364,7 +366,7 @@ test("dark: canvas background stays correct after grouping two shapes", async ({
     const { x, y } = await sampleXY(page);
     await drawFirstRectangle(page);
 
-    await page.locator('button[aria-label="Rectangle"]').first().click();
+    await selectTool(page, "Rectangle");
     await page.mouse.move(800, 600);
     await page.mouse.down();
     await page.mouse.move(1000, 740, { steps: 12 });

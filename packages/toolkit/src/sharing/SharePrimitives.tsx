@@ -113,7 +113,7 @@ export function ShareCopyRow({
             : accessibleLabel(copyLabel, "Copy")
         }
         onPress={() => void handleCopy()}
-        className="h-9 shrink-0"
+        className="shrink-0"
       >
         {copied ? copiedLabel : copyLabel}
       </ActionButton>

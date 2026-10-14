@@ -1,6 +1,7 @@
 import { OG_FONT_FAMILY } from "@agent-native/core/server";
 
 import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
+import { formatDollars } from "../../shared/format-dollars";
 
 export type ReportChartType = "bar" | "line" | "area" | "pie" | "funnel";
 
@@ -99,7 +100,7 @@ function formatTick(
   value: number,
   formatter?: ReportChartValueFormatter,
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const percent = value <= 1 && value >= -1 ? value * 100 : value;
     return `${percent.toFixed(2)}%`;

@@ -801,6 +801,10 @@ const messages = {
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
       "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    partialGenerationFailed:
+      "スライドを最後まで作成できませんでした。続ける前に、作成済みのスライドと最初のリクエストを確認してください。",
+    originalPrompt: "入力した内容",
+    backToHome: "ホームに戻る",
     checkedDeckTryAgain: "デッキを確認しました。再試行",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",

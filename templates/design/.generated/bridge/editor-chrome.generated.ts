@@ -903,6 +903,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/spacing-handle-rule.ts
+  function isAutoLayoutDisplay(display) {
+    return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
+  }
+  function marginHandlesApply(context) {
+    if (context.anyAuto) return true;
+    if (context.margins.some((margin) => margin !== 0)) return true;
+    const inFlow = context.position !== "absolute" && context.position !== "fixed";
+    return inFlow && isAutoLayoutDisplay(context.parentDisplay);
+  }
+
   // shared/text-layer-rule.ts
   var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
     "a",
@@ -1599,7 +1610,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
       // restyles the whole document, deferred into the next time it scrolls in.
-      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html:not([data-agent-native-interact]){overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -4075,9 +4086,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
       };
     }
-    function isAutoLayoutDisplay(display) {
-      return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
-    }
     function rectInfoForElement(el) {
       if (el.getAttribute("data-an-primitive") === "boolean-operand") {
         var geometry = el;
@@ -6108,6 +6116,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         }, 0),
         provenance
       };
+    }
+    function collectPaintLayers(el) {
+      var layers = [];
+      var node = el;
+      while (node && layers.length < 64) {
+        var paint = window.getComputedStyle(node);
+        layers.push({
+          backgroundColor: paint.backgroundColor,
+          backgroundImage: paint.backgroundImage,
+          opacity: paint.opacity,
+          mixBlendMode: paint.mixBlendMode
+        });
+        node = node.parentElement;
+      }
+      return layers;
     }
     var lastScreenRootStyleSnapshot = "";
     var screenRootStyleSnapshotFrame = 0;
@@ -8258,6 +8281,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return handles.filter(Boolean);
     }
+    var marginParentDisplayCache = null;
+    function marginParentDisplay(el) {
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var now = Date.now();
+      var cached = marginParentDisplayCache;
+      if (cached && cached.el === el && cached.parent === parent && now - cached.at < 250) {
+        return cached.display;
+      }
+      var display = window.getComputedStyle(parent).display;
+      marginParentDisplayCache = {
+        el,
+        parent,
+        display,
+        at: now
+      };
+      return display;
+    }
     function buildMarginSpacingHandles(el, rect, cs) {
       var line = chromeLineScale();
       var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
@@ -8266,6 +8307,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var right = clampSpacingValue(readPx(cs.marginRight), true);
       var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
       var left = clampSpacingValue(readPx(cs.marginLeft), true);
+      var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+      var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+      var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+      var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+      var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+      if (!draggingMargin && !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position
+      })) {
+        return [];
+      }
       return [
         makeSpacingHandle({
           key: "margin:top",
@@ -8275,7 +8329,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "top",
           orientation: "horizontal",
           value: top,
-          valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+          valueLabel: autoTop ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -8298,7 +8352,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "right",
           orientation: "vertical",
           value: right,
-          valueLabel: marginValueIsAuto(el, "right", cs.marginRight) ? "auto" : "",
+          valueLabel: autoRight ? "auto" : "",
           elementRect: rect,
           region: {
             x: rect.width + Math.min(0, right),
@@ -8321,7 +8375,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "bottom",
           orientation: "horizontal",
           value: bottom,
-          valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom) ? "auto" : "",
+          valueLabel: autoBottom ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -8344,7 +8398,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "left",
           orientation: "vertical",
           value: left,
-          valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+          valueLabel: autoLeft ? "auto" : "",
           elementRect: rect,
           region: {
             x: Math.min(0, -left),
@@ -14557,6 +14611,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (rgb && rgb.a > 0.01) {
           var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
           return luminance > 150;
+        }
+        if (!rgb && bg && bg !== "transparent" && !/\\/\\s*0(?:\\.0+)?%?\\s*\\)$/.test(bg)) {
+          return false;
         }
         cursor = cursor.parentElement;
       }
@@ -22439,6 +22496,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           trustedFocusIntent = null;
         }
         interactionMode = nextInteractionMode;
+        document.documentElement.toggleAttribute(
+          "data-agent-native-interact",
+          interactionMode
+        );
         if (interactionMode) {
           hideMeasurements();
           var releaseSpacePan = bridgeSpaceKeyPressed;
@@ -22754,6 +22815,31 @@ export const editorChromeBridgeScript: string = `"use strict";
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
             screenId: designCanvasScreenId,
             payload: measureTarget ? getElementInfo(measureTarget) : null
+          },
+          "*"
+        );
+        return;
+      }
+      if (e.data.type === "agent-native:measure-contrast-background") {
+        var contrastScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        if (contrastScreenId && contrastScreenId !== designCanvasScreenId) return;
+        var contrastSelector = typeof e.data.selector === "string" ? e.data.selector : "";
+        var contrastTarget = null;
+        if (contrastSelector) {
+          try {
+            contrastTarget = document.querySelector(contrastSelector);
+          } catch (_err) {
+            contrastTarget = null;
+          }
+        } else {
+          contrastTarget = selectedEl;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:contrast-background-measured",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            screenId: designCanvasScreenId,
+            payload: contrastTarget ? collectPaintLayers(contrastTarget) : null
           },
           "*"
         );

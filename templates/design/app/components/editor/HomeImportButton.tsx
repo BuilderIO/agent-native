@@ -33,6 +33,11 @@ import {
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import { importResultNotification } from "@/lib/design-import";
+import {
+  FIGMA_IMPORT_FORMAT,
+  importFormatsAccept,
+  requestImportFile,
+} from "@/lib/design-import-file-picker";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import {
   claimFigImportToast,
@@ -42,6 +47,8 @@ import {
   setPendingDesignImport,
   updateFigImportToast,
 } from "@/lib/pending-import";
+
+const HOME_IMPORT_FORMATS = [FIGMA_IMPORT_FORMAT];
 
 export function HomeImportButton() {
   const t = useT();
@@ -68,7 +75,17 @@ export function HomeImportButton() {
   const pickFile = () => {
     if (pending.current) return;
     setOpen(false);
-    fileInput.current?.click();
+    requestImportFile({
+      formats: HOME_IMPORT_FORMATS,
+      allSupportedLabel: t("designEditor.import.allSupportedFiles"),
+      openFallbackInput: () => fileInput.current?.click(),
+      onFile: (file) => void importFile(file),
+      onError: (error) =>
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        }),
+    });
   };
   const importFile = async (file: File | undefined) => {
     if (!file || pending.current) return;
@@ -98,6 +115,7 @@ export function HomeImportButton() {
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
         projectType: "prototype",
         designSystemId: null,
+        creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
       setPendingDesignImport(result.id, { kind: "file", file });
@@ -122,7 +140,7 @@ export function HomeImportButton() {
       <input
         ref={fileInput}
         type="file"
-        accept=".fig"
+        accept={importFormatsAccept(HOME_IMPORT_FORMATS)}
         hidden
         aria-label={t("home.figmaFile")}
         onChange={(event) => {

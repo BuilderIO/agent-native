@@ -31,6 +31,10 @@ import { createCanvasGestureController } from "@agent-native/toolkit/canvas-inte
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 import {
+  isAutoLayoutDisplay,
+  marginHandlesApply,
+} from "../../../../shared/spacing-handle-rule";
+import {
   INLINE_TEXT_TAGS,
   padsBox,
   paintsBox,
@@ -941,7 +945,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}' +
       '@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}' +
       '@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' +
-      "html{overflow:clip}" +
+      // A clipped root is a hidden viewport: the wheel reaches a live page in
+      // Interact and moves nothing. Interact owns scrolling, so it is released.
+      "html:not([data-agent-native-interact]){overflow:clip}" +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -4311,15 +4317,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     };
   }
 
-  function isAutoLayoutDisplay(display: string | undefined): boolean {
-    return (
-      display === "flex" ||
-      display === "inline-flex" ||
-      display === "grid" ||
-      display === "inline-grid"
-    );
-  }
-
   function rectInfoForElement(el: Element) {
     if (el.getAttribute("data-an-primitive") === "boolean-operand") {
       var geometry = el as SVGGraphicsElement;
@@ -7029,6 +7026,35 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }, 0),
       provenance: provenance,
     };
+  }
+
+  // What is painted at an element and each ancestor above it, nearest first.
+  // The editor decides what that means for text contrast; the bridge only
+  // reports computed values.
+  function collectPaintLayers(el: Element): Array<{
+    backgroundColor: string;
+    backgroundImage: string;
+    opacity: string;
+    mixBlendMode: string;
+  }> {
+    var layers: Array<{
+      backgroundColor: string;
+      backgroundImage: string;
+      opacity: string;
+      mixBlendMode: string;
+    }> = [];
+    var node: Element | null = el;
+    while (node && layers.length < 64) {
+      var paint = window.getComputedStyle(node);
+      layers.push({
+        backgroundColor: paint.backgroundColor,
+        backgroundImage: paint.backgroundImage,
+        opacity: paint.opacity,
+        mixBlendMode: paint.mixBlendMode,
+      });
+      node = node.parentElement;
+    }
+    return layers;
   }
 
   var lastScreenRootStyleSnapshot = "";
@@ -10193,6 +10219,39 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return handles.filter(Boolean);
   }
 
+  // The overlay rebuilds every frame while a selection moves, and a parent's
+  // display almost never changes inside one; re-reading it per frame would make
+  // style reads scale with frames instead of elements.
+  var marginParentDisplayCache: {
+    el: Element;
+    parent: Element;
+    display: string;
+    at: number;
+  } | null = null;
+
+  function marginParentDisplay(el: Element): string | undefined {
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var now = Date.now();
+    var cached = marginParentDisplayCache;
+    if (
+      cached &&
+      cached.el === el &&
+      cached.parent === parent &&
+      now - cached.at < 250
+    ) {
+      return cached.display;
+    }
+    var display = window.getComputedStyle(parent).display;
+    marginParentDisplayCache = {
+      el: el,
+      parent: parent,
+      display: display,
+      at: now,
+    };
+    return display;
+  }
+
   function buildMarginSpacingHandles(
     el: Element,
     rect: DOMRect,
@@ -10207,6 +10266,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var right = clampSpacingValue(readPx(cs.marginRight), true);
     var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
     var left = clampSpacingValue(readPx(cs.marginLeft), true);
+    var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+    var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+    var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+    var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+    // A drag through 0 must not retire the handle being dragged.
+    var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+    if (
+      !draggingMargin &&
+      !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position,
+      })
+    ) {
+      return [];
+    }
 
     return [
       makeSpacingHandle({
@@ -10217,7 +10293,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "top",
         orientation: "horizontal",
         value: top,
-        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        valueLabel: autoTop ? "auto" : "",
         elementRect: rect,
         region: {
           x: 0,
@@ -10243,9 +10319,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "right",
         orientation: "vertical",
         value: right,
-        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
-          ? "auto"
-          : "",
+        valueLabel: autoRight ? "auto" : "",
         elementRect: rect,
         region: {
           x: rect.width + Math.min(0, right),
@@ -10272,9 +10346,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "bottom",
         orientation: "horizontal",
         value: bottom,
-        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
-          ? "auto"
-          : "",
+        valueLabel: autoBottom ? "auto" : "",
         elementRect: rect,
         region: {
           x: 0,
@@ -10301,7 +10373,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "left",
         orientation: "vertical",
         value: left,
-        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        valueLabel: autoLeft ? "auto" : "",
         elementRect: rect,
         region: {
           x: Math.min(0, -left),
@@ -18387,6 +18459,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       if (rgb && rgb.a > 0.01) {
         var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
         return luminance > 150;
+      }
+      // A background this script cannot read (oklch(), color()) is not assumed
+      // to be light: the caller leaves the text color alone.
+      if (
+        !rgb &&
+        bg &&
+        bg !== "transparent" &&
+        !/\/\s*0(?:\.0+)?%?\s*\)$/.test(bg)
+      ) {
+        return false;
       }
       cursor = cursor.parentElement;
     }
@@ -28718,6 +28800,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         trustedFocusIntent = null;
       }
       interactionMode = nextInteractionMode;
+      document.documentElement.toggleAttribute(
+        "data-agent-native-interact",
+        interactionMode,
+      );
       if (interactionMode) {
         hideMeasurements();
         var releaseSpacePan = bridgeSpaceKeyPressed;
@@ -29090,6 +29176,36 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
               : "",
           screenId: designCanvasScreenId,
           payload: measureTarget ? getElementInfo(measureTarget) : null,
+        },
+        "*",
+      );
+      return;
+    }
+    if (e.data.type === "agent-native:measure-contrast-background") {
+      var contrastScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (contrastScreenId && contrastScreenId !== designCanvasScreenId) return;
+      var contrastSelector: string =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var contrastTarget: Element | null = null;
+      if (contrastSelector) {
+        try {
+          contrastTarget = document.querySelector(contrastSelector);
+        } catch (_err) {
+          contrastTarget = null;
+        }
+      } else {
+        contrastTarget = selectedEl;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:contrast-background-measured",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          screenId: designCanvasScreenId,
+          payload: contrastTarget ? collectPaintLayers(contrastTarget) : null,
         },
         "*",
       );

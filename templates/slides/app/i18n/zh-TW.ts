@@ -772,6 +772,10 @@ const messages = {
     generationFailed: "未建立投影片。請查看聊天中的詳細資訊，然後再試一次。",
     generationOutcomeUnresolved:
       "無法確認投影片是否已建立。請先檢查簡報，再重試。",
+    partialGenerationFailed:
+      "我們無法完成投影片製作。繼續之前，請查看已建立的投影片和原始需求。",
+    originalPrompt: "你輸入的內容",
+    backToHome: "返回首頁",
     checkedDeckTryAgain: "我已檢查簡報，再試一次",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",

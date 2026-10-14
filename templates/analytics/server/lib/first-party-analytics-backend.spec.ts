@@ -6,7 +6,7 @@ const getOrgSetting = vi.hoisted(() => vi.fn());
 const putScopedSettingRecord = vi.hoisted(() => vi.fn());
 const getBigQueryProjectId = vi.hoisted(() => vi.fn());
 const runQuery = vi.hoisted(() => vi.fn());
-const getAccessToken = vi.hoisted(() => vi.fn());
+const getBigQueryAccessToken = vi.hoisted(() => vi.fn());
 const fetchGoogleWithRetry = vi.hoisted(() => vi.fn());
 const execute = vi.hoisted(() => vi.fn());
 
@@ -22,7 +22,7 @@ vi.mock("./bigquery.js", () => ({
 vi.mock("./gcloud.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gcloud.js")>()),
   fetchGoogleWithRetry,
-  getAccessToken,
+  getBigQueryAccessToken,
 }));
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 vi.mock("./credentials-context.js", () => ({
@@ -51,7 +51,7 @@ beforeEach(() => {
   putScopedSettingRecord.mockReset();
   getBigQueryProjectId.mockReset();
   runQuery.mockReset();
-  getAccessToken.mockReset();
+  getBigQueryAccessToken.mockReset();
   fetchGoogleWithRetry.mockReset();
   execute.mockReset();
   resetFirstPartyAnalyticsBackendCacheForTests();
@@ -65,7 +65,7 @@ beforeEach(() => {
   });
   putScopedSettingRecord.mockResolvedValue(undefined);
   getBigQueryProjectId.mockResolvedValue("builder-3b0a2");
-  getAccessToken.mockResolvedValue("test-token");
+  getBigQueryAccessToken.mockResolvedValue("test-token");
   fetchGoogleWithRetry.mockImplementation((url, init) => fetch(url, init));
 });
 
@@ -1005,6 +1005,9 @@ describe("first-party BigQuery backend", () => {
     ).resolves.toBe(201);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getBigQueryAccessToken).toHaveBeenCalledWith({
+      preferServiceAccount: true,
+    });
     expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
     ).toMatchObject({ skipInvalidRows: true, ignoreUnknownValues: false });

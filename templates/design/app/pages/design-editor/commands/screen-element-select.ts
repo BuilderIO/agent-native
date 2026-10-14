@@ -50,7 +50,6 @@ export interface ScreenElementSelectArgs {
   ) => ApplyFileContentUpdateResult;
   clearPendingOverviewLayerSelectionTimer: () => void;
   createdOverviewLayerSelection: { screenId: string; layerId: string } | null;
-  focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
   ) => CodeLayerProjection | null;
@@ -88,7 +87,6 @@ export function runScreenElementSelect(
     applyFileContentUpdate,
     clearPendingOverviewLayerSelectionTimer,
     createdOverviewLayerSelection,
-    focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     getScreenContent,
     handleBreakpointBarSelect,
@@ -359,6 +357,5 @@ export function runScreenElementSelect(
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
-  focusDesignInspectorForSelection();
   return true;
 }

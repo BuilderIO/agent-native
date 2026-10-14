@@ -1,3 +1,4 @@
+import { AgentConnectionRequiredError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/provider-api", () => ({
   isProviderApiId: vi.fn((provider: string) =>
-    ["hubspot", "notion", "slack"].includes(provider),
+    ["bigquery", "hubspot", "notion", "slack"].includes(provider),
   ),
   resolveProviderApiOAuthAccessToken: vi.fn(async (...args) => {
     mocks.oauthCalls.push({ args });
@@ -62,6 +63,7 @@ import {
   HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
   resolveAnalyticsGongCredentials,
   resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential,
   resolveWorkspaceConnectionProviderCredential,
 } from "./provider-credentials.js";
 
@@ -301,6 +303,163 @@ describe("analytics provider credentials", () => {
       source: "workspace_connection",
     });
     expect(mocks.coreResolverCalls).toEqual([]);
+  });
+
+  it("resolves the current user's BigQuery OAuth connection before local keys", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = {
+      accessToken: "bigquery-user-token",
+      accountId: "analyst@example.test",
+      connectionId: "bigquery-user-connection",
+      connectionLabel: "Analyst Google",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        ctx: { userEmail: "analyst@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "bigquery-user-token",
+      key: "BIGQUERY_OAUTH_TOKEN",
+      provider: "bigquery",
+      source: "workspace_connection",
+      connectionId: "bigquery-user-connection",
+    });
+    expect(mocks.oauthCalls[0]).toMatchObject({
+      args: [
+        { provider: "bigquery", connectionId: "bigquery-user-connection" },
+        expect.objectContaining({
+          appId: "analytics",
+          providerIds: ["bigquery"],
+        }),
+      ],
+    });
+    expect(mocks.workspaceConnectionCalls[0]).toMatchObject({
+      connectionOwnerEmail: "analyst@example.test",
+    });
+    expect(mocks.coreResolverCalls).toEqual([]);
+  });
+
+  it("keeps explicitly selected BigQuery OAuth connections owner-scoped", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-selected-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = {
+      accessToken: "bigquery-user-token",
+      accountId: "analyst@example.test",
+      connectionId: "bigquery-selected-connection",
+      connectionLabel: "Analyst Google",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        connectionId: "bigquery-selected-connection",
+        ctx: { userEmail: "analyst@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "bigquery-user-token",
+      connectionId: "bigquery-selected-connection",
+    });
+    expect(mocks.workspaceConnectionCalls[0]).toMatchObject({
+      connectionId: "bigquery-selected-connection",
+      connectionOwnerEmail: "analyst@example.test",
+    });
+  });
+
+  it("allows service-account fallback when BigQuery OAuth needs reauthorization", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthError = new AgentConnectionRequiredError(
+      "BigQuery needs to be reconnected.",
+      { provider: "bigquery", reason: "reauthorize", appId: "analytics" },
+    );
+
+    await expect(
+      resolveBigQueryOAuthCredential({
+        userEmail: "analyst@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves transient BigQuery OAuth resolution failures", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthError = new Error("OAuth refresh service unavailable");
+
+    await expect(
+      resolveBigQueryOAuthCredential({
+        userEmail: "analyst@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow("OAuth refresh service unavailable");
+  });
+
+  it("does not use a personal BigQuery OAuth connection for org-only credentials", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        ctx: {
+          userEmail: "analyst@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.workspaceConnectionCalls).toEqual([]);
+    expect(mocks.oauthCalls).toEqual([]);
   });
 
   it("splits legacy Gong API keys for current access key and secret lookups", async () => {

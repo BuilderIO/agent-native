@@ -13,6 +13,7 @@ type RelationGrainClaim = {
 type RelationMeaningClaim = {
   relation: string;
   meanings: string[];
+  requiredMeaningGroups?: string[][];
 };
 
 type RelationFieldsClaim = {
@@ -24,6 +25,8 @@ type FieldMeaningClaim = {
   relation: string;
   field: string;
   meanings: string[];
+  disallowedMeanings?: string[];
+  requiredDisclaimers?: string[];
 };
 
 type SourceContract = {
@@ -44,6 +47,19 @@ export const METADATA_ONLY_ACTION_ALLOWLIST = [
   "search-bigquery-schema",
   "tool-search",
 ] as const;
+
+const monthlyUserCountMeaningGroups = [
+  [
+    "completed months use month-end",
+    "completed months use month end",
+    "completed months end on the last calendar day",
+  ],
+  [
+    "in-progress month is a partial snapshot as of today",
+    "current month is a partial snapshot as of today",
+    "current month is an as-of-today partial snapshot",
+  ],
+] satisfies string[][];
 
 export const sourceContracts = {
   builderUsersByOrganization: {
@@ -98,6 +114,7 @@ export const sourceContracts = {
       {
         relation: "dbt_mart.aggregate_monthly_users_per_org",
         meanings: ["historical", "month-end", "monthly trend"],
+        requiredMeaningGroups: monthlyUserCountMeaningGroups,
       },
     ],
     relationGrainAlternatives: [],
@@ -117,16 +134,40 @@ export const sourceContracts = {
       {
         relation: "dbt_mart.aggregate_monthly_users_per_org",
         field: "user_count",
-        meanings: ["external", "customer", "product users"],
+        meanings: [
+          "members whose email does not end in @builder.io",
+          "non-@builder.io email-address memberships",
+          "billable seats excluding @builder.io addresses",
+        ],
       },
       {
         relation: "dbt_mart.aggregate_monthly_users_per_org",
         field: "internal_user_count",
-        meanings: ["internal", "staff", "employee"],
+        meanings: [
+          "@builder.io email-address memberships",
+          "members with @builder.io email addresses",
+          "members whose email ends in @builder.io",
+        ],
+        disallowedMeanings: ["staff", "employee"],
+        requiredDisclaimers: ["not an employee/staff roster"],
+      },
+    ],
+    relationMeanings: [
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        meanings: ["historical", "monthly trend"],
+        requiredMeaningGroups: monthlyUserCountMeaningGroups,
       },
     ],
     relationGrainAlternatives: [],
-    concepts: ["user_count", "internal_user_count", "month-end", "builder.io"],
+    concepts: [
+      "user_count",
+      "internal_user_count",
+      "month-end",
+      "in-progress month",
+      "partial snapshot",
+      "builder.io",
+    ],
   },
   builderProductActivity: {
     relationGrains: [
@@ -383,6 +424,28 @@ function hasRelationMeaningClaim(
   );
 }
 
+function hasRequiredRelationMeaningGroup(
+  lines: string[],
+  claim: RelationMeaningClaim,
+  meanings: string[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter(
+    (line) => findCompletePhraseIndexes(line, relation).length > 0,
+  );
+  const state = matchingLines.reduce(
+    (combined, line) => {
+      const lineState = getMeaningClaimState(line, meanings);
+      return {
+        affirmative: combined.affirmative || lineState.affirmative,
+        negated: combined.negated || lineState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  return state.affirmative && !state.negated;
+}
+
 function hasRelationFieldsClaim(
   lines: string[],
   claim: RelationFieldsClaim,
@@ -474,6 +537,34 @@ function hasFieldMeaningClaim(
   );
   if (!expected.affirmative || expected.negated) return false;
 
+  const disallowedState = assignments.reduce(
+    (state, assignment) => {
+      const assignmentState = getMeaningClaimState(
+        assignment,
+        claim.disallowedMeanings ?? [],
+      );
+      return {
+        affirmative: state.affirmative || assignmentState.affirmative,
+        negated: state.negated || assignmentState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  if (disallowedState.affirmative) return false;
+
+  if (
+    (claim.requiredDisclaimers ?? []).some(
+      (disclaimer) =>
+        !assignments.some(
+          (assignment) =>
+            findCompletePhraseIndexes(assignment, disclaimer.toLowerCase())
+              .length > 0,
+        ),
+    )
+  ) {
+    return false;
+  }
+
   return !allClaims
     .filter(
       (candidate) =>
@@ -541,6 +632,13 @@ function sourceContractScorer(
             `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
           );
         }
+        for (const group of claim.requiredMeaningGroups ?? []) {
+          if (!hasRequiredRelationMeaningGroup(lines, claim, group)) {
+            reasons.push(
+              `${claim.relation} omitted required semantic detail: ${group[0]}`,
+            );
+          }
+        }
       }
 
       for (const claim of contract.fieldMeanings ?? []) {
@@ -606,12 +704,12 @@ export default [
   ),
   sourceEval(
     "Builder.io current and historical organization user counts have different grains",
-    "SYNTHETIC source selection only: I need a current organization user count and a historical month-end trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? Use model or schema metadata only. Put one relation on each line as `<relation>: current or historical; grain: <declared row unit>`. Do not query production rows or return count values.",
+    "SYNTHETIC source selection only: I need a current organization user count and a historical monthly trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? For the monthly relation, state that completed months use month-end and the in-progress month is a partial snapshot as of today. Use model or schema metadata only. Put one relation on each line as `<relation>: current or historical; grain: <declared row unit>; monthly cutoff details`. Do not query production rows or return count values.",
     sourceContracts.builderCurrentAndHistoricalUserCounts,
   ),
   sourceEval(
-    "Builder.io month-end customer and internal user counts are separate",
-    "SYNTHETIC source selection only: for a month-end organization report, I need external Builder.io product users and Builder staff users shown separately. Which dbt model and fields define those counts, and what is its row grain? Use model or schema metadata only. Put the relation and grain on one line as `<relation>: grain: <declared row unit>`, then map each field on its own line as `<relation>.<field>: <population>`. Do not query production rows, list users, or return count values.",
+    "Builder.io monthly membership counts are split by email domain, not employee status",
+    "SYNTHETIC source selection only: for a monthly Builder.io organization membership report, I need memberships split by whether the user's email ends in `@builder.io`. Which dbt model and fields define the counts, and what is the row grain? State that the `@builder.io` count is not an employee/staff roster. Clarify that completed months use month-end, while the in-progress month is a partial snapshot as of today. Use model or schema metadata only. Put the relation and grain on one line as `<relation>: grain: <declared row unit>`, state both time-cutoff rules on the relation line, and map each field on its own line as `<relation>.<field>: <population>; <roster caveat>`. Do not query production rows, list users, or return count values.",
     sourceContracts.builderExternalAndInternalUserCounts,
   ),
   sourceEval(

@@ -14,9 +14,9 @@ import {
   type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
 import {
+  ANNOTATE_LAB,
   DESIGN_MOTION_LAB,
   DESIGN_REVIEW_TOOLS_LAB,
-  DESIGN_TWEAKS,
   FULL_APP_BUILDING_LAB,
 } from "@shared/labs";
 import { IconActivity } from "@tabler/icons-react";
@@ -75,11 +75,6 @@ export default function SettingsRoute() {
   const labs = useMemo(
     () => [
       {
-        ...DESIGN_TWEAKS,
-        displayName: t("settings.labTweaks"),
-        description: t("settings.labTweaksDescription"),
-      },
-      {
         ...FULL_APP_BUILDING_LAB,
         displayName: t("settings.labFullAppBuilding"),
         description: t("settings.labFullAppBuildingDescription"),
@@ -93,6 +88,11 @@ export default function SettingsRoute() {
         ...DESIGN_MOTION_LAB,
         displayName: t("settings.labMotion"),
         description: t("settings.labMotionDescription"),
+      },
+      {
+        ...ANNOTATE_LAB,
+        displayName: t("settings.labAnnotate"),
+        description: t("settings.labAnnotateDescription"),
       },
       {
         ...CREATIVE_CONTEXT_LIBRARY_LAB,

@@ -6,6 +6,9 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  createRetiredBrowserSessionErrorCorrelator,
+  browserSessionNavigationRequestIdentity,
+  browserSessionIdAfterRequest,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
   authoringFuzzLineNavigationKeys,
@@ -20,11 +23,19 @@ import {
   resolveAuthoringFuzzScratchDeck,
   retryAuthoringFuzzScratchDeckLookup,
   formatAuthoringFuzzFailure,
+  finalizeDeferredOutgoingBrowserSessionAbort,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
+  isCompetingOutgoingBrowserSessionRequest,
+  isCompetingRetiredBrowserSessionTraffic,
+  isPostNavigationBrowserSessionTraffic,
   isCaretScrollOnlyChange,
   isExpectedCleanupBrowserSessionHeartbeatConsoleError,
   isExpectedSaveReloadBrowserSessionConsoleError,
+  isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace,
+  isExpectedOutgoingBrowserSessionNavigationAbort,
+  isExpectedSaveReloadRetiredBrowserSessionCorsError,
+  isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
@@ -32,6 +43,7 @@ import {
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
   normalizeFirefoxBrowserSessionConsoleError,
+  uniquePendingBrowserSessionId,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -1745,6 +1757,709 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
       [{ ...registrationCandidate, ageMs: 9_000 }],
     ),
   ).toBe(false);
+});
+
+it("matches only outgoing browser-session requests canceled by the slide reload", () => {
+  const sessionId = "retired-session-id";
+  const claimPath =
+    "/_agent-native/browser-sessions/retired-session-id/requests/claim";
+  const claimAbort = {
+    activePhase: "save/reload",
+    method: "POST",
+    pathname: claimPath,
+    errorText: "NS_BINDING_ABORTED",
+    sameOrigin: true,
+    resourceType: "fetch",
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost:34123/deck/slide-1#editing",
+    outgoingDocumentUrl: "http://localhost:34123/deck/slide-1",
+    requestStartedAt: 103,
+    mainFrameNavigationStartedAt: 100,
+    requestSequence: 12,
+    mainFrameNavigationRequestSequence: 11,
+    requestStartedBeforeMainFrameCommit: true,
+    requestFailedAt: 118,
+    requestKind: "poll" as const,
+    requestSessionId: sessionId,
+    retiredSessionId: sessionId,
+    competingSameTypeRequest: false,
+  };
+
+  expect(isExpectedOutgoingBrowserSessionNavigationAbort(claimAbort)).toBe(
+    true,
+  );
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      requestSessionId: "new-session-id",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      requestSourceIsMainFrame: false,
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      requestFrameUrl: "http://localhost:34123/deck/slide-2",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      resourceType: "xhr",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      requestSequence: 11,
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      requestStartedBeforeMainFrameCommit: false,
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      competingSameTypeRequest: true,
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      errorText: "NS_ERROR_NET_TIMEOUT",
+    }),
+  ).toBe(false);
+  expect(
+    isExpectedOutgoingBrowserSessionNavigationAbort({
+      ...claimAbort,
+      mainFrameNavigationStartedAt: null,
+    }),
+  ).toBe(false);
+
+  const registrationBody = JSON.stringify({
+    session: { id: sessionId },
+    sessionId,
+  });
+  expect(
+    browserSessionNavigationRequestIdentity(
+      "POST",
+      "/_agent-native/browser-sessions",
+      registrationBody,
+    ),
+  ).toEqual({ status: "identified", kind: "heartbeat", sessionId });
+  expect(
+    browserSessionNavigationRequestIdentity(
+      "POST",
+      "/_agent-native/browser-sessions",
+      JSON.stringify({ session: { id: "other" }, sessionId }),
+    ),
+  ).toEqual({ status: "invalid", reason: "malformed-registration" });
+  expect(
+    browserSessionNavigationRequestIdentity(
+      "POST",
+      "/_agent-native/browser-sessions",
+      "not-json",
+    ),
+  ).toEqual({ status: "invalid", reason: "malformed-registration" });
+
+  const heartbeatAbort = {
+    ...claimAbort,
+    pathname: "/_agent-native/browser-sessions",
+    requestKind: "heartbeat" as const,
+  };
+  expect(isExpectedOutgoingBrowserSessionNavigationAbort(heartbeatAbort)).toBe(
+    true,
+  );
+
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+  const heartbeatWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource.";
+  const failedClaim = {
+    url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    pathname:
+      "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    method: "POST",
+    ageMs: 18,
+    outgoingNavigationAbort: true,
+    outgoingRequestKind: "poll" as const,
+    requestSessionId: sessionId,
+    retiredSessionId: sessionId,
+    outgoingAbortWarningAgeMs: 150,
+    competingSameTypeRequest: false,
+  };
+  const failedRegistration = {
+    ...failedClaim,
+    outgoingRequestKind: "heartbeat" as const,
+  };
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      failedClaim,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [failedRegistration],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...failedClaim, outgoingAbortWarningAgeMs: 251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...failedClaim, competingSameTypeRequest: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      failedClaim,
+      failedClaim,
+    ]),
+  ).toBe(false);
+});
+
+it("correlates Firefox reload warnings whether request failure arrives first or second", async () => {
+  vi.useFakeTimers();
+  try {
+    const warning =
+      "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+    const failedClaim = {
+      url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+      pathname:
+        "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+      method: "POST",
+      ageMs: 18,
+      outgoingNavigationAbort: true,
+      outgoingRequestKind: "poll" as const,
+      requestSessionId: "retired-session-id",
+      retiredSessionId: "retired-session-id",
+      outgoingAbortWarningAgeMs: 150,
+      competingSameTypeRequest: false,
+    };
+    let candidates: (typeof failedClaim)[] = [];
+
+    const warningFirst =
+      isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
+        warning,
+        "save/reload",
+        () => candidates,
+      );
+    setTimeout(() => {
+      candidates = [failedClaim];
+    }, 100);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await warningFirst).toBe(true);
+
+    candidates = [failedClaim];
+    const failureFirst =
+      isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
+        warning,
+        "save/reload",
+        () => candidates,
+      );
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await failureFirst).toBe(true);
+
+    candidates = [];
+    const unmatchedWarning =
+      isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
+        warning,
+        "save/reload",
+        () => candidates,
+      );
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await unmatchedWarning).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("correlates WebKit's retired browser-session claim error to the reload window", () => {
+  const origin = "http://localhost:65362";
+  const sessionId = "4ffee127-e336-48bf-b3e8-e9ca9f5640e8";
+  const navigationStartedAt = 1_000;
+  const error = `Fetch API cannot load ${origin}/_agent-native/browser-sessions/${sessionId}/requests/claim due to access control checks.`;
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      "another-session",
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error.replace(origin, "http://other.localhost:65362"),
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error.replace(`${origin}/_agent-native`, "http://[invalid/_agent-native"),
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "step 17",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      null,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      true,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      2_000,
+      false,
+    ),
+  ).toBe(false);
+
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      1_024,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      1_268,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      pollWarning,
+      "step 17",
+      1_017,
+      1_024,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      "another poll failure",
+      "save/reload",
+      1_017,
+      1_024,
+    ),
+  ).toBe(false);
+});
+
+it("seeds browser session tracking only from one unambiguous pending claim", () => {
+  const claim = (sessionId: string) => ({
+    method: "POST",
+    pathname: `/_agent-native/browser-sessions/${sessionId}/requests/claim`,
+  });
+
+  expect(uniquePendingBrowserSessionId([claim("session-a")])).toBe("session-a");
+  expect(
+    uniquePendingBrowserSessionId([claim("session-a"), claim("session-a")]),
+  ).toBe("session-a");
+  expect(
+    uniquePendingBrowserSessionId([claim("session-a"), claim("session-b")]),
+  ).toBe(null);
+  expect(
+    uniquePendingBrowserSessionId([{ ...claim("session-a"), method: "GET" }]),
+  ).toBe(null);
+});
+
+it("updates the tracked session for claims during reload navigation", () => {
+  expect(
+    browserSessionIdAfterRequest(
+      "retired-session",
+      "POST",
+      "/_agent-native/browser-sessions/new-session/requests/claim",
+    ),
+  ).toBe("new-session");
+  expect(
+    browserSessionIdAfterRequest(
+      "retired-session",
+      "POST",
+      "/_agent-native/browser-sessions",
+    ),
+  ).toBe("retired-session");
+});
+
+it("recognizes claim and registration traffic that starts after navigation", () => {
+  expect(
+    isPostNavigationBrowserSessionTraffic(
+      "/_agent-native/browser-sessions/new-session/requests/claim",
+      true,
+      false,
+    ),
+  ).toBe(true);
+  expect(
+    isPostNavigationBrowserSessionTraffic(
+      "/_agent-native/browser-sessions",
+      false,
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    isPostNavigationBrowserSessionTraffic(
+      "/_agent-native/actions/get-deck",
+      true,
+      false,
+    ),
+  ).toBe(false);
+});
+
+it("distinguishes outgoing retired-session traffic from a competing new session", () => {
+  const outgoingRequest = {
+    pathname: "/_agent-native/browser-sessions/retired-session/requests/claim",
+    requestStartedDuringNavigation: true,
+    requestStartedAfterNavigation: false,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost:34123/deck/slide-1#editing",
+    outgoingDocumentUrl: "http://localhost:34123/deck/slide-1",
+    requestSessionId: "retired-session",
+    retiredSessionId: "retired-session",
+  };
+
+  expect(isCompetingRetiredBrowserSessionTraffic(outgoingRequest)).toBe(false);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      pathname: "/_agent-native/browser-sessions/new-session/requests/claim",
+      requestSessionId: "new-session",
+    }),
+  ).toBe(true);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      requestSessionId: null,
+    }),
+  ).toBe(true);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      requestStartedDuringNavigation: false,
+      requestStartedAfterNavigation: true,
+    }),
+  ).toBe(true);
+  expect(
+    isCompetingRetiredBrowserSessionTraffic({
+      ...outgoingRequest,
+      requestSourceIsMainFrame: false,
+    }),
+  ).toBe(true);
+});
+
+it("does not let a completed same-kind request block abort correlation", () => {
+  const request = {
+    outgoingRequestKind: "poll" as const,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost:34123/deck/slide-1#editing",
+    finishedSuccessfully: false,
+    mainFrameNavigationRequestSequence: 10,
+    mainFrameNavigationStartedAt: 100,
+    requestSequence: 8,
+    requestStartedBeforeMainFrameCommit: false,
+  };
+  const outgoingDocumentUrl = "http://localhost:34123/deck/slide-1";
+
+  expect(
+    isCompetingOutgoingBrowserSessionRequest(
+      "poll",
+      outgoingDocumentUrl,
+      request,
+    ),
+  ).toBe(true);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      finishedSuccessfully: true,
+    }),
+  ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest(
+      "heartbeat",
+      outgoingDocumentUrl,
+      request,
+    ),
+  ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      requestSequence: 12,
+      requestStartedBeforeMainFrameCommit: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      requestSequence: 12,
+      requestStartedBeforeMainFrameCommit: true,
+    }),
+  ).toBe(true);
+});
+
+it("finalizes a deferred outgoing request before cleanup can discard it", () => {
+  const candidate = {
+    failureAt: 120,
+    failureText: "NS_BINDING_ABORTED",
+    outgoingNavigationAbort: false,
+    pendingOutgoingAbort: true,
+  };
+
+  expect(
+    finalizeDeferredOutgoingBrowserSessionAbort(candidate, (at, errorText) => {
+      expect(at).toBe(120);
+      expect(errorText).toBe("NS_BINDING_ABORTED");
+      return false;
+    }),
+  ).toBe("unexpected");
+  expect(candidate).toMatchObject({
+    outgoingNavigationAbort: false,
+    pendingOutgoingAbort: false,
+  });
+  expect(
+    finalizeDeferredOutgoingBrowserSessionAbort(candidate, () => false),
+  ).toBe("not-pending");
+});
+
+it("pairs retired-session reload errors in either event order and retains late errors", () => {
+  const origin = "http://localhost:65362";
+  const sessionId = "4ffee127-e336-48bf-b3e8-e9ca9f5640e8";
+  const pageError = `Fetch API cannot load ${origin}/_agent-native/browser-sessions/${sessionId}/requests/claim due to access control checks.`;
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const makeCorrelator = () => {
+    const correlator = createRetiredBrowserSessionErrorCorrelator();
+    correlator.beginNavigation(sessionId, origin, 1_000);
+    return correlator;
+  };
+
+  const pageErrorFirst = makeCorrelator();
+  expect(pageErrorFirst.finishNavigation(1_010)).toBe(990);
+  expect(
+    pageErrorFirst.onPageError(pageError, "save/reload", 1_017, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pageErrorFirst.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_024,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pageErrorFirst.nextExpiryDelay(1_024)).toBe(null);
+  expect(pageErrorFirst.clear()).toEqual([]);
+
+  const pollWarningFirst = makeCorrelator();
+  expect(
+    pollWarningFirst.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pollWarningFirst.onPageError(pageError, "save/reload", 1_024, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningFirst.nextExpiryDelay(1_024)).toBe(null);
+
+  const pollWarningAfterNavigationGrace = makeCorrelator();
+  expect(
+    pollWarningAfterNavigationGrace.onPageError(
+      pageError,
+      "save/reload",
+      1_990,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pollWarningAfterNavigationGrace.onPollWarning(
+      pollWarning,
+      "save/reload",
+      2_010,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningAfterNavigationGrace.nextExpiryDelay(2_010)).toBe(null);
+
+  const pollWarningBeforeNavigationCutoff = makeCorrelator();
+  expect(
+    pollWarningBeforeNavigationCutoff.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_990,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pollWarningBeforeNavigationCutoff.onPageError(
+      pageError,
+      "save/reload",
+      2_010,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningBeforeNavigationCutoff.nextExpiryDelay(2_010)).toBe(null);
+
+  const unpairedLatePageError = makeCorrelator();
+  expect(
+    unpairedLatePageError.onPageError(pageError, "save/reload", 2_010, false),
+  ).toEqual({ matched: false, errors: [] });
+  expect(unpairedLatePageError.nextExpiryDelay(2_010)).toBe(null);
+
+  const newSessionWarning = makeCorrelator();
+  expect(
+    newSessionWarning.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      "new-session",
+      false,
+    ),
+  ).toEqual({ matched: false, errors: [] });
+  expect(
+    newSessionWarning.onPageError(pageError, "save/reload", 1_024, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(newSessionWarning.flushExpired(1_275)).toEqual([pageError]);
+
+  const pageErrorWithoutPoll = makeCorrelator();
+  expect(
+    pageErrorWithoutPoll.onPageError(pageError, "save/reload", 1_017, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pageErrorWithoutPoll.flushExpired(1_268)).toEqual([pageError]);
+
+  const pollWarningWithoutPageError = makeCorrelator();
+  expect(
+    pollWarningWithoutPageError.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningWithoutPageError.flushExpired(1_268)).toEqual([
+    pollWarning,
+  ]);
+
+  const latePageError = makeCorrelator();
+  latePageError.finishNavigation(1_010);
+  expect(
+    latePageError.onPageError(pageError, "save/reload", 2_000, false),
+  ).toEqual({ matched: false, errors: [] });
+});
+
+it("keeps retired-session errors visible when post-navigation traffic starts", () => {
+  const origin = "http://localhost:65362";
+  const sessionId = "4ffee127-e336-48bf-b3e8-e9ca9f5640e8";
+  const pageError = `Fetch API cannot load ${origin}/_agent-native/browser-sessions/${sessionId}/requests/claim due to access control checks.`;
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const makeCorrelator = () => {
+    const correlator = createRetiredBrowserSessionErrorCorrelator();
+    correlator.beginNavigation(sessionId, origin, 1_000);
+    return correlator;
+  };
+
+  const pageErrorFirst = makeCorrelator();
+  expect(
+    pageErrorFirst.onPageError(pageError, "save/reload", 1_017, true),
+  ).toEqual({ matched: false, errors: [] });
+  expect(
+    pageErrorFirst.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_024,
+      sessionId,
+      true,
+    ),
+  ).toEqual({ matched: false, errors: [] });
+
+  const pollWarningFirst = makeCorrelator();
+  expect(
+    pollWarningFirst.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      sessionId,
+      true,
+    ),
+  ).toEqual({ matched: false, errors: [] });
+  expect(
+    pollWarningFirst.onPageError(pageError, "save/reload", 1_024, true),
+  ).toEqual({ matched: false, errors: [] });
 });
 
 it("correlates a poll error to one successful claim that finished just before reload", () => {

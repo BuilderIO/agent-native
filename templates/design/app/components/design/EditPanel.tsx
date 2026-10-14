@@ -1,6 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { TweakDefinition } from "@shared/api";
-import { alphaToOpacity, parseCssColor, rgbaToCss } from "@shared/color-utils";
+import {
+  alphaToOpacity,
+  normalizeCssColor,
+  parseCssColor,
+} from "@shared/color-utils";
 import {
   listInteractionStates,
   readResolvedStateStyles,
@@ -20,6 +23,7 @@ import type {
 } from "@shared/motion-native-style";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import type { MotionPropertyPreset } from "@shared/motion-timeline";
+import { removeShaderFill } from "@shared/shader-fills";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -33,7 +37,6 @@ import {
   IconPlus,
   IconRefresh,
   IconTarget,
-  IconTimelineEvent,
   IconTrash,
   IconVector,
 } from "@tabler/icons-react";
@@ -44,6 +47,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 
@@ -95,6 +99,7 @@ import {
   ComponentSection,
   type RuntimeComponentDetails,
 } from "./edit-panel/component-section";
+import { DesignColorTokensProvider } from "./edit-panel/design-color-tokens";
 import {
   type DocumentColorCountCache,
   type DocumentColorSourceFile,
@@ -106,7 +111,6 @@ import {
   selectionFillAddedStyles,
   selectionFillInspectorStyles,
   selectionFillModel,
-  selectionDisplayHex,
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
@@ -161,7 +165,6 @@ import {
   InspectorActionRail,
   InspectorGrid,
   InspectorGridCell,
-  INSPECTOR_GRID_PAIR_SPAN,
   PanelSection,
   PropInput,
   PropSelect,
@@ -197,6 +200,7 @@ import {
   type StyleChangeMeta,
   type StylesChangeHandler,
 } from "./edit-panel/style-change-types";
+import type { TextContrastContext } from "./edit-panel/text-contrast";
 import {
   mergeRotationValue,
   normalizeRotationDegrees,
@@ -219,8 +223,18 @@ import {
   type ActiveInteractionState,
   type MotionKeyframeCssProperty,
 } from "./inspector";
+import {
+  FillFieldFace,
+  FillFieldSwatch,
+} from "./inspector/color-picker-fill-field";
 import { IconText } from "./inspector/design-icons";
-import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
+import {
+  usePersistShaderEdit,
+  type GlslShaderPanelContext,
+  type ShaderSourceEditResult,
+  type ShaderSourceTransform,
+} from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
@@ -237,14 +251,9 @@ import {
   clampScreenDimension,
   type ScreenSizeConstraints,
 } from "./multi-screen/screen-sizing";
-import {
-  ReviewCommentsPanel,
-  type ReviewCommentsPanelProps,
-} from "./ReviewCommentsPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
-import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo, TextEditingState } from "./types";
 
 function elementInspectorKey(
@@ -259,10 +268,12 @@ const DEFAULT_AUTHORED_COLOR = "#000000";
 
 function lastCssColor(value: string): string | undefined {
   const tokens =
-    value.match(/#[0-9a-f]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/gi) ?? [];
+    value.match(
+      /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)|\boklch\([^()]*\)|\bcolor\(\s*(?:display-p3|srgb)\s[^()]*\)/gi,
+    ) ?? [];
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    const parsed = parseCssColor(tokens[index] ?? "");
-    if (parsed) return rgbaToCss(parsed);
+    const normalized = normalizeCssColor(tokens[index] ?? "");
+    if (normalized) return normalized;
   }
   return undefined;
 }
@@ -323,7 +334,32 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-export type InspectorTab = "design" | "motion" | "tweaks" | "comments" | "code";
+const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
+
+/**
+ * The Fill section with its shader removal wired. Removing a shader fill takes
+ * the shader with it: clearing the fill's color alone would leave it running.
+ * The write is a hook, so it lives here and the panel needs a query client only
+ * when a fill is shown.
+ */
+function ShaderAwareFillProperties(
+  props: ComponentProps<typeof FillProperties>,
+) {
+  const { persist } = usePersistShaderEdit(
+    props.glslShaderContext ?? NO_SHADER_CONTEXT,
+  );
+  const nodeId = props.glslShaderContext?.nodeId;
+  return (
+    <FillProperties
+      {...props}
+      onRemoveShaderFill={
+        nodeId
+          ? () => void persist((html) => removeShaderFill(html, nodeId))
+          : undefined
+      }
+    />
+  );
+}
 
 export type DesignViewMode = "single" | "overview";
 
@@ -340,6 +376,8 @@ interface EditPanelProps {
   onToggleSelectionHidden?: () => void;
   selectedElements?: ElementInfo[];
   selectedScreenGeometry?: ScreenGeometrySelection | null;
+  /** The selected screen's route, shown beside its name. */
+  selectedScreenRoute?: string;
   selectedScreenLayoutGrid?: LayoutGrid | null;
   onLayoutGridChange?: (
     frameId: string,
@@ -394,21 +432,14 @@ interface EditPanelProps {
     meta?: StyleChangeMeta,
   ) => boolean;
   zoom?: number;
-  headerTrailing?: ReactNode;
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
   width?: number;
   viewMode: DesignViewMode;
   mode: EditorMode;
   readOnly?: boolean;
-  activeTab?: InspectorTab;
-  onActiveTabChange?: (tab: InspectorTab) => void;
-  motionInspectorEnabled?: boolean;
-  tweaksEnabled?: boolean;
-  tweaks?: TweakDefinition[];
-  tweakValues?: Record<string, string | number | boolean>;
-  onTweakChange?: (id: string, value: string | number | boolean) => void;
-  onRequestTweaks?: (anchor: HTMLElement) => void;
+  /** The Motion dock is open: the inspector shows animation controls. */
+  motionInspector?: boolean;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
@@ -439,11 +470,18 @@ interface EditPanelProps {
     content: string,
     updatedAt?: string,
   ) => void;
+  /**
+   * Edits a file's HTML through the editor. A shader on a frame drawn on the
+   * board has to be written this way: the server's source actions cannot
+   * serve the board.
+   */
+  onShaderSourceEdit?: (
+    fileId: string,
+    transform: ShaderSourceTransform,
+  ) => ShaderSourceEditResult;
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
   statesPanelProps?: Omit<StatesPanelProps, "designId">;
   reviewPanelProps?: Omit<ReviewPanelProps, "className">;
-  reviewCommentsPanelProps?: ReviewCommentsPanelProps;
-  reviewCommentsCount?: number;
   componentNodeId?: string;
   componentRuntime?: RuntimeComponentDetails;
   requestLocalhostWrite?: (opts: {
@@ -829,7 +867,7 @@ function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
       {source ? <SourceLocationSummary source={source} /> : null}
 
       {snippet ? (
-        <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+        <pre className="max-h-64 overflow-auto overscroll-contain rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
           <code>{highlightedHtml(snippet)}</code>
         </pre>
       ) : (
@@ -860,140 +898,6 @@ function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
   );
 }
 
-function CodeInspectPanel({
-  data,
-  element,
-  screen,
-}: {
-  data?: InspectCodeData;
-  element: ElementInfo | null;
-  screen: ScreenGeometrySelection | null | undefined;
-}) {
-  const [copied, setCopied] = useState(false);
-  const snippet = data
-    ? (elementHtmlPreview(data) ??
-      data.sourceLocation?.snippet ??
-      data.html?.trim() ??
-      null)
-    : null;
-  const bounds = element?.boundingRect ?? screen;
-  const measurements = bounds
-    ? [
-        ["X", bounds.x],
-        ["Y", bounds.y],
-        ["W", bounds.width],
-        ["H", bounds.height],
-      ]
-    : [];
-  const styles = element
-    ? [
-        ["Display", element.computedStyles.display],
-        ["Position", element.computedStyles.position],
-        ["Font", element.computedStyles.fontSize],
-        ["Color", element.computedStyles.color],
-      ].filter(([, value]) => value)
-    : [];
-
-  const handleCopy = () => {
-    if (!snippet) return;
-    void navigator.clipboard
-      ?.writeText(snippet)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {});
-  };
-
-  return (
-    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      <div className="flex h-10 items-center justify-between gap-2 border-b border-border/90 px-3">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <IconCode className="size-3.5 text-muted-foreground" />
-          <h3 className="design-sidebar-context-title truncate text-foreground">
-            {"Code & measurements" /* i18n-ignore design inspector heading */}
-          </h3>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-[10px]"
-          onClick={handleCopy}
-          disabled={!snippet}
-        >
-          {
-            copied
-              ? "Copied" /* i18n-ignore design inspector action */
-              : "Copy" /* i18n-ignore design inspector action */
-          }
-        </Button>
-      </div>
-
-      {measurements.length > 0 ? (
-        <PanelSection
-          title={"Measurements" /* i18n-ignore design inspector section */}
-        >
-          <InspectorGrid layout="pair-flow">
-            {measurements.map(([label, value]) => (
-              <InspectorGridCell key={label} span={INSPECTOR_GRID_PAIR_SPAN}>
-                <div className="flex h-6 items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 text-[11px]">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-mono text-foreground">
-                    {Math.round(Number(value))}px
-                  </span>
-                </div>
-              </InspectorGridCell>
-            ))}
-          </InspectorGrid>
-        </PanelSection>
-      ) : null}
-
-      {styles.length > 0 ? (
-        <PanelSection
-          title={"Computed styles" /* i18n-ignore design inspector section */}
-        >
-          <div className="space-y-2 text-[11px]">
-            {styles.map(([label, value]) => (
-              <InspectorGrid key={label} className="items-center">
-                <InspectorGridCell span={10}>
-                  <span className="truncate text-muted-foreground">
-                    {label}
-                  </span>
-                </InspectorGridCell>
-                <InspectorGridCell span={18}>
-                  <span className="block truncate text-right font-mono text-foreground">
-                    {value}
-                  </span>
-                </InspectorGridCell>
-              </InspectorGrid>
-            ))}
-          </div>
-        </PanelSection>
-      ) : null}
-
-      <PanelSection title={"Code" /* i18n-ignore design inspector section */}>
-        {data?.sourceLocation ? (
-          <div className="mb-2">
-            <SourceLocationSummary source={data.sourceLocation} />
-          </div>
-        ) : null}
-        {snippet ? (
-          <pre className="max-h-80 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
-            <code>{highlightedHtml(snippet)}</code>
-          </pre>
-        ) : (
-          <p className="text-[11px] leading-4 text-muted-foreground">
-            {
-              "Select a layer to inspect its code and measurements." /* i18n-ignore design inspector empty */
-            }
-          </p>
-        )}
-      </PanelSection>
-    </div>
-  );
-}
-
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
@@ -1013,6 +917,7 @@ function SelectionHeader({
   showCreateComponentAction = true,
   defaultComponentName = "Component",
   inspectCode,
+  trailing,
 }: {
   element: ElementInfo | null;
   selectedCount?: number;
@@ -1022,6 +927,7 @@ function SelectionHeader({
   showCreateComponentAction?: boolean;
   defaultComponentName?: string;
   inspectCode?: InspectCodeData;
+  trailing?: ReactNode;
 }) {
   const t = useT();
   if (!element) return null;
@@ -1036,7 +942,10 @@ function SelectionHeader({
     selectedCount > 1 ? 0 : (element.repeat?.instanceCount ?? 0);
 
   return (
-    <div className="shrink-0 border-b border-border/90 px-2">
+    <div
+      data-design-inspector-header
+      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-2"
+    >
       <InspectorGrid className="min-h-8 items-center" layout="header-actions">
         {/* Node-type label. Rename lives in the layers panel and device sizing
             lives elsewhere, so this is a plain non-interactive label. */}
@@ -1090,6 +999,7 @@ function SelectionHeader({
                 <IconCode className="size-3.5" />
               </SectionIconButton>
             )}
+            {trailing}
           </InspectorActionRail>
         </InspectorGridCell>
       </InspectorGrid>
@@ -1099,15 +1009,37 @@ function SelectionHeader({
 
 function ScreenSelectionHeader({
   screen,
+  route,
+  trailing,
 }: {
   screen: ScreenGeometrySelection;
+  route?: string;
+  trailing?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      <div className="design-sidebar-context-title flex min-w-0 items-center gap-1.5 text-left text-foreground">
-        <IconFrame className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{screen.title}</span>
-      </div>
+    <div
+      data-design-inspector-header
+      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-2"
+    >
+      <InspectorGrid className="min-h-8 items-center" layout="header-actions">
+        <InspectorGridCell span={20}>
+          <div className="design-sidebar-context-title flex min-w-0 items-center gap-1.5 text-left text-foreground">
+            <IconFrame className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{screen.title}</span>
+          </div>
+        </InspectorGridCell>
+        <InspectorGridCell span={8} className="flex items-center gap-1">
+          {route ? (
+            <span
+              title={route}
+              className="design-sidebar-section-title block max-w-24 truncate font-normal text-muted-foreground"
+            >
+              {route}
+            </span>
+          ) : null}
+          {trailing}
+        </InspectorGridCell>
+      </InspectorGrid>
     </div>
   );
 }
@@ -1533,153 +1465,29 @@ function ScreenGeometryProperties({
   );
 }
 
-function InspectorTabsHeader({
-  activeTab,
-  readOnly,
-  motionInspectorEnabled,
-  onActiveTabChange,
-  trailing,
-  commentsCount = 0,
-  inspectorGridDebug = false,
-  onInspectorGridDebugChange,
-  tweaksEnabled,
+/** Dev-only: lays the 28-column grid over the inspector. */
+function InspectorGridDebugToggle({
+  visible,
+  onChange,
 }: {
-  activeTab: InspectorTab;
-  readOnly: boolean;
-  motionInspectorEnabled: boolean;
-  onActiveTabChange: (tab: InspectorTab) => void;
-  trailing?: ReactNode;
-  commentsCount?: number;
-  inspectorGridDebug?: boolean;
-  onInspectorGridDebugChange?: (visible: boolean) => void;
-  tweaksEnabled: boolean;
+  visible: boolean;
+  onChange: (visible: boolean) => void;
 }) {
-  const t = useT();
-
   return (
-    <div
-      data-design-inspector-tabs
-      className="h-12 min-w-0 shrink-0 border-b border-border/90 px-2 py-2"
+    <SectionIconButton
+      label={
+        visible
+          ? "Hide 28-column grid" /* i18n-ignore design inspector debug label */
+          : "Show 28-column grid" /* i18n-ignore design inspector debug label */
+      }
+      className={cn(
+        visible &&
+          "bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
+      )}
+      onClick={() => onChange(!visible)}
     >
-      <InspectorGrid className="h-full items-center" layout="header-actions">
-        <InspectorGridCell span={24}>
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
-            className="min-w-0"
-          >
-            <TabsList
-              data-design-inspector-tabs-list
-              className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0"
-            >
-              {!readOnly ? (
-                <TabsTrigger
-                  value="design"
-                  data-design-inspector-tab="design"
-                  aria-label={t("navigation.brand")}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  {t("navigation.brand")}
-                </TabsTrigger>
-              ) : null}
-              {motionInspectorEnabled ? (
-                <TabsTrigger
-                  value="motion"
-                  data-design-inspector-tab="motion"
-                  aria-label={t("designEditor.motion.tabLabel")}
-                  className="design-sidebar-section-title flex h-6 items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-selection-color)] data-[state=active]:text-[var(--design-editor-accent-color)] data-[state=active]:shadow-none"
-                >
-                  <IconTimelineEvent className="size-3.5" aria-hidden="true" />
-                  {t("designEditor.motion.tabLabel")}
-                </TabsTrigger>
-              ) : null}
-              <TabsTrigger
-                value="comments"
-                data-design-inspector-tab="comments"
-                aria-label={
-                  commentsCount > 0
-                    ? t("review.commentsTab", { count: commentsCount })
-                    : t("review.comments")
-                }
-                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                <span className="truncate">{t("review.comments")}</span>
-                {commentsCount > 0 ? (
-                  <span
-                    className={cn(
-                      "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
-                      "design-sidebar-meta h-4 min-w-4 px-1",
-                    )}
-                  >
-                    {commentsCount > 99 ? "99+" : commentsCount}
-                  </span>
-                ) : null}
-              </TabsTrigger>
-              {!readOnly && tweaksEnabled ? (
-                <TabsTrigger
-                  value="tweaks"
-                  data-design-inspector-tab="tweaks"
-                  aria-label={t("designEditor.tweaks")}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  {t("designEditor.tweaks")}
-                </TabsTrigger>
-              ) : (
-                <TabsTrigger
-                  value="code"
-                  data-design-inspector-tab="code"
-                  aria-label={"Code" /* i18n-ignore design inspector tab */}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-                >
-                  {"Code" /* i18n-ignore design inspector tab */}
-                </TabsTrigger>
-              )}
-            </TabsList>
-          </Tabs>
-        </InspectorGridCell>
-        <InspectorGridCell span={4}>
-          <InspectorActionRail>
-            {import.meta.env.DEV &&
-            activeTab === "design" &&
-            onInspectorGridDebugChange ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                      inspectorGridDebug &&
-                        "bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
-                    )}
-                    aria-label={
-                      inspectorGridDebug
-                        ? "Hide inspector grid" /* i18n-ignore design inspector debug action */
-                        : "Show inspector grid" /* i18n-ignore design inspector debug action */
-                    }
-                    aria-pressed={inspectorGridDebug}
-                    onClick={() =>
-                      onInspectorGridDebugChange(!inspectorGridDebug)
-                    }
-                  >
-                    <IconGridDots className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {
-                    inspectorGridDebug
-                      ? "Hide 28-column grid" /* i18n-ignore design inspector debug label */
-                      : "Show 28-column grid" /* i18n-ignore design inspector debug label */
-                  }
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-            {trailing ? <div className="shrink-0">{trailing}</div> : null}
-          </InspectorActionRail>
-        </InspectorGridCell>
-      </InspectorGrid>
-    </div>
+      <IconGridDots className="size-3.5" />
+    </SectionIconButton>
   );
 }
 
@@ -2104,6 +1912,7 @@ export function SelectionColorsProperties({
             const value = color.value;
             const parsed = parseCssColor(value);
             const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
+            const reading = readFillField({ paint: "solid", value });
             return (
               <InspectorGridCell key={index} span={28}>
                 <div className="flex w-full items-center gap-1">
@@ -2112,25 +1921,28 @@ export function SelectionColorsProperties({
                     trigger={
                       <button
                         type="button"
-                        className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                        className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                         aria-label={value}
+                        title={reading.kind === "wide" ? value : undefined}
                         disabled={!onColorChange}
                       >
-                        <span
-                          className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                          style={swatchStyle(value)}
+                        <FillFieldFace
+                          reading={reading}
+                          swatch={
+                            <FillFieldSwatch style={swatchStyle(value)} />
+                          }
+                          opacity={
+                            showsOpacity(reading, opacity) ? opacity : null
+                          }
+                          mixedLabel=""
+                          trailing={
+                            color.count && color.count > 1 ? (
+                              <span className="shrink-0 tabular-nums text-muted-foreground">
+                                ×{color.count}
+                              </span>
+                            ) : null
+                          }
                         />
-                        <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
-                          {selectionDisplayHex(value)}
-                        </span>
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          {opacity}%
-                        </span>
-                        {color.count && color.count > 1 ? (
-                          <span className="shrink-0 tabular-nums text-muted-foreground">
-                            ×{color.count}
-                          </span>
-                        ) : null}
                       </button>
                     }
                     value={cssColorOrFallback(value, DEFAULT_AUTHORED_COLOR)}
@@ -2362,6 +2174,7 @@ export const EditPanel = memo(function EditPanel({
   onToggleSelectionHidden,
   selectedElements,
   selectedScreenGeometry,
+  selectedScreenRoute,
   selectedScreenLayoutGrid,
   onLayoutGridChange,
   canvasBackground,
@@ -2395,19 +2208,11 @@ export const EditPanel = memo(function EditPanel({
   onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
   mode,
-  headerTrailing,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
   width = 256,
   readOnly = false,
-  activeTab = "design",
-  onActiveTabChange,
-  motionInspectorEnabled = false,
-  tweaksEnabled = true,
-  tweaks = [],
-  tweakValues = {},
-  onTweakChange,
-  onRequestTweaks,
+  motionInspector = false,
   onStyleChange: onStyleChangeProp,
   onStylesChange: onStylesChangeProp,
   onExport,
@@ -2424,10 +2229,9 @@ export const EditPanel = memo(function EditPanel({
   designId,
   onComponentPropApplied,
   onShaderSourceApplied,
+  onShaderSourceEdit,
   onFontUploaded,
   reviewPanelProps,
-  reviewCommentsPanelProps,
-  reviewCommentsCount = 0,
   componentNodeId,
   componentRuntime,
   requestLocalhostWrite,
@@ -2567,29 +2371,74 @@ export const EditPanel = memo(function EditPanel({
   const selectedElementsKey = JSON.stringify(
     effectiveSelectedElements.map(elementStableKey),
   );
+  // The shader is written into the file the element is in, which is not always
+  // the active one: a frame drawn on the board lives in the board file.
+  const shaderFileId =
+    inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
-    if (!designId || !fileId || selectedCount > 1) return undefined;
+    if (!designId || !shaderFileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
-    return {
+    const base = {
       designId,
-      fileId,
-      content: fileId === boardFileId ? undefined : activeContent,
+      fileId: shaderFileId,
       nodeId,
       selector: inspectorElement?.selector,
       onApplied: onShaderSourceApplied,
       onEditCode,
+    };
+    if (shaderFileId === boardFileId) {
+      // The board is held by the editor and cannot be fetched or written
+      // through the source actions; without the editor's edit there is no way
+      // to apply a shader to it, so none is offered.
+      if (!onShaderSourceEdit) return undefined;
+      return {
+        ...base,
+        content: files?.find((file) => file.id === shaderFileId)?.content,
+        editSource: (transform) => onShaderSourceEdit(shaderFileId, transform),
+      };
+    }
+    return {
+      ...base,
+      content:
+        shaderFileId === fileId
+          ? activeContent
+          : files?.find((file) => file.id === shaderFileId)?.content,
     };
   }, [
     activeContent,
     boardFileId,
     designId,
     fileId,
+    files,
     selectedCount,
+    shaderFileId,
     inspectorElement?.sourceId,
     inspectorElement?.selector,
     onShaderSourceApplied,
+    onShaderSourceEdit,
     onEditCode,
+  ]);
+  const textContrastContext: TextContrastContext | undefined = useMemo(() => {
+    if (selectedCount > 1 || !inspectorElement) return undefined;
+    const selector =
+      inspectorElement.runtimeSelector ?? inspectorElement.selector;
+    const screenId = inspectorElement.sourceLayerIdentity?.screenId ?? fileId;
+    if (!selector || !screenId) return undefined;
+    return {
+      designId,
+      screenId,
+      nodeId: inspectorElement.sourceId,
+      selector,
+    };
+  }, [
+    designId,
+    fileId,
+    inspectorElement?.runtimeSelector,
+    inspectorElement?.selector,
+    inspectorElement?.sourceId,
+    inspectorElement?.sourceLayerIdentity?.screenId,
+    selectedCount,
   ]);
   const screenGlslShaderContext: GlslShaderPanelContext | undefined =
     useMemo(() => {
@@ -2658,26 +2507,6 @@ export const EditPanel = memo(function EditPanel({
   const selectionHasContainerElement = effectiveSelectedElements.some(
     (element) => isContainerElement(element),
   );
-  const handleActiveTabChange = useCallback(
-    (tab: InspectorTab) => {
-      if (tab === "tweaks" && !tweaksEnabled) return;
-      onActiveTabChange?.(tab);
-    },
-    [onActiveTabChange, tweaksEnabled],
-  );
-  const handleTweakChange = useCallback(
-    (tweakId: string, value: string | number | boolean) => {
-      onTweakChange?.(tweakId, value);
-    },
-    [onTweakChange],
-  );
-  const handleRequestTweaks = useCallback(
-    (anchor: HTMLElement) => {
-      onRequestTweaks?.(anchor);
-    },
-    [onRequestTweaks],
-  );
-
   useEffect(() => {
     setExportSettings(DEFAULT_EXPORT_SETTINGS);
   }, [selectedElementKey]);
@@ -2771,13 +2600,18 @@ export const EditPanel = memo(function EditPanel({
     | undefined => {
     if (selectedCount > 1 || !onToggleMotionKeyframe) return undefined;
     const hasTimeline = motionKeyframeState?.hasTimeline === true;
-    if (!hasTimeline && activeTab !== "motion") return undefined;
+    if (!hasTimeline && !motionInspector) return undefined;
     return {
       hasTimeline: true,
       keyframedProperties: motionKeyframeState?.keyframedProperties ?? [],
       onToggle: onToggleMotionKeyframe,
     };
-  }, [motionKeyframeState, onToggleMotionKeyframe, activeTab, selectedCount]);
+  }, [
+    motionKeyframeState,
+    onToggleMotionKeyframe,
+    motionInspector,
+    selectedCount,
+  ]);
 
   const onStyleChange = useCallback<StyleChangeHandler>(
     (property, value, meta) => {
@@ -2891,313 +2725,671 @@ export const EditPanel = memo(function EditPanel({
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const resolvedActiveTab: InspectorTab =
-    readOnly && (activeTab === "design" || activeTab === "tweaks")
-      ? "code"
-      : activeTab === "motion" && !motionInspectorEnabled
-        ? readOnly
-          ? "code"
-          : "design"
-        : !tweaksEnabled && activeTab === "tweaks"
-          ? "design"
-          : activeTab;
-
   const showFramePresets =
-    !readOnly &&
-    resolvedActiveTab === "design" &&
-    activeTool === "frame" &&
-    Boolean(onCreateScreenFromPreset);
+    !readOnly && activeTool === "frame" && Boolean(onCreateScreenFromPreset);
+  const gridDebugToggle =
+    import.meta.env.DEV && onInspectorGridDebugChange ? (
+      <InspectorGridDebugToggle
+        visible={inspectorGridDebug}
+        onChange={onInspectorGridDebugChange}
+      />
+    ) : null;
 
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={400}>
-      <div
-        className={cn(
-          "design-sidebar shrink-0 bg-[var(--design-editor-panel-bg)]",
-          "relative flex h-full min-h-0 flex-col overflow-hidden",
-        )}
-        style={{ width }}
-      >
-        <InspectorTabsHeader
-          activeTab={resolvedActiveTab}
-          readOnly={readOnly}
-          motionInspectorEnabled={motionInspectorEnabled}
-          onActiveTabChange={handleActiveTabChange}
-          trailing={headerTrailing}
-          commentsCount={reviewCommentsCount}
-          inspectorGridDebug={inspectorGridDebug}
-          onInspectorGridDebugChange={onInspectorGridDebugChange}
-          tweaksEnabled={tweaksEnabled}
-        />
-
-        {showFramePresets ? (
-          <FramePresetsPanel
-            onPick={(preset) => onCreateScreenFromPreset?.(preset)}
-          />
-        ) : resolvedActiveTab === "motion" && readOnly ? (
-          <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <PanelSection title={t("designEditor.motion.animations")}>
-              {motionSelectedTarget ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground">
-                  {motionSelectedTarget.label}
-                </p>
-              ) : (
-                <p className="px-3 py-2 text-xs text-muted-foreground">
-                  {t("designEditor.motion.emptyStateNoSelection")}
-                </p>
-              )}
-            </PanelSection>
-            <MotionAudioTracks
-              surface="inspector"
-              clips={motionAudioClips ?? []}
-              playheadMs={motionAudioPlayheadMs}
-              timelineDurationMs={motionAudioDurationMs}
-              timelineScaleDurationMs={motionAudioDurationMs}
-              readOnly={readOnly || motionWriteUnavailable}
-              onClipsChange={onMotionAudioClipsChange}
-              onDurationChange={onMotionAudioDurationChange}
+      <DesignColorTokensProvider designId={designId}>
+        <div
+          className={cn(
+            "design-sidebar shrink-0 bg-[var(--design-editor-panel-bg)]",
+            "relative flex h-full min-h-0 flex-col overflow-hidden",
+          )}
+          style={{ width }}
+        >
+          {showFramePresets ? (
+            <FramePresetsPanel
+              onPick={(preset) => onCreateScreenFromPreset?.(preset)}
             />
-          </div>
-        ) : resolvedActiveTab === "design" || resolvedActiveTab === "motion" ? (
-          <>
-            <SelectionHeader
-              element={inspectorElement}
-              selectedCount={selectedCount}
-              onCreateComponent={
-                canCreateComponent ? onCreateComponent : undefined
-              }
-              createComponentOpen={createComponentOpen}
-              onCreateComponentOpenChange={setCreateComponentOpen}
-              showCreateComponentAction={!selectionAlreadyComponent}
-              defaultComponentName={defaultComponentName}
-              inspectCode={
-                inspectCode && selectedElement && selectedCount <= 1
-                  ? inspectCode
-                  : undefined
-              }
-            />
-            {!inspectorElement && selectedScreenGeometry ? (
-              <ScreenSelectionHeader screen={selectedScreenGeometry} />
-            ) : null}
-            {sourceLocationSnapshotFailed ? (
-              <div
-                role="status"
-                className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
-              >
-                {t("designEditor.toasts.sourceLocationSnapshotFailed")}
-              </div>
-            ) : sourceLocationUnavailable ? (
-              <div
-                role="status"
-                className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
-              >
-                {
-                  "No source locations available for this app." /* i18n-ignore design inspector status */
-                }
-              </div>
-            ) : null}
-
-            <div
-              className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
-              onWheelCapture={() => {
-                userScrollIntentRef.current = true;
-              }}
-              onTouchMoveCapture={() => {
-                userScrollIntentRef.current = true;
-              }}
-              onScroll={() => {
-                if (!userScrollIntentRef.current) return;
-                scrolledRecentlyRef.current = true;
-                if (scrollTimerRef.current !== null) {
-                  clearTimeout(scrollTimerRef.current);
-                }
-                scrollTimerRef.current = setTimeout(() => {
-                  scrolledRecentlyRef.current = false;
-                  userScrollIntentRef.current = false;
-                  scrollTimerRef.current = null;
-                }, 300);
-              }}
-              onClickCapture={(e) => {
-                if (!scrolledRecentlyRef.current) return;
-                scrolledRecentlyRef.current = false;
-                userScrollIntentRef.current = false;
-                if (scrollTimerRef.current !== null) {
-                  clearTimeout(scrollTimerRef.current);
-                  scrollTimerRef.current = null;
-                }
-                e.stopPropagation();
-                e.preventDefault();
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Tab") return;
-                const panel = e.currentTarget;
-                const focusable = Array.from(
-                  panel.querySelectorAll<HTMLElement>(
-                    'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
-                  ),
-                ).filter(
-                  (el) =>
-                    !el.hasAttribute("disabled") &&
-                    el.tabIndex !== -1 &&
-                    !el.closest('[aria-hidden="true"]'),
-                );
-                if (focusable.length === 0) return;
-                e.preventDefault();
-                const current = document.activeElement as HTMLElement | null;
-                const idx = current ? focusable.indexOf(current) : -1;
-                const next = e.shiftKey
-                  ? focusable[(idx - 1 + focusable.length) % focusable.length]
-                  : focusable[(idx + 1) % focusable.length];
-                next?.focus();
-              }}
-            >
-              {/* §6.1 Component section — shown at the top when a component
-                instance is selected. Requires designId + componentNodeId. */}
-              {designId && componentNodeId && selectedCount <= 1 && (
-                <ComponentSection
-                  designId={designId}
-                  fileId={fileId}
-                  boardFileId={boardFileId}
-                  previewFrameId={
-                    previewFrameId ??
-                    (viewMode === "overview" && fileId && breakpointContext
-                      ? getActiveScreenIframeId({
-                          id: fileId,
-                          activeBreakpointWidth:
-                            breakpointContext.activeWidthPx ?? undefined,
-                          breakpointWidths: [
-                            ...breakpointContext.breakpointWidths,
-                          ],
-                        })
-                      : fileId)
-                  }
-                  activeContent={activeContent}
-                  activeFileUpdatedAt={activeFileUpdatedAt}
-                  getExpectedFiles={getComponentExpectedFiles}
-                  componentDetailsReady={componentDetailsReady}
-                  nodeId={componentNodeId}
-                  runtime={componentRuntime}
-                  requestLocalhostWrite={requestLocalhostWrite}
-                  hasLocalOverrides={componentInstanceHasLocalOverrides}
-                  swapPickerRequest={componentSwapPickerRequest}
-                  onResetOverrides={
-                    onResetComponentInstanceOverrides
-                      ? () => onResetComponentInstanceOverrides(componentNodeId)
-                      : undefined
-                  }
-                  onRestoreComponent={
-                    onRestoreComponent
-                      ? () => onRestoreComponent(componentNodeId)
-                      : undefined
-                  }
-                  onComponentPropApplied={onComponentPropApplied}
-                  sourceCapabilities={sourceCapabilities}
-                />
-              )}
-
-              {aiActions ? (
-                <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
-                  {aiActions}
-                </div>
-              ) : null}
-
-              {resolvedActiveTab === "motion" && !inspectorElement ? (
-                <PanelSection title={t("designEditor.motion.animations")}>
+          ) : motionInspector && readOnly ? (
+            <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <PanelSection title={t("designEditor.motion.animations")}>
+                {motionSelectedTarget ? (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">
+                    {motionSelectedTarget.label}
+                  </p>
+                ) : (
                   <p className="px-3 py-2 text-xs text-muted-foreground">
                     {t("designEditor.motion.emptyStateNoSelection")}
                   </p>
-                </PanelSection>
-              ) : null}
-
-              {!inspectorElement && selectedScreenGeometry ? (
-                <>
-                  <ScreenGeometryProperties
+                )}
+              </PanelSection>
+              <MotionAudioTracks
+                surface="inspector"
+                clips={motionAudioClips ?? []}
+                playheadMs={motionAudioPlayheadMs}
+                timelineDurationMs={motionAudioDurationMs}
+                timelineScaleDurationMs={motionAudioDurationMs}
+                readOnly={readOnly || motionWriteUnavailable}
+                onClipsChange={onMotionAudioClipsChange}
+                onDurationChange={onMotionAudioDurationChange}
+              />
+            </div>
+          ) : (
+            <>
+              <div
+                className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                onWheelCapture={() => {
+                  userScrollIntentRef.current = true;
+                }}
+                onTouchMoveCapture={() => {
+                  userScrollIntentRef.current = true;
+                }}
+                onScroll={() => {
+                  if (!userScrollIntentRef.current) return;
+                  scrolledRecentlyRef.current = true;
+                  if (scrollTimerRef.current !== null) {
+                    clearTimeout(scrollTimerRef.current);
+                  }
+                  scrollTimerRef.current = setTimeout(() => {
+                    scrolledRecentlyRef.current = false;
+                    userScrollIntentRef.current = false;
+                    scrollTimerRef.current = null;
+                  }, 300);
+                }}
+                onClickCapture={(e) => {
+                  if (!scrolledRecentlyRef.current) return;
+                  scrolledRecentlyRef.current = false;
+                  userScrollIntentRef.current = false;
+                  if (scrollTimerRef.current !== null) {
+                    clearTimeout(scrollTimerRef.current);
+                    scrollTimerRef.current = null;
+                  }
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Tab") return;
+                  const panel = e.currentTarget;
+                  // React bubbles a portaled popover's keys (the color picker)
+                  // through this handler although the popover sits outside the
+                  // panel; its Tab is the popover's own.
+                  if (!panel.contains(e.target as Node)) return;
+                  const focusable = Array.from(
+                    panel.querySelectorAll<HTMLElement>(
+                      'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
+                    ),
+                  ).filter(
+                    (el) =>
+                      !el.hasAttribute("disabled") &&
+                      el.tabIndex !== -1 &&
+                      !el.closest('[aria-hidden="true"]'),
+                  );
+                  if (focusable.length === 0) return;
+                  e.preventDefault();
+                  const current = document.activeElement as HTMLElement | null;
+                  const idx = current ? focusable.indexOf(current) : -1;
+                  const next = e.shiftKey
+                    ? focusable[(idx - 1 + focusable.length) % focusable.length]
+                    : focusable[(idx + 1) % focusable.length];
+                  next?.focus();
+                }}
+              >
+                <SelectionHeader
+                  element={inspectorElement}
+                  selectedCount={selectedCount}
+                  onCreateComponent={
+                    canCreateComponent ? onCreateComponent : undefined
+                  }
+                  createComponentOpen={createComponentOpen}
+                  onCreateComponentOpenChange={setCreateComponentOpen}
+                  showCreateComponentAction={!selectionAlreadyComponent}
+                  defaultComponentName={defaultComponentName}
+                  inspectCode={
+                    inspectCode && selectedElement && selectedCount <= 1
+                      ? inspectCode
+                      : undefined
+                  }
+                  trailing={gridDebugToggle}
+                />
+                {!inspectorElement && selectedScreenGeometry ? (
+                  <ScreenSelectionHeader
                     screen={selectedScreenGeometry}
-                    onGeometryChange={
-                      readOnly ? undefined : onScreenGeometryChange
+                    route={selectedScreenRoute}
+                    trailing={gridDebugToggle}
+                  />
+                ) : null}
+                {sourceLocationSnapshotFailed ? (
+                  <div
+                    role="status"
+                    className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+                  >
+                    {t("designEditor.toasts.sourceLocationSnapshotFailed")}
+                  </div>
+                ) : sourceLocationUnavailable ? (
+                  <div
+                    role="status"
+                    className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+                  >
+                    {
+                      "No source locations available for this app." /* i18n-ignore design inspector status */
                     }
-                    onHeightModeChange={
-                      readOnly ? undefined : onScreenHeightModeChange
+                  </div>
+                ) : null}
+
+                {/* §6.1 Component section — shown at the top when a component
+                instance is selected. Requires designId + componentNodeId. */}
+                {designId && componentNodeId && selectedCount <= 1 && (
+                  <ComponentSection
+                    designId={designId}
+                    fileId={fileId}
+                    boardFileId={boardFileId}
+                    previewFrameId={
+                      previewFrameId ??
+                      (viewMode === "overview" && fileId && breakpointContext
+                        ? getActiveScreenIframeId({
+                            id: fileId,
+                            activeBreakpointWidth:
+                              breakpointContext.activeWidthPx ?? undefined,
+                            breakpointWidths: [
+                              ...breakpointContext.breakpointWidths,
+                            ],
+                          })
+                        : fileId)
                     }
-                    onConstraintChange={
-                      !readOnly &&
-                      selectedScreenElement &&
-                      onSelectedScreenStyleChange
-                        ? (axis, kind, value, meta) =>
-                            commitElementMinMax(
-                              axis,
-                              kind,
-                              value,
-                              onSelectedScreenStyleChange,
-                              meta,
-                            )
+                    activeContent={activeContent}
+                    activeFileUpdatedAt={activeFileUpdatedAt}
+                    getExpectedFiles={getComponentExpectedFiles}
+                    componentDetailsReady={componentDetailsReady}
+                    nodeId={componentNodeId}
+                    runtime={componentRuntime}
+                    requestLocalhostWrite={requestLocalhostWrite}
+                    hasLocalOverrides={componentInstanceHasLocalOverrides}
+                    swapPickerRequest={componentSwapPickerRequest}
+                    onResetOverrides={
+                      onResetComponentInstanceOverrides
+                        ? () =>
+                            onResetComponentInstanceOverrides(componentNodeId)
                         : undefined
                     }
-                    selectedScreenSource={selectedScreenSource}
-                    localhostConnections={localhostConnections}
-                    onScreenSourceChange={
-                      readOnly ? undefined : onScreenSourceChange
+                    onRestoreComponent={
+                      onRestoreComponent
+                        ? () => onRestoreComponent(componentNodeId)
+                        : undefined
                     }
-                    onScreenUrlChange={readOnly ? undefined : onScreenUrlChange}
-                    onAddLocalhostScreen={
-                      readOnly ? undefined : onAddLocalhostScreen
-                    }
-                    onRemoveScreen={readOnly ? undefined : onRemoveScreen}
-                    screenSourcePending={screenSourcePending}
-                    screenBreakpointControls={screenBreakpointControls}
+                    onComponentPropApplied={onComponentPropApplied}
+                    sourceCapabilities={sourceCapabilities}
                   />
-                  {onLayoutGridChange ? (
-                    <LayoutGridProperties
-                      grid={selectedScreenLayoutGrid ?? null}
-                      readOnly={readOnly}
-                      onChange={(next) =>
-                        onLayoutGridChange(selectedScreenGeometry.id, next)
+                )}
+
+                {aiActions ? (
+                  <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
+                    {aiActions}
+                  </div>
+                ) : null}
+
+                {motionInspector && !inspectorElement ? (
+                  <PanelSection title={t("designEditor.motion.animations")}>
+                    <p className="px-3 py-2 text-xs text-muted-foreground">
+                      {t("designEditor.motion.emptyStateNoSelection")}
+                    </p>
+                  </PanelSection>
+                ) : null}
+
+                {!inspectorElement && selectedScreenGeometry ? (
+                  <>
+                    <ScreenGeometryProperties
+                      screen={selectedScreenGeometry}
+                      onGeometryChange={
+                        readOnly ? undefined : onScreenGeometryChange
                       }
+                      onHeightModeChange={
+                        readOnly ? undefined : onScreenHeightModeChange
+                      }
+                      onConstraintChange={
+                        !readOnly &&
+                        selectedScreenElement &&
+                        onSelectedScreenStyleChange
+                          ? (axis, kind, value, meta) =>
+                              commitElementMinMax(
+                                axis,
+                                kind,
+                                value,
+                                onSelectedScreenStyleChange,
+                                meta,
+                              )
+                          : undefined
+                      }
+                      selectedScreenSource={selectedScreenSource}
+                      localhostConnections={localhostConnections}
+                      onScreenSourceChange={
+                        readOnly ? undefined : onScreenSourceChange
+                      }
+                      onScreenUrlChange={
+                        readOnly ? undefined : onScreenUrlChange
+                      }
+                      onAddLocalhostScreen={
+                        readOnly ? undefined : onAddLocalhostScreen
+                      }
+                      onRemoveScreen={readOnly ? undefined : onRemoveScreen}
+                      screenSourcePending={screenSourcePending}
+                      screenBreakpointControls={screenBreakpointControls}
                     />
-                  ) : null}
-                  {selectedScreenElement && onSelectedScreenStyleChange ? (
-                    <>
+                    {onLayoutGridChange ? (
+                      <LayoutGridProperties
+                        grid={selectedScreenLayoutGrid ?? null}
+                        readOnly={readOnly}
+                        onChange={(next) =>
+                          onLayoutGridChange(selectedScreenGeometry.id, next)
+                        }
+                      />
+                    ) : null}
+                    {selectedScreenElement && onSelectedScreenStyleChange ? (
+                      <>
+                        <LayoutContextProperties
+                          key={`layout-context:${selectedScreenElementSectionKey}`}
+                          element={selectedScreenElement}
+                          onStyleChange={onSelectedScreenStyleChange}
+                          onStylesChange={onSelectedScreenStylesChange}
+                          onDisableAutoLayout={onDisableAutoLayout}
+                          onApplyLayoutFlow={onApplyLayoutFlow}
+                          showContainerSizing={false}
+                        />
+                        <AppearanceProperties
+                          key={`appearance:${selectedScreenElementSectionKey}`}
+                          element={selectedScreenElement}
+                          onStyleChange={onSelectedScreenStyleChange}
+                          onStylesChange={onSelectedScreenStylesChange}
+                          hidden={selectionHidden}
+                          onToggleHidden={onToggleSelectionHidden}
+                        />
+                        <ShaderAwareFillProperties
+                          key={`fill:${selectedScreenElementSectionKey}`}
+                          element={selectedScreenElement}
+                          uploadScopeKey={selectedScreenElementSectionKey}
+                          onStyleChange={onSelectedScreenStyleChange}
+                          onStylesChange={onSelectedScreenStylesChange}
+                          documentColorPalette={documentColorPalette}
+                          glslShaderContext={screenGlslShaderContext}
+                          readSubtreeColorStyles={readSubtreeColorStyles}
+                        />
+                        <StrokeProperties
+                          key={`stroke:${selectedScreenElementSectionKey}`}
+                          element={selectedScreenElement}
+                          onStyleChange={onSelectedScreenStyleChange}
+                          onStylesChange={onSelectedScreenStylesChange}
+                        />
+                        <EffectsProperties
+                          key={`effects:${selectedScreenElementSectionKey}`}
+                          element={selectedScreenElement}
+                          onStyleChange={onSelectedScreenStyleChange}
+                          onStylesChange={onSelectedScreenStylesChange}
+                          glslShaderContext={screenGlslShaderContext}
+                        />
+                        <SelectionColorsProperties
+                          elements={selectedScreenElements}
+                          scopes={selectionColorScopes}
+                          readSubtreeColorStyles={readSubtreeColorStyles}
+                          onColorTarget={onSelectionColorTarget}
+                          canSelectColorTarget={canSelectSelectionColorTarget}
+                          onColorPickerOpenChange={
+                            onSelectionColorPickerOpenChange
+                          }
+                          onColorChange={
+                            readOnly || interactionState
+                              ? undefined
+                              : onSelectionColorChange
+                          }
+                        />
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {!inspectorElement &&
+                !selectedScreenGeometry &&
+                selectionColorScopes.length > 0 ? (
+                  <SelectionColorsProperties
+                    elements={[]}
+                    scopes={selectionColorScopes}
+                    onColorTarget={onSelectionColorTarget}
+                    canSelectColorTarget={canSelectSelectionColorTarget}
+                    onColorPickerOpenChange={onSelectionColorPickerOpenChange}
+                    onColorChange={
+                      readOnly || interactionState
+                        ? undefined
+                        : onSelectionColorChange
+                    }
+                  />
+                ) : null}
+
+                {!inspectorElement &&
+                !selectedScreenGeometry &&
+                backgroundPanelScope ? (
+                  <PageProperties
+                    scope={backgroundPanelScope}
+                    styles={pageStyles}
+                    onStyleChange={onStyleChange}
+                    onStylesChange={onStylesChange}
+                    canvasBackground={canvasBackground}
+                    canvasBackgroundFallback={canvasBackgroundFallback}
+                    onCanvasBackgroundChange={onCanvasBackgroundChange}
+                  />
+                ) : null}
+
+                {!motionInspector && shouldRenderInteractionStatePanel ? (
+                  <InteractionStatePanel
+                    activeState={interactionState}
+                    onActiveStateChange={handleInteractionStateChange}
+                    open={interactionStateMenuOpen}
+                    onOpenChange={setInteractionStateMenuOpen}
+                    availableStates={availableInteractionStates}
+                    statesWithOverrides={interactionStatesWithOverrides}
+                  />
+                ) : null}
+
+                {inspectorElement && (
+                  <>
+                    {motionInspector ||
+                    (selectedCount > 0 && motionSelectedTarget) ? (
+                      <PanelSection
+                        title={t("designEditor.motion.animations")}
+                        actions={
+                          motionSelectedTarget ? (
+                            <div className="flex items-center gap-1">
+                              <Popover
+                                open={animationStyleBrowserOpen}
+                                onOpenChange={setAnimationStyleBrowserOpen}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-[11px]"
+                                    aria-label={t(
+                                      "designEditor.motion.animationStyles.title",
+                                    )}
+                                    aria-expanded={animationStyleBrowserOpen}
+                                    disabled={motionWriteUnavailable}
+                                  >
+                                    <IconGridDots
+                                      aria-hidden="true"
+                                      className="size-3.5"
+                                    />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                  align="end"
+                                  side="left"
+                                  className="w-[244px] p-0"
+                                >
+                                  <div className="h-[min(480px,calc(100dvh-4rem))]">
+                                    <AnimationStyleBrowser
+                                      styles={motionAnimationStyles}
+                                      basicStyles={getMotionDockPrimaryStyles(
+                                        t,
+                                      )}
+                                      selectedTargetTracks={
+                                        motionAnimationStyleTargetTracks
+                                      }
+                                      disabled={motionWriteUnavailable}
+                                      onApply={(style) => {
+                                        onApplyMotionAnimationStyle?.(style);
+                                      }}
+                                      onApplyPreset={(style) =>
+                                        onCreateMotionStyle?.(style)
+                                      }
+                                      onSaveStyle={(metadata, tracks) =>
+                                        onSaveMotionAnimationStyle?.(
+                                          metadata,
+                                          tracks,
+                                        )
+                                      }
+                                      onClose={() =>
+                                        setAnimationStyleBrowserOpen(false)
+                                      }
+                                      t={t}
+                                    />
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                              <AddTrackMenu
+                                selectedTarget={motionSelectedTarget}
+                                disabledProperties={
+                                  selectedCount === 1
+                                    ? motionKeyframeState?.keyframedProperties
+                                    : undefined
+                                }
+                                disabledReason={
+                                  motionWriteUnavailable
+                                    ? t(
+                                        "designEditor.motion.sourceWriteUnavailable",
+                                      )
+                                    : undefined
+                                }
+                                onCreateTrack={
+                                  onCreateMotionTrack ?? (() => undefined)
+                                }
+                                onCreateStyle={onCreateMotionStyle}
+                                onCreateNativeStyle={onCreateMotionNativeStyle}
+                                onCreateText={onCreateMotionTextAnimation}
+                              />
+                            </div>
+                          ) : null
+                        }
+                      >
+                        {motionInspector && !motionSelectedTarget ? (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">
+                            {t("designEditor.motion.emptyStateNoSelection")}
+                          </p>
+                        ) : null}
+                        {motionSelectedTarget ? (
+                          <MotionNativeStyleEditor
+                            styles={motionNativeStyles}
+                            targetNodeId={motionSelectedTarget.nodeId}
+                            disabled={motionWriteUnavailable}
+                            easingVariables={motionEasingVariables}
+                            onEasingVariablesChange={
+                              onMotionEasingVariablesChange
+                            }
+                            onChange={(instance, identity) =>
+                              onMotionNativeStyleChange?.(instance, identity)
+                            }
+                            onRemove={(identity) =>
+                              onRemoveMotionNativeStyle?.(identity)
+                            }
+                            t={t}
+                          />
+                        ) : null}
+                      </PanelSection>
+                    ) : null}
+                    {selectedCount === 1 &&
+                    motionSelectedTarget?.isText &&
+                    (motionTextAnimations?.length ?? 0) > 0 ? (
+                      <MotionTextAnimationEditor
+                        animations={motionTextAnimations ?? []}
+                        onChange={(animations) =>
+                          onMotionTextAnimationsChange?.(animations)
+                        }
+                        disabled={motionWriteUnavailable}
+                        t={t}
+                      />
+                    ) : null}
+                    <PositionLayoutProperties
+                      key={`position:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={onStylesChange}
+                      onAlignSelection={onAlignSelection}
+                      alignSelectionDisabled={alignSelectionDisabled}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                      breakpointOverrideContext={breakpointOverrideFieldContext}
+                      motionInspector={motionInspector}
+                      onMotionOriginEditingChange={onMotionOriginEditingChange}
+                    />
+                    {!motionInspector &&
+                    activeTool === "scale" &&
+                    scaleToolControls &&
+                    effectiveSelectedElements.length === 1 ? (
+                      <ScaleProperties
+                        key={`scale:${inspectorElementSectionKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        controls={scaleToolControls}
+                      />
+                    ) : null}
+                    {motionInspector ? (
+                      <MotionDimensionsProperties
+                        key={`motion-dimensions:${inspectorElementSectionKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                        breakpointOverrideContext={
+                          breakpointOverrideFieldContext
+                        }
+                      >
+                        <LayoutContextProperties
+                          key={`motion-auto-layout:${inspectorElementSectionKey}`}
+                          element={
+                            stateResolvedInspectorElement ?? inspectorElement
+                          }
+                          onStyleChange={onStyleChange}
+                          onStylesChange={onStylesChange}
+                          onDisableAutoLayout={onDisableAutoLayout}
+                          onApplyLayoutFlow={onApplyLayoutFlow}
+                          showContainerSizing={false}
+                          motionInspector
+                          motionKeyframeContext={motionKeyframeFieldContext}
+                        />
+                      </MotionDimensionsProperties>
+                    ) : (
                       <LayoutContextProperties
-                        key={`layout-context:${selectedScreenElementSectionKey}`}
-                        element={selectedScreenElement}
-                        onStyleChange={onSelectedScreenStyleChange}
-                        onStylesChange={onSelectedScreenStylesChange}
+                        key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
                         onDisableAutoLayout={onDisableAutoLayout}
                         onApplyLayoutFlow={onApplyLayoutFlow}
-                        showContainerSizing={false}
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                        breakpointOverrideContext={
+                          breakpointOverrideFieldContext
+                        }
                       />
-                      <AppearanceProperties
-                        key={`appearance:${selectedScreenElementSectionKey}`}
-                        element={selectedScreenElement}
-                        onStyleChange={onSelectedScreenStyleChange}
-                        onStylesChange={onSelectedScreenStylesChange}
-                        hidden={selectionHidden}
-                        onToggleHidden={onToggleSelectionHidden}
+                    )}
+                    <AppearanceProperties
+                      key={`appearance:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={
+                        onStylesChangeProp ? onStylesChange : undefined
+                      }
+                      hidden={selectionHidden}
+                      onToggleHidden={onToggleSelectionHidden}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                      breakpointOverrideContext={breakpointOverrideFieldContext}
+                      vectorPointRadius={vectorPointRadius}
+                      vectorPointSelected={vectorPointSelected}
+                      cornerRadiusDisabled={selectionIsBoxlessText}
+                      onVectorPointRadiusChange={onVectorPointRadiusChange}
+                    />
+                    {!motionInspector && selectionHasTextElement ? (
+                      <TypographyProperties
+                        key={`typography:${inspectorElementSectionKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={
+                          onStylesChangeProp ? onStylesChange : undefined
+                        }
+                        designId={designId}
+                        onFontUploaded={onFontUploaded}
                       />
-                      <FillProperties
-                        key={`fill:${selectedScreenElementSectionKey}`}
-                        element={selectedScreenElement}
-                        uploadScopeKey={selectedScreenElementSectionKey}
-                        onStyleChange={onSelectedScreenStyleChange}
-                        onStylesChange={onSelectedScreenStylesChange}
+                    ) : null}
+                    {selectionIsGroup ? (
+                      motionInspector ? null : (
+                        <GroupFillProperties
+                          key={`group-fill:${inspectorElementSectionKey}`}
+                          scopes={selectionColorScopes}
+                          documentColors={documentColorPalette}
+                          disabled={readOnly || Boolean(interactionState)}
+                          onStylesChange={
+                            readOnly || interactionState
+                              ? undefined
+                              : onGroupFillStylesChange
+                          }
+                          mostRecentFillColor={recentFillColorRef.current}
+                        />
+                      )
+                    ) : (
+                      <ShaderAwareFillProperties
+                        key={`fill:${inspectorElementSectionKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
+                        capturedStyleTargets={capturedStyleTargets}
                         documentColorPalette={documentColorPalette}
-                        glslShaderContext={screenGlslShaderContext}
+                        glslShaderContext={glslShaderContext}
+                        contrastContext={textContrastContext}
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                        breakpointOverrideContext={
+                          breakpointOverrideFieldContext
+                        }
+                        hideAddFill={selectionIsTextOnly}
                         readSubtreeColorStyles={readSubtreeColorStyles}
                       />
-                      <StrokeProperties
-                        key={`stroke:${selectedScreenElementSectionKey}`}
-                        element={selectedScreenElement}
-                        onStyleChange={onSelectedScreenStyleChange}
-                        onStylesChange={onSelectedScreenStylesChange}
+                    )}
+                    <StrokeProperties
+                      key={`stroke:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={onStylesChange}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                      breakpointOverrideContext={breakpointOverrideFieldContext}
+                    />
+                    <EffectsProperties
+                      key={`effects:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={onStylesChange}
+                      glslShaderContext={glslShaderContext}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                    />
+                    {/* The breakpoint control also sits in the Screen section; an
+                      element's responsive edits need it within reach too. */}
+                    <PanelSection title={t("editPanel.sections.responsive")}>
+                      {screenBreakpointControls}
+                    </PanelSection>
+                    {motionInspector ? (
+                      <MotionAudioTracks
+                        surface="inspector"
+                        clips={motionAudioClips ?? []}
+                        playheadMs={motionAudioPlayheadMs}
+                        timelineDurationMs={motionAudioDurationMs}
+                        timelineScaleDurationMs={motionAudioDurationMs}
+                        readOnly={readOnly || motionWriteUnavailable}
+                        onClipsChange={onMotionAudioClipsChange}
+                        onDurationChange={onMotionAudioDurationChange}
                       />
-                      <EffectsProperties
-                        key={`effects:${selectedScreenElementSectionKey}`}
-                        element={selectedScreenElement}
-                        onStyleChange={onSelectedScreenStyleChange}
-                        onStylesChange={onSelectedScreenStylesChange}
-                        glslShaderContext={screenGlslShaderContext}
-                      />
+                    ) : null}
+                    {!motionInspector ? (
                       <SelectionColorsProperties
-                        elements={selectedScreenElements}
+                        elements={effectiveSelectedElements}
                         scopes={selectionColorScopes}
                         readSubtreeColorStyles={readSubtreeColorStyles}
                         onColorTarget={onSelectionColorTarget}
@@ -3211,498 +3403,101 @@ export const EditPanel = memo(function EditPanel({
                             : onSelectionColorChange
                         }
                       />
-                    </>
-                  ) : null}
-                </>
-              ) : null}
-
-              {!inspectorElement &&
-              !selectedScreenGeometry &&
-              selectionColorScopes.length > 0 ? (
-                <SelectionColorsProperties
-                  elements={[]}
-                  scopes={selectionColorScopes}
-                  onColorTarget={onSelectionColorTarget}
-                  canSelectColorTarget={canSelectSelectionColorTarget}
-                  onColorPickerOpenChange={onSelectionColorPickerOpenChange}
-                  onColorChange={
-                    readOnly || interactionState
-                      ? undefined
-                      : onSelectionColorChange
-                  }
-                />
-              ) : null}
-
-              {!inspectorElement &&
-              !selectedScreenGeometry &&
-              backgroundPanelScope ? (
-                <PageProperties
-                  scope={backgroundPanelScope}
-                  styles={pageStyles}
-                  onStyleChange={onStyleChange}
-                  onStylesChange={onStylesChange}
-                  canvasBackground={canvasBackground}
-                  canvasBackgroundFallback={canvasBackgroundFallback}
-                  onCanvasBackgroundChange={onCanvasBackgroundChange}
-                />
-              ) : null}
-
-              {resolvedActiveTab !== "motion" &&
-              shouldRenderInteractionStatePanel ? (
-                <InteractionStatePanel
-                  activeState={interactionState}
-                  onActiveStateChange={handleInteractionStateChange}
-                  open={interactionStateMenuOpen}
-                  onOpenChange={setInteractionStateMenuOpen}
-                  availableStates={availableInteractionStates}
-                  statesWithOverrides={interactionStatesWithOverrides}
-                />
-              ) : null}
-
-              {inspectorElement && (
-                <>
-                  {resolvedActiveTab === "motion" ||
-                  (selectedCount > 0 && motionSelectedTarget) ? (
-                    <PanelSection
-                      title={t("designEditor.motion.animations")}
-                      actions={
-                        motionSelectedTarget ? (
-                          <div className="flex items-center gap-1">
-                            <Popover
-                              open={animationStyleBrowserOpen}
-                              onOpenChange={setAnimationStyleBrowserOpen}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 px-2 text-[11px]"
-                                  aria-label={t(
-                                    "designEditor.motion.animationStyles.title",
-                                  )}
-                                  aria-expanded={animationStyleBrowserOpen}
-                                  disabled={motionWriteUnavailable}
-                                >
-                                  <IconGridDots
-                                    aria-hidden="true"
-                                    className="size-3.5"
-                                  />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                align="end"
-                                side="left"
-                                className="w-[244px] p-0"
-                              >
-                                <div className="h-[min(480px,calc(100dvh-4rem))]">
-                                  <AnimationStyleBrowser
-                                    styles={motionAnimationStyles}
-                                    basicStyles={getMotionDockPrimaryStyles(t)}
-                                    selectedTargetTracks={
-                                      motionAnimationStyleTargetTracks
-                                    }
-                                    disabled={motionWriteUnavailable}
-                                    onApply={(style) => {
-                                      onApplyMotionAnimationStyle?.(style);
-                                    }}
-                                    onApplyPreset={(style) =>
-                                      onCreateMotionStyle?.(style)
-                                    }
-                                    onSaveStyle={(metadata, tracks) =>
-                                      onSaveMotionAnimationStyle?.(
-                                        metadata,
-                                        tracks,
-                                      )
-                                    }
-                                    onClose={() =>
-                                      setAnimationStyleBrowserOpen(false)
-                                    }
-                                    t={t}
-                                  />
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                            <AddTrackMenu
-                              selectedTarget={motionSelectedTarget}
-                              disabledProperties={
-                                selectedCount === 1
-                                  ? motionKeyframeState?.keyframedProperties
-                                  : undefined
-                              }
-                              disabledReason={
-                                motionWriteUnavailable
-                                  ? t(
-                                      "designEditor.motion.sourceWriteUnavailable",
-                                    )
-                                  : undefined
-                              }
-                              onCreateTrack={
-                                onCreateMotionTrack ?? (() => undefined)
-                              }
-                              onCreateStyle={onCreateMotionStyle}
-                              onCreateNativeStyle={onCreateMotionNativeStyle}
-                              onCreateText={onCreateMotionTextAnimation}
-                            />
-                          </div>
-                        ) : null
-                      }
-                    >
-                      {resolvedActiveTab === "motion" &&
-                      !motionSelectedTarget ? (
-                        <p className="px-3 py-2 text-xs text-muted-foreground">
-                          {t("designEditor.motion.emptyStateNoSelection")}
-                        </p>
-                      ) : null}
-                      {motionSelectedTarget ? (
-                        <MotionNativeStyleEditor
-                          styles={motionNativeStyles}
-                          targetNodeId={motionSelectedTarget.nodeId}
-                          disabled={motionWriteUnavailable}
-                          easingVariables={motionEasingVariables}
-                          onEasingVariablesChange={
-                            onMotionEasingVariablesChange
-                          }
-                          onChange={(instance, identity) =>
-                            onMotionNativeStyleChange?.(instance, identity)
-                          }
-                          onRemove={(identity) =>
-                            onRemoveMotionNativeStyle?.(identity)
-                          }
-                          t={t}
-                        />
-                      ) : null}
-                    </PanelSection>
-                  ) : null}
-                  {selectedCount === 1 &&
-                  motionSelectedTarget?.isText &&
-                  (motionTextAnimations?.length ?? 0) > 0 ? (
-                    <MotionTextAnimationEditor
-                      animations={motionTextAnimations ?? []}
-                      onChange={(animations) =>
-                        onMotionTextAnimationsChange?.(animations)
-                      }
-                      disabled={motionWriteUnavailable}
-                      t={t}
-                    />
-                  ) : null}
-                  <PositionLayoutProperties
-                    key={`position:${inspectorElementSectionKey}`}
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    onAlignSelection={onAlignSelection}
-                    alignSelectionDisabled={alignSelectionDisabled}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                    breakpointOverrideContext={breakpointOverrideFieldContext}
-                    motionInspector={resolvedActiveTab === "motion"}
-                    onMotionOriginEditingChange={onMotionOriginEditingChange}
-                  />
-                  {resolvedActiveTab !== "motion" &&
-                  activeTool === "scale" &&
-                  scaleToolControls &&
-                  effectiveSelectedElements.length === 1 ? (
-                    <ScaleProperties
-                      key={`scale:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      controls={scaleToolControls}
-                    />
-                  ) : null}
-                  {resolvedActiveTab === "motion" ? (
-                    <MotionDimensionsProperties
-                      key={`motion-dimensions:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={onStylesChange}
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                      breakpointOverrideContext={breakpointOverrideFieldContext}
-                    >
-                      <LayoutContextProperties
-                        key={`motion-auto-layout:${inspectorElementSectionKey}`}
+                    ) : null}
+                    {!motionInspector && selectionHasContainerElement ? (
+                      <LayoutGuideProperties
                         element={
                           stateResolvedInspectorElement ?? inspectorElement
                         }
                         onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        onDisableAutoLayout={onDisableAutoLayout}
-                        onApplyLayoutFlow={onApplyLayoutFlow}
-                        showContainerSizing={false}
-                        motionInspector
-                        motionKeyframeContext={motionKeyframeFieldContext}
                       />
-                    </MotionDimensionsProperties>
-                  ) : (
-                    <LayoutContextProperties
-                      key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={onStylesChange}
-                      onDisableAutoLayout={onDisableAutoLayout}
-                      onApplyLayoutFlow={onApplyLayoutFlow}
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                      breakpointOverrideContext={breakpointOverrideFieldContext}
-                    />
-                  )}
-                  <AppearanceProperties
-                    key={`appearance:${inspectorElementSectionKey}`}
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={
-                      onStylesChangeProp ? onStylesChange : undefined
-                    }
-                    hidden={selectionHidden}
-                    onToggleHidden={onToggleSelectionHidden}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                    breakpointOverrideContext={breakpointOverrideFieldContext}
-                    vectorPointRadius={vectorPointRadius}
-                    vectorPointSelected={vectorPointSelected}
-                    cornerRadiusDisabled={selectionIsBoxlessText}
-                    onVectorPointRadiusChange={onVectorPointRadiusChange}
-                  />
-                  {resolvedActiveTab !== "motion" && selectionHasTextElement ? (
-                    <TypographyProperties
-                      key={`typography:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={
-                        onStylesChangeProp ? onStylesChange : undefined
-                      }
-                      designId={designId}
-                      onFontUploaded={onFontUploaded}
-                    />
-                  ) : null}
-                  {selectionIsGroup ? (
-                    resolvedActiveTab === "motion" ? null : (
-                      <GroupFillProperties
-                        key={`group-fill:${inspectorElementSectionKey}`}
-                        scopes={selectionColorScopes}
-                        documentColors={documentColorPalette}
-                        disabled={readOnly || Boolean(interactionState)}
-                        onStylesChange={
-                          readOnly || interactionState
-                            ? undefined
-                            : onGroupFillStylesChange
-                        }
-                        mostRecentFillColor={recentFillColorRef.current}
-                      />
-                    )
-                  ) : (
-                    <FillProperties
-                      key={`fill:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={onStylesChange}
-                      capturedStyleTargets={capturedStyleTargets}
-                      documentColorPalette={documentColorPalette}
-                      glslShaderContext={glslShaderContext}
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                      breakpointOverrideContext={breakpointOverrideFieldContext}
-                      hideAddFill={selectionIsTextOnly}
-                      readSubtreeColorStyles={readSubtreeColorStyles}
-                    />
-                  )}
-                  <StrokeProperties
-                    key={`stroke:${inspectorElementSectionKey}`}
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                    breakpointOverrideContext={breakpointOverrideFieldContext}
-                  />
-                  <EffectsProperties
-                    key={`effects:${inspectorElementSectionKey}`}
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    glslShaderContext={glslShaderContext}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                  />
-                  {resolvedActiveTab === "motion" ? (
-                    <MotionAudioTracks
-                      surface="inspector"
-                      clips={motionAudioClips ?? []}
-                      playheadMs={motionAudioPlayheadMs}
-                      timelineDurationMs={motionAudioDurationMs}
-                      timelineScaleDurationMs={motionAudioDurationMs}
-                      readOnly={readOnly || motionWriteUnavailable}
-                      onClipsChange={onMotionAudioClipsChange}
-                      onDurationChange={onMotionAudioDurationChange}
-                    />
-                  ) : null}
-                  {resolvedActiveTab !== "motion" ? (
-                    <SelectionColorsProperties
-                      elements={effectiveSelectedElements}
-                      scopes={selectionColorScopes}
-                      readSubtreeColorStyles={readSubtreeColorStyles}
-                      onColorTarget={onSelectionColorTarget}
-                      canSelectColorTarget={canSelectSelectionColorTarget}
-                      onColorPickerOpenChange={onSelectionColorPickerOpenChange}
-                      onColorChange={
-                        readOnly || interactionState
-                          ? undefined
-                          : onSelectionColorChange
-                      }
-                    />
-                  ) : null}
-                  {resolvedActiveTab !== "motion" &&
-                  selectionHasContainerElement ? (
-                    <LayoutGuideProperties
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                    />
-                  ) : null}
-                </>
-              )}
-              {/* Export acts on a selection. With nothing selected there is
+                    ) : null}
+                  </>
+                )}
+                {/* Export acts on a selection. With nothing selected there is
                   nothing to export, so the section was pure chrome on the
                   empty-canvas panel. */}
-              {onExport && (inspectorElement || selectedScreenGeometry) ? (
-                <PanelSection title={t("editPanel.sections.export")}>
-                  <ExportSettingsPanel
-                    key={selectedElementKey}
-                    value={exportSettings}
-                    formats={["png", "svg", "pdf"]}
-                    exporting={exporting}
-                    onChange={(patch) =>
-                      setExportSettings((current) => ({ ...current, ...patch }))
-                    }
-                    onExport={onExport}
-                  />
-                  {/* Distinct from the settings panel's key: two siblings
+                {onExport && (inspectorElement || selectedScreenGeometry) ? (
+                  <PanelSection title={t("editPanel.sections.export")}>
+                    <ExportSettingsPanel
+                      key={selectedElementKey}
+                      value={exportSettings}
+                      formats={["png", "svg", "pdf"]}
+                      exporting={exporting}
+                      onChange={(patch) =>
+                        setExportSettings((current) => ({
+                          ...current,
+                          ...patch,
+                        }))
+                      }
+                      onExport={onExport}
+                    />
+                    {/* Distinct from the settings panel's key: two siblings
                       sharing one key makes React duplicate the panel on every
                       re-render, so the section grows an Export block per tick. */}
-                  <ExportPreviewDisclosure
-                    key={`${selectedElementKey}:preview`}
-                    element={inspectorElement}
-                    onRender={onRenderExportPreview}
-                  />
-                </PanelSection>
-              ) : null}
+                    <ExportPreviewDisclosure
+                      key={`${selectedElementKey}:preview`}
+                      element={inspectorElement}
+                      onRender={onRenderExportPreview}
+                    />
+                  </PanelSection>
+                ) : null}
 
-              {/* §6.5 Review — contextual section in Design tab.
+                {/* §6.5 Review — contextual section in Design tab.
                 Renders when reviewPanelProps is provided; no designId check
                 needed since ReviewPanel is statically fed. */}
-              {reviewPanelProps ? (
-                <PanelSection
-                  title={"Review" /* i18n-ignore design inspector section */}
-                  actions={
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 rounded-md text-muted-foreground hover:text-foreground"
-                          disabled={reviewPanelProps.auditLoading}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            reviewPanelProps.onRunAudit?.();
-                          }}
-                          aria-label={
-                            "Run audit" /* i18n-ignore design inspector action */
-                          }
-                        >
-                          <IconRefresh
-                            className={cn(
-                              "size-3.5",
-                              reviewPanelProps.auditLoading && "animate-spin",
-                            )}
-                          />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {"Run audit" /* i18n-ignore design inspector action */}
-                      </TooltipContent>
-                    </Tooltip>
-                  }
-                >
-                  {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
-                  <ReviewPanel {...reviewPanelProps} />
-                </PanelSection>
-              ) : null}
-            </div>
-          </>
-        ) : resolvedActiveTab === "tweaks" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="h-10 shrink-0 border-b border-border/90 px-2">
-              <InspectorGrid
-                className="h-full items-center"
-                layout="header-actions"
-              >
-                <InspectorGridCell span={24}>
-                  <h3 className="design-sidebar-context-title min-w-0 truncate text-foreground">
-                    {t("designEditor.tweaks")}
-                  </h3>
-                </InspectorGridCell>
-                <InspectorGridCell span={4}>
-                  <InspectorActionRail>
-                    {onRequestTweaks ? (
+                {reviewPanelProps ? (
+                  <PanelSection
+                    title={"Review" /* i18n-ignore design inspector section */}
+                    actions={
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                            aria-label={t("designEditor.addTweaks")}
-                            onClick={(event) =>
-                              handleRequestTweaks(event.currentTarget)
+                            className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                            disabled={reviewPanelProps.auditLoading}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              reviewPanelProps.onRunAudit?.();
+                            }}
+                            aria-label={
+                              "Run audit" /* i18n-ignore design inspector action */
                             }
                           >
-                            <IconPlus className="size-3.5" />
+                            <IconRefresh
+                              className={cn(
+                                "size-3.5",
+                                reviewPanelProps.auditLoading && "animate-spin",
+                              )}
+                            />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {t("designEditor.addTweaks")}
+                          {
+                            "Run audit" /* i18n-ignore design inspector action */
+                          }
                         </TooltipContent>
                       </Tooltip>
-                    ) : null}
-                  </InspectorActionRail>
-                </InspectorGridCell>
-              </InspectorGrid>
-            </div>
-
-            <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              <TweaksPanelContent
-                tweaks={tweaks}
-                values={tweakValues}
-                onChange={handleTweakChange}
-                onRequestTweaks={handleRequestTweaks}
-                className="px-3 py-3"
-              />
-            </div>
-          </div>
-        ) : resolvedActiveTab === "code" ? (
-          <CodeInspectPanel
-            data={inspectCode}
-            element={inspectorElement}
-            screen={selectedScreenGeometry}
-          />
-        ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
-          <ReviewCommentsPanel {...reviewCommentsPanelProps} />
-        ) : null}
-        {import.meta.env.DEV &&
-        resolvedActiveTab === "design" &&
-        inspectorGridDebug ? (
-          <div
-            className="design-inspector-grid-debug-overlay"
-            data-inspector-grid-debug-overlay
-            aria-hidden="true"
-          />
-        ) : null}
-      </div>
+                    }
+                  >
+                    {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
+                    <ReviewPanel {...reviewPanelProps} />
+                  </PanelSection>
+                ) : null}
+              </div>
+            </>
+          )}
+          {import.meta.env.DEV && inspectorGridDebug ? (
+            <div
+              className="design-inspector-grid-debug-overlay"
+              data-inspector-grid-debug-overlay
+              aria-hidden="true"
+            />
+          ) : null}
+        </div>
+      </DesignColorTokensProvider>
     </TooltipProvider>
   );
 });

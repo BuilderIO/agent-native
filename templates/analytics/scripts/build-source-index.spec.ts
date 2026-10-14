@@ -248,13 +248,38 @@ describe("compileSourceIndex", () => {
         ")",
         "select exploded_users.user_id,",
         "  exploded_users.name,",
-        "  exploded_users.organization as organization_id,",
+        "  exploded_users.organization as `organization_id`,",
         "  case when orgs.type = 'root' then true else false end as organization_is_root,",
         '  coalesce(lookup_user_role(exploded_users.organization_roles, orgs.org_id), "missing") as organization_role,',
         "  orgs.subscription",
         "from exploded_users",
         'left join {{ ref("organizations") }} orgs',
         "  on exploded_users.organization = orgs.org_id",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(intermediate, "user_organization_aliased_base.sql"),
+      [
+        "with exploded_users as (",
+        '  select * from {{ ref("users") }} users',
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select exploded_users.user_id as member_key,",
+        "  exploded_users.organization as workspace_key,",
+        "  exploded_users.organization_roles as role_codes",
+        "from exploded_users",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(intermediate, "user_organization_ambiguous_base.sql"),
+      [
+        "with exploded_users as (",
+        '  select * from {{ ref("users") }} users',
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select exploded_users.user_id as member_key,",
+        "  exploded_users.organization as member_key",
+        "from exploded_users",
       ].join("\n"),
     );
     await writeFile(
@@ -265,6 +290,34 @@ describe("compileSourceIndex", () => {
         "Maps each user to every organization they belong to, flagging the user's root org.",
         "#}",
         "select user_id, organization_id, organization_is_root as is_root_org",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_aliases.sql"),
+      [
+        "select user_id as member_key, organization_id as workspace_key",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_quoted_aliases.sql"),
+      [
+        "select user_id as `member_key`, organization_id as `workspace_key`",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_nested_aliases.sql"),
+      [
+        "select member_key as teammate, workspace_key as team_key",
+        'from {{ ref("user_organization_aliases") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_ambiguous_aliases.sql"),
+      [
+        "select user_id as member_key, organization_id as member_key",
         'from {{ ref("user_organization_role") }}',
       ].join("\n"),
     );
@@ -288,6 +341,13 @@ describe("compileSourceIndex", () => {
         "cross join unnest(users.organizations) as organization",
       ].join("\n"),
     );
+    await writeFile(
+      path.join(mapping, "user_organization_distinct.sql"),
+      [
+        "select distinct user_id, organization_id",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
 
     const bundle = await compileSourceIndex({
       dbtRoots: [dbtRoot],
@@ -300,22 +360,163 @@ describe("compileSourceIndex", () => {
     expect(byMetric.get("model:user_organization_role")).toMatchObject({
       grain:
         "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns:
+        "name, organization_id, organization_is_root, organization_role, subscription, user_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
+      inferredMembershipKeyRoles: {
+        user: "user_id",
+        organization: "organization_id",
+      },
     });
+    expect(byMetric.get("model:user_organization_role")).not.toHaveProperty(
+      "columnsUsed",
+    );
+    expect(byMetric.get("model:user_organization_aliased_base")).toMatchObject({
+      grain:
+        "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key, role_codes, workspace_key",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+    expect(
+      byMetric.get("model:user_organization_ambiguous_base"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_ambiguous_base"),
+    ).not.toHaveProperty("inferredMembershipKeys");
+    expect(
+      byMetric.get("model:user_organization_ambiguous_base"),
+    ).not.toHaveProperty("inferredMembershipKeyRoles");
     expect(byMetric.get("model:user_id_to_org_id")).toMatchObject({
       grain:
         "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
       dependencies: "ref:user_organization_role",
+      sqlProjectedColumns: "is_root_org, organization_id, user_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
+      inferredMembershipKeyRoles: {
+        user: "user_id",
+        organization: "organization_id",
+      },
     });
+    expect(byMetric.get("model:user_id_to_org_id")).not.toHaveProperty(
+      "columnsUsed",
+    );
+    expect(byMetric.get("model:user_organization_aliases")).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key, workspace_key",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+    expect(
+      byMetric.get("model:user_organization_quoted_aliases"),
+    ).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key, workspace_key",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+    expect(
+      byMetric.get("model:user_organization_nested_aliases"),
+    ).toMatchObject({
+      sqlProjectedColumns: "team_key, teammate",
+      inferredMembershipKeys: ["teammate", "team_key"],
+      inferredMembershipKeyRoles: {
+        user: "teammate",
+        organization: "team_key",
+      },
+    });
+    expect(
+      byMetric.get("model:user_organization_ambiguous_aliases"),
+    ).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key",
+    });
+    expect(
+      byMetric.get("model:user_organization_ambiguous_aliases"),
+    ).not.toHaveProperty("inferredMembershipKeys");
+    expect(
+      byMetric.get("model:user_organization_ambiguous_aliases"),
+    ).not.toHaveProperty("inferredMembershipKeyRoles");
     expect(byMetric.get("model:customer_items")).not.toHaveProperty("grain");
     expect(
       byMetric.get("model:user_organization_duplicate_source"),
     ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).toMatchObject({ sqlProjectedColumns: "organization_id, user_id" });
+    expect(byMetric.get("model:user_organization_distinct")).toMatchObject({
+      sqlProjectedColumns: "organization_id, user_id",
+    });
+    expect(byMetric.get("model:user_organization_distinct")).not.toHaveProperty(
+      "grain",
+    );
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).not.toHaveProperty("columnsUsed");
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).not.toHaveProperty("inferredMembershipKeys");
     expect(
       byMetric.get("model:user_organization_user_only"),
     ).not.toHaveProperty("grain");
     expect(byMetric.get("model:user_organization_count")).not.toHaveProperty(
       "grain",
     );
+  });
+
+  it("omits membership roles when a wide model truncates one projected key", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    const fillers = Array.from(
+      { length: 130 },
+      (_, index) =>
+        `  exploded_users.filler_${index} as s_filler_${String(index).padStart(3, "0")}_${"x".repeat(80)}`,
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_wide.sql"),
+      [
+        "with exploded_users as (",
+        "  select users.user_id, organization",
+        "  from users",
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select",
+        [
+          "  exploded_users.organization as organization_id",
+          ...fillers,
+          "  exploded_users.user_id as user_id",
+        ].join(",\n"),
+        "from exploded_users",
+      ].join("\n"),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-13T00:00:00.000Z",
+    });
+    const model = bundle.entries.find(
+      (entry) => entry.metric === "model:user_organization_wide",
+    );
+
+    expect(model?.sqlProjectedColumns).toContain("organization_id");
+    expect(model?.sqlProjectedColumns).toContain("additional entries omitted");
+    expect(model?.sqlProjectedColumns).not.toContain("user_id");
+    expect(model).not.toHaveProperty("inferredMembershipKeys");
+    expect(model).not.toHaveProperty("inferredMembershipKeyRoles");
+    expect(sourceIndexBundleSchema.parse(bundle)).toEqual(bundle);
   });
 
   it("does not infer membership grain through aggregates or grouped projections", async () => {
@@ -368,12 +569,33 @@ describe("compileSourceIndex", () => {
     expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
       "grain",
     );
+    expect(byMetric.get("model:user_organization_grouped")).toMatchObject({
+      sqlProjectedColumns: "user_id",
+    });
+    expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
+      "columnsUsed",
+    );
+    expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
+      "inferredMembershipKeys",
+    );
     expect(
       byMetric.get("model:user_organization_aggregate"),
     ).not.toHaveProperty("grain");
     expect(
+      byMetric.get("model:user_organization_aggregate"),
+    ).not.toHaveProperty("columnsUsed");
+    expect(
       byMetric.get("model:user_organization_computed_key"),
     ).not.toHaveProperty("grain");
+    expect(byMetric.get("model:user_organization_computed_key")).toMatchObject({
+      sqlProjectedColumns: "organization_id, user_id",
+    });
+    expect(
+      byMetric.get("model:user_organization_computed_key"),
+    ).not.toHaveProperty("columnsUsed");
+    expect(
+      byMetric.get("model:user_organization_computed_key"),
+    ).not.toHaveProperty("inferredMembershipKeys");
     expect(
       byMetric.get("model:user_organization_count_passthrough"),
     ).not.toHaveProperty("grain");
@@ -727,6 +949,11 @@ describe("compileSourceIndex", () => {
         "      - name: order_status",
         "        dimension:",
         "          type: categorical",
+        ...Array.from({ length: 100 }, (_, index) => [
+          `      - name: dimension_${String(index).padStart(3, "0")}_${"segment".repeat(6)}`,
+          "        dimension:",
+          "          type: categorical",
+        ]).flat(),
         "    metrics:",
         "      - name: order_total",
         "        description: Total order amount.",
@@ -767,6 +994,13 @@ describe("compileSourceIndex", () => {
     expect(semanticModel?.definition).toContain(
       "Dimensions: ordered_at (time, day); order_status (categorical)",
     );
+    expect(semanticModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(model?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(bundle.scanSummary.truncatedFields).toBe(2);
     expect(metric).toMatchObject({
       metric: "metric:order_total",
       owner: "Revenue Analytics",
@@ -800,6 +1034,15 @@ describe("compileSourceIndex", () => {
         "  - name: long_model",
         "    description: >",
         `      ${"Business context ".repeat(200)}`,
+        "  - name: long_column_model",
+        "    description: Short model summary.",
+        "    columns:",
+        "      - name: first_column",
+        "        description: " + "Column context ".repeat(120),
+        "      - name: second_column",
+        "        description: " + "Column context ".repeat(120),
+        "      - name: third_column",
+        "        description: " + "Column context ".repeat(120),
       ].join("\n"),
     );
 
@@ -813,6 +1056,9 @@ describe("compileSourceIndex", () => {
     const longModel = bundle.entries.find(
       (entry) => entry.metric === "model:long_model",
     );
+    const longColumnModel = bundle.entries.find(
+      (entry) => entry.metric === "model:long_column_model",
+    );
 
     expect(validModel?.status).toBe("active");
     expect(validModel?.definition).toContain(
@@ -824,13 +1070,61 @@ describe("compileSourceIndex", () => {
     expect(longModel?.definition).toContain(
       "definition excerpt truncated; inspect source",
     );
+    expect(longColumnModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
     expect(bundle.scanSummary).toMatchObject({
       unsafeEntriesOmitted: 1,
-      truncatedFields: 1,
+      truncatedFields: 2,
     });
     expect(sourceIndexBundleSchema.parse(bundle).scanSummary).toEqual(
       bundle.scanSummary,
     );
+  });
+
+  it("counts dbt definition, column, and dependency truncations in scan coverage", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    const columns = Array.from(
+      { length: 120 },
+      (_, index) =>
+        `column_${String(index).padStart(3, "0")}_${"x".repeat(80)}`,
+    );
+    const dependencies = Array.from(
+      { length: 120 },
+      (_, index) =>
+        `dependency_${String(index).padStart(3, "0")}_${"x".repeat(20)}`,
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "wide_model.sql"),
+      dependencies.map((name) => `{{ ref('${name}') }}`).join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: wide_model",
+        "    columns:",
+        ...columns.map((name) => `      - name: ${name}`),
+      ].join("\n"),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const model = bundle.entries.find(
+      (entry) => entry.metric === "model:wide_model",
+    );
+
+    expect(model?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(model?.columnsUsed).toContain("additional entries omitted");
+    expect(model?.dependencies).toContain("additional entries omitted");
+    expect(bundle.scanSummary.truncatedFields).toBe(3);
   });
 
   it("fails loudly on a malformed quoted dbt YAML scalar", async () => {
@@ -1201,6 +1495,7 @@ describe("compileSourceIndex", () => {
     expect(bundle.sources).toEqual([
       {
         id: "dbt",
+        sourceKind: "dbt",
         revision,
         contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       },

@@ -17,6 +17,7 @@ import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { LayersPanel } from "@/components/design/LayersPanel";
+import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import { FigmaLinkComposerBubble } from "@/components/editor/FigmaLinkComposerBubble";
@@ -105,7 +106,6 @@ export function renderLeftSidebar({
     viewMode,
     attachHostChatSlot,
     isSignedIn,
-    session,
     t,
     designChatScope,
     designChatHistory,
@@ -117,7 +117,6 @@ export function renderLeftSidebar({
   const {
     activeLeftPanel,
     setActiveLeftPanel,
-    setActiveInspectorTab,
     collapseLeftPanel,
     leftSidebarContentRef,
     layerPanelExpandedIds,
@@ -137,7 +136,7 @@ export function renderLeftSidebar({
     selectedCanvasSelector,
   } = editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
-  const { setActiveCodeFile } = editorToolsAndVectors;
+  const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
   const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
@@ -184,7 +183,7 @@ export function renderLeftSidebar({
           className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
         >
           <DesignWorkspaceRail
-            account={hostEmbeddedEditor ? null : session}
+            showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
             motionOpen={motionDockOpen}
             onMotionToggle={
@@ -192,10 +191,7 @@ export function renderLeftSidebar({
               SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
               !initialGenerationChromeLimited &&
               activeFileId
-                ? () => {
-                    if (!motionDockOpen) setActiveInspectorTab("motion");
-                    setMotionDockOpenAnimated(!motionDockOpen);
-                  }
+                ? () => setMotionDockOpenAnimated(!motionDockOpen)
                 : undefined
             }
             disabledPanels={
@@ -395,6 +391,17 @@ export function renderLeftSidebar({
                   }
                 />
               )}
+            </div>
+            <div
+              className={cn(
+                "min-h-0 flex-1 flex-col overflow-hidden",
+                activeLeftPanel === "threads" ? "flex" : "hidden",
+              )}
+            >
+              {/* Mounted only while open: the panel fetches every thread. */}
+              {activeLeftPanel === "threads" && reviewCommentsPanelProps ? (
+                <ReviewCommentsPanel {...reviewCommentsPanelProps} />
+              ) : null}
             </div>
             <div
               className={cn(

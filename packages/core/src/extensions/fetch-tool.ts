@@ -13,6 +13,7 @@
 import { fail, isActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
+import { SAVE_TO_FILE_MAX_BYTES } from "../workspace-files/constants.js";
 import {
   collectSecretValues,
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
@@ -29,11 +30,13 @@ import {
 } from "./url-safety.js";
 import {
   formatWebContentResult,
+  hasWebContentSearch,
   parseWebContentSearchOptions,
   processWebContent,
 } from "./web-content.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_WEB_REQUEST_HTML_BYTES = SAVE_TO_FILE_MAX_BYTES;
 const VISION_IMAGE_CONTENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -42,6 +45,22 @@ const VISION_IMAGE_CONTENT_TYPES = new Set([
 ]);
 const CREDENTIAL_NAME_RE =
   /(?:^|[-_])(access[-_]?token|api[-_]?key|auth(?:orization)?|credential|expires?|key[-_]?pair[-_]?id|key|password|passwd|policy|secret|session|signature|sig|token|jwt|assertion)(?:$|[-_])/i;
+
+function isHtmlResponseContentType(contentType: string): boolean {
+  const mediaType = contentType.toLowerCase();
+  return (
+    mediaType === "text/html" ||
+    mediaType === "application/xhtml+xml" ||
+    mediaType.endsWith("+html")
+  );
+}
+
+function truncateToolText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  const marker = "\n...[truncated]";
+  if (maxChars <= marker.length) return marker.slice(0, maxChars);
+  return `${value.slice(0, maxChars - marker.length)}${marker}`;
+}
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== "undefined")
@@ -139,7 +158,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to an external URL: APIs, webhooks, or web pages. HTML/XHTML responses up to 20 MB are extracted before maxChars limits the response body; optional metadata and links can add characters. Raw and other inline responses remain capped at 1 MB. saveToFile can stage responses up to 20 MB. For HTML, it saves extracted Markdown or text unless responseMode is raw; with search, it returns bounded matches instead of a preview. Sends realistic Chrome-on-macOS headers by default; explicit headers override them. Supports \${keys.NAME} placeholders in url, headers, and body, resolved server-side so raw secrets never enter context. Never use this for internal /_agent-native/ endpoints or localhost action URLs; call registered actions directly.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -170,7 +189,7 @@ export function createFetchToolEntry(
             maxChars: {
               type: "number",
               description:
-                "Maximum response body characters to return. Default: 32000. Max: 200000. Increase when you need to read a large document, API response, or dataset.",
+                "Maximum response-body characters returned to context. Default: 32000; max: 200000. Metadata and optional links are additional. This limits extracted content, not the HTML download. Use saveToFile for a longer extracted document.",
             },
             responseMode: {
               type: "string",
@@ -195,12 +214,12 @@ export function createFetchToolEntry(
             includeLinks: {
               type: "boolean",
               description:
-                "Whether extracted HTML responses should include a compact links list. Default: true for extracted pages.",
+                "Whether extracted HTML responses should include a compact links list. Default: true for inline responses and false when saveToFile is set.",
             },
             search: {
               type: "object",
               description:
-                "Optional post-fetch search over extracted content by default. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
+                "Optional post-fetch search over extracted content by default. Searches at most the first 500,000 characters of the selected source; saved results report searchSourceTruncated when this limit is reached. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
               properties: {
                 query: { type: "string" },
                 queries: { type: "array", items: { type: "string" } },
@@ -216,7 +235,7 @@ export function createFetchToolEntry(
             saveToFile: {
               type: "string",
               description:
-                "Workspace file path to save the full response body to instead of returning it in context (e.g. 'analysis/page.html'). When set, returns only a compact summary {savedTo, status, bytes, preview}. Useful for large web pages or API responses that would overflow context.",
+                "Workspace path to stage a response up to 20 MB (e.g. 'scratch/research/page.md'). HTML saves full extracted Markdown/text unless responseMode is raw; non-HTML and raw mode save the response body. With search, returns matches bounded by maxChars and reports when source scanning was capped; without search, returns a preview.",
             },
           },
           required: ["url"],
@@ -399,6 +418,9 @@ export function createFetchToolEntry(
           const contentType =
             response.headers.get("content-type")?.split(";")[0].trim() ??
             "text/plain";
+          const requestedResponseMode = String(args.responseMode ?? "auto");
+          const normalizedResponseMode = requestedResponseMode.toLowerCase();
+          const isHtmlContentType = isHtmlResponseContentType(contentType);
           const httpErrorCode = response.ok
             ? undefined
             : `http_${response.status}`;
@@ -454,10 +476,12 @@ export function createFetchToolEntry(
             truncated: boolean;
             size: number;
           };
-          try {
-            const readLimit = saveToFilePath
-              ? 20 * 1024 * 1024
+          const readLimit =
+            saveToFilePath ||
+            (isHtmlContentType && normalizedResponseMode !== "raw")
+              ? MAX_WEB_REQUEST_HTML_BYTES
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
+          try {
             bodyResult = await readResponseTextWithLimit(response, readLimit);
           } catch {
             fail("(could not read response body)", {
@@ -465,10 +489,20 @@ export function createFetchToolEntry(
             });
           }
           if (bodyResult.truncated) {
+            const declaredBytes = Number(
+              response.headers.get("content-length"),
+            );
+            const exceedsSaveLimit =
+              readLimit === MAX_WEB_REQUEST_HTML_BYTES ||
+              (Number.isFinite(declaredBytes) &&
+                declaredBytes > MAX_WEB_REQUEST_HTML_BYTES);
+            const recovery = exceedsSaveLimit
+              ? `The response exceeds web-request's ${MAX_WEB_REQUEST_HTML_BYTES}-byte limit.`
+              : `Retry with saveToFile to stage responses up to ${MAX_WEB_REQUEST_HTML_BYTES} bytes.`;
             fail(
-              `HTTP ${response.status} ${response.statusText}\n\n${bodyResult.text}`,
+              `HTTP ${response.status} ${response.statusText}\n\nResponse too large: at least ${bodyResult.size} bytes observed; maximum ${readLimit} bytes. ${recovery}`,
               {
-                errorCode: httpErrorCode ?? "web_request_response_too_large",
+                errorCode: "web_request_response_too_large",
               },
             );
           }
@@ -490,22 +524,79 @@ export function createFetchToolEntry(
           }
           let displayBody: string;
           let processedMode = "raw";
+          let searchResultsTruncated = false;
+          let searchSourceTruncated = false;
+          let fileContent = body;
+          let fileContentType = contentType;
+          const search = parseWebContentSearchOptions(args.search);
+          const hasSearch = hasWebContentSearch(search);
+          const includeLinks =
+            args.includeLinks === undefined
+              ? !saveToFilePath
+              : parseBooleanArg(args.includeLinks);
+          const saveContentFormat =
+            saveToFilePath &&
+            isHtmlContentType &&
+            normalizedResponseMode !== "raw"
+              ? normalizedResponseMode === "text"
+                ? "text"
+                : "markdown"
+              : undefined;
           try {
             const processed = await processWebContent({
               url: resolvedUrl,
               body,
               contentType,
-              responseMode: String(args.responseMode ?? "auto"),
+              responseMode:
+                saveToFilePath && hasSearch ? "matches" : requestedResponseMode,
               extract: String(args.extract ?? "readability"),
-              includeLinks:
-                args.includeLinks === undefined
-                  ? true
-                  : parseBooleanArg(args.includeLinks),
-              search: parseWebContentSearchOptions(args.search),
-              maxChars,
+              includeLinks,
+              search,
+              maxChars: saveContentFormat ? null : maxChars,
+              saveContentFormat,
             });
             processedMode = processed.mode;
+            searchSourceTruncated = processed.searchTruncated ?? false;
             displayBody = formatWebContentResult(processed);
+
+            if (saveToFilePath && hasSearch && displayBody.length > maxChars) {
+              searchResultsTruncated = true;
+              displayBody = truncateToolText(displayBody, maxChars);
+            }
+
+            if (saveContentFormat) {
+              if (processed.fullContent === undefined) {
+                throw new Error(
+                  "HTML extraction did not produce saved content",
+                );
+              }
+              fileContent = formatWebContentResult({
+                ...processed,
+                mode: saveContentFormat,
+                content: processed.fullContent,
+                fullContent: undefined,
+                matches: undefined,
+                totalMatches: undefined,
+                omittedMatches: undefined,
+                searchSource: undefined,
+                searchTruncated: undefined,
+                truncated: false,
+              });
+              fileContentType =
+                saveContentFormat === "markdown"
+                  ? "text/markdown"
+                  : "text/plain";
+            }
+
+            if (
+              !saveToFilePath &&
+              isHtmlContentType &&
+              normalizedResponseMode !== "raw" &&
+              processed.truncated &&
+              processed.contentLength !== undefined
+            ) {
+              displayBody += `\n\nFull extracted content: ${processed.contentLength} characters. Retry with saveToFile (up to ${MAX_WEB_REQUEST_HTML_BYTES} bytes), then use workspace-files grep or read with offsets.`;
+            }
           } catch (err: any) {
             fail(
               `web-request post-processing error: ${err?.message ?? String(err)}`,
@@ -521,7 +612,6 @@ export function createFetchToolEntry(
             try {
               const {
                 writeWorkspaceFile,
-                SAVE_TO_FILE_MAX_BYTES,
                 isScratchWorkspacePath,
                 toWorkspaceFileCard,
               } = await import("../workspace-files/store.js");
@@ -542,20 +632,24 @@ export function createFetchToolEntry(
                   `Refusing to save a failed response to durable workspace file "${saveToFilePath}" (status ${response.status}). Use a scratch/... path for diagnostics.`,
                 );
               }
+              const savedFormat = saveContentFormat ?? "raw";
               const meta = await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
-                body,
-                contentType,
+                fileContent,
+                fileContentType,
                 {
                   maxFileBytes: SAVE_TO_FILE_MAX_BYTES,
                 },
               );
-              const bytes = Buffer.byteLength(body, "utf8");
-              const preview = displayBody.slice(0, 2000);
+              const bytes = Buffer.byteLength(fileContent, "utf8");
+              const previewSource = saveContentFormat
+                ? fileContent
+                : displayBody;
+              const preview = previewSource.slice(0, 2000);
               if (!response.ok)
                 fail(
-                  `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+                  `HTTP ${response.status} ${response.statusText}\n\n${truncateToolText(displayBody, maxChars)}`,
                   { errorCode: `http_${response.status}` },
                 );
               return JSON.stringify({
@@ -563,10 +657,22 @@ export function createFetchToolEntry(
                 savedTo: saveToFilePath,
                 status: response.status,
                 bytes,
+                chars: fileContent.length,
                 contentType,
+                savedFormat,
                 responseMode: processedMode,
-                preview:
-                  preview.length < displayBody.length ? `${preview}…` : preview,
+                ...(hasSearch
+                  ? {
+                      searchResults: displayBody,
+                      searchResultsTruncated,
+                      searchSourceTruncated,
+                    }
+                  : {
+                      preview:
+                        preview.length < previewSource.length
+                          ? `${preview}…`
+                          : preview,
+                    }),
                 ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {

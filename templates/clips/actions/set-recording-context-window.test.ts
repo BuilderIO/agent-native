@@ -129,6 +129,25 @@ describe("set-recording-context-window", () => {
     ).resolves.toMatchObject({ requestedSeconds: 30, status: "pending" });
   });
 
+  it("requeues a failed export when the same window is retried", async () => {
+    await client.query(
+      `UPDATE recording_context_items SET status = 'failed', error = 'Export failed' WHERE id = 'item'`,
+    );
+
+    const retried = await action.run({
+      id: "item",
+      startedAt: ORIGINAL_START,
+      endedAt: ORIGINAL_END,
+    });
+
+    expect(retried).toMatchObject({
+      status: "pending",
+      startedAt: ORIGINAL_START,
+      endedAt: ORIGINAL_END,
+      error: null,
+    });
+  });
+
   it("stores the window in UTC even when the request gives an offset", async () => {
     const trimmed = await action.run({
       id: "item",

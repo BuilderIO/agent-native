@@ -37,9 +37,6 @@ const CHROME_FIXTURE = `<!doctype html>
 </html>`;
 
 const APP_GEOMETRY_CONTRACT = {
-  inspectorHeaderHeight: 48,
-  inspectorTabsListHeight: 28,
-  inspectorTabHeight: 24,
   layersHeaderHeight: 28,
   layerRowHeight: 32,
   layerActionSize: 20,
@@ -141,37 +138,37 @@ async function selectLayer(page: Page, name: string): Promise<void> {
   ).toHaveAttribute("aria-selected", "true");
 }
 
-async function assertInspectorTabs(page: Page): Promise<void> {
-  const header = page.locator("[data-design-inspector-tabs]");
-  const list = page.locator("[data-design-inspector-tabs-list]");
-  const headerGeometry = await readGeometry(header, [
-    "padding-top",
-    "padding-bottom",
-    "border-bottom-width",
-  ]);
-  await expect(header).toBeVisible();
-  await expect(list).toBeVisible();
-  expect(headerGeometry.height).toBe(
-    APP_GEOMETRY_CONTRACT.inspectorHeaderHeight,
-  );
-  expect(headerGeometry.styles["padding-top"]).toBe("8px");
-  expect(headerGeometry.styles["padding-bottom"]).toBe("8px");
-  expect(headerGeometry.styles["border-bottom-width"]).toBe("1px");
-  expect((await readGeometry(list)).height).toBe(
-    APP_GEOMETRY_CONTRACT.inspectorTabsListHeight,
-  );
-
-  const tabs = page.locator("[data-design-inspector-tab]");
-  await expect(tabs).toHaveCount(3);
+// Structural: the tab row is gone, so the panel opens on its header, and the header and every section header sit on one grid box.
+async function assertInspectorHeader(page: Page): Promise<void> {
+  const panel = page
+    .locator('[data-design-chrome-region="right-panel"]')
+    .first();
+  await expect(page.locator("[data-design-inspector-tabs]")).toHaveCount(0);
   await expect(
-    page.locator('[data-design-inspector-tab="code"]'),
-  ).toBeVisible();
-  for (let index = 0; index < (await tabs.count()); index += 1) {
-    const tab = tabs.nth(index);
-    await expect(tab).toBeVisible();
-    expect((await readGeometry(tab)).height).toBe(
-      APP_GEOMETRY_CONTRACT.inspectorTabHeight,
+    panel.getByRole("tab", { name: /^(Design|Comments|Tweaks|Code)$/ }),
+  ).toHaveCount(0);
+
+  const header = panel.locator("[data-design-inspector-header]");
+  await expect(header).toHaveCount(1);
+  const panelGeometry = await readGeometry(panel);
+  expect((await readGeometry(header)).y).toBeCloseTo(panelGeometry.y, 0);
+
+  const grids = await panel
+    .locator(
+      "[data-design-inspector-header] [data-inspector-grid], [data-design-inspector-section-header] [data-inspector-grid]",
+    )
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.x, width: rect.width };
+      }),
     );
+  expect(grids.length).toBeGreaterThan(2);
+  // One shared grid: the panel's 1px left border and 8px of padding come
+  // first, and every header spans the same width after that.
+  for (const grid of grids) {
+    expect(grid.x).toBeCloseTo(panelGeometry.x + 1 + 8, 0);
+    expect(grid.width).toBeCloseTo(grids[0]!.width, 0);
   }
 }
 
@@ -378,7 +375,6 @@ async function assertLayersInteractions(page: Page): Promise<void> {
 
 async function reopenAutoCard(page: Page, designId: string): Promise<void> {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await selectLayer(page, "Auto Card");
 }
@@ -409,7 +405,6 @@ async function assertEmptyLayersState(page: Page): Promise<void> {
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const layersPanel = page.locator("[data-layers-panel]");
   await expect(layersPanel).toContainText("No layers");
   await expect(layersPanel.locator("[data-screen-section]")).toHaveCount(0);
@@ -452,13 +447,12 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
   await mkdir(ARTIFACT_DIR, { recursive: true });
   const designId = await createChromeFixture(page);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
 
-  await assertInspectorTabs(page);
   await assertLayersChrome(page);
   await assertLayersInteractions(page);
   await selectLayer(page, "Auto Card");
+  await assertInspectorHeader(page);
   await assertAutoLayoutGeometry(page);
   await chooseWidthMode(page, "Hug contents");
   await reopenAutoCard(page, designId);
@@ -469,7 +463,7 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
   await assertEmptyLayersState(page);
 
   await reopenAutoCard(page, designId);
-  await assertInspectorTabs(page);
+  await assertInspectorHeader(page);
   await assertLayersChrome(page);
   await cdpScreenshot(page, COMPACT_SCREENSHOT);
 
@@ -524,7 +518,7 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
     .poll(async () => (await readGeometry(rightPanel, ["width"])).styles.width)
     .toBe(`${targetPanelWidth}px`);
 
-  await assertInspectorTabs(page);
+  await assertInspectorHeader(page);
   await assertLayersChrome(page);
   await assertAutoLayoutGeometry(page);
   await cdpScreenshot(page, WIDE_SCREENSHOT);

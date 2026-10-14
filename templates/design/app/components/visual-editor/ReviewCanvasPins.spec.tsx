@@ -370,7 +370,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "[data-review-popover]",
     );
     expect(reviewChrome).not.toBeNull();
-    expect(reviewChrome?.parentElement).toBe(document.body);
+    expect(reviewChrome?.closest("[data-review-layer]")?.parentElement).toBe(
+      document.body,
+    );
   });
 
   it("marks an unread thread as read when its pin opens", async () => {
@@ -2150,5 +2152,340 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "designEditor.nodeRewrite.modeRegenerate",
     );
     expect(document.querySelector("[data-review-test-submit]")).toBeNull();
+  });
+
+  describe("editor chrome and hidden comments", () => {
+    const chrome: HTMLElement[] = [];
+    const addChrome = (
+      attribute: string,
+      rect: { left: number; top: number; right: number; bottom: number },
+    ) => {
+      const element = document.createElement("div");
+      const [name, value = ""] = attribute.split("=");
+      element.setAttribute(name!, value);
+      element.getBoundingClientRect = () =>
+        ({
+          ...rect,
+          x: rect.left,
+          y: rect.top,
+          width: rect.right - rect.left,
+          height: rect.bottom - rect.top,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      document.body.appendChild(element);
+      chrome.push(element);
+    };
+    const commentAt = (id: number, xPct: number, yPct: number) => ({
+      ...comment,
+      id: `comment-${id}`,
+      threadId: `thread-${id}`,
+      anchor: { point: { xPct, yPct } },
+    });
+    const renderPins = async (props: { active?: boolean; hidden?: boolean }) =>
+      act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={props.active ?? false}
+            hidden={props.hidden}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            screenId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+    const pinLabels = () =>
+      [...document.querySelectorAll("[data-review-pin]")].map((pin) =>
+        pin.getAttribute("aria-label"),
+      );
+
+    afterEach(() => {
+      chrome.splice(0).forEach((element) => element.remove());
+    });
+
+    it("renders no pins, thread popover or placement plane while hidden", async () => {
+      await renderPins({ active: true });
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click(),
+      );
+      expect(document.body.textContent).toContain("Keep this popover open");
+      expect(
+        document.querySelector("[data-review-click-plane]"),
+      ).not.toBeNull();
+
+      await renderPins({ active: true, hidden: true });
+
+      expect(document.querySelector("[data-review-pin]")).toBeNull();
+      expect(document.querySelector("[data-review-pin-cluster]")).toBeNull();
+      expect(document.querySelector("[data-review-popover]")).toBeNull();
+      expect(document.querySelector("[data-review-click-plane]")).toBeNull();
+      expect(document.body.textContent).not.toContain("Keep this popover open");
+    });
+
+    // The canvas is 800x600 at the origin, so an anchor of (xPct, yPct) sits
+    // at (8 * xPct, 6 * yPct) in the viewport; the in-view pin is at (400, 300).
+    it.each([
+      {
+        name: "the left panel",
+        attribute: "data-design-chrome-region=left-shell",
+        rect: { left: 0, top: 0, right: 300, bottom: 768 },
+        covered: { xPct: 25, yPct: 30 },
+      },
+      {
+        name: "the top bar",
+        attribute: "data-design-chrome-region=top-bar",
+        rect: { left: 0, top: 0, right: 1024, bottom: 48 },
+        covered: { xPct: 50, yPct: 5 },
+      },
+      {
+        name: "the inspector",
+        attribute: "data-design-chrome-region=right-panel",
+        rect: { left: 650, top: 0, right: 1024, bottom: 768 },
+        covered: { xPct: 90, yPct: 50 },
+      },
+      {
+        name: "the bottom toolbar",
+        attribute: "data-design-bottom-toolbar=",
+        rect: { left: 250, top: 520, right: 550, bottom: 580 },
+        covered: { xPct: 50, yPct: 94 },
+      },
+    ])(
+      "does not render a pin anchored under $name",
+      async ({ attribute, rect, covered }) => {
+        addChrome(attribute, rect);
+        reviewComments = [
+          commentAt(1, 50, 50),
+          commentAt(2, covered.xPct, covered.yPct),
+        ];
+        await renderPins({});
+
+        expect(pinLabels()).toEqual(["Review comment 1"]);
+      },
+    );
+
+    it("renders every pin that sits inside the working area", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 200,
+        bottom: 768,
+      });
+      reviewComments = [commentAt(1, 30, 30), commentAt(2, 60, 60)];
+      await renderPins({});
+
+      expect(pinLabels()).toEqual(["Review comment 1", "Review comment 2"]);
+    });
+
+    it("keeps pin numbers stable when an earlier pin is off the working area", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 300,
+        bottom: 768,
+      });
+      reviewComments = [commentAt(1, 25, 30), commentAt(2, 60, 30)];
+      await renderPins({});
+
+      expect(pinLabels()).toEqual(["Review comment 2"]);
+    });
+
+    it("renders a cluster in view and none for pins under chrome", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 300,
+        bottom: 768,
+      });
+      reviewComments = [
+        commentAt(1, 25, 30),
+        commentAt(2, 26, 30),
+        commentAt(3, 70, 30),
+        commentAt(4, 71, 30),
+      ];
+      await renderPins({});
+
+      expect(
+        document.querySelectorAll("[data-review-pin-cluster]"),
+      ).toHaveLength(1);
+      expect(document.querySelector("[data-review-pin]")).toBeNull();
+    });
+
+    it("clips the layer to the area chrome leaves and keeps an open thread inside it", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 300,
+        bottom: 768,
+      });
+      addChrome("data-design-chrome-region=right-panel", {
+        left: 800,
+        top: 0,
+        right: 1024,
+        bottom: 768,
+      });
+      // The pin is at x=500: a 320px popover opening right would end at 832.
+      reviewComments = [commentAt(1, 62.5, 30)];
+      await renderPins({});
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click(),
+      );
+
+      expect(
+        document.querySelector<HTMLElement>("[data-review-layer]")?.style
+          .clipPath,
+      ).toBe("polygon(300px 0px, 800px 0px, 800px 768px, 300px 768px)");
+      const popover = document.querySelector<HTMLElement>(
+        "[data-review-popover] [data-review-popover]",
+      );
+      expect(popover).not.toBeNull();
+      const left = 500 + Number.parseFloat(popover!.style.left);
+      const width = Number.parseFloat(popover!.style.width);
+      expect(left).toBeGreaterThanOrEqual(300);
+      expect(left + width).toBeLessThanOrEqual(800);
+    });
+
+    describe("popovers beside the bottom toolbar", () => {
+      // happy-dom does no layout, so give an open popover a content height.
+      const POPOVER_HEIGHT = 200;
+      const TOOLBAR = { left: 250, top: 520, right: 550, bottom: 580 };
+      const scrollHeight = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        "scrollHeight",
+      );
+
+      beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+          configurable: true,
+          get(this: HTMLElement) {
+            return this.hasAttribute("data-review-popover") &&
+              this.parentElement?.hasAttribute("data-review-popover")
+              ? POPOVER_HEIGHT
+              : 0;
+          },
+        });
+        addChrome("data-design-bottom-toolbar=", TOOLBAR);
+      });
+
+      afterEach(() => {
+        if (scrollHeight) {
+          Object.defineProperty(
+            HTMLElement.prototype,
+            "scrollHeight",
+            scrollHeight,
+          );
+        } else {
+          Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+        }
+      });
+
+      // The canvas is 800x600 and the viewport region 1024x768, so a pin at
+      // (xPct, yPct) sits at (8 * xPct, 6 * yPct).
+      const openPopoverRect = (pin: { x: number; y: number }) => {
+        const popover = document.querySelector<HTMLElement>(
+          "[data-review-popover] [data-review-popover]",
+        );
+        expect(popover).not.toBeNull();
+        const top = pin.y + Number.parseFloat(popover!.style.top);
+        const maxHeight = Number.parseFloat(popover!.style.maxHeight);
+        return {
+          left: pin.x + Number.parseFloat(popover!.style.left),
+          right:
+            pin.x +
+            Number.parseFloat(popover!.style.left) +
+            Number.parseFloat(popover!.style.width),
+          top,
+          bottom: top + Math.min(POPOVER_HEIGHT, maxHeight),
+        };
+      };
+      const clearsToolbar = (rect: {
+        left: number;
+        right: number;
+        bottom: number;
+      }) =>
+        rect.right <= TOOLBAR.left ||
+        rect.left >= TOOLBAR.right ||
+        rect.bottom <= TOOLBAR.top;
+
+      it("opens a thread above a pin whose below placement would run into the toolbar", async () => {
+        reviewComments = [commentAt(1, 40, 78)];
+        await renderPins({});
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-pin]")
+            ?.click(),
+        );
+
+        // Below would span y 472..672: inside the viewport, but through the
+        // toolbar that starts at 520. The whole box has to stay above it.
+        const rect = openPopoverRect({ x: 320, y: 468 });
+        expect(rect.bottom).toBeLessThanOrEqual(TOOLBAR.top);
+        expect(rect.top).toBeGreaterThanOrEqual(0);
+        expect(clearsToolbar(rect)).toBe(true);
+      });
+
+      it("opens a draft composer above a pin whose below placement would run into the toolbar", async () => {
+        await renderPins({ active: true });
+        await act(async () =>
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 320,
+                clientY: 468,
+              }),
+            ),
+        );
+
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).not.toBeNull();
+        const rect = openPopoverRect({ x: 320, y: 468 });
+        expect(rect.bottom).toBeLessThanOrEqual(TOOLBAR.top);
+        expect(rect.top).toBeGreaterThanOrEqual(0);
+        expect(clearsToolbar(rect)).toBe(true);
+      });
+
+      it("keeps a thread popover below a pin that is far from the toolbar", async () => {
+        reviewComments = [commentAt(1, 40, 30)];
+        await renderPins({});
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-pin]")
+            ?.click(),
+        );
+
+        const popover = document.querySelector<HTMLElement>(
+          "[data-review-popover] [data-review-popover]",
+        );
+        expect(popover?.style.top).toBe("4px");
+        expect(popover?.style.left).toBe("12px");
+      });
+
+      it("keeps a draft composer below a pin that is far from the toolbar", async () => {
+        await renderPins({ active: true });
+        await act(async () =>
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 320,
+                clientY: 180,
+              }),
+            ),
+        );
+
+        const popover = document.querySelector<HTMLElement>(
+          "[data-review-popover] [data-review-popover]",
+        );
+        expect(popover?.style.top).toBe("4px");
+        expect(popover?.style.left).toBe("12px");
+      });
+    });
   });
 });

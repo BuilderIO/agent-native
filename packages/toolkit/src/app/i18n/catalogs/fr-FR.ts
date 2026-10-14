@@ -847,6 +847,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
   "errorMessages.invalidAttachmentNamed":
     "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.resendVerificationEmail": "Renvoyer l’e-mail de vérification",
+  "recovery.sendingVerificationEmail": "Envoi...",
+  "recovery.verificationEmailRequested":
+    "E-mail de vérification demandé. Vérifiez votre boîte de réception et vos courriers indésirables.",
+  "recovery.verificationEmailFailed":
+    "Impossible de demander l’e-mail de vérification. Réessayez.",
   "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",

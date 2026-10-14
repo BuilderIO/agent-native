@@ -1799,6 +1799,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "source-index-runs-table",
       sql: SOURCE_INDEX_RUNS_MIGRATION_SQL.join(";\n"),
     },
+    {
+      version: 168,
+      name: "dashboard-report-slack-webhook",
+      sql: `ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS slack_webhook_url TEXT`,
+    },
   ],
   { table: "analytics_migrations" },
 );
