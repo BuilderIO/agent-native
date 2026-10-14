@@ -1190,6 +1190,7 @@ function DictionarySection() {
       if (
         candidate.schemaVersion !== 1 ||
         typeof candidate.generatedAt !== "string" ||
+        !Number.isFinite(Date.parse(candidate.generatedAt)) ||
         entries.length === 0 ||
         sources.length === 0
       ) {
