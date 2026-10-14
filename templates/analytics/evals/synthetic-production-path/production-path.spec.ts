@@ -1648,12 +1648,6 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(result).toMatchObject({
       sourceIndexStatus: "available",
       searchedDictionaryEntryCount: 1,
-      sourceIndexSourcesFreshness: {
-        sourceCount: 1,
-        unknownTimestampCount: 0,
-        staleSourceCount: 0,
-        fresh: true,
-      },
     });
     if (phase === "before") {
       expect(result?.results).toEqual(
@@ -1664,6 +1658,12 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         ]),
       );
     } else {
+      expect(result?.sourceIndexSourcesFreshness).toEqual({
+        sourceCount: 1,
+        unknownTimestampCount: 0,
+        staleSourceCount: 0,
+        fresh: true,
+      });
       expect(result?.results).toEqual([]);
     }
   }, 120_000);
