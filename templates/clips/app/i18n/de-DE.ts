@@ -1912,6 +1912,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Lokalisiert)",
     recordingDownloadStarted: "Recording download started (Lokalisiert)",
+    partialLocalCopyDownloadStarted:
+      "Die lokale Kopie ist möglicherweise unvollständig. Die verfügbaren Aufnahmedaten werden heruntergeladen.",
     backToLibrary: "Back to library (Lokalisiert)",
     clipsRecorder: "Clips recorder (Lokalisiert)",
     preparingSources: "Preparing sources… (Lokalisiert)",
@@ -2077,6 +2079,11 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
     cleanupComplete: "Diktat bereinigt",
     cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
     startFirst: "Verwandle deine Gedanken in Text",
     recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:

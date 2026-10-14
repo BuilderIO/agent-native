@@ -1893,6 +1893,8 @@ const messages = {
     copyLinkAction: "Copiar link",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
+    partialLocalCopyDownloadStarted:
+      "A cópia local pode estar incompleta. Os dados de gravação disponíveis estão sendo baixados.",
     backToLibrary: "Back to library",
     clipsRecorder: "Clips recorder",
     preparingSources: "Preparing sources…",
@@ -2055,6 +2057,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI",
     cleanupComplete: "Ditado limpo",
     cleanupFailed: "Não foi possível limpar o ditado",
+    undoCleanup: "Desfazer",
+    restoreOriginal: "Restaurar original",
+    cleanupRestored: "Ditado original restaurado",
+    cleanupRestoreFailed: "Não foi possível restaurar o ditado original",
     startFirst: "Transforme suas ideias em texto",
     recordOnDesktop: "Gravar no desktop",
     emptyDesktopDescription:

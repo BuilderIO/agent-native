@@ -8520,7 +8520,11 @@ describe("runAgentLoop", () => {
 
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
-      { type: "model_stream", status: "end" },
+      {
+        type: "model_stream",
+        status: "end",
+        errorCode: "provider_network_error",
+      },
     ]);
   });
 

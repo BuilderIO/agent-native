@@ -6568,6 +6568,7 @@ export async function runAgentLoop(opts: {
     let terminalStopReason:
       | Extract<EngineEvent, { type: "stop" }>["reason"]
       | undefined;
+    let terminalStopErrorCode: string | undefined;
     const toolCallErrors = new Map<
       string,
       { name: string; input: unknown; error: string }
@@ -6623,6 +6624,7 @@ export async function runAgentLoop(opts: {
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
       terminalStopReason = undefined;
+      terminalStopErrorCode = undefined;
       toolCallErrors.clear();
       try {
         let providerOptions = opts.providerOptions;
@@ -6700,6 +6702,9 @@ export async function runAgentLoop(opts: {
             type: "model_stream",
             status: "end",
             ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+            ...(terminalStopErrorCode
+              ? { errorCode: terminalStopErrorCode }
+              : {}),
           });
         };
         let lastModelStreamProgressAt = Date.now();
@@ -6956,6 +6961,7 @@ export async function runAgentLoop(opts: {
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
               if (event.reason === "error") {
+                terminalStopErrorCode = event.errorCode;
                 throw engineStopError(event, engineMessages);
               }
             }
@@ -6964,6 +6970,13 @@ export async function runAgentLoop(opts: {
               break;
             }
           }
+        } catch (err: unknown) {
+          // A thrown engine error skips the `stop` event, so its code must
+          // reach the bracket end here or the failed attempt goes unlabeled.
+          const thrownCode = (err as { errorCode?: unknown } | null)?.errorCode;
+          if (typeof thrownCode === "string")
+            terminalStopErrorCode ??= thrownCode;
+          throw err;
         } finally {
           closeModelStreamBracket();
           if (!eventIteratorDone) {

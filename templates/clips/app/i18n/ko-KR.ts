@@ -1860,6 +1860,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
+    partialLocalCopyDownloadStarted:
+      "로컬 사본이 불완전할 수 있습니다. 사용 가능한 녹화 데이터를 다운로드하고 있습니다.",
     backToLibrary: "Back to library (현지화됨)",
     clipsRecorder: "Clips recorder (현지화됨)",
     preparingSources: "Preparing sources… (현지화됨)",
@@ -2019,6 +2021,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (현지화됨)",
     cleanupComplete: "받아쓰기를 정리했습니다",
     cleanupFailed: "받아쓰기를 정리하지 못했습니다",
+    undoCleanup: "실행 취소",
+    restoreOriginal: "원본 복원",
+    cleanupRestored: "원본 받아쓰기를 복원했습니다",
+    cleanupRestoreFailed: "원본 받아쓰기를 복원하지 못했습니다",
     startFirst: "생각을 텍스트로 바꿔 보세요",
     recordOnDesktop: "데스크톱에서 녹음",
     emptyDesktopDescription:

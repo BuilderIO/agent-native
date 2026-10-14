@@ -1862,6 +1862,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
+    partialLocalCopyDownloadStarted:
+      "قد تكون النسخة المحلية غير مكتملة. يتم تنزيل بيانات التسجيل المتاحة.",
     backToLibrary: "Back to library (مترجم)",
     clipsRecorder: "Clips recorder (مترجم)",
     preparingSources: "Preparing sources… (مترجم)",
@@ -2020,6 +2022,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (مترجم)",
     cleanupComplete: "تم تنظيف الإملاء",
     cleanupFailed: "تعذر تنظيف الإملاء",
+    undoCleanup: "تراجع",
+    restoreOriginal: "استعادة الأصل",
+    cleanupRestored: "تمت استعادة الإملاء الأصلي",
+    cleanupRestoreFailed: "تعذّرت استعادة الإملاء الأصلي",
     startFirst: "حوّل أفكارك إلى نص",
     recordOnDesktop: "التسجيل على سطح المكتب",
     emptyDesktopDescription:

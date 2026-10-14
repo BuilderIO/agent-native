@@ -1787,6 +1787,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (已本地化)",
     recordingDownloadStarted: "Recording download started (已本地化)",
+    partialLocalCopyDownloadStarted:
+      "本地副本可能不完整。正在下载当前可用的录制数据。",
     backToLibrary: "Back to library (已本地化)",
     clipsRecorder: "Clips recorder (已本地化)",
     preparingSources: "Preparing sources… (已本地化)",
@@ -1938,6 +1940,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (已本地化)",
     cleanupComplete: "听写已清理",
     cleanupFailed: "无法清理听写",
+    undoCleanup: "撤销",
+    restoreOriginal: "恢复原文",
+    cleanupRestored: "已恢复原始听写",
+    cleanupRestoreFailed: "无法恢复原始听写",
     startFirst: "把想法变成文字",
     recordOnDesktop: "在桌面端录制",
     emptyDesktopDescription:
