@@ -94,16 +94,33 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "resizing a selected element emits a visual-style-change payload",
   },
   {
+    shard: "inspector-3a",
+    file: "text-tool-board-creation.spec.ts",
+    title:
+      "single-screen control: text tool click then immediate typing still works",
+  },
+  {
     shard: "inspector-3b",
     file: "inspector-styles.spec.ts",
     title:
       "pointercancel restores a scrubbed value without adding a history step",
   },
   {
+    shard: "inspector-3b",
+    file: "interaction-selection.spec.ts",
+    title: "double-click after selecting Card drills into the clicked child",
+  },
+  {
     shard: "inspector-4a",
     file: "inspector-styles.spec.ts",
     title:
       "numeric input applies arithmetic expressions and starts an Option scrub drag",
+  },
+  {
+    shard: "inspector-4a",
+    file: "text-edit-roundtrip.spec.ts",
+    title:
+      "inline text edit commits, undo and redo restore exact content, and reload keeps it",
   },
   {
     shard: "inspector-4b",
@@ -114,6 +131,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "inspector-4b",
     file: "inspector-styles.spec.ts",
     title: "style layer row actions stay visible and toggle visibility state",
+  },
+  {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title: "Line Height Enter returns a real Text-tool range to the editor",
   },
   {
     shard: "drag-1a",
@@ -127,6 +149,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "the zoom percentage input updates the overview canvas scale",
   },
   {
+    shard: "drag-1a",
+    file: "interaction-selection.spec.ts",
+    title: "cmd+click deep-selects Kid B directly with no prior selection",
+  },
+  {
     shard: "drag-1b",
     file: "drag-and-drop.drag-feedback.spec.ts",
     title: "snap guides appear when an edge aligns with a sibling",
@@ -135,6 +162,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "drag-1b",
     file: "drag-and-drop.moving-by-drag.spec.ts",
     title: "dropping over a sibling keeps the moved position after reload",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "shift+click adds an unselected object, then removes it on a second shift+click",
   },
   {
     shard: "drag-2a",
@@ -154,6 +187,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "board regression: an overlapping Frame drop into another board Frame persists after reload",
   },
   {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title: "a marquee over Card selects Card only, not its children",
+  },
+  {
     shard: "drag-2b",
     file: "interaction-selection.spec.ts",
     title:
@@ -164,6 +202,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "interaction-selection.spec.ts",
     title:
       "selected nested frame drag from its grandchild tracks the pointer and persists",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title: "clicking a child inside Card selects Card, not Kid A",
   },
   {
     shard: "position-1a",
@@ -233,6 +276,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "position-2b",
     file: "position-alignment.spec.ts",
     title: "Position stays Frame-relative through a positioned plain wrapper",
+  },
+  {
+    shard: "position-2b",
+    file: "canvas-tools.spec.ts",
+    title:
+      "new empty text is one atomic undo step and cancel leaves the frame intact",
   },
   {
     shard: "position-3",

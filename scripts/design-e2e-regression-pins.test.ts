@@ -22,8 +22,78 @@ import {
   resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
 
+const REQUIRED_CORE_COVERAGE = [
+  {
+    shard: "drag-1a",
+    file: "interaction-selection.spec.ts",
+    title: "cmd+click deep-selects Kid B directly with no prior selection",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "shift+click adds an unselected object, then removes it on a second shift+click",
+  },
+  {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title: "a marquee over Card selects Card only, not its children",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title: "clicking a child inside Card selects Card, not Kid A",
+  },
+  {
+    shard: "inspector-3b",
+    file: "interaction-selection.spec.ts",
+    title: "double-click after selecting Card drills into the clicked child",
+  },
+  {
+    shard: "inspector-3a",
+    file: "text-tool-board-creation.spec.ts",
+    title:
+      "single-screen control: text tool click then immediate typing still works",
+  },
+  {
+    shard: "inspector-4a",
+    file: "text-edit-roundtrip.spec.ts",
+    title:
+      "inline text edit commits, undo and redo restore exact content, and reload keeps it",
+  },
+  {
+    shard: "inspector-4b",
+    file: "text-range-visibility.spec.ts",
+    title: "Line Height Enter returns a real Text-tool range to the editor",
+  },
+  {
+    shard: "position-2b",
+    file: "canvas-tools.spec.ts",
+    title:
+      "new empty text is one atomic undo step and cancel leaves the frame intact",
+  },
+] as const;
+
+test("required core Design interaction coverage has explicit regression pins", () => {
+  for (const required of REQUIRED_CORE_COVERAGE) {
+    const pin = DESIGN_E2E_REGRESSION_PINS.find(
+      (candidate) =>
+        candidate.file === required.file && candidate.title === required.title,
+    );
+    assert.equal(
+      pin?.shard,
+      required.shard,
+      `${required.file}: ${required.title} must stay pinned to ${required.shard}`,
+    );
+    assert.match(
+      resolveDesignE2ERegressionPin(required),
+      new RegExp(`^e2e/${required.file.replaceAll(".", "\\.")}:\\d+$`),
+    );
+  }
+});
+
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 40);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 49);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
