@@ -602,7 +602,7 @@ describe("McpClientManager", () => {
     expect(staleTransport.closed).toBe(true);
   });
 
-  it("authorizes once before replaying a call after an HTTP session expires", async () => {
+  it("re-authorizes a call before replaying it after an HTTP session expires", async () => {
     let calls = 0;
     serverFixtures["http https://example.com/mcp"] = {
       tools: [{ name: "mutate" }],
@@ -624,9 +624,37 @@ describe("McpClientManager", () => {
     await expect(
       mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
     ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
-    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(authorize).toHaveBeenCalledTimes(2);
     expect(calls).toBe(2);
     expect(fakeClients).toHaveLength(2);
+  });
+
+  it("does not replay an expired-session call after authorization is revoked", async () => {
+    let calls = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: () => {
+        calls += 1;
+        throw Object.assign(new Error("session expired"), { status: 404 });
+      },
+    };
+    let allowed = true;
+    const authorize = vi.fn(async () => {
+      const verdict = allowed;
+      allowed = false;
+      return verdict;
+    });
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+
+    await expect(
+      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+    ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(calls).toBe(1);
   });
 
   it(

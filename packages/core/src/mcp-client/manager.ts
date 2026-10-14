@@ -759,49 +759,46 @@ export class McpClientManager {
         }`,
       );
     }
-    const known = entry.tools.find((t) => t.name === prefixedName);
-    if (!known) {
-      throw new Error(
-        `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
-      );
-    }
-    const client = entry.client;
     const normalizedArgs =
       args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-    const authorize = this.resolveToolAuthorization
-      ? this.resolveToolAuthorization(known)
-      : options.authorize;
-    if (authorize) {
-      const verdict = await authorize(normalizedArgs, options.context);
-      if (verdict === false) {
-        const error = new Error("Not authorized") as Error & {
-          statusCode: number;
-        };
-        error.name = "ForbiddenError";
-        error.statusCode = 403;
-        throw error;
-      }
-    }
-    const liveEntry = this.servers.get(parsed.serverId);
-    const liveTool = liveEntry?.tools.find(
-      (tool) => tool.name === prefixedName,
-    );
-    if (
-      liveEntry !== entry ||
-      liveEntry.client !== client ||
-      liveTool !== known
-    ) {
-      throw new Error(
-        `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
-      );
-    }
-    return this.withExpiredSessionRetry(entry, (current) => {
-      if (!current.tools.some((t) => t.name === prefixedName)) {
+    // The expired-session retry replays this attempt on a reconnected entry
+    // whose tool metadata was reloaded, so authorization must run per attempt.
+    return this.withExpiredSessionRetry(entry, async (current) => {
+      const known = current.tools.find((t) => t.name === prefixedName);
+      if (!known) {
         throw new Error(
           `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
         );
       }
-      return current.client.callTool({
+      const client = current.client;
+      const authorize = this.resolveToolAuthorization
+        ? this.resolveToolAuthorization(known)
+        : options.authorize;
+      if (authorize) {
+        const verdict = await authorize(normalizedArgs, options.context);
+        if (verdict === false) {
+          const error = new Error("Not authorized") as Error & {
+            statusCode: number;
+          };
+          error.name = "ForbiddenError";
+          error.statusCode = 403;
+          throw error;
+        }
+      }
+      const liveEntry = this.servers.get(parsed.serverId);
+      const liveTool = liveEntry?.tools.find(
+        (tool) => tool.name === prefixedName,
+      );
+      if (
+        liveEntry !== current ||
+        liveEntry.client !== client ||
+        liveTool !== known
+      ) {
+        throw new Error(
+          `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+        );
+      }
+      return client.callTool({
         name: parsed.toolName,
         arguments: normalizedArgs,
       });
