@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   buildDeepLink,
   getRequestOrgId,
@@ -76,7 +76,12 @@ export default defineAction({
     );
     const email = getRequestUserEmail();
     const orgId = getRequestOrgId() || null;
-    if (!email) throw new Error("no authenticated user");
+    if (!email) {
+      fail("Sign in to list Sigma workbooks.", {
+        errorCode: "authentication_required",
+        statusCode: 401,
+      });
+    }
 
     const workbooks = await Promise.all(
       page.workbooks.map(async (workbook) => {
