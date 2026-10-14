@@ -414,10 +414,9 @@ interface TextOffsets {
 
 interface SnapshotHtmlDelta {
   baseLength: number;
+  baseHash: readonly [number, number];
   prefix: number;
   suffix: number;
-  baseMiddleLength: number;
-  baseMiddleHash: readonly [number, number];
   replacement: Uint8Array | Uint16Array;
 }
 
@@ -1874,12 +1873,8 @@ export function startInPlaceTextSession(
   function historyHtmlHash(value: string): readonly [number, number] {
     let first = 0x811c9dc5;
     let second = 0x9e3779b9;
-    const sample =
-      value.length <= 8192
-        ? value
-        : `${value.slice(0, 4096)}\u0000${value.slice(-4096)}`;
-    for (let index = 0; index < sample.length; index += 1) {
-      const code = sample.charCodeAt(index);
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
       first = Math.imul(first ^ code, 0x01000193);
       second = Math.imul(second ^ (code + index), 0x85ebca6b);
     }
@@ -1942,17 +1937,15 @@ export function startInPlaceTextSession(
     const deltaByteSize = replacementByteLength + 96;
     const targetByteLength = snapshot.byteSize - snapshot.metadataByteSize;
     if (deltaByteSize >= targetByteLength * 0.75) return;
-    const baseMiddle = baseHtml.slice(prefix, baseHtml.length - suffix);
     const encodedReplacement = encodeHistoryText(
       replacement,
       replacementByteLength,
     );
     snapshot.html = {
       baseLength: baseHtml.length,
+      baseHash: historyHtmlHash(baseHtml),
       prefix,
       suffix,
-      baseMiddleLength: baseMiddle.length,
-      baseMiddleHash: historyHtmlHash(baseMiddle),
       replacement: encodedReplacement,
     };
     snapshot.byteSize =
@@ -1968,16 +1961,11 @@ export function startInPlaceTextSession(
     ) {
       throw new Error("undo history base no longer matches its snapshot");
     }
-    const baseEnd = baseHtml.length - delta.suffix;
-    const baseMiddle = baseHtml.slice(delta.prefix, baseEnd);
-    const [firstHash, secondHash] = historyHtmlHash(baseMiddle);
-    if (
-      baseMiddle.length !== delta.baseMiddleLength ||
-      firstHash !== delta.baseMiddleHash[0] ||
-      secondHash !== delta.baseMiddleHash[1]
-    ) {
+    const [firstHash, secondHash] = historyHtmlHash(baseHtml);
+    if (firstHash !== delta.baseHash[0] || secondHash !== delta.baseHash[1]) {
       throw new Error("undo history content no longer matches its snapshot");
     }
+    const baseEnd = baseHtml.length - delta.suffix;
     if (
       delta.prefix === baseHtml.length &&
       delta.suffix === 0 &&

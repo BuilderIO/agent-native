@@ -2715,7 +2715,7 @@ describe("in-place text session: undo", () => {
     caret(text, 256);
     activeSession.apply(() => text.insertData(256, "x"));
 
-    text.replaceData(256, 1, "y");
+    text.replaceData(0, 1, "z");
     const changedHtml = el.innerHTML;
 
     expect(() => activeSession.undo()).toThrow(
