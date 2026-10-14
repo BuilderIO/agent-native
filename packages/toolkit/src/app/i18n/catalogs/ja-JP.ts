@@ -1194,6 +1194,12 @@ const messages: ToolkitAgentChatTranslation = {
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "errorMessages.invalidAttachmentNamed":
     "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.resendVerificationEmail": "確認メールを再送信",
+  "recovery.sendingVerificationEmail": "送信中...",
+  "recovery.verificationEmailRequested":
+    "確認メールの送信をリクエストしました。受信トレイと迷惑メールフォルダーを確認してください。",
+  "recovery.verificationEmailFailed":
+    "確認メールをリクエストできませんでした。もう一度お試しください。",
   "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",

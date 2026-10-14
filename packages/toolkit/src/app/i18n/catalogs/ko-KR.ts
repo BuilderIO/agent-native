@@ -1171,6 +1171,12 @@ const messages: ToolkitAgentChatTranslation = {
     "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "errorMessages.invalidAttachmentNamed":
     "모델 제공업체가 지원되지 않는 형식 또는 크기 때문에 {{name}}을(를) 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 형식을 사용하거나 관련 텍스트를 붙여 넣은 뒤 다시 시도하세요.",
+  "recovery.resendVerificationEmail": "인증 이메일 다시 보내기",
+  "recovery.sendingVerificationEmail": "보내는 중...",
+  "recovery.verificationEmailRequested":
+    "인증 이메일을 요청했습니다. 받은편지함과 스팸 폴더를 확인하세요.",
+  "recovery.verificationEmailFailed":
+    "인증 이메일을 요청하지 못했습니다. 다시 시도하세요.",
   "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",

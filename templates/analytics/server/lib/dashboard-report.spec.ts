@@ -44,6 +44,9 @@ type EmailPayload = {
 
 const mocks = vi.hoisted(() => ({
   sendEmail: vi.fn(async (_payload: unknown) => {}),
+  notifyWithDelivery: vi.fn(async (_input: unknown, _meta: unknown) => ({
+    deliveredChannels: ["slack"],
+  })),
   getAppProductionUrl: vi.fn(() => "https://analytics.example.test"),
   getReportDashboard: vi.fn(
     async (
@@ -68,6 +71,9 @@ vi.mock("@agent-native/core/server", () => ({
   getAppProductionUrl: mocks.getAppProductionUrl,
   sendEmail: mocks.sendEmail,
 }));
+vi.mock("@agent-native/core/notifications", () => ({
+  notifyWithDelivery: mocks.notifyWithDelivery,
+}));
 vi.mock("./dashboard-report-render", () => ({
   fetchReportPanelData: mocks.fetchReportPanelData,
   renderReportEmail: mocks.renderReportEmail,
@@ -75,17 +81,24 @@ vi.mock("./dashboard-report-render", () => ({
 vi.mock("./dashboard-report-subscriptions", () => ({
   getReportDashboard: mocks.getReportDashboard,
   MAX_DASHBOARD_REPORT_RECIPIENTS: 5,
-  normalizeDashboardReportRecipients: (recipients: string[]) => {
-    const normalized = [
+  normalizeDashboardReportDestinations: (sub: {
+    recipients: string[];
+    slackWebhookUrl?: string | null;
+  }) => {
+    const recipients = [
       ...new Set(
-        recipients.map((email) => email.trim().toLowerCase()).filter(Boolean),
+        sub.recipients
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
       ),
     ];
-    if (normalized.length === 0)
-      throw new Error("At least one recipient is required");
-    if (normalized.length > 5)
+    if (recipients.length > 5)
       throw new Error("Dashboard reports support at most 5 recipients");
-    return normalized;
+    if (recipients.length === 0 && !sub.slackWebhookUrl)
+      throw new Error(
+        "Add at least one email recipient or a Slack webhook URL",
+      );
+    return { recipients, slackWebhookUrl: sub.slackWebhookUrl ?? null };
   },
 }));
 
@@ -109,6 +122,7 @@ function subscription(): DashboardReportSubscription {
     dashboardId: "dash_1",
     name: "Growth daily email",
     recipients: ["steve@builder.io"],
+    slackWebhookUrl: null,
     filters: { f_timeRange: "30d" },
     frequency: "daily",
     timeOfDay: "03:00",
@@ -249,7 +263,7 @@ describe("dashboard report email", () => {
       recipientCount: 1,
       reportMode: "complete",
       degradedPanelIds: [],
-      emailsSent: true,
+      delivered: true,
     });
     expect(result.reportError).toBeUndefined();
     expect(onCaptureOutcome).toHaveBeenCalledWith({ mode: "full" });
@@ -303,7 +317,7 @@ describe("dashboard report email", () => {
     expect(result.degradedPanelIds).toEqual(["broken", "nokey"]);
     expect(result.reportError).toContain("2 of 3");
     expect(result.reportError).toContain("broken, nokey");
-    expect(result.emailsSent).toBe(true);
+    expect(result.delivered).toBe(true);
     expect(onCaptureOutcome).toHaveBeenCalledWith({
       mode: "partial",
       error: result.reportError,
@@ -327,7 +341,7 @@ describe("dashboard report email", () => {
 
     expect(mocks.sendEmail).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      emailsSent: false,
+      delivered: false,
       reportMode: "degraded",
       degradedPanelIds: ["broken"],
       recipientCount: 1,
@@ -344,7 +358,7 @@ describe("dashboard report email", () => {
       skipEmailWhenDegraded: true,
     });
 
-    expect(result).toMatchObject({ reportMode: "complete", emailsSent: true });
+    expect(result).toMatchObject({ reportMode: "complete", delivered: true });
     expect(mocks.sendEmail).toHaveBeenCalledOnce();
   });
 
@@ -391,7 +405,7 @@ describe("dashboard report email", () => {
     expect(result).toMatchObject({
       reportMode: "complete",
       degradedPanelIds: [],
-      emailsSent: true,
+      delivered: true,
     });
     expect(onCaptureOutcome).toHaveBeenCalledWith({ mode: "full" });
     expect(mocks.sendEmail).toHaveBeenCalledOnce();
@@ -461,6 +475,71 @@ describe("dashboard report email", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("posts a Slack-only report to its webhook without emailing", async () => {
+    const webhook = "https://hooks.slack.com/services/T000/B000/XXXX";
+
+    const result = await sendDashboardReportSubscription({
+      ...subscription(),
+      recipients: [],
+      slackWebhookUrl: webhook,
+    });
+
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ delivered: true, recipientCount: 0 });
+    expect(mocks.notifyWithDelivery).toHaveBeenCalledOnce();
+    const [input, meta] = mocks.notifyWithDelivery.mock.calls[0] as unknown as [
+      { channels: string[]; body: string; metadata: any },
+      { owner: string },
+    ];
+    expect(input.channels).toEqual(["slack"]);
+    expect(input.metadata.delivery).toEqual({ slackWebhookUrl: webhook });
+    expect(input.body).toContain("https://analytics.example.test/dashboards/");
+    expect(meta.owner).toBe("steve@builder.io");
+  });
+
+  it("fails loudly when Slack does not confirm a Slack-only post", async () => {
+    mocks.notifyWithDelivery.mockResolvedValueOnce({ deliveredChannels: [] });
+
+    await expect(
+      sendDashboardReportSubscription({
+        ...subscription(),
+        recipients: [],
+        slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+      }),
+    ).rejects.toThrow("Slack delivery of the dashboard report failed");
+  });
+
+  it("reports a Slack failure without throwing once email was sent", async () => {
+    mocks.notifyWithDelivery.mockResolvedValueOnce({ deliveredChannels: [] });
+
+    const result = await sendDashboardReportSubscription({
+      ...subscription(),
+      slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+    });
+
+    expect(sentEmails().length).toBeGreaterThan(0);
+    expect(result).toMatchObject({
+      delivered: true,
+      slackError: "Slack delivery of the dashboard report failed",
+    });
+  });
+
+  it("keeps the dashboard link ahead of a truncated report summary", async () => {
+    await sendDashboardReportSubscription({
+      ...subscription(),
+      recipients: [],
+      slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+    });
+
+    const [input] = mocks.notifyWithDelivery.mock.calls[0] as unknown as [
+      { body: string },
+    ];
+    expect(input.body.length).toBeLessThanOrEqual(2_000);
+    expect(input.body.indexOf("Dashboard: ")).toBeLessThan(
+      input.body.length / 2,
+    );
   });
 
   it("delivers once to each normalized recipient", async () => {

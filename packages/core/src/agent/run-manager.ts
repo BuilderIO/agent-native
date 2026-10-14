@@ -30,6 +30,7 @@ import {
   type AgentTurnInitiator,
   insertRun,
   insertRunEvent,
+  insertRunEvents,
   updateRunStatusIfRunning,
   markRunAborted,
   getRunAbortState,
@@ -433,6 +434,19 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
     event.type === "missing_api_key" ||
     event.type === "loop_limit" ||
     event.type === "auto_continue"
+  );
+}
+
+interface RunEventBatch {
+  events: Array<{ seq: number; eventAt: number; eventData: string }>;
+  write: Promise<void>;
+}
+
+function isBatchableRunEvent(event: AgentChatEvent): boolean {
+  return (
+    event.type !== "tool_start" &&
+    event.type !== "tool_done" &&
+    !isTerminalRunEvent(event)
   );
 }
 
@@ -847,6 +861,10 @@ export function startRun(
   });
 
   let persistenceChain: Promise<void> = Promise.resolve();
+  // Streamed deltas arrive hundreds per tool call, and a write tool waits for
+  // every queued event to persist first; one round trip per event put tens of
+  // seconds between the model finishing and the tool starting.
+  let openEventBatch = null as RunEventBatch | null;
 
   const PROGRESS_BUMP_INTERVAL_MS = 1_000;
   let lastProgressBumpAt = 0;
@@ -1381,21 +1399,24 @@ export function startRun(
     });
   };
 
+  const persistEventHook = options?.persistEvent;
   const persistRunEvent = async (
     runEvent: RunEvent,
     eventData: string,
+    eventAt: number,
   ): Promise<void> => {
     if (runEvent.event.type === "tool_start") await insertRunPromise;
     const write = () =>
       runEvent.event.type === "tool_start" ||
       runEvent.event.type === "tool_done"
         ? insertRunEvent(runId, runEvent.seq, eventData, {
+            eventAt,
             toolInputSource: "execution",
             ...(runEvent.event.type === "tool_start"
               ? { requireInserted: true }
               : {}),
           })
-        : insertRunEvent(runId, runEvent.seq, eventData);
+        : insertRunEvent(runId, runEvent.seq, eventData, { eventAt });
     return options?.persistEvent
       ? options.persistEvent(write, {
           terminal: isTerminalRunEvent(runEvent.event),
@@ -1411,6 +1432,7 @@ export function startRun(
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
     const eventData = JSON.stringify(runEvent.event);
+    const eventAt = Date.now();
     run.events.push(runEvent);
 
     for (const subscriber of run.subscribers) {
@@ -1427,9 +1449,9 @@ export function startRun(
       bumpProgressIfDue();
     }
 
-    const thisInsert = persistenceChain.then(async () => {
+    const retryOnce = async (write: () => Promise<void>) => {
       try {
-        await persistRunEvent(runEvent, eventData);
+        await write();
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1438,11 +1460,36 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await persistRunEvent(runEvent, eventData);
+        await write();
       }
-    });
-    persistenceChain = thisInsert;
-    const persistence = thisInsert;
+    };
+    let persistence: Promise<void>;
+    if (isBatchableRunEvent(runEvent.event) && !persistEventHook) {
+      if (!openEventBatch) {
+        const batch: RunEventBatch = {
+          events: [],
+          write: persistenceChain.then(() => {
+            if (openEventBatch === batch) openEventBatch = null;
+            return retryOnce(() => insertRunEvents(runId, batch.events));
+          }),
+        };
+        openEventBatch = batch;
+        persistenceChain = batch.write;
+      }
+      openEventBatch.events.push({
+        seq: runEvent.seq,
+        eventAt,
+        eventData,
+      });
+      persistence = openEventBatch.write;
+    } else {
+      // Anything emitted after this event must not persist before it.
+      openEventBatch = null;
+      persistence = persistenceChain.then(() =>
+        retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
+      );
+      persistenceChain = persistence;
+    }
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});
     }
@@ -1666,7 +1713,11 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await persistRunEvent(terminal, JSON.stringify(terminal.event));
+                await persistRunEvent(
+                  terminal,
+                  JSON.stringify(terminal.event),
+                  Date.now(),
+                );
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

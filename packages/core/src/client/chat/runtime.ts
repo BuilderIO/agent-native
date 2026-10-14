@@ -3532,6 +3532,7 @@ interface AgentNativeMessageProjectionState {
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
+    pendingApprovalToolCallId?: string;
     connectionPending: boolean;
   };
 }
@@ -3607,14 +3608,20 @@ function pendingApprovalRuntimeMessages(
       continue;
     }
     if (part.type !== "tool-call") continue;
-    const isApprovedPendingCall =
-      part.type === "tool-call" &&
-      isPendingApprovedToolCall(
-        part,
-        approvedToolCallSet,
-        approvedToolCallAskIdSet,
-      );
-    if (part.result === undefined && !isApprovedPendingCall) continue;
+    const awaitingApproval =
+      part.toolCallId === state.message.pendingApprovalToolCallId;
+    const isApprovedPendingCall = isPendingApprovedToolCall(
+      part,
+      approvedToolCallSet,
+      approvedToolCallAskIdSet,
+    );
+    if (
+      part.result === undefined &&
+      !isApprovedPendingCall &&
+      !awaitingApproval
+    ) {
+      continue;
+    }
     if (isApprovedPendingCall) {
       if (selectedApprovalCallCount >= MAX_TOOL_HISTORY_CALLS) {
         omitted = true;
@@ -3640,7 +3647,7 @@ function pendingApprovalRuntimeMessages(
             ? { approvalAskId: part.approval.askId }
             : {}),
           result:
-            isApprovedPendingCall && !part.result?.trim()
+            awaitingApproval || (isApprovedPendingCall && !part.result?.trim())
               ? "Awaiting human approval. This action did NOT execute."
               : part.result,
           ...(part.isError ? { isError: true } : {}),
@@ -3826,6 +3833,7 @@ function mapAgentNativeEvent(
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
+      pendingApprovalToolCallId?: string;
       connectionPending: boolean;
     };
   },
@@ -4039,6 +4047,13 @@ function mapAgentNativeEvent(
       if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
       if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
     }
+    // The approval gate emits a placeholder tool_done before execution.
+    if (
+      input.message.pendingApprovalToolCallId === toolCallId &&
+      !input.message.approvalPending
+    ) {
+      input.message.pendingApprovalToolCallId = undefined;
+    }
     const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     const events: AgentChatRuntimeKnownEvent[] = [
       {
@@ -4133,6 +4148,7 @@ function mapAgentNativeEvent(
         delete part.approvalResumeCandidate;
       }
     }
+    input.message.pendingApprovalToolCallId = approvalToolCallId;
     return [
       {
         type: "approval-request",
@@ -4936,6 +4952,7 @@ export function createAgentNativeChatRuntime(
             content: [],
             started: false,
             approvalPending: false,
+            pendingApprovalToolCallId: undefined,
             connectionPending: false,
           },
         };

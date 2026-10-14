@@ -288,7 +288,7 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "understand-the-ask",
-    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer with one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
+    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer per AGENTS.md "Data questions"; otherwise one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
   },
   {
     id: "sources",

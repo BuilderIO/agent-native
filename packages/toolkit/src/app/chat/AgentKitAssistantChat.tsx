@@ -74,6 +74,7 @@ import {
   isClientAppStateMutationPending,
   readClientAppState,
 } from "@agent-native/core/client/application-state";
+import { identityBootstrapCallbackHref } from "@agent-native/core/client/auth/auth-page-helpers";
 import { signOut } from "@agent-native/core/client/hooks";
 import { callAction } from "@agent-native/core/client/hooks";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
@@ -6449,6 +6450,7 @@ function AgentKitRunFailure({
   runId: string;
   threadId: string;
 }) {
+  const { session } = useSession();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const surface = useAgentKitSurface();
@@ -6611,6 +6613,22 @@ function AgentKitRunFailure({
     <>
       <RunErrorRecoveryCard
         info={info}
+        verificationEmail={
+          session?.emailVerified === true ? null : session?.email
+        }
+        verificationCallbackURL={
+          session?.email &&
+          session.emailVerified !== true &&
+          typeof window !== "undefined"
+            ? identityBootstrapCallbackHref(window.location.pathname, {
+                enabled: session.identitySsoEnabled === true,
+                bootstrapPath: agentNativePath(
+                  "/_agent-native/identity/bootstrap",
+                ),
+                origin: window.location.origin,
+              })
+            : undefined
+        }
         onContinue={continueStoppedRun}
         continueError={
           continueFailed ? t("agentChat.recovery.continueUnavailable") : null

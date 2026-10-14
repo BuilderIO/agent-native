@@ -27,7 +27,9 @@ import {
   markDashboardReportResult,
   MAX_DASHBOARD_REPORT_RECIPIENTS,
   nextDailyRunAt,
+  normalizeDashboardReportDestinations,
   normalizeDashboardReportRecipients,
+  normalizeSlackWebhookUrl,
   queueDashboardReportSubscriptionNow,
   recordDashboardReportCaptureOutcome,
   truncateDashboardReportError,
@@ -87,9 +89,33 @@ describe("dashboard report subscriptions", () => {
   });
 
   describe("normalizeDashboardReportRecipients", () => {
-    it("rejects an empty recipient list after normalization", () => {
-      expect(() => normalizeDashboardReportRecipients([" ", ""])).toThrow(
-        "At least one recipient is required",
+    it("returns no recipients for a blank list; destinations decide validity", () => {
+      expect(normalizeDashboardReportRecipients([" ", ""])).toEqual([]);
+    });
+
+    it("rejects a subscription with neither recipients nor a Slack webhook", () => {
+      expect(() =>
+        normalizeDashboardReportDestinations({ recipients: [" ", ""] }),
+      ).toThrow("Add at least one email recipient or a Slack webhook URL");
+    });
+
+    it("accepts a Slack-only destination", () => {
+      const webhook = "https://hooks.slack.com/services/T000/B000/XXXX";
+      expect(
+        normalizeDashboardReportDestinations({
+          recipients: [],
+          slackWebhookUrl: ` ${webhook} `,
+        }),
+      ).toEqual({ recipients: [], slackWebhookUrl: webhook });
+    });
+
+    it.each([
+      "http://hooks.slack.com/services/T00000000/B00000000/XXXX",
+      "https://example.com/services/T00000000/B00000000/XXXX",
+      "not a url",
+    ])("rejects a non-Slack webhook URL %s", (url) => {
+      expect(() => normalizeSlackWebhookUrl(url)).toThrow(
+        "Slack webhook URL must be an https://hooks.slack.com/ URL",
       );
     });
 
@@ -191,6 +217,7 @@ describe("dashboard report subscriptions", () => {
         dashboardId: "dash_1",
         name: "Daily",
         recipients: ["person@example.com"],
+        slackWebhookUrl: null,
         filters: {},
         frequency: "daily",
         timeOfDay: "04:00",
@@ -352,6 +379,7 @@ describe("dashboard report subscriptions", () => {
         dashboardId: "dash_1",
         name: "Daily",
         recipients: ["person@example.com"],
+        slackWebhookUrl: null,
         filters: {},
         frequency: "daily",
         timeOfDay: "09:00",
@@ -388,6 +416,7 @@ describe("dashboard report subscriptions", () => {
       dashboardId: "dash_1",
       name: "Daily",
       recipients: ["person@example.com"],
+      slackWebhookUrl: null,
       filters: {},
       frequency: "daily",
       timeOfDay: "09:00",

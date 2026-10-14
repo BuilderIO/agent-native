@@ -1345,6 +1345,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
       {
         flushSync: true,
+        state: { generationOriginalPrompt: prompt },
       },
     );
 

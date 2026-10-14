@@ -1491,6 +1491,7 @@ export default function ShareRoute() {
           {storageSetupFailure && canManageStorage ? (
             <div className="mb-4 w-full">
               <StorageSetupCard
+                connectSource="clips_share_page_storage_setup_card"
                 title={t("sharePage.connectStorageFinishSaving")}
                 description={t("sharePage.chooseStorageCheck")}
                 connectedDescription={t("sharePage.storageConnectedChecking")}

@@ -834,7 +834,6 @@ export default {
       tokens: "设计令牌",
       threads: "讨论",
       label: "设计工作区",
-      account: "账户",
       collapse: "收起侧边栏",
       expand: "展开侧边栏",
     },
@@ -1162,6 +1161,16 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "导入粘贴的令牌",
       importedCount: "已导入 {{count}} 个令牌",
+      importing: "正在导入令牌…",
+      importedWithSkipped:
+        "已导入 {{count}} 个令牌，已跳过 {{skipped}} 个无效值或文件。",
+      importedWithOmissions:
+        "已导入 {{count}} 个令牌，已跳过 {{skipped}} 个无效项。因导入限制未处理的数量：令牌 {{omittedTokens}}，文件 {{omittedFiles}}。",
+      importedWithReadFailures:
+        "已导入 {{count}} 个令牌，但无法读取 {{readFailures}} 个文件。请重新选择并重试。",
+      importedWithReadFailuresAndOmissions:
+        "已导入 {{count}} 个令牌。无法读取 {{readFailures}} 个文件。另跳过了 {{skipped}} 个无效项，且因导入限制未处理 {{omittedTokens}} 个令牌和 {{omittedFiles}} 个文件。请重新选择无法读取的文件并重试。",
+      noTokensFound: "未找到有效令牌。请检查文件格式和令牌值。",
       count: "{{count}} 个令牌",
       search: "搜索令牌",
       noMatches: "没有匹配的令牌",
@@ -1280,6 +1289,7 @@ export default {
       htmlPlaceholder: "<main>在此粘贴独立 HTML...</main>",
       importHtml: "导入 HTML",
       chooseHtmlFile: "选择 HTML 文件",
+      allSupportedFiles: "所有支持的文件",
       githubTitle: "GitHub",
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
       localTitle: "本地 app",

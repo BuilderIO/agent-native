@@ -218,7 +218,7 @@ export function renderSingleScreenCanvas({
     handleRuntimeStructureInsertApplied,
     handleRuntimeStructureDeleteApplied,
     handleRuntimeStructureDeleteRejected,
-    commentsHidden,
+    commentPinsHidden,
     viewSettings: { pixelGrid, multiplayerCursors },
   } = editorLayoutAndStructure;
   const {
@@ -525,7 +525,7 @@ export function renderSingleScreenCanvas({
         retainDrawOverlayWhenHidden
         onAnnotationSendingChange={handleFocusedAnnotationSendingChange}
         pinMode={pinMode}
-        commentPinsHidden={commentsHidden}
+        commentPinsHidden={commentPinsHidden}
         onExitPinMode={handleExitReviewCommentMode}
         designId={id}
         reviewCanPost={canCommentDesign}

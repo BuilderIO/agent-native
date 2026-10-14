@@ -106,7 +106,6 @@ export function renderLeftSidebar({
     viewMode,
     attachHostChatSlot,
     isSignedIn,
-    session,
     t,
     designChatScope,
     designChatHistory,
@@ -184,7 +183,7 @@ export function renderLeftSidebar({
           className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
         >
           <DesignWorkspaceRail
-            account={hostEmbeddedEditor ? null : session}
+            showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
             motionOpen={motionDockOpen}
             onMotionToggle={

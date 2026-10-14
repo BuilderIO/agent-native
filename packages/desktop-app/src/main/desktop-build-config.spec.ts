@@ -117,7 +117,7 @@ describe("desktop build dependency boundary", () => {
     },
   );
 
-  it("packages Core's runtime modules that remain external to the main bundle", async () => {
+  it("packages external main-process runtime modules", async () => {
     const main = loaded.config?.main;
     expect(main).toBeDefined();
     const resolved = await resolveViteConfig(main!, "build", "production");
@@ -136,6 +136,7 @@ describe("desktop build dependency boundary", () => {
     ]) {
       expect(external(subpath, undefined, false), subpath).toBe(true);
     }
+    expect(external("electron-log/main", undefined, false)).toBe(true);
 
     const builderConfig = await readFile(
       new URL("../../electron-builder.yml", import.meta.url),
@@ -145,6 +146,12 @@ describe("desktop build dependency boundary", () => {
       "node_modules/@agent-native/core/package.json",
     );
     expect(builderConfig).toContain("node_modules/@agent-native/core/dist/**");
+    const packagedFiles = builderConfig.match(
+      /^files:\r?\n((?: {2}- .*(?:\r?\n|$))*)/m,
+    )?.[1];
+    expect(packagedFiles?.split(/\r?\n/)).toContain(
+      "  - node_modules/electron-log/**",
+    );
     expect(builderConfig).toContain("node_modules/ws/**");
   });
 });

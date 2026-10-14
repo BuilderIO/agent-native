@@ -51,6 +51,7 @@ import {
   MENU_SEPARATOR_CLASS,
   MENU_SUB_TRIGGER_CLASS,
 } from "@/components/design/context-menu-styles";
+import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,7 +63,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -304,6 +304,11 @@ function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
   window.addEventListener("blur", clear, { once: true });
   window.addEventListener("pointercancel", clear, { once: true });
 }
+
+// Row height, left inset and type size; the Tokens panel lays its rows out with
+// the same geometry so the two trees read as one list.
+export const LAYER_ROW_GEOMETRY_CLASS =
+  "flex h-[var(--design-row-height)] items-center pl-2.5 pr-[var(--design-baseline-half)] text-[11px]";
 
 export function layerRowIndentCount(depth: number): number {
   return Math.max(1, depth + 1);
@@ -1555,23 +1560,13 @@ function LayersPanelImpl(
         </div>
 
         {shouldShowSearch ? (
-          <div className="shrink-0 p-1.5">
-            <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape" && !searchQuery.trim()) {
-                    setSearchOpen(false);
-                  }
-                }}
-                placeholder={labels.searchPlaceholder}
-                className="h-6 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-6 text-[11px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-              />
-            </div>
-          </div>
+          <LeftPanelSearchField
+            ref={searchInputRef}
+            value={searchQuery}
+            placeholder={labels.searchPlaceholder}
+            onValueChange={onSearchQueryChange}
+            onEscapeWhenEmpty={() => setSearchOpen(false)}
+          />
         ) : null}
 
         <div
@@ -1724,7 +1719,7 @@ interface LayerRowProps {
   onFlipVertical?: (ids: string[]) => void;
 }
 
-function LayerRowIndentSlots({
+export function LayerRowIndentSlots({
   count,
   control,
 }: {
@@ -2150,7 +2145,8 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pl-2.5 pr-[var(--design-baseline-half)] text-[11px] [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+              "group w-max min-w-full [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+              LAYER_ROW_GEOMETRY_CLASS,
               !isSelected && !isInSelectedSubtree && "rounded-[4px]",
               isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
               isSelectionBlockStart &&

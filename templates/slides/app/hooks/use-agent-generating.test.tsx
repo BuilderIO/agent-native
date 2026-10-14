@@ -236,6 +236,101 @@ describe("useAgentGenerating", () => {
     });
   });
 
+  it("accepts a terminal error for the current submit before running state arrives", () => {
+    agentChatState.sendAndConfirm.mockReturnValue(new Promise(() => {}));
+    const { result, rerender } = renderHook(
+      (options) => useAgentGenerating(options),
+      { initialProps: { tabId: null as string | null } },
+    );
+
+    act(() => {
+      void result.current.submitAndConfirm("Create a deck", "context", {
+        submitMessageId: "current-submit",
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: {
+            submitMessageId: "current-submit",
+            tabId: "current-tab",
+          },
+        }),
+      );
+    });
+
+    rerender({ tabId: "current-tab" });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { tabId: "other-tab", message: "Wrong run" },
+        }),
+      );
+    });
+
+    expect(result.current.generating).toBe(false);
+    expect(result.current.runError).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: {
+            tabId: "current-tab",
+            message: "Generation failed before it started",
+            errorCode: "write_tool_outcome_unknown",
+          },
+        }),
+      );
+    });
+
+    expect(result.current.generating).toBe(false);
+    expect(result.current.runError).toBe(true);
+    expect(result.current.runErrorCode).toBe("write_tool_outcome_unknown");
+    expect(toastState.error).toHaveBeenCalledWith(
+      "Generation failed before it started",
+      { id: "agent-run-error-current-tab" },
+    );
+
+    rerender({ tabId: "current-tab" });
+    expect(result.current.runError).toBe(true);
+    expect(result.current.runErrorCode).toBe("write_tool_outcome_unknown");
+  });
+
+  it("keeps a terminal error when the matching tab is learned afterward", () => {
+    agentChatState.sendAndConfirm.mockReturnValue(new Promise(() => {}));
+    const { result, rerender } = renderHook(
+      (options) => useAgentGenerating(options),
+      { initialProps: { tabId: null as string | null } },
+    );
+
+    act(() => {
+      void result.current.submitAndConfirm("Create a deck", "context", {
+        submitMessageId: "current-submit",
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: {
+            submitMessageId: "current-submit",
+            tabId: "current-tab",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: {
+            tabId: "current-tab",
+            message: "Generation failed before the tab was matched",
+            errorCode: "write_tool_outcome_unknown",
+          },
+        }),
+      );
+    });
+
+    expect(result.current.runError).toBe(true);
+    rerender({ tabId: "current-tab" });
+    expect(result.current.runError).toBe(true);
+    expect(result.current.runErrorCode).toBe("write_tool_outcome_unknown");
+  });
+
   it("emits a scoped start marker for deck lifecycle correlation", () => {
     agentChatState.send.mockReturnValue("requested-new-tab");
     const listener = vi.fn();

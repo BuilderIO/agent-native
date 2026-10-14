@@ -31,6 +31,10 @@ import { createCanvasGestureController } from "@agent-native/toolkit/canvas-inte
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 import {
+  isAutoLayoutDisplay,
+  marginHandlesApply,
+} from "../../../../shared/spacing-handle-rule";
+import {
   INLINE_TEXT_TAGS,
   padsBox,
   paintsBox,
@@ -4311,15 +4315,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         ? undefined
         : "The runtime did not expose a verified authored component invocation location.",
     };
-  }
-
-  function isAutoLayoutDisplay(display: string | undefined): boolean {
-    return (
-      display === "flex" ||
-      display === "inline-flex" ||
-      display === "grid" ||
-      display === "inline-grid"
-    );
   }
 
   function rectInfoForElement(el: Element) {
@@ -10224,6 +10219,39 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return handles.filter(Boolean);
   }
 
+  // The overlay rebuilds every frame while a selection moves, and a parent's
+  // display almost never changes inside one; re-reading it per frame would make
+  // style reads scale with frames instead of elements.
+  var marginParentDisplayCache: {
+    el: Element;
+    parent: Element;
+    display: string;
+    at: number;
+  } | null = null;
+
+  function marginParentDisplay(el: Element): string | undefined {
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var now = Date.now();
+    var cached = marginParentDisplayCache;
+    if (
+      cached &&
+      cached.el === el &&
+      cached.parent === parent &&
+      now - cached.at < 250
+    ) {
+      return cached.display;
+    }
+    var display = window.getComputedStyle(parent).display;
+    marginParentDisplayCache = {
+      el: el,
+      parent: parent,
+      display: display,
+      at: now,
+    };
+    return display;
+  }
+
   function buildMarginSpacingHandles(
     el: Element,
     rect: DOMRect,
@@ -10238,6 +10266,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var right = clampSpacingValue(readPx(cs.marginRight), true);
     var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
     var left = clampSpacingValue(readPx(cs.marginLeft), true);
+    var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+    var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+    var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+    var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+    // A drag through 0 must not retire the handle being dragged.
+    var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+    if (
+      !draggingMargin &&
+      !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position,
+      })
+    ) {
+      return [];
+    }
 
     return [
       makeSpacingHandle({
@@ -10248,7 +10293,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "top",
         orientation: "horizontal",
         value: top,
-        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        valueLabel: autoTop ? "auto" : "",
         elementRect: rect,
         region: {
           x: 0,
@@ -10274,9 +10319,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "right",
         orientation: "vertical",
         value: right,
-        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
-          ? "auto"
-          : "",
+        valueLabel: autoRight ? "auto" : "",
         elementRect: rect,
         region: {
           x: rect.width + Math.min(0, right),
@@ -10303,9 +10346,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "bottom",
         orientation: "horizontal",
         value: bottom,
-        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
-          ? "auto"
-          : "",
+        valueLabel: autoBottom ? "auto" : "",
         elementRect: rect,
         region: {
           x: 0,
@@ -10332,7 +10373,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "left",
         orientation: "vertical",
         value: left,
-        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        valueLabel: autoLeft ? "auto" : "",
         elementRect: rect,
         region: {
           x: Math.min(0, -left),

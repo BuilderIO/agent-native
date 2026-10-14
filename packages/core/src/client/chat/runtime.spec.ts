@@ -5298,7 +5298,7 @@ describe("createAgentNativeChatRuntime", () => {
             {
               type: "tool-result",
               toolCallId: "call-publish-release",
-              content: "Awaiting fresh approval. This action did NOT execute.",
+              content: "Awaiting human approval. This action did NOT execute.",
               approvalPause: true,
               approvalAskId: renewedAskId,
             },
@@ -5732,6 +5732,87 @@ describe("createAgentNativeChatRuntime", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("resumes an approved tool call that has no result part", async () => {
+    const approvedInput = { content: "Create a shared skill." };
+    const approvalKey = 'write-resource:{"content":"Create a shared skill."}';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-prior",
+            tool: "read-resource",
+            input: { path: "skills/example/SKILL.md" },
+          },
+          {
+            type: "tool_start",
+            id: "call-approved",
+            tool: "write-resource",
+            input: approvedInput,
+          },
+          {
+            type: "approval_required",
+            tool: "write-resource",
+            input: approvedInput,
+            approvalKey,
+            toolCallId: "call-approved",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pending-approval-result",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-pending-approval-result",
+      threadId: "thread-pending-approval-result",
+    });
+    const first = await session.startTurn({ prompt: "Write this skill." });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalKey, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(body).toMatchObject({
+      approvedToolCalls: [approvalKey],
+      structuredHistory: expect.arrayContaining([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call-approved",
+              name: "write-resource",
+              input: approvedInput,
+              approvalKey,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-approved",
+              content: "Awaiting human approval. This action did NOT execute.",
+              approvalPause: true,
+            },
+          ],
+        },
+      ]),
+    });
+    expect(JSON.stringify(body.structuredHistory)).not.toContain("call-prior");
+  });
+
   it("preserves the original brief in bounded history without assistant reasoning", async () => {
     const originalBrief =
       "Create a LinkedIn ad at exactly 1200x627. Keep it on one static canvas.";
@@ -5929,6 +6010,8 @@ describe("createAgentNativeChatRuntime", () => {
     };
     const approvalKey =
       'accept-agentkit-release:{"environment":"production","release":"agentkit-acceptance"}';
+    const serverApprovalResult =
+      'Awaiting human approval to run "accept-agentkit-release". This action did NOT execute — a human must approve this specific call before it can run. The turn is paused; do not retry.';
     const approvalResult =
       "Awaiting human approval. This action did NOT execute.";
     const trailingText = "x".repeat(256 * 1024 - 300);
@@ -5954,7 +6037,7 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool_done",
             id: "call-approved-release",
             tool: "accept-agentkit-release",
-            result: approvalResult,
+            result: serverApprovalResult,
             approvalPause: true,
           },
           { type: "text", text: trailingText },
@@ -6013,6 +6096,13 @@ describe("createAgentNativeChatRuntime", () => {
         type: "tool-result",
         toolCallId: "call-approved-release",
         content: approvalResult,
+      }),
+    );
+    expect(parts).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-approved-release",
+        content: serverApprovalResult,
       }),
     );
     expect(parts).not.toContainEqual({ type: "text", text: trailingText });

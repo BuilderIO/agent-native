@@ -28,6 +28,45 @@ export function tweakSelectionsHash(
  * the generated tweak definition list.
  */
 const CSS_CUSTOM_PROPERTY_NAME = /^--[-_a-zA-Z0-9]+$/;
+const CSS_ATTR_TYPE_SYNTAX =
+  /\battr\(\s*(?:[-_a-z][\w-]*\s*\|\s*)?[-_a-z][\w-]*\s+type\(\s*([^()]*)\s*\)/gi;
+const SAFE_CSS_ATTR_SYNTAX_TYPES = new Set([
+  "angle",
+  "color",
+  "custom-ident",
+  "integer",
+  "length",
+  "length-percentage",
+  "number",
+  "percentage",
+  "resolution",
+  "string",
+  "time",
+  "transform-function",
+  "transform-list",
+]);
+
+function hasOnlySafeCssAttrTypeSyntax(value: string): boolean {
+  const valueWithoutTypedAngles = value.replace(
+    CSS_ATTR_TYPE_SYNTAX,
+    (match, syntax: string) => {
+      const components = syntax.split("|").map((component) => component.trim());
+      if (
+        !components.every((component) => {
+          const type = component.replace(/[+#]$/, "");
+          const angleType = type.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase();
+          return angleType
+            ? SAFE_CSS_ATTR_SYNTAX_TYPES.has(angleType)
+            : /^[-_a-z][\w-]*$/i.test(type);
+        })
+      ) {
+        return match;
+      }
+      return match.replace(/<([a-z-]+)>/gi, "$1");
+    },
+  );
+  return !/[<>]/.test(valueWithoutTypedAngles);
+}
 
 export function isSafeCssVarName(value: string): boolean {
   return CSS_CUSTOM_PROPERTY_NAME.test(value);
@@ -37,7 +76,8 @@ export function isSafeCssTokenValue(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= 300 &&
-    !/[;{}<>]/.test(value) &&
+    !/[;{}]/.test(value) &&
+    hasOnlySafeCssAttrTypeSyntax(value) &&
     !/\/\*/.test(value) &&
     !/[\u0000-\u001f\u007f]/.test(value)
   );

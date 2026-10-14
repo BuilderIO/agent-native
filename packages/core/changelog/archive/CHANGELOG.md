@@ -1,3 +1,9 @@
+## 0.167.1
+
+### Patch Changes
+
+- ca9ee7e: Merge same-day changelog categories without duplicating headings.
+
 ## 0.167.0
 
 ### Minor Changes

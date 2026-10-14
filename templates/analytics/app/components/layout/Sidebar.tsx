@@ -14,6 +14,7 @@ import {
   IconGripVertical,
   IconBook2,
   IconDatabase,
+  IconFolder,
   IconArchive,
   IconActivity,
   IconHeartbeat,
@@ -75,6 +76,7 @@ type SidebarDashboard = {
   /** Owner label, set only when another dashboard shares this title. */
   ownerHint?: string;
   parentId?: string;
+  folderId?: string;
 };
 
 const SIDEBAR_SYNC_SETTLE_MS = 500;
@@ -125,6 +127,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -173,6 +180,8 @@ const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const DASHBOARD_VISIBILITY_FILTER_KEY =
   "analytics-sidebar-dashboard-visibility";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
+const DASHBOARD_FOLDERS_COLLAPSED_KEY =
+  "analytics-sidebar-dashboard-folders-collapsed";
 const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
@@ -216,6 +225,33 @@ function setStoredBoolean(key: string, value: boolean): void {
     window.localStorage.setItem(key, String(value));
   } catch {
     // localStorage unavailable — ignore, section state is best-effort.
+  }
+}
+
+function getStoredCollapsedFolderIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(DASHBOARD_FOLDERS_COLLAPSED_KEY) || "[]",
+    );
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    // coercion-ok: folder collapse state is a best-effort preference; expanded is the safe default.
+    return [];
+  }
+}
+
+function setStoredCollapsedFolderIds(folderIds: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      DASHBOARD_FOLDERS_COLLAPSED_KEY,
+      JSON.stringify(folderIds),
+    );
+  } catch {
+    // coercion-ok: folder collapse state is a best-effort preference; ignoring a failed write is safe.
   }
 }
 
@@ -1202,7 +1238,10 @@ type SqlDashboardListItem = {
   ownerEmail?: string | null;
   demo?: boolean;
   parentId?: string;
+  folderId?: string;
 };
+
+type SidebarDashboardFolder = { id: string; name: string };
 
 async function fetchSqlDashboards(
   t: (key: string) => string,
@@ -1236,8 +1275,24 @@ async function fetchSqlDashboards(
           typeof d.parentId === "string" && d.parentId.trim().length > 0
             ? d.parentId
             : undefined,
+        folderId:
+          typeof d.folderId === "string" && d.folderId.trim().length > 0
+            ? d.folderId
+            : undefined,
       };
     });
+}
+
+async function fetchDashboardFolders(): Promise<SidebarDashboardFolder[]> {
+  const result = await callAction(
+    "list-dashboard-folders",
+    {},
+    { method: "GET" },
+  );
+  return (result.folders as SidebarDashboardFolder[]).map((f) => ({
+    id: f.id,
+    name: f.name,
+  }));
 }
 
 async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
@@ -1545,6 +1600,37 @@ function restoreQuerySnapshots<T>(
   }
 }
 
+function SidebarFolderGroup({
+  name,
+  open,
+  onOpenChange,
+  children,
+}: {
+  name: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="min-w-0 space-y-0.5"
+    >
+      <CollapsibleTrigger className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground">
+        <IconChevronDown
+          className={cn("h-3 w-3 shrink-0", !open && "-rotate-90")}
+        />
+        <IconFolder className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{name}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -1582,6 +1668,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<string[]>(() =>
+    getStoredCollapsedFolderIds(),
+  );
   const { data: popularity, isReady: popularityReady } = usePopularity();
 
   useEffect(() => {
@@ -1707,6 +1796,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
   }, []);
 
+  const toggleFolderOpen = useCallback((folderId: string, open: boolean) => {
+    setCollapsedFolderIds((current) => {
+      const next = current.filter((id) => id !== folderId);
+      if (!open) next.push(folderId);
+      setStoredCollapsedFolderIds(next);
+      return next;
+    });
+  }, []);
+
   const handleAskClick = useCallback(
     (event: ReactMouseEvent<HTMLAnchorElement>) => {
       const action = resolveAskNavigationAction(
@@ -1744,6 +1842,23 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   } = useQuery({
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
+    enabled: !authLoading,
+    staleTime: 30_000,
+    placeholderData: (prev, previousQuery) =>
+      preserveScopedDashboardPlaceholder(prev, previousQuery, dashboardScope),
+  });
+
+  const foldersSync = useSettledSyncVersion(
+    useChangeVersions(["dashboard-folders"]),
+  );
+  const {
+    data: sidebarFolders = [],
+    isLoading: foldersLoading,
+    isError: foldersError,
+    refetch: refetchFolders,
+  } = useQuery({
+    queryKey: ["dashboard-folders-sidebar", dashboardScope, foldersSync],
+    queryFn: fetchDashboardFolders,
     enabled: !authLoading,
     staleTime: 30_000,
     placeholderData: (prev, previousQuery) =>
@@ -1809,6 +1924,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       ownerEmail: d.ownerEmail,
       demo: d.demo,
       parentId: d.parentId,
+      folderId: d.folderId,
     }));
     const analysisItems: SidebarDashboard[] = analysesList.map((a) => ({
       id: `analysis:${a.id}`,
@@ -1899,17 +2015,41 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     return filteredDashboards.filter((d) => !childIds.has(d.id));
   }, [filteredDashboards, dashboardChildren]);
 
-  const displayedDashboards = useMemo(
+  const { folderSections, ungroupedDashboards } = useMemo(() => {
+    const folderIds = new Set(sidebarFolders.map((f) => f.id));
+    const byFolder = new Map<string, SidebarDashboard[]>();
+    const ungrouped: SidebarDashboard[] = [];
+    for (const d of topLevelDashboards) {
+      if (!d.folderId || !folderIds.has(d.folderId)) {
+        ungrouped.push(d);
+        continue;
+      }
+      const arr = byFolder.get(d.folderId) ?? [];
+      arr.push(d);
+      byFolder.set(d.folderId, arr);
+    }
+    const sections = sidebarFolders
+      .filter((f) => byFolder.has(f.id))
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        dashboards: byFolder.get(f.id) ?? [],
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { folderSections: sections, ungroupedDashboards: ungrouped };
+  }, [topLevelDashboards, sidebarFolders]);
+
+  const displayedUngroupedDashboards = useMemo(
     () =>
       dashShowAll
-        ? topLevelDashboards
-        : topLevelDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
-    [topLevelDashboards, dashShowAll],
+        ? ungroupedDashboards
+        : ungroupedDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [ungroupedDashboards, dashShowAll],
   );
 
   const dashboardListHasRendered = useRef(false);
   const dashboardListReady = shouldRenderDashboardList({
-    sqlDashboardsLoading,
+    sqlDashboardsLoading: sqlDashboardsLoading || foldersLoading,
     sqlDashboardsPlaceholder,
     isInitialLoad: !dashboardListHasRendered.current,
     favoritesLoading,
@@ -2176,6 +2316,60 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       // Ignore storage failures; the in-memory preference still works.
     }
   }, [sidebarCollapsed]);
+
+  const dashboardEntryIds = (d: SidebarDashboard) => [
+    d.id,
+    ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+  ];
+
+  const renderDashboardEntry = (d: SidebarDashboard) => {
+    const children = dashboardChildren.get(d.id) ?? [];
+    return (
+      <Fragment key={d.id}>
+        <SortableDashboardItem
+          d={d}
+          isActive={
+            d.source === "analysis"
+              ? activeAnalysisId === d.resourceId
+              : activeDashboardId === d.id
+          }
+          location={location}
+          favoriteIds={favoriteIds}
+          onToggleFavorite={toggleFavorite}
+          onDelete={handleDashboardDelete}
+          onRename={handleDashboardRename}
+          onArchive={handleDashboardArchive}
+          onSetVisibility={handleDashboardSetVisibility}
+          onPrefetch={prefetchDashboard}
+          views={allViewsMap[d.id]}
+        />
+        {children.length > 0 && (
+          <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
+            {children.map((child) => (
+              <SortableDashboardItem
+                key={child.id}
+                d={child}
+                isActive={
+                  child.source === "analysis"
+                    ? activeAnalysisId === child.resourceId
+                    : activeDashboardId === child.id
+                }
+                location={location}
+                favoriteIds={favoriteIds}
+                onToggleFavorite={toggleFavorite}
+                onDelete={handleDashboardDelete}
+                onRename={handleDashboardRename}
+                onArchive={handleDashboardArchive}
+                onSetVisibility={handleDashboardSetVisibility}
+                onPrefetch={prefetchDashboard}
+                views={allViewsMap[child.id]}
+              />
+            ))}
+          </div>
+        )}
+      </Fragment>
+    );
+  };
 
   const collapsedNavItems = [
     {
@@ -2502,67 +2696,41 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     onDragEnd={handleDashboardDragEnd}
                   >
                     <SortableContext
-                      items={displayedDashboards.flatMap((d) => [
-                        d.id,
-                        ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
-                      ])}
+                      items={[
+                        ...folderSections.flatMap((section) =>
+                          collapsedFolderIds.includes(section.id)
+                            ? []
+                            : section.dashboards.flatMap(dashboardEntryIds),
+                        ),
+                        ...displayedUngroupedDashboards.flatMap(
+                          dashboardEntryIds,
+                        ),
+                      ]}
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="ms-4 min-w-0 space-y-0.5">
+                        {dashboardListReady && (
+                          <>
+                            {folderSections.map((section) => (
+                              <SidebarFolderGroup
+                                key={section.id}
+                                name={section.name}
+                                open={!collapsedFolderIds.includes(section.id)}
+                                onOpenChange={(open) =>
+                                  toggleFolderOpen(section.id, open)
+                                }
+                              >
+                                {section.dashboards.map(renderDashboardEntry)}
+                              </SidebarFolderGroup>
+                            ))}
+                            {displayedUngroupedDashboards.map(
+                              renderDashboardEntry,
+                            )}
+                          </>
+                        )}
                         {dashboardListReady &&
-                          displayedDashboards.map((d) => {
-                            const children = dashboardChildren.get(d.id) ?? [];
-                            return (
-                              <Fragment key={d.id}>
-                                <SortableDashboardItem
-                                  d={d}
-                                  isActive={
-                                    d.source === "analysis"
-                                      ? activeAnalysisId === d.resourceId
-                                      : activeDashboardId === d.id
-                                  }
-                                  location={location}
-                                  favoriteIds={favoriteIds}
-                                  onToggleFavorite={toggleFavorite}
-                                  onDelete={handleDashboardDelete}
-                                  onRename={handleDashboardRename}
-                                  onArchive={handleDashboardArchive}
-                                  onSetVisibility={handleDashboardSetVisibility}
-                                  onPrefetch={prefetchDashboard}
-                                  views={allViewsMap[d.id]}
-                                />
-                                {children.length > 0 && (
-                                  <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
-                                    {children.map((child) => (
-                                      <SortableDashboardItem
-                                        key={child.id}
-                                        d={child}
-                                        isActive={
-                                          child.source === "analysis"
-                                            ? activeAnalysisId ===
-                                              child.resourceId
-                                            : activeDashboardId === child.id
-                                        }
-                                        location={location}
-                                        favoriteIds={favoriteIds}
-                                        onToggleFavorite={toggleFavorite}
-                                        onDelete={handleDashboardDelete}
-                                        onRename={handleDashboardRename}
-                                        onArchive={handleDashboardArchive}
-                                        onSetVisibility={
-                                          handleDashboardSetVisibility
-                                        }
-                                        onPrefetch={prefetchDashboard}
-                                        views={allViewsMap[child.id]}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                              </Fragment>
-                            );
-                          })}
-                        {dashboardListReady &&
-                          topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                          ungroupedDashboards.length >
+                            SIDEBAR_PREVIEW_COUNT && (
                             <button
                               onClick={() => setDashShowAll(!dashShowAll)}
                               className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
@@ -2571,7 +2739,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                                 ? t("sidebar.showLess")
                                 : t("sidebar.showMore", {
                                     count:
-                                      topLevelDashboards.length -
+                                      ungroupedDashboards.length -
                                       SIDEBAR_PREVIEW_COUNT,
                                   })}
                             </button>
@@ -2597,6 +2765,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
+                        {foldersError && (
+                          <SidebarLoadError
+                            message={t("sidebar.dashboardsLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchFolders()}
+                          />
+                        )}
                         {sqlDashboardsError && sqlDashboards.length === 0 && (
                           <SidebarLoadError
                             message={t("sidebar.dashboardsLoadFailed")}
