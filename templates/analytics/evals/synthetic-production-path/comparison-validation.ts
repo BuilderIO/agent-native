@@ -83,8 +83,9 @@ const V22_CASE_IDS = [
   ...V21_CASE_IDS,
   "aggregate-only-membership-abstains",
 ] as const;
+const V23_CASE_IDS = V22_CASE_IDS;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V22_CASE_IDS;
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V23_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -299,6 +300,25 @@ const PINNED_EVALUATIONS = [
     harnessRevision:
       "sha256:bf3c188894629f2300d071e32e5ba8a147e194bafd80251c0e9472e5ed57da93",
     caseIds: V22_CASE_IDS,
+    noMatchCaseIds: ["aggregate-only-membership-abstains"],
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
+    staleIndexMarkerPhases: ["before", "after"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v23",
+    baselineRevision: "1da583a5059d855ef7f61dc1e017607416e123d9",
+    baselineCodeRevision:
+      "sha256:3318fa7f1d05ddb47311de6ada0b040eed206bbd0896e6a68a5ec6709f593c5e",
+    candidateRevision: "fe0be8aea0fb0d32b46627f047d0956f805a4b04",
+    candidateCodeRevision:
+      "sha256:18f36c78aab1ae868080c79a457f681979a118c9711e50b94278a58227253fae",
+    harnessRevision:
+      "sha256:97f2a9c3c235790d7992d7c53596dead93ed0e25ec611273262e8485a8ee44e6",
+    caseIds: V23_CASE_IDS,
     noMatchCaseIds: ["aggregate-only-membership-abstains"],
     staleIndexMarker: true,
     staleIndexCaseIds: [

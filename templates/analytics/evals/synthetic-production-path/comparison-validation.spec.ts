@@ -90,12 +90,18 @@ const V22_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V23_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v23-before-after.csv",
+    import.meta.url,
+  ),
+);
 function loadMeasuredComparisonCsv(): string {
-  return readFileSync(V22_COMPARISON_CSV, "utf8");
+  return readFileSync(V23_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("validates the measured v22 production-path comparison", () => {
+  it("validates the measured v23 production-path comparison", () => {
     const result = validateProductionPathComparisonCsv(
       loadMeasuredComparisonCsv(),
     );
@@ -115,8 +121,53 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         staleIndexMarked: 4,
         revision: "1da583a5059d855ef7f61dc1e017607416e123d9",
         codeRevision:
-          "sha256:2e06c8bddad47a8ed932b60171383e064ed013910489bb7cb6331a2bc17b7f52",
+          "sha256:3318fa7f1d05ddb47311de6ada0b040eed206bbd0896e6a68a5ec6709f593c5e",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+      after: {
+        rows: 50,
+        top1: 48,
+        retrievalTop1: 48,
+        hitAt5: 48,
+        correctAbstentions: 2,
+        contractAccuracy: 50,
+        unexpectedMatches: 0,
+        failedRuns: 0,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
+        revision: "fe0be8aea0fb0d32b46627f047d0956f805a4b04",
+        codeRevision:
+          "sha256:18f36c78aab1ae868080c79a457f681979a118c9711e50b94278a58227253fae",
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+    });
+    expect(result.before.revision).not.toBe(result.after.revision);
+    expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
+  });
+
+  it("still validates the preserved v22 comparison", () => {
+    const result = validateProductionPathComparisonCsv(
+      readFileSync(V22_COMPARISON_CSV, "utf8"),
+    );
+
+    expect(result).toMatchObject({
+      cases: 25,
+      before: {
+        rows: 50,
+        top1: 46,
+        retrievalTop1: 46,
+        hitAt5: 46,
+        correctAbstentions: 0,
+        contractAccuracy: 46,
+        unexpectedMatches: 2,
+        failedRuns: 4,
+        abortedRuns: 0,
+        staleIndexMarked: 4,
+        revision: "1da583a5059d855ef7f61dc1e017607416e123d9",
+        codeRevision:
+          "sha256:2e06c8bddad47a8ed932b60171383e064ed013910489bb7cb6331a2bc17b7f52",
+        harnessRevision:
+          "sha256:bf3c188894629f2300d071e32e5ba8a147e194bafd80251c0e9472e5ed57da93",
       },
       after: {
         rows: 50,
@@ -132,11 +183,10 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         revision: "4021bd355e7de06321bd692cb754a6d7a06ad72e",
         codeRevision:
           "sha256:abaa3aa4552424931a31ded4c49015c79298aae8a0b1cfd17e9b1b7b5ea220fc",
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        harnessRevision:
+          "sha256:bf3c188894629f2300d071e32e5ba8a147e194bafd80251c0e9472e5ed57da93",
       },
     });
-    expect(result.before.revision).not.toBe(result.after.revision);
-    expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
   });
 
   it("still validates the preserved v21 comparison", () => {

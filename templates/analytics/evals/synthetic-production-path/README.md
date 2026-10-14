@@ -24,7 +24,68 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
-## Latest measured v21 comparison
+## Latest measured v23 comparison
+
+The v23 artifact compares baseline commit
+`1da583a5059d855ef7f61dc1e017607416e123d9` with candidate commit
+`fe0be8aea0fb0d32b46627f047d0956f805a4b04`. It runs the same 25 synthetic
+retrieval cases twice in each phase, including the aggregate-only abstention
+case.
+
+Top-1 retrieval rises from 46/48 (95.8%) to 48/48 (100%). Correct abstentions
+rise from 0/2 to 2/2, and total contract accuracy rises from 46/50 (92%) to
+50/50 (100%). All 100 runs complete the production path without aborts; each
+makes one `find-data` call and no other or failed action. The stale-index marker
+appears in four rows in each phase.
+
+The baseline and candidate code hashes are
+`sha256:3318fa7f1d05ddb47311de6ada0b040eed206bbd0896e6a68a5ec6709f593c5e`
+and
+`sha256:18f36c78aab1ae868080c79a457f681979a118c9711e50b94278a58227253fae`.
+Both phases use the same candidate harness bytes,
+`sha256:97f2a9c3c235790d7992d7c53596dead93ed0e25ec611273262e8485a8ee44e6`.
+The validator pins the revisions, hashes, case IDs, paired runs, privacy-safe
+CSV fields, production-path completion, and stale-index markers.
+
+To reproduce the before phase, check out the pinned baseline, copy the
+candidate `production-path.spec.ts` to the same relative path, install the
+workspace dependencies, build the Analytics dependencies, and run:
+
+```sh
+ANALYTICS_EVAL_PHASE=before \
+ANALYTICS_EVAL_GIT_REVISION=1da583a5059d855ef7f61dc1e017607416e123d9 \
+ANALYTICS_EVAL_HARNESS_REVISION=fe0be8aea0fb0d32b46627f047d0956f805a4b04 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Run the after phase from a clean checkout at the candidate commit:
+
+```sh
+ANALYTICS_EVAL_PHASE=after \
+ANALYTICS_EVAL_GIT_REVISION=fe0be8aea0fb0d32b46627f047d0956f805a4b04 \
+ANALYTICS_EVAL_EMIT_CSV=1 \
+corepack pnpm --filter analytics exec vitest run evals/synthetic-production-path/production-path.spec.ts
+```
+
+Each phase prints 50 data rows. The before checkout may change only the
+candidate harness; the after checkout must be clean. This is a deterministic
+synthetic in-memory evaluation. It does not call a hosted model, Builder.io
+BigQuery, or a connected data source. It measures retrieval over fixture-backed
+catalog data, not answer quality on real chats or production latency. The CSV
+contains no prompts, tool inputs, SQL, identities, or source values. The
+artifact is
+[`SYNTHETIC-analytics-production-path-v23-before-after.csv`](./SYNTHETIC-analytics-production-path-v23-before-after.csv).
+
+## Historical v22 comparison
+
+The preserved v22 artifact measures candidate revision
+`4021bd355e7de06321bd692cb754a6d7a06ad72e`, which predates the current catalog
+and abstention harness changes. It remains available as historical evidence;
+v23 above reruns the same cases against the current candidate with matching
+harness bytes on both sides.
+
+## Historical measured v21 comparison (superseded by v23)
 
 The v21 artifact compares the freshly fetched `origin/main` snapshot
 `8961aeb5a901eb8be8e821c10b957fa9203796c7` with the Analytics PR candidate
