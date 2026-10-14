@@ -971,6 +971,14 @@ export default {
         toTopRight: "右上へ",
         toBottomLeft: "左下へ",
         toBottomRight: "右下へ",
+        fromLeft: "左から",
+        fromRight: "右から",
+        fromTop: "上から",
+        fromBottom: "下から",
+        fromTopLeft: "左上から",
+        fromTopRight: "右上から",
+        fromBottomLeft: "左下から",
+        fromBottomRight: "右下から",
         clockwise: "時計回り",
         counterclockwise: "反時計回り",
         easingPresets: {
@@ -1020,6 +1028,8 @@ export default {
         save: "スタイルを保存",
         createDescription:
           "選択した対象のモーショントラックを再利用可能なスタイルとして保存します。",
+        unsupportedSequence:
+          "同じプロパティのセグメントが重なるか、値がつながらないため、このスタイルは適用できません。",
         tooMany: "スタイルには最大24個のアニメーションを含められます。",
         limit: "このデザインはアニメーションスタイルの上限64件に達しています。",
       },
@@ -1054,6 +1064,9 @@ export default {
       size: "サイズ",
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
+      sourceConflict:
+        "タイムラインに未保存の変更がある間に Motion のソースが変更されました。コードを再読み込みすると、これらの変更を破棄して最新のソースを使用します。",
+      reloadFromSource: "コードを再読み込み",
       dockLabel: "モーションドック",
       collapseDock: "モーションドックを閉じる",
       expandAllTracks: "すべてのトラックを展開",

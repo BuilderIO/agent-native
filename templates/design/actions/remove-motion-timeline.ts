@@ -77,9 +77,17 @@ function removeMotionStyleBlock(html: string): string {
 export default defineAction({
   description:
     "Delete a motion timeline and remove its managed CSS/Text source from the " +
-    "linked inline HTML or verified localhost React/HTML source. This is the " +
-    "inverse of apply-motion-edit. Inline HTML is persisted through the Yjs " +
-    "collaboration path; localhost source uses version-checked file writeback.",
+    "linked inline HTML or verified localhost React/HTML source, including " +
+    "static inline HTML CSS and React JSX <style> declarations and @keyframes " +
+    "adopted into Motion. React import supports one lossless static JSX text " +
+    "or string/template literal with no substitutions and one static id " +
+    "selector matching one JSX host. " +
+    "Unrelated CSS is preserved. JSX style-prop animations/transitions, " +
+    "JavaScript runtime animations, GSAP, Web " +
+    "Animations API calls, Alpine x-transition directives, and external stylesheets are " +
+    "outside the Motion timeline and are left unchanged. Inline HTML is " +
+    "persisted through the Yjs collaboration path; localhost source uses " +
+    "version-checked file writeback.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     timelineId: z.string().describe("motion_timeline.id to delete."),
@@ -254,7 +262,10 @@ export default defineAction({
       let cleanedSource: string;
       if (/\.html?$/i.test(location.filePath)) {
         try {
-          cleanedSource = removeMotionHtmlSource(live.content).source;
+          cleanedSource = removeMotionHtmlSource(
+            live.content,
+            location.filePath,
+          ).source;
         } catch (error) {
           if (error instanceof MotionHtmlSourceError) {
             fail(error.message, {
@@ -269,7 +280,10 @@ export default defineAction({
         }
       } else {
         try {
-          const removal = removeMotionReactSource(live.content);
+          const removal = removeMotionReactSource(
+            live.content,
+            location.filePath,
+          );
           cleanedSource = restoreMotionPathTrimSource(removal.source, "tsx");
         } catch (error) {
           if (error instanceof MotionReactSourceError) {

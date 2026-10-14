@@ -135,6 +135,39 @@ const DIRECTION_OPTIONS: Partial<
   ],
 };
 
+const POSITION_DIRECTION_LABEL_KEYS: Record<string, Record<string, string>> = {
+  slide_in: {
+    left: "fromLeft",
+    right: "fromRight",
+    top: "fromTop",
+    bottom: "fromBottom",
+    top_left: "fromTopLeft",
+    top_right: "fromTopRight",
+    bottom_left: "fromBottomLeft",
+    bottom_right: "fromBottomRight",
+  },
+  slide_out: {
+    left: "toLeft",
+    right: "toRight",
+    top: "toTop",
+    bottom: "toBottom",
+    top_left: "toTopLeft",
+    top_right: "toTopRight",
+    bottom_left: "toBottomLeft",
+    bottom_right: "toBottomRight",
+  },
+};
+
+function directionOptionsFor(styleKey: MotionNativeStyleKey, type: string) {
+  const options = DIRECTION_OPTIONS[styleKey] ?? [];
+  const positionLabels =
+    styleKey === "Position" ? POSITION_DIRECTION_LABEL_KEYS[type] : undefined;
+  return options.map((option) => ({
+    ...option,
+    labelKey: positionLabels?.[option.value] ?? option.labelKey,
+  }));
+}
+
 const TEXT_STAGGER_GROUPING_OPTIONS = [
   { value: "CHARACTER", labelKey: "character" },
   { value: "WORD", labelKey: "word" },
@@ -227,7 +260,7 @@ const EASING_LABEL_KEYS: Record<string, string> = {
   Slow: "slow",
 };
 
-const FIGMA_EASING_ORDER = [
+const NATIVE_STYLE_EASING_ORDER = [
   "Hold",
   "Linear",
   "Ease in",
@@ -239,7 +272,7 @@ const FIGMA_EASING_ORDER = [
 ] as const;
 
 const EASING_OPTIONS = [
-  ...FIGMA_EASING_ORDER.flatMap((label) => {
+  ...NATIVE_STYLE_EASING_ORDER.flatMap((label) => {
     const preset = MOTION_CURVE_PRESETS.find(
       (candidate) => candidate.label === label,
     );
@@ -589,7 +622,7 @@ function NativeStyleDetails({
   const customType = type === "custom";
   const typeOptions = TYPE_OPTIONS[instance.styleKey] ?? [];
   const amountField = AMOUNT_FIELDS[instance.styleKey];
-  const directionOptions = DIRECTION_OPTIONS[instance.styleKey] ?? [];
+  const directionOptions = directionOptionsFor(instance.styleKey, type);
   const direction = stringValue(
     instance.props.direction,
     directionOptions[0]?.value,

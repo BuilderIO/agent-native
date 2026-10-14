@@ -2623,7 +2623,10 @@ export function AddTrackMenu({
     <div className="flex items-center gap-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-32 p-1">
+        <DropdownMenuContent
+          align="start"
+          className="w-[7.5rem] min-w-[7.5rem] p-[7px]"
+        >
           <DropdownMenuLabel className="sr-only">
             {t("designEditor.motion.animateLayer", {
               label: selectedTarget.label,

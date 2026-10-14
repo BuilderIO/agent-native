@@ -7,6 +7,15 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse, type ParserError } from "parse5";
 
 import {
+  importAuthoredCssAnimations,
+  mergeAuthoredCssMotionDocument,
+  parseMotionAuthoredCssSimpleSelector,
+  removeAuthoredCssSourceRanges,
+  type MotionAuthoredCssSourceRange,
+  type MotionAuthoredCssSimpleSelector,
+  type MotionAuthoredCssTargetResolution,
+} from "./motion-authored-css-import";
+import {
   compileMotionCode,
   decodeMotionCodeMetadata,
   reconcileMotionCodeDocument,
@@ -73,6 +82,7 @@ export type MotionHtmlSourceErrorCode =
   | "malformed-source"
   | "ambiguous-managed-style"
   | "invalid-managed-style"
+  | "unsupported-authored-motion"
   | "invalid-motion-text"
   | "invalid-path-trim"
   | "unsupported-motion-document"
@@ -524,6 +534,7 @@ export function instrumentMotionHtmlPreviewSource(args: {
 function assertTargetsExist(
   source: string,
   targetNodeIds: readonly string[],
+  sourceFilePath?: string,
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
@@ -548,6 +559,12 @@ function assertTargetsExist(
     assertSafeTargetId(nodeId);
     const matches = targets.get(nodeId) ?? [];
     if (matches.length === 0) {
+      if (sourceFilePath) {
+        const generated = generatedHtmlTargets(source, sourceFilePath).filter(
+          (target) => target.nodeId === nodeId,
+        );
+        if (generated.length === 1) continue;
+      }
       sourceError(
         "missing-node",
         `HTML source does not contain a static ${NODE_ID_ATTRIBUTE}="${nodeId}" target.`,
@@ -579,8 +596,268 @@ function assertTargetsExist(
   }
 }
 
+interface AuthoredHtmlStyleImport {
+  node: HtmlNode;
+  contentStart: number;
+  contentEnd: number;
+  css: string;
+  ranges: MotionAuthoredCssSourceRange[];
+}
+
+interface AuthoredHtmlMotion {
+  document: MotionCodeDocument | null;
+  rangesToRemove: MotionAuthoredCssSourceRange[];
+}
+
+function readAuthoredHtmlMotion(
+  source: string,
+  nodes: HtmlNode[],
+  sourceFilePath?: string,
+): AuthoredHtmlMotion {
+  const generatedIds = sourceFilePath
+    ? new Map(
+        generatedHtmlTargets(source, sourceFilePath).map((target) => [
+          target.node.sourceCodeLocation?.startTag?.startOffset,
+          target.nodeId,
+        ]),
+      )
+    : new Map<number | undefined, string>();
+  const importedStyles: AuthoredHtmlStyleImport[] = [];
+  const tracks: NonNullable<MotionCodeDocument["tracks"]> = [];
+  const importedTargetNodeIds = new Set<string>();
+  const usedKeyframeNames = new Set<string>();
+  const keyframeNameCounts = new Map<string, number>();
+  let durationMs = 1;
+
+  for (const node of nodes) {
+    if (
+      node.tagName !== "style" ||
+      node.insideTemplate ||
+      attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0
+    ) {
+      continue;
+    }
+    const location = node.sourceCodeLocation;
+    const contentStart = location?.startTag?.endOffset;
+    const contentEnd = location?.endTag?.startOffset;
+    if (
+      contentStart === undefined ||
+      contentEnd === undefined ||
+      contentStart < 0 ||
+      contentEnd < contentStart ||
+      contentEnd > source.length
+    ) {
+      continue;
+    }
+    const css = source.slice(contentStart, contentEnd);
+    if (textContent(node) !== css) {
+      if (/(?:^|[;{\s])(?:-?[a-z]+-)?animation(?:-[a-z-]+)?\s*:/i.test(css)) {
+        sourceError(
+          "unsupported-authored-motion",
+          "An inline style animation cannot be imported because its source text is not lossless.",
+        );
+      }
+      continue;
+    }
+    const result = importAuthoredCssAnimations(css, (selector) =>
+      resolveAuthoredHtmlTarget(source, nodes, selector, generatedIds),
+    );
+    if (result.status === "absent") {
+      for (const name of result.definedKeyframeNames) {
+        keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
+      }
+      continue;
+    }
+    if (result.status === "unsupported") {
+      sourceError("unsupported-authored-motion", result.reason);
+    }
+    for (const name of result.definedKeyframeNames) {
+      keyframeNameCounts.set(name, (keyframeNameCounts.get(name) ?? 0) + 1);
+    }
+    for (const name of result.keyframeNames) usedKeyframeNames.add(name);
+    for (const targetNodeId of new Set(
+      result.tracks.map((track) => track.targetNodeId),
+    )) {
+      if (importedTargetNodeIds.has(targetNodeId)) {
+        sourceError(
+          "unsupported-authored-motion",
+          `Motion target "${targetNodeId}" has animation rules in multiple inline style blocks, so CSS cascade order cannot be preserved.`,
+        );
+      }
+      importedTargetNodeIds.add(targetNodeId);
+    }
+    if (!isSupportedAuthoredHtmlStyle(node)) {
+      sourceError(
+        "unsupported-authored-motion",
+        "Inline style animations with conditional or alternate stylesheet attributes are unsupported.",
+      );
+    }
+    const ranges = result.rangesToRemove.map((range) => ({
+      ...range,
+      start: range.start + contentStart,
+      end: range.end + contentStart,
+    }));
+    importedStyles.push({ node, contentStart, contentEnd, css, ranges });
+    tracks.push(...result.tracks);
+    durationMs = Math.max(durationMs, result.durationMs);
+  }
+
+  if (tracks.length === 0) {
+    return { document: null, rangesToRemove: [] };
+  }
+  for (const name of usedKeyframeNames) {
+    if ((keyframeNameCounts.get(name) ?? 0) > 1) {
+      sourceError(
+        "unsupported-authored-motion",
+        `Animation "${name}" has duplicate @keyframes definitions across inline style blocks.`,
+      );
+    }
+  }
+  try {
+    const document = mergeAuthoredCssMotionDocument(null, {
+      tracks,
+      durationMs,
+      defaultEase: "ease",
+    });
+    return {
+      document,
+      rangesToRemove: importedStyles.flatMap((style) => style.ranges),
+    };
+  } catch (error) {
+    sourceError(
+      "unsupported-authored-motion",
+      error instanceof Error
+        ? error.message
+        : "Inline CSS animations cannot be represented by one Motion timeline.",
+    );
+  }
+}
+
+function isSupportedAuthoredHtmlStyle(node: HtmlNode): boolean {
+  for (const attribute of node.attrs ?? []) {
+    const name = attribute.name.toLowerCase();
+    if (
+      /^(?::|x-bind:|v-bind:)(?:media|disabled|title|scoped|type)$/.test(name)
+    ) {
+      return false;
+    }
+    if (["media", "disabled", "title", "scoped"].includes(name)) {
+      return false;
+    }
+    if (name === "type" && !/^\s*(?:text\/css)?\s*$/i.test(attribute.value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function resolveAuthoredHtmlTarget(
+  _source: string,
+  nodes: HtmlNode[],
+  selector: string,
+  generatedIds: Map<number | undefined, string>,
+): MotionAuthoredCssTargetResolution {
+  const parsed = parseMotionAuthoredCssSimpleSelector(selector);
+  if (!parsed) return { status: "unresolved" };
+  const attributeName =
+    parsed.kind === "id"
+      ? "id"
+      : parsed.kind === "class"
+        ? "class"
+        : parsed.kind === "attribute"
+          ? parsed.name
+          : null;
+  const matches: Array<{ node: HtmlNode; targetNodeId: string }> = [];
+  let hasDynamicMatch = false;
+
+  for (const node of nodes) {
+    if (
+      !node.tagName ||
+      node.insideTemplate ||
+      !isMotionSourceHostElementTag(node.tagName)
+    ) {
+      continue;
+    }
+    const attrs = node.attrs ?? [];
+    const targetAttrs = attributes(node, NODE_ID_ATTRIBUTE);
+    if (targetAttrs.length > 1) return { status: "ambiguous" };
+    if (
+      attrs.some((attribute) =>
+        isDynamicHtmlAttribute(attribute.name, attributeName),
+      )
+    ) {
+      hasDynamicMatch = true;
+    }
+    const attributeMatch = matchesHtmlSelector(node, parsed);
+    if (!attributeMatch) continue;
+    const targetNodeId =
+      targetAttrs[0]?.value ??
+      generatedIds.get(node.sourceCodeLocation?.startTag?.startOffset);
+    if (!targetNodeId || !SAFE_NODE_ID.test(targetNodeId)) {
+      hasDynamicMatch = true;
+      continue;
+    }
+    matches.push({ node, targetNodeId });
+  }
+
+  if (hasDynamicMatch) return { status: "ambiguous" };
+  if (matches.length === 0) return { status: "unresolved" };
+  if (matches.length !== 1) return { status: "ambiguous" };
+  return { status: "resolved", targetNodeId: matches[0]!.targetNodeId };
+}
+
+function isDynamicHtmlAttribute(
+  name: string,
+  selectorAttribute: string | null,
+): boolean {
+  if (!selectorAttribute) return false;
+  const normalized = name.toLowerCase();
+  return [
+    `:${selectorAttribute}`,
+    `x-bind:${selectorAttribute}`,
+    `v-bind:${selectorAttribute}`,
+  ].includes(normalized);
+}
+
+function matchesHtmlSelector(
+  node: HtmlNode,
+  selector: MotionAuthoredCssSimpleSelector,
+): boolean {
+  if (selector.kind === "type")
+    return node.tagName?.toLowerCase() === selector.name;
+  const name =
+    selector.kind === "id"
+      ? "id"
+      : selector.kind === "class"
+        ? "class"
+        : selector.name;
+  const values = attributes(node, name);
+  if (selector.kind === "id") {
+    return values.some((attribute) => attribute.value === selector.value);
+  }
+  if (selector.kind === "class") {
+    return values.some((attribute) =>
+      attribute.value.split(/[\t\n\f\r ]+/).includes(selector.value),
+    );
+  }
+  if (selector.value === undefined) return values.length > 0;
+  return values.some((attribute) => attribute.value === selector.value);
+}
+
+function removeAuthoredHtmlMotion(
+  source: string,
+  sourceFilePath?: string,
+): string {
+  const { nodes } = parseHtml(source);
+  const authored = readAuthoredHtmlMotion(source, nodes, sourceFilePath);
+  return authored.rangesToRemove.length > 0
+    ? removeAuthoredCssSourceRanges(source, authored.rangesToRemove)
+    : source;
+}
+
 function readSource(
   source: string,
+  sourceFilePath?: string,
 ): Exclude<MotionHtmlSourceReadResult, { status: "invalid" }> {
   const { nodes } = parseHtml(source);
   assertMotionTextOutsideTemplates(nodes);
@@ -614,9 +891,25 @@ function readSource(
       );
     }
   }
+  const authoredMotion = readAuthoredHtmlMotion(source, nodes, sourceFilePath);
+  if (authoredMotion.document) {
+    try {
+      document = mergeAuthoredCssMotionDocument(
+        document,
+        authoredMotion.document,
+      );
+    } catch (error) {
+      sourceError(
+        "unsupported-authored-motion",
+        error instanceof Error
+          ? error.message
+          : "Inline CSS animations cannot share one Motion timeline.",
+      );
+    }
+  }
   const textDocument = readMotionText(source);
   const targetNodeIds = targetsFromDocuments(document, textDocument);
-  assertTargetsExist(source, targetNodeIds);
+  assertTargetsExist(source, targetNodeIds, sourceFilePath);
   const pathTrimmedSource = applyPathTrimTargets(
     source,
     pathTrimTargetsFromDocument(document),
@@ -646,9 +939,10 @@ function readSource(
 /** Reads managed HTML Motion CSS and Text source without treating malformed data as absent. */
 export function readMotionHtmlSource(
   source: string,
+  sourceFilePath?: string,
 ): MotionHtmlSourceReadResult {
   try {
-    return readSource(source);
+    return readSource(source, sourceFilePath);
   } catch (error) {
     return {
       status: "invalid",
@@ -786,7 +1080,7 @@ export function applyMotionHtmlSourceEdit(
     );
   }
 
-  const currentRead = readSource(currentSource);
+  const currentRead = readSource(currentSource, args.sourceFilePath);
   const textDocument = normalizeTextDocument(args.textDocument ?? null);
   const targetNodeIds = timelineTargets(timeline, textDocument);
   const metadataOnlyWrite = isMetadataOnlyWrite(targetNodeIds, timeline, args);
@@ -796,9 +1090,10 @@ export function applyMotionHtmlSourceEdit(
       "HTML Motion source writes require a CSS track, Text animation, or saved animation style library.",
     );
   }
-  let source = args.sourceFilePath
-    ? addGeneratedHtmlNodeIds(currentSource, args.sourceFilePath, targetNodeIds)
-    : currentSource;
+  let source = removeAuthoredHtmlMotion(currentSource, args.sourceFilePath);
+  source = args.sourceFilePath
+    ? addGeneratedHtmlNodeIds(source, args.sourceFilePath, targetNodeIds)
+    : source;
   assertTargetsExist(source, targetNodeIds);
 
   const preservedAudioClips =
@@ -851,7 +1146,7 @@ export function inspectMotionHtmlSourceWriteCapability(args: {
 }): MotionHtmlSourceWriteCapability {
   let targetNodeIds = [...new Set(args.targetNodeIds)];
   try {
-    const read = readSource(args.source);
+    const read = readSource(args.source, args.sourceFilePath);
     targetNodeIds = [
       ...new Set([
         ...targetNodeIds,
@@ -900,17 +1195,19 @@ export function inspectMotionHtmlSourceWriteCapability(args: {
 /** Removes only valid managed Motion CSS and Text source, preserving all other HTML. */
 export function removeMotionHtmlSource(
   source: string,
+  sourceFilePath?: string,
 ): MotionHtmlSourceRemoval {
-  const read = readSource(source);
+  const read = readSource(source, sourceFilePath);
   if (read.status === "absent") return { source, changed: false };
 
-  const { nodes } = parseHtml(source);
-  const managedStyle = findManagedStyle(source, nodes);
-  let withoutStyle = source;
+  const withoutAuthored = removeAuthoredHtmlMotion(source, sourceFilePath);
+  const { nodes } = parseHtml(withoutAuthored);
+  const managedStyle = findManagedStyle(withoutAuthored, nodes);
+  let withoutStyle = withoutAuthored;
   if (managedStyle) {
     withoutStyle =
-      source.slice(0, managedStyle.range.start) +
-      source.slice(managedStyle.range.end);
+      withoutAuthored.slice(0, managedStyle.range.start) +
+      withoutAuthored.slice(managedStyle.range.end);
   }
   let clean: string;
   try {

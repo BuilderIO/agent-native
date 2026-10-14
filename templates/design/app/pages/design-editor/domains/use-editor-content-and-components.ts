@@ -266,12 +266,13 @@ export function useEditorContentAndComponents({
     motionPlayhead,
     motionAutoKeyframeEnabled,
     motionTracksDirty,
-    motionSourceVersionHash,
     setMotionTracksDirty,
+    motionSourceVersionHashRef,
+    motionSourceVersionCapturedRef,
+    captureMotionSourceVersion,
     motionAutosaveRevision,
     setMotionAutosaveRevision,
     setMotionHydrationFingerprint,
-    setMotionSourceVersionHash,
     motionAutosaveRevisionRef,
     motionAutosaveFailedRevisionRef,
     lastScheduledMotionAutosaveFileVersionRef,
@@ -315,6 +316,11 @@ export function useEditorContentAndComponents({
       : null;
   const motionPreviewScreenId = activeFile?.id;
   const motionPreviewModulePath = localhostMotionProof?.modulePath;
+  const motionPreviewVersionHash = localhostMotionProof?.moduleVersionHash;
+  const motionSourceConflictRef = useRef(false);
+  useEffect(() => {
+    motionSourceConflictRef.current = false;
+  }, [activeFile?.id]);
   const { data: motionSourceCapabilityResult } = useActionQuery<{
     sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
   }>(
@@ -345,21 +351,17 @@ export function useEditorContentAndComponents({
   );
   const observedMotionSourceProofRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!localhostMotionProof) {
+    if (!motionPreviewModulePath || !motionPreviewVersionHash) {
       observedMotionSourceProofRef.current = null;
       return;
     }
-    const proofKey = `${localhostMotionProof.modulePath}\u0000${localhostMotionProof.moduleVersionHash}`;
+    const proofKey = `${motionPreviewModulePath}\u0000${motionPreviewVersionHash}`;
     if (observedMotionSourceProofRef.current === proofKey) return;
     observedMotionSourceProofRef.current = proofKey;
     void queryClient.invalidateQueries({
       queryKey: ["action", "get-motion-timeline"],
     });
-  }, [
-    localhostMotionProof?.modulePath,
-    localhostMotionProof?.moduleVersionHash,
-    queryClient,
-  ]);
+  }, [motionPreviewModulePath, motionPreviewVersionHash, queryClient]);
   useEffect(() => {
     if (!motionPreviewScreenId || activeCanvasSourceType !== "localhost") {
       return;
@@ -593,6 +595,7 @@ export function useEditorContentAndComponents({
   ]);
 
   const markMotionTracksDirty = useCallback(() => {
+    captureMotionSourceVersion(localhostMotionProof?.moduleVersionHash);
     setMotionTracksDirty(true);
     setMotionAutosaveRevision((revision) => {
       const next = revision + 1;
@@ -600,7 +603,7 @@ export function useEditorContentAndComponents({
       motionAutosaveFailedRevisionRef.current = null;
       return next;
     });
-  }, []);
+  }, [captureMotionSourceVersion, localhostMotionProof?.moduleVersionHash]);
 
   const pruneMotionTracksByNodeId = useCallback(
     (nodeIdsToRemove: Set<string>) => {
@@ -1521,13 +1524,14 @@ export function useEditorContentAndComponents({
         motionProofTargetNodeIds,
         motionTextDocument,
         motionTracksDirty,
-        motionSourceVersionHash,
+        motionSourceVersionHashRef,
+        motionSourceVersionCapturedRef,
+        motionSourceConflictRef,
         previousMotionFileIdRef,
         queryClient,
         removeMotionTimeline,
         removeMotionTimelineMutation,
         setMotionHydrationFingerprint,
-        setMotionSourceVersionHash,
         setMotionTimelineId,
         setMotionTracksDirty,
         requestLocalhostWrite: (opts) =>
@@ -1536,6 +1540,8 @@ export function useEditorContentAndComponents({
         sourceWriteUnavailableMessage: t(
           "designEditor.motion.sourceWriteUnavailable",
         ),
+        motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
+        motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
       }),
     [
       activeFile?.id,
@@ -1563,8 +1569,9 @@ export function useEditorContentAndComponents({
       motionProofTargetNodeIds,
       motionTextDocument,
       motionTracksDirty,
-      motionSourceVersionHash,
-      setMotionSourceVersionHash,
+      motionSourceVersionHashRef,
+      motionSourceVersionCapturedRef,
+      motionSourceConflictRef,
       writeMotionAvailable,
       queryClient,
       t,

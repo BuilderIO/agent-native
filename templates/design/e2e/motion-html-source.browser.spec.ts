@@ -8,7 +8,12 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Response,
+} from "@playwright/test";
 import { tsImport } from "tsx/esm/api";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -311,6 +316,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
         connectionId,
         modulePath: sourcePath,
         moduleVersionHash: initialSourceHash,
+        timelineVersionHash: initialSourceHash,
         renderedNodeIds: [nodeId],
       },
       tracks: [expectedTrack],
@@ -362,32 +368,77 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       );
     expect(directSource).not.toBe(managedSource);
     const refreshedMotionQueries: Array<{ query: string; result: any }> = [];
-    page.on("response", async (response) => {
+    const responseReadErrors: string[] = [];
+    const directHash = createHash("sha256").update(directSource).digest("hex");
+    const resultHasSourceVersion = (result: unknown, expectedHash: string) => {
+      if (
+        !result ||
+        typeof result !== "object" ||
+        !("timelines" in result) ||
+        !Array.isArray(result.timelines)
+      ) {
+        return false;
+      }
+      return result.timelines.some(
+        (timeline: unknown) =>
+          timeline !== null &&
+          typeof timeline === "object" &&
+          "sourceVersionHash" in timeline &&
+          timeline.sourceVersionHash === expectedHash,
+      );
+    };
+    const isActiveTimelineQuery = (query: string) => {
+      const params = new URLSearchParams(query);
+      return (
+        params.get("sourceRef") === screenId &&
+        !params.has("previewModuleVersionHash") &&
+        !params.has("targetNodeIds[]")
+      );
+    };
+    const onTimelineResponse = async (response: Response) => {
       if (
         !response.url().includes("/_agent-native/actions/get-actions-batch")
       ) {
         return;
       }
+      const responseBodyPromise = response.json() as Promise<{
+        results?: Array<{ body?: unknown }>;
+      }>;
       const requestBody = response.request().postDataJSON() as {
         requests?: Array<{ action: string; query: string }>;
       };
-      const responseBody = (await response.json()) as {
-        results?: Array<{ body?: unknown }>;
-      };
-      for (const [index, requestItem] of (
-        requestBody.requests ?? []
-      ).entries()) {
-        if (requestItem.action === "get-motion-timeline") {
+      const matchingRequests = (requestBody.requests ?? [])
+        .map((requestItem, index) => ({ requestItem, index }))
+        .filter(
+          ({ requestItem }) =>
+            requestItem.action === "get-motion-timeline" &&
+            isActiveTimelineQuery(requestItem.query),
+        );
+      if (matchingRequests.length === 0) return;
+
+      try {
+        const responseBody = await responseBodyPromise;
+        for (const { requestItem, index } of matchingRequests) {
           refreshedMotionQueries.push({
             query: requestItem.query,
             result: responseBody.results?.[index]?.body,
           });
         }
+        if (
+          refreshedMotionQueries.some(({ result }) =>
+            resultHasSourceVersion(result, directHash),
+          )
+        ) {
+          page.off("response", onTimelineResponse);
+        }
+      } catch (error) {
+        responseReadErrors.push(
+          error instanceof Error ? error.message : String(error),
+        );
       }
-    });
-    const refreshedQueryCountBeforeEdit = refreshedMotionQueries.length;
+    };
+    page.on("response", onTimelineResponse);
     fs.writeFileSync(path.join(rootPath, sourcePath), directSource);
-    const directHash = createHash("sha256").update(directSource).digest("hex");
     frame = iframe.contentFrame();
     await expect(frame.locator(`#${nodeId}`)).toHaveAttribute(
       "data-agent-native-motion-source-hash",
@@ -395,18 +446,17 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       { timeout: 20_000 },
     );
     await expect
-      .poll(() => refreshedMotionQueries.length)
-      .toBeGreaterThan(refreshedQueryCountBeforeEdit);
+      .poll(() =>
+        refreshedMotionQueries.some(({ result }) =>
+          resultHasSourceVersion(result, directHash),
+        ),
+      )
+      .toBe(true);
+    page.off("response", onTimelineResponse);
+    expect(responseReadErrors).toEqual([]);
     const refreshedTimelineQuery = [...refreshedMotionQueries]
       .reverse()
-      .find(({ query }) => {
-        const params = new URLSearchParams(query);
-        return (
-          params.get("sourceRef") === screenId &&
-          !params.has("previewModuleVersionHash") &&
-          !params.has("targetNodeIds[]")
-        );
-      });
+      .find(({ result }) => resultHasSourceVersion(result, directHash));
     expect(refreshedTimelineQuery?.result).toMatchObject({
       timelines: [{ sourceVersionHash: directHash, durationMs: 1200 }],
     });

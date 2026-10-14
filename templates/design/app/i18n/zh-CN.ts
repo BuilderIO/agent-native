@@ -938,6 +938,14 @@ export default {
         toTopRight: "向右上",
         toBottomLeft: "向左下",
         toBottomRight: "向右下",
+        fromLeft: "从左侧",
+        fromRight: "从右侧",
+        fromTop: "从上方",
+        fromBottom: "从下方",
+        fromTopLeft: "从左上方",
+        fromTopRight: "从右上方",
+        fromBottomLeft: "从左下方",
+        fromBottomRight: "从右下方",
         clockwise: "顺时针",
         counterclockwise: "逆时针",
         easingPresets: {
@@ -986,6 +994,8 @@ export default {
         cancel: "取消",
         save: "保存样式",
         createDescription: "将所选目标的动效轨道保存为可重复使用的样式。",
+        unsupportedSequence:
+          "此样式无法应用，因为同一属性的片段相互重叠或无法衔接。",
         tooMany: "一个样式最多可包含 24 个动画。",
         limit: "此设计已达到 64 个动画样式的上限。",
       },
@@ -1019,6 +1029,9 @@ export default {
         "关键帧时间轴。{{tracks}} 个轨道，{{keyframes}} 个关键帧。使用方向键或按住空格拖动来滚动，捏合或使用 Cmd/Ctrl + 滚轮来缩放，拖动关键帧以移动，使用 Shift/Cmd 多选，双击以添加关键帧。",
       size: "大小",
       sourceWriteUnavailable: "目前，Motion 代码只能写入内嵌 HTML 设计。",
+      sourceConflict:
+        "时间轴有未保存更改时，Motion 源代码发生了变化。重新加载代码会丢弃这些更改并使用当前源代码。",
+      reloadFromSource: "从代码重新加载",
       dockLabel: "运动面板",
       collapseDock: "收起运动面板",
       expandAllTracks: "展开所有轨道",

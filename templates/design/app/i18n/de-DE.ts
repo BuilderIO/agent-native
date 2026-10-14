@@ -979,6 +979,14 @@ export default {
         toTopRight: "Nach rechts oben",
         toBottomLeft: "Nach links unten",
         toBottomRight: "Nach rechts unten",
+        fromLeft: "Von links",
+        fromRight: "Von rechts",
+        fromTop: "Von oben",
+        fromBottom: "Von unten",
+        fromTopLeft: "Von links oben",
+        fromTopRight: "Von rechts oben",
+        fromBottomLeft: "Von links unten",
+        fromBottomRight: "Von rechts unten",
         clockwise: "Im Uhrzeigersinn",
         counterclockwise: "Gegen den Uhrzeigersinn",
         easingPresets: {
@@ -1028,6 +1036,8 @@ export default {
         save: "Stil speichern",
         createDescription:
           "Die Bewegungsabläufe des ausgewählten Ziels als wiederverwendbaren Stil speichern.",
+        unsupportedSequence:
+          "Dieser Stil kann nicht angewendet werden, da Segmente derselben Eigenschaft überlappen oder nicht anschließen.",
         tooMany: "Ein Stil kann bis zu 24 Animationen enthalten.",
         limit: "Dieses Design hat das Limit von 64 Animationsstilen erreicht.",
       },
@@ -1062,6 +1072,9 @@ export default {
       size: "Größe",
       sourceWriteUnavailable:
         "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
+      sourceConflict:
+        "Der Motion-Quellcode wurde geändert, während diese Zeitleiste ungespeicherte Änderungen hatte. Lade den Code neu, um diese Änderungen zu verwerfen und die aktuelle Quelle zu verwenden.",
+      reloadFromSource: "Code neu laden",
       dockLabel: "Bewegungsleiste",
       collapseDock: "Bewegungsleiste einklappen",
       expandAllTracks: "Alle Spuren erweitern",

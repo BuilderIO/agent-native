@@ -671,7 +671,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
         tracks: [],
       } as never),
     ).rejects.toThrow(
-      /must contain a Text animation, a saved Motion style, or a native Figma style/,
+      /must contain a Text animation, a saved Motion style, or a native style instance/,
     );
     expect(motionTimelineStore.rows.size).toBe(0);
     expect(currentFileRef().content).not.toContain("data-agent-native-motion");

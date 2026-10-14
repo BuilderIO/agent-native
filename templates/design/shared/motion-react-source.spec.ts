@@ -194,6 +194,203 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("imports static JSX CSS animations and keeps their global keyframes", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = `function Card() {
+  return (
+    <main>
+      <style>{\`
+#hero {
+  color: rebeccapurple;
+  /* Keep this authored note. */
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  50% { opacity: 0.5; }
+  to { opacity: 1; }
+}
+\`}</style>
+      <h1 id="hero">Hello</h1>
+    </main>
+  );
+}
+`;
+    const generatedId = generatedMotionNodeId(modulePath, 1);
+    const read = readMotionReactSource(authored, modulePath);
+
+    expect(read).toMatchObject({
+      status: "valid",
+      targetNodeIds: [generatedId],
+      document: {
+        durationMs: 900,
+        tracks: [
+          {
+            targetNodeId: generatedId,
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0", ease: "ease-in" },
+              { t: 0.5, value: "0.5", ease: "ease-in" },
+              { t: 1, value: "1", ease: "ease" },
+            ],
+          },
+        ],
+      },
+    });
+    if (read.status !== "valid" || !read.document) {
+      throw new Error("authored React CSS Motion was not readable");
+    }
+
+    const written = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      modulePath,
+      timeline: {
+        ...makeTimeline(generatedId),
+        tracks: read.document.tracks,
+        durationMs: read.document.durationMs,
+        playbackMode: read.playbackMode,
+      },
+    });
+    expect(written.source).not.toContain("animation-name: hero-fade;");
+    expect(written.source).toContain("@keyframes hero-fade");
+    expect(written.source).toContain("color: rebeccapurple;");
+    expect(written.source).toContain("/* Keep this authored note. */");
+    expect(written.source.match(/data-agent-native-motion/g)).toHaveLength(1);
+    expect(readMotionReactSource(written.source, modulePath)).toMatchObject({
+      status: "valid",
+      targetNodeIds: [generatedId],
+      document: { tracks: read.document.tracks },
+    });
+
+    const removed = removeMotionReactSource(authored, modulePath);
+    expect(removed.changed).toBe(true);
+    expect(removed.source).toContain("color: rebeccapurple;");
+    expect(removed.source).toContain("@keyframes hero-fade");
+    expect(removed.source).toContain("/* Keep this authored note. */");
+    expect(readMotionReactSource(removed.source, modulePath)).toEqual({
+      status: "absent",
+    });
+  });
+
+  it("rejects animations for one React target across separate style blocks", () => {
+    const source = `function Card() {
+  return <main>
+    <style>{\`#hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <style>{\`#hero { animation-name: tint; animation-duration: 800ms; animation-fill-mode: both; } @keyframes tint { from { color: red; } to { color: blue; } }\`}</style>
+    <h1 id="hero">Hello</h1>
+  </main>;
+}`;
+
+    expect(readMotionReactSource(source, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects global keyframe names shadowed by another JSX style block", () => {
+    const source = `function Card() {
+  return <main>
+    <style>{\`#hero { animation-name: pulse; animation-duration: 800ms; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <style>{\`@keyframes pulse { from { opacity: 1; } to { opacity: 0; } }\`}</style>
+    <h1 id="hero">Hello</h1>
+  </main>;
+}`;
+
+    expect(readMotionReactSource(source, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("resolves static JSX string style content and fails closed on dynamic selectors", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = `function Card() {
+  return <main>
+    <style>{'#hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }'}</style>
+    <h1 id={"hero"}>Hello</h1>
+  </main>;
+}`;
+    expect(readMotionReactSource(authored, modulePath)).toMatchObject({
+      status: "valid",
+      document: { tracks: [{ property: "opacity" }] },
+    });
+
+    const dynamicSelector = authored.replace(
+      'id={"hero"}',
+      'id={active ? "hero" : ""}',
+    );
+    expect(readMotionReactSource(dynamicSelector, modulePath)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects class selectors that can affect React layers in other modules", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = `function Card() {
+  return <main>
+    <style>{\`.hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <h1 className="hero">First</h1>
+  </main>;
+}`;
+    expect(readMotionReactSource(authored, modulePath)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects a static id selector that matches multiple JSX hosts", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = `function Card() {
+  return <main>
+    <style>{\`#hero { animation-name: hero-fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <h1 id="hero">First</h1>
+    <h2 id="hero">Second</h2>
+  </main>;
+}`;
+    expect(readMotionReactSource(authored, modulePath)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("fails closed on dynamic style elements and unresolved style-prop aliases", () => {
+    const dynamicStyleElement = `function Card({ motionCss }: { motionCss: string }) {
+  return <main><style>{motionCss}</style><h1 id="hero">Hello</h1></main>;
+}`;
+    const aliasedStyleProp = `const motionStyle = { animationName: "hero-fade" };
+function Card() {
+  return <main><button style={motionStyle}>Hello</button></main>;
+}`;
+
+    for (const authored of [dynamicStyleElement, aliasedStyleProp]) {
+      expect(
+        readMotionReactSource(authored, "src/components/Card.tsx"),
+      ).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+    }
+  });
+
+  it("fails closed on animation declarations in React style props", () => {
+    const authored = `function Card() {
+  return <main><button style={{ opacity: 1, animationName: "fade" }}>Hello</button></main>;
+}`;
+
+    expect(
+      readMotionReactSource(authored, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("fails closed when managed CSS uses an unsupported animation duration", () => {
     const authored = apply(source);
     const invalidSource = authored.source.replace(
@@ -205,6 +402,31 @@ describe("React Motion source adapter", () => {
       status: "invalid",
       error: { code: "invalid-managed-style" },
     });
+  });
+
+  it("preserves the source when authored CSS cannot be represented by Motion", () => {
+    const authored = apply(source);
+    const unsupportedCss =
+      authored.css +
+      "\n@keyframes authored-pulse { from { opacity: 0; } to { opacity: 1; } }";
+    const unsupportedSource = authored.source.replace(
+      JSON.stringify(authored.css),
+      JSON.stringify(unsupportedCss),
+    );
+
+    expect(readMotionReactSource(unsupportedSource)).toMatchObject({
+      status: "invalid",
+      error: { code: "invalid-managed-style" },
+    });
+    expect(() =>
+      applyMotionReactSourceEdit({
+        currentSource: unsupportedSource,
+        expectedSource: unsupportedSource,
+        preview: previewFor(unsupportedSource),
+        timeline: makeTimeline(),
+      }),
+    ).toThrow(/authored rules the timeline cannot represent/);
+    expect(unsupportedSource).toContain("@keyframes authored-pulse");
   });
 
   it("updates a saved style library after clearing all applied tracks", () => {

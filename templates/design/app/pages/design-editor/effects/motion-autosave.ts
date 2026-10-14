@@ -51,6 +51,18 @@ function motionAutosaveErrorMessage(error: unknown): string {
   return "Motion changes could not be saved.";
 }
 
+function isStaleMotionSourceError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("errorCode" in error)) {
+    return false;
+  }
+  return (
+    typeof error.errorCode === "string" &&
+    /^motion_(?:html|local|react|text)_source_stale_(?:source|preview)$/.test(
+      error.errorCode,
+    )
+  );
+}
+
 export interface MotionAutosaveArgs {
   activeCanvasSourceType: string;
   activeCodeLayerProjection: CodeLayerProjection;
@@ -100,7 +112,11 @@ export interface MotionAutosaveArgs {
   motionTracks: MotionDockTrack[];
   motionTextDocument: MotionTextDocument | null;
   motionTracksDirty: boolean;
-  motionSourceVersionHash: string | null;
+  motionSourceVersionHashRef: { current: string | null };
+  motionSourceVersionCapturedRef: { current: boolean };
+  motionSourceConflictRef: RefObject<boolean>;
+  motionSourceConflictMessage: string;
+  motionReloadFromSourceLabel: string;
   previousMotionFileIdRef: RefObject<string | null>;
   queryClient: QueryClient;
   requestLocalhostWrite: (opts: {
@@ -117,7 +133,6 @@ export interface MotionAutosaveArgs {
     typeof useActionMutation<undefined, undefined, "remove-motion-timeline">
   >;
   setMotionHydrationFingerprint: Dispatch<SetStateAction<string | null>>;
-  setMotionSourceVersionHash: Dispatch<SetStateAction<string | null>>;
   setMotionTimelineId: Dispatch<SetStateAction<string | null>>;
   setMotionTracksDirty: Dispatch<SetStateAction<boolean>>;
   writeMotionAvailable: boolean;
@@ -157,14 +172,17 @@ export function runMotionAutosave({
   motionTracks,
   motionTextDocument,
   motionTracksDirty,
-  motionSourceVersionHash,
+  motionSourceVersionHashRef,
+  motionSourceVersionCapturedRef,
+  motionSourceConflictRef,
+  motionSourceConflictMessage,
+  motionReloadFromSourceLabel,
   previousMotionFileIdRef,
   queryClient,
   requestLocalhostWrite,
   removeMotionTimeline,
   removeMotionTimelineMutation,
   setMotionHydrationFingerprint,
-  setMotionSourceVersionHash,
   setMotionTimelineId,
   setMotionTracksDirty,
   writeMotionAvailable,
@@ -174,6 +192,7 @@ export function runMotionAutosave({
     clearMotionAutosaveTimer();
     return;
   }
+  if (motionSourceConflictRef.current) return;
   if (!id || !activeFile?.id || !motionTracksDirty) return;
   if (motionAutosavePending) return;
   if (removeMotionTimelineMutation.isPending) return;
@@ -208,6 +227,30 @@ export function runMotionAutosave({
     if (motionAutosaveRevisionRef.current === motionAutosaveRevision) {
       motionAutosaveFailedRevisionRef.current = motionAutosaveRevision;
       lastScheduledMotionAutosaveRevisionRef.current = 0;
+    }
+    if (isStaleMotionSourceError(error)) {
+      motionSourceConflictRef.current = true;
+      toast.error(motionSourceConflictMessage, {
+        duration: Number.POSITIVE_INFINITY,
+        action: {
+          label: motionReloadFromSourceLabel,
+          onClick: () => {
+            void queryClient
+              .invalidateQueries({
+                queryKey: ["action", "get-motion-timeline"],
+              })
+              .then(() => {
+                if (previousMotionFileIdRef.current !== fileIdAtSchedule) {
+                  return;
+                }
+                motionSourceConflictRef.current = false;
+                setMotionHydrationFingerprint(null);
+                setMotionTracksDirty(false);
+              });
+          },
+        },
+      });
+      return;
     }
     if (
       !options.allowConsentRetry ||
@@ -360,21 +403,30 @@ export function runMotionAutosave({
         ])
       : null;
     const connectionId = activeCodeLayerProjection.source.connectionId?.trim();
-    if (isLocalReactSource && (!localSourceProof || !connectionId)) {
+    const timelineVersionHash = motionSourceVersionHashRef.current;
+    if (
+      isLocalReactSource &&
+      (!localSourceProof ||
+        !connectionId ||
+        !motionSourceVersionCapturedRef.current ||
+        !timelineVersionHash)
+    ) {
       motionAutosaveFailedRevisionRef.current = revisionAtSchedule;
       lastScheduledMotionAutosaveRevisionRef.current = 0;
       toast.error(sourceWriteUnavailableMessage);
       return;
     }
     const localSource =
-      isLocalReactSource && localSourceProof && connectionId
+      isLocalReactSource &&
+      localSourceProof &&
+      connectionId &&
+      motionSourceVersionCapturedRef.current &&
+      timelineVersionHash
         ? {
             connectionId,
             modulePath: localSourceProof.modulePath,
             moduleVersionHash: localSourceProof.moduleVersionHash,
-            ...(motionSourceVersionHash
-              ? { timelineVersionHash: motionSourceVersionHash }
-              : {}),
+            timelineVersionHash,
             renderedNodeIds: localSourceProof.renderedNodeIds,
           }
         : undefined;
@@ -416,7 +468,8 @@ export function runMotionAutosave({
           const isStillActiveFile =
             previousMotionFileIdRef.current === fileIdAtSchedule;
           if (typeof response.versionHash === "string" && isStillActiveFile) {
-            setMotionSourceVersionHash(response.versionHash);
+            motionSourceVersionHashRef.current = response.versionHash;
+            motionSourceVersionCapturedRef.current = true;
           }
           if (typeof response.timelineId === "string" && isStillActiveFile) {
             setMotionTimelineId(response.timelineId);
@@ -454,6 +507,10 @@ export function runMotionAutosave({
                 defaultEase: motionDefaultEase,
                 compiledHash: expectedHash,
                 cssHash: contentPatched ? expectedHash : null,
+                sourceVersionHash:
+                  typeof response.versionHash === "string"
+                    ? response.versionHash
+                    : null,
                 source: "stored",
                 createdAt: null,
                 updatedAt:

@@ -895,6 +895,14 @@ export default {
         toTopRight: "To top right",
         toBottomLeft: "To bottom left",
         toBottomRight: "To bottom right",
+        fromLeft: "From left",
+        fromRight: "From right",
+        fromTop: "From top",
+        fromBottom: "From bottom",
+        fromTopLeft: "From top left",
+        fromTopRight: "From top right",
+        fromBottomLeft: "From bottom left",
+        fromBottomRight: "From bottom right",
         clockwise: "Clockwise",
         counterclockwise: "Counterclockwise",
         easingPresets: {
@@ -944,6 +952,8 @@ export default {
         save: "Save style",
         createDescription:
           "Save the selected target’s motion tracks as a reusable style.",
+        unsupportedSequence:
+          "This style cannot be applied because same-property segments overlap or do not connect.",
         tooMany: "A style can include up to 24 animations.",
         limit: "This design has reached the 64-style limit.",
       },
@@ -1079,6 +1089,9 @@ export default {
       size: "Size",
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
+      sourceConflict:
+        "Motion source changed while this timeline had unsaved edits. Reload from code to discard those edits and use the current source.",
+      reloadFromSource: "Reload from code",
       selectElementFirst: "Select an element on the canvas first",
       animateLayer: 'Animate "{{label}}"',
       more: "More",

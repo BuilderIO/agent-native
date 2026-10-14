@@ -552,7 +552,18 @@ export default defineAction({
   description:
     "Apply one Motion timeline to its Design source and return the timeline id " +
     "and compiled source hash, preserving omitted Text, audio, saved-style, " +
-    "and native Figma style data.",
+    "and native style data. On inline HTML or React JSX, a supported static " +
+    "CSS animation is adopted on write: Motion moves its animation " +
+    "declarations and @keyframes into the managed CSS while preserving " +
+    "unrelated declarations. React imports one lossless static JSX <style> " +
+    "text or string/template literal with no substitutions when its animation " +
+    "uses one static id selector matching one JSX host. JSX <style> CSS is " +
+    "global, so this relies on the normal document-unique id contract. Dynamic " +
+    "style elements and unresolved style props fail closed. This does not " +
+    "import external CSS, JSX style-prop animations/transitions, or JavaScript " +
+    "runtime animations such as GSAP, Web Animations API calls, or Alpine " +
+    "x-transition directives; unsupported CSS " +
+    "is left unchanged and fails closed.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     fileId: z
@@ -580,10 +591,7 @@ export default defineAction({
         connectionId: z.string().min(1),
         modulePath: z.string().min(1),
         moduleVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
-        timelineVersionHash: z
-          .string()
-          .regex(/^[a-f0-9]{64}$/i)
-          .optional(),
+        timelineVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
         renderedNodeIds: z.array(z.string()).max(2048).optional(),
       })
       .strict()
@@ -591,7 +599,9 @@ export default defineAction({
       .describe(
         "Local React/JSX or linked HTML source snapshot from the Vite dev preview. The source " +
           "module path and SHA-256 hash are checked against the selected " +
-          "localhost file before writeback. renderedNodeIds is an optional " +
+          "localhost file before writeback. timelineVersionHash must still " +
+          "match that preview version so dirty edits cannot overwrite code " +
+          "changed since the timeline was opened. renderedNodeIds is an optional " +
           "legacy hint and is not used to authorize targets; target identity " +
           "is resolved from the live React or HTML source.",
       ),
@@ -911,10 +921,7 @@ export default defineAction({
           { errorCode: "motion_local_source_stale_preview", statusCode: 409 },
         );
       }
-      if (
-        localSourceInput.timelineVersionHash !== undefined &&
-        localSourceInput.timelineVersionHash !== live.versionHash
-      ) {
+      if (localSourceInput.timelineVersionHash !== live.versionHash) {
         fail(
           "The React or HTML Motion source changed after the timeline was loaded. Refresh Motion before saving so code edits are not overwritten.",
           { errorCode: "motion_local_source_stale_timeline", statusCode: 409 },
@@ -946,14 +953,15 @@ export default defineAction({
     );
     const currentReactRead =
       localSourceLocation && !isLocalHtmlSource
-        ? readMotionReactSource(currentContent)
+        ? readMotionReactSource(currentContent, localSourceLocation.filePath)
         : null;
     if (currentReactRead?.status === "invalid") {
       failMotionReactSourceError(currentReactRead.error);
     }
-    const currentHtmlRead = isLocalHtmlSource
-      ? readMotionHtmlSource(currentContent)
-      : null;
+    const currentHtmlRead =
+      isLocalHtmlSource && localSourceLocation
+        ? readMotionHtmlSource(currentContent, localSourceLocation.filePath)
+        : null;
     if (currentHtmlRead?.status === "invalid") {
       failMotionHtmlSourceError(currentHtmlRead.error);
     }
@@ -1139,7 +1147,7 @@ export default defineAction({
       nativeStyles.length === 0
     ) {
       fail(
-        "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native Figma style.",
+        "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native style instance.",
         {
           errorCode: "motion_text_source_required",
           statusCode: 422,

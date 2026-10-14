@@ -1733,6 +1733,12 @@ export function renderDesignEditorView({
               currentTimeMs: motionPlayhead * motionDurationMs,
               timelineDurationMs: motionDurationMs,
             });
+            if (result.unsupportedSequenceProperty) {
+              toast.error(
+                t("designEditor.motion.animationStyles.unsupportedSequence"),
+              );
+              return;
+            }
             if (result.tracks.length === 0) {
               toast.info(
                 t("designEditor.motion.trackExists", {

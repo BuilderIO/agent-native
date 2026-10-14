@@ -214,6 +214,7 @@ const request = {
     connectionId: "connection-1",
     modulePath: "app/routes/home.tsx",
     moduleVersionHash: bridgeVersionHash,
+    timelineVersionHash: bridgeVersionHash,
     renderedNodeIds: ["hero"],
   },
   tracks: [
@@ -383,6 +384,7 @@ describe("apply-motion-edit localhost React source", () => {
         ...request.localSource,
         modulePath: htmlSourcePath,
         moduleVersionHash: htmlVersionHash,
+        timelineVersionHash: htmlVersionHash,
       },
     });
 
@@ -466,6 +468,7 @@ describe("apply-motion-edit localhost React source", () => {
       localSource: {
         ...request.localSource,
         moduleVersionHash: pathSourceHash,
+        timelineVersionHash: pathSourceHash,
       },
       tracks: [],
       nativeStyles: [nativePathStyle],
@@ -494,6 +497,7 @@ describe("apply-motion-edit localhost React source", () => {
       localSource: {
         ...request.localSource,
         moduleVersionHash: managedStyleVersionHash,
+        timelineVersionHash: managedStyleVersionHash,
       },
       tracks: [],
     });

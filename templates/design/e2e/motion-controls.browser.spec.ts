@@ -101,6 +101,7 @@ async function captureReferenceState(
           label:
             button.getAttribute("aria-label") ?? button.textContent?.trim(),
           title: button.title,
+          rect: bounds(button),
         }))
         .filter((button) => button.label || button.title),
     };
@@ -120,7 +121,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   baseURLForActions =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const created = await postAction(request, "create-design", {
-    title: "Motion Figma Reference",
+    title: "Motion Controls",
     projectType: "prototype",
   });
   designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -149,7 +150,7 @@ test.afterAll(async ({ request }) => {
   if (designId) await postAction(request, "delete-design", { id: designId });
 });
 
-test("Figma reference states match Motion inspector and timeline structure", async ({
+test("Motion inspector states match the editable timeline", async ({
   page,
   request,
 }) => {
@@ -173,7 +174,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
   }
   await expect(canvasZoom).toHaveText(/100%/);
-  await captureReferenceState(page, "motion-figma-reference-before-selection");
+  await captureReferenceState(page, "motion-controls-before-selection");
 
   const launchMotion = page.getByRole("button", {
     name: "Motion dock",
@@ -195,7 +196,50 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   );
   await addAnimation.click();
   await expect(page.getByRole("menuitem", { name: "Position" })).toBeVisible();
-  await captureReferenceState(page, "motion-figma-reference-add-menu");
+  const addAnimationMenu = page.getByRole("menu");
+  await addAnimationMenu.evaluate(async (menu) => {
+    const finiteAnimations = menu
+      .getAnimations()
+      .filter(
+        (animation) => animation.effect?.getTiming().iterations !== Infinity,
+      );
+    await Promise.all(finiteAnimations.map((animation) => animation.finished));
+  });
+  await captureReferenceState(page, "motion-controls-add-menu");
+  const menuGeometry = await page.evaluate(() => {
+    const bounds = (element: Element | null) => {
+      if (!element) return null;
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    const trigger = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Add animation"]',
+      ),
+    ).find((button) => button.getBoundingClientRect().width > 0);
+    return {
+      menu: bounds(document.querySelector('[role="menu"]')),
+      trigger: bounds(trigger ?? null),
+    };
+  });
+  if (!menuGeometry.menu || !menuGeometry.trigger) {
+    throw new Error("Motion menu geometry is unavailable");
+  }
+  expect(menuGeometry.menu.width).toBe(120);
+  expect(menuGeometry.menu.height).toBe(136);
+  expect(
+    Math.abs(
+      menuGeometry.menu.x +
+        menuGeometry.menu.width -
+        (menuGeometry.trigger.x + menuGeometry.trigger.width),
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(
+      menuGeometry.menu.y -
+        (menuGeometry.trigger.y + menuGeometry.trigger.height + 4),
+    ),
+  ).toBeLessThanOrEqual(1);
   await page.getByRole("menuitem", { name: "Position", exact: true }).click();
   const appliedResponse = await applied;
   expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
@@ -207,6 +251,27 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect(
     nativeStyleInspector.getByRole("button", { name: "Position", exact: true }),
   ).toBeVisible();
+  await nativeStyleInspector
+    .getByRole("button", { name: "Position", exact: true })
+    .click();
+  await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
+    "Slide in",
+  );
+  await expect(page.getByRole("combobox", { name: "Direction" })).toHaveText(
+    "From left",
+  );
+  await expect(page.getByRole("spinbutton", { name: "Distance" })).toHaveValue(
+    "200",
+  );
+  await expect(page.getByRole("spinbutton", { name: "Delay" })).toHaveValue(
+    "0",
+  );
+  await expect(page.getByRole("spinbutton", { name: "Duration" })).toHaveValue(
+    "500",
+  );
+  await expect(page.getByRole("button", { name: "Ease out" })).toBeVisible();
+  await captureReferenceState(page, "motion-controls-position");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     dock.locator(
       '[data-motion-native-style-row="Position"] [data-motion-select-native-style]',
@@ -229,7 +294,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   );
   await expect(
     dock.getByRole("slider", { name: "Position animation span" }),
-  ).toHaveAttribute("aria-valuetext", "0ms – 1000ms");
+  ).toHaveAttribute("aria-valuetext", "0ms – 500ms");
 
   const autoKeyframe = dock.getByRole("checkbox", {
     name: "Toggle auto-keyframing",
@@ -238,7 +303,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect(
     dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
   ).toHaveCount(2);
-  await captureReferenceState(page, "motion-figma-reference-auto-keyframe");
+  await captureReferenceState(page, "motion-controls-auto-keyframe");
   await autoKeyframe.click();
   await expect(
     dock.locator("[data-motion-playhead][data-motion-auto-keyframe]"),
@@ -252,14 +317,11 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   expect(saved.timelines?.[0]?.nativeStyles).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        type: "FIGMA",
         styleKey: "Position",
         targetNodeId: "e2e-motion-reference-rectangle",
       }),
     ]),
   );
-
-  await captureReferenceState(page, "motion-figma-reference-position");
 
   await addAnimation.click();
   for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
@@ -271,7 +333,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByRole("menuitem")).toHaveCount(5);
-  await captureReferenceState(page, "motion-figma-reference-add-menu");
+  await captureReferenceState(page, "motion-controls-add-menu");
   await page.keyboard.press("Escape");
 
   const origin = page.getByRole("button", { name: "Origin", exact: true });
@@ -290,7 +352,7 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await expect(originMarker).toBeVisible();
   const originProxy = page.locator("[data-motion-origin-proxy]");
   await expect(originProxy).toBeVisible();
-  await captureReferenceState(page, "motion-figma-reference-origin");
+  await captureReferenceState(page, "motion-controls-origin");
 
   const referenceRectangle = designFrame(page, fileId).locator(
     '[data-agent-native-node-id="e2e-motion-reference-rectangle"]',
@@ -345,13 +407,13 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     ).toBeVisible();
   }
   await expect(page.getByRole("menuitem")).toHaveCount(5);
-  await captureReferenceState(page, "motion-figma-reference-text-add-menu");
+  await captureReferenceState(page, "motion-controls-text-add-menu");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "More Motion", exact: true }).click();
   await expect(
     page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
   ).toBeVisible();
-  await captureReferenceState(page, "motion-figma-reference-text-menu");
+  await captureReferenceState(page, "motion-controls-text-menu");
 });
 
 test("a new motion preset applies to every selected target", async ({

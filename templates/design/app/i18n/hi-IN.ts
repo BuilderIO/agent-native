@@ -957,6 +957,14 @@ export default {
         toTopRight: "ऊपर दाईं ओर",
         toBottomLeft: "नीचे बाईं ओर",
         toBottomRight: "नीचे दाईं ओर",
+        fromLeft: "बाईं ओर से",
+        fromRight: "दाईं ओर से",
+        fromTop: "ऊपर से",
+        fromBottom: "नीचे से",
+        fromTopLeft: "ऊपर बाईं ओर से",
+        fromTopRight: "ऊपर दाईं ओर से",
+        fromBottomLeft: "नीचे बाईं ओर से",
+        fromBottomRight: "नीचे दाईं ओर से",
         clockwise: "घड़ी की दिशा में",
         counterclockwise: "घड़ी की विपरीत दिशा में",
         easingPresets: {
@@ -1006,6 +1014,8 @@ export default {
         save: "शैली सहेजें",
         createDescription:
           "चुने गए लक्ष्य के मोशन ट्रैक्स को पुन: उपयोग योग्य शैली के रूप में सहेजें।",
+        unsupportedSequence:
+          "यह शैली लागू नहीं हो सकती क्योंकि एक ही गुण के खंड ओवरलैप करते हैं या जुड़ते नहीं हैं।",
         tooMany: "एक शैली में अधिकतम 24 एनिमेशन हो सकते हैं।",
         limit: "इस डिज़ाइन में 64 एनिमेशन शैलियों की सीमा पूरी हो गई है।",
       },
@@ -1040,6 +1050,9 @@ export default {
       size: "आकार",
       sourceWriteUnavailable:
         "अभी Motion कोड केवल इनलाइन HTML डिज़ाइन में लिखा जा सकता है।",
+      sourceConflict:
+        "इस टाइमलाइन में बिना सहेजे बदलाव होने के दौरान Motion स्रोत बदल गया। उन बदलावों को छोड़कर मौजूदा स्रोत इस्तेमाल करने के लिए कोड फिर से लोड करें।",
+      reloadFromSource: "कोड फिर से लोड करें",
       dockLabel: "मोशन डॉक",
       collapseDock: "मोशन डॉक संक्षिप्त करें",
       expandAllTracks: "सभी ट्रैक फैलाएँ",

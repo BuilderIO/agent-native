@@ -1049,14 +1049,41 @@ for elements entering, `ease-in` for elements leaving. Animate only
 `prefers-reduced-motion` (see the mandatory `<style>` block below). For
 motion edits, keep a versioned keyframe timeline as the editable source
 model, then compile it back into the design code. Inspect the selected screen
-with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
-as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
-`sourceRef` plus the live module path, connection id, and version hash in
-`localSource`. Write through `apply-motion-edit` so edits stay parseable and
-round-trip between timeline and CSS/JSX. The inline output is standard CSS
-`@keyframes`; the React adapter updates verified JSX/source spans and emits the
-same managed CSS contract. Do not keep the only copy of animation state in a
-GSAP runtime timeline or a one-way export.
+with `get-motion-timeline` before writing. Inline HTML `<style>` elements and
+React JSX `<style>` elements can adopt static CSS animations from top-level
+rules that use one uniquely resolved simple selector, one `animation-name`,
+and a matching top-level `@keyframes` block. React requires a static id
+selector with one matching static JSX host and one document-unique id. JSX
+`<style>` CSS is global, so React import does not adopt class, type, or
+attribute selectors. React also requires the complete style content to be one
+lossless JSX text or string/template literal with no substitutions. Dynamic
+style elements and style props that cannot be proven free of motion are
+unsupported. Importable animations use a positive fixed `ms`/`s` duration, a
+non-negative fixed delay, a Motion-supported easing, `animation-fill-mode: both`,
+one iteration, normal direction, running state, replace composition, and static
+keyframe stops from 0% through 100% with both endpoints and one supported property: `opacity`,
+`transform`, `translate`, `scale`, `rotate`, `color`, `background-color`,
+`border-radius`, `border-color`, `border-width`, or `box-shadow`. Each target
+can have one imported animation. Shorthand, multiple animation names,
+conditional or dynamic rules, ambiguous targets, CSS variables in keyframe
+values, and external stylesheets are unsupported; the source reader fails
+closed so Motion does not silently discard or flatten them.
+
+On the first successful `apply-motion-edit` after import, Motion removes only
+the adopted animation declarations from the inline CSS and writes them into
+its managed stylesheet. Global `@keyframes` definitions and unrelated
+declarations remain in place because other rules may use them.
+`remove-motion-timeline` removes the managed stylesheet and Text runtime; it
+leaves those authored keyframe definitions in place. This CSS importer does not read
+or edit JavaScript runtime animations, GSAP timelines, Web Animations API
+calls, or Alpine `x-transition`/`x-effect` behavior. In localhost React/TSX,
+write through the verified module path, connection id, and version hash in
+`localSource`. Include the current `moduleVersionHash` and the captured
+`timelineVersionHash`; autosave compares both before writing so a code edit
+cannot replace the source underneath a dirty timeline. React JSX `style` props with animation or transition
+declarations are detected and rejected because they cannot be imported
+losslessly. Keep runtime-only animation code source-owned and do not claim that
+Motion round-trips it.
 
 ## Imagery
 
