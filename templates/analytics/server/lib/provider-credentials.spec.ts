@@ -346,6 +346,33 @@ describe("analytics provider credentials", () => {
     expect(mocks.coreResolverCalls).toEqual([]);
   });
 
+  it("does not use a personal BigQuery OAuth connection for org-only credentials", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        ctx: {
+          userEmail: "analyst@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.workspaceConnectionCalls).toEqual([]);
+    expect(mocks.oauthCalls).toEqual([]);
+  });
+
   it("splits legacy Gong API keys for current access key and secret lookups", async () => {
     mocks.localCredentials.set("GONG_API_KEY", "access-key:access-secret");
 

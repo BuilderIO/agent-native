@@ -198,6 +198,46 @@ describe("first-party analytics pressure", () => {
     expect(health.bigQuery.missingRequiredKeys).toEqual([]);
   });
 
+  it("does not report BigQuery ready when the selected OAuth grant fails", async () => {
+    hasCredential.mockResolvedValue(true);
+    resolveAnalyticsProviderCredential.mockRejectedValueOnce(
+      new Error("Google OAuth grant is no longer valid"),
+    );
+
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+    });
+
+    expect(resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
+      provider: "bigquery",
+      keys: [],
+      ctx: { userEmail: "owner@example.com", orgId: "org_builder" },
+    });
+    expect(health.bigQuery.configured).toBeNull();
+  });
+
+  it("passes the org-only credential scope into BigQuery health resolution", async () => {
+    hasCredential.mockResolvedValue(true);
+
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+      credentialScope: "org",
+    });
+
+    expect(resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
+      provider: "bigquery",
+      keys: [],
+      ctx: {
+        userEmail: "owner@example.com",
+        orgId: "org_builder",
+        credentialScope: "org",
+      },
+    });
+    expect(health.bigQuery.configured).toBe(true);
+  });
+
   it("reports degraded delivery while the queue migration is pending", async () => {
     getDeliveryHealth.mockRejectedValueOnce(
       new Error('relation "analytics_bigquery_delivery_queue" does not exist'),

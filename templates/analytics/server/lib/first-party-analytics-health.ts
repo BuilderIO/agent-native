@@ -267,19 +267,20 @@ async function externalBackendStatus(
     const credentialContext = {
       userEmail: scope.userEmail,
       orgId: scope.orgId,
+      ...(scope.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
     };
     if (definition.id === "bigquery") {
       const [projectConfigured, serviceAccountConfigured] = await Promise.all([
         hasCredential("BIGQUERY_PROJECT_ID", credentialContext),
         hasCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", credentialContext),
       ]);
-      const oauthCredential = serviceAccountConfigured
-        ? null
-        : await resolveAnalyticsProviderCredential({
-            provider: "bigquery",
-            keys: [],
-            ctx: credentialContext,
-          });
+      const oauthCredential = await resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        ctx: credentialContext,
+      });
       const hasAuth = serviceAccountConfigured || Boolean(oauthCredential);
       return {
         id: definition.id,

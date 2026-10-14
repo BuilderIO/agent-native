@@ -183,6 +183,9 @@ async function resolveWorkspaceOAuthProviderCredential(
   if (options.workspaceConnection === false) return null;
   const provider = options.provider.trim().toLowerCase();
   if (!isProviderApiId(provider)) return null;
+  if (provider === "bigquery" && options.ctx.credentialScope === "org") {
+    return null;
+  }
 
   const requestedConnectionId = options.connectionId?.trim() || undefined;
   const resolvedConnection = await resolveWorkspaceConnectionForApp({
