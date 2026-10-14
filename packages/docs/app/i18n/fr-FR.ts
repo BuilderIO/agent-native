@@ -2658,6 +2658,7 @@ const frFR = {
     auditLog: "Journal d'audit",
     doctorCodeChecks: "Doctor (vérifications du code)",
     observability: "Observabilité",
+    recorder: "Enregistreur",
     observationalMemory: "Mémoire observationnelle",
     ciEvalGate: "Gate d'évals CI",
     usingYourAgentOverview: "Vue d'ensemble",
