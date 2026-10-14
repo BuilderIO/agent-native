@@ -1,0 +1,40 @@
+name: Deploy canary
+
+# Runs the documented Node.js and Docker deploy paths against what is actually
+# on npm, every day: `latest` is what the guides' `npx ... create` installs
+# today, and `nightly` is what the next stable release is built from. A
+# failure means a reader following a guide right now would hit it.
+#
+# The pre-publish check is the `Deploy paths` job in ci.yml, which installs
+# this checkout's packages. This one cannot stop a bad release; it proves the
+# published packages work, including what a local pack cannot show (a missing
+# file in a published package, a leaked workspace: range).
+#
+# Failures are emailed by email-workflow-failures.yml.
+
+on:
+  schedule:
+    - cron: "43 7 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: npm@${{ matrix.npm_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        npm_tag: [latest, nightly]
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: npm
+      npm_tag: ${{ matrix.npm_tag }}

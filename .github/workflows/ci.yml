@@ -33,6 +33,7 @@ jobs:
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
+      deploy_paths: ${{ steps.scope.outputs.deploy_paths }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -1988,3 +1989,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/standalone-chat-acceptance
+
+  deploy-paths:
+    name: Deploy paths
+    needs: change-scope
+    # Run when selected, and also when change-scope did not succeed so the
+    # check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.deploy_paths == 'true') }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: local

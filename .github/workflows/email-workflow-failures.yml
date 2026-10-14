@@ -12,6 +12,7 @@ on:
       - Manage Agent-Native production sites
       - Push chat template to starter
       - Publish packages
+      - Deploy canary
       - "🚀 Release everything"
       - Desktop App Release
       - Clips Desktop Release
