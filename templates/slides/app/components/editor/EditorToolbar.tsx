@@ -349,6 +349,15 @@ export default function EditorToolbar({
   }, []);
 
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
+  const showSlideTools =
+    (canEdit &&
+      Boolean(
+        (currentSlide && (onToggleAnimations || onToggleLayers)) ||
+          onToggleTweaks ||
+          onToggleDrawMode,
+      )) ||
+    (canComment && Boolean(onTogglePinMode));
+  const showCommentsItem = !widgetEmbed && Boolean(onToggleComments);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
@@ -985,134 +994,133 @@ export default function EditorToolbar({
         />
 
         {/* Consolidated editor menu */}
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  ref={historyButtonRef}
-                  className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
-                  aria-label={t("editorToolbar.more")}
-                >
-                  <IconDotsVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent
-            forceMount
-            align="end"
-            className="max-h-[90vh] w-64 overflow-y-auto"
-          >
-            {((canEdit &&
-              (onToggleAnimations ||
-                onToggleLayers ||
-                onToggleTweaks ||
-                onToggleDrawMode)) ||
-              (canComment && onTogglePinMode)) && (
-              <>
-                <DropdownMenuLabel>
-                  {t("editorToolbar.slideTools")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {canEdit && currentSlide && onToggleAnimations && (
-                    <DropdownMenuItem
-                      onSelect={onToggleAnimations}
-                      className={
-                        animationsOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconBolt className="size-4" />
-                      {t("animations.title")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && currentSlide && onToggleLayers && (
-                    <DropdownMenuItem
-                      onSelect={onToggleLayers}
-                      className={
-                        layersOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconLayersSubtract className="size-4" />
-                      {t("editorToolbar.layers")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && onToggleTweaks && (
-                    <DropdownMenuItem
-                      onSelect={onToggleTweaks}
-                      className={
-                        tweaksOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconAdjustments className="size-4" />
-                      {t("editorToolbar.tweaks")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && onToggleDrawMode && (
-                    <DropdownMenuItem
-                      onSelect={onToggleDrawMode}
-                      data-toolbar-draw-button
-                      className={
-                        drawMode
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconPencilPlus className="size-4" />
-                      {t("editorToolbar.drawOnSlide")}
-                    </DropdownMenuItem>
-                  )}
-                  {canComment && onTogglePinMode && (
-                    <DropdownMenuItem
-                      onSelect={onTogglePinMode}
-                      data-toolbar-pin-button
-                      className={
-                        pinMode ? "bg-accent text-accent-foreground" : undefined
-                      }
-                    >
-                      <IconPin className="size-4" />
-                      {t("editorToolbar.pinComments")}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-              </>
-            )}
+        {(showSlideTools || showCommentsItem) && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    ref={historyButtonRef}
+                    className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+                    aria-label={t("editorToolbar.more")}
+                  >
+                    <IconDotsVertical className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              forceMount
+              align="end"
+              className="max-h-[90vh] w-64 overflow-y-auto"
+            >
+              {showSlideTools && (
+                <>
+                  <DropdownMenuLabel>
+                    {t("editorToolbar.slideTools")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {canEdit && currentSlide && onToggleAnimations && (
+                      <DropdownMenuItem
+                        onSelect={onToggleAnimations}
+                        className={
+                          animationsOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconBolt className="size-4" />
+                        {t("animations.title")}
+                      </DropdownMenuItem>
+                    )}
+                    {canEdit && currentSlide && onToggleLayers && (
+                      <DropdownMenuItem
+                        onSelect={onToggleLayers}
+                        className={
+                          layersOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconLayersSubtract className="size-4" />
+                        {t("editorToolbar.layers")}
+                      </DropdownMenuItem>
+                    )}
+                    {canEdit && onToggleTweaks && (
+                      <DropdownMenuItem
+                        onSelect={onToggleTweaks}
+                        className={
+                          tweaksOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconAdjustments className="size-4" />
+                        {t("editorToolbar.tweaks")}
+                      </DropdownMenuItem>
+                    )}
+                    {canEdit && onToggleDrawMode && (
+                      <DropdownMenuItem
+                        onSelect={onToggleDrawMode}
+                        data-toolbar-draw-button
+                        className={
+                          drawMode
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconPencilPlus className="size-4" />
+                        {t("editorToolbar.drawOnSlide")}
+                      </DropdownMenuItem>
+                    )}
+                    {canComment && onTogglePinMode && (
+                      <DropdownMenuItem
+                        onSelect={onTogglePinMode}
+                        data-toolbar-pin-button
+                        className={
+                          pinMode
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconPin className="size-4" />
+                        {t("editorToolbar.pinComments")}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </>
+              )}
 
-            {!widgetEmbed && onToggleComments && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={onToggleComments}
-                  className={
-                    commentsOpen
-                      ? "bg-accent text-accent-foreground"
-                      : undefined
-                  }
-                >
-                  <IconMessage className="size-4" />
-                  {t("editorToolbar.comments")}
-                  {unresolvedCommentCount > 0 && (
-                    <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                      {unresolvedCommentCount > 9
-                        ? "9+"
-                        : unresolvedCommentCount}
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {showCommentsItem && (
+                <>
+                  {showSlideTools && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    onSelect={onToggleComments}
+                    className={
+                      commentsOpen
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
+                  >
+                    <IconMessage className="size-4" />
+                    {t("editorToolbar.comments")}
+                    {unresolvedCommentCount > 0 && (
+                      <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                        {unresolvedCommentCount > 9
+                          ? "9+"
+                          : unresolvedCommentCount}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {/* Always mounted so the command palette's export commands have a
             handle even while the app menu is closed. */}
         <ExportMenu

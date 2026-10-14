@@ -285,6 +285,14 @@ describe("<EditorToolbar>", () => {
     expect(screen.getByTestId("save-status")).toBeTruthy();
   });
 
+  it("hides the overflow menu when a viewer has nothing in it", () => {
+    render(viewerToolbar());
+
+    expect(
+      screen.queryByRole("button", { name: "editorToolbar.more" }),
+    ).toBeNull();
+  });
+
   it("shows no save status to a viewer with nothing failed", () => {
     render(viewerToolbar());
 
@@ -1001,6 +1009,7 @@ describe("<EditorToolbar>", () => {
             transition: "none",
           }}
           onChangeSlideTransition={vi.fn()}
+          onToggleComments={vi.fn()}
         />
       </TooltipProvider>,
     );
@@ -1011,6 +1020,8 @@ describe("<EditorToolbar>", () => {
     );
 
     await screen.findByRole("menu");
+    // Comments is the only item, so no separator leads the menu.
+    expect(screen.queryByRole("separator")).toBeNull();
     expect(
       screen.queryByRole("menuitem", {
         name: "editorToolbar.transition_none",
