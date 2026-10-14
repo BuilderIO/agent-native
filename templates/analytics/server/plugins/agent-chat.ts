@@ -338,12 +338,12 @@ const SCHEMA_DETAILS_IMPERATIVE =
 // ("tell me if ...", "could you confirm the table has 43 rows", "can you share
 // anything else that's off") is never a request for details. A denylist of
 // those verbs, not an allowlist of ask verbs: "could you let me know which
-// table" and "would you mind providing" are real asks. "Check", "see" and
-// "look" are feedback only when they do not ask for an identifier ("could you
-// check which table holds usage" is an ask; "check the table has 43 rows" is
-// not).
+// table" and "would you mind providing" are real asks. "Confirm", "verify",
+// "check", "see" and "look" are feedback only when they do not ask for an
+// identifier ("could you confirm which table holds usage" is an ask; "confirm
+// the table has 43 rows" is not).
 const SCHEMA_DETAILS_FEEDBACK_VERB =
-  "(?!(?:\\s+please)?\\s+(?:(?:double-)?confirm|verify|(?:check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
+  "(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
 const SCHEMA_DETAILS_FEEDBACK =
   "(?! (?:if|whether|what else|anything|how|why)\\b)";
 const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;

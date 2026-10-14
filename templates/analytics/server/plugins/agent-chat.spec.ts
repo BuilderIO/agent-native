@@ -1329,6 +1329,8 @@ describe("realDataFinalGuard", () => {
     "Could you let me know which table holds monthly usage?",
     "Could you clarify which table holds monthly usage?",
     "Could you check which table holds monthly usage?",
+    "Could you confirm which table holds monthly usage?",
+    "Could you verify the dataset name?",
     "Can you check the dataset name?",
     "Would you mind providing the dataset name?",
     "Could you provide the following?\n- the BigQuery dataset name",
