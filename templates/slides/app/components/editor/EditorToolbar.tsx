@@ -122,6 +122,7 @@ import {
 import {
   ExportMenu,
   ExportStatusDialog,
+  ExportSubmenu,
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
@@ -822,18 +823,10 @@ export default function EditorToolbar({
         widgetEmbed={widgetEmbed}
         canEdit={canEdit}
         exportMenu={
-          <ExportMenu
-            ref={exportMenuRef}
-            inline
-            hideExportDialog
-            onExportStatusChange={setExportStatus}
+          <ExportSubmenu
+            exportMenuRef={exportMenuRef}
             hasSlides={hasSlides}
-            deckId={deckId}
-            deckTitle={deckTitle}
-            onDuplicate={onDuplicateDeck ?? (() => {})}
-            onExportPdf={onExportPdf ?? (() => {})}
-            onExportPptx={onExportPptx ?? (() => {})}
-            onExportGoogleSlides={onExportGoogleSlides}
+            showGoogleSlides={Boolean(onExportGoogleSlides)}
           />
         }
         importing={importing}
@@ -1120,6 +1113,21 @@ export default function EditorToolbar({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* Always mounted so the command palette's export commands have a
+            handle even while the app menu is closed. */}
+        <ExportMenu
+          ref={exportMenuRef}
+          headless
+          hideExportDialog
+          onExportStatusChange={setExportStatus}
+          hasSlides={hasSlides}
+          deckId={deckId}
+          deckTitle={deckTitle}
+          onDuplicate={onDuplicateDeck ?? (() => {})}
+          onExportPdf={onExportPdf ?? (() => {})}
+          onExportPptx={onExportPptx ?? (() => {})}
+          onExportGoogleSlides={onExportGoogleSlides}
+        />
         <ExportStatusDialog
           status={exportStatus}
           onStatusChange={setExportStatus}

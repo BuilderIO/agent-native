@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     () => false,
   ),
   exportMenu: vi.fn(),
+  exportSubmenu: vi.fn(),
   registerEditorCommands: vi.fn(),
   widgetEmbed: { value: false },
   creativeContextLabEnabled: { value: true },
@@ -128,6 +129,10 @@ vi.mock("@/lib/prompt-file-uploads", () => ({
 vi.mock("./ExportMenu", () => ({
   ExportMenu: (props: { hasSlides?: boolean }) => {
     mocks.exportMenu(props);
+    return null;
+  },
+  ExportSubmenu: (props: { hasSlides?: boolean }) => {
+    mocks.exportSubmenu(props);
     return null;
   },
   ExportStatusDialog: () => null,
@@ -363,7 +368,16 @@ describe("<EditorToolbar>", () => {
     ).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "appMenu.file" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "appMenu.help" })).toBeNull();
-    expect(mocks.exportMenu).not.toHaveBeenCalled();
+    expect(mocks.exportSubmenu).not.toHaveBeenCalled();
+  });
+
+  it("keeps the export handle mounted while the app menu is closed", () => {
+    render(widgetToolbar());
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(mocks.exportMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ headless: true, hasSlides: true }),
+    );
   });
 
   it("keeps the same Share component and sizing in and out of a widget", () => {
@@ -848,8 +862,8 @@ describe("<EditorToolbar>", () => {
     expect(onPresent).not.toHaveBeenCalled();
 
     await openAppSubmenu("appMenu.file");
-    await waitFor(() => expect(mocks.exportMenu).toHaveBeenCalled());
-    expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
+    await waitFor(() => expect(mocks.exportSubmenu).toHaveBeenCalled());
+    expect(mocks.exportSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ hasSlides: false }),
     );
     const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
