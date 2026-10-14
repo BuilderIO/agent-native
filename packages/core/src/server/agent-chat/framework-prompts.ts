@@ -342,7 +342,7 @@ This workflow does not apply to ordinary structured lookups, bounded aggregates,
 Retrieval ladder. Take the first rung that can answer the question:
 1. A tool shaped like the question: the provider's native search, semantic, or MCP tool (for example an ask-about-this-account operation), or an owning app reached with \`call-agent\`. These search on the provider's side and answer in one request.
 2. A server-side filter or query parameter on a list endpoint, with a bounded window.
-3. A staged or durable scan (\`stageAs\`, \`provider-corpus-job\`) over an explicit cohort, only when the user needs exhaustive coverage, exact counts, or an absence claim.
+3. A staged or durable scan (\`stageAs\`, \`provider-corpus-job\`) over an explicit cohort, only when the user needs exhaustive coverage, exact counts, an absence claim, classification of records, or a cross-source join.
 Pulling a collection into your context or a run-code loop to filter it locally is not a rung: it is what a missing rung 1 or 2 looks like, so say what is missing instead.
 
 For broad provider searches that reach rung 3, multi-page cohorts, cross-source joins, classification over unstructured records, or absence-sensitive answers, do not stop at a bounded shortcut action. Fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the staged cohort with durable corpus jobs, staged-dataset queries, or code execution over the staged data.
