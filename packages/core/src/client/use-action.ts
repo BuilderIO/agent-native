@@ -184,6 +184,8 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
+  uiOnly?: boolean;
 }
 
 function resolveUserTimezone(): string | undefined {
@@ -231,6 +233,7 @@ export interface ActionFetchOptions {
   responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
+  uiOnly?: boolean;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
@@ -689,6 +692,7 @@ async function actionFetch<T>(
   let error: unknown;
 
   try {
+    if (options?.uiOnly) await ensureUiActionCapability();
     return await performActionFetch<T>(name, method, params, {
       ...options,
       onResponse: (nextResponse) => {
@@ -815,6 +819,7 @@ export function callAction<
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
+    uiOnly: options.uiOnly,
   });
 }
 
@@ -829,6 +834,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     includeRequestSource: false,
     headers: options.headers,
     responseType: "blob",
+    uiOnly: options.uiOnly,
   });
 }
 

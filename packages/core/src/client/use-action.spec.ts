@@ -597,6 +597,37 @@ describe("callAction", () => {
     );
   });
 
+  it("mints the UI capability before the first request of a uiOnly action", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(
+        new Response(new Blob(["png-bytes"], { type: "image/png" })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callActionBlob("render-export-png", {}, { uiOnly: true });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/_agent-native/ui-capability",
+      "/_agent-native/actions/render-export-png",
+    ]);
+  });
+
+  it("fails loudly when the UI capability cannot be minted", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Authentication required" }, { status: 401 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionBlob("render-export-png", {}, { uiOnly: true }),
+    ).rejects.toThrow("Could not establish the browser UI capability.");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("passes scoped capability headers through imperative action calls", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
