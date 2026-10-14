@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyNativeComputedOverflowClip } from "../../../../shared/native-source-clip-plan";
 import { planNativeSourceComposition } from "../../../../shared/native-source-composition-tree";
 import {
+  nativeCaptureRoi,
   planNativeCaptureRoi,
   setNativeCaptureRoi,
 } from "./native-capture-roi";
@@ -389,6 +390,287 @@ describe("expanded HTML capture clip", () => {
     expect(xml).toContain("overflow: clip");
     expect(xml).toContain("overflow-clip-margin: content-box 3.25px");
   });
+
+  it("captures visible child shadow and outline beyond layout, including own hidden overflow", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    } as typeof ResizeObserver;
+    const target = document.createElement("div");
+    const child = document.createElement("div");
+    target.style.overflow = "visible";
+    child.style.cssText =
+      "position:absolute;left:208px;top:20px;width:142px;height:100px;box-shadow:rgb(0, 0, 0) 12px 0px 0px 0px";
+    target.append(child);
+    document.body.append(target);
+    for (const [element, x, width, height] of [
+      [target, 0, 256, 220],
+      [child, 208, 142, 100],
+    ] as const) {
+      Object.defineProperties(element, {
+        offsetLeft: { configurable: true, value: x },
+        offsetTop: { configurable: true, value: element === target ? 0 : 20 },
+        offsetWidth: { configurable: true, value: width },
+        offsetHeight: { configurable: true, value: height },
+      });
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(x, element === target ? 0 : 20, width, height),
+      );
+    }
+    let shadow = "rgb(0, 0, 0) 12px 0px 0px 0px";
+    let outlineStyle = "none";
+    let outlineWidth = "0px";
+    let outlineOffset = "0px";
+    let targetShadow = "none";
+    let targetOutlineStyle = "none";
+    let targetOutlineWidth = "0px";
+    let targetOutlineOffset = "0px";
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        new Proxy(computed(element), {
+          get(style, property) {
+            if (property === "display") return "block";
+            if (property === "visibility") return "visible";
+            if (property === "opacity") return "1";
+            if (property === "backgroundImage") return "none";
+            if (property === "mixBlendMode") return "normal";
+            if (property === "filter" || property === "backdropFilter")
+              return "none";
+            if (property === "maskImage" || property === "clipPath")
+              return "none";
+            if (property === "overflowX" || property === "overflowY")
+              return (element === child && child.style.overflow === "hidden") ||
+                (element === target && target.style.overflow === "hidden")
+                ? "hidden"
+                : "visible";
+            if (property === "boxShadow")
+              return element === child ? shadow : targetShadow;
+            if (property === "outlineStyle")
+              return element === child ? outlineStyle : targetOutlineStyle;
+            if (property === "outlineWidth")
+              return element === child ? outlineWidth : targetOutlineWidth;
+            if (property === "outlineOffset")
+              return element === child ? outlineOffset : targetOutlineOffset;
+            if (
+              typeof property === "string" &&
+              /^(border(Top|Right|Bottom|Left)Width|border.*Radius|padding(Top|Right|Bottom|Left))$/.test(
+                property,
+              )
+            )
+              return "0px";
+            const value = Reflect.get(style, property, style);
+            return typeof value === "function" ? value.bind(style) : value;
+          },
+        }),
+    );
+    const images: string[] = [];
+    class CapturedImage {
+      set src(value: string) {
+        images.push(value);
+      }
+      async decode() {}
+    }
+    vi.stubGlobal("Image", CapturedImage);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect() {},
+      drawImage() {},
+    } as unknown as CanvasRenderingContext2D);
+
+    const capture = async () => {
+      const provider = createNativeSceneProvider(target, "fill");
+      try {
+        const records = await provider!.readFillForeground();
+        return records.find((record) => record.node === child);
+      } finally {
+        provider?.dispose();
+      }
+    };
+    const shadowRecord = await capture();
+    expect(shadowRecord).toMatchObject({
+      kind: "dom",
+      localBox: { x: 0, y: -2, width: 156, height: 104 },
+      rect: { x: 208, y: 18, width: 156, height: 104 },
+      clip: { x: 0, width: 364 },
+      width: 156,
+    });
+    expect(
+      nativeCaptureRoi(shadowRecord!.source as HTMLCanvasElement)?.cssBox,
+    ).toEqual({
+      x: 0,
+      y: -2,
+      width: 156,
+      height: 104,
+    });
+    expect(decodeURIComponent(images[images.length - 1]!)).toContain(
+      'width="156"',
+    );
+    expect(decodeURIComponent(images[images.length - 1]!)).toContain(
+      "box-shadow",
+    );
+    expect(child.offsetWidth).toBe(142);
+
+    child.style.overflow = "hidden";
+    const hiddenOwnOverflowRecord = await capture();
+    expect(hiddenOwnOverflowRecord).toMatchObject({
+      rect: { x: 208, width: 156 },
+      clip: { x: 0, width: 364 },
+    });
+    target.style.overflow = "hidden";
+    const ancestorClippedRecord = await capture();
+    expect(ancestorClippedRecord).toMatchObject({
+      rect: { x: 208, width: 156 },
+      clip: { x: 0, width: 256 },
+    });
+    target.style.overflow = "visible";
+
+    shadow = "none";
+    child.style.boxShadow = "none";
+    outlineStyle = "solid";
+    outlineWidth = "3px";
+    outlineOffset = "2px";
+    child.style.outline = "3px solid rgb(0, 0, 0)";
+    child.style.outlineOffset = "2px";
+    const outlineRecord = await capture();
+    expect(outlineRecord).toMatchObject({
+      localBox: { x: -5, y: -5, width: 152, height: 110 },
+      rect: { x: 203, y: 15, width: 152, height: 110 },
+      clip: { x: 0, width: 355 },
+    });
+    expect(
+      nativeCaptureRoi(outlineRecord!.source as HTMLCanvasElement)?.cssBox,
+    ).toEqual({
+      x: -5,
+      y: -5,
+      width: 152,
+      height: 110,
+    });
+    expect(decodeURIComponent(images[images.length - 1]!)).toContain("outline");
+    expect(child.offsetWidth).toBe(142);
+
+    outlineStyle = "none";
+    child.style.outline = "none";
+    const noOutsetRecord = await capture();
+    expect(noOutsetRecord).toMatchObject({
+      localBox: { x: 0, y: 0, width: 142, height: 100 },
+      rect: { x: 208, y: 20, width: 142, height: 100 },
+      clip: { x: 0, width: 350 },
+    });
+
+    const captureTargetPhase = async (
+      phase: "outer-shadow" | "inset-shadow" | "outline",
+    ) => {
+      const provider = createNativeSceneProvider(target, "fill");
+      try {
+        return await provider!.readFillOwnPaintPhase(phase);
+      } finally {
+        provider?.dispose();
+      }
+    };
+    targetShadow =
+      "rgb(0, 0, 0) 12px 0px 0px 0px, rgb(0, 0, 0) 0px 0px 4px 0px inset";
+    target.style.overflow = "hidden";
+    const outer = await captureTargetPhase("outer-shadow");
+    expect(outer).toMatchObject([
+      {
+        localBox: { x: 0, y: -2, width: 270, height: 224 },
+        clip: { x: 0, width: 270 },
+        width: 270,
+      },
+    ]);
+    expect(
+      nativeCaptureRoi(outer[0].source as HTMLCanvasElement)?.cssBox,
+    ).toEqual({
+      x: 0,
+      y: -2,
+      width: 270,
+      height: 224,
+    });
+    const outerSvg = decodeURIComponent(images[images.length - 1]!);
+    expect(outerSvg).toContain("12px");
+    expect(outerSvg).not.toContain("inset");
+
+    const inset = await captureTargetPhase("inset-shadow");
+    expect(inset).toMatchObject([
+      { localBox: { x: 0, y: 0, width: 256, height: 220 } },
+    ]);
+    const insetSvg = decodeURIComponent(images[images.length - 1]!);
+    expect(insetSvg).toContain("inset");
+    expect(insetSvg).not.toContain("12px");
+
+    targetOutlineStyle = "solid";
+    targetOutlineWidth = "3px";
+    targetOutlineOffset = "2px";
+    target.style.outline = "3px solid rgb(0, 0, 0)";
+    target.style.outlineOffset = "2px";
+    const outline = await captureTargetPhase("outline");
+    expect(outline).toMatchObject([
+      {
+        localBox: { x: -5, y: -5, width: 266, height: 230 },
+        clip: { x: -5, width: 266 },
+        width: 266,
+      },
+    ]);
+    expect(decodeURIComponent(images[images.length - 1]!)).toContain("outline");
+    expect(target.offsetWidth).toBe(256);
+    targetShadow = "none";
+    targetOutlineStyle = "none";
+    expect(await captureTargetPhase("outer-shadow")).toEqual([]);
+    expect(await captureTargetPhase("inset-shadow")).toEqual([]);
+    expect(await captureTargetPhase("outline")).toEqual([]);
+    target.style.overflow = "visible";
+
+    const presentation = document.createElement("canvas");
+    presentation.width = 270;
+    presentation.height = 224;
+    presentation.style.cssText =
+      "position:absolute;left:0px;top:-2px;width:270px;height:224px";
+    presentation.setAttribute("data-an-native-canvas", "fill-appearance");
+    presentation.setAttribute("data-an-native-presentation", "");
+    target.setAttribute("data-an-native-fill-instance", "fill-appearance");
+    target.after(presentation);
+    Object.defineProperties(presentation, {
+      offsetLeft: { configurable: true, value: 0 },
+      offsetTop: { configurable: true, value: -2 },
+      offsetWidth: { configurable: true, value: 270 },
+      offsetHeight: { configurable: true, value: 224 },
+    });
+    vi.spyOn(presentation, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, -2, 270, 224),
+    );
+    target.style.overflow = "hidden";
+    const appearanceProvider = createNativeSceneProvider(
+      target,
+      "layer",
+      undefined,
+      undefined,
+      "appearance",
+    );
+    try {
+      const appearance = (await appearanceProvider!.readScene()).find(
+        (record) => record.nativeInstanceId === "fill-appearance",
+      );
+      expect(appearance).toMatchObject({
+        rect: { x: 0, y: -2, width: 270, height: 224 },
+        clip: { x: 0, y: -2, width: 270, height: 224 },
+      });
+    } finally {
+      appearanceProvider?.dispose();
+    }
+    presentation.remove();
+    target.removeAttribute("data-an-native-fill-instance");
+    target.style.overflow = "visible";
+
+    shadow = "rgb(0, 0, 0) 5000px 0px 0px 0px";
+    await expect(capture()).rejects.toMatchObject({
+      code: "source-capture-too-large",
+    });
+    shadow = "rgb(0, 0, 0) 3px";
+    await expect(capture()).rejects.toMatchObject({
+      code: "source-paint-outset-unreadable",
+    });
+  });
 });
 
 describe("native presentation visibility", () => {
@@ -406,7 +688,7 @@ describe("native presentation visibility", () => {
           display: "block",
           opacity: element === host ? host.style.opacity : "1",
           visibility: "visible",
-        }) as CSSStyleDeclaration,
+        }) as unknown as CSSStyleDeclaration,
     );
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(
       new DOMRect(10, 10, 100, 80),
@@ -2459,6 +2741,84 @@ describe("processed native layer source geometry", () => {
     );
   });
 
+  it("includes escaped Fill foreground only when the target overflow is visible", () => {
+    const target = document.createElement("div");
+    const child = document.createElement("div");
+    target.style.overflowX = "visible";
+    target.style.overflowY = "visible";
+    target.append(child);
+    document.body.append(target);
+    const computedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        new Proxy(computedStyle(element), {
+          get(style, property) {
+            if (property === "mixBlendMode") return "normal";
+            if (property === "filter" || property === "backdropFilter")
+              return "none";
+            if (property === "backgroundImage" || property === "maskImage")
+              return "none";
+            if (
+              typeof property === "string" &&
+              /^(border(Top|Right|Bottom|Left)Width|border.*Radius|padding(Top|Right|Bottom|Left))$/.test(
+                property,
+              )
+            )
+              return "0px";
+            const value = Reflect.get(style, property, style);
+            return typeof value === "function" ? value.bind(style) : value;
+          },
+        }),
+    );
+    for (const [element, x, width, height] of [
+      [target, 0, 256, 220],
+      [child, 208, 142, 100],
+    ] as const) {
+      Object.defineProperties(element, {
+        offsetLeft: { configurable: true, value: x },
+        offsetTop: { configurable: true, value: 20 },
+        offsetWidth: { configurable: true, value: width },
+        offsetHeight: { configurable: true, value: height },
+      });
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(x, 20, width, height),
+      );
+    }
+    expect(
+      sourceClipPlan(child, target, "target-local", false).clip,
+    ).toMatchObject({ x: 0, width: 256 });
+    expect(
+      sourceClipPlan(
+        child,
+        target,
+        "target-local",
+        false,
+        null,
+        0,
+        "content",
+        undefined,
+        undefined,
+        true,
+      ).clip,
+    ).toMatchObject({ x: 0, width: 350 });
+    target.style.overflowX = "hidden";
+    target.style.overflowY = "hidden";
+    expect(
+      sourceClipPlan(
+        child,
+        target,
+        "target-local",
+        false,
+        null,
+        0,
+        "content",
+        undefined,
+        undefined,
+        true,
+      ).clip,
+    ).toMatchObject({ x: 0, width: 256 });
+  });
+
   it("removes all target affine channels from an own-paint capture clone", () => {
     const target = document.createElement("div");
     target.textContent = "Editable text";
@@ -3161,6 +3521,151 @@ describe("CSS canvas background source", () => {
 });
 
 describe("backdrop sibling paint order", () => {
+  it("substitutes only an exact staged ancestor Fill prefix and keeps the scene below its outer edge", async () => {
+    const below = document.createElement("div");
+    const fill = document.createElement("div");
+    const receiver = document.createElement("div");
+    below.dataset.painted = "true";
+    fill.append(receiver);
+    document.body.append(below, fill);
+    const boxes = new Map<Element, DOMRect>([
+      [below, new DOMRect(0, 0, 400, 300)],
+      [fill, new DOMRect(100, 50, 200, 150)],
+      [receiver, new DOMRect(230, 90, 100, 80)],
+    ]);
+    for (const element of [document.documentElement, document.body, below])
+      Object.defineProperties(element, {
+        offsetWidth: { configurable: true, value: 400 },
+        offsetHeight: { configurable: true, value: 300 },
+      });
+    Object.defineProperties(fill, {
+      offsetWidth: { configurable: true, value: 200 },
+      offsetHeight: { configurable: true, value: 150 },
+    });
+    Object.defineProperties(receiver, {
+      offsetWidth: { configurable: true, value: 100 },
+      offsetHeight: { configurable: true, value: 80 },
+    });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        return boxes.get(this) ?? new DOMRect(0, 0, 400, 300);
+      },
+    );
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        ({
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          position: "static",
+          transform: "none",
+          transformOrigin: "0px 0px",
+          translate: "none",
+          rotate: "none",
+          scale: "none",
+          perspective: "none",
+          transformStyle: "flat",
+          isolation: "auto",
+          zIndex: "auto",
+          order: "0",
+          mixBlendMode: "normal",
+          filter: "none",
+          backdropFilter: "none",
+          backgroundImage: "none",
+          backgroundColor:
+            element === below ? "rgb(32, 48, 64)" : "rgba(0, 0, 0, 0)",
+          boxShadow: "none",
+          outlineStyle: "none",
+          clipPath: "none",
+          maskImage: "none",
+          overflowX: "visible",
+          overflowY: "visible",
+          borderTopWidth: "0px",
+          borderRightWidth: "0px",
+          borderBottomWidth: "0px",
+          borderLeftWidth: "0px",
+          borderBottomLeftRadius: "0px",
+          borderBottomRightRadius: "0px",
+          borderTopLeftRadius: "0px",
+          borderTopRightRadius: "0px",
+          paddingTop: "0px",
+          paddingRight: "0px",
+          paddingBottom: "0px",
+          paddingLeft: "0px",
+          getPropertyValue: () => "0px",
+          content: "none",
+        }) as unknown as CSSStyleDeclaration,
+    );
+    const source = document.createElement("canvas");
+    source.width = 400;
+    source.height = 300;
+    vi.spyOn(CachedLeaf.prototype, "read").mockResolvedValue(source);
+    const provider = createNativeSceneProvider(receiver, "backdrop");
+    expect(provider).not.toBeNull();
+    try {
+      const prefix = {
+        ancestor: fill,
+        instanceId: "parent-fill",
+        unpublished: true,
+        width: 440,
+        height: 320,
+        localBox: { x: -10, y: -5, width: 220, height: 160 },
+        revision: 7,
+        authoredSourceEpoch: provider!.authoredSourceEpoch!(),
+      };
+      const records = await provider!.readScene(
+        undefined,
+        "mount-source",
+        prefix,
+      );
+      expect(records.map((record) => record.node)).toEqual([below, fill]);
+      expect(records[0]).toMatchObject({ kind: "dom", node: below });
+      expect(records[1]).toMatchObject({
+        kind: "native",
+        sourceRole: "ancestor-fill-prefix",
+        nativeInstanceId: "parent-fill",
+        width: 440,
+        height: 320,
+        revision: 7,
+        localBox: prefix.localBox,
+        rect: { x: -140, y: -45, width: 220, height: 160 },
+      });
+      expect(records[1]!.rect.x + records[1]!.rect.width).toBe(80);
+      await expect(
+        provider!.readScene(undefined, "mount-source", {
+          ...prefix,
+          unpublished: false,
+        }),
+      ).rejects.toMatchObject({ code: "fill-prefix-stale" });
+      await expect(
+        provider!.readScene(undefined, "mount-source", {
+          ...prefix,
+          authoredSourceEpoch: prefix.authoredSourceEpoch + 1,
+        }),
+      ).rejects.toMatchObject({ code: "fill-prefix-stale" });
+      fill.setAttribute("data-an-native-fill-instance", "parent-fill");
+      await expect(
+        provider!.readScene(undefined, "mount-source", {
+          ...prefix,
+          unpublished: false,
+          authoredSourceEpoch: provider!.authoredSourceEpoch!(),
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({ node: below }),
+        expect.objectContaining({
+          sourceRole: "ancestor-fill-prefix",
+          nativeInstanceId: "parent-fill",
+        }),
+      ]);
+      fill.setAttribute("data-an-native-fill-instance", "different-fill");
+      await expect(
+        provider!.readScene(undefined, "mount-source", prefix),
+      ).rejects.toMatchObject({ code: "fill-prefix-stale" });
+    } finally {
+      provider?.dispose();
+    }
+  });
+
   it("exposes a descendant Backdrop as an ordered native dependency without baking the parent opacity", async () => {
     const group = document.createElement("div");
     const canvas = document.createElement("canvas");
@@ -3170,10 +3675,15 @@ describe("backdrop sibling paint order", () => {
     canvas.width = 100;
     canvas.height = 80;
     canvas.dataset.anNativeCanvas = "child-backdrop";
+    canvas.setAttribute("data-an-native-presentation", "");
     canvas.setAttribute("data-an-native-backdrop-presentation", "");
     canvas.setAttribute("data-an-native-backdrop-receiver-node-id", "child");
     receiver.setAttribute("data-agent-native-node-id", "child");
     group.append(canvas, receiver);
+    const unrelatedPresentation = document.createElement("canvas");
+    unrelatedPresentation.dataset.anNativeCanvas = "unrelated-presentation";
+    unrelatedPresentation.setAttribute("data-an-native-presentation", "");
+    group.append(unrelatedPresentation);
     document.body.append(group);
     for (const element of [group, canvas, receiver]) {
       Object.defineProperties(element, {
@@ -3230,6 +3740,7 @@ describe("backdrop sibling paint order", () => {
         }) as CSSStyleDeclaration,
     );
     const provider = createNativeSceneProvider(group, "layer");
+    const fillProvider = createNativeSceneProvider(group, "fill");
     try {
       provider!.setGroupLocalBackdropSource(true);
       const records = await provider!.readScene();
@@ -3247,8 +3758,29 @@ describe("backdrop sibling paint order", () => {
           (entry) => entry.kind === "opacity" && entry.opacity === 0.25,
         ),
       ).toHaveLength(1);
+      const foreground = await fillProvider!.readFillForeground();
+      expect(
+        foreground
+          .filter((record) => record.nativeInstanceId)
+          .map((record) => record.nativeInstanceId),
+      ).toEqual(["child-backdrop"]);
+      fillProvider!.setGroupLocalBackdropSource(true);
+      expect(fillProvider!.groupLocalBackdropClipState(canvas)).toBe(
+        "nonempty",
+      );
+      expect(
+        (await fillProvider!.readFillForeground())
+          .filter((record) => record.nativeInstanceId)
+          .map((record) => record.nativeInstanceId),
+      ).toEqual(["child-backdrop"]);
+      expect(foreground[0]).toMatchObject({
+        kind: "native",
+        node: canvas,
+        clip: { x: 0, y: 0, width: 100, height: 80 },
+      });
     } finally {
       provider?.dispose();
+      fillProvider?.dispose();
       group.remove();
     }
   });
@@ -3411,6 +3943,7 @@ describe("backdrop sibling paint order", () => {
               ? "rgb(255, 0, 0)"
               : "rgba(0, 0, 0, 0)",
           boxShadow: "none",
+          outlineStyle: "none",
           borderTopWidth: "0px",
           borderRightWidth: "0px",
           borderBottomWidth: "0px",
@@ -3544,6 +4077,7 @@ describe("backdrop sibling paint order", () => {
               ? "rgb(255, 0, 0)"
               : "rgba(0, 0, 0, 0)",
           boxShadow: "none",
+          outlineStyle: "none",
           clipPath: "none",
           maskImage: "none",
           overflowX: "visible",

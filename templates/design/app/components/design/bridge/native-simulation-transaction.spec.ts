@@ -34,12 +34,15 @@ it("keeps the committed particle bank untouched through multi-step catch-up unti
   ]);
   expect(frame.bankSteps.every(({ writeBank }) => writeBank !== 1)).toBe(true);
   frame.markSubmitted();
-  const commit = frame.commit(validate);
+  const settled = frame.settle(validate);
   expect(promote).not.toHaveBeenCalled();
   expect(release).not.toHaveBeenCalled();
   fence.resolve();
-  await commit;
+  await settled;
   expect(validate).toHaveBeenCalledOnce();
+  expect(promote).not.toHaveBeenCalled();
+  expect(release).not.toHaveBeenCalled();
+  frame.promote();
   expect(promote).toHaveBeenCalledOnce();
   expect(promote).toHaveBeenCalledWith(2, 44);
   expect(release).toHaveBeenCalledOnce();

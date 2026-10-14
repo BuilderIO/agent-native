@@ -702,10 +702,13 @@ describe("NativeStatefulResourceSession", () => {
     expect(session.lastCompletedStep).toBe(-1);
     expect(gpu.leasedTextures[0]?.has(gpu.source)).toBe(true);
     expect(gpu.leasedTextures[0]?.has(gpu.target)).toBe(true);
-    const completion = frame.commit();
+    const completion = frame.settle();
     expect(session.lastCompletedStep).toBe(-1);
     gpu.waits.shift()!();
     await completion;
+    expect(session.lastCompletedStep).toBe(-1);
+    expect(gpu.leases()).toBe(1);
+    frame.promote();
     expect(session.lastCompletedStep).toBe(1);
     expect(gpu.leases()).toBe(0);
     const snapshot = session.snapshotState();

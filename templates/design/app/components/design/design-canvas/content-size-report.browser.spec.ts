@@ -86,6 +86,14 @@ describe("content size reporter cost", () => {
           "simulation-step",
           "simulation-target-step",
           "particle-count",
+          "stateful-dropped-steps",
+          "stateful-dropped-seconds",
+          "feedback-playback",
+          "feedback-dropped-seconds",
+          "feedback-requested-seconds",
+          "feedback-simulated-seconds",
+          "feedback-completed-step",
+          "feedback-runtime-epoch",
         ];
         for (let frame = 1; frame <= 20; frame++) {
           for (const name of telemetry)
@@ -124,6 +132,35 @@ describe("content size reporter cost", () => {
         ),
       ).toBeGreaterThan(0);
       await page.evaluate(() => {
+        (window as Window & { __measureReads?: number }).__measureReads = 0;
+        const content = document.getElementById("content")!;
+        content.setAttribute("data-an-native-status", "ready");
+        content.setAttribute("data-an-native-backend", "webgpu");
+        content.setAttribute("data-an-native-backend", "webgpu");
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        (window as Window & { __measureReads?: number }).__measureReads = 0;
+        const content = document.getElementById("content")!;
+        content.setAttribute("data-an-native-status", "ready");
+        content.setAttribute("data-an-native-backend", "webgpu");
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBe(0);
+      await page.evaluate(() => {
         const counter = window as Window & { __measureReads?: number };
         counter.__measureReads = 0;
         document
@@ -151,6 +188,71 @@ describe("content size reporter cost", () => {
             0,
         ),
       ).toBeGreaterThan(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it("re-measures a changed SVG namespaced attribute but ignores its identical rewrite", async () => {
+    const { page, close } = await settledPage();
+    try {
+      await page.evaluate(() => {
+        const root = document.documentElement;
+        const original = Object.getOwnPropertyDescriptor(
+          Element.prototype,
+          "scrollHeight",
+        )?.get;
+        if (!original) throw new Error("scrollHeight getter is unavailable");
+        const counter = window as Window & { __measureReads?: number };
+        counter.__measureReads = 0;
+        Object.defineProperty(root, "scrollHeight", {
+          configurable: true,
+          get() {
+            counter.__measureReads! += 1;
+            return original.call(this);
+          },
+        });
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        const use = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "use",
+        );
+        use.id = "named-source";
+        svg.appendChild(use);
+        document.body.appendChild(svg);
+      });
+      await page.waitForTimeout(150);
+      await page.evaluate(() => {
+        (window as Window & { __measureReads?: number }).__measureReads = 0;
+        document
+          .getElementById("named-source")!
+          .setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#one");
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        (window as Window & { __measureReads?: number }).__measureReads = 0;
+        document
+          .getElementById("named-source")!
+          .setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#one");
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBe(0);
     } finally {
       await close();
     }

@@ -4,6 +4,7 @@ import { planNativeCaptureRoi } from "./native-capture-roi";
 import {
   planNativeChainedEffectExtent,
   planNativeEffectExtent,
+  planNativeFillPresentationExtent,
 } from "./native-effect-extent";
 
 const base = {
@@ -17,6 +18,123 @@ const base = {
 };
 
 describe("native effect extent planning", () => {
+  it("keeps the generated Fill extent fixed while including a visible child outside its right edge", () => {
+    const fill = planNativeEffectExtent({
+      ...base,
+      placement: "fill",
+      cssWidth: 256,
+      cssHeight: 220,
+      pixelRatio: 1,
+      extent: undefined,
+    });
+    expect(fill.ok).toBe(true);
+    if (!fill.ok) return;
+    const presentation = planNativeFillPresentationExtent({
+      fill: fill.plan,
+      foreground: [
+        {
+          rect: { x: 208, y: 20, width: 142, height: 100 },
+          clip: { x: 208, y: 20, width: 142, height: 100 },
+        },
+      ],
+      maxDimension: 4096,
+      maxPixels: 8_388_608,
+    });
+    expect(presentation).toMatchObject({
+      ok: true,
+      plan: {
+        sourceWidth: 256,
+        sourceHeight: 220,
+        width: 350,
+        height: 220,
+        left: 0,
+        right: 94,
+      },
+    });
+    expect(fill.plan).toMatchObject({ width: 256, height: 220 });
+    expect(
+      planNativeFillPresentationExtent({
+        fill: fill.plan,
+        foreground: [
+          {
+            rect: { x: 208, y: 20, width: 142, height: 100 },
+            clip: { x: 208, y: 20, width: 48, height: 100 },
+          },
+        ],
+        maxDimension: 4096,
+        maxPixels: 8_388_608,
+      }),
+    ).toMatchObject({ ok: true, plan: { width: 256, right: 0 } });
+  });
+  it("rounds visible top-left overflow at fractional density and ignores clipped paint", () => {
+    const fill = planNativeEffectExtent({
+      ...base,
+      placement: "fill",
+      cssWidth: 256,
+      cssHeight: 220,
+      pixelRatio: 1.5,
+      extent: undefined,
+    });
+    expect(fill.ok).toBe(true);
+    if (!fill.ok) return;
+    const expanded = planNativeFillPresentationExtent({
+      fill: fill.plan,
+      foreground: [
+        {
+          rect: { x: -12.2, y: -5.1, width: 20, height: 10 },
+          clip: { x: -12.2, y: -5.1, width: 20, height: 10 },
+        },
+        {
+          rect: { x: 200, y: 10, width: 500, height: 20 },
+          clip: { x: 200, y: 10, width: 56, height: 20 },
+        },
+      ],
+      maxDimension: 4096,
+      maxPixels: 8_388_608,
+    });
+    expect(expanded).toMatchObject({
+      ok: true,
+      plan: {
+        sourceWidth: 384,
+        sourceHeight: 330,
+        left: 19,
+        top: 8,
+        right: 0,
+        width: 403,
+        height: 338,
+      },
+    });
+    expect(fill.plan).toMatchObject({ width: 384, height: 330 });
+  });
+
+  it("reports a typed budget failure only for visible foreground overflow", () => {
+    const fill = planNativeEffectExtent({
+      ...base,
+      placement: "fill",
+      cssWidth: 256,
+      cssHeight: 220,
+      pixelRatio: 1,
+      extent: undefined,
+    });
+    expect(fill.ok).toBe(true);
+    if (!fill.ok) return;
+    expect(
+      planNativeFillPresentationExtent({
+        fill: fill.plan,
+        foreground: [
+          {
+            rect: { x: 208, y: 20, width: 5000, height: 100 },
+            clip: { x: 208, y: 20, width: 5000, height: 100 },
+          },
+        ],
+        maxDimension: 4096,
+        maxPixels: 8_388_608,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "fill-foreground-extent-budget-exceeded",
+    });
+  });
   it("matches the physical capture ROI at fractional density for an expanded Fill", () => {
     const result = planNativeEffectExtent({
       ...base,

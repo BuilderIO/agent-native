@@ -270,6 +270,14 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
     "data-an-native-simulation-step",
     "data-an-native-simulation-target-step",
     "data-an-native-particle-count",
+    "data-an-native-stateful-dropped-steps",
+    "data-an-native-stateful-dropped-seconds",
+    "data-an-native-feedback-playback",
+    "data-an-native-feedback-dropped-seconds",
+    "data-an-native-feedback-requested-seconds",
+    "data-an-native-feedback-simulated-seconds",
+    "data-an-native-feedback-completed-step",
+    "data-an-native-feedback-runtime-epoch",
     "data-an-native-source-idle-diagnostic",
   ]);
   function isNativeTelemetryAttribute(record) {
@@ -293,6 +301,17 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
   function touchesAuthoredContent(records) {
     for (var i = 0; i < records.length; i++) {
       var record = records[i];
+      if (
+        record.type === "attributes" &&
+        record.oldValue === (
+          record.attributeNamespace
+            ? record.target.getAttributeNS(
+                record.attributeNamespace,
+                record.attributeName,
+              )
+            : record.target.getAttribute(record.attributeName)
+        )
+      ) continue;
       if (isChromeNode(record.target)) continue;
       if (isNativePresentationNode(record.target)) continue;
       if (isNativeTelemetryAttribute(record)) continue;

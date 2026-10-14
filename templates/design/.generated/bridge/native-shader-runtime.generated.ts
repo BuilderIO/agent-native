@@ -6373,6 +6373,43 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
   };
 
+  // shared/css-box-shadow.ts
+  function splitTopLevelCommas(value) {
+    const parts = [];
+    let depth = 0;
+    let current = "";
+    for (const ch of value) {
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (ch === "," && depth === 0) {
+        parts.push(current.trim());
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  }
+  var LENGTH_RE = /(-?[\\d.]+)px/g;
+  function parseComputedBoxShadow(value) {
+    if (!value || value === "none") return [];
+    return splitTopLevelCommas(value).map((part) => {
+      const inset = /\\binset\\b/.test(part);
+      const withoutInset = part.replace(/\\binset\\b/g, "").trim();
+      const colorMatch = withoutInset.match(
+        /^(rgba?\\([^)]*\\)|#[0-9a-fA-F]{3,8}|[a-zA-Z]+)/
+      );
+      const color = colorMatch ? colorMatch[0] : "rgb(0, 0, 0)";
+      const rest = colorMatch ? withoutInset.slice(colorMatch[0].length) : withoutInset;
+      const lengths = Array.from(rest.matchAll(LENGTH_RE)).map(
+        (m) => Number.parseFloat(m[1])
+      );
+      const [offsetX = 0, offsetY = 0, blur = 0, spread = 0] = lengths;
+      return { offsetX, offsetY, blur, spread, color, inset };
+    });
+  }
+
   // shared/native-capture-cache.ts
   var NativeCaptureCacheError = class extends Error {
     constructor(code) {
@@ -6470,6 +6507,97 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.entry = null;
     }
   };
+
+  // shared/native-css-paint-outsets.ts
+  var PX_LENGTH = /^([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px$/;
+  var COMPUTED_COLOR_FUNCTION = /^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\\(/i;
+  var COMPUTED_COLOR_LITERAL = /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]+)(?=\\s|$)/;
+  var OUTLINE_STYLES = /* @__PURE__ */ new Set([
+    "none",
+    "hidden",
+    "auto",
+    "dotted",
+    "dashed",
+    "solid",
+    "double",
+    "groove",
+    "ridge",
+    "inset",
+    "outset"
+  ]);
+  function computedColorEnd(value) {
+    const functional = value.match(COMPUTED_COLOR_FUNCTION);
+    if (!functional)
+      return value.match(COMPUTED_COLOR_LITERAL)?.[0].length ?? null;
+    let depth = 0;
+    for (let index = functional[0].length - 1; index < value.length; index++) {
+      if (value[index] === "(") depth++;
+      if (value[index] === ")") depth--;
+      if (depth === 0) {
+        const next = value[index + 1];
+        return next === void 0 || /\\s/.test(next) ? index + 1 : null;
+      }
+    }
+    return null;
+  }
+  function computedPx(value) {
+    const match = value?.trim().match(PX_LENGTH);
+    if (!match) return null;
+    const number = Number(match[1]);
+    return Number.isFinite(number) ? number : null;
+  }
+  function validComputedShadow(part) {
+    const rest = part.replace(/\\binset\\b/g, "").trim();
+    const colorEnd = computedColorEnd(rest);
+    if (colorEnd === null) return false;
+    const lengths = rest.slice(colorEnd).trim().split(/\\s+/);
+    return lengths.length >= 2 && lengths.length <= 4 && lengths.every((length) => computedPx(length) !== null) && (lengths[2] === void 0 || computedPx(lengths[2]) >= 0);
+  }
+  function readNativeCssPaintOutsets(style, layer = "all") {
+    const outsets = {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0
+    };
+    const boxShadow = style.boxShadow?.trim();
+    if (!boxShadow) return { kind: "unreadable", property: "boxShadow" };
+    if (boxShadow !== "none") {
+      const parts = splitTopLevelCommas(boxShadow);
+      if (parts.length === 0 || parts.some((part) => !validComputedShadow(part))) {
+        return { kind: "unreadable", property: "boxShadow" };
+      }
+      for (const shadow of parseComputedBoxShadow(boxShadow)) {
+        if (shadow.inset) continue;
+        if (layer === "outline") continue;
+        const bleed = shadow.blur * 1.5 + Math.abs(shadow.spread) + 2;
+        outsets.left = Math.max(outsets.left, bleed - shadow.offsetX);
+        outsets.right = Math.max(outsets.right, bleed + shadow.offsetX);
+        outsets.top = Math.max(outsets.top, bleed - shadow.offsetY);
+        outsets.bottom = Math.max(outsets.bottom, bleed + shadow.offsetY);
+      }
+    }
+    const outlineStyle = style.outlineStyle?.trim();
+    if (!outlineStyle || !OUTLINE_STYLES.has(outlineStyle)) {
+      return { kind: "unreadable", property: "outlineStyle" };
+    }
+    if (outlineStyle !== "none" && outlineStyle !== "hidden") {
+      const width = computedPx(style.outlineWidth);
+      if (width === null || width < 0) {
+        return { kind: "unreadable", property: "outlineWidth" };
+      }
+      const offset = computedPx(style.outlineOffset);
+      if (offset === null) {
+        return { kind: "unreadable", property: "outlineOffset" };
+      }
+      const outside = layer === "outer-shadow" ? 0 : Math.max(0, width + offset);
+      outsets.top = Math.max(outsets.top, outside);
+      outsets.right = Math.max(outsets.right, outside);
+      outsets.bottom = Math.max(outsets.bottom, outside);
+      outsets.left = Math.max(outsets.left, outside);
+    }
+    return { kind: "ok", outsets };
+  }
 
   // shared/native-source-clip-plan.ts
   var MAX_NATIVE_SOURCE_CLIPS = 8;
@@ -8208,7 +8336,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
   function hasVisibleBoxPaint(style) {
     return style.backgroundImage !== "none" || // guard:allow-raw-color — this compares the browser's computed transparent pixel value.
-    style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent" || style.boxShadow !== "none" || [
+    style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent" || style.boxShadow !== "none" || style.outlineStyle && style.outlineStyle !== "none" && style.outlineStyle !== "hidden" || [
       style.borderTopWidth,
       style.borderRightWidth,
       style.borderBottomWidth,
@@ -8685,7 +8813,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
     return ancestors;
   }
-  function sourceClipPlan(element, target, space, includeOwnMedia, ownTextClipEdge = null, ownTextClipOutset = 0, ownMediaClipEdge = "content", suppliedReadStyle, memo) {
+  function sourceClipPlan(element, target, space, includeOwnMedia, ownTextClipEdge = null, ownTextClipOutset = 0, ownMediaClipEdge = "content", suppliedReadStyle, memo, allowVisibleTargetOverflow = false, visibleTargetRect, ignoreTargetOwnOverflow = false) {
     const styles = /* @__PURE__ */ new Map();
     const readStyle = suppliedReadStyle ?? ((element2) => {
       let style = styles.get(element2);
@@ -8832,7 +8960,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             \`source-\${targetOverflow.reason}\`,
             targetOverflow.detail
           );
-        if (targetOverflow.edge !== "none") {
+        if (targetOverflow.edge !== "none" && !ignoreTargetOwnOverflow) {
           append(target, targetOverflow.edge, false, targetOverflow.outset);
           const targetShape = allClips.pop();
           if (!targetShape)
@@ -8841,6 +8969,18 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
               "The target overflow clip has no projected geometry."
             );
           expandTargetClip(targetShape.rect);
+        } else if (allowVisibleTargetOverflow || ignoreTargetOwnOverflow) {
+          expandTargetClip(
+            visibleTargetRect ?? relativeAffine(
+              element,
+              target,
+              space,
+              void 0,
+              readStyle,
+              void 0,
+              memo
+            ).rect
+          );
         }
       }
     }
@@ -9172,7 +9312,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   function rasterOwnedStyleNodes(element, phase) {
     if (element instanceof SVGSVGElement)
       return [element, ...element.querySelectorAll("*")];
-    if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage")
+    if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage" || phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline")
       return [element];
     if (phase === "foreground" || phase === "glyph" || isSourceTextFlow(element))
       return [element, ...element.querySelectorAll("*")];
@@ -9306,6 +9446,18 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (typeof value !== "string") continue;
       add2(name, value);
     }
+    if (snapshot.outlineStyle !== "none" && snapshot.outlineStyle !== "hidden") {
+      for (const name of ["outline-width", "outline-offset"]) {
+        const camelName = name.replace(
+          /-([a-z])/g,
+          (_match, letter) => letter.toUpperCase()
+        );
+        const direct = live[camelName];
+        const canReadCssomProperty = typeof live.item === "function" && Number.isInteger(live.length);
+        const value = typeof direct === "string" ? direct : canReadCssomProperty ? live.getPropertyValue(name) : void 0;
+        if (typeof value === "string") add2(name, value);
+      }
+    }
     for (const name of [
       "overflow-clip-margin",
       "-webkit-mask-image",
@@ -9320,7 +9472,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
   function cloneOwnPaint(element, preserveNativeTextFlow = false, phase = "all", fillPaint, authoredTextPaint) {
     const boxPhase = phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage";
-    const clone = boxPhase ? document.createElement("div") : element.cloneNode(true);
+    const ownEffectPhase = phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline";
+    const clone = boxPhase || ownEffectPhase ? document.createElement("div") : element.cloneNode(true);
     for (const node of [clone, ...clone.querySelectorAll("*")]) {
       node.removeAttribute("data-an-native-fill-suppressed");
       node.removeAttribute("data-an-native-text-suppressed");
@@ -9329,7 +9482,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const fullTextFlow = phase === "foreground" || phase === "glyph" || phase === "all" && (preserveNativeTextFlow ? isPureTextFlow(element) : isSourceTextFlow(element));
     const ownText = !boxPhase && hasDirectText(element);
     if (fullTextFlow) preserveTextFlowStyles(element, clone);
-    for (let index = fullTextFlow || boxPhase ? -1 : element.children.length - 1; index >= 0; index -= 1) {
+    for (let index = fullTextFlow || boxPhase || ownEffectPhase ? -1 : element.children.length - 1; index >= 0; index -= 1) {
       const child = element.children[index];
       const copy = clone.children[index];
       const style = getComputedStyle(child);
@@ -9403,6 +9556,22 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       }
       clone.style.boxShadow = "none";
       clone.style.outlineColor = "transparent";
+    }
+    if (ownEffectPhase) {
+      clone.style.backgroundColor = "transparent";
+      clone.style.backgroundImage = "none";
+      clone.style.borderColor = "transparent";
+      clone.style.borderImageSource = "none";
+      clone.style.textShadow = "none";
+      if (phase === "outline") {
+        clone.style.boxShadow = "none";
+      } else {
+        const shadows = splitTopLevelCommas(getComputedStyle(element).boxShadow);
+        clone.style.boxShadow = shadows.filter(
+          (shadow) => /\\binset\\b/.test(shadow) === (phase === "inset-shadow")
+        ).join(", ") || "none";
+        clone.style.outlineColor = "transparent";
+      }
     }
     if (phase === "foreground" || phase === "glyph") {
       if (!isPureTextFlow(element))
@@ -9551,13 +9720,33 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       \`\${box} \${overflow.outset}px\`
     );
   }
+  function nativeOwnPaintCaptureBox(style, phase, size) {
+    if (phase !== "all" && phase !== "outer-shadow" && phase !== "outline")
+      return { x: 0, y: 0, ...size };
+    const result = readNativeCssPaintOutsets(
+      style,
+      phase === "all" ? "all" : phase
+    );
+    if (result.kind === "unreadable")
+      throw new NativeSourceError(
+        "source-paint-outset-unreadable",
+        \`Cannot resolve computed \${result.property} for source paint.\`
+      );
+    const { top, right, bottom, left } = result.outsets;
+    return {
+      x: left > 0 ? -left : 0,
+      y: top > 0 ? -top : 0,
+      width: size.width + left + right,
+      height: size.height + top + bottom
+    };
+  }
   async function rasterOwnPaint(element, canvas, density, phase = "all", fillPaint, glyphClone, glyphColors, authoredTextPaint) {
     const size = sizeOf(element);
-    const overflow = classifyNativeComputedOverflowClip(
-      getComputedStyle(element)
-    );
+    const style = getComputedStyle(element);
+    const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
+    const ownPaintBox = nativeOwnPaintCaptureBox(style, phase, size);
     const clipBox = overflow.edge === "none" ? { x: 0, y: 0, width: size.width, height: size.height } : sourceClipPlan(
       element,
       element,
@@ -9572,7 +9761,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         "The source capture clip has no local geometry."
       );
     const capture = planNativeCaptureRoi({
-      ownBox: { x: 0, y: 0, width: size.width, height: size.height },
+      ownBox: ownPaintBox,
       clipBox,
       density,
       maxDimension: 4096,
@@ -9592,7 +9781,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       authoredTextPaint
     );
     applyNativeCaptureOverflowClip(clone, overflow);
-    const canvasText = phase !== "background" && phase !== "border" && phase !== "coverage" && phase !== "inner-coverage" && (hasDirectText(element) || isSourceTextFlow(element) || phase === "foreground" || phase === "glyph") && nativeTextFlowUsesDocumentFont(element);
+    const canvasText = phase !== "background" && phase !== "border" && phase !== "coverage" && phase !== "inner-coverage" && phase !== "outer-shadow" && phase !== "inset-shadow" && phase !== "outline" && (hasDirectText(element) || isSourceTextFlow(element) || phase === "foreground" || phase === "glyph") && nativeTextFlowUsesDocumentFont(element);
     if (canvasText) {
       if (!isPureTextFlow(element))
         throw new NativeSourceError(
@@ -9648,15 +9837,15 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       context.translate(capture.plan.pixelOffset.x, capture.plan.pixelOffset.y);
       context.fillStyle = OPAQUE_COVERAGE_COLOR;
       if (phase === "coverage") {
-        const style = getComputedStyle(element);
+        const style2 = getComputedStyle(element);
         const radii = resolveNativeClipRadii({
           width: size.width,
           height: size.height,
           cssPixelScale: 1,
-          topLeft: style.borderTopLeftRadius,
-          topRight: style.borderTopRightRadius,
-          bottomRight: style.borderBottomRightRadius,
-          bottomLeft: style.borderBottomLeftRadius
+          topLeft: style2.borderTopLeftRadius,
+          topRight: style2.borderTopRightRadius,
+          bottomRight: style2.borderBottomRightRadius,
+          bottomLeft: style2.borderBottomLeftRadius
         });
         if (!radii.ok)
           throw new NativeSourceError("source-clip-unreadable", radii.detail);
@@ -10190,6 +10379,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         return true;
       if (this.placement === "layer")
         return this.target !== document.documentElement && !(this.groupLocalBackdropSource && this.target.contains(element));
+      if (this.placement === "fill")
+        return !this.target.contains(element) || !this.target.contains(nativeBackdropReceiver(element));
       if (!this.backdropPresentation || element === this.backdropPresentation)
         return true;
       return !(element.compareDocumentPosition(this.backdropPresentation) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -10319,18 +10510,18 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       return false;
     }
     setGroupLocalBackdropSource(enabled) {
-      if (this.placement !== "layer" || this.groupLocalBackdropSource === enabled)
+      if (this.placement !== "layer" && this.placement !== "fill" || this.groupLocalBackdropSource === enabled)
         return;
       this.groupLocalBackdropSource = enabled;
       this.invalidateAll("explicit");
     }
     groupLocalBackdropReceiver(element) {
-      if (this.placement !== "layer" || !this.groupLocalBackdropSource || !(element instanceof HTMLCanvasElement) || !element.hasAttribute("data-an-native-backdrop-presentation") || !element.getAttribute("data-an-native-canvas") || !this.target.contains(element))
+      if (this.placement !== "layer" && this.placement !== "fill" || !this.groupLocalBackdropSource || !(element instanceof HTMLCanvasElement) || !element.hasAttribute("data-an-native-backdrop-presentation") || !element.getAttribute("data-an-native-canvas") || !this.target.contains(element))
         return null;
       return nativeBackdropReceiver(element);
     }
     groupLocalBackdropClipState(canvas) {
-      if (this.disposed || this.placement !== "layer" || !this.groupLocalBackdropSource || !canvas.isConnected || !this.target.contains(canvas) || !canvas.hasAttribute("data-an-native-backdrop-presentation"))
+      if (this.disposed || this.placement !== "layer" && this.placement !== "fill" || !this.groupLocalBackdropSource || !canvas.isConnected || !this.target.contains(canvas) || !canvas.hasAttribute("data-an-native-backdrop-presentation"))
         throw new NativeSourceError(
           "source-group-local-chain-unsupported",
           "source-group-local-chain-unsupported"
@@ -10659,7 +10850,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "Overlapping source paint crosses an explicit CSS z-index context."
         );
     }
-    recordSvg(element, out, metrics, memo) {
+    recordSvg(element, out, metrics, memo, allowVisibleTargetOverflow = false) {
       assertLeafSupported(
         element,
         this.coordinateSpace === "target-local" ? this.target : void 0
@@ -10712,7 +10903,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         0,
         "content",
         void 0,
-        memo
+        memo,
+        allowVisibleTargetOverflow
       );
       const isolationPath = this.isolationPath(
         element,
@@ -10806,10 +10998,16 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         }
       );
     }
-    record(element, out, paintPhase = "all", metrics, memo) {
+    record(element, out, paintPhase = "all", metrics, memo, allowVisibleTargetOverflow = false) {
       if (!element.isConnected || this.omit(element)) return;
       if (element instanceof SVGSVGElement)
-        return this.recordSvg(element, out, metrics, memo);
+        return this.recordSvg(
+          element,
+          out,
+          metrics,
+          memo,
+          allowVisibleTargetOverflow
+        );
       if (element instanceof SVGElement)
         throw new NativeSourceError(
           "source-inline-svg",
@@ -10906,7 +11104,17 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           \`source-\${ownOverflow.reason}\`,
           ownOverflow.detail
         );
-      const boxPhase = paintPhase === "background" || paintPhase === "border" || paintPhase === "coverage" || paintPhase === "inner-coverage";
+      const boxPhase = paintPhase === "background" || paintPhase === "border" || paintPhase === "coverage" || paintPhase === "inner-coverage" || paintPhase === "outer-shadow" || paintPhase === "inset-shadow" || paintPhase === "outline";
+      const fillOwnEffectPhase = paintPhase === "outer-shadow" || paintPhase === "inset-shadow" || paintPhase === "outline";
+      const paintedBounds = (paintPhase === "all" || fillOwnEffectPhase) && !media && !nativeInstanceId && (style.boxShadow !== "none" || style.outlineStyle !== "none" && style.outlineStyle !== "hidden") ? relativeAffine(
+        element,
+        this.target,
+        this.coordinateSpace,
+        nativeOwnPaintCaptureBox(style, paintPhase, ownSize),
+        readRecordStyle,
+        ownSize,
+        memo
+      ).rect : void 0;
       const backdropReceiver = nativeInstanceId && element.hasAttribute("data-an-native-backdrop-presentation") ? groupLocalReceiver ?? nativeBackdropReceiver(element) : null;
       const sourceClip = sourceClipPlan(
         backdropReceiver ?? element,
@@ -10917,7 +11125,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         0,
         backdropReceiver ? "border" : "content",
         readRecordStyle,
-        memo
+        memo,
+        allowVisibleTargetOverflow || fillOwnEffectPhase,
+        paintedBounds,
+        fillOwnEffectPhase
       );
       const contentVisible = sourceClip.clip.width > 0 && sourceClip.clip.height > 0;
       const hasMediaBackground = media && mediaHasSolidBackground(element, style);
@@ -11192,8 +11403,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             "source-clip-unreadable",
             "The source capture clip has no local geometry."
           );
+        const ownPaintBox = nativeOwnPaintCaptureBox(style, paintPhase, size);
         const expectedCapture = planNativeCaptureRoi({
-          ownBox: { x: 0, y: 0, width: size.width, height: size.height },
+          ownBox: ownPaintBox,
           clipBox: ownClip,
           density: this.density,
           maxDimension: 4096,
@@ -11208,7 +11420,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           this.readSceneLeaf(leaf, metrics, paintPhase, memo),
           (source) => {
             const capture = nativeCaptureRoi(source);
-            if (!capture && ownOverflow.outset > 0)
+            const expandedOwnPaint = ownPaintBox.x < 0 || ownPaintBox.y < 0 || ownPaintBox.width > size.width || ownPaintBox.height > size.height;
+            if (!capture && (ownOverflow.outset > 0 || expandedOwnPaint))
               throw new NativeSourceError(
                 "source-capture-geometry-missing",
                 "The DOM raster has no committed source origin."
@@ -11216,7 +11429,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             assertCurrentCaptureRoi(
               capture,
               expectedCapture.plan,
-              ownOverflow.outset > 0
+              ownOverflow.outset > 0 || expandedOwnPaint
             );
             if (capture && metrics) metrics.recordDirectAffineReads += 1;
             const capturedGeometryResult = planNativeSourceAffine({
@@ -11246,15 +11459,15 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         );
       }
     }
-    walk(element, out, metrics, memo) {
+    walk(element, out, metrics, memo, allowVisibleTargetOverflow = false) {
       const result = runSourceWalkSteps(
-        this.walkSteps(element, out, metrics, memo),
+        this.walkSteps(element, out, metrics, memo, allowVisibleTargetOverflow),
         memo
       );
       if (result && typeof result.then === "function")
         return result.then(() => void 0);
     }
-    *walkSteps(element, out, metrics, memo) {
+    *walkSteps(element, out, metrics, memo, allowVisibleTargetOverflow = false) {
       let crossedAsyncBoundary = false;
       let initialSize;
       if (this.omit(element)) return false;
@@ -11317,9 +11530,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         };
         if (metrics) metrics.walkDirectAffineReads += 1;
         const presentationGeometry = relativeAffine(
-          layerInstance ? presentation : element,
+          presentation,
           this.target,
-          element === this.target && layerInstance ? "target-local-global" : this.coordinateSpace,
+          element === this.target && replacementInstance ? "target-local-global" : this.coordinateSpace,
           void 0,
           getComputedStyle,
           void 0,
@@ -11335,7 +11548,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           0,
           "content",
           void 0,
-          memo
+          memo,
+          allowVisibleTargetOverflow || !!fillInstance,
+          fillInstance ? presentationGeometry.rect : void 0,
+          element === this.target && !!fillInstance
         );
         const isolationPath = this.isolationPath(
           element,
@@ -11378,15 +11594,35 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       );
       const boxBeforeNativeFill = fillCanvases.length > 0 && element instanceof HTMLElement && !hasDirectText(element);
       if (boxBeforeNativeFill) {
-        if (yield this.record(element, out, "all", metrics, memo))
+        if (yield this.record(
+          element,
+          out,
+          "all",
+          metrics,
+          memo,
+          allowVisibleTargetOverflow
+        ))
           crossedAsyncBoundary = true;
       }
       for (const fill of fillCanvases) {
-        if (yield* this.walkSteps(fill, out, metrics, memo))
+        if (yield* this.walkSteps(
+          fill,
+          out,
+          metrics,
+          memo,
+          allowVisibleTargetOverflow
+        ))
           crossedAsyncBoundary = true;
       }
       if (!boxBeforeNativeFill) {
-        if (yield this.record(element, out, "all", metrics, memo))
+        if (yield this.record(
+          element,
+          out,
+          "all",
+          metrics,
+          memo,
+          allowVisibleTargetOverflow
+        ))
           crossedAsyncBoundary = true;
       }
       if (element instanceof SVGSVGElement) return crossedAsyncBoundary;
@@ -11408,7 +11644,13 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       for (const child of element.children)
         if (!(captureTargetContent && child.hasAttribute("data-an-native-canvas")) && !fillCanvases.includes(child) && !(hasDirectText(element) && isInlineFlowChild(child))) {
           const records = [];
-          if (yield* this.walkSteps(child, records, metrics, memo))
+          if (yield* this.walkSteps(
+            child,
+            records,
+            metrics,
+            memo,
+            allowVisibleTargetOverflow
+          ))
             crossedAsyncBoundary = true;
           if (records.length) childGroups.push(records);
         }
@@ -11490,7 +11732,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         });
       }
     }
-    *readSceneWalkSteps(path, out, metrics, memo) {
+    *readSceneWalkSteps(path, out, metrics, memo, fillPrefix) {
       if (this.placement === "layer") {
         if (this.targetCapture === "appearance")
           this.recordTargetBackdropPresentations(out, metrics, memo);
@@ -11498,12 +11740,98 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         return;
       }
       for (let index = 0; index < path.length - 1; index += 1) {
-        yield this.record(path[index], out, "all", metrics, memo);
+        if (path[index] === fillPrefix?.ancestor)
+          this.recordAncestorFillPrefix(fillPrefix, out, metrics, memo);
+        else yield this.record(path[index], out, "all", metrics, memo);
         for (const sibling of path[index].children) {
           if (sibling === path[index + 1]) break;
           yield* this.walkSteps(sibling, out, metrics, memo);
         }
       }
+    }
+    recordAncestorFillPrefix(prefix, out, metrics, memo) {
+      const readStyle = (node) => {
+        let style2 = memo.styles.get(node);
+        if (!style2) {
+          style2 = snapshotComputedStyle(node);
+          memo.styles.set(node, style2);
+          if (metrics) metrics.recordDirectStyleReads += 1;
+        }
+        return style2;
+      };
+      const style = readStyle(prefix.ancestor);
+      if (style.display === "none" || style.visibility !== "visible" || !prefix.ancestor.isConnected)
+        throw new NativeSourceError(
+          "fill-prefix-unavailable",
+          "The staged Fill prefix is no longer visible."
+        );
+      assertLeafSupported(prefix.ancestor, void 0, readStyle);
+      if (metrics) metrics.recordDirectLayoutSizeReads += 1;
+      const size = sourceLayoutSize(
+        prefix.ancestor,
+        this.target,
+        this.coordinateSpace,
+        memo
+      );
+      if (hasEmptySourceLayout(size))
+        throw new NativeSourceError(
+          "fill-prefix-unavailable",
+          "The staged Fill prefix has no current layout box."
+        );
+      if (metrics) metrics.recordDirectAffineReads += 1;
+      const geometry = relativeAffine(
+        prefix.ancestor,
+        this.target,
+        this.coordinateSpace,
+        prefix.localBox,
+        readStyle,
+        size,
+        memo
+      );
+      const sourceClip = sourceClipPlan(
+        prefix.ancestor,
+        this.target,
+        this.coordinateSpace,
+        false,
+        null,
+        0,
+        "content",
+        readStyle,
+        memo,
+        true,
+        geometry.rect
+      );
+      const isolationPath = this.isolationPath(
+        prefix.ancestor,
+        sourceClip.groupClips,
+        false,
+        false,
+        readStyle
+      );
+      if (!isolationPath || geometry.rect.width <= 0 || geometry.rect.height <= 0 || sourceClip.clip.width <= 0 || sourceClip.clip.height <= 0)
+        return;
+      out.push({
+        key: this.id(prefix.ancestor),
+        node: prefix.ancestor,
+        kind: "native",
+        sourceRole: "ancestor-fill-prefix",
+        nativeInstanceId: prefix.instanceId,
+        width: prefix.width,
+        height: prefix.height,
+        revision: prefix.revision,
+        coordinateSpace: this.coordinateSpace,
+        rect: geometry.rect,
+        localBox: geometry.localBox,
+        localToTarget: geometry.localToTarget,
+        clip: sourceClip.clip,
+        clips: sourceClip.clips,
+        groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+          id: \`clip:\${this.id(node)}\`,
+          clip
+        })),
+        isolationPath,
+        opacity: 1
+      });
     }
     viewportBackground() {
       if (this.placement === "layer" && this.target !== document.documentElement)
@@ -11594,6 +11922,36 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     async readFillBackground(paint) {
       return this.readFillBoxPhase(paint, "background");
     }
+    async readFillOwnPaintPhase(phase) {
+      if (this.disposed)
+        throw new NativeSourceError(
+          "source-disposed",
+          "The source provider was disposed."
+        );
+      if (this.placement !== "fill")
+        throw new NativeSourceError(
+          "source-placement-invalid",
+          "Only a Fill target has authored box paint."
+        );
+      const style = getComputedStyle(this.target);
+      const outsets = readNativeCssPaintOutsets(style);
+      if (outsets.kind === "unreadable")
+        throw new NativeSourceError(
+          "source-paint-outset-unreadable",
+          \`Cannot resolve computed \${outsets.property} for source paint.\`
+        );
+      const shadows = style.boxShadow === "none" ? [] : splitTopLevelCommas(style.boxShadow);
+      const present = phase === "outline" ? style.outlineStyle !== "none" && style.outlineStyle !== "hidden" && Number.parseFloat(style.outlineWidth) > 0 : shadows.some(
+        (shadow) => /\\binset\\b/.test(shadow) === (phase === "inset-shadow")
+      );
+      this.readSceneCalls += 1;
+      const out = [];
+      if (!present) return this.markReplayRead(out);
+      if (!this.fillBoxIds.has(phase)) this.fillBoxIds.set(phase, this.nextId++);
+      await this.record(this.target, out, phase);
+      this.assertSourceComposition(out);
+      return this.markReplayRead(out);
+    }
     async readFillBoxPhase(paint, phase) {
       if (this.disposed)
         throw new NativeSourceError(
@@ -11606,16 +11964,6 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "Only a Fill target has an authored background capture."
         );
       const style = getComputedStyle(this.target);
-      if (style.boxShadow && style.boxShadow !== "none")
-        throw new NativeSourceError(
-          "fill-shadow-extent-unsupported",
-          "The authored Fill shadow extends beyond the bounded target output."
-        );
-      if (style.outlineStyle && style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0)
-        throw new NativeSourceError(
-          "fill-outline-extent-unsupported",
-          "The authored Fill outline extends beyond the bounded target output."
-        );
       if (style.borderImageOutset && style.borderImageOutset.split(/\\s+/).some((value) => Number.parseFloat(value) > 0))
         throw new NativeSourceError(
           "fill-border-image-extent-unsupported",
@@ -11698,9 +12046,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         );
       const groups = [];
       for (const child of this.target.children) {
-        if (child.matches(OMIT)) continue;
+        if (this.omit(child)) continue;
         const records = [];
-        await this.walk(child, records);
+        await this.walk(child, records, void 0, void 0, true);
         if (records.length) groups.push(records);
       }
       const out = orderAutoStackingSiblingPaint(this.target, groups).flat();
@@ -11708,17 +12056,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const overflow = classifyNativeComputedOverflowClip(style);
       if (!overflow.ok)
         throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
-      if (overflow.edge === "none" && out.some(
-        (record5) => record5.rect.x < -0.01 || record5.rect.y < -0.01 || record5.rect.x + record5.rect.width > this.target.offsetWidth + 0.01 || record5.rect.y + record5.rect.height > this.target.offsetHeight + 0.01
-      ))
-        throw new NativeSourceError(
-          "fill-foreground-extent-unsupported",
-          "A visible Fill descendant escapes the bounded target output."
-        );
       this.assertSourceComposition(out);
       return this.markReplayRead(out);
     }
-    async readScene(metrics, callSite = "other") {
+    async readScene(metrics, callSite = "other", fillPrefix) {
       if (this.disposed)
         throw new NativeSourceError(
           "source-disposed",
@@ -11750,9 +12091,25 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         if (this.placement !== "layer")
           for (let node = this.target; node; node = node.parentElement)
             path.unshift(node);
+        if (fillPrefix) {
+          const box = fillPrefix.localBox;
+          const publishedInstance = fillPrefix.ancestor.getAttribute(
+            "data-an-native-fill-instance"
+          );
+          if (this.placement !== "backdrop" || !path.slice(0, -1).includes(fillPrefix.ancestor) || !fillPrefix.instanceId || typeof fillPrefix.unpublished !== "boolean" || (publishedInstance === null ? !fillPrefix.unpublished : publishedInstance !== fillPrefix.instanceId) || ![
+            fillPrefix.width,
+            fillPrefix.height,
+            fillPrefix.revision,
+            fillPrefix.authoredSourceEpoch
+          ].every((value) => Number.isSafeInteger(value) && value >= 0) || fillPrefix.width < 1 || fillPrefix.height < 1 || fillPrefix.width > 4096 || fillPrefix.height > 4096 || fillPrefix.width * fillPrefix.height > 8388608 || ![box.x, box.y, box.width, box.height].every(Number.isFinite) || box.width <= 0 || box.height <= 0 || this.authoredSourceGeneration !== fillPrefix.authoredSourceEpoch)
+            throw new NativeSourceError(
+              "fill-prefix-stale",
+              "The staged Fill prefix no longer matches its Backdrop source."
+            );
+        }
         try {
           const traversal = runSourceWalkSteps(
-            this.readSceneWalkSteps(path, out, metrics, memo),
+            this.readSceneWalkSteps(path, out, metrics, memo, fillPrefix),
             memo
           );
           if (traversal) await traversal;
@@ -11795,6 +12152,11 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           throw new NativeSourceError(
             "input-authored-source-stale",
             "The authored text style changed during capture."
+          );
+        if (fillPrefix && this.authoredSourceGeneration !== fillPrefix.authoredSourceEpoch)
+          throw new NativeSourceError(
+            "fill-prefix-stale",
+            "The staged Fill prefix changed during Backdrop capture."
           );
         return this.markReplayRead(out);
       } finally {
@@ -13136,6 +13498,66 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         bottom,
         left,
         expanded: previous.expanded || own2.plan.expanded
+      }
+    };
+  }
+  function planNativeFillPresentationExtent(input) {
+    const { fill, foreground, maxDimension, maxPixels } = input;
+    let left = fill.left;
+    let top = fill.top;
+    let right = fill.right;
+    let bottom = fill.bottom;
+    for (const { rect, clip } of foreground) {
+      if ([
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        clip.x,
+        clip.y,
+        clip.width,
+        clip.height
+      ].some((value) => !Number.isFinite(value)) || rect.width < 0 || rect.height < 0 || clip.width < 0 || clip.height < 0)
+        return {
+          ok: false,
+          code: "fill-foreground-extent-invalid",
+          detail: "A Fill foreground has invalid output geometry."
+        };
+      const x = Math.max(rect.x, clip.x);
+      const y = Math.max(rect.y, clip.y);
+      const rightEdge = Math.min(rect.x + rect.width, clip.x + clip.width);
+      const bottomEdge = Math.min(rect.y + rect.height, clip.y + clip.height);
+      if (rightEdge <= x || bottomEdge <= y) continue;
+      left = Math.max(left, Math.max(0, -Math.floor(x * fill.pixelRatio)));
+      top = Math.max(top, Math.max(0, -Math.floor(y * fill.pixelRatio)));
+      right = Math.max(
+        right,
+        Math.max(0, Math.ceil(rightEdge * fill.pixelRatio) - fill.sourceWidth)
+      );
+      bottom = Math.max(
+        bottom,
+        Math.max(0, Math.ceil(bottomEdge * fill.pixelRatio) - fill.sourceHeight)
+      );
+    }
+    const width = fill.sourceWidth + left + right;
+    const height = fill.sourceHeight + top + bottom;
+    if (![left, top, right, bottom, width, height].every(Number.isSafeInteger) || width > maxDimension || height > maxDimension || width * height > maxPixels)
+      return {
+        ok: false,
+        code: "fill-foreground-extent-budget-exceeded",
+        detail: "The visible Fill foreground exceeds the supported output bounds."
+      };
+    return {
+      ok: true,
+      plan: {
+        ...fill,
+        left,
+        top,
+        right,
+        bottom,
+        width,
+        height,
+        expanded: fill.expanded || foreground.length > 0 && (left !== fill.left || top !== fill.top || right !== fill.right || bottom !== fill.bottom)
       }
     };
   }
@@ -15200,6 +15622,8 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     const finalStep = steps.length ? steps[steps.length - 1] : completedStep;
     let submitted = false;
     let closed = false;
+    let settling = false;
+    let settled = false;
     let released = false;
     const release = () => {
       if (released) return;
@@ -15213,6 +15637,47 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         );
       closed = true;
     };
+    const settle = async (validateBeforeCommit) => {
+      if (!submitted || closed || settling || settled)
+        throw new NativeSimulationTransactionError(
+          "simulation-transaction-closed"
+        );
+      settling = true;
+      try {
+        try {
+          await options.onSubmittedWorkDone();
+        } catch (cause) {
+          throw new NativeSimulationTransactionError(
+            "simulation-device-lost",
+            cause
+          );
+        }
+        if (closed)
+          throw new NativeSimulationTransactionError(
+            "simulation-transaction-closed"
+          );
+        validateBeforeCommit?.();
+        settled = true;
+      } finally {
+        settling = false;
+        if (!settled && !closed) {
+          closed = true;
+          release();
+        }
+      }
+    };
+    const promote = () => {
+      if (!settled || closed)
+        throw new NativeSimulationTransactionError(
+          "simulation-transaction-closed"
+        );
+      close();
+      try {
+        options.promote(finalBank, finalStep);
+      } finally {
+        release();
+      }
+    };
     return {
       bankSteps,
       finalBank,
@@ -15224,26 +15689,11 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
           );
         submitted = true;
       },
+      settle,
+      promote,
       async commit(validateBeforeCommit) {
-        if (!submitted || closed)
-          throw new NativeSimulationTransactionError(
-            "simulation-transaction-closed"
-          );
-        close();
-        try {
-          try {
-            await options.onSubmittedWorkDone();
-          } catch (cause) {
-            throw new NativeSimulationTransactionError(
-              "simulation-device-lost",
-              cause
-            );
-          }
-          validateBeforeCommit?.();
-          options.promote(finalBank, finalStep);
-        } finally {
-          release();
-        }
+        await settle(validateBeforeCommit);
+        promote();
       },
       async abandon() {
         if (closed) return;
@@ -15716,6 +16166,8 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       );
       let closed = false;
       let submitted = false;
+      let settling = false;
+      let settled = false;
       this.busy = true;
       try {
         if (this.completed < 0) {
@@ -15862,6 +16314,50 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
           releaseLease();
           this.busy = false;
         };
+        const settle = async (validateBeforeCommit) => {
+          if (closed || settling || settled)
+            throw new NativeStatefulResourceError("stateful-busy");
+          settling = true;
+          try {
+            try {
+              await this.device.queue.onSubmittedWorkDone();
+            } catch (error) {
+              this.faulted = true;
+              throw new NativeStatefulResourceError(
+                "stateful-device-lost",
+                error
+              );
+            }
+            if (closed || this.disposed || this.faulted)
+              throw new NativeStatefulResourceError("stateful-device-lost");
+            validateBeforeCommit?.();
+            settled = true;
+          } finally {
+            settling = false;
+            if (!settled && !closed) {
+              closed = true;
+              release();
+            }
+          }
+        };
+        const promote = () => {
+          if (closed || !settled)
+            throw new NativeStatefulResourceError("stateful-busy");
+          closed = true;
+          try {
+            this.committedBank = finalBank;
+            this.completed = finalStep;
+            this.committedSeed = committedSeed;
+            this.committedSourceIdentity = committedSourceIdentity;
+            this.committedSourceRevision = committedSourceRevision;
+            this.committedSourceEpoch = committedSourceEpoch;
+            this.committedInputEpochs = this.abi !== "stateful-resource-v1" ? Object.fromEntries(
+              [...inputEpochs].sort(([a], [b]) => a.localeCompare(b))
+            ) : null;
+          } finally {
+            release();
+          }
+        };
         return {
           output: result,
           completedStep: finalStep,
@@ -15887,34 +16383,11 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               release();
             }
           },
+          settle,
+          promote,
           commit: async (validateBeforeCommit) => {
-            if (closed) throw new NativeStatefulResourceError("stateful-busy");
-            closed = true;
-            try {
-              try {
-                await this.device.queue.onSubmittedWorkDone();
-              } catch (error) {
-                this.faulted = true;
-                throw new NativeStatefulResourceError(
-                  "stateful-device-lost",
-                  error
-                );
-              }
-              if (this.disposed || this.faulted)
-                throw new NativeStatefulResourceError("stateful-device-lost");
-              validateBeforeCommit?.();
-              this.committedBank = finalBank;
-              this.completed = finalStep;
-              this.committedSeed = committedSeed;
-              this.committedSourceIdentity = committedSourceIdentity;
-              this.committedSourceRevision = committedSourceRevision;
-              this.committedSourceEpoch = committedSourceEpoch;
-              this.committedInputEpochs = this.abi !== "stateful-resource-v1" ? Object.fromEntries(
-                [...inputEpochs].sort(([a], [b]) => a.localeCompare(b))
-              ) : null;
-            } finally {
-              release();
-            }
+            await settle(validateBeforeCommit);
+            promote();
           }
         };
       } catch (error) {
@@ -17168,6 +17641,34 @@ struct VOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   let remaining = 1.0 - clamp(front.a, 0.0, 1.0);
   if (draw.viewport.z > 0.5) { return cssSourceOver(front, back); }
   return vec4f(front.rgb + back.rgb * remaining, front.a + back.a * remaining);
+}\`;
+  var fillPresentationWgsl = \`
+struct Draw { viewport: vec4f, origin: vec4f };
+@group(0) @binding(0) var<uniform> draw: Draw;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var children: texture_2d<f32>;
+@group(0) @binding(3) var fill: texture_2d<f32>;
+struct VOut { @builtin(position) position: vec4f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VOut {
+  let xy = array<vec2f, 6>(vec2f(0,0), vec2f(1,0), vec2f(0,1), vec2f(0,1), vec2f(1,0), vec2f(1,1))[i];
+  var out: VOut;
+  out.position = vec4f(2.0 * xy.x - 1.0, 1.0 - 2.0 * xy.y, 0.0, 1.0);
+  return out;
+}
+\${cssPremultBlendWgsl}
+@fragment fn fs(input: VOut) -> @location(0) vec4f {
+  let pixel = vec2i(input.position.xy);
+  let fillPixel = pixel - vec2i(draw.origin.xy);
+  var back = vec4f(0.0);
+  if (all(fillPixel >= vec2i(0)) && all(fillPixel < vec2i(textureDimensions(fill)))) {
+    back = textureLoad(fill, fillPixel, 0);
+  }
+  let front = textureSampleLevel(children, samp, (vec2f(pixel) + vec2f(0.5)) / draw.viewport.xy, 0.0);
+  let top = select(front, back, draw.origin.z > 0.5);
+  let below = select(back, front, draw.origin.z > 0.5);
+  let remaining = 1.0 - clamp(top.a, 0.0, 1.0);
+  if (draw.viewport.z > 0.5) { return cssSourceOver(top, below); }
+  return vec4f(top.rgb + below.rgb * remaining, top.a + below.a * remaining);
 }\`;
   var fillCoveredUnderlayWgsl = \`
 struct Draw { viewport: vec4f, cssBlend: vec4f };
@@ -20165,9 +20666,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.destroyUniform(entry.buffer);
     }
     groupLocalNoncontributing(mount) {
-      const owners = this.enclosingLayerMounts(mount.target);
-      if (owners.length !== 1) return false;
-      const owner = owners[0];
+      const owner = this.nestedBackdropOwner(mount.target);
+      if (!owner) return false;
       if (!owner.outputTexture || !owner.groupLocalNoncontributingChildren.has(mount.instance.id))
         return false;
       if (!owner.provider)
@@ -20179,14 +20679,27 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     representedNativeInstances(directIds) {
       const represented = new Set(directIds);
-      for (const id of directIds) {
+      const pending = [...directIds];
+      const addCommitted = (childId) => {
+        if (represented.has(childId)) return;
+        represented.add(childId);
+        pending.push(childId);
+      };
+      for (let index = 0; index < pending.length; index += 1) {
+        const id = pending[index];
         const parent = this.mounts.get(id);
+        if (parent?.instance.placement === "fill" && parent.outputTexture)
+          for (const childId of parent.fillCommittedNativeChildren) {
+            const child = this.mounts.get(childId);
+            if (child?.outputTexture && parent.target.contains(child.target))
+              addCommitted(childId);
+          }
         if (parent?.instance.placement !== "layer" || !parent.outputTexture || !parent.target.hasAttribute("data-an-native-layer-group-local-source"))
           continue;
         for (const childId of parent.groupLocalCommittedChildren) {
           const child = this.mounts.get(childId);
           if (child?.instance.placement === "backdrop" && child.outputTexture && parent.target.contains(child.target))
-            represented.add(childId);
+            addCommitted(childId);
         }
       }
       return represented;
@@ -21943,10 +22456,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         outputTexture: null,
         groupLocalCommittedChildren: /* @__PURE__ */ new Set(),
         groupLocalNoncontributingChildren: /* @__PURE__ */ new Set(),
+        fillCommittedNativeChildren: /* @__PURE__ */ new Set(),
         width: 0,
         height: 0,
         pixelRatio: 1,
         outputExtent: null,
+        fillPresentationExtent: null,
         captureInsets: { top: 0, right: 0, bottom: 0, left: 0 },
         maskTexture: null,
         maskSignature: "",
@@ -22133,8 +22648,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const members = this.fillGroup(mount.target);
       const top = members.find((member) => member.isTopLayer);
       if (!top || mount.target.getAttribute("data-an-native-fill-instance") !== top.instance.id || !mount.target.hasAttribute("data-an-native-fill-suppressed") || members.some(
-        (member) => !member.suppressed || !member.outputTexture || !this.textureBytes.has(member.outputTexture) || member.outputTexture.width !== member.width || member.outputTexture.height !== member.height || member.frameCount === 0 || member.committedSourceEpoch === null || member.committedInstancePayload === null || member.committedDefinitionHash === null
-      ) || top.canvas.style.visibility !== "visible" || top.canvas.width !== top.width || top.canvas.height !== top.height)
+        (member) => !member.suppressed || !member.outputTexture || !this.textureBytes.has(member.outputTexture) || member.outputTexture.width !== (member === top ? member.fillPresentationExtent?.width ?? member.width : member.width) || member.outputTexture.height !== (member === top ? member.fillPresentationExtent?.height ?? member.height : member.height) || member.frameCount === 0 || member.committedSourceEpoch === null || member.committedInstancePayload === null || member.committedDefinitionHash === null
+      ) || top.canvas.style.visibility !== "visible" || top.canvas.width !== (top.fillPresentationExtent?.width ?? top.width) || top.canvas.height !== (top.fillPresentationExtent?.height ?? top.height))
         return false;
       return nativePresentationVisible(top.canvas, {
         width: innerWidth,
@@ -22282,8 +22797,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       else if (mount.instance.placement === "fill")
         this.syncFillPresentation(mount.target);
     }
-    suppressOriginal(mount) {
-      this.refreshAuthoredPaint(mount);
+    suppressOriginal(mount, paintReady = false) {
+      if (!paintReady) this.refreshAuthoredPaint(mount);
       if (mount.instance.placement === "fill") {
         this.presentFillGroup(mount);
         return;
@@ -22422,7 +22937,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         previous: previous?.outputExtent ?? void 0
       });
       if (!planned.ok) throw new NativeSourceError(planned.code, planned.detail);
-      const { width, height, left, top } = planned.plan;
+      const { width, height } = planned.plan;
+      if (mount.fillPresentationExtent && (mount.fillPresentationExtent.sourceWidth !== planned.plan.sourceWidth || mount.fillPresentationExtent.sourceHeight !== planned.plan.sourceHeight || mount.fillPresentationExtent.pixelRatio !== planned.plan.pixelRatio))
+        mount.fillPresentationExtent = null;
+      const presentationExtent = mount.instance.placement === "fill" && mount.isTopLayer ? mount.fillPresentationExtent ?? planned.plan : planned.plan;
+      const { left, top } = presentationExtent;
       mount.pixelRatio = dpr;
       mount.outputExtent = planned.plan;
       mount.captureInsets = captureInsets;
@@ -22435,7 +22954,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "fill-group-style-unsupported",
             "This Fill target's filter, blend, or mask needs atomic group composition."
           );
-        if (planned.plan.expanded) {
+        if (presentationExtent.expanded) {
           for (let node = mount.target; node; node = node.parentElement) {
             const transform = getComputedStyle(node);
             if (!supportsNativeOutput2D(transform))
@@ -22450,24 +22969,24 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           offsetTop: mount.target.offsetTop,
           width: mount.target.offsetWidth,
           height: mount.target.offsetHeight,
-          extent: planned.plan,
+          extent: presentationExtent,
           transformOrigin: style.transformOrigin
         });
-        if (planned.plan.expanded && !geometry)
+        if (presentationExtent.expanded && !geometry)
           throw new NativeSourceError(
             "effect-output-transform-unsupported",
             "Expanded output has an unsupported transform origin."
           );
         mount.canvas.style.left = \`\${geometry?.left ?? mount.target.offsetLeft - left / dpr}px\`;
         mount.canvas.style.top = \`\${geometry?.top ?? mount.target.offsetTop - top / dpr}px\`;
-        mount.canvas.style.width = \`\${geometry?.width ?? mount.target.offsetWidth + (left + planned.plan.right) / dpr}px\`;
-        mount.canvas.style.height = \`\${geometry?.height ?? mount.target.offsetHeight + (top + planned.plan.bottom) / dpr}px\`;
+        mount.canvas.style.width = \`\${geometry?.width ?? mount.target.offsetWidth + (left + presentationExtent.right) / dpr}px\`;
+        mount.canvas.style.height = \`\${geometry?.height ?? mount.target.offsetHeight + (top + presentationExtent.bottom) / dpr}px\`;
         mount.canvas.style.transform = style.transform;
         mount.canvas.style.translate = style.translate;
         mount.canvas.style.rotate = style.rotate;
         mount.canvas.style.scale = style.scale;
         mount.canvas.style.transformOrigin = geometry?.transformOrigin ?? style.transformOrigin;
-        mount.canvas.style.borderRadius = mount.instance.placement === "fill" || planned.plan.expanded ? "0" : style.borderRadius;
+        mount.canvas.style.borderRadius = mount.instance.placement === "fill" || presentationExtent.expanded ? "0" : style.borderRadius;
         if (mount.instance.placement === "fill")
           mount.canvas.style.opacity = mount.target.getAttribute("data-an-native-authored-opacity") ?? style.opacity;
         else if (mount.instance.placement === "layer")
@@ -22475,6 +22994,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.canvas.style.zIndex = style.zIndex === "auto" ? "auto" : style.zIndex;
       }
       if (mount.width !== width || mount.height !== height) {
+        if (mount.instance.placement === "fill" && mount.suppressed)
+          this.restoreFillGroup(mount.target, false);
         mount.staticGeneratorPassCache.invalidate();
         this.releaseSimulation(mount);
         this.releaseFeedback(mount);
@@ -22497,6 +23018,33 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           this.destroyUniform(binding.buffer);
         mount.drawBindings.clear();
       }
+      if (mount.canvas.width !== presentationExtent.width || mount.canvas.height !== presentationExtent.height) {
+        mount.canvas.width = presentationExtent.width;
+        mount.canvas.height = presentationExtent.height;
+      }
+    }
+    positionFillPresentation(mount, canvas, extent) {
+      const style = getComputedStyle(mount.target);
+      const geometry = planNativeOutputGeometry({
+        offsetLeft: mount.target.offsetLeft,
+        offsetTop: mount.target.offsetTop,
+        width: mount.target.offsetWidth,
+        height: mount.target.offsetHeight,
+        extent,
+        transformOrigin: style.transformOrigin
+      });
+      if (extent.expanded && !geometry)
+        throw new NativeSourceError(
+          "effect-output-transform-unsupported",
+          "Expanded output has an unsupported transform origin."
+        );
+      canvas.style.left = \`\${geometry?.left ?? mount.target.offsetLeft - extent.left / mount.pixelRatio}px\`;
+      canvas.style.top = \`\${geometry?.top ?? mount.target.offsetTop - extent.top / mount.pixelRatio}px\`;
+      canvas.style.width = \`\${geometry?.width ?? mount.target.offsetWidth + (extent.left + extent.right) / mount.pixelRatio}px\`;
+      canvas.style.height = \`\${geometry?.height ?? mount.target.offsetHeight + (extent.top + extent.bottom) / mount.pixelRatio}px\`;
+      canvas.style.transformOrigin = geometry?.transformOrigin ?? style.transformOrigin;
+      canvas.width = extent.width;
+      canvas.height = extent.height;
     }
     async pipeline(wgsl, format, blend = false, effect = false, effectTextureCount = 2) {
       const device = await this.ensureDevice();
@@ -23336,7 +23884,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.assetPending.delete(assetKey);
       }
     }
-    async composeScene(mount, scene, encoder, outputName = "source", blendMode = "linear", nested) {
+    async composeScene(mount, scene, encoder, outputName = "source", blendMode = "linear", nested, nativeTextureOverrides) {
       const physicalRoot = planNativePhysicalRootBox({
         width: mount.width,
         height: mount.height,
@@ -23878,7 +24426,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           const nativeMount = record5.nativeInstanceId ? this.mounts.get(record5.nativeInstanceId) : void 0;
           const nestedBackdropId = nested && nativeMount?.instance.placement === "backdrop" && nestedLayerOwner?.placement === "layer" && mount.target !== nativeMount.target && mount.target.contains(nativeMount.target) ? nativeMount.instance.id : void 0;
-          const texture = record5.nativeInstanceId ? nestedBackdropId ? this.transparent : nativeMount?.outputTexture : this.upload(mount, record5);
+          const override = record5.nativeInstanceId ? nativeTextureOverrides?.get(record5.nativeInstanceId) : void 0;
+          if (record5.sourceRole === "ancestor-fill-prefix" && !override)
+            throw new NativeSourceError(
+              "native-dependency-missing",
+              "The staged ancestor Fill prefix is unavailable."
+            );
+          const texture = record5.nativeInstanceId ? nestedBackdropId ? this.transparent : override ?? nativeMount?.outputTexture : this.upload(mount, record5);
           if (!texture)
             throw new NativeSourceError(
               "native-dependency-missing",
@@ -25331,7 +25885,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             \`Authored appearance \${binding.nodeId} has no current native output.\`
           );
       }
-      const extent = nativeOwner?.outputExtent;
+      const extent = nativeOwner?.fillPresentationExtent ?? nativeOwner?.outputExtent;
       const ratio = extent?.pixelRatio ?? mount.pixelRatio;
       const width = extent?.width ?? Math.ceil(target.offsetWidth * ratio);
       const height = extent?.height ?? Math.ceil(target.offsetHeight * ratio);
@@ -26959,7 +27513,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     acquireFillOutput(mount, key, inputs) {
       let output = mount.resourceTextures.get(key);
-      if (output && output !== mount.outputTexture && !inputs.includes(output))
+      if (output && output !== mount.outputTexture && !inputs.includes(output) && output.width === mount.width && output.height === mount.height)
         return output;
       if (key !== "__native_final_back") {
         const back = mount.resourceTextures.get("__native_final_back");
@@ -27006,6 +27560,58 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount.width,
           mount.height,
           this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" ? 1 : 0,
+          0
+        ])
+      );
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: output.createView(),
+            loadOp: "clear",
+            storeOp: "store",
+            clearValue: { r: 0, g: 0, b: 0, a: 0 }
+          }
+        ]
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bind);
+      pass.draw(6);
+      pass.end();
+      return output;
+    }
+    async compositeFillPresentation(mount, children, fill, extent, encoder, fillOnTop = false, outputName = "__native_final_back") {
+      if (children.width !== extent.width || children.height !== extent.height || fill.width !== mount.width || fill.height !== mount.height || !mount.outputExtent)
+        throw new NativeSourceError(
+          "fill-presentation-size-mismatch",
+          "The Fill foreground and generated box do not match their planned extents."
+        );
+      this.ensureCompositionBudget(
+        mount,
+        extent.width * extent.height * (this.workingFormat === "rgba16float" ? 8 : 4)
+      );
+      const output = this.acquireFillOutput(
+        { ...mount, width: extent.width, height: extent.height },
+        outputName,
+        [children, fill]
+      );
+      const pipeline = await this.pipeline(
+        fillPresentationWgsl,
+        this.workingFormat
+      );
+      const bind = this.bind(
+        mount,
+        "fill-presentation",
+        pipeline,
+        children,
+        fill,
+        new Float32Array([
+          extent.width,
+          extent.height,
+          this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" ? 1 : 0,
+          0,
+          extent.left - mount.outputExtent.left,
+          extent.top - mount.outputExtent.top,
+          fillOnTop ? 1 : 0,
           0
         ])
       );
@@ -27155,7 +27761,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         pipeline,
         source,
         mask,
-        new Float32Array([mount.width, mount.height, 0, 0, 1, 0, 0, 0])
+        new Float32Array([source.width, source.height, 0, 0, 1, 0, 0, 0])
       );
       const presentedTexture = context.getCurrentTexture();
       const pass = encoder.beginRenderPass({
@@ -27177,7 +27783,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         encoder.copyTextureToTexture(
           { texture: presentedTexture },
           { texture: publishedMirror },
-          [mount.width, mount.height, 1]
+          [source.width, source.height, 1]
         );
     }
     alignedLayerSource(mount, previous, encoder) {
@@ -27237,6 +27843,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (candidate) => candidate.instance.placement === "layer" && candidate.target !== target && candidate.target.contains(target)
       );
     }
+    nestedBackdropOwner(target) {
+      const owners = [...this.mounts.values()].filter(
+        (candidate) => (candidate.instance.placement === "layer" || candidate.instance.placement === "fill" && candidate.isTopLayer) && candidate.target !== target && candidate.target.contains(target)
+      );
+      const nearest = owners.find(
+        (candidate) => owners.every(
+          (other) => other === candidate || other.target.contains(candidate.target)
+        )
+      );
+      if (owners.length && !nearest)
+        throw new NativeSourceError(
+          "source-group-local-chain-unsupported",
+          "source-group-local-chain-unsupported"
+        );
+      return nearest ?? null;
+    }
     async stageGroupLocalBackdrop(parent, child, incoming, originX, originY, sourceWidth, sourceHeight, encodedScene, encoder, transaction, window2) {
       if (child.frozenReason)
         throw new NativeSourceError(
@@ -27253,7 +27875,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-dependency-cycle",
           "effect-dependency-cycle"
         );
-      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || isStatefulResourceGraph(child.definition.resourceGraph) || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -27338,6 +27960,123 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount: child,
           texture: finished
         });
+        const authoredEpoch = child.provider?.authoredSourceEpoch?.();
+        if (authoredEpoch !== void 0)
+          transaction.authoredEpochs.set(child.instance.id, authoredEpoch);
+        return finished;
+      } finally {
+        transaction.active.delete(child.instance.id);
+      }
+    }
+    async stageFillLocalBackdrop(parent, child, prefix, prefixExtent, encoder, transaction, authoredSourceEpoch) {
+      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || isStatefulResourceGraph(child.definition.resourceGraph) || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+        throw new NativeSourceError(
+          "source-group-local-effect-unsupported",
+          "source-group-local-effect-unsupported"
+        );
+      if (transaction.active.has(child.instance.id) || transaction.staged.has(child.instance.id))
+        throw new NativeSourceError(
+          "effect-dependency-cycle",
+          "effect-dependency-cycle"
+        );
+      transaction.active.add(child.instance.id);
+      try {
+        if (!child.provider)
+          throw new NativeSourceError(
+            "source-provider-unavailable",
+            "source-provider-unavailable"
+          );
+        const records = await child.provider.readScene(
+          void 0,
+          "mount-source",
+          {
+            ancestor: parent.target,
+            instanceId: parent.instance.id,
+            width: prefix.width,
+            height: prefix.height,
+            localBox: {
+              x: -prefixExtent.left / prefixExtent.pixelRatio,
+              y: -prefixExtent.top / prefixExtent.pixelRatio,
+              width: prefixExtent.width / prefixExtent.pixelRatio,
+              height: prefixExtent.height / prefixExtent.pixelRatio
+            },
+            revision: this.renderEpoch,
+            authoredSourceEpoch,
+            unpublished: parent.target.getAttribute("data-an-native-fill-instance") === null
+          }
+        );
+        if (child.provider.authoredSourceEpoch?.() !== authoredSourceEpoch || records.filter(
+          (record5) => record5.sourceRole === "ancestor-fill-prefix" && record5.nativeInstanceId === parent.instance.id
+        ).length !== 1 || records.some(
+          (record5) => record5.sourceRole === "ancestor-fill-prefix" && record5.nativeInstanceId !== parent.instance.id
+        ))
+          throw new NativeSourceError("source-epoch-stale", "source-epoch-stale");
+        const overrides = /* @__PURE__ */ new Map([[parent.instance.id, prefix]]);
+        for (const [id, staged] of transaction.staged)
+          overrides.set(id, staged.texture);
+        for (const record5 of records) {
+          if (!record5.nativeInstanceId || record5.sourceRole === "ancestor-fill-prefix")
+            continue;
+          const dependency = this.mounts.get(record5.nativeInstanceId);
+          if (!dependency || dependency === parent || dependency === child)
+            throw new NativeSourceError(
+              "source-group-local-chain-unsupported",
+              "source-group-local-chain-unsupported"
+            );
+          if (this.nestedBackdropOwner(dependency.target) === parent) {
+            if (!overrides.has(dependency.instance.id))
+              throw new NativeSourceError(
+                "source-group-local-chain-unsupported",
+                "source-group-local-chain-unsupported"
+              );
+            continue;
+          }
+          await this.renderMount(
+            dependency,
+            transaction.time,
+            transaction.deterministic,
+            transaction.complete,
+            transaction.active
+          );
+        }
+        const source = records.length ? await this.composeScene(
+          child,
+          records,
+          encoder,
+          "__native_fill_local_source",
+          this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && records.length > 1 ? "srgb-css-linear" : "linear",
+          void 0,
+          overrides
+        ) : this.transparent;
+        const childDeterministic = this.mountDeterministicTime(
+          child,
+          transaction.deterministic
+        );
+        const childTime = childDeterministic ? child.instance.timing.time + (child.instance.timing.paused ? 0 : transaction.time * child.instance.timing.speed) : child.clock.paused ? child.clock.local : child.clock.local + (transaction.time - child.clock.global) * child.clock.speed;
+        const result = await this.effectPasses(
+          child,
+          source,
+          childTime,
+          encoder,
+          child.definition,
+          child.instance,
+          childDeterministic,
+          \`fill-local:\${parent.instance.id}:\${this.renderEpoch}\`,
+          { complete: transaction.complete, active: transaction.active }
+        );
+        const finished = await this.finish(
+          child,
+          result,
+          encoder,
+          child.instance,
+          child.definition,
+          child.frameCount % 2 === 0 ? "__native_group_local_final_a" : "__native_group_local_final_b"
+        );
+        transaction.staged.set(child.instance.id, {
+          mount: child,
+          texture: finished
+        });
+        transaction.authoredEpochs.set(child.instance.id, authoredSourceEpoch);
         return finished;
       } finally {
         transaction.active.delete(child.instance.id);
@@ -27351,26 +28090,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       deterministic = this.mountDeterministicTime(mount, deterministic);
       if (complete.has(mount.instance.id)) return;
       if (mount.instance.placement === "backdrop") {
-        const enclosingLayers = this.enclosingLayerMounts(mount.target);
-        const enclosingLayer = enclosingLayers[0];
-        if (enclosingLayer) {
+        const enclosingOwner = this.nestedBackdropOwner(mount.target);
+        if (enclosingOwner) {
           if (mount.frozenReason)
             throw new NativeSourceError(
               mount.frozenReason.code,
               mount.frozenReason.message
             );
-          if (enclosingLayers.length !== 1)
-            throw new NativeSourceError(
-              "source-group-local-chain-unsupported",
-              "source-group-local-chain-unsupported"
-            );
-          if (active.has(enclosingLayer.instance.id))
+          if (active.has(enclosingOwner.instance.id))
             throw new NativeSourceError(
               "effect-dependency-cycle",
               "effect-dependency-cycle"
             );
           await this.renderMount(
-            enclosingLayer,
+            enclosingOwner,
             time,
             deterministic,
             complete,
@@ -27522,8 +28255,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "The native source provider is unavailable."
         );
       mount.provider?.setDensity(mount.pixelRatio);
-      const nestedChildren = mount.instance.placement === "layer" ? [...this.mounts.values()].filter(
-        (candidate) => candidate.instance.placement === "backdrop" && candidate.target !== mount.target && mount.target.contains(candidate.target)
+      const nestedChildren = mount.instance.placement === "layer" || mount.instance.placement === "fill" && mount.isTopLayer ? [...this.mounts.values()].filter(
+        (candidate) => candidate.instance.placement === "backdrop" && candidate.target !== mount.target && mount.target.contains(candidate.target) && this.nestedBackdropOwner(candidate.target) === mount
       ) : [];
       for (const child of nestedChildren) {
         if (child.frozenReason)
@@ -27531,14 +28264,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             child.frozenReason.code,
             child.frozenReason.message
           );
-        const owners = this.enclosingLayerMounts(child.target);
-        if (owners.length !== 1 || owners[0] !== mount)
+        if (this.nestedBackdropOwner(child.target) !== mount)
           throw new NativeSourceError(
             "source-group-local-chain-unsupported",
             "source-group-local-chain-unsupported"
           );
       }
-      if (nestedChildren.length && (mount.previousLayerId || mount.previousFillId || mount.definition.simulation || mount.definition.feedback))
+      if (nestedChildren.length && mount.instance.placement === "layer" && (mount.previousLayerId || mount.previousFillId || mount.definition.simulation || mount.definition.feedback))
         throw new NativeSourceError(
           "source-group-local-chain-unsupported",
           "source-group-local-chain-unsupported"
@@ -27614,6 +28346,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let profileSubmitted = false;
       let submitted = false;
       let restorationAttempted = false;
+      let detachedFillPresentation = false;
+      let priorOutputRetirement = null;
+      let fillNativeChildren = /* @__PURE__ */ new Set();
       let frameResources = null;
       let simulationFrameResources = false;
       let publishedDraftResources = null;
@@ -27625,6 +28360,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         active,
         complete,
         staged: /* @__PURE__ */ new Map(),
+        authoredEpochs: /* @__PURE__ */ new Map(),
         noncontributing: /* @__PURE__ */ new Set()
       } : void 0;
       const statelessFrame = !!(draft?.definition ?? mount.definition).statelessCompute || !!(draft?.definition ?? mount.definition).resourceGraph || nestedChildren.some(
@@ -27657,7 +28393,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             child.instance.id
           );
           if (staged) {
-            if (staged.mount !== child || noncontributing || clipState === "empty")
+            if (staged.mount !== child || noncontributing || clipState === "empty" || nestedTransaction.authoredEpochs.has(child.instance.id) && child.provider?.authoredSourceEpoch?.() !== nestedTransaction.authoredEpochs.get(child.instance.id))
               throw new NativeSourceError(
                 "source-epoch-stale",
                 "source-epoch-stale"
@@ -27695,6 +28431,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         let fillGlyphResult = null;
         let fillUnderlayResult = null;
         let fillPhaseResult = null;
+        let plannedFillPresentationExtent = null;
         const textFill = mount.instance.placement === "fill" && activeInstance.clip === "text";
         let sourceRevision = "";
         if (previousLayer) {
@@ -27878,6 +28615,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             fillBorderTexture: mount.fillBorderTexture,
             fillOuterCoverageTexture: mount.fillOuterCoverageTexture,
             fillInnerCoverageTexture: mount.fillInnerCoverageTexture,
+            fillPresentationExtent: mount.fillPresentationExtent,
             frameCount: mount.frameCount,
             renderWallSamples: [...mount.renderWallSamples],
             attributes: new Map(
@@ -27918,6 +28656,36 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           draftActive: !!draft,
           instancePreviewActive: this.instancePreview?.instanceId === mount.instance.id
         });
+        if (mount.instance.placement === "fill" && mount.isTopLayer) {
+          if (!unpublishedLayerState)
+            unpublishedLayerState = {
+              outputTexture: mount.outputTexture,
+              fillTextTexture: mount.fillTextTexture,
+              fillUnderlayTexture: mount.fillUnderlayTexture,
+              fillPhaseTexture: mount.fillPhaseTexture,
+              fillBorderTexture: mount.fillBorderTexture,
+              fillOuterCoverageTexture: mount.fillOuterCoverageTexture,
+              fillInnerCoverageTexture: mount.fillInnerCoverageTexture,
+              fillPresentationExtent: mount.fillPresentationExtent,
+              frameCount: mount.frameCount,
+              renderWallSamples: [...mount.renderWallSamples],
+              attributes: new Map(
+                mount.target.getAttributeNames().filter((name) => name.startsWith("data-an-native-")).map((name) => [name, mount.target.getAttribute(name)])
+              )
+            };
+          if (!frameResources) {
+            frameResources = new NativeFrameResourceScratch(
+              mount.resourceTextures,
+              [
+                ...source === mount.resourceTextures.get("source") ? ["source"] : [],
+                ...staticPassKey ? [
+                  activeDefinition.output ?? activeDefinition.passes[0]?.output
+                ].filter((name) => !!name) : []
+              ]
+            );
+            mount.resourceTextures = frameResources.scratch;
+          }
+        }
         const outputName = activeDefinition.output ?? activeDefinition.passes[0]?.output;
         const retainedOutput = outputName ? mount.resourceTextures.get(outputName) ?? null : null;
         const cachedOutput = mount.staticGeneratorPassCache.read(
@@ -27977,6 +28745,30 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             [fillOuterCoverage, fillInnerCoverage],
             !previousFill
           );
+          let outerScene = [];
+          let outlineScene = [];
+          if (mount.isTopLayer) {
+            const ownPaintStarted = performance.now();
+            const insetScene = await mount.provider.readFillOwnPaintPhase("inset-shadow");
+            outerScene = await mount.provider.readFillOwnPaintPhase("outer-shadow");
+            outlineScene = await mount.provider.readFillOwnPaintPhase("outline");
+            sourceWallMs += performance.now() - ownPaintStarted;
+            if (insetScene.length) {
+              const insetTexture = await this.composeScene(
+                mount,
+                insetScene,
+                encoder,
+                "__native_fill_inset_shadow"
+              );
+              fillUnderlayResult = await this.compositeFill(
+                mount,
+                insetTexture,
+                fillUnderlayResult,
+                encoder,
+                "__native_fill_underlay_inset"
+              );
+            }
+          }
           if (textFill) {
             fillGlyphResult = await this.mixFillGlyph(
               mount,
@@ -28002,6 +28794,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                   "fill-child-unavailable",
                   "A Fill foreground has an unavailable native child."
                 );
+              if (nestedTransaction && dependency.instance.placement === "backdrop" && this.nestedBackdropOwner(dependency.target) === mount)
+                continue;
               await this.renderMount(
                 dependency,
                 time,
@@ -28013,6 +28807,39 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
             if (hasNativeDependency)
               childScene = await mount.provider.readFillForeground();
+            fillNativeChildren = new Set(
+              childScene.flatMap(
+                (record5) => record5.nativeInstanceId && record5.rect.width > 0 && record5.rect.height > 0 && record5.clip.width > 0 && record5.clip.height > 0 && Math.min(
+                  record5.rect.x + record5.rect.width,
+                  record5.clip.x + record5.clip.width
+                ) > Math.max(record5.rect.x, record5.clip.x) && Math.min(
+                  record5.rect.y + record5.rect.height,
+                  record5.clip.y + record5.clip.height
+                ) > Math.max(record5.rect.y, record5.clip.y) ? [record5.nativeInstanceId] : []
+              )
+            );
+            if (!mount.outputExtent)
+              throw new NativeSourceError(
+                "fill-presentation-geometry-unavailable",
+                "The generated Fill has no output geometry."
+              );
+            const planned = planNativeFillPresentationExtent({
+              fill: mount.outputExtent,
+              foreground: [...childScene, ...outerScene, ...outlineScene],
+              maxDimension: MAX_DIMENSION,
+              maxPixels: MAX_PIXELS
+            });
+            if (!planned.ok)
+              throw new NativeSourceError(planned.code, planned.detail);
+            plannedFillPresentationExtent = planned.plan;
+            if (planned.plan.expanded) {
+              for (let node = mount.target; node; node = node.parentElement)
+                if (!supportsNativeOutput2D(getComputedStyle(node)))
+                  throw new NativeSourceError(
+                    "effect-output-transform-unsupported",
+                    "Expanded output cannot project a 3D or perspective transform."
+                  );
+            }
           }
           if (mount.isTopLayer) {
             const box = await this.drawCoveredFillPhase(
@@ -28030,24 +28857,110 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               fillGlyphResult ?? this.transparent,
               box,
               encoder,
-              childScene.length ? "__native_fill_phase" : "__native_final_back"
+              childScene.length || outerScene.length || outlineScene.length ? "__native_fill_phase" : "__native_final_back"
             );
-            if (childScene.length) {
+            if (childScene.length || outerScene.length || outlineScene.length) {
               const childStarted = performance.now();
-              const childTexture = await this.composeScene(
-                mount,
-                childScene,
-                encoder,
-                "__native_fill_child",
-                this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && childScene.length > 1 ? "srgb-css-linear" : "linear"
-              );
+              const presentationExtent = plannedFillPresentationExtent;
+              const expandedPresentation = presentationExtent.width !== mount.width || presentationExtent.height !== mount.height || presentationExtent.left !== mount.outputExtent.left || presentationExtent.top !== mount.outputExtent.top;
+              const presentationMount = expandedPresentation ? {
+                ...mount,
+                width: presentationExtent.width,
+                height: presentationExtent.height,
+                outputExtent: presentationExtent
+              } : mount;
+              let expandedBase = fillPhaseResult;
+              if (outerScene.length) {
+                const outerTexture = await this.composeScene(
+                  presentationMount,
+                  outerScene,
+                  encoder,
+                  "__native_fill_outer_shadow"
+                );
+                expandedBase = expandedPresentation ? await this.compositeFillPresentation(
+                  mount,
+                  outerTexture,
+                  fillPhaseResult,
+                  presentationExtent,
+                  encoder,
+                  true,
+                  childScene.length || outlineScene.length ? "__native_fill_expanded_base" : "__native_final_back"
+                ) : await this.compositeFill(
+                  mount,
+                  fillPhaseResult,
+                  outerTexture,
+                  encoder,
+                  childScene.length || outlineScene.length ? "__native_fill_expanded_base" : "__native_final_back"
+                );
+              }
+              if (nestedTransaction) {
+                for (const record5 of childScene) {
+                  if (!record5.nativeInstanceId) continue;
+                  const child = this.mounts.get(record5.nativeInstanceId);
+                  if (!child || child.instance.placement !== "backdrop" || this.nestedBackdropOwner(child.target) !== mount || nestedTransaction.staged.has(child.instance.id) || !fillNativeChildren.has(child.instance.id))
+                    continue;
+                  const childEpoch = child.provider?.authoredSourceEpoch?.();
+                  if (childEpoch === void 0)
+                    throw new NativeSourceError(
+                      "source-epoch-stale",
+                      "source-epoch-stale"
+                    );
+                  await this.stageFillLocalBackdrop(
+                    mount,
+                    child,
+                    outerScene.length ? expandedBase : fillPhaseResult,
+                    outerScene.length ? presentationExtent : mount.outputExtent,
+                    encoder,
+                    nestedTransaction,
+                    childEpoch
+                  );
+                }
+                for (const child of nestedChildren) {
+                  if (nestedTransaction.staged.has(child.instance.id)) continue;
+                  if (mount.provider.groupLocalBackdropClipState(child.canvas) !== "empty")
+                    throw new NativeSourceError(
+                      "native-dependency-missing",
+                      "native-dependency-missing"
+                    );
+                  nestedTransaction.noncontributing.add(child.instance.id);
+                }
+              }
+              const overlayScene = [...childScene, ...outlineScene];
+              if (overlayScene.length) {
+                const stagedNativeTextures = nestedTransaction ? new Map(
+                  [...nestedTransaction.staged].map(([id, staged]) => [
+                    id,
+                    staged.texture
+                  ])
+                ) : void 0;
+                const childTexture = await this.composeScene(
+                  presentationMount,
+                  overlayScene,
+                  encoder,
+                  "__native_fill_child",
+                  this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && overlayScene.length > 1 ? "srgb-css-linear" : "linear",
+                  void 0,
+                  stagedNativeTextures
+                );
+                finished = outerScene.length ? await this.compositeFill(
+                  presentationMount,
+                  childTexture,
+                  expandedBase,
+                  encoder
+                ) : expandedPresentation ? await this.compositeFillPresentation(
+                  mount,
+                  childTexture,
+                  fillPhaseResult,
+                  presentationExtent,
+                  encoder
+                ) : await this.compositeFill(
+                  mount,
+                  childTexture,
+                  fillPhaseResult,
+                  encoder
+                );
+              } else finished = expandedBase;
               composeWallMs += performance.now() - childStarted;
-              finished = await this.compositeFill(
-                mount,
-                childTexture,
-                fillPhaseResult,
-                encoder
-              );
             } else finished = fillPhaseResult;
           } else finished = fillUnderlayResult;
         }
@@ -28056,12 +28969,35 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "draft-superseded",
             "A newer draft request replaced this GPU frame."
           );
-        if (frameResources && !detachedCandidate && !simulationFrameResources)
+        if (frameResources && !detachedCandidate && !simulationFrameResources && !(mount.instance.placement === "fill" && mount.isTopLayer))
           throw new NativeSourceError(
             "presentation-frame-stale",
             "The detached presentation source changed during the frame."
           );
-        const twoSurface = detachedCandidate ? this.preparePresentationPair(mount, device) : null;
+        const twoSurface = detachedCandidate || mount.instance.placement === "fill" && mount.isTopLayer ? this.preparePresentationPair(mount, device) : null;
+        const assertTwoSurfacePublishable = () => {
+          if (!twoSurface) return;
+          assertCurrentPresentation();
+          if (mount.provider?.sourceEpoch?.() !== sourceEpoch)
+            throw new NativeSourceError(
+              "source-epoch-stale",
+              "The authored source changed before presentation."
+            );
+          twoSurface.pair.assertPublishable(twoSurface.front, twoSurface.spare);
+        };
+        if (twoSurface && mount.instance.placement === "fill") {
+          const extent = plannedFillPresentationExtent;
+          if (!extent)
+            throw new NativeSourceError(
+              "fill-presentation-geometry-unavailable",
+              "The Fill presentation has no current output geometry."
+            );
+          this.ensureTextureBudget(
+            extent.width * extent.height * (this.format === "rgba16float" ? 8 : 4)
+          );
+          this.positionFillPresentation(mount, twoSurface.spare.canvas, extent);
+          detachedFillPresentation = true;
+        }
         const presentStarted = hostWallPhases ? performance.now() : 0;
         if (this.presentationMirrorCapture) {
           if (!twoSurface || mount.instance.id !== REVIEWED_LOCAL_RUNTIME_TARGET?.instanceId)
@@ -28108,8 +29044,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 child.frozenReason.code,
                 child.frozenReason.message
               );
-            const owners = this.enclosingLayerMounts(child.target);
-            if (this.mounts.get(child.instance.id) !== child || owners.length !== 1 || owners[0] !== mount)
+            if (this.mounts.get(child.instance.id) !== child || this.nestedBackdropOwner(child.target) !== mount)
               throw new NativeSourceError(
                 "source-group-local-chain-unsupported",
                 "source-group-local-chain-unsupported"
@@ -28154,8 +29089,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               child.frozenReason.code,
               child.frozenReason.message
             );
-          const owners = this.enclosingLayerMounts(child.target);
-          if (this.mounts.get(child.instance.id) !== child || owners.length !== 1 || owners[0] !== mount)
+          if (this.mounts.get(child.instance.id) !== child || this.nestedBackdropOwner(child.target) !== mount)
             throw new NativeSourceError(
               "source-group-local-chain-unsupported",
               "source-group-local-chain-unsupported"
@@ -28164,13 +29098,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         assertNestedChildren();
         assertCaptureOriginCurrent();
         if (twoSurface) {
-          assertCurrentPresentation();
-          if (mount.provider?.sourceEpoch?.() !== sourceEpoch)
-            throw new NativeSourceError(
-              "source-epoch-stale",
-              "The authored source changed during GPU validation."
-            );
-          twoSurface.pair.assertPublishable(twoSurface.front, twoSurface.spare);
+          assertTwoSurfacePublishable();
           if (this.presentationFaultLatch.pending()) {
             const fault = this.presentationFaultLatch.consume({
               instanceId: mount.instance.id,
@@ -28195,18 +29123,42 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
         }
         assertStatelessCurrent();
-        const postSubmitStarted = hostWallPhases ? performance.now() : 0;
         const simulationFrame = draft?.simulationFrame ?? mount.simulationFrame;
         if (simulationFrame) {
-          await simulationFrame.transaction.commit(() => {
+          await simulationFrame.transaction.settle(() => {
             assertCaptureOriginCurrent();
             assertStatelessCurrent();
+            assertTwoSurfacePublishable();
             if (this.device !== device || this.mounts.get(mount.instance.id) !== mount)
               throw new NativeSourceError(
                 "simulation-frame-invalid",
                 "simulation-frame-invalid"
               );
           });
+        }
+        const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
+        if (statefulFrame)
+          await statefulFrame.settle(() => {
+            assertCaptureOriginCurrent();
+            assertStatelessCurrent();
+            assertTwoSurfacePublishable();
+          });
+        assertCaptureOriginCurrent();
+        assertStatelessCurrent();
+        assertTwoSurfacePublishable();
+        if (twoSurface) this.refreshAuthoredPaint(mount);
+        if (twoSurface) {
+          assertTwoSurfacePublishable();
+          const front = twoSurface.pair.publish(
+            twoSurface.front,
+            twoSurface.spare
+          );
+          mount.canvas = front.canvas;
+          mount.context = front.context;
+        }
+        const postSubmitStarted = hostWallPhases ? performance.now() : 0;
+        if (simulationFrame) {
+          simulationFrame.transaction.promote();
           if (draft) {
             draft.simulation = simulationFrame.state;
             draft.simulationFrame = null;
@@ -28235,7 +29187,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           }
         }
-        if (simulationFrameResources && frameResources) {
+        if (simulationFrameResources && frameResources && mount.instance.placement !== "fill") {
           const staleResources = frameResources.retiredOnCommit();
           frameResources.commit();
           if (draft) draft.resources = frameResources.scratch;
@@ -28272,13 +29224,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
           );
         }
-        const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
         if (statefulFrame) {
           const stateful = draft ? draft.stateful : mount.stateful;
-          await statefulFrame.commit(() => {
-            assertCaptureOriginCurrent();
-            assertStatelessCurrent();
-          });
+          statefulFrame.promote();
           if (draft) draft.statefulFrame = null;
           else mount.statefulFrame = null;
           stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
@@ -28298,6 +29246,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
         const prior2 = mount.outputTexture;
         mount.outputTexture = finished;
+        if (mount.instance.placement === "fill" && mount.isTopLayer)
+          mount.fillPresentationExtent = plannedFillPresentationExtent;
         if (mount.instance.placement === "layer") {
           mount.layerSourceOpacityDeferred = layerTargetOpacityDeferred;
           if (layerTargetOpacityDeferred)
@@ -28318,10 +29268,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         } else if (draft && !draft.publishedTexture && prior2) {
           draft.publishedTexture = prior2;
           mount.resourceTextures.delete("__native_final_back");
-        } else if (prior2 && prior2.width === mount.width && prior2.height === mount.height)
+        } else if (prior2 && prior2.width === finished.width && prior2.height === finished.height)
           mount.resourceTextures.set("__native_final_back", prior2);
         else {
-          if (prior2) this.textureRetirement.push(prior2);
+          if (prior2) {
+            if (twoSurface) priorOutputRetirement = prior2;
+            else this.textureRetirement.push(prior2);
+          }
           mount.resourceTextures.delete("__native_final_back");
         }
         const liveResources = /* @__PURE__ */ new Set([
@@ -28329,9 +29282,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "__native_final_back",
           ...fillBackground ? ["__native_fill_foreground"] : [],
           ...fillUnderlayResult ? ["__native_fill_underlay"] : [],
+          ...fillUnderlayResult === mount.resourceTextures.get("__native_fill_underlay_inset") ? ["__native_fill_underlay_inset", "__native_fill_inset_shadow"] : [],
           ...mount.isTopLayer && mount.resourceTextures.has("__native_fill_box") ? ["__native_fill_box"] : [],
           ...fillPhaseResult ? ["__native_fill_phase"] : [],
           ...mount.isTopLayer && mount.resourceTextures.has("__native_fill_child") ? ["__native_fill_child"] : [],
+          ...mount.isTopLayer && mount.resourceTextures.has("__native_fill_outer_shadow") ? ["__native_fill_outer_shadow"] : [],
+          ...mount.isTopLayer && mount.resourceTextures.has("__native_fill_expanded_base") ? ["__native_fill_expanded_base"] : [],
           ...fillGlyphResult ? ["__native_fill_text"] : [],
           ...fillGlyphBase === mount.resourceTextures.get("__native_fill_glyph") ? ["__native_fill_glyph"] : [],
           ...mount.inputMaskUsedFrame === this.renderEpoch ? ["__native_input_mask"] : [],
@@ -28382,11 +29338,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "Particle simulation is still catching up to the presentation clock."
           );
         }
-        mount.committedSourceEpoch = sourceEpoch ?? null;
-        mount.committedInstancePayload = JSON.stringify(activeInstance);
-        mount.committedDefinitionHash = draft?.executionHash ?? mount.definitionHash;
-        mount.committedLocalTime = localTime;
-        mount.committedInputEpochs = new Map(mount.pendingGraphInputEpochs ?? []);
+        const commitPresentationProvenance = () => {
+          mount.committedSourceEpoch = sourceEpoch ?? null;
+          mount.committedInstancePayload = JSON.stringify(activeInstance);
+          mount.committedDefinitionHash = draft?.executionHash ?? mount.definitionHash;
+          mount.committedLocalTime = localTime;
+          mount.committedInputEpochs = new Map(
+            mount.pendingGraphInputEpochs ?? []
+          );
+        };
+        if (!twoSurface) commitPresentationProvenance();
         mount.frameCount += 1;
         mount.target.setAttribute(
           "data-an-native-frames",
@@ -28443,20 +29404,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           String(this.allocatedTextureBytes)
         );
         if (twoSurface) {
-          assertCurrentPresentation();
-          if (mount.provider?.sourceEpoch?.() !== sourceEpoch)
-            throw new NativeSourceError(
-              "source-epoch-stale",
-              "The authored source changed before presentation."
-            );
           const staleResources = frameResources.retiredOnCommit();
-          const front = twoSurface.pair.publish(
-            twoSurface.front,
-            twoSurface.spare
-          );
-          mount.canvas = front.canvas;
-          mount.context = front.context;
+          if (mount.instance.placement === "fill")
+            this.suppressOriginal(mount, true);
+          commitPresentationProvenance();
+          if (priorOutputRetirement && ![...frameResources.scratch.values()].includes(priorOutputRetirement))
+            this.textureRetirement.push(priorOutputRetirement);
           frameResources.commit();
+          if (draft) draft.resources = frameResources.scratch;
           if (mirrorCandidate) {
             this.publishedPresentationMirror.commit();
             mirrorCandidate = null;
@@ -28467,6 +29422,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             if (!this.textureRetirement.includes(texture))
               this.textureRetirement.push(texture);
         }
+        if (mount.instance.placement === "fill" && mount.isTopLayer)
+          mount.fillCommittedNativeChildren = fillNativeChildren;
+        if (mount.instance.placement === "fill" && mount.isTopLayer)
+          mount.groupLocalNoncontributingChildren = new Set(
+            nestedTransaction?.noncontributing ?? []
+          );
         if (mount.instance.placement === "layer") {
           if (nestedTransaction)
             mount.target.setAttribute(
@@ -28554,6 +29515,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount.fillBorderTexture = unpublishedLayerState.fillBorderTexture;
             mount.fillOuterCoverageTexture = unpublishedLayerState.fillOuterCoverageTexture;
             mount.fillInnerCoverageTexture = unpublishedLayerState.fillInnerCoverageTexture;
+            mount.fillPresentationExtent = unpublishedLayerState.fillPresentationExtent;
             mount.frameCount = unpublishedLayerState.frameCount;
             mount.renderWallSamples = unpublishedLayerState.renderWallSamples;
             for (const name of mount.target.getAttributeNames())
@@ -28564,7 +29526,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
         }
         let simulationRestoreFailure;
-        if (submitted && activeDefinition.simulation && publishedSimulationOutput && mount.isTopLayer && this.device === device && mount.canvas.isConnected && !restorationAttempted)
+        if (submitted && activeDefinition.simulation && !detachedFillPresentation && publishedSimulationOutput && mount.isTopLayer && this.device === device && mount.canvas.isConnected && !restorationAttempted)
           try {
             restorationAttempted = true;
             await restorePublishedOutput(publishedSimulationOutput);
@@ -28572,7 +29534,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           } catch (restoreError) {
             simulationRestoreFailure = restoreError;
           }
-        if (!submitted && priorPresentation.output)
+        if ((!submitted || detachedFillPresentation) && priorPresentation.output)
           try {
             assertCurrentPresentation();
             mount.retainedPresentationWitness = visibleLayoutUnchanged && mount.canvas.style.cssText === visibleStyleBeforeLayout && mount.outputTexture === priorPresentation.output && mount.width === priorPresentation.width && mount.height === priorPresentation.height && mount.canvas === priorPresentation.canvas && mount.target === priorPresentation.target && mount.suppressed === priorPresentation.suppressed && mount.target.getAttribute("data-an-native-fill-instance") === priorPresentation.fillInstance && mount.canvas.style.visibility === priorPresentation.visibility;

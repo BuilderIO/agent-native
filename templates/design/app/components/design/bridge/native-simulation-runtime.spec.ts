@@ -956,7 +956,32 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   fillTarget.style.opacity = "1";
   fillTarget.style.overflowX = "visible";
   fillTarget.style.overflowY = "visible";
+  fillTarget.style.transformOrigin = "50% 50%";
+  Object.defineProperties(fillTarget, {
+    offsetWidth: { configurable: true, value: 128 },
+    offsetHeight: { configurable: true, value: 64 },
+  });
   const fillCanvas = document.createElement("canvas");
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => {
+    let configuration: Record<string, unknown> = {
+      format: "unconfigured",
+      alphaMode: "premultiplied",
+      colorSpace: "srgb",
+    };
+    return {
+      getConfiguration: () => configuration,
+      configure: (next: Record<string, unknown>) => {
+        configuration = next;
+      },
+      unconfigure() {},
+    } as unknown as GPUCanvasContext;
+  });
+  vi.spyOn(
+    HTMLCanvasElement.prototype,
+    "getBoundingClientRect",
+  ).mockImplementation(function (this: HTMLCanvasElement) {
+    return new DOMRect(0, 0, this.width, this.height);
+  });
   fillCanvas.width = 128;
   fillCanvas.height = 64;
   fillCanvas.style.opacity = "1";
@@ -969,13 +994,27 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   const fillSource = document.createElement("canvas");
   fillSource.width = 128;
   fillSource.height = 64;
+  const ownPaintCalls: string[] = [];
+  let ownPaintScenes: Record<
+    string,
+    Array<{
+      rect: { x: number; y: number; width: number; height: number };
+      clip: { x: number; y: number; width: number; height: number };
+    }>
+  > = {};
   const fillProvider = {
     needsContinuousFrames: () => false,
     captureCount: () => 0,
     setLayerTargetOpacityDeferred() {},
     setDensity() {},
     setGroupLocalBackdropSource() {},
+    groupLocalBackdropClipState: () => "nonempty" as const,
     sourceEpoch: () => fillEpoch,
+    authoredSourceEpoch: () => fillEpoch,
+    readFillOwnPaintPhase: async (phase: string) => {
+      ownPaintCalls.push(phase);
+      return ownPaintScenes[phase] ?? [];
+    },
     readFillBoxPhase: async (_paint: object, phase: string) => [
       {
         source: fillSource,
@@ -984,7 +1023,12 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       },
     ],
     hasFillGlyph: () => false,
-    readFillForeground: async () => [],
+    readFillForeground: async (): Promise<
+      Array<{
+        rect: { x: number; y: number; width: number; height: number };
+        clip: { x: number; y: number; width: number; height: number };
+      }>
+    > => [],
   };
   const fillMount = {
     ...mount,
@@ -992,13 +1036,31 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     definition: fillDefinition,
     target: fillTarget,
     canvas: fillCanvas,
+    context: fillCanvas.getContext("webgpu"),
     provider: fillProvider,
     authoredFillPaint: {},
     resourceTextures: new Map(),
     simulation: null,
     simulationFrame: null,
+    outputExtent: {
+      pixelRatio: 1,
+      width: 128,
+      height: 64,
+      sourceWidth: 128,
+      sourceHeight: 64,
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      expanded: false,
+    },
     outputTexture: null,
     suppressed: false,
+    committedSourceEpoch: null as number | null,
+    committedInstancePayload: null as string | null,
+    committedDefinitionHash: null as string | null,
+    committedLocalTime: null as number | null,
+    committedInputEpochs: new Map(),
   };
   const fillRuntime = runtime as typeof runtime & {
     refreshAuthoredPaint(mount: object): void;
@@ -1023,13 +1085,21 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(fillFirst).toMatchObject({ failures: [] });
   expect(fillMount.simulation).not.toBeNull();
   expect(fillMount.suppressed).toBe(true);
-  expect(fillCanvas.style.visibility).toBe("visible");
+  expect(fillMount.canvas.style.visibility).toBe("visible");
   const retainedFill = fillMount.simulation as unknown as {
     readIndex: number;
     completedStep: number;
   };
   const retainedFillTrail = fillMount.resourceTextures.get("trail");
   const retainedFillOutput = fillMount.outputTexture;
+  const retainedFillCanvas = fillMount.canvas;
+  const retainedFillProvenance = {
+    sourceEpoch: fillMount.committedSourceEpoch,
+    instancePayload: fillMount.committedInstancePayload,
+    definitionHash: fillMount.committedDefinitionHash,
+    localTime: fillMount.committedLocalTime,
+    inputEpochs: new Map(fillMount.committedInputEpochs),
+  };
   const retainedFillBank = retainedFill.readIndex;
   const retainedFillStep = retainedFill.completedStep;
   let releaseFillFence!: () => void;
@@ -1051,8 +1121,49 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(retainedFill.completedStep).toBe(retainedFillStep);
   expect(fillMount.resourceTextures.get("trail")).toBe(retainedFillTrail);
   expect(fillMount.outputTexture).toBe(retainedFillOutput);
+  expect(fillMount.canvas).toBe(retainedFillCanvas);
+  expect(fillMount).toMatchObject({
+    committedSourceEpoch: retainedFillProvenance.sourceEpoch,
+    committedInstancePayload: retainedFillProvenance.instancePayload,
+    committedDefinitionHash: retainedFillProvenance.definitionHash,
+    committedLocalTime: retainedFillProvenance.localTime,
+    committedInputEpochs: retainedFillProvenance.inputEpochs,
+  });
+  expect(
+    (fillMount as typeof fillMount & { retainedPresentationWitness: boolean })
+      .retainedPresentationWitness,
+  ).toBe(true);
   expect(fillMount.suppressed).toBe(true);
-  expect(fillCanvas.style.visibility).toBe("visible");
+  expect(fillMount.canvas.style.visibility).toBe("visible");
+  fillEpoch = 0;
+  let releasePromotionGap!: () => void;
+  const promotionGap = new Promise<void>((resolve) => {
+    releasePromotionGap = resolve;
+  });
+  device.queue.onSubmittedWorkDone = () => promotionGap;
+  const gapSubmitted = submittedFrames;
+  const lateSourceChange = runtime.renderInternal(1 / 120, true);
+  await vi.waitFor(() => expect(submittedFrames).toBe(gapSubmitted + 1));
+  releasePromotionGap();
+  queueMicrotask(() => {
+    fillEpoch = 1;
+  });
+  expect(await lateSourceChange).toMatchObject({
+    failures: [expect.objectContaining({ code: "source-epoch-stale" })],
+  });
+  expect(fillMount.simulation).toBe(retainedFill);
+  expect(retainedFill.readIndex).toBe(retainedFillBank);
+  expect(retainedFill.completedStep).toBe(retainedFillStep);
+  expect(fillMount.resourceTextures.get("trail")).toBe(retainedFillTrail);
+  expect(fillMount.outputTexture).toBe(retainedFillOutput);
+  expect(fillMount.canvas).toBe(retainedFillCanvas);
+  expect(fillMount).toMatchObject({
+    committedSourceEpoch: retainedFillProvenance.sourceEpoch,
+    committedInstancePayload: retainedFillProvenance.instancePayload,
+    committedDefinitionHash: retainedFillProvenance.definitionHash,
+    committedLocalTime: retainedFillProvenance.localTime,
+    committedInputEpochs: retainedFillProvenance.inputEpochs,
+  });
   device.queue.onSubmittedWorkDone = async () => {};
   fillEpoch = 0;
   const fillDraftDefinition: EffectDefinition = {
@@ -1116,7 +1227,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(draftRuntime.draft?.time).toBe(1 / 120);
   expect(fillMount.outputTexture).toBe(beforeFailedSeek);
   expect(fillMount.suppressed).toBe(true);
-  expect(fillCanvas.style.visibility).toBe("visible");
+  expect(fillMount.canvas.style.visibility).toBe("visible");
   expect(fillMount.simulation).toBe(retainedFill);
   expect(retainedFill.completedStep).toBe(beforeFailedSeekStep);
   draftRuntime.draftGeneration = 206;
@@ -1134,33 +1245,62 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(draftRuntime.draft).toBeNull();
   expect(fillMount.outputTexture).toBe(retainedFillOutput);
   expect(fillMount.suppressed).toBe(true);
-  let releaseRejectedRestore!: () => void;
-  const rejectedRestoreFence = new Promise<void>((resolve) => {
-    releaseRejectedRestore = resolve;
+  let releaseRejectedPresentation!: () => void;
+  const rejectedPresentationFence = new Promise<void>((resolve) => {
+    releaseRejectedPresentation = resolve;
   });
-  device.queue.onSubmittedWorkDone = () => rejectedRestoreFence;
+  device.queue.onSubmittedWorkDone = () => rejectedPresentationFence;
   const originalPopErrorScope = device.popErrorScope;
   let errorScopePops = 0;
   device.popErrorScope = async () =>
-    ++errorScopePops === 2 ? { message: "restored output rejected" } : null;
-  const rejectedRestoreSubmissions = submittedFrames;
-  const rejectedRestore = runtime.renderInternal(1 / 120, true);
+    ++errorScopePops === 1 ? { message: "spare output rejected" } : null;
+  const rejectedPresentationSubmissions = submittedFrames;
+  const rejectedPresentation = runtime.renderInternal(1 / 120, true);
   await vi.waitFor(() =>
-    expect(submittedFrames).toBe(rejectedRestoreSubmissions + 1),
+    expect(submittedFrames).toBe(rejectedPresentationSubmissions + 1),
   );
-  fillEpoch = 1;
-  releaseRejectedRestore();
-  const rejectedRestoreResult = await rejectedRestore;
-  expect(rejectedRestoreResult).toMatchObject({
-    failures: [expect.objectContaining({ code: "simulation-restore-failed" })],
+  releaseRejectedPresentation();
+  const rejectedPresentationResult = await rejectedPresentation;
+  expect(rejectedPresentationResult).toMatchObject({
+    failures: [expect.objectContaining({ code: "gpu-validation" })],
   });
-  expect(errorScopePops).toBe(2);
-  expect(fillMount.suppressed).toBe(false);
-  expect(fillCanvas.style.visibility).toBe("hidden");
-  expect(fillTarget.getAttribute("data-an-native-status")).toBe("error");
+  expect(errorScopePops).toBe(1);
+  expect(fillMount.outputTexture).toBe(retainedFillOutput);
+  expect(fillMount.suppressed).toBe(true);
+  expect(fillMount.canvas.style.visibility).toBe("visible");
+  expect(fillTarget.getAttribute("data-an-native-status")).toBe("last-good");
   device.popErrorScope = originalPopErrorScope;
   device.queue.onSubmittedWorkDone = async () => {};
   fillEpoch = 0;
+  const swapFailure = vi
+    .spyOn(fillMount.canvas, "replaceWith")
+    .mockImplementationOnce(() => {
+      throw new Error("fill-swap-rejected");
+    });
+  const beforeSwapFailure = {
+    bank: retainedFill.readIndex,
+    step: retainedFill.completedStep,
+    trail: fillMount.resourceTextures.get("trail"),
+    output: fillMount.outputTexture,
+    canvas: fillMount.canvas,
+    provenance: fillMount.committedInstancePayload,
+  };
+  expect(await runtime.renderInternal(1 / 120, true)).toMatchObject({
+    failures: [
+      expect.objectContaining({
+        code: "render-failed",
+        message: "fill-swap-rejected",
+      }),
+    ],
+  });
+  swapFailure.mockRestore();
+  expect(fillMount.canvas).toBe(beforeSwapFailure.canvas);
+  expect(fillMount.outputTexture).toBe(beforeSwapFailure.output);
+  expect(fillMount.resourceTextures.get("trail")).toBe(beforeSwapFailure.trail);
+  expect(retainedFill.readIndex).toBe(beforeSwapFailure.bank);
+  expect(retainedFill.completedStep).toBe(beforeSwapFailure.step);
+  expect(fillMount.committedInstancePayload).toBe(beforeSwapFailure.provenance);
+  expect(fillMount.suppressed).toBe(true);
   const firstTarget = document.createElement("div");
   firstTarget.style.overflowX = "visible";
   firstTarget.style.overflowY = "visible";
@@ -1198,6 +1338,508 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(firstFill.suppressed).toBe(false);
   expect(firstCanvas.style.visibility).toBe("hidden");
   expect(firstTarget.getAttribute("data-an-native-status")).toBe("error");
+
+  const childPixels = runtime.texture(180, 64, "rgba8unorm");
+  let clippedForeground = false;
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 110, y: 10, width: 70, height: 40 },
+    },
+  ];
+  (
+    fillRuntime as typeof fillRuntime & {
+      composeScene(...args: unknown[]): Promise<object>;
+    }
+  ).composeScene = async (surface) => {
+    if (clippedForeground) {
+      expect(surface).toMatchObject({
+        width: 128,
+        height: 64,
+        outputExtent: { sourceWidth: 128, sourceHeight: 64, right: 0 },
+      });
+      return runtime.texture(128, 64, "rgba8unorm");
+    }
+    expect(surface).toMatchObject({
+      width: 180,
+      height: 64,
+      outputExtent: { sourceWidth: 128, sourceHeight: 64, right: 52 },
+    });
+    return childPixels;
+  };
+  runtime.mounts = new Map([[fillInstance.id, fillMount]]);
+  const expandedFill = await runtime.renderInternal(0, true);
+  expect(expandedFill).toMatchObject({ failures: [] });
+  expect(fillMount.outputTexture).toMatchObject({ width: 180, height: 64 });
+  expect(await runtime.renderInternal(0, true)).toMatchObject({ failures: [] });
+  expect(
+    (
+      runtime as typeof runtime & { textureBytes: Map<object, number> }
+    ).textureBytes.has(fillMount.resourceTextures.get("trail")!),
+  ).toBe(true);
+  expect(fillMount.canvas.width).toBe(180);
+  expect(fillMount.canvas.height).toBe(64);
+  expect(fillMount).toMatchObject({
+    width: 128,
+    height: 64,
+    fillPresentationExtent: { sourceWidth: 128, sourceHeight: 64, right: 52 },
+  });
+  const staticFillDefinition = GRAIN_GRADIENT_EFFECT;
+  const staticFillInstance: EffectInstance = {
+    ...fillInstance,
+    id: "static-fill-overflow",
+    definitionId: staticFillDefinition.id,
+    definitionVersion: staticFillDefinition.version,
+    params: {
+      ...Object.fromEntries(
+        Object.entries(staticFillDefinition.properties).map(
+          ([name, property]) => [name, property.default],
+        ),
+      ),
+      movement: 0,
+    },
+  };
+  const staticFillMount = {
+    ...fillMount,
+    instance: staticFillInstance,
+    definition: staticFillDefinition,
+    definitionHash: await hashEffectDefinition(staticFillDefinition),
+    canvas: fillMount.canvas,
+    context: fillMount.context,
+    simulation: null,
+    simulationFrame: null,
+    resourceTextures: new Map(),
+    outputTexture: null,
+    fillPresentationExtent: null,
+    fillCommittedNativeChildren: new Set<string>(),
+    frameCount: 0,
+    suppressed: false,
+  };
+  runtime.mounts = new Map([[staticFillInstance.id, staticFillMount]]);
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(staticFillMount.outputTexture).toMatchObject({
+    width: 180,
+    height: 64,
+  });
+  expect(staticFillMount.canvas.width).toBe(180);
+  expect(staticFillMount.width).toBe(128);
+  const frostTarget = document.createElement("div");
+  fillTarget.append(frostTarget);
+  const frostMount = {
+    ...mount,
+    instance: {
+      ...fillInstance,
+      id: "nested-frost",
+      placement: "backdrop" as const,
+    },
+    target: frostTarget,
+    outputTexture: runtime.texture(70, 40, "rgba8unorm"),
+  };
+  const nestedFillTarget = document.createElement("div");
+  fillTarget.append(nestedFillTarget);
+  nestedFillTarget.append(frostTarget);
+  const nestedFillMount = {
+    ...staticFillMount,
+    instance: {
+      ...staticFillInstance,
+      id: "nested-fill",
+    },
+    target: nestedFillTarget,
+    outputTexture: runtime.texture(70, 40, "rgba8unorm") as object | null,
+    fillCommittedNativeChildren: new Set([frostMount.instance.id]),
+  };
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 110, y: 10, width: 70, height: 40 },
+      nativeInstanceId: frostMount.instance.id,
+    },
+  ];
+  const renderWithNestedBackdrop = runtime.renderMount.bind(runtime);
+  runtime.renderMount = async (candidate, ...args) => {
+    if (candidate === frostMount || candidate === nestedFillMount) return;
+    return renderWithNestedBackdrop(candidate, ...args);
+  };
+  runtime.mounts = new Map<string, object>([
+    [staticFillInstance.id, staticFillMount],
+    [frostMount.instance.id, frostMount],
+    [nestedFillMount.instance.id, nestedFillMount],
+  ]);
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(staticFillMount.fillCommittedNativeChildren).toEqual(
+    new Set([frostMount.instance.id]),
+  );
+  const representedNativeInstances = (
+    runtime as typeof runtime & {
+      representedNativeInstances(ids: Set<string>): Set<string>;
+    }
+  ).representedNativeInstances.bind(runtime);
+  expect(
+    representedNativeInstances(new Set([staticFillInstance.id])),
+  ).toContain(frostMount.instance.id);
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 110, y: 10, width: 70, height: 40 },
+      nativeInstanceId: nestedFillMount.instance.id,
+    },
+  ];
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(staticFillMount.fillCommittedNativeChildren).toEqual(
+    new Set([nestedFillMount.instance.id]),
+  );
+  expect(representedNativeInstances(new Set([staticFillInstance.id]))).toEqual(
+    new Set([
+      staticFillInstance.id,
+      nestedFillMount.instance.id,
+      frostMount.instance.id,
+    ]),
+  );
+  const nestedOutput = nestedFillMount.outputTexture;
+  nestedFillMount.outputTexture = null;
+  expect(representedNativeInstances(new Set([staticFillInstance.id]))).toEqual(
+    new Set([staticFillInstance.id]),
+  );
+  nestedFillMount.outputTexture = nestedOutput;
+  fillProvider.readFillForeground = async () => [];
+  let releaseNestedValidation!: () => void;
+  const nestedValidation = new Promise<void>((resolve) => {
+    releaseNestedValidation = resolve;
+  });
+  const popNestedValidation = device.popErrorScope;
+  device.popErrorScope = async () => {
+    await nestedValidation;
+    return null;
+  };
+  const nestedSubmitted = submittedFrames;
+  const staleNestedFrame = runtime.renderMount(
+    staticFillMount,
+    0,
+    true,
+    new Set(),
+    new Set(),
+  );
+  await vi.waitFor(() => expect(submittedFrames).toBe(nestedSubmitted + 1));
+  fillEpoch = 1;
+  releaseNestedValidation();
+  await expect(staleNestedFrame).rejects.toMatchObject({
+    code: "source-epoch-stale",
+  });
+  expect(staticFillMount.fillCommittedNativeChildren).toEqual(
+    new Set([nestedFillMount.instance.id]),
+  );
+  device.popErrorScope = popNestedValidation;
+  fillEpoch = 0;
+  clippedForeground = true;
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 200, y: 10, width: 70, height: 40 },
+      nativeInstanceId: frostMount.instance.id,
+    },
+  ];
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(staticFillMount.fillCommittedNativeChildren.size).toBe(0);
+  expect(
+    representedNativeInstances(new Set([staticFillInstance.id])),
+  ).not.toContain(frostMount.instance.id);
+  staticFillMount.resourceTextures = new Map();
+  staticFillMount.outputTexture = null;
+  runtime.mounts = new Map([[staticFillInstance.id, staticFillMount]]);
+  fillProvider.readFillForeground = async () => [];
+  ownPaintScenes = {
+    "inset-shadow": [
+      {
+        rect: { x: 0, y: 0, width: 128, height: 64 },
+        clip: { x: 0, y: 0, width: 128, height: 64 },
+      },
+    ],
+    "outer-shadow": [
+      {
+        rect: { x: -10, y: 0, width: 138, height: 64 },
+        clip: { x: -10, y: 0, width: 138, height: 64 },
+      },
+    ],
+    outline: [
+      {
+        rect: { x: 0, y: 0, width: 140, height: 64 },
+        clip: { x: 0, y: 0, width: 140, height: 64 },
+      },
+    ],
+  };
+  const phaseTextures: string[] = [];
+  const phaseRuntime = runtime as typeof runtime & {
+    composeScene(...args: unknown[]): Promise<object>;
+  };
+  const composePhase = vi
+    .spyOn(phaseRuntime, "composeScene")
+    .mockImplementation(async (surface: unknown, _records, _encoder, key) => {
+      phaseTextures.push(String(key));
+      const size = surface as { width: number; height: number };
+      return runtime.texture(size.width, size.height, "rgba8unorm");
+    });
+  expect(await runtime.renderInternal(0, true)).toMatchObject({ failures: [] });
+  composePhase.mockRestore();
+  expect(ownPaintCalls.slice(-3)).toEqual([
+    "inset-shadow",
+    "outer-shadow",
+    "outline",
+  ]);
+  expect(phaseTextures).toEqual([
+    "__native_fill_inset_shadow",
+    "__native_fill_outer_shadow",
+    "__native_fill_child",
+  ]);
+  expect(staticFillMount.fillPresentationExtent).toMatchObject({
+    width: 150,
+    height: 64,
+    left: 10,
+    right: 12,
+  });
+  expect(staticFillMount.outputTexture).toMatchObject({
+    width: 150,
+    height: 64,
+  });
+  ownPaintScenes = {};
+  frostTarget.remove();
+  fillTarget.append(frostTarget);
+  const frostCanvas = document.createElement("canvas");
+  frostCanvas.width = 70;
+  frostCanvas.height = 40;
+  frostTarget.append(frostCanvas);
+  const frostSource = runtime.texture(70, 40, "rgba8unorm");
+  const frostBefore = runtime.texture(70, 40, "rgba8unorm");
+  const secondSource = runtime.texture(70, 40, "rgba8unorm");
+  const prefixFlags: boolean[] = [];
+  const frostProvider = {
+    ...fillProvider,
+    authoredSourceEpoch: () => fillEpoch,
+    readScene: async (
+      _metrics: unknown,
+      _site: unknown,
+      prefix: unknown,
+    ): Promise<
+      {
+        kind: string;
+        key: number;
+        revision: number;
+        sourceRole?: string;
+        nativeInstanceId?: string;
+      }[]
+    > => {
+      prefixFlags.push((prefix as { unpublished: boolean }).unpublished);
+      expect(prefix).toMatchObject({
+        ancestor: fillTarget,
+        instanceId: staticFillInstance.id,
+        width: 128,
+      });
+      return [
+        { kind: "dom", key: 1, revision: 0 },
+        {
+          kind: "native",
+          sourceRole: "ancestor-fill-prefix",
+          nativeInstanceId: staticFillInstance.id,
+          key: 2,
+          revision: 0,
+        },
+      ];
+    },
+  };
+  const liveFrost = {
+    ...frostMount,
+    definition: staticFillDefinition,
+    provider: frostProvider,
+    canvas: frostCanvas,
+    width: 70,
+    height: 40,
+    outputTexture: frostBefore,
+    outputExtent: {
+      ...staticFillMount.outputExtent,
+      width: 70,
+      height: 40,
+      sourceWidth: 70,
+      sourceHeight: 40,
+    },
+    resourceTextures: new Map(),
+    frameCount: 0,
+  };
+  let secondFrost: typeof liveFrost | null = null;
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 110, y: 10, width: 70, height: 40 },
+      nativeInstanceId: liveFrost.instance.id,
+    },
+  ];
+  runtime.mounts = new Map<string, object>([
+    [staticFillInstance.id, staticFillMount],
+    [liveFrost.instance.id, liveFrost],
+  ]);
+  runtime.renderMount = renderWithNestedBackdrop;
+  const nestedRuntime = runtime as typeof runtime & {
+    effectPasses(...args: unknown[]): Promise<object>;
+  };
+  const originalEffectPasses = nestedRuntime.effectPasses.bind(nestedRuntime);
+  const nestedEffectPasses = vi
+    .spyOn(nestedRuntime, "effectPasses")
+    .mockImplementation(async (candidate: unknown, ...args: unknown[]) =>
+      candidate === liveFrost
+        ? frostSource
+        : candidate === secondFrost
+          ? secondSource
+          : originalEffectPasses(candidate, ...args),
+    );
+  const originalFinish = runtime.finish.bind(runtime);
+  const nestedFinish = vi
+    .spyOn(runtime, "finish")
+    .mockImplementation(async (candidate, ...args) =>
+      candidate === liveFrost
+        ? frostSource
+        : candidate === secondFrost
+          ? secondSource
+          : originalFinish(candidate, ...args),
+    );
+  const nestedCompose = vi
+    .spyOn(phaseRuntime, "composeScene")
+    .mockImplementation(
+      async (surface, records, _encoder, _name, _mode, _nested, overrides) => {
+        if (surface === liveFrost) {
+          expect(records).toEqual([
+            expect.objectContaining({ kind: "dom" }),
+            expect.objectContaining({ sourceRole: "ancestor-fill-prefix" }),
+          ]);
+          expect(
+            (overrides as Map<string, object>).get(staticFillInstance.id),
+          ).toMatchObject({
+            width: 128,
+            height: 64,
+          });
+          return frostSource;
+        }
+        if (surface === secondFrost) {
+          expect(records).toEqual([
+            expect.objectContaining({ sourceRole: "ancestor-fill-prefix" }),
+            expect.objectContaining({
+              nativeInstanceId: liveFrost.instance.id,
+            }),
+          ]);
+          expect(
+            (overrides as Map<string, object>).get(liveFrost.instance.id),
+          ).toBe(frostSource);
+          return secondSource;
+        }
+        const size = surface as { width: number; height: number };
+        return runtime.texture(size.width, size.height, "rgba8unorm");
+      },
+    );
+  const childCanvasPresent = vi.spyOn(runtime, "present");
+  staticFillMount.outputTexture = null;
+  fillTarget.removeAttribute("data-an-native-fill-instance");
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(prefixFlags).toEqual([true]);
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  expect(staticFillMount.fillCommittedNativeChildren).toContain(
+    liveFrost.instance.id,
+  );
+  expect(
+    childCanvasPresent.mock.calls.every(
+      ([candidate]) => candidate !== liveFrost,
+    ),
+  ).toBe(true);
+  const publishedFill = staticFillMount.outputTexture;
+  let releasePrefixValidation!: () => void;
+  const prefixValidation = new Promise<void>((resolve) => {
+    releasePrefixValidation = resolve;
+  });
+  const beforePrefixSubmission = submittedFrames;
+  device.popErrorScope = async () => {
+    await prefixValidation;
+    return null;
+  };
+  const stalePrefix = runtime.renderMount(
+    staticFillMount,
+    0,
+    true,
+    new Set(),
+    new Set(),
+  );
+  await vi.waitFor(() =>
+    expect(submittedFrames).toBe(beforePrefixSubmission + 1),
+  );
+  fillEpoch = 1;
+  releasePrefixValidation();
+  await expect(stalePrefix).rejects.toMatchObject({
+    code: "source-epoch-stale",
+  });
+  expect(prefixFlags).toEqual([true, false]);
+  expect(staticFillMount.outputTexture).toBe(publishedFill);
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  device.popErrorScope = popNestedValidation;
+  fillEpoch = 0;
+  fillTarget.removeAttribute("data-an-native-fill-instance");
+  expect(staticFillMount.outputTexture).toBe(publishedFill);
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(prefixFlags).toEqual([true, false, true]);
+  expect(fillTarget.getAttribute("data-an-native-fill-instance")).toBe(
+    staticFillInstance.id,
+  );
+  const secondTarget = document.createElement("div");
+  const secondCanvas = document.createElement("canvas");
+  secondCanvas.width = 70;
+  secondCanvas.height = 40;
+  secondTarget.append(secondCanvas);
+  fillTarget.append(secondTarget);
+  const nextFrost = {
+    ...liveFrost,
+    instance: { ...liveFrost.instance, id: "nested-frost-second" },
+    target: secondTarget,
+    canvas: secondCanvas,
+    provider: {
+      ...frostProvider,
+      readScene: async () => [
+        {
+          kind: "native",
+          sourceRole: "ancestor-fill-prefix",
+          nativeInstanceId: staticFillInstance.id,
+          key: 2,
+          revision: 0,
+        },
+        {
+          kind: "native",
+          nativeInstanceId: liveFrost.instance.id,
+          key: 3,
+          revision: 0,
+        },
+      ],
+    },
+    outputTexture: frostBefore,
+    resourceTextures: new Map(),
+    frameCount: 0,
+  };
+  secondFrost = nextFrost;
+  fillProvider.readFillForeground = async () => [
+    {
+      rect: { x: 110, y: 10, width: 70, height: 40 },
+      clip: { x: 110, y: 10, width: 70, height: 40 },
+      nativeInstanceId: liveFrost.instance.id,
+    },
+    {
+      rect: { x: 120, y: 10, width: 70, height: 40 },
+      clip: { x: 120, y: 10, width: 70, height: 40 },
+      nativeInstanceId: nextFrost.instance.id,
+    },
+  ];
+  runtime.mounts = new Map<string, object>([
+    [staticFillInstance.id, staticFillMount],
+    [nextFrost.instance.id, nextFrost],
+    [liveFrost.instance.id, liveFrost],
+  ]);
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(nextFrost.outputTexture).toBe(secondSource);
+  childCanvasPresent.mockRestore();
+  nestedCompose.mockRestore();
+  nestedFinish.mockRestore();
+  nestedEffectPasses.mockRestore();
   runtime.mounts.clear();
   runtime.dispose();
 });

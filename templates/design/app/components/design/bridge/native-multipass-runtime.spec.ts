@@ -4908,6 +4908,11 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           };
         }
       ).provider;
+      (
+        fillProvider as typeof fillProvider & {
+          readFillOwnPaintPhase: () => Promise<NativeSourceRecord[]>;
+        }
+      ).readFillOwnPaintPhase = async () => [];
       fillProvider.readFillBoxPhase = async (_paint, phase) => {
         authoredFillCaptures += 1;
         fillSource.width = (

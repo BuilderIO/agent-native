@@ -1,3 +1,4 @@
+import { splitTopLevelCommas } from "../../../../shared/css-box-shadow";
 import {
   NativeCaptureCache,
   NativeCaptureCacheError,
@@ -6,6 +7,7 @@ import {
   resolveNativeClipRadii,
   type NativeClipRadii,
 } from "../../../../shared/native-clip-geometry";
+import { readNativeCssPaintOutsets } from "../../../../shared/native-css-paint-outsets";
 import {
   classifyNativeComputedOverflowClip,
   MAX_NATIVE_SOURCE_CLIPS,
@@ -113,7 +115,7 @@ export interface NativeSourceRecord {
   key: number;
   node: Element;
   kind: NativeSourceKind;
-  sourceRole?: "viewport-background";
+  sourceRole?: "viewport-background" | "ancestor-fill-prefix";
   source?: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement;
   imageSourceUrl?: string;
   nativeInstanceId?: string;
@@ -179,10 +181,22 @@ export type NativeSourceReadSceneCallSite =
   | "dependency-refresh"
   | "other";
 
+export interface NativeAncestorFillPrefix {
+  ancestor: HTMLElement;
+  instanceId: string;
+  unpublished: boolean;
+  width: number;
+  height: number;
+  localBox: NativeAffineBox;
+  revision: number;
+  authoredSourceEpoch: number;
+}
+
 export interface NativeSceneProvider {
   readScene(
     metrics?: NativeSourceReadSceneMetrics,
     callSite?: NativeSourceReadSceneCallSite,
+    fillPrefix?: NativeAncestorFillPrefix,
   ): Promise<NativeSourceRecord[]>;
   replaySafety(
     records: readonly NativeSourceRecord[],
@@ -196,6 +210,9 @@ export interface NativeSceneProvider {
   readFillBoxPhase(
     paint: NativeFillBackgroundPaint,
     phase: "background" | "border" | "coverage" | "inner-coverage",
+  ): Promise<NativeSourceRecord[]>;
+  readFillOwnPaintPhase(
+    phase: "outer-shadow" | "inset-shadow" | "outline",
   ): Promise<NativeSourceRecord[]>;
   readFillGlyph(): Promise<NativeSourceRecord[]>;
   hasFillGlyph(): boolean;
@@ -687,6 +704,9 @@ function hasVisibleBoxPaint(style: CSSStyleDeclaration): boolean {
     (style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
       style.backgroundColor !== "transparent") ||
     style.boxShadow !== "none" ||
+    (style.outlineStyle &&
+      style.outlineStyle !== "none" &&
+      style.outlineStyle !== "hidden") ||
     [
       style.borderTopWidth,
       style.borderRightWidth,
@@ -1395,6 +1415,9 @@ export function sourceClipPlan(
   ownMediaClipEdge: NativeSourceClipCandidate["edge"] = "content",
   suppliedReadStyle?: SourceStyleReader,
   memo?: SourceGeometryMemo,
+  allowVisibleTargetOverflow = false,
+  visibleTargetRect?: NativeSourceRecord["rect"],
+  ignoreTargetOwnOverflow = false,
 ): {
   clip: NativeSourceRecord["clip"];
   ancestorClip: NativeSourceRecord["clip"];
@@ -1557,7 +1580,7 @@ export function sourceClipPlan(
           `source-${targetOverflow.reason}`,
           targetOverflow.detail,
         );
-      if (targetOverflow.edge !== "none") {
+      if (targetOverflow.edge !== "none" && !ignoreTargetOwnOverflow) {
         append(target, targetOverflow.edge, false, targetOverflow.outset);
         const targetShape = allClips.pop();
         if (!targetShape)
@@ -1566,6 +1589,19 @@ export function sourceClipPlan(
             "The target overflow clip has no projected geometry.",
           );
         expandTargetClip(targetShape.rect);
+      } else if (allowVisibleTargetOverflow || ignoreTargetOwnOverflow) {
+        expandTargetClip(
+          visibleTargetRect ??
+            relativeAffine(
+              element,
+              target,
+              space,
+              undefined,
+              readStyle,
+              undefined,
+              memo,
+            ).rect,
+        );
       }
     }
   }
@@ -2098,6 +2134,9 @@ type NativeOwnPaintPhase =
   | "border"
   | "coverage"
   | "inner-coverage"
+  | "outer-shadow"
+  | "inset-shadow"
+  | "outline"
   | "foreground"
   | "glyph";
 
@@ -2111,7 +2150,10 @@ function rasterOwnedStyleNodes(
     phase === "background" ||
     phase === "border" ||
     phase === "coverage" ||
-    phase === "inner-coverage"
+    phase === "inner-coverage" ||
+    phase === "outer-shadow" ||
+    phase === "inset-shadow" ||
+    phase === "outline"
   )
     return [element];
   if (phase === "foreground" || phase === "glyph" || isSourceTextFlow(element))
@@ -2266,6 +2308,23 @@ function snapshotComputedStyle(element: Element): CSSStyleDeclaration {
     if (typeof value !== "string") continue;
     add(name, value);
   }
+  if (snapshot.outlineStyle !== "none" && snapshot.outlineStyle !== "hidden") {
+    for (const name of ["outline-width", "outline-offset"]) {
+      const camelName = name.replace(/-([a-z])/g, (_match, letter: string) =>
+        letter.toUpperCase(),
+      );
+      const direct = live[camelName as keyof CSSStyleDeclaration];
+      const canReadCssomProperty =
+        typeof live.item === "function" && Number.isInteger(live.length);
+      const value =
+        typeof direct === "string"
+          ? direct
+          : canReadCssomProperty
+            ? live.getPropertyValue(name)
+            : undefined;
+      if (typeof value === "string") add(name, value);
+    }
+  }
   for (const name of [
     "overflow-clip-margin",
     "-webkit-mask-image",
@@ -2291,9 +2350,12 @@ function cloneOwnPaint(
     phase === "border" ||
     phase === "coverage" ||
     phase === "inner-coverage";
-  const clone = boxPhase
-    ? document.createElement("div")
-    : (element.cloneNode(true) as HTMLElement);
+  const ownEffectPhase =
+    phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline";
+  const clone =
+    boxPhase || ownEffectPhase
+      ? document.createElement("div")
+      : (element.cloneNode(true) as HTMLElement);
   for (const node of [clone, ...clone.querySelectorAll<HTMLElement>("*")]) {
     node.removeAttribute("data-an-native-fill-suppressed");
     node.removeAttribute("data-an-native-text-suppressed");
@@ -2309,7 +2371,10 @@ function cloneOwnPaint(
   const ownText = !boxPhase && hasDirectText(element);
   if (fullTextFlow) preserveTextFlowStyles(element, clone);
   for (
-    let index = fullTextFlow || boxPhase ? -1 : element.children.length - 1;
+    let index =
+      fullTextFlow || boxPhase || ownEffectPhase
+        ? -1
+        : element.children.length - 1;
     index >= 0;
     index -= 1
   ) {
@@ -2411,6 +2476,25 @@ function cloneOwnPaint(
     }
     clone.style.boxShadow = "none";
     clone.style.outlineColor = "transparent";
+  }
+  if (ownEffectPhase) {
+    clone.style.backgroundColor = "transparent";
+    clone.style.backgroundImage = "none";
+    clone.style.borderColor = "transparent";
+    clone.style.borderImageSource = "none";
+    clone.style.textShadow = "none";
+    if (phase === "outline") {
+      clone.style.boxShadow = "none";
+    } else {
+      const shadows = splitTopLevelCommas(getComputedStyle(element).boxShadow);
+      clone.style.boxShadow =
+        shadows
+          .filter(
+            (shadow) => /\binset\b/.test(shadow) === (phase === "inset-shadow"),
+          )
+          .join(", ") || "none";
+      clone.style.outlineColor = "transparent";
+    }
   }
   if (phase === "foreground" || phase === "glyph") {
     if (!isPureTextFlow(element))
@@ -2608,6 +2692,31 @@ export function applyNativeCaptureOverflowClip(
   );
 }
 
+function nativeOwnPaintCaptureBox(
+  style: CSSStyleDeclaration,
+  phase: NativeOwnPaintPhase,
+  size: { width: number; height: number },
+): NativeAffineBox {
+  if (phase !== "all" && phase !== "outer-shadow" && phase !== "outline")
+    return { x: 0, y: 0, ...size };
+  const result = readNativeCssPaintOutsets(
+    style,
+    phase === "all" ? "all" : phase,
+  );
+  if (result.kind === "unreadable")
+    throw new NativeSourceError(
+      "source-paint-outset-unreadable",
+      `Cannot resolve computed ${result.property} for source paint.`,
+    );
+  const { top, right, bottom, left } = result.outsets;
+  return {
+    x: left > 0 ? -left : 0,
+    y: top > 0 ? -top : 0,
+    width: size.width + left + right,
+    height: size.height + top + bottom,
+  };
+}
+
 async function rasterOwnPaint(
   element: HTMLElement,
   canvas: HTMLCanvasElement,
@@ -2619,11 +2728,11 @@ async function rasterOwnPaint(
   authoredTextPaint?: { color: string; textFillColor: string },
 ): Promise<void> {
   const size = sizeOf(element);
-  const overflow = classifyNativeComputedOverflowClip(
-    getComputedStyle(element),
-  );
+  const style = getComputedStyle(element);
+  const overflow = classifyNativeComputedOverflowClip(style);
   if (!overflow.ok)
     throw new NativeSourceError(`source-${overflow.reason}`, overflow.detail);
+  const ownPaintBox = nativeOwnPaintCaptureBox(style, phase, size);
   const clipBox =
     overflow.edge === "none"
       ? { x: 0, y: 0, width: size.width, height: size.height }
@@ -2641,7 +2750,7 @@ async function rasterOwnPaint(
       "The source capture clip has no local geometry.",
     );
   const capture = planNativeCaptureRoi({
-    ownBox: { x: 0, y: 0, width: size.width, height: size.height },
+    ownBox: ownPaintBox,
     clipBox,
     density,
     maxDimension: 4096,
@@ -2668,6 +2777,9 @@ async function rasterOwnPaint(
     phase !== "border" &&
     phase !== "coverage" &&
     phase !== "inner-coverage" &&
+    phase !== "outer-shadow" &&
+    phase !== "inset-shadow" &&
+    phase !== "outline" &&
     (hasDirectText(element) ||
       isSourceTextFlow(element) ||
       phase === "foreground" ||
@@ -3230,7 +3342,13 @@ class SceneProvider implements NativeSceneProvider {
   private readonly coordinateSpace: NativeSourceRecord["coordinateSpace"];
   private leaves = new Map<Element, CachedLeaf>();
   private fillBoxLeaves = new Map<
-    "background" | "border" | "coverage" | "inner-coverage",
+    | "background"
+    | "border"
+    | "coverage"
+    | "inner-coverage"
+    | "outer-shadow"
+    | "inset-shadow"
+    | "outline",
     CachedLeaf
   >();
   private fillForegroundLeaf: CachedLeaf | null = null;
@@ -3239,7 +3357,13 @@ class SceneProvider implements NativeSceneProvider {
   private fillGlyphClone: HTMLElement | null = null;
   private fillGlyphColors: Map<Element, string> | null = null;
   private fillBoxIds = new Map<
-    "background" | "border" | "coverage" | "inner-coverage",
+    | "background"
+    | "border"
+    | "coverage"
+    | "inner-coverage"
+    | "outer-shadow"
+    | "inset-shadow"
+    | "outline",
     number
   >();
   private fillForegroundId = 0;
@@ -3405,6 +3529,11 @@ class SceneProvider implements NativeSceneProvider {
       return (
         this.target !== document.documentElement &&
         !(this.groupLocalBackdropSource && this.target.contains(element))
+      );
+    if (this.placement === "fill")
+      return (
+        !this.target.contains(element) ||
+        !this.target.contains(nativeBackdropReceiver(element))
       );
     if (!this.backdropPresentation || element === this.backdropPresentation)
       return true;
@@ -3620,7 +3749,10 @@ class SceneProvider implements NativeSceneProvider {
   }
 
   setGroupLocalBackdropSource(enabled: boolean): void {
-    if (this.placement !== "layer" || this.groupLocalBackdropSource === enabled)
+    if (
+      (this.placement !== "layer" && this.placement !== "fill") ||
+      this.groupLocalBackdropSource === enabled
+    )
       return;
     this.groupLocalBackdropSource = enabled;
     this.invalidateAll("explicit");
@@ -3628,7 +3760,7 @@ class SceneProvider implements NativeSceneProvider {
 
   private groupLocalBackdropReceiver(element: Element): HTMLElement | null {
     if (
-      this.placement !== "layer" ||
+      (this.placement !== "layer" && this.placement !== "fill") ||
       !this.groupLocalBackdropSource ||
       !(element instanceof HTMLCanvasElement) ||
       !element.hasAttribute("data-an-native-backdrop-presentation") ||
@@ -3642,7 +3774,7 @@ class SceneProvider implements NativeSceneProvider {
   groupLocalBackdropClipState(canvas: HTMLCanvasElement): "empty" | "nonempty" {
     if (
       this.disposed ||
-      this.placement !== "layer" ||
+      (this.placement !== "layer" && this.placement !== "fill") ||
       !this.groupLocalBackdropSource ||
       !canvas.isConnected ||
       !this.target.contains(canvas) ||
@@ -4096,6 +4228,7 @@ class SceneProvider implements NativeSceneProvider {
     out: NativeSourceRecord[],
     metrics?: NativeSourceReadSceneMetrics,
     memo?: SourceGeometryMemo,
+    allowVisibleTargetOverflow = false,
   ): void | Promise<void> {
     assertLeafSupported(
       element,
@@ -4168,6 +4301,7 @@ class SceneProvider implements NativeSceneProvider {
       "content",
       undefined,
       memo,
+      allowVisibleTargetOverflow,
     );
     const isolationPath = this.isolationPath(
       element,
@@ -4272,10 +4406,17 @@ class SceneProvider implements NativeSceneProvider {
     paintPhase: NativeOwnPaintPhase = "all",
     metrics?: NativeSourceReadSceneMetrics,
     memo?: SourceGeometryMemo,
+    allowVisibleTargetOverflow = false,
   ): void | Promise<void> {
     if (!element.isConnected || this.omit(element)) return;
     if (element instanceof SVGSVGElement)
-      return this.recordSvg(element, out, metrics, memo);
+      return this.recordSvg(
+        element,
+        out,
+        metrics,
+        memo,
+        allowVisibleTargetOverflow,
+      );
     if (element instanceof SVGElement)
       throw new NativeSourceError(
         "source-inline-svg",
@@ -4414,7 +4555,30 @@ class SceneProvider implements NativeSceneProvider {
       paintPhase === "background" ||
       paintPhase === "border" ||
       paintPhase === "coverage" ||
-      paintPhase === "inner-coverage";
+      paintPhase === "inner-coverage" ||
+      paintPhase === "outer-shadow" ||
+      paintPhase === "inset-shadow" ||
+      paintPhase === "outline";
+    const fillOwnEffectPhase =
+      paintPhase === "outer-shadow" ||
+      paintPhase === "inset-shadow" ||
+      paintPhase === "outline";
+    const paintedBounds =
+      (paintPhase === "all" || fillOwnEffectPhase) &&
+      !media &&
+      !nativeInstanceId &&
+      (style.boxShadow !== "none" ||
+        (style.outlineStyle !== "none" && style.outlineStyle !== "hidden"))
+        ? relativeAffine(
+            element,
+            this.target,
+            this.coordinateSpace,
+            nativeOwnPaintCaptureBox(style, paintPhase, ownSize),
+            readRecordStyle,
+            ownSize,
+            memo,
+          ).rect
+        : undefined;
     const backdropReceiver =
       nativeInstanceId &&
       element.hasAttribute("data-an-native-backdrop-presentation")
@@ -4431,6 +4595,9 @@ class SceneProvider implements NativeSceneProvider {
       backdropReceiver ? "border" : "content",
       readRecordStyle,
       memo,
+      allowVisibleTargetOverflow || fillOwnEffectPhase,
+      paintedBounds,
+      fillOwnEffectPhase,
     );
     const contentVisible =
       sourceClip.clip.width > 0 && sourceClip.clip.height > 0;
@@ -4738,8 +4905,9 @@ class SceneProvider implements NativeSceneProvider {
           "source-clip-unreadable",
           "The source capture clip has no local geometry.",
         );
+      const ownPaintBox = nativeOwnPaintCaptureBox(style, paintPhase, size);
       const expectedCapture = planNativeCaptureRoi({
-        ownBox: { x: 0, y: 0, width: size.width, height: size.height },
+        ownBox: ownPaintBox,
         clipBox: ownClip,
         density: this.density,
         maxDimension: 4096,
@@ -4754,7 +4922,12 @@ class SceneProvider implements NativeSceneProvider {
         this.readSceneLeaf(leaf, metrics, paintPhase, memo),
         (source) => {
           const capture = nativeCaptureRoi(source);
-          if (!capture && ownOverflow.outset > 0)
+          const expandedOwnPaint =
+            ownPaintBox.x < 0 ||
+            ownPaintBox.y < 0 ||
+            ownPaintBox.width > size.width ||
+            ownPaintBox.height > size.height;
+          if (!capture && (ownOverflow.outset > 0 || expandedOwnPaint))
             throw new NativeSourceError(
               "source-capture-geometry-missing",
               "The DOM raster has no committed source origin.",
@@ -4762,7 +4935,7 @@ class SceneProvider implements NativeSceneProvider {
           assertCurrentCaptureRoi(
             capture,
             expectedCapture.plan,
-            ownOverflow.outset > 0,
+            ownOverflow.outset > 0 || expandedOwnPaint,
           );
           if (capture && metrics) metrics.recordDirectAffineReads += 1;
           const capturedGeometryResult = planNativeSourceAffine({
@@ -4798,9 +4971,10 @@ class SceneProvider implements NativeSceneProvider {
     out: NativeSourceRecord[],
     metrics?: NativeSourceReadSceneMetrics,
     memo?: SourceGeometryMemo,
+    allowVisibleTargetOverflow = false,
   ): void | Promise<void> {
     const result = runSourceWalkSteps(
-      this.walkSteps(element, out, metrics, memo),
+      this.walkSteps(element, out, metrics, memo, allowVisibleTargetOverflow),
       memo,
     );
     if (result && typeof (result as Promise<boolean>).then === "function")
@@ -4812,6 +4986,7 @@ class SceneProvider implements NativeSceneProvider {
     out: NativeSourceRecord[],
     metrics?: NativeSourceReadSceneMetrics,
     memo?: SourceGeometryMemo,
+    allowVisibleTargetOverflow = false,
   ): Generator<SourceWalkStep, boolean, boolean> {
     let crossedAsyncBoundary = false;
     let initialSize: { width: number; height: number } | undefined;
@@ -4885,9 +5060,9 @@ class SceneProvider implements NativeSceneProvider {
       };
       if (metrics) metrics.walkDirectAffineReads += 1;
       const presentationGeometry = relativeAffine(
-        layerInstance ? presentation : element,
+        presentation,
         this.target,
-        element === this.target && layerInstance
+        element === this.target && replacementInstance
           ? "target-local-global"
           : this.coordinateSpace,
         undefined,
@@ -4906,6 +5081,9 @@ class SceneProvider implements NativeSceneProvider {
         "content",
         undefined,
         memo,
+        allowVisibleTargetOverflow || !!fillInstance,
+        fillInstance ? presentationGeometry.rect : undefined,
+        element === this.target && !!fillInstance,
       );
       const isolationPath = this.isolationPath(
         element,
@@ -4961,15 +5139,41 @@ class SceneProvider implements NativeSceneProvider {
       element instanceof HTMLElement &&
       !hasDirectText(element);
     if (boxBeforeNativeFill) {
-      if (yield this.record(element, out, "all", metrics, memo))
+      if (
+        yield this.record(
+          element,
+          out,
+          "all",
+          metrics,
+          memo,
+          allowVisibleTargetOverflow,
+        )
+      )
         crossedAsyncBoundary = true;
     }
     for (const fill of fillCanvases) {
-      if (yield* this.walkSteps(fill, out, metrics, memo))
+      if (
+        yield* this.walkSteps(
+          fill,
+          out,
+          metrics,
+          memo,
+          allowVisibleTargetOverflow,
+        )
+      )
         crossedAsyncBoundary = true;
     }
     if (!boxBeforeNativeFill) {
-      if (yield this.record(element, out, "all", metrics, memo))
+      if (
+        yield this.record(
+          element,
+          out,
+          "all",
+          metrics,
+          memo,
+          allowVisibleTargetOverflow,
+        )
+      )
         crossedAsyncBoundary = true;
     }
     if (element instanceof SVGSVGElement) return crossedAsyncBoundary;
@@ -4997,7 +5201,15 @@ class SceneProvider implements NativeSceneProvider {
         !(hasDirectText(element) && isInlineFlowChild(child))
       ) {
         const records: NativeSourceRecord[] = [];
-        if (yield* this.walkSteps(child, records, metrics, memo))
+        if (
+          yield* this.walkSteps(
+            child,
+            records,
+            metrics,
+            memo,
+            allowVisibleTargetOverflow,
+          )
+        )
           crossedAsyncBoundary = true;
         if (records.length) childGroups.push(records);
       }
@@ -5101,6 +5313,7 @@ class SceneProvider implements NativeSceneProvider {
     out: NativeSourceRecord[],
     metrics: NativeSourceReadSceneMetrics | undefined,
     memo: SourceGeometryMemo,
+    fillPrefix?: NativeAncestorFillPrefix,
   ): Generator<SourceWalkStep, void, boolean> {
     if (this.placement === "layer") {
       if (this.targetCapture === "appearance")
@@ -5109,12 +5322,114 @@ class SceneProvider implements NativeSceneProvider {
       return;
     }
     for (let index = 0; index < path.length - 1; index += 1) {
-      yield this.record(path[index]!, out, "all", metrics, memo);
+      if (path[index] === fillPrefix?.ancestor)
+        this.recordAncestorFillPrefix(fillPrefix, out, metrics, memo);
+      else yield this.record(path[index]!, out, "all", metrics, memo);
       for (const sibling of path[index]!.children) {
         if (sibling === path[index + 1]) break;
         yield* this.walkSteps(sibling, out, metrics, memo);
       }
     }
+  }
+
+  private recordAncestorFillPrefix(
+    prefix: NativeAncestorFillPrefix,
+    out: NativeSourceRecord[],
+    metrics: NativeSourceReadSceneMetrics | undefined,
+    memo: SourceGeometryMemo,
+  ): void {
+    const readStyle: SourceStyleReader = (node) => {
+      let style = memo.styles.get(node);
+      if (!style) {
+        style = snapshotComputedStyle(node);
+        memo.styles.set(node, style);
+        if (metrics) metrics.recordDirectStyleReads += 1;
+      }
+      return style;
+    };
+    const style = readStyle(prefix.ancestor);
+    if (
+      style.display === "none" ||
+      style.visibility !== "visible" ||
+      !prefix.ancestor.isConnected
+    )
+      throw new NativeSourceError(
+        "fill-prefix-unavailable",
+        "The staged Fill prefix is no longer visible.",
+      );
+    assertLeafSupported(prefix.ancestor, undefined, readStyle);
+    if (metrics) metrics.recordDirectLayoutSizeReads += 1;
+    const size = sourceLayoutSize(
+      prefix.ancestor,
+      this.target,
+      this.coordinateSpace,
+      memo,
+    );
+    if (hasEmptySourceLayout(size))
+      throw new NativeSourceError(
+        "fill-prefix-unavailable",
+        "The staged Fill prefix has no current layout box.",
+      );
+    if (metrics) metrics.recordDirectAffineReads += 1;
+    const geometry = relativeAffine(
+      prefix.ancestor,
+      this.target,
+      this.coordinateSpace,
+      prefix.localBox,
+      readStyle,
+      size,
+      memo,
+    );
+    const sourceClip = sourceClipPlan(
+      prefix.ancestor,
+      this.target,
+      this.coordinateSpace,
+      false,
+      null,
+      0,
+      "content",
+      readStyle,
+      memo,
+      true,
+      geometry.rect,
+    );
+    const isolationPath = this.isolationPath(
+      prefix.ancestor,
+      sourceClip.groupClips,
+      false,
+      false,
+      readStyle,
+    );
+    if (
+      !isolationPath ||
+      geometry.rect.width <= 0 ||
+      geometry.rect.height <= 0 ||
+      sourceClip.clip.width <= 0 ||
+      sourceClip.clip.height <= 0
+    )
+      return;
+    out.push({
+      key: this.id(prefix.ancestor),
+      node: prefix.ancestor,
+      kind: "native",
+      sourceRole: "ancestor-fill-prefix",
+      nativeInstanceId: prefix.instanceId,
+      width: prefix.width,
+      height: prefix.height,
+      revision: prefix.revision,
+      coordinateSpace: this.coordinateSpace,
+      rect: geometry.rect,
+      localBox: geometry.localBox,
+      localToTarget: geometry.localToTarget,
+      clip: sourceClip.clip,
+      clips: sourceClip.clips,
+      groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+        id: `clip:${this.id(node)}`,
+        clip,
+      })),
+      isolationPath,
+      opacity: 1,
+    });
   }
 
   private viewportBackground(): NativeSourceRecord | null {
@@ -5231,6 +5546,45 @@ class SceneProvider implements NativeSceneProvider {
     return this.readFillBoxPhase(paint, "background");
   }
 
+  async readFillOwnPaintPhase(
+    phase: "outer-shadow" | "inset-shadow" | "outline",
+  ): Promise<NativeSourceRecord[]> {
+    if (this.disposed)
+      throw new NativeSourceError(
+        "source-disposed",
+        "The source provider was disposed.",
+      );
+    if (this.placement !== "fill")
+      throw new NativeSourceError(
+        "source-placement-invalid",
+        "Only a Fill target has authored box paint.",
+      );
+    const style = getComputedStyle(this.target);
+    const outsets = readNativeCssPaintOutsets(style);
+    if (outsets.kind === "unreadable")
+      throw new NativeSourceError(
+        "source-paint-outset-unreadable",
+        `Cannot resolve computed ${outsets.property} for source paint.`,
+      );
+    const shadows =
+      style.boxShadow === "none" ? [] : splitTopLevelCommas(style.boxShadow);
+    const present =
+      phase === "outline"
+        ? style.outlineStyle !== "none" &&
+          style.outlineStyle !== "hidden" &&
+          Number.parseFloat(style.outlineWidth) > 0
+        : shadows.some(
+            (shadow) => /\binset\b/.test(shadow) === (phase === "inset-shadow"),
+          );
+    this.readSceneCalls += 1;
+    const out: NativeSourceRecord[] = [];
+    if (!present) return this.markReplayRead(out);
+    if (!this.fillBoxIds.has(phase)) this.fillBoxIds.set(phase, this.nextId++);
+    await this.record(this.target, out, phase);
+    this.assertSourceComposition(out);
+    return this.markReplayRead(out);
+  }
+
   async readFillBoxPhase(
     paint: NativeFillBackgroundPaint,
     phase: "background" | "border" | "coverage" | "inner-coverage",
@@ -5246,20 +5600,6 @@ class SceneProvider implements NativeSceneProvider {
         "Only a Fill target has an authored background capture.",
       );
     const style = getComputedStyle(this.target);
-    if (style.boxShadow && style.boxShadow !== "none")
-      throw new NativeSourceError(
-        "fill-shadow-extent-unsupported",
-        "The authored Fill shadow extends beyond the bounded target output.",
-      );
-    if (
-      style.outlineStyle &&
-      style.outlineStyle !== "none" &&
-      Number.parseFloat(style.outlineWidth) > 0
-    )
-      throw new NativeSourceError(
-        "fill-outline-extent-unsupported",
-        "The authored Fill outline extends beyond the bounded target output.",
-      );
     if (
       style.borderImageOutset &&
       style.borderImageOutset
@@ -5365,9 +5705,9 @@ class SceneProvider implements NativeSceneProvider {
       );
     const groups: NativeSourceRecord[][] = [];
     for (const child of this.target.children) {
-      if (child.matches(OMIT)) continue;
+      if (this.omit(child)) continue;
       const records: NativeSourceRecord[] = [];
-      await this.walk(child, records);
+      await this.walk(child, records, undefined, undefined, true);
       if (records.length) groups.push(records);
     }
     const out = orderAutoStackingSiblingPaint(this.target, groups).flat();
@@ -5375,20 +5715,6 @@ class SceneProvider implements NativeSceneProvider {
     const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(`source-${overflow.reason}`, overflow.detail);
-    if (
-      overflow.edge === "none" &&
-      out.some(
-        (record) =>
-          record.rect.x < -0.01 ||
-          record.rect.y < -0.01 ||
-          record.rect.x + record.rect.width > this.target.offsetWidth + 0.01 ||
-          record.rect.y + record.rect.height > this.target.offsetHeight + 0.01,
-      )
-    )
-      throw new NativeSourceError(
-        "fill-foreground-extent-unsupported",
-        "A visible Fill descendant escapes the bounded target output.",
-      );
     this.assertSourceComposition(out);
     return this.markReplayRead(out);
   }
@@ -5396,6 +5722,7 @@ class SceneProvider implements NativeSceneProvider {
   async readScene(
     metrics?: NativeSourceReadSceneMetrics,
     callSite: NativeSourceReadSceneCallSite = "other",
+    fillPrefix?: NativeAncestorFillPrefix,
   ): Promise<NativeSourceRecord[]> {
     if (this.disposed)
       throw new NativeSourceError(
@@ -5434,9 +5761,43 @@ class SceneProvider implements NativeSceneProvider {
           node = node.parentElement
         )
           path.unshift(node);
+      if (fillPrefix) {
+        const box = fillPrefix.localBox;
+        const publishedInstance = fillPrefix.ancestor.getAttribute(
+          "data-an-native-fill-instance",
+        );
+        if (
+          this.placement !== "backdrop" ||
+          !path.slice(0, -1).includes(fillPrefix.ancestor) ||
+          !fillPrefix.instanceId ||
+          typeof fillPrefix.unpublished !== "boolean" ||
+          (publishedInstance === null
+            ? !fillPrefix.unpublished
+            : publishedInstance !== fillPrefix.instanceId) ||
+          ![
+            fillPrefix.width,
+            fillPrefix.height,
+            fillPrefix.revision,
+            fillPrefix.authoredSourceEpoch,
+          ].every((value) => Number.isSafeInteger(value) && value >= 0) ||
+          fillPrefix.width < 1 ||
+          fillPrefix.height < 1 ||
+          fillPrefix.width > 4096 ||
+          fillPrefix.height > 4096 ||
+          fillPrefix.width * fillPrefix.height > 8_388_608 ||
+          ![box.x, box.y, box.width, box.height].every(Number.isFinite) ||
+          box.width <= 0 ||
+          box.height <= 0 ||
+          this.authoredSourceGeneration !== fillPrefix.authoredSourceEpoch
+        )
+          throw new NativeSourceError(
+            "fill-prefix-stale",
+            "The staged Fill prefix no longer matches its Backdrop source.",
+          );
+      }
       try {
         const traversal = runSourceWalkSteps(
-          this.readSceneWalkSteps(path, out, metrics, memo),
+          this.readSceneWalkSteps(path, out, metrics, memo, fillPrefix),
           memo,
         );
         if (traversal) await traversal;
@@ -5482,6 +5843,14 @@ class SceneProvider implements NativeSceneProvider {
         throw new NativeSourceError(
           "input-authored-source-stale",
           "The authored text style changed during capture.",
+        );
+      if (
+        fillPrefix &&
+        this.authoredSourceGeneration !== fillPrefix.authoredSourceEpoch
+      )
+        throw new NativeSourceError(
+          "fill-prefix-stale",
+          "The staged Fill prefix changed during Backdrop capture.",
         );
       return this.markReplayRead(out);
     } finally {

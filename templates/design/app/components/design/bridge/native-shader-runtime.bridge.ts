@@ -133,6 +133,7 @@ import {
 } from "./native-device-lifecycle";
 import {
   planNativeChainedEffectExtent,
+  planNativeFillPresentationExtent,
   type NativeEffectExtentPlan,
 } from "./native-effect-extent";
 import {
@@ -449,6 +450,7 @@ type NestedBackdropTransaction = {
   active: Set<string>;
   complete: Set<string>;
   staged: Map<string, { mount: Mount; texture: GPUTexture }>;
+  authoredEpochs: Map<string, number>;
   noncontributing: Set<string>;
 };
 type AuthoredInputCapture = {
@@ -542,10 +544,12 @@ type Mount = {
   outputTexture: GPUTexture | null;
   groupLocalCommittedChildren: Set<string>;
   groupLocalNoncontributingChildren: Set<string>;
+  fillCommittedNativeChildren: Set<string>;
   width: number;
   height: number;
   pixelRatio: number;
   outputExtent: NativeEffectExtentPlan | null;
+  fillPresentationExtent: NativeEffectExtentPlan | null;
   captureInsets: { top: number; right: number; bottom: number; left: number };
   maskTexture: GPUTexture | null;
   maskSignature: string;
@@ -1125,6 +1129,35 @@ ${cssPremultBlendWgsl}
   let remaining = 1.0 - clamp(front.a, 0.0, 1.0);
   if (draw.viewport.z > 0.5) { return cssSourceOver(front, back); }
   return vec4f(front.rgb + back.rgb * remaining, front.a + back.a * remaining);
+}`;
+
+const fillPresentationWgsl = `
+struct Draw { viewport: vec4f, origin: vec4f };
+@group(0) @binding(0) var<uniform> draw: Draw;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var children: texture_2d<f32>;
+@group(0) @binding(3) var fill: texture_2d<f32>;
+struct VOut { @builtin(position) position: vec4f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VOut {
+  let xy = array<vec2f, 6>(vec2f(0,0), vec2f(1,0), vec2f(0,1), vec2f(0,1), vec2f(1,0), vec2f(1,1))[i];
+  var out: VOut;
+  out.position = vec4f(2.0 * xy.x - 1.0, 1.0 - 2.0 * xy.y, 0.0, 1.0);
+  return out;
+}
+${cssPremultBlendWgsl}
+@fragment fn fs(input: VOut) -> @location(0) vec4f {
+  let pixel = vec2i(input.position.xy);
+  let fillPixel = pixel - vec2i(draw.origin.xy);
+  var back = vec4f(0.0);
+  if (all(fillPixel >= vec2i(0)) && all(fillPixel < vec2i(textureDimensions(fill)))) {
+    back = textureLoad(fill, fillPixel, 0);
+  }
+  let front = textureSampleLevel(children, samp, (vec2f(pixel) + vec2f(0.5)) / draw.viewport.xy, 0.0);
+  let top = select(front, back, draw.origin.z > 0.5);
+  let below = select(back, front, draw.origin.z > 0.5);
+  let remaining = 1.0 - clamp(top.a, 0.0, 1.0);
+  if (draw.viewport.z > 0.5) { return cssSourceOver(top, below); }
+  return vec4f(top.rgb + below.rgb * remaining, top.a + below.a * remaining);
 }`;
 
 const fillCoveredUnderlayWgsl = `
@@ -1737,9 +1770,8 @@ class NativeShaderRuntime {
   }
 
   private groupLocalNoncontributing(mount: Mount): boolean {
-    const owners = this.enclosingLayerMounts(mount.target);
-    if (owners.length !== 1) return false;
-    const owner = owners[0];
+    const owner = this.nestedBackdropOwner(mount.target);
+    if (!owner) return false;
     if (
       !owner.outputTexture ||
       !owner.groupLocalNoncontributingChildren.has(mount.instance.id)
@@ -1755,8 +1787,21 @@ class NativeShaderRuntime {
 
   private representedNativeInstances(directIds: Set<string>): Set<string> {
     const represented = new Set(directIds);
-    for (const id of directIds) {
+    const pending = [...directIds];
+    const addCommitted = (childId: string): void => {
+      if (represented.has(childId)) return;
+      represented.add(childId);
+      pending.push(childId);
+    };
+    for (let index = 0; index < pending.length; index += 1) {
+      const id = pending[index];
       const parent = this.mounts.get(id);
+      if (parent?.instance.placement === "fill" && parent.outputTexture)
+        for (const childId of parent.fillCommittedNativeChildren) {
+          const child = this.mounts.get(childId);
+          if (child?.outputTexture && parent.target.contains(child.target))
+            addCommitted(childId);
+        }
       if (
         parent?.instance.placement !== "layer" ||
         !parent.outputTexture ||
@@ -1770,7 +1815,7 @@ class NativeShaderRuntime {
           child.outputTexture &&
           parent.target.contains(child.target)
         )
-          represented.add(childId);
+          addCommitted(childId);
       }
     }
     return represented;
@@ -4871,10 +4916,12 @@ class NativeShaderRuntime {
       outputTexture: null,
       groupLocalCommittedChildren: new Set(),
       groupLocalNoncontributingChildren: new Set(),
+      fillCommittedNativeChildren: new Set(),
       width: 0,
       height: 0,
       pixelRatio: 1,
       outputExtent: null,
+      fillPresentationExtent: null,
       captureInsets: { top: 0, right: 0, bottom: 0, left: 0 },
       maskTexture: null,
       maskSignature: "",
@@ -5134,16 +5181,22 @@ class NativeShaderRuntime {
           !member.suppressed ||
           !member.outputTexture ||
           !this.textureBytes.has(member.outputTexture) ||
-          member.outputTexture.width !== member.width ||
-          member.outputTexture.height !== member.height ||
+          member.outputTexture.width !==
+            (member === top
+              ? (member.fillPresentationExtent?.width ?? member.width)
+              : member.width) ||
+          member.outputTexture.height !==
+            (member === top
+              ? (member.fillPresentationExtent?.height ?? member.height)
+              : member.height) ||
           member.frameCount === 0 ||
           member.committedSourceEpoch === null ||
           member.committedInstancePayload === null ||
           member.committedDefinitionHash === null,
       ) ||
       top.canvas.style.visibility !== "visible" ||
-      top.canvas.width !== top.width ||
-      top.canvas.height !== top.height
+      top.canvas.width !== (top.fillPresentationExtent?.width ?? top.width) ||
+      top.canvas.height !== (top.fillPresentationExtent?.height ?? top.height)
     )
       return false;
     return nativePresentationVisible(top.canvas, {
@@ -5311,8 +5364,8 @@ class NativeShaderRuntime {
       this.syncFillPresentation(mount.target);
   }
 
-  private suppressOriginal(mount: Mount): void {
-    this.refreshAuthoredPaint(mount);
+  private suppressOriginal(mount: Mount, paintReady = false): void {
+    if (!paintReady) this.refreshAuthoredPaint(mount);
     if (mount.instance.placement === "fill") {
       this.presentFillGroup(mount);
       return;
@@ -5464,7 +5517,20 @@ class NativeShaderRuntime {
       previous: previous?.outputExtent ?? undefined,
     });
     if (!planned.ok) throw new NativeSourceError(planned.code, planned.detail);
-    const { width, height, left, top } = planned.plan;
+    const { width, height } = planned.plan;
+    if (
+      mount.fillPresentationExtent &&
+      (mount.fillPresentationExtent.sourceWidth !== planned.plan.sourceWidth ||
+        mount.fillPresentationExtent.sourceHeight !==
+          planned.plan.sourceHeight ||
+        mount.fillPresentationExtent.pixelRatio !== planned.plan.pixelRatio)
+    )
+      mount.fillPresentationExtent = null;
+    const presentationExtent =
+      mount.instance.placement === "fill" && mount.isTopLayer
+        ? (mount.fillPresentationExtent ?? planned.plan)
+        : planned.plan;
+    const { left, top } = presentationExtent;
     mount.pixelRatio = dpr;
     mount.outputExtent = planned.plan;
     mount.captureInsets = captureInsets;
@@ -5482,7 +5548,7 @@ class NativeShaderRuntime {
           "fill-group-style-unsupported",
           "This Fill target's filter, blend, or mask needs atomic group composition.",
         );
-      if (planned.plan.expanded) {
+      if (presentationExtent.expanded) {
         for (
           let node: Element | null = mount.target;
           node;
@@ -5501,18 +5567,18 @@ class NativeShaderRuntime {
         offsetTop: mount.target.offsetTop,
         width: mount.target.offsetWidth,
         height: mount.target.offsetHeight,
-        extent: planned.plan,
+        extent: presentationExtent,
         transformOrigin: style.transformOrigin,
       });
-      if (planned.plan.expanded && !geometry)
+      if (presentationExtent.expanded && !geometry)
         throw new NativeSourceError(
           "effect-output-transform-unsupported",
           "Expanded output has an unsupported transform origin.",
         );
       mount.canvas.style.left = `${geometry?.left ?? mount.target.offsetLeft - left / dpr}px`;
       mount.canvas.style.top = `${geometry?.top ?? mount.target.offsetTop - top / dpr}px`;
-      mount.canvas.style.width = `${geometry?.width ?? mount.target.offsetWidth + (left + planned.plan.right) / dpr}px`;
-      mount.canvas.style.height = `${geometry?.height ?? mount.target.offsetHeight + (top + planned.plan.bottom) / dpr}px`;
+      mount.canvas.style.width = `${geometry?.width ?? mount.target.offsetWidth + (left + presentationExtent.right) / dpr}px`;
+      mount.canvas.style.height = `${geometry?.height ?? mount.target.offsetHeight + (top + presentationExtent.bottom) / dpr}px`;
       mount.canvas.style.transform = style.transform;
       mount.canvas.style.translate = style.translate;
       mount.canvas.style.rotate = style.rotate;
@@ -5520,7 +5586,7 @@ class NativeShaderRuntime {
       mount.canvas.style.transformOrigin =
         geometry?.transformOrigin ?? style.transformOrigin;
       mount.canvas.style.borderRadius =
-        mount.instance.placement === "fill" || planned.plan.expanded
+        mount.instance.placement === "fill" || presentationExtent.expanded
           ? "0"
           : style.borderRadius;
       if (mount.instance.placement === "fill")
@@ -5536,6 +5602,8 @@ class NativeShaderRuntime {
         style.zIndex === "auto" ? "auto" : style.zIndex;
     }
     if (mount.width !== width || mount.height !== height) {
+      if (mount.instance.placement === "fill" && mount.suppressed)
+        this.restoreFillGroup(mount.target, false);
       mount.staticGeneratorPassCache.invalidate();
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
@@ -5558,6 +5626,42 @@ class NativeShaderRuntime {
         this.destroyUniform(binding.buffer);
       mount.drawBindings.clear();
     }
+    if (
+      mount.canvas.width !== presentationExtent.width ||
+      mount.canvas.height !== presentationExtent.height
+    ) {
+      mount.canvas.width = presentationExtent.width;
+      mount.canvas.height = presentationExtent.height;
+    }
+  }
+
+  private positionFillPresentation(
+    mount: Mount,
+    canvas: HTMLCanvasElement,
+    extent: NativeEffectExtentPlan,
+  ): void {
+    const style = getComputedStyle(mount.target);
+    const geometry = planNativeOutputGeometry({
+      offsetLeft: mount.target.offsetLeft,
+      offsetTop: mount.target.offsetTop,
+      width: mount.target.offsetWidth,
+      height: mount.target.offsetHeight,
+      extent,
+      transformOrigin: style.transformOrigin,
+    });
+    if (extent.expanded && !geometry)
+      throw new NativeSourceError(
+        "effect-output-transform-unsupported",
+        "Expanded output has an unsupported transform origin.",
+      );
+    canvas.style.left = `${geometry?.left ?? mount.target.offsetLeft - extent.left / mount.pixelRatio}px`;
+    canvas.style.top = `${geometry?.top ?? mount.target.offsetTop - extent.top / mount.pixelRatio}px`;
+    canvas.style.width = `${geometry?.width ?? mount.target.offsetWidth + (extent.left + extent.right) / mount.pixelRatio}px`;
+    canvas.style.height = `${geometry?.height ?? mount.target.offsetHeight + (extent.top + extent.bottom) / mount.pixelRatio}px`;
+    canvas.style.transformOrigin =
+      geometry?.transformOrigin ?? style.transformOrigin;
+    canvas.width = extent.width;
+    canvas.height = extent.height;
   }
 
   private async pipeline(
@@ -6521,6 +6625,7 @@ class NativeShaderRuntime {
     outputName = "source",
     blendMode: "linear" | "srgb-css" | "srgb-css-linear" = "linear",
     nested?: NestedBackdropTransaction,
+    nativeTextureOverrides?: ReadonlyMap<string, GPUTexture>,
   ): Promise<GPUTexture> {
     const physicalRoot = planNativePhysicalRootBox({
       width: mount.width,
@@ -7172,10 +7277,18 @@ class NativeShaderRuntime {
           mount.target.contains(nativeMount.target)
             ? nativeMount.instance.id
             : undefined;
+        const override = record.nativeInstanceId
+          ? nativeTextureOverrides?.get(record.nativeInstanceId)
+          : undefined;
+        if (record.sourceRole === "ancestor-fill-prefix" && !override)
+          throw new NativeSourceError(
+            "native-dependency-missing",
+            "The staged ancestor Fill prefix is unavailable.",
+          );
         const texture = record.nativeInstanceId
           ? nestedBackdropId
             ? this.transparent
-            : nativeMount?.outputTexture
+            : (override ?? nativeMount?.outputTexture)
           : this.upload(mount, record);
         if (!texture)
           throw new NativeSourceError(
@@ -8966,7 +9079,8 @@ class NativeShaderRuntime {
           `Authored appearance ${binding.nodeId} has no current native output.`,
         );
     }
-    const extent = nativeOwner?.outputExtent;
+    const extent =
+      nativeOwner?.fillPresentationExtent ?? nativeOwner?.outputExtent;
     const ratio = extent?.pixelRatio ?? mount.pixelRatio;
     const width = extent?.width ?? Math.ceil(target.offsetWidth * ratio);
     const height = extent?.height ?? Math.ceil(target.offsetHeight * ratio);
@@ -11014,7 +11128,13 @@ class NativeShaderRuntime {
     inputs: readonly GPUTexture[],
   ): GPUTexture {
     let output = mount.resourceTextures.get(key);
-    if (output && output !== mount.outputTexture && !inputs.includes(output))
+    if (
+      output &&
+      output !== mount.outputTexture &&
+      !inputs.includes(output) &&
+      output.width === mount.width &&
+      output.height === mount.height
+    )
       return output;
     if (key !== "__native_final_back") {
       const back = mount.resourceTextures.get("__native_final_back");
@@ -11081,6 +11201,77 @@ class NativeShaderRuntime {
         this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr"
           ? 1
           : 0,
+        0,
+      ]),
+    );
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: output.createView(),
+          loadOp: "clear",
+          storeOp: "store",
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        },
+      ],
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bind);
+    pass.draw(6);
+    pass.end();
+    return output;
+  }
+
+  private async compositeFillPresentation(
+    mount: Mount,
+    children: GPUTexture,
+    fill: GPUTexture,
+    extent: NativeEffectExtentPlan,
+    encoder: GPUCommandEncoder,
+    fillOnTop = false,
+    outputName = "__native_final_back",
+  ): Promise<GPUTexture> {
+    if (
+      children.width !== extent.width ||
+      children.height !== extent.height ||
+      fill.width !== mount.width ||
+      fill.height !== mount.height ||
+      !mount.outputExtent
+    )
+      throw new NativeSourceError(
+        "fill-presentation-size-mismatch",
+        "The Fill foreground and generated box do not match their planned extents.",
+      );
+    this.ensureCompositionBudget(
+      mount,
+      extent.width *
+        extent.height *
+        (this.workingFormat === "rgba16float" ? 8 : 4),
+    );
+    const output = this.acquireFillOutput(
+      { ...mount, width: extent.width, height: extent.height },
+      outputName,
+      [children, fill],
+    );
+    const pipeline = await this.pipeline(
+      fillPresentationWgsl,
+      this.workingFormat,
+    );
+    const bind = this.bind(
+      mount,
+      "fill-presentation",
+      pipeline,
+      children,
+      fill,
+      new Float32Array([
+        extent.width,
+        extent.height,
+        this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr"
+          ? 1
+          : 0,
+        0,
+        extent.left - mount.outputExtent.left,
+        extent.top - mount.outputExtent.top,
+        fillOnTop ? 1 : 0,
         0,
       ]),
     );
@@ -11285,7 +11476,7 @@ class NativeShaderRuntime {
       pipeline,
       source,
       mask,
-      new Float32Array([mount.width, mount.height, 0, 0, 1, 0, 0, 0]),
+      new Float32Array([source.width, source.height, 0, 0, 1, 0, 0, 0]),
     );
     const presentedTexture = context.getCurrentTexture();
     const pass = encoder.beginRenderPass({
@@ -11307,7 +11498,7 @@ class NativeShaderRuntime {
       encoder.copyTextureToTexture(
         { texture: presentedTexture },
         { texture: publishedMirror },
-        [mount.width, mount.height, 1],
+        [source.width, source.height, 1],
       );
   }
 
@@ -11396,6 +11587,28 @@ class NativeShaderRuntime {
     );
   }
 
+  private nestedBackdropOwner(target: Element): Mount | null {
+    const owners = [...this.mounts.values()].filter(
+      (candidate) =>
+        (candidate.instance.placement === "layer" ||
+          (candidate.instance.placement === "fill" && candidate.isTopLayer)) &&
+        candidate.target !== target &&
+        candidate.target.contains(target),
+    );
+    const nearest = owners.find((candidate) =>
+      owners.every(
+        (other) =>
+          other === candidate || other.target.contains(candidate.target),
+      ),
+    );
+    if (owners.length && !nearest)
+      throw new NativeSourceError(
+        "source-group-local-chain-unsupported",
+        "source-group-local-chain-unsupported",
+      );
+    return nearest ?? null;
+  }
+
   private async stageGroupLocalBackdrop(
     parent: Mount,
     child: Mount,
@@ -11435,6 +11648,7 @@ class NativeShaderRuntime {
       child.instance.placement !== "backdrop" ||
       child.definition.simulation ||
       child.definition.feedback ||
+      isStatefulResourceGraph(child.definition.resourceGraph) ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -11547,6 +11761,177 @@ class NativeShaderRuntime {
         mount: child,
         texture: finished,
       });
+      const authoredEpoch = child.provider?.authoredSourceEpoch?.();
+      if (authoredEpoch !== undefined)
+        transaction.authoredEpochs.set(child.instance.id, authoredEpoch);
+      return finished;
+    } finally {
+      transaction.active.delete(child.instance.id);
+    }
+  }
+
+  private async stageFillLocalBackdrop(
+    parent: Mount,
+    child: Mount,
+    prefix: GPUTexture,
+    prefixExtent: NativeEffectExtentPlan,
+    encoder: GPUCommandEncoder,
+    transaction: NestedBackdropTransaction,
+    authoredSourceEpoch: number,
+  ): Promise<GPUTexture> {
+    if (
+      this.mounts.get(child.instance.id) !== child ||
+      this.mounts.get(parent.instance.id) !== parent ||
+      !parent.isTopLayer ||
+      !transaction.active.has(parent.instance.id) ||
+      this.nestedBackdropOwner(child.target) !== parent ||
+      child.instance.placement !== "backdrop" ||
+      child.definition.simulation ||
+      child.definition.feedback ||
+      isStatefulResourceGraph(child.definition.resourceGraph) ||
+      child.previousLayerId ||
+      child.previousFillId ||
+      this.draft?.instanceId === child.instance.id ||
+      this.instancePreview?.instanceId === child.instance.id
+    )
+      throw new NativeSourceError(
+        "source-group-local-effect-unsupported",
+        "source-group-local-effect-unsupported",
+      );
+    if (
+      transaction.active.has(child.instance.id) ||
+      transaction.staged.has(child.instance.id)
+    )
+      throw new NativeSourceError(
+        "effect-dependency-cycle",
+        "effect-dependency-cycle",
+      );
+    transaction.active.add(child.instance.id);
+    try {
+      if (!child.provider)
+        throw new NativeSourceError(
+          "source-provider-unavailable",
+          "source-provider-unavailable",
+        );
+      const records = await child.provider.readScene(
+        undefined,
+        "mount-source",
+        {
+          ancestor: parent.target,
+          instanceId: parent.instance.id,
+          width: prefix.width,
+          height: prefix.height,
+          localBox: {
+            x: -prefixExtent.left / prefixExtent.pixelRatio,
+            y: -prefixExtent.top / prefixExtent.pixelRatio,
+            width: prefixExtent.width / prefixExtent.pixelRatio,
+            height: prefixExtent.height / prefixExtent.pixelRatio,
+          },
+          revision: this.renderEpoch,
+          authoredSourceEpoch,
+          unpublished:
+            parent.target.getAttribute("data-an-native-fill-instance") === null,
+        },
+      );
+      if (
+        child.provider.authoredSourceEpoch?.() !== authoredSourceEpoch ||
+        records.filter(
+          (record) =>
+            record.sourceRole === "ancestor-fill-prefix" &&
+            record.nativeInstanceId === parent.instance.id,
+        ).length !== 1 ||
+        records.some(
+          (record) =>
+            record.sourceRole === "ancestor-fill-prefix" &&
+            record.nativeInstanceId !== parent.instance.id,
+        )
+      )
+        throw new NativeSourceError("source-epoch-stale", "source-epoch-stale");
+      const overrides = new Map([[parent.instance.id, prefix]]);
+      for (const [id, staged] of transaction.staged)
+        overrides.set(id, staged.texture);
+      for (const record of records) {
+        if (
+          !record.nativeInstanceId ||
+          record.sourceRole === "ancestor-fill-prefix"
+        )
+          continue;
+        const dependency = this.mounts.get(record.nativeInstanceId);
+        if (!dependency || dependency === parent || dependency === child)
+          throw new NativeSourceError(
+            "source-group-local-chain-unsupported",
+            "source-group-local-chain-unsupported",
+          );
+        if (this.nestedBackdropOwner(dependency.target) === parent) {
+          if (!overrides.has(dependency.instance.id))
+            throw new NativeSourceError(
+              "source-group-local-chain-unsupported",
+              "source-group-local-chain-unsupported",
+            );
+          continue;
+        }
+        await this.renderMount(
+          dependency,
+          transaction.time,
+          transaction.deterministic,
+          transaction.complete,
+          transaction.active,
+        );
+      }
+      const source = records.length
+        ? await this.composeScene(
+            child,
+            records,
+            encoder,
+            "__native_fill_local_source",
+            this.colorPresented === "srgb" &&
+              this.dynamicRangePresented === "sdr" &&
+              records.length > 1
+              ? "srgb-css-linear"
+              : "linear",
+            undefined,
+            overrides,
+          )
+        : this.transparent!;
+      const childDeterministic = this.mountDeterministicTime(
+        child,
+        transaction.deterministic,
+      );
+      const childTime = childDeterministic
+        ? child.instance.timing.time +
+          (child.instance.timing.paused
+            ? 0
+            : transaction.time * child.instance.timing.speed)
+        : child.clock.paused
+          ? child.clock.local
+          : child.clock.local +
+            (transaction.time - child.clock.global) * child.clock.speed;
+      const result = await this.effectPasses(
+        child,
+        source,
+        childTime,
+        encoder,
+        child.definition,
+        child.instance,
+        childDeterministic,
+        `fill-local:${parent.instance.id}:${this.renderEpoch}`,
+        { complete: transaction.complete, active: transaction.active },
+      );
+      const finished = await this.finish(
+        child,
+        result,
+        encoder,
+        child.instance,
+        child.definition,
+        child.frameCount % 2 === 0
+          ? "__native_group_local_final_a"
+          : "__native_group_local_final_b",
+      );
+      transaction.staged.set(child.instance.id, {
+        mount: child,
+        texture: finished,
+      });
+      transaction.authoredEpochs.set(child.instance.id, authoredSourceEpoch);
       return finished;
     } finally {
       transaction.active.delete(child.instance.id);
@@ -11573,26 +11958,20 @@ class NativeShaderRuntime {
     deterministic = this.mountDeterministicTime(mount, deterministic);
     if (complete.has(mount.instance.id)) return;
     if (mount.instance.placement === "backdrop") {
-      const enclosingLayers = this.enclosingLayerMounts(mount.target);
-      const enclosingLayer = enclosingLayers[0];
-      if (enclosingLayer) {
+      const enclosingOwner = this.nestedBackdropOwner(mount.target);
+      if (enclosingOwner) {
         if (mount.frozenReason)
           throw new NativeSourceError(
             mount.frozenReason.code,
             mount.frozenReason.message,
           );
-        if (enclosingLayers.length !== 1)
-          throw new NativeSourceError(
-            "source-group-local-chain-unsupported",
-            "source-group-local-chain-unsupported",
-          );
-        if (active.has(enclosingLayer.instance.id))
+        if (active.has(enclosingOwner.instance.id))
           throw new NativeSourceError(
             "effect-dependency-cycle",
             "effect-dependency-cycle",
           );
         await this.renderMount(
-          enclosingLayer,
+          enclosingOwner,
           time,
           deterministic,
           complete,
@@ -11772,12 +12151,14 @@ class NativeShaderRuntime {
       );
     mount.provider?.setDensity(mount.pixelRatio);
     const nestedChildren =
-      mount.instance.placement === "layer"
+      mount.instance.placement === "layer" ||
+      (mount.instance.placement === "fill" && mount.isTopLayer)
         ? [...this.mounts.values()].filter(
             (candidate) =>
               candidate.instance.placement === "backdrop" &&
               candidate.target !== mount.target &&
-              mount.target.contains(candidate.target),
+              mount.target.contains(candidate.target) &&
+              this.nestedBackdropOwner(candidate.target) === mount,
           )
         : [];
     for (const child of nestedChildren) {
@@ -11786,8 +12167,7 @@ class NativeShaderRuntime {
           child.frozenReason.code,
           child.frozenReason.message,
         );
-      const owners = this.enclosingLayerMounts(child.target);
-      if (owners.length !== 1 || owners[0] !== mount)
+      if (this.nestedBackdropOwner(child.target) !== mount)
         throw new NativeSourceError(
           "source-group-local-chain-unsupported",
           "source-group-local-chain-unsupported",
@@ -11795,6 +12175,7 @@ class NativeShaderRuntime {
     }
     if (
       nestedChildren.length &&
+      mount.instance.placement === "layer" &&
       (mount.previousLayerId ||
         mount.previousFillId ||
         mount.definition.simulation ||
@@ -11913,6 +12294,9 @@ class NativeShaderRuntime {
     let profileSubmitted = false;
     let submitted = false;
     let restorationAttempted = false;
+    let detachedFillPresentation = false;
+    let priorOutputRetirement: GPUTexture | null = null;
+    let fillNativeChildren = new Set<string>();
     let frameResources: NativeFrameResourceScratch<GPUTexture> | null = null;
     let simulationFrameResources = false;
     let publishedDraftResources: Map<string, GPUTexture> | null = null;
@@ -11925,6 +12309,7 @@ class NativeShaderRuntime {
       fillBorderTexture: GPUTexture | null;
       fillOuterCoverageTexture: GPUTexture | null;
       fillInnerCoverageTexture: GPUTexture | null;
+      fillPresentationExtent: NativeEffectExtentPlan | null;
       frameCount: number;
       renderWallSamples: number[];
       attributes: Map<string, string>;
@@ -11937,6 +12322,7 @@ class NativeShaderRuntime {
             active,
             complete,
             staged: new Map(),
+            authoredEpochs: new Map(),
             noncontributing: new Set(),
           }
         : undefined;
@@ -11982,7 +12368,10 @@ class NativeShaderRuntime {
           if (
             staged.mount !== child ||
             noncontributing ||
-            clipState === "empty"
+            clipState === "empty" ||
+            (nestedTransaction.authoredEpochs.has(child.instance.id) &&
+              child.provider?.authoredSourceEpoch?.() !==
+                nestedTransaction.authoredEpochs.get(child.instance.id))
           )
             throw new NativeSourceError(
               "source-epoch-stale",
@@ -12021,6 +12410,7 @@ class NativeShaderRuntime {
       let fillGlyphResult: GPUTexture | null = null;
       let fillUnderlayResult: GPUTexture | null = null;
       let fillPhaseResult: GPUTexture | null = null;
+      let plannedFillPresentationExtent: NativeEffectExtentPlan | null = null;
       const textFill =
         mount.instance.placement === "fill" && activeInstance.clip === "text";
       let sourceRevision = "";
@@ -12283,6 +12673,7 @@ class NativeShaderRuntime {
           fillBorderTexture: mount.fillBorderTexture,
           fillOuterCoverageTexture: mount.fillOuterCoverageTexture,
           fillInnerCoverageTexture: mount.fillInnerCoverageTexture,
+          fillPresentationExtent: mount.fillPresentationExtent,
           frameCount: mount.frameCount,
           renderWallSamples: [...mount.renderWallSamples],
           attributes: new Map(
@@ -12327,6 +12718,44 @@ class NativeShaderRuntime {
         instancePreviewActive:
           this.instancePreview?.instanceId === mount.instance.id,
       });
+      if (mount.instance.placement === "fill" && mount.isTopLayer) {
+        if (!unpublishedLayerState)
+          unpublishedLayerState = {
+            outputTexture: mount.outputTexture,
+            fillTextTexture: mount.fillTextTexture,
+            fillUnderlayTexture: mount.fillUnderlayTexture,
+            fillPhaseTexture: mount.fillPhaseTexture,
+            fillBorderTexture: mount.fillBorderTexture,
+            fillOuterCoverageTexture: mount.fillOuterCoverageTexture,
+            fillInnerCoverageTexture: mount.fillInnerCoverageTexture,
+            fillPresentationExtent: mount.fillPresentationExtent,
+            frameCount: mount.frameCount,
+            renderWallSamples: [...mount.renderWallSamples],
+            attributes: new Map(
+              mount.target
+                .getAttributeNames()
+                .filter((name) => name.startsWith("data-an-native-"))
+                .map((name) => [name, mount.target.getAttribute(name)!]),
+            ),
+          };
+        if (!frameResources) {
+          frameResources = new NativeFrameResourceScratch(
+            mount.resourceTextures,
+            [
+              ...(source === mount.resourceTextures.get("source")
+                ? ["source"]
+                : []),
+              ...(staticPassKey
+                ? [
+                    activeDefinition.output ??
+                      activeDefinition.passes[0]?.output,
+                  ].filter((name): name is string => !!name)
+                : []),
+            ],
+          );
+          mount.resourceTextures = frameResources.scratch;
+        }
+      }
       const outputName =
         activeDefinition.output ?? activeDefinition.passes[0]?.output;
       const retainedOutput = outputName
@@ -12397,6 +12826,32 @@ class NativeShaderRuntime {
           [fillOuterCoverage, fillInnerCoverage],
           !previousFill,
         );
+        let outerScene: NativeSourceRecord[] = [];
+        let outlineScene: NativeSourceRecord[] = [];
+        if (mount.isTopLayer) {
+          const ownPaintStarted = performance.now();
+          const insetScene =
+            await mount.provider!.readFillOwnPaintPhase("inset-shadow");
+          outerScene =
+            await mount.provider!.readFillOwnPaintPhase("outer-shadow");
+          outlineScene = await mount.provider!.readFillOwnPaintPhase("outline");
+          sourceWallMs += performance.now() - ownPaintStarted;
+          if (insetScene.length) {
+            const insetTexture = await this.composeScene(
+              mount,
+              insetScene,
+              encoder,
+              "__native_fill_inset_shadow",
+            );
+            fillUnderlayResult = await this.compositeFill(
+              mount,
+              insetTexture,
+              fillUnderlayResult,
+              encoder,
+              "__native_fill_underlay_inset",
+            );
+          }
+        }
         if (textFill) {
           fillGlyphResult = await this.mixFillGlyph(
             mount,
@@ -12422,6 +12877,12 @@ class NativeShaderRuntime {
                 "fill-child-unavailable",
                 "A Fill foreground has an unavailable native child.",
               );
+            if (
+              nestedTransaction &&
+              dependency.instance.placement === "backdrop" &&
+              this.nestedBackdropOwner(dependency.target) === mount
+            )
+              continue;
             await this.renderMount(
               dependency,
               time,
@@ -12433,6 +12894,50 @@ class NativeShaderRuntime {
           }
           if (hasNativeDependency)
             childScene = await mount.provider!.readFillForeground();
+          fillNativeChildren = new Set(
+            childScene.flatMap((record) =>
+              record.nativeInstanceId &&
+              record.rect.width > 0 &&
+              record.rect.height > 0 &&
+              record.clip.width > 0 &&
+              record.clip.height > 0 &&
+              Math.min(
+                record.rect.x + record.rect.width,
+                record.clip.x + record.clip.width,
+              ) > Math.max(record.rect.x, record.clip.x) &&
+              Math.min(
+                record.rect.y + record.rect.height,
+                record.clip.y + record.clip.height,
+              ) > Math.max(record.rect.y, record.clip.y)
+                ? [record.nativeInstanceId]
+                : [],
+            ),
+          );
+          if (!mount.outputExtent)
+            throw new NativeSourceError(
+              "fill-presentation-geometry-unavailable",
+              "The generated Fill has no output geometry.",
+            );
+          const planned = planNativeFillPresentationExtent({
+            fill: mount.outputExtent,
+            foreground: [...childScene, ...outerScene, ...outlineScene],
+            maxDimension: MAX_DIMENSION,
+            maxPixels: MAX_PIXELS,
+          });
+          if (!planned.ok)
+            throw new NativeSourceError(planned.code, planned.detail);
+          plannedFillPresentationExtent = planned.plan;
+          if (planned.plan.expanded)
+            for (
+              let node: Element | null = mount.target;
+              node;
+              node = node.parentElement
+            )
+              if (!supportsNativeOutput2D(getComputedStyle(node)))
+                throw new NativeSourceError(
+                  "effect-output-transform-unsupported",
+                  "Expanded output cannot project a 3D or perspective transform.",
+                );
         }
         if (mount.isTopLayer) {
           const box = await this.drawCoveredFillPhase(
@@ -12450,28 +12955,143 @@ class NativeShaderRuntime {
             fillGlyphResult ?? this.transparent!,
             box,
             encoder,
-            childScene.length ? "__native_fill_phase" : "__native_final_back",
+            childScene.length || outerScene.length || outlineScene.length
+              ? "__native_fill_phase"
+              : "__native_final_back",
           );
-          if (childScene.length) {
+          if (childScene.length || outerScene.length || outlineScene.length) {
             const childStarted = performance.now();
-            const childTexture = await this.composeScene(
-              mount,
-              childScene,
-              encoder,
-              "__native_fill_child",
-              this.colorPresented === "srgb" &&
-                this.dynamicRangePresented === "sdr" &&
-                childScene.length > 1
-                ? "srgb-css-linear"
-                : "linear",
-            );
+            const presentationExtent = plannedFillPresentationExtent!;
+            const expandedPresentation =
+              presentationExtent.width !== mount.width ||
+              presentationExtent.height !== mount.height ||
+              presentationExtent.left !== mount.outputExtent!.left ||
+              presentationExtent.top !== mount.outputExtent!.top;
+            const presentationMount = expandedPresentation
+              ? {
+                  ...mount,
+                  width: presentationExtent.width,
+                  height: presentationExtent.height,
+                  outputExtent: presentationExtent,
+                }
+              : mount;
+            let expandedBase = fillPhaseResult;
+            if (outerScene.length) {
+              const outerTexture = await this.composeScene(
+                presentationMount,
+                outerScene,
+                encoder,
+                "__native_fill_outer_shadow",
+              );
+              expandedBase = expandedPresentation
+                ? await this.compositeFillPresentation(
+                    mount,
+                    outerTexture,
+                    fillPhaseResult,
+                    presentationExtent,
+                    encoder,
+                    true,
+                    childScene.length || outlineScene.length
+                      ? "__native_fill_expanded_base"
+                      : "__native_final_back",
+                  )
+                : await this.compositeFill(
+                    mount,
+                    fillPhaseResult,
+                    outerTexture,
+                    encoder,
+                    childScene.length || outlineScene.length
+                      ? "__native_fill_expanded_base"
+                      : "__native_final_back",
+                  );
+            }
+            if (nestedTransaction) {
+              for (const record of childScene) {
+                if (!record.nativeInstanceId) continue;
+                const child = this.mounts.get(record.nativeInstanceId);
+                if (
+                  !child ||
+                  child.instance.placement !== "backdrop" ||
+                  this.nestedBackdropOwner(child.target) !== mount ||
+                  nestedTransaction.staged.has(child.instance.id) ||
+                  !fillNativeChildren.has(child.instance.id)
+                )
+                  continue;
+                const childEpoch = child.provider?.authoredSourceEpoch?.();
+                if (childEpoch === undefined)
+                  throw new NativeSourceError(
+                    "source-epoch-stale",
+                    "source-epoch-stale",
+                  );
+                await this.stageFillLocalBackdrop(
+                  mount,
+                  child,
+                  outerScene.length ? expandedBase : fillPhaseResult,
+                  outerScene.length ? presentationExtent : mount.outputExtent!,
+                  encoder,
+                  nestedTransaction,
+                  childEpoch,
+                );
+              }
+              for (const child of nestedChildren) {
+                if (nestedTransaction.staged.has(child.instance.id)) continue;
+                if (
+                  mount.provider!.groupLocalBackdropClipState(child.canvas) !==
+                  "empty"
+                )
+                  throw new NativeSourceError(
+                    "native-dependency-missing",
+                    "native-dependency-missing",
+                  );
+                nestedTransaction.noncontributing.add(child.instance.id);
+              }
+            }
+            const overlayScene = [...childScene, ...outlineScene];
+            if (overlayScene.length) {
+              const stagedNativeTextures = nestedTransaction
+                ? new Map(
+                    [...nestedTransaction.staged].map(([id, staged]) => [
+                      id,
+                      staged.texture,
+                    ]),
+                  )
+                : undefined;
+              const childTexture = await this.composeScene(
+                presentationMount,
+                overlayScene,
+                encoder,
+                "__native_fill_child",
+                this.colorPresented === "srgb" &&
+                  this.dynamicRangePresented === "sdr" &&
+                  overlayScene.length > 1
+                  ? "srgb-css-linear"
+                  : "linear",
+                undefined,
+                stagedNativeTextures,
+              );
+              finished = outerScene.length
+                ? await this.compositeFill(
+                    presentationMount,
+                    childTexture,
+                    expandedBase,
+                    encoder,
+                  )
+                : expandedPresentation
+                  ? await this.compositeFillPresentation(
+                      mount,
+                      childTexture,
+                      fillPhaseResult,
+                      presentationExtent,
+                      encoder,
+                    )
+                  : await this.compositeFill(
+                      mount,
+                      childTexture,
+                      fillPhaseResult,
+                      encoder,
+                    );
+            } else finished = expandedBase;
             composeWallMs += performance.now() - childStarted;
-            finished = await this.compositeFill(
-              mount,
-              childTexture,
-              fillPhaseResult,
-              encoder,
-            );
           } else finished = fillPhaseResult;
         } else finished = fillUnderlayResult;
       }
@@ -12480,14 +13100,46 @@ class NativeShaderRuntime {
           "draft-superseded",
           "A newer draft request replaced this GPU frame.",
         );
-      if (frameResources && !detachedCandidate && !simulationFrameResources)
+      if (
+        frameResources &&
+        !detachedCandidate &&
+        !simulationFrameResources &&
+        !(mount.instance.placement === "fill" && mount.isTopLayer)
+      )
         throw new NativeSourceError(
           "presentation-frame-stale",
           "The detached presentation source changed during the frame.",
         );
-      const twoSurface = detachedCandidate
-        ? this.preparePresentationPair(mount, device)
-        : null;
+      const twoSurface =
+        detachedCandidate ||
+        (mount.instance.placement === "fill" && mount.isTopLayer)
+          ? this.preparePresentationPair(mount, device)
+          : null;
+      const assertTwoSurfacePublishable = (): void => {
+        if (!twoSurface) return;
+        assertCurrentPresentation();
+        if (mount.provider?.sourceEpoch?.() !== sourceEpoch)
+          throw new NativeSourceError(
+            "source-epoch-stale",
+            "The authored source changed before presentation.",
+          );
+        twoSurface.pair.assertPublishable(twoSurface.front, twoSurface.spare);
+      };
+      if (twoSurface && mount.instance.placement === "fill") {
+        const extent = plannedFillPresentationExtent;
+        if (!extent)
+          throw new NativeSourceError(
+            "fill-presentation-geometry-unavailable",
+            "The Fill presentation has no current output geometry.",
+          );
+        this.ensureTextureBudget(
+          extent.width *
+            extent.height *
+            (this.format === "rgba16float" ? 8 : 4),
+        );
+        this.positionFillPresentation(mount, twoSurface.spare.canvas, extent);
+        detachedFillPresentation = true;
+      }
       const presentStarted = hostWallPhases ? performance.now() : 0;
       if (this.presentationMirrorCapture) {
         if (
@@ -12537,11 +13189,9 @@ class NativeShaderRuntime {
               child.frozenReason.code,
               child.frozenReason.message,
             );
-          const owners = this.enclosingLayerMounts(child.target);
           if (
             this.mounts.get(child.instance.id) !== child ||
-            owners.length !== 1 ||
-            owners[0] !== mount
+            this.nestedBackdropOwner(child.target) !== mount
           )
             throw new NativeSourceError(
               "source-group-local-chain-unsupported",
@@ -12595,11 +13245,9 @@ class NativeShaderRuntime {
             child.frozenReason.code,
             child.frozenReason.message,
           );
-        const owners = this.enclosingLayerMounts(child.target);
         if (
           this.mounts.get(child.instance.id) !== child ||
-          owners.length !== 1 ||
-          owners[0] !== mount
+          this.nestedBackdropOwner(child.target) !== mount
         )
           throw new NativeSourceError(
             "source-group-local-chain-unsupported",
@@ -12609,13 +13257,7 @@ class NativeShaderRuntime {
       assertNestedChildren();
       assertCaptureOriginCurrent();
       if (twoSurface) {
-        assertCurrentPresentation();
-        if (mount.provider?.sourceEpoch?.() !== sourceEpoch)
-          throw new NativeSourceError(
-            "source-epoch-stale",
-            "The authored source changed during GPU validation.",
-          );
-        twoSurface.pair.assertPublishable(twoSurface.front, twoSurface.spare);
+        assertTwoSurfacePublishable();
         if (this.presentationFaultLatch.pending()) {
           const fault = this.presentationFaultLatch.consume({
             instanceId: mount.instance.id,
@@ -12640,12 +13282,12 @@ class NativeShaderRuntime {
         }
       }
       assertStatelessCurrent();
-      const postSubmitStarted = hostWallPhases ? performance.now() : 0;
       const simulationFrame = draft?.simulationFrame ?? mount.simulationFrame;
       if (simulationFrame) {
-        await simulationFrame.transaction.commit(() => {
+        await simulationFrame.transaction.settle(() => {
           assertCaptureOriginCurrent();
           assertStatelessCurrent();
+          assertTwoSurfacePublishable();
           if (
             this.device !== device ||
             this.mounts.get(mount.instance.id) !== mount
@@ -12655,6 +13297,30 @@ class NativeShaderRuntime {
               "simulation-frame-invalid",
             );
         });
+      }
+      const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
+      if (statefulFrame)
+        await statefulFrame.settle(() => {
+          assertCaptureOriginCurrent();
+          assertStatelessCurrent();
+          assertTwoSurfacePublishable();
+        });
+      assertCaptureOriginCurrent();
+      assertStatelessCurrent();
+      assertTwoSurfacePublishable();
+      if (twoSurface) this.refreshAuthoredPaint(mount);
+      if (twoSurface) {
+        assertTwoSurfacePublishable();
+        const front = twoSurface.pair.publish(
+          twoSurface.front,
+          twoSurface.spare,
+        );
+        mount.canvas = front.canvas;
+        mount.context = front.context;
+      }
+      const postSubmitStarted = hostWallPhases ? performance.now() : 0;
+      if (simulationFrame) {
+        simulationFrame.transaction.promote();
         if (draft) {
           draft.simulation = simulationFrame.state;
           draft.simulationFrame = null;
@@ -12686,7 +13352,11 @@ class NativeShaderRuntime {
           );
         }
       }
-      if (simulationFrameResources && frameResources) {
+      if (
+        simulationFrameResources &&
+        frameResources &&
+        mount.instance.placement !== "fill"
+      ) {
         const staleResources = frameResources.retiredOnCommit();
         frameResources.commit();
         if (draft) draft.resources = frameResources.scratch;
@@ -12723,13 +13393,9 @@ class NativeShaderRuntime {
           },
         );
       }
-      const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
       if (statefulFrame) {
         const stateful = (draft ? draft.stateful : mount.stateful)!;
-        await statefulFrame.commit(() => {
-          assertCaptureOriginCurrent();
-          assertStatelessCurrent();
-        });
+        statefulFrame.promote();
         if (draft) draft.statefulFrame = null;
         else mount.statefulFrame = null;
         stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
@@ -12752,6 +13418,8 @@ class NativeShaderRuntime {
       }
       const prior = mount.outputTexture;
       mount.outputTexture = finished;
+      if (mount.instance.placement === "fill" && mount.isTopLayer)
+        mount.fillPresentationExtent = plannedFillPresentationExtent;
       if (mount.instance.placement === "layer") {
         mount.layerSourceOpacityDeferred = layerTargetOpacityDeferred;
         if (layerTargetOpacityDeferred)
@@ -12774,12 +13442,15 @@ class NativeShaderRuntime {
         mount.resourceTextures.delete("__native_final_back");
       } else if (
         prior &&
-        prior.width === mount.width &&
-        prior.height === mount.height
+        prior.width === finished.width &&
+        prior.height === finished.height
       )
         mount.resourceTextures.set("__native_final_back", prior);
       else {
-        if (prior) this.textureRetirement.push(prior);
+        if (prior) {
+          if (twoSurface) priorOutputRetirement = prior;
+          else this.textureRetirement.push(prior);
+        }
         mount.resourceTextures.delete("__native_final_back");
       }
       const liveResources = new Set([
@@ -12790,6 +13461,10 @@ class NativeShaderRuntime {
         "__native_final_back",
         ...(fillBackground ? ["__native_fill_foreground"] : []),
         ...(fillUnderlayResult ? ["__native_fill_underlay"] : []),
+        ...(fillUnderlayResult ===
+        mount.resourceTextures.get("__native_fill_underlay_inset")
+          ? ["__native_fill_underlay_inset", "__native_fill_inset_shadow"]
+          : []),
         ...(mount.isTopLayer && mount.resourceTextures.has("__native_fill_box")
           ? ["__native_fill_box"]
           : []),
@@ -12797,6 +13472,14 @@ class NativeShaderRuntime {
         ...(mount.isTopLayer &&
         mount.resourceTextures.has("__native_fill_child")
           ? ["__native_fill_child"]
+          : []),
+        ...(mount.isTopLayer &&
+        mount.resourceTextures.has("__native_fill_outer_shadow")
+          ? ["__native_fill_outer_shadow"]
+          : []),
+        ...(mount.isTopLayer &&
+        mount.resourceTextures.has("__native_fill_expanded_base")
+          ? ["__native_fill_expanded_base"]
           : []),
         ...(fillGlyphResult ? ["__native_fill_text"] : []),
         ...(fillGlyphBase === mount.resourceTextures.get("__native_fill_glyph")
@@ -12865,12 +13548,17 @@ class NativeShaderRuntime {
           "Particle simulation is still catching up to the presentation clock.",
         );
       }
-      mount.committedSourceEpoch = sourceEpoch ?? null;
-      mount.committedInstancePayload = JSON.stringify(activeInstance);
-      mount.committedDefinitionHash =
-        draft?.executionHash ?? mount.definitionHash;
-      mount.committedLocalTime = localTime;
-      mount.committedInputEpochs = new Map(mount.pendingGraphInputEpochs ?? []);
+      const commitPresentationProvenance = (): void => {
+        mount.committedSourceEpoch = sourceEpoch ?? null;
+        mount.committedInstancePayload = JSON.stringify(activeInstance);
+        mount.committedDefinitionHash =
+          draft?.executionHash ?? mount.definitionHash;
+        mount.committedLocalTime = localTime;
+        mount.committedInputEpochs = new Map(
+          mount.pendingGraphInputEpochs ?? [],
+        );
+      };
+      if (!twoSurface) commitPresentationProvenance();
       mount.frameCount += 1;
       mount.target.setAttribute(
         "data-an-native-frames",
@@ -12931,20 +13619,17 @@ class NativeShaderRuntime {
         String(this.allocatedTextureBytes),
       );
       if (twoSurface) {
-        assertCurrentPresentation();
-        if (mount.provider?.sourceEpoch?.() !== sourceEpoch)
-          throw new NativeSourceError(
-            "source-epoch-stale",
-            "The authored source changed before presentation.",
-          );
         const staleResources = frameResources!.retiredOnCommit();
-        const front = twoSurface.pair.publish(
-          twoSurface.front,
-          twoSurface.spare,
-        );
-        mount.canvas = front.canvas;
-        mount.context = front.context;
+        if (mount.instance.placement === "fill")
+          this.suppressOriginal(mount, true);
+        commitPresentationProvenance();
+        if (
+          priorOutputRetirement &&
+          ![...frameResources!.scratch.values()].includes(priorOutputRetirement)
+        )
+          this.textureRetirement.push(priorOutputRetirement);
         frameResources!.commit();
+        if (draft) draft.resources = frameResources!.scratch;
         if (mirrorCandidate) {
           this.publishedPresentationMirror.commit();
           mirrorCandidate = null;
@@ -12955,6 +13640,12 @@ class NativeShaderRuntime {
           if (!this.textureRetirement.includes(texture))
             this.textureRetirement.push(texture);
       }
+      if (mount.instance.placement === "fill" && mount.isTopLayer)
+        mount.fillCommittedNativeChildren = fillNativeChildren;
+      if (mount.instance.placement === "fill" && mount.isTopLayer)
+        mount.groupLocalNoncontributingChildren = new Set(
+          nestedTransaction?.noncontributing ?? [],
+        );
       if (mount.instance.placement === "layer") {
         if (nestedTransaction)
           mount.target.setAttribute(
@@ -13049,6 +13740,8 @@ class NativeShaderRuntime {
             unpublishedLayerState.fillOuterCoverageTexture;
           mount.fillInnerCoverageTexture =
             unpublishedLayerState.fillInnerCoverageTexture;
+          mount.fillPresentationExtent =
+            unpublishedLayerState.fillPresentationExtent;
           mount.frameCount = unpublishedLayerState.frameCount;
           mount.renderWallSamples = unpublishedLayerState.renderWallSamples;
           for (const name of mount.target.getAttributeNames())
@@ -13062,6 +13755,7 @@ class NativeShaderRuntime {
       if (
         submitted &&
         activeDefinition.simulation &&
+        !detachedFillPresentation &&
         publishedSimulationOutput &&
         mount.isTopLayer &&
         this.device === device &&
@@ -13075,7 +13769,7 @@ class NativeShaderRuntime {
         } catch (restoreError) {
           simulationRestoreFailure = restoreError;
         }
-      if (!submitted && priorPresentation.output)
+      if ((!submitted || detachedFillPresentation) && priorPresentation.output)
         try {
           assertCurrentPresentation();
           mount.retainedPresentationWitness =

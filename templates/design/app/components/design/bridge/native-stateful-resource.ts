@@ -200,6 +200,8 @@ export interface NativeStatefulEncodedFrame {
   output: GPUTexture;
   completedStep: number;
   markSubmitted(): void;
+  settle(validateBeforeCommit?: () => void): Promise<void>;
+  promote(): void;
   commit(validateBeforeCommit?: () => void): Promise<void>;
   abandon(): void;
   rejectSubmitted(reason: unknown): Promise<void>;
@@ -655,6 +657,8 @@ export class NativeStatefulResourceSession {
     );
     let closed = false;
     let submitted = false;
+    let settling = false;
+    let settled = false;
     this.busy = true;
     try {
       if (this.completed < 0) {
@@ -830,6 +834,55 @@ export class NativeStatefulResourceSession {
         releaseLease();
         this.busy = false;
       };
+      const settle = async (
+        validateBeforeCommit?: () => void,
+      ): Promise<void> => {
+        if (closed || settling || settled)
+          throw new NativeStatefulResourceError("stateful-busy");
+        settling = true;
+        try {
+          try {
+            await this.device.queue.onSubmittedWorkDone();
+          } catch (error) {
+            this.faulted = true;
+            throw new NativeStatefulResourceError(
+              "stateful-device-lost",
+              error,
+            );
+          }
+          if (closed || this.disposed || this.faulted)
+            throw new NativeStatefulResourceError("stateful-device-lost");
+          validateBeforeCommit?.();
+          settled = true;
+        } finally {
+          settling = false;
+          if (!settled && !closed) {
+            closed = true;
+            release();
+          }
+        }
+      };
+      const promote = (): void => {
+        if (closed || !settled)
+          throw new NativeStatefulResourceError("stateful-busy");
+        closed = true;
+        try {
+          this.committedBank = finalBank;
+          this.completed = finalStep;
+          this.committedSeed = committedSeed;
+          this.committedSourceIdentity = committedSourceIdentity;
+          this.committedSourceRevision = committedSourceRevision;
+          this.committedSourceEpoch = committedSourceEpoch;
+          this.committedInputEpochs =
+            this.abi !== "stateful-resource-v1"
+              ? Object.fromEntries(
+                  [...inputEpochs!].sort(([a], [b]) => a.localeCompare(b)),
+                )
+              : null;
+        } finally {
+          release();
+        }
+      };
       return {
         output: result,
         completedStep: finalStep,
@@ -855,37 +908,11 @@ export class NativeStatefulResourceSession {
             release();
           }
         },
+        settle,
+        promote,
         commit: async (validateBeforeCommit) => {
-          if (closed) throw new NativeStatefulResourceError("stateful-busy");
-          closed = true;
-          try {
-            try {
-              await this.device.queue.onSubmittedWorkDone();
-            } catch (error) {
-              this.faulted = true;
-              throw new NativeStatefulResourceError(
-                "stateful-device-lost",
-                error,
-              );
-            }
-            if (this.disposed || this.faulted)
-              throw new NativeStatefulResourceError("stateful-device-lost");
-            validateBeforeCommit?.();
-            this.committedBank = finalBank;
-            this.completed = finalStep;
-            this.committedSeed = committedSeed;
-            this.committedSourceIdentity = committedSourceIdentity;
-            this.committedSourceRevision = committedSourceRevision;
-            this.committedSourceEpoch = committedSourceEpoch;
-            this.committedInputEpochs =
-              this.abi !== "stateful-resource-v1"
-                ? Object.fromEntries(
-                    [...inputEpochs!].sort(([a], [b]) => a.localeCompare(b)),
-                  )
-                : null;
-          } finally {
-            release();
-          }
+          await settle(validateBeforeCommit);
+          promote();
         },
       };
     } catch (error) {

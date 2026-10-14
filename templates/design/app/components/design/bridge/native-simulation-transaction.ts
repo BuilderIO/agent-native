@@ -26,6 +26,8 @@ export interface NativeSimulationTransaction {
   readonly finalBank: NativeSimulationBank;
   readonly finalStep: number;
   markSubmitted(): void;
+  settle(validateBeforeCommit?: () => void): Promise<void>;
+  promote(): void;
   commit(validateBeforeCommit?: () => void): Promise<void>;
   abandon(): Promise<void>;
   rejectSubmitted(): Promise<void>;
@@ -68,6 +70,8 @@ export function createNativeSimulationTransaction(options: {
   const finalStep = steps.length ? steps[steps.length - 1]! : completedStep;
   let submitted = false;
   let closed = false;
+  let settling = false;
+  let settled = false;
   let released = false;
   const release = () => {
     if (released) return;
@@ -81,6 +85,47 @@ export function createNativeSimulationTransaction(options: {
       );
     closed = true;
   };
+  const settle = async (validateBeforeCommit?: () => void): Promise<void> => {
+    if (!submitted || closed || settling || settled)
+      throw new NativeSimulationTransactionError(
+        "simulation-transaction-closed",
+      );
+    settling = true;
+    try {
+      try {
+        await options.onSubmittedWorkDone();
+      } catch (cause) {
+        throw new NativeSimulationTransactionError(
+          "simulation-device-lost",
+          cause,
+        );
+      }
+      if (closed)
+        throw new NativeSimulationTransactionError(
+          "simulation-transaction-closed",
+        );
+      validateBeforeCommit?.();
+      settled = true;
+    } finally {
+      settling = false;
+      if (!settled && !closed) {
+        closed = true;
+        release();
+      }
+    }
+  };
+  const promote = (): void => {
+    if (!settled || closed)
+      throw new NativeSimulationTransactionError(
+        "simulation-transaction-closed",
+      );
+    close();
+    try {
+      options.promote(finalBank, finalStep);
+    } finally {
+      release();
+    }
+  };
   return {
     bankSteps,
     finalBank,
@@ -92,26 +137,11 @@ export function createNativeSimulationTransaction(options: {
         );
       submitted = true;
     },
+    settle,
+    promote,
     async commit(validateBeforeCommit) {
-      if (!submitted || closed)
-        throw new NativeSimulationTransactionError(
-          "simulation-transaction-closed",
-        );
-      close();
-      try {
-        try {
-          await options.onSubmittedWorkDone();
-        } catch (cause) {
-          throw new NativeSimulationTransactionError(
-            "simulation-device-lost",
-            cause,
-          );
-        }
-        validateBeforeCommit?.();
-        options.promote(finalBank, finalStep);
-      } finally {
-        release();
-      }
+      await settle(validateBeforeCommit);
+      promote();
     },
     async abandon() {
       if (closed) return;

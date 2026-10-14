@@ -233,3 +233,90 @@ export function planNativeChainedEffectExtent(input: {
     },
   };
 }
+
+export function planNativeFillPresentationExtent(input: {
+  fill: NativeEffectExtentPlan;
+  foreground: readonly {
+    rect: { x: number; y: number; width: number; height: number };
+    clip: { x: number; y: number; width: number; height: number };
+  }[];
+  maxDimension: number;
+  maxPixels: number;
+}): NativeEffectExtentResult {
+  const { fill, foreground, maxDimension, maxPixels } = input;
+  let left = fill.left;
+  let top = fill.top;
+  let right = fill.right;
+  let bottom = fill.bottom;
+  for (const { rect, clip } of foreground) {
+    if (
+      [
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        clip.x,
+        clip.y,
+        clip.width,
+        clip.height,
+      ].some((value) => !Number.isFinite(value)) ||
+      rect.width < 0 ||
+      rect.height < 0 ||
+      clip.width < 0 ||
+      clip.height < 0
+    )
+      return {
+        ok: false,
+        code: "fill-foreground-extent-invalid",
+        detail: "A Fill foreground has invalid output geometry.",
+      };
+    const x = Math.max(rect.x, clip.x);
+    const y = Math.max(rect.y, clip.y);
+    const rightEdge = Math.min(rect.x + rect.width, clip.x + clip.width);
+    const bottomEdge = Math.min(rect.y + rect.height, clip.y + clip.height);
+    if (rightEdge <= x || bottomEdge <= y) continue;
+    left = Math.max(left, Math.max(0, -Math.floor(x * fill.pixelRatio)));
+    top = Math.max(top, Math.max(0, -Math.floor(y * fill.pixelRatio)));
+    right = Math.max(
+      right,
+      Math.max(0, Math.ceil(rightEdge * fill.pixelRatio) - fill.sourceWidth),
+    );
+    bottom = Math.max(
+      bottom,
+      Math.max(0, Math.ceil(bottomEdge * fill.pixelRatio) - fill.sourceHeight),
+    );
+  }
+  const width = fill.sourceWidth + left + right;
+  const height = fill.sourceHeight + top + bottom;
+  if (
+    ![left, top, right, bottom, width, height].every(Number.isSafeInteger) ||
+    width > maxDimension ||
+    height > maxDimension ||
+    width * height > maxPixels
+  )
+    return {
+      ok: false,
+      code: "fill-foreground-extent-budget-exceeded",
+      detail:
+        "The visible Fill foreground exceeds the supported output bounds.",
+    };
+  return {
+    ok: true,
+    plan: {
+      ...fill,
+      left,
+      top,
+      right,
+      bottom,
+      width,
+      height,
+      expanded:
+        fill.expanded ||
+        (foreground.length > 0 &&
+          (left !== fill.left ||
+            top !== fill.top ||
+            right !== fill.right ||
+            bottom !== fill.bottom)),
+    },
+  };
+}
