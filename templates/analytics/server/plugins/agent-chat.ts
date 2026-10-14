@@ -342,8 +342,16 @@ const SCHEMA_DETAILS_IMPERATIVE =
 // "check", "see" and "look" are feedback only when they do not ask for an
 // identifier ("could you confirm which table holds usage" is an ask; "confirm
 // the table has 43 rows" is not).
-const SCHEMA_DETAILS_FEEDBACK_VERB =
-  "(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|(?:show|display|pull up|open|bring up)(?!\\s+(?:me\\s+)?the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|explain|describe|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
+const SCHEMA_DETAILS_OBJECT =
+  "(?:bigquery\\s+)?(?:dataset|table|column|field)s?";
+const SCHEMA_DETAILS_HOLDS =
+  "(?:holds?|contains?|stores?|tracks?|records?|has|have)";
+// What each feedback verb may go on to ask for before it is an identifier ask:
+// confirm/verify/check/see/look: "which"/"what" or "the <object> name";
+// show/display/open: "the <object> name" or "which <object> holds ...", but not
+// "which table this came from"; explain/describe: "which" or "what the
+// <object> name is", but not "what the table represents".
+const SCHEMA_DETAILS_FEEDBACK_VERB = `(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b)|(?:show|display|pull up|open|bring up)(?!\\s+(?:me\\s+)?(?:the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b|which\\s+${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))|(?:explain|describe)(?!\\s+(?:which\\b|what\\s+(?:is\\s+)?the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?|details)\\b))|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)`;
 const SCHEMA_DETAILS_FEEDBACK =
   "(?! (?:if|whether|what else|anything|how|why)\\b)";
 const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
@@ -360,9 +368,12 @@ const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
 );
 // The interrogative must open the sentence or a framing clause ("For this
 // metric, which table ...?"): "Want me to show which table this came from?" is
-// an offer, not a request for an identifier.
+// an offer, not a request for an identifier. It must also ask for the
+// identifier itself: "which table holds usage?" and "what is the table name?"
+// do, "which table rows were excluded?" and "what is the table size?" are
+// answer-shaped questions that only mention a table.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|what\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\b)[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+(?:bigquery\\s+)?(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name)\\b)[^.?!\\n]*\\?`,
   "i",
 );
 

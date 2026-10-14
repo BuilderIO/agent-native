@@ -1265,6 +1265,8 @@ describe("realDataFinalGuard", () => {
     "I need the table that holds the current figures, so I re-ran the query and it shows 43 rows.",
     "Could you show me the table?",
     "Can you show which table this came from?",
+    "There are 43 accounts. Which table rows were excluded from the 43 count?",
+    "There are 43 accounts. What is the table size relative to last month?",
     "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
     "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
   ])(
@@ -1363,6 +1365,9 @@ describe("realDataFinalGuard", () => {
     "Could you let me know which table holds monthly usage?",
     "Could you clarify which table holds monthly usage?",
     "Could you show me the table name?",
+    "Could you show me which table holds monthly usage?",
+    "Could you describe which table holds monthly usage?",
+    "Could you explain what the dataset name is?",
     "Could you check which table holds monthly usage?",
     "Could you confirm which table holds monthly usage?",
     "Could you verify the dataset name?",
