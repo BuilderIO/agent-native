@@ -3394,7 +3394,6 @@ function pendingApprovalRuntimeMessages(
     }
     const awaitingApproval =
       part.type === "tool-call" &&
-      part.result === undefined &&
       part.toolCallId === state.message.pendingApprovalToolCallId;
     if (
       part.type !== "tool-call" ||
@@ -3793,7 +3792,11 @@ function mapAgentNativeEvent(
       if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
       if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
     }
-    if (input.message.pendingApprovalToolCallId === toolCallId) {
+    // The approval gate emits a placeholder tool_done before execution.
+    if (
+      input.message.pendingApprovalToolCallId === toolCallId &&
+      !input.message.approvalPending
+    ) {
       input.message.pendingApprovalToolCallId = undefined;
     }
     const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });

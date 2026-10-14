@@ -5243,6 +5243,8 @@ describe("createAgentNativeChatRuntime", () => {
     };
     const approvalKey =
       'accept-agentkit-release:{"environment":"production","release":"agentkit-acceptance"}';
+    const serverApprovalResult =
+      'Awaiting human approval to run "accept-agentkit-release". This action did NOT execute — a human must approve this specific call before it can run. The turn is paused; do not retry.';
     const approvalResult =
       "Awaiting human approval. This action did NOT execute.";
     const trailingText = "x".repeat(256 * 1024 - 300);
@@ -5268,7 +5270,7 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool_done",
             id: "call-approved-release",
             tool: "accept-agentkit-release",
-            result: approvalResult,
+            result: serverApprovalResult,
           },
           { type: "text", text: trailingText },
           { type: "done" },
@@ -5326,6 +5328,13 @@ describe("createAgentNativeChatRuntime", () => {
         type: "tool-result",
         toolCallId: "call-approved-release",
         content: approvalResult,
+      }),
+    );
+    expect(parts).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-approved-release",
+        content: serverApprovalResult,
       }),
     );
     expect(parts).not.toContainEqual({ type: "text", text: trailingText });
