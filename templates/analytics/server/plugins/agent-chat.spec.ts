@@ -1275,6 +1275,8 @@ describe("realDataFinalGuard", () => {
     "I need to know which table this came from. I re-ran the query and it shows 43 rows.",
     "I need the table name, so I looked it up and it is usage_monthly.",
     "I need to know which table holds usage. I checked the catalog and it is usage_monthly.",
+    "I need the table name, so I looked it up and it is usage_monthly, not usage_daily.",
+    "There are 43 accounts. Which row in the table is wrong?",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1374,6 +1376,13 @@ describe("realDataFinalGuard", () => {
     "Which table for monthly usage?",
     "Which dataset for this metric?",
     "Which table to use for monthly usage?",
+    "Which source table holds usage?",
+    "Which warehouse table for monthly usage?",
+    "Which BigQuery dataset should I use?",
+    "I need the table name before I can continue. I searched the catalog, but nothing matched.",
+    "I need the table name. I checked the catalog and couldn't find it.",
+    "I need to know which table holds usage. I searched the catalog. Nothing matched.",
+    "I need the table name. I looked in the catalog and found nothing.",
     "I need the dataset name so I could build the chart.",
     "Do you know which table holds the monthly credit usage?",
     "I need the schema before I can write this query.",

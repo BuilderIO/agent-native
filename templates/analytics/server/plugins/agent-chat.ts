@@ -362,11 +362,20 @@ const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHE
 // agent went and found it ("so I re-ran it", "I looked it up"). Only a closed
 // list of discovery verbs counts: "so I can write the query" and "so I cannot
 // continue" are still asks, and a later unrelated "so I sent the summary" must
-// not clear an earlier ask.
+// not clear an earlier ask. An attempt that reports it failed ("I searched the
+// catalog, but nothing matched") resolved nothing, so it does not count either.
 const SCHEMA_DETAILS_SENTENCE = "(?:[^.?!\\n]|[.?!](?=\\S))*";
 const SCHEMA_DETAILS_RESOLUTION =
   "\\bi\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
-const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_RESOLUTION}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_RESOLUTION})`;
+const SCHEMA_DETAILS_FAILED =
+  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|no|none)|no\\s+(?:match(?:es)?|results?|luck|such|hits?|table|dataset|column)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
+const SCHEMA_DETAILS_DISCOVERED = `${SCHEMA_DETAILS_RESOLUTION}(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED})`;
+const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED})`;
+// Up to three descriptive words may sit between the interrogative and the noun
+// ("which source table", "which warehouse table"); prepositions and articles
+// may not, so "which row in the table is wrong?" is not an identifier ask.
+const SCHEMA_DETAILS_MODIFIERS =
+  "(?:(?!(?:in|of|on|at|from|by|with|to|for|the|a|an|this|that|these|those|each|every|any|your|our|my|their|is|are|does|do|did|should|would|can|has|have)\\b)[\\w-]+\\s+){0,3}";
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
   `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|what\\s+(?:is|are)\\s+the\\s+(?:${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)|(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT})\\b|what\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\s+(?:is|are)\\b|what\\s+${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))${SCHEMA_DETAILS_RESOLVED}`,
   "i",
@@ -383,7 +392,7 @@ const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
 // and "what is the table size?" are answer-shaped questions that only mention a
 // table.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+(?:bigquery\\s+)?(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
   "i",
 );
 
