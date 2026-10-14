@@ -142,6 +142,49 @@ describe("single-pass .fig render", () => {
     ]);
   });
 
+  it("deletes uploads that only a frame skipped after URL substitution used", async () => {
+    const decoded = decodedFig(
+      [frame(3, "Card", 0, "image-a"), frame(4, "Plain", 400, "image-b")],
+      ["image-a", "image-b"],
+    );
+    const rendered = renderFigImport(decoded);
+    const urlFreeBytes = rendered.frames.map(({ html, htmlBytes }) =>
+      rendered.images.reduce(
+        (bytes, { placeholder }) =>
+          bytes - (html.split(placeholder).length - 1) * placeholder.length,
+        htmlBytes,
+      ),
+    );
+    const maxFrameHtmlBytes = Math.max(...urlFreeBytes) + 100;
+    const cleanups = { a: vi.fn(), b: vi.fn() };
+    const finalizers = { a: vi.fn(), b: vi.fn() };
+    const uploader = vi.fn(async ({ filename }: { filename: string }) => {
+      const key = filename.includes("image-a") ? "a" : "b";
+      return {
+        url:
+          key === "a"
+            ? `https://assets.example.com/${"a".repeat(1_500)}.png`
+            : "https://assets.example.com/b.png",
+        cleanup: cleanups[key].mockResolvedValue(true),
+        finalize: finalizers[key].mockResolvedValue(true),
+      };
+    });
+
+    const result = await completeFigImport(
+      renderFigImport(decoded, { maxFrameHtmlBytes }),
+      { ...options, maxFrameHtmlBytes, uploader },
+    );
+    await result.finalize?.();
+
+    expect(result.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: "Card" },
+    ]);
+    expect(cleanups.a).toHaveBeenCalledOnce();
+    expect(cleanups.b).not.toHaveBeenCalled();
+    expect(finalizers.a).not.toHaveBeenCalled();
+    expect(finalizers.b).toHaveBeenCalledOnce();
+  });
+
   it("does not upload images that only skipped frames use", async () => {
     const heavyName = `Card ${"x".repeat(4_000)}`;
     const decoded = decodedFig(

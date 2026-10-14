@@ -1341,6 +1341,27 @@ describe("editable .fig conversion", () => {
     ]);
   });
 
+  it("does not report fidelity issues from a frame it skipped", () => {
+    const document = twoFrameEditableDocument();
+    document.nodeChanges[2]!.fillPaints = [
+      { type: "IMAGE", image: { hash: "missing-hash" } },
+    ];
+    document.nodeChanges[3]!.textData = { characters: "x".repeat(20_000) };
+
+    const rendered = renderHtmlTemplates(document, {
+      maxFrameOutputBytes: 8 * 1024,
+      skipOversizedFrames: true,
+      trackUnresolvedImageRefs: true,
+      missingImageUrl: "about:blank",
+    });
+
+    expect(rendered.frames.map((frame) => frame.frameName)).toEqual(["Banner"]);
+    expect(rendered.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: "Card" },
+    ]);
+    expect([...rendered.unresolvedImageRefs!]).toEqual([]);
+  });
+
   it("explains when every selected frame is over the per-frame budget", async () => {
     const document = editableDocument();
     document.nodeChanges[3]!.textData = { characters: "x".repeat(20_000) };

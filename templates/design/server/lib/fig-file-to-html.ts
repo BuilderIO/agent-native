@@ -4268,12 +4268,25 @@ export function renderHtmlTemplates(
         dupeIdx === 0 ? `${baseFile}.html` : `${baseFile}-${dupeIdx + 1}.html`;
       const pageName = page.name ?? `page-${pageIdx + 1}`;
       const frameName = frame.name ?? `frame-${frameIdx + 1}`;
+      const approximatedBefore = ctx.approximatedNodes.length;
+      const unresolvedBefore = ctx.unresolvedImageRefs?.size ?? 0;
+      const missingComponentsBefore = ctx.skipCounts.missingComponentCount;
       let html: string;
       try {
         html = emitFrameTemplate(frame, ctx, pageName);
       } catch (error) {
         if (!options.skipOversizedFrames) throw error;
         if (!(error instanceof FrameOutputBudgetError)) throw error;
+        // renderedNodeCount is deliberately kept: it bounds total work, not output.
+        for (const entry of ctx.approximatedNodes.splice(approximatedBefore)) {
+          ctx.approximationByNode.delete(entry.nodeId);
+        }
+        if (ctx.unresolvedImageRefs) {
+          [...ctx.unresolvedImageRefs]
+            .slice(unresolvedBefore)
+            .forEach((hash) => ctx.unresolvedImageRefs!.delete(hash));
+        }
+        ctx.skipCounts.missingComponentCount = missingComponentsBefore;
         skippedFrames.push({ pageName, frameName });
         continue;
       }

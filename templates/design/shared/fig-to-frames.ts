@@ -189,14 +189,19 @@ async function uploadEmbeddedImages(
   warnings: string[];
   cleanup: () => Promise<number>;
   finalize: () => Promise<number>;
+  /** Deletes uploads whose hash is not in `keep`; they are no longer finalized. */
+  releaseUnused: (keep: ReadonlySet<string>) => Promise<number>;
 }> {
   assertEmbeddedImageBudget(images, limits);
 
   const imageMap = new Map<string, string>();
   let omitted = 0;
   let storageUnavailable = false;
-  const uploadCleanups: Array<() => Promise<boolean>> = [];
-  const uploadFinalizers: Array<() => Promise<boolean>> = [];
+  let uploads: Array<{
+    hash: string;
+    cleanup?: () => Promise<boolean>;
+    finalize?: () => Promise<boolean>;
+  }> = [];
 
   for (
     let offset = 0;
@@ -219,8 +224,13 @@ async function uploadEmbeddedImages(
             recordAsset: false,
             stableUrl: true,
           });
-          if (uploaded?.cleanup) uploadCleanups.push(uploaded.cleanup);
-          if (uploaded?.finalize) uploadFinalizers.push(uploaded.finalize);
+          if (uploaded?.cleanup || uploaded?.finalize) {
+            uploads.push({
+              hash: image.hash,
+              cleanup: uploaded.cleanup,
+              finalize: uploaded.finalize,
+            });
+          }
           if (!uploaded?.url) {
             storageUnavailable = true;
             omitted += 1;
@@ -245,27 +255,21 @@ async function uploadEmbeddedImages(
     uploaded: imageMap.size,
     omitted,
     warnings: [],
-    cleanup: () => cleanupUploadedImages(uploadCleanups),
-    finalize: () => finalizeUploadedImages(uploadFinalizers),
+    cleanup: () => settleUploadActions(uploads.map((u) => u.cleanup)),
+    finalize: () => settleUploadActions(uploads.map((u) => u.finalize)),
+    releaseUnused: (keep) => {
+      const unused = uploads.filter((u) => !keep.has(u.hash));
+      uploads = uploads.filter((u) => keep.has(u.hash));
+      return settleUploadActions(unused.map((u) => u.cleanup));
+    },
   };
 }
 
-async function cleanupUploadedImages(
-  cleanups: Array<() => Promise<boolean>>,
+async function settleUploadActions(
+  actions: Array<(() => Promise<boolean>) | undefined>,
 ): Promise<number> {
   const results = await Promise.allSettled(
-    cleanups.map((cleanup) => cleanup()),
-  );
-  return results.filter(
-    (result) => result.status === "rejected" || !result.value,
-  ).length;
-}
-
-async function finalizeUploadedImages(
-  finalizers: Array<() => Promise<boolean>>,
-): Promise<number> {
-  const results = await Promise.allSettled(
-    finalizers.map((finalize) => finalize()),
+    actions.flatMap((action) => (action ? [action()] : [])),
   );
   return results.filter(
     (result) => result.status === "rejected" || !result.value,
@@ -476,11 +480,14 @@ export async function completeFigImport(
       );
     }
     const urlsByPlaceholder = new Map<string, string>();
+    const hashByPlaceholder = new Map<string, string>();
     for (const image of rendered.images) {
+      hashByPlaceholder.set(image.placeholder, image.hash);
       const url = uploadedImages.imageMap.get(image.hash);
       if (url)
         urlsByPlaceholder.set(image.placeholder, imageUrlInStyleAttr(url));
     }
+    const keptImageHashes = new Set<string>();
     const pattern = placeholderPattern(rendered.imagePlaceholderPrefix);
 
     let rawHtmlBytes = 0;
@@ -497,6 +504,7 @@ export async function completeFigImport(
       }
       let html = frame.html;
       let htmlBytes = frame.htmlBytes;
+      const frameImageHashes: string[] = [];
       if (html.includes(rendered.imagePlaceholderPrefix)) {
         html = html.replace(pattern, (placeholder) => {
           const url = urlsByPlaceholder.get(placeholder);
@@ -505,6 +513,7 @@ export async function completeFigImport(
               `.fig frame "${frame.frameName}" references an embedded image that was not stored.`,
             );
           }
+          frameImageHashes.push(hashByPlaceholder.get(placeholder)!);
           return url;
         });
         htmlBytes = utf8ByteLength(html);
@@ -528,6 +537,7 @@ export async function completeFigImport(
         skip();
         continue;
       }
+      for (const hash of frameImageHashes) keptImageHashes.add(hash);
       rawHtmlBytes += htmlBytes;
       totalHtmlBytes += contentBytes;
       assertTotalHtmlBytes(Math.max(rawHtmlBytes, totalHtmlBytes), limits);
@@ -555,9 +565,23 @@ export async function completeFigImport(
       throw everyFrameTooComplexError(maxFrameHtmlBytes);
     }
 
+    const warnings = [...uploadedImages.warnings];
+    if (skippedFrames.length > rendered.skippedFrames.length) {
+      const releaseFailures =
+        await uploadedImages.releaseUnused(keptImageHashes);
+      if (releaseFailures > 0) {
+        warnings.push(
+          withCleanupFailures(
+            "Some images were only used by skipped frames.",
+            releaseFailures,
+          ),
+        );
+      }
+    }
+
     return {
       files,
-      warnings: uploadedImages.warnings,
+      warnings,
       skippedFrames,
       cleanup: uploadedImages.cleanup,
       finalize: uploadedImages.finalize,

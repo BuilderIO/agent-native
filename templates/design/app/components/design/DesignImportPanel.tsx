@@ -1089,20 +1089,20 @@ export const DesignImportPanel = forwardRef<
                     </p>
                   ) : null}
                   <div className="space-y-1">
-                        <p
-                          className={cn(
-                            "tabular-nums",
-                            figImportOverFrameLimit
-                              ? "text-destructive"
-                              : "text-muted-foreground",
-                          )}
-                        >
-                          {t("designEditor.import.figImportFrameCount", {
-                            selected: formatNumber(selectedFigFrameCount),
-                            total: formatNumber(figImportPreview.frameCount),
-                          })}
-                        </p>
-                        {figImportPreview.pages.length > 1 ? (
+                    <p
+                      className={cn(
+                        "tabular-nums",
+                        figImportOverFrameLimit
+                          ? "text-destructive"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {t("designEditor.import.figImportFrameCount", {
+                        selected: formatNumber(selectedFigFrameCount),
+                        total: formatNumber(figImportPreview.frameCount),
+                      })}
+                    </p>
+                    {figImportPreview.pages.length > 1 ? (
                       <div className="flex flex-wrap gap-1">
                         <Button
                           type="button"
@@ -1131,17 +1131,17 @@ export const DesignImportPanel = forwardRef<
                       </div>
                     ) : null}
                   </div>
-                      <div className="max-h-60 space-y-0.5 overflow-y-auto rounded border border-border/60 bg-background/60 p-1">
-                        {figImportPreview.pages.map((page) => (
-                          <FigImportPageRow
-                            key={page.id}
-                            page={page}
-                            frameCountLabel={formatNumber(page.frameCount)}
-                            checked={figImportSelection.has(page.id)}
-                            onCheckedChange={toggleFigImportPage}
-                          />
-                        ))}
-                      </div>
+                  <div className="max-h-60 space-y-0.5 overflow-y-auto rounded border border-border/60 bg-background/60 p-1">
+                    {figImportPreview.pages.map((page) => (
+                      <FigImportPageRow
+                        key={page.id}
+                        page={page}
+                        frameCountLabel={formatNumber(page.frameCount)}
+                        checked={figImportSelection.has(page.id)}
+                        onCheckedChange={toggleFigImportPage}
+                      />
+                    ))}
+                  </div>
                   {figImportPreview.frameCount > MAX_BROWSER_FIG_FRAMES ? (
                     <p
                       className={cn(
