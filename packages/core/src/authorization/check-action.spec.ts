@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineAction } from "../action.js";
 
 const mocks = vi.hoisted(() => ({
-  isWorkspaceAppAccessAllowed: vi.fn(),
+  checkWorkspaceAppAccess: vi.fn(),
 }));
 
 vi.mock("../org/workspace-app-access.js", () => ({
-  isWorkspaceAppAccessAllowed: mocks.isWorkspaceAppAccessAllowed,
+  checkWorkspaceAppAccess: mocks.checkWorkspaceAppAccess,
   WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
     "Workspace app access is temporarily unavailable.",
@@ -72,7 +72,7 @@ describe("checkAction", () => {
   });
 
   it("preserves workspace access outages as retryable 503 errors", async () => {
-    mocks.isWorkspaceAppAccessAllowed.mockResolvedValue({
+    mocks.checkWorkspaceAppAccess.mockResolvedValue({
       status: "unavailable",
       reason: "a2a-secret-missing",
     });

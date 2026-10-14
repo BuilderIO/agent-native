@@ -23,6 +23,8 @@ import {
   isWorkspaceAppAccessUnavailable,
   registryErrorDetail,
   workspaceAppAccessUnavailable,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  type WorkspaceAppAccessCheck,
   type WorkspaceAppAccessOutcome,
   type WorkspaceAppAccessUnavailable,
 } from "./workspace-app-access-outcome.js";
@@ -32,6 +34,7 @@ export {
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
   isWorkspaceAppAccessUnavailable,
   workspaceAppAccessUnavailableBody,
+  type WorkspaceAppAccessCheck,
   type WorkspaceAppAccessOutcome,
   type WorkspaceAppAccessUnavailable,
   type WorkspaceAppAccessUnavailableReason,
@@ -65,7 +68,9 @@ interface HostedWorkspaceAppAuth {
 }
 
 // An unavailable registry is re-asked on every request, so one failing page
-// load would otherwise log the same cause dozens of times.
+// load would otherwise log the same cause dozens of times. The key is
+// categorical only: `detail` is upstream text, and a per-request id in it would
+// grow this set without bound.
 const reportedUnavailable = new Set<string>();
 
 function reportUnavailable(
@@ -75,7 +80,6 @@ function reportUnavailable(
     outcome.reason,
     outcome.upstreamStatus ?? "",
     outcome.audience ?? "",
-    outcome.detail ?? "",
   ].join("|");
   if (reportedUnavailable.has(key)) return outcome;
   reportedUnavailable.add(key);
@@ -278,7 +282,7 @@ async function hostedWorkspaceAppAccess(
   appId: string,
   context: WorkspaceAppAccessContext,
   email: string,
-): Promise<WorkspaceAppAccessOutcome | null> {
+): Promise<WorkspaceAppAccessCheck | null> {
   const configuredDirectory = configuredWorkspaceDirectory();
   if (!configuredDirectory) return null;
 
@@ -507,7 +511,7 @@ async function claimHostedWorkspaceApp(
   auth: HostedWorkspaceAppAuth,
   appId: string,
   signal: AbortSignal,
-): Promise<WorkspaceAppAccessOutcome> {
+): Promise<WorkspaceAppAccessCheck> {
   const timedOut = () =>
     workspaceAppAccessUnavailable("registry-timeout", {
       audience: auth.audience,
@@ -817,10 +821,25 @@ async function isDispatchWorkspaceAppAccessAllowed(
   }
 }
 
+/**
+ * Keeps the contract this function has always had: `true`, `false`, or the
+ * `"unavailable"` sentinel. Use `checkWorkspaceAppAccess` to learn why a verdict
+ * could not be reached.
+ */
 export async function isWorkspaceAppAccessAllowed(
   appId: string,
   context: WorkspaceAppAccessContext,
 ): Promise<WorkspaceAppAccessOutcome> {
+  const check = await checkWorkspaceAppAccess(appId, context);
+  return isWorkspaceAppAccessUnavailable(check)
+    ? WORKSPACE_APP_ACCESS_UNAVAILABLE
+    : check;
+}
+
+export async function checkWorkspaceAppAccess(
+  appId: string,
+  context: WorkspaceAppAccessContext,
+): Promise<WorkspaceAppAccessCheck> {
   const normalizedAppId = appId.trim();
   const email = normalizedEmail(context.email);
   if (!normalizedAppId || !email) {

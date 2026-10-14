@@ -27,6 +27,7 @@ vi.mock("./federation.js", () => ({
 }));
 
 import {
+  checkWorkspaceAppAccess,
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
 } from "./workspace-app-access.js";
@@ -603,7 +604,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      isWorkspaceAppAccessAllowed("analytics", {
+      checkWorkspaceAppAccess("analytics", {
         email: "member@example.com",
         orgId: "sender-local-org",
       }),
@@ -976,7 +977,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     vi.useFakeTimers();
 
     try {
-      const access = isWorkspaceAppAccessAllowed("analytics", {
+      const access = checkWorkspaceAppAccess("analytics", {
         email: "member@example.com",
         orgId: null,
       });
@@ -1106,7 +1107,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        isWorkspaceAppAccessAllowed("analytics", CALLER),
+        checkWorkspaceAppAccess("analytics", CALLER),
       ).resolves.toEqual({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "a2a-secret-missing",
@@ -1131,7 +1132,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       );
 
       await expect(
-        isWorkspaceAppAccessAllowed("analytics", CALLER),
+        checkWorkspaceAppAccess("analytics", CALLER),
       ).resolves.toEqual({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "registry-http-error",
@@ -1154,7 +1155,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       );
 
       await expect(
-        isWorkspaceAppAccessAllowed("analytics", CALLER),
+        checkWorkspaceAppAccess("analytics", CALLER),
       ).resolves.toEqual({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "registry-http-error",
@@ -1175,7 +1176,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       );
 
       await expect(
-        isWorkspaceAppAccessAllowed("analytics", CALLER),
+        checkWorkspaceAppAccess("analytics", CALLER),
       ).resolves.toMatchObject({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "registry-malformed-response",
@@ -1194,7 +1195,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         ),
       );
 
-      const outcome = await isWorkspaceAppAccessAllowed("analytics", CALLER);
+      const outcome = await checkWorkspaceAppAccess("analytics", CALLER);
 
       expect(outcome).toEqual({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
@@ -1225,7 +1226,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       );
 
       await expect(
-        isWorkspaceAppAccessAllowed("analytics", CALLER),
+        checkWorkspaceAppAccess("analytics", CALLER),
       ).resolves.toMatchObject({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "claim-http-error",
@@ -1234,22 +1235,43 @@ describe("isWorkspaceAppAccessAllowed", () => {
       });
     });
 
-    it("logs one cause once per instance instead of once per request", async () => {
+    it("keeps the legacy contract: isWorkspaceAppAccessAllowed still answers with the bare sentinel", async () => {
+      stubDirectory("https://legacy.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", CALLER),
+      ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+    });
+
+    it("logs one cause once per instance even when the upstream detail changes every request", async () => {
       stubDirectory("https://repeat.example.test/dispatch");
+      let requestNumber = 0;
       vi.stubGlobal(
         "fetch",
         vi.fn().mockImplementation(
           async () =>
-            new Response(JSON.stringify({ error: "Unauthorized" }), {
-              status: 401,
-              headers: { "content-type": "application/json" },
-            }),
+            new Response(
+              JSON.stringify({ error: `Unauthorized req-${++requestNumber}` }),
+              {
+                status: 401,
+                headers: { "content-type": "application/json" },
+              },
+            ),
         ),
       );
 
-      await isWorkspaceAppAccessAllowed("analytics", CALLER);
-      await isWorkspaceAppAccessAllowed("analytics", CALLER);
-      await isWorkspaceAppAccessAllowed("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
 
       const reports = vi
         .mocked(console.error)

@@ -2955,7 +2955,7 @@ describe("mountActionRoutes", () => {
     vi.resetModules();
     const workspaceAccess = vi.fn(async () => false);
     vi.doMock("../org/workspace-app-access.js", () => ({
-      isWorkspaceAppAccessAllowed: workspaceAccess,
+      checkWorkspaceAppAccess: workspaceAccess,
       WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",
@@ -3052,7 +3052,7 @@ describe("mountActionRoutes", () => {
             : true,
       );
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: workspaceAccess,
+        checkWorkspaceAppAccess: workspaceAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3184,7 +3184,7 @@ describe("mountActionRoutes", () => {
     vi.resetModules();
     const workspaceAccess = vi.fn(async () => false);
     vi.doMock("../org/workspace-app-access.js", () => ({
-      isWorkspaceAppAccessAllowed: workspaceAccess,
+      checkWorkspaceAppAccess: workspaceAccess,
       WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",

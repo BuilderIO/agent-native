@@ -27,10 +27,14 @@ const REGISTRY_AUTH_REFUSED = "Invalid workspace registry authorization";
 // misconfigured workspace would otherwise log the same refusal per request.
 const reportedRefusals = new Set<string>();
 
-function refuseRegistryCaller(reason: string): never {
-  if (!reportedRefusals.has(reason)) {
-    reportedRefusals.add(reason);
-    console.warn("[workspace-registry-auth] refused caller", { reason });
+// `reason` goes back to the caller, so it stays coarse: the finer `cause` (which
+// check a bad token failed) would tell an unauthenticated caller whether a
+// guessed secret was right. It is logged server-side only.
+function refuseRegistryCaller(reason: string, cause?: string): never {
+  const key = cause ? `${reason}:${cause}` : reason;
+  if (!reportedRefusals.has(key)) {
+    reportedRefusals.add(key);
+    console.warn("[workspace-registry-auth] refused caller", { reason, cause });
   }
   throw new ActionRouteAuthRejection(REGISTRY_AUTH_REFUSED, reason);
 }
@@ -103,7 +107,8 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
         refuseRegistryCaller("token-without-user");
       }
       refuseRegistryCaller(
-        `token-not-verified:${await diagnoseA2ATokenFailure(token, event)}`,
+        "token-not-verified",
+        await diagnoseA2ATokenFailure(token, event),
       );
     }
 

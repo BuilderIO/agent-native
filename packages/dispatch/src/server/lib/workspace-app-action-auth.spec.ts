@@ -74,19 +74,28 @@ describe("workspace app action auth", () => {
         );
     }
 
-    it("reports why a token that did not verify was refused", async () => {
+    it("tells the caller only that the token was not verified, and logs which check failed", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       mocks.verifyA2AToken.mockResolvedValue({ email: null, orgDomain: null });
       mocks.diagnoseA2ATokenFailure.mockResolvedValue("signature");
 
-      await expect(refusalFor("Bearer wrong-secret")).resolves.toMatchObject({
+      const refusal = await refusalFor("Bearer wrong-secret");
+
+      expect(refusal).toMatchObject({
         name: "ActionRouteAuthRejection",
         message: "Invalid workspace registry authorization",
-        reason: "token-not-verified:signature",
+        reason: "token-not-verified",
       });
+      expect(JSON.stringify(refusal)).not.toContain("signature");
       expect(mocks.diagnoseA2ATokenFailure).toHaveBeenCalledWith(
         "wrong-secret",
         expect.anything(),
       );
+      expect(warn).toHaveBeenCalledWith(
+        "[workspace-registry-auth] refused caller",
+        { reason: "token-not-verified", cause: "signature" },
+      );
+      warn.mockRestore();
     });
 
     it("reports a verified token that was demoted to an organization principal", async () => {

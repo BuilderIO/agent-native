@@ -33,7 +33,13 @@ export interface WorkspaceAppAccessUnavailable {
   detail?: string;
 }
 
-export type WorkspaceAppAccessOutcome = boolean | WorkspaceAppAccessUnavailable;
+/** What `isWorkspaceAppAccessAllowed` has always returned. */
+export type WorkspaceAppAccessOutcome =
+  | boolean
+  | typeof WORKSPACE_APP_ACCESS_UNAVAILABLE;
+
+/** A verdict, or the cause when none could be reached. */
+export type WorkspaceAppAccessCheck = boolean | WorkspaceAppAccessUnavailable;
 
 export function isWorkspaceAppAccessUnavailable(
   outcome: unknown,

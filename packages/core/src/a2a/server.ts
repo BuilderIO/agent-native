@@ -34,6 +34,7 @@ import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
   organizationPrincipalClaims,
   verifyA2AOrganizationIdentity,
+  type A2AOrganizationCredential,
 } from "./organization-identity.js";
 import {
   claimA2AApproval,
@@ -282,14 +283,65 @@ export type A2ATokenFailureCause =
   | "expired"
   | "signature"
   | "invalid-claims"
-  | "org-binding";
+  | "mcp-credential"
+  | "missing-subject"
+  | "org-binding"
+  | "org-lookup-failed"
+  | "undetermined";
+
+type SecretCheck =
+  | { payload: jose.JWTPayload }
+  | { cause: A2ATokenFailureCause };
+
+async function checkAgainstSecret(
+  token: string,
+  secret: string,
+  options: jose.JWTVerifyOptions,
+): Promise<SecretCheck> {
+  try {
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode(secret),
+      options,
+    );
+    return { payload };
+  } catch (error) {
+    const { code, claim } = error as { code?: unknown; claim?: unknown };
+    if (code === "ERR_JWT_EXPIRED") return { cause: "expired" };
+    if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") {
+      return { cause: "signature" };
+    }
+    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+      if (claim === "aud") return { cause: "audience" };
+      if (claim === "iss") return { cause: "issuer" };
+    }
+    return { cause: "invalid-claims" };
+  }
+}
+
+async function diagnoseVerifiedPayload(
+  payload: jose.JWTPayload,
+): Promise<A2ATokenFailureCause> {
+  if (isMcpCredential(payload)) return "mcp-credential";
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) {
+    return "missing-subject";
+  }
+  try {
+    const organization = await verifyA2AOrganizationIdentity(payload);
+    return organization === null ? "org-binding" : "undetermined";
+  } catch {
+    // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
+    return "org-lookup-failed";
+  }
+}
 
 /**
- * Names why the deployment secret refused a token that `verifyA2AToken`
- * resolved no identity for. `verifyA2AToken` collapses a wrong audience, a
- * wrong secret and an unbound organization into one empty identity; this
- * re-checks the same inputs to tell them apart. Diagnostic only: it never
- * grants anything, and its answer must not be used as an authorization result.
+ * Names why a token that `verifyA2AToken` resolved no identity for was
+ * refused. `verifyA2AToken` collapses a wrong audience, a wrong secret and an
+ * unbound organization into one empty identity; this re-checks the same inputs,
+ * against the deploy secret and then the organization's, to tell them apart.
+ * Diagnostic only: it never grants anything, and its answer must not be used as
+ * an authorization result.
  */
 export async function diagnoseA2ATokenFailure(
   token: string,
@@ -315,19 +367,35 @@ export async function diagnoseA2ATokenFailure(
     options.issuer = claims.iss;
   }
 
+  const deploy = await checkAgainstSecret(token, secret, options);
+  if ("payload" in deploy) return diagnoseVerifiedPayload(deploy.payload);
+
+  // The verifier also accepts the organization's own secret, so a signature
+  // miss against the deploy secret is not yet a signature failure.
+  const orgDomain =
+    typeof claims.org_domain === "string" ? claims.org_domain.trim() : "";
+  if (deploy.cause !== "signature" || !orgDomain) return deploy.cause;
+
+  let organization: A2AOrganizationCredential | null;
   try {
-    await jose.jwtVerify(token, new TextEncoder().encode(secret), options);
-    return "org-binding";
-  } catch (error) {
-    const { code, claim } = error as { code?: unknown; claim?: unknown };
-    if (code === "ERR_JWT_EXPIRED") return "expired";
-    if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") return "signature";
-    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
-      if (claim === "aud") return "audience";
-      if (claim === "iss") return "issuer";
-    }
-    return "invalid-claims";
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+  } catch {
+    // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
+    return "org-lookup-failed";
   }
+  if (!organization) return "signature";
+
+  const orgCheck = await checkAgainstSecret(
+    token,
+    organization.secret,
+    options,
+  );
+  if ("cause" in orgCheck) return orgCheck.cause;
+  return organizationPrincipalClaims(orgCheck.payload, organization)
+    ? "undetermined"
+    : "org-binding";
 }
 
 async function verifyA2ATokenInternal(

@@ -9,7 +9,7 @@ import {
   isWorkspaceAppAccessUnavailable,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access-outcome.js";
-import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
+import { checkWorkspaceAppAccess } from "../org/workspace-app-access.js";
 import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
@@ -121,7 +121,7 @@ export async function checkAction(
     }
     const workspaceAppId = resolveWorkspaceAccessAppId(appId);
     const appAllowed = workspaceAppId
-      ? await isWorkspaceAppAccessAllowed(workspaceAppId, {
+      ? await checkWorkspaceAppAccess(workspaceAppId, {
           email: identity.userEmail,
           orgId: identity.orgId,
         })

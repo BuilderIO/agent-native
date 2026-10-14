@@ -3605,7 +3605,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: vi.fn(async () => ({
+        checkWorkspaceAppAccess: vi.fn(async () => ({
           status: "unavailable",
           reason: "registry-http-error",
           upstreamStatus: 401,
@@ -3646,7 +3646,7 @@ describe("server/auth", () => {
       defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
@@ -3710,7 +3710,7 @@ describe("server/auth", () => {
       });
       const checkAppAccess = vi.fn(async () => false);
       vi.doMock("../org/workspace-app-access.js", () => ({
-        isWorkspaceAppAccessAllowed: checkAppAccess,
+        checkWorkspaceAppAccess: checkAppAccess,
         WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
         WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
           "Workspace app access is temporarily unavailable.",
