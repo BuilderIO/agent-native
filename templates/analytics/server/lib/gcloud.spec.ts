@@ -7,13 +7,13 @@ import {
   getBigQueryAccessToken,
 } from "./gcloud.js";
 
-const resolveAnalyticsProviderCredential = vi.hoisted(() => vi.fn());
+const resolveBigQueryOAuthCredential = vi.hoisted(() => vi.fn());
 
 vi.mock("./credentials.js", () => ({
   resolveCredential: vi.fn(),
 }));
 vi.mock("./provider-credentials.js", () => ({
-  resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential,
 }));
 
 vi.mock("./credentials-context.js", () => ({
@@ -110,23 +110,19 @@ describe("getAccessToken", () => {
 describe("getBigQueryAccessToken", () => {
   it("uses the connected BigQuery OAuth token before a service account key", async () => {
     vi.mocked(resolveCredential).mockReset();
-    resolveAnalyticsProviderCredential.mockReset();
+    resolveBigQueryOAuthCredential.mockReset();
     vi.mocked(resolveCredential).mockResolvedValue("test-project");
-    resolveAnalyticsProviderCredential.mockResolvedValue({
+    resolveBigQueryOAuthCredential.mockResolvedValue({
       value: "user-google-token",
     });
 
     await expect(getBigQueryAccessToken()).resolves.toBe("user-google-token");
-    expect(resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
-      provider: "bigquery",
-      keys: [],
-      ctx: {},
-    });
+    expect(resolveBigQueryOAuthCredential).toHaveBeenCalledWith({});
   });
 
   it("reuses resolved project and OAuth credentials", async () => {
     vi.mocked(resolveCredential).mockReset();
-    resolveAnalyticsProviderCredential.mockReset();
+    resolveBigQueryOAuthCredential.mockReset();
     const oauthCredential = {
       value: "user-google-token",
       key: "BIGQUERY_OAUTH_TOKEN",
@@ -141,6 +137,6 @@ describe("getBigQueryAccessToken", () => {
       }),
     ).resolves.toBe("user-google-token");
     expect(resolveCredential).not.toHaveBeenCalled();
-    expect(resolveAnalyticsProviderCredential).not.toHaveBeenCalled();
+    expect(resolveBigQueryOAuthCredential).not.toHaveBeenCalled();
   });
 });
