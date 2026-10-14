@@ -107,7 +107,7 @@ import {
   type Point,
   type Rect,
 } from "@/lib/screenshot-region";
-import { storageSetupErrorMessage } from "@/lib/storage-setup-error-message";
+import { storageAwareErrorMessage } from "@/lib/storage-setup-error-message";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1235,13 +1235,11 @@ export function ScreenshotEditor({
     } catch (err) {
       toast.dismiss(savingToastId);
       toast.error(
-        storageSetupErrorMessage(
+        storageAwareErrorMessage(
           err,
           t("recordingPage.connectStorageFinishSaving"),
-        ) ??
-          (err instanceof Error
-            ? err.message
-            : t(burn ? "screenshot.burnFailed" : "screenshot.redactFailed")),
+          t(burn ? "screenshot.burnFailed" : "screenshot.redactFailed"),
+        ),
       );
     } finally {
       setSaving(false);

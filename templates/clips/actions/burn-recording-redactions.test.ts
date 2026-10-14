@@ -45,6 +45,8 @@ const state = vi.hoisted(() => ({
   progressWrites: [] as number[],
   progressCleared: 0,
   failures: [] as string[],
+  failureCodes: [] as Array<string | undefined>,
+  uploadError: null as Error | null,
   canStart: true,
   filmstripCalls: [] as Array<Record<string, unknown>>,
   duringEncode: null as null | (() => void),
@@ -52,6 +54,14 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  isActionContractError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string",
+    ),
   fail: (message: string, options: Record<string, unknown> = {}): never => {
     const error = new Error(message) as Error & Record<string, unknown>;
     Object.assign(error, {
@@ -76,18 +86,20 @@ vi.mock("../server/lib/redaction-burn-progress.js", () => ({
   finishBurn: () => {
     state.progressCleared += 1;
   },
-  failBurn: (_id: string, error: string) => {
+  failBurn: (_id: string, error: string, errorCode?: string) => {
     state.progressCleared += 1;
     state.failures.push(error);
+    state.failureCodes.push(errorCode);
   },
 }));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
-  uploadFile: vi.fn(async () =>
-    state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null,
-  ),
+  uploadFile: vi.fn(async () => {
+    if (state.uploadError) throw state.uploadError;
+    return state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null;
+  }),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(async () => undefined),
@@ -201,6 +213,8 @@ describe("burning redactions into a recording", () => {
     state.progressWrites = [];
     state.progressCleared = 0;
     state.failures = [];
+    state.failureCodes = [];
+    state.uploadError = null;
     state.canStart = true;
     state.duringEncode = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
@@ -215,6 +229,14 @@ describe("burning redactions into a recording", () => {
       errorCode: "storage_setup_required",
       statusCode: 503,
     });
+    expect(state.updated).toHaveLength(0);
+  });
+
+  it("preserves a configured provider upload failure", async () => {
+    const providerError = new Error("Provider upload failed");
+    state.uploadError = providerError;
+
+    await expect(run()).rejects.toBe(providerError);
     expect(state.updated).toHaveLength(0);
   });
 
@@ -400,7 +422,11 @@ describe("starting a burn", () => {
     state.progressWrites = [];
     state.progressCleared = 0;
     state.failures = [];
+    state.failureCodes = [];
+    state.uploadError = null;
     state.canStart = true;
+    state.uploadUrl = "https://cdn.example.com/media/clips/rec_1.mp4";
+    state.burnedDurationMs = 10_000;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
     recording.title = "Test recording";
@@ -431,5 +457,15 @@ describe("starting a burn", () => {
     await start();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(state.failures[0]).toMatch(/timestamp/i);
+  });
+
+  it("keeps the storage setup code in failed progress", async () => {
+    state.uploadUrl = null;
+
+    await start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(state.failures[0]).toMatch(/storage not set up/i);
+    expect(state.failureCodes[0]).toBe("storage_setup_required");
   });
 });

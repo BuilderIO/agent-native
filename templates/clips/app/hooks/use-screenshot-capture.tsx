@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { errorMessage } from "@shared/display-capture-errors";
 import { useCallback, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -18,7 +17,7 @@ import {
   screenshotCaptureUnsupportedReason,
   stopScreenshotStream,
 } from "@/lib/screenshot-capture";
-import { storageSetupErrorMessage } from "@/lib/storage-setup-error-message";
+import { storageAwareErrorMessage } from "@/lib/storage-setup-error-message";
 
 export interface ScreenshotCaptureScope {
   folderId?: string | null;
@@ -106,12 +105,11 @@ export function useScreenshotCapture({
           toast.error(
             err instanceof ScreenshotCaptureError
               ? t(`screenshot.${err.key}`)
-              : (storageSetupErrorMessage(
+              : storageAwareErrorMessage(
                   err,
                   t("recordingPage.connectStorageFinishSaving"),
-                ) ??
-                  errorMessage(err) ??
-                  t("screenshot.failed")),
+                  t("screenshot.failed"),
+                ),
           );
         }
       } finally {
@@ -144,12 +142,11 @@ export function useScreenshotCapture({
         } catch (err) {
           toast.dismiss(pendingToastId);
           toast.error(
-            storageSetupErrorMessage(
+            storageAwareErrorMessage(
               err,
               t("recordingPage.connectStorageFinishSaving"),
-            ) ??
-              errorMessage(err) ??
               t("screenshot.failed"),
+            ),
           );
           // The capture exists nowhere else, and the screen may not be
           // there to take again: the crop step reopens on it, to save again
