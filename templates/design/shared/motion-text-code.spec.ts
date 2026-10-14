@@ -12,16 +12,22 @@ import {
   readMotionTextDocument,
   removeMotionTextRuntime,
 } from "./motion-text-code";
-import type { MotionTextDocument } from "./motion-text-code";
+import type {
+  MotionTextAnimation,
+  MotionTextDocument,
+} from "./motion-text-code";
 
 const document: MotionTextDocument = {
-  version: 1,
+  version: 2,
   animations: [
     {
       targetNodeId: "headline",
       unit: "word",
       direction: "reverse",
       staggerMs: 40,
+      animationDirection: "in",
+      order: "right-to-left",
+      ignoreSpaces: false,
       delayMs: 0,
       property: "opacity",
       durationMs: 320,
@@ -209,7 +215,7 @@ function textTarget(text: string): FakeElement {
 }
 
 describe("Motion Text source and runtime", () => {
-  it("round-trips a versioned authoring document with Figma text controls", () => {
+  it("round-trips a versioned authoring document with text timing controls", () => {
     const encoded = encodeMotionTextDocument(document);
 
     expect(decodeMotionTextDocument(encoded)).toEqual({
@@ -226,6 +232,74 @@ describe("Motion Text source and runtime", () => {
       status: "invalid",
       error: { code: "unsupported-version" },
     });
+  });
+
+  it("reads version 1 source with its original spacing and timing behavior", () => {
+    const legacy = {
+      version: 1,
+      animations: [
+        {
+          targetNodeId: "headline",
+          unit: "character",
+          direction: "reverse",
+          staggerMs: 30,
+          delayMs: 12,
+          property: "opacity",
+          durationMs: 300,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const expected = {
+      version: 2,
+      animations: [
+        {
+          ...legacy.animations[0],
+          animationDirection: "in",
+          order: "right-to-left",
+          ignoreSpaces: true,
+        },
+      ],
+    };
+
+    expect(decodeMotionTextDocument(JSON.stringify(legacy))).toEqual({
+      status: "valid",
+      document: expected,
+    });
+    expect(
+      readMotionTextDocument(
+        `<h1 data-agent-native-node-id="headline">Hello world</h1><script type="application/json" ${MOTION_TEXT_SOURCE_ATTRIBUTE}="v1">${JSON.stringify(legacy)}</script>`,
+      ),
+    ).toEqual({ status: "valid", document: expected });
+  });
+
+  it("validates and preserves per-unit overlap and text ordering", () => {
+    const withControls: MotionTextDocument = {
+      ...document,
+      animations: [
+        {
+          ...document.animations[0]!,
+          direction: "forward",
+          animationDirection: "out",
+          order: "center-out",
+          overlapPercent: 25,
+          ignoreSpaces: true,
+        },
+      ],
+    };
+
+    expect(
+      decodeMotionTextDocument(encodeMotionTextDocument(withControls)),
+    ).toEqual({ status: "valid", document: withControls });
+    expect(() =>
+      encodeMotionTextDocument({
+        ...withControls,
+        animations: [{ ...withControls.animations[0]!, overlapPercent: 101 }],
+      }),
+    ).toThrow("overlapPercent must be between 0 and 100");
   });
 
   it("accepts compatible property tracks for one text target", () => {
@@ -330,11 +404,11 @@ describe("Motion Text source and runtime", () => {
     const injected = injectMotionTextRuntime(authored, document);
     const markersRemoved = injected
       .replace(
-        /<script type="application\/json" data-agent-native-motion-text-source="v1">[\s\S]*?<\/script>\n/g,
+        /<script type="application\/json" data-agent-native-motion-text-source="v2">[\s\S]*?<\/script>\n/g,
         "",
       )
       .replace(
-        /<script data-agent-native-motion-text-runtime="v1">[\s\S]*?<\/script>/g,
+        /<script data-agent-native-motion-text-runtime="v2">[\s\S]*?<\/script>/g,
         "",
       );
 
@@ -382,8 +456,13 @@ describe("Motion Text source and runtime", () => {
       (child) =>
         child.getAttribute("data-agent-native-motion-text-unit") !== null,
     );
-    expect(units.map((unit) => unit.textContent)).toEqual(["Hello,", "world!"]);
+    expect(units.map((unit) => unit.textContent)).toEqual([
+      "Hello,",
+      " ",
+      "world!",
+    ]);
     expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
+      { duration: 320, delay: 80, fill: "both" },
       { duration: 320, delay: 40, fill: "both" },
       { duration: 320, delay: 0, fill: "both" },
     ]);
@@ -391,6 +470,102 @@ describe("Motion Text source and runtime", () => {
       { offset: 0, easing: "ease-out", opacity: "0" },
       { offset: 1, easing: "ease-in", opacity: "1" },
     ]);
+  });
+
+  it("times character units across the full duration and preserves spaces", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      animationDirection: "out",
+      order: "left-to-right",
+      overlapPercent: 50,
+      ignoreSpaces: false,
+      staggerMs: 0,
+      durationMs: 500,
+    };
+    const target = textTarget("A B");
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(units.map((unit) => unit.textContent)).toEqual(["A", " ", "B"]);
+    expect(units.map((unit) => unit.style.whiteSpace)).toEqual([
+      undefined,
+      "pre",
+      undefined,
+    ]);
+    expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
+      { duration: 250, delay: 0, fill: "both", direction: "reverse" },
+      { duration: 250, delay: 125, fill: "both", direction: "reverse" },
+      { duration: 250, delay: 250, fill: "both", direction: "reverse" },
+    ]);
+    expect(target.textContent).toBe("A B");
+  });
+
+  it("orders units from the center and keeps ignored spaces out of the count", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "center-out",
+      overlapPercent: 0,
+      ignoreSpaces: true,
+      staggerMs: 0,
+      durationMs: 500,
+    };
+    const target = textTarget("AB C");
+    executeRuntime(
+      compileMotionTextRuntime({ version: 2, animations: [animation] }),
+      target,
+    );
+
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+    expect(units.map((unit) => unit.textContent)).toEqual(["A", "B", "C"]);
+    expect(units.map((unit) => unit.animations[0]?.options)).toEqual([
+      { duration: 500 / 3, delay: 500 / 3, fill: "both" },
+      { duration: 500 / 3, delay: 0, fill: "both" },
+      { duration: 500 / 3, delay: (500 / 3) * 2, fill: "both" },
+    ]);
+    expect(target.textContent).toBe("AB C");
+  });
+
+  it("uses a repeatable shuffled order", () => {
+    const animation: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "random",
+      overlapPercent: 0,
+      ignoreSpaces: false,
+      staggerMs: 0,
+      durationMs: 500,
+    };
+    const run = () => {
+      const target = textTarget("ABCDE");
+      executeRuntime(
+        compileMotionTextRuntime({ version: 2, animations: [animation] }),
+        target,
+      );
+      return target.children.map(
+        (unit) => (unit.animations[0]?.options as { delay: number }).delay,
+      );
+    };
+
+    const delays = run();
+    expect(delays).toEqual(run());
+    expect([...delays].sort((left, right) => left - right)).toEqual([
+      0, 100, 200, 300, 400,
+    ]);
+    expect(delays).not.toEqual([0, 100, 200, 300, 400]);
   });
 
   it("runs compatible property tracks on the same segmented text units", () => {
@@ -425,6 +600,10 @@ describe("Motion Text source and runtime", () => {
       units.map((unit) => unit.animations.map((entry) => entry.options)),
     ).toEqual([
       [
+        { duration: 320, delay: 80, fill: "both" },
+        { duration: 160, delay: 105, fill: "both" },
+      ],
+      [
         { duration: 320, delay: 40, fill: "both" },
         { duration: 160, delay: 65, fill: "both" },
       ],
@@ -450,6 +629,7 @@ describe("Motion Text source and runtime", () => {
         unit.animations.map((entry) => entry.handle.currentTime),
       ),
     ).toEqual([
+      [120, 95],
       [160, 135],
       [200, 160],
     ]);
@@ -462,6 +642,7 @@ describe("Motion Text source and runtime", () => {
         {
           ...document.animations[0]!,
           direction: "forward",
+          order: "left-to-right",
           keyframes: [
             {
               t: 0,
@@ -495,12 +676,12 @@ describe("Motion Text source and runtime", () => {
   });
 
   it.each([
-    ["loop", { duration: 320, delay: 40, fill: "both", iterations: Infinity }],
+    ["loop", { duration: 320, delay: 80, fill: "both", iterations: Infinity }],
     [
       "ping-pong",
       {
         duration: 320,
-        delay: 40,
+        delay: 80,
         fill: "both",
         iterations: Infinity,
         direction: "alternate",
@@ -532,6 +713,7 @@ describe("Motion Text source and runtime", () => {
         {
           ...document.animations[0]!,
           direction: "forward",
+          order: "left-to-right",
         },
       ],
     };
@@ -559,6 +741,7 @@ describe("Motion Text source and runtime", () => {
     expect(unitNodes.map((unit) => unit.textContent)).toEqual([
       "Mo",
       "tion",
+      " ",
       "works",
     ]);
     expect(
@@ -584,12 +767,12 @@ describe("Motion Text source and runtime", () => {
 
     preview.sendMessage({ type: "motion-preview", t: 0.1, durationMs: 2000 });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
-      [160, 200],
+      [120, 160, 200],
     );
 
     preview.sendMessage({ type: "motion-preview-clear" });
     expect(units.map((unit) => unit.animations[0]?.handle.currentTime)).toEqual(
-      [0, 0],
+      [0, 0, 0],
     );
   });
 
@@ -598,7 +781,12 @@ describe("Motion Text source and runtime", () => {
     const characterDocument: MotionTextDocument = {
       ...document,
       animations: [
-        { ...document.animations[0]!, unit: "character", direction: "forward" },
+        {
+          ...document.animations[0]!,
+          unit: "character",
+          direction: "forward",
+          order: "left-to-right",
+        },
       ],
     };
     executeRuntime(
@@ -627,7 +815,12 @@ describe("Motion Text source and runtime", () => {
     const paragraphDocument: MotionTextDocument = {
       ...document,
       animations: [
-        { ...document.animations[0]!, unit: "paragraph", direction: "forward" },
+        {
+          ...document.animations[0]!,
+          unit: "paragraph",
+          direction: "forward",
+          order: "left-to-right",
+        },
       ],
     };
     executeRuntime(
@@ -648,7 +841,12 @@ describe("Motion Text source and runtime", () => {
     const lineDocument: MotionTextDocument = {
       ...document,
       animations: [
-        { ...document.animations[0]!, unit: "line", direction: "forward" },
+        {
+          ...document.animations[0]!,
+          unit: "line",
+          direction: "forward",
+          order: "left-to-right",
+        },
       ],
     };
     const target = textTarget("One two three");
@@ -680,7 +878,7 @@ describe("Motion Text source and runtime", () => {
     expect(
       readMotionTextDocument(
         valid.replace(
-          'data-agent-native-motion-text-source="v1"',
+          'data-agent-native-motion-text-source="v2"',
           'data-agent-native-motion-text-source="v99"',
         ),
       ),
@@ -691,7 +889,7 @@ describe("Motion Text source and runtime", () => {
     expect(
       readMotionTextDocument(
         valid.replace(
-          /(<script type="application\/json" data-agent-native-motion-text-source="v1">)[\s\S]*?(<\/script>)/,
+          /(<script type="application\/json" data-agent-native-motion-text-source="v2">)[\s\S]*?(<\/script>)/,
           "$1{$2",
         ),
       ),

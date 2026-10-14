@@ -16,6 +16,10 @@ let restoreMotionLab: (() => Promise<void>) | null = null;
 const REFERENCE_FIXTURE_HTML = FIXTURE_HTML.replace(
   '      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>',
   `      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>
+      <script src="./alpinejs.js" defer></script>
+      <main id="e2e-motion-text-alpine-root" x-data="{ visible: true }">
+        <h2 id="e2e-motion-text-alpine" data-agent-native-node-id="e2e-motion-text-alpine">Alpine Motion Text</h2>
+      </main>
       <div data-agent-native-node-id="e2e-motion-reference-rectangle" data-agent-native-layer-name="Rectangle" style="width:100px;height:100px;padding:0;border:0;background:#7F0EFF;color:transparent;font-size:0;line-height:0">Reference Rectangle</div>
       <div data-agent-native-node-id="e2e-motion-reference-rectangle-2" data-agent-native-layer-name="Rectangle 2" style="width:100px;height:100px;padding:0;border:0;background:#FF7A00;color:transparent;font-size:0;line-height:0">Reference Rectangle Two</div>`,
 );
@@ -339,19 +343,189 @@ test("Figma reference states match Motion inspector and timeline structure", asy
     clearPreviousSelection: true,
   });
   await addAnimation.click();
-  for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
+  for (const label of [
+    "Text",
+    "Position",
+    "Scale",
+    "Rotation",
+    "Size",
+    "Opacity",
+  ]) {
     await expect(
       page.getByRole("menuitem", { name: label, exact: true }),
     ).toBeVisible();
   }
-  await expect(page.getByRole("menuitem")).toHaveCount(5);
+  await expect(page.getByRole("menuitem")).toHaveCount(6);
   await captureReferenceState(page, "motion-figma-reference-text-add-menu");
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "More Motion", exact: true }).click();
+  const textStyleSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click();
+  const textStyleResponse = await textStyleSave;
+  expect(textStyleResponse.ok(), await textStyleResponse.text()).toBe(true);
+  const textStyleTimeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  expect(textStyleTimeline.timelines?.[0]?.nativeStyles).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        styleKey: "TextStagger",
+        targetNodeId: expect.any(String),
+        duration: 0.5,
+        props: expect.objectContaining({
+          animationDirection: "in",
+          textDelayGrouping: "CHARACTER",
+          presetStaggerOverlap: 50,
+          textDelayOrder: "LEFT_RIGHT",
+          ignoreSpaces: false,
+          delay: 0,
+          easing: { type: "EASE_OUT" },
+        }),
+      }),
+    ]),
+  );
+  const textStyleDetails = page.locator(
+    '[aria-label="Animations"] li > button[aria-pressed="true"]',
+  );
+  await expect(textStyleDetails).toBeVisible();
+  await textStyleDetails.click();
   await expect(
-    page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
-  ).toBeVisible();
-  await captureReferenceState(page, "motion-figma-reference-text-menu");
+    page.getByRole("combobox", { name: "Direction", exact: true }),
+  ).toHaveText("In");
+  await expect(
+    page.getByRole("combobox", { name: "Each", exact: true }),
+  ).toHaveText("Character");
+  await expect(page.getByRole("combobox", { name: "Order" })).toHaveText(
+    "Left to right",
+  );
+  await expect(page.getByRole("spinbutton", { name: "Overlap" })).toHaveValue(
+    "50",
+  );
+  await expect(
+    page.getByRole("checkbox", { name: "Ignore spaces" }),
+  ).not.toBeChecked();
+  await expect(page.getByRole("spinbutton", { name: "Delay" })).toHaveValue(
+    "0",
+  );
+  await expect(page.getByRole("spinbutton", { name: "Duration" })).toHaveValue(
+    "500",
+  );
+  const ignoreSpaces = page.getByRole("checkbox", { name: "Ignore spaces" });
+  await expect(ignoreSpaces).not.toBeChecked();
+  await captureReferenceState(page, "motion-text-preset-defaults");
+
+  const ignoreSpacesSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await ignoreSpaces.check();
+  const ignoreSpacesResponse = await ignoreSpacesSave;
+  expect(ignoreSpacesResponse.ok(), await ignoreSpacesResponse.text()).toBe(
+    true,
+  );
+  await expect(ignoreSpaces).toBeChecked();
+  await expect
+    .poll(() =>
+      getAction(request, "get-motion-timeline", {
+        designId,
+        sourceRef: fileId,
+      }),
+    )
+    .toMatchObject({
+      timelines: [
+        {
+          nativeStyles: expect.arrayContaining([
+            expect.objectContaining({
+              styleKey: "TextStagger",
+              props: expect.objectContaining({ ignoreSpaces: true }),
+            }),
+          ]),
+        },
+      ],
+    });
+  const sourceWithIgnoreSpaces = await getAction(request, "read-source-file", {
+    designId,
+    path: "index.html",
+  });
+  expect(sourceWithIgnoreSpaces.content).toContain('"ignoreSpaces":true');
+});
+
+test("HTML Text source round trips through Alpine markup and runs in a browser", async ({
+  page,
+  request,
+}) => {
+  const document = {
+    version: 2,
+    animations: [
+      {
+        targetNodeId: "e2e-motion-text-alpine",
+        unit: "word",
+        direction: "forward",
+        staggerMs: 80,
+        animationDirection: "in",
+        order: "random",
+        overlapPercent: 35,
+        ignoreSpaces: false,
+        property: "opacity",
+        durationMs: 600,
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  };
+  const saved = await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    tracks: [],
+    textDocument: document,
+    durationMs: 600,
+    playbackMode: "once",
+    defaultEase: "ease-out",
+  });
+  expect(saved).toMatchObject({ persisted: true, sourceType: "inline" });
+
+  const timeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  expect(timeline.timelines?.[0]).toMatchObject({ textDocument: document });
+  const source = await getAction(request, "read-source-file", {
+    designId,
+    path: "index.html",
+  });
+  expect(source.content).toContain('x-data="{ visible: true }"');
+  expect(source.content).toContain('data-agent-native-motion-text-source="v2"');
+  expect(source.content).toContain(
+    'data-agent-native-motion-text-runtime="v2"',
+  );
+
+  await page.setContent(source.content);
+  const target = page.locator("#e2e-motion-text-alpine");
+  await expect(target).toHaveText("Alpine Motion Text");
+  await expect(page.locator("#e2e-motion-text-alpine-root")).toHaveAttribute(
+    "x-data",
+    "{ visible: true }",
+  );
+  const units = target.locator("[data-agent-native-motion-text-unit]");
+  await expect(units).toHaveCount(5);
+  await expect
+    .poll(() =>
+      units.evaluateAll(
+        (elements) =>
+          elements.filter((element) => element.getAnimations().length > 0)
+            .length,
+      ),
+    )
+    .toBe(5);
 });
 
 test("a new motion preset applies to every selected target", async ({

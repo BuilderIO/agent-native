@@ -342,6 +342,10 @@ describe("MotionNativeStyleEditor", () => {
         'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
       ),
     ).not.toBeNull();
+    const ignoreSpaces = document.body.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+    );
+    expect(ignoreSpaces?.getAttribute("aria-checked")).toBe("false");
 
     const positionSwitch = document.body.querySelector<HTMLButtonElement>(
       '[role="switch"][aria-label="designEditor.motion.nativeTextStagger.effects.position"]',
@@ -377,6 +381,30 @@ describe("MotionNativeStyleEditor", () => {
           textDelayGrouping: "WORD",
           futureTextProp: { keep: true },
         }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+
+    await act(async () => ignoreSpaces!.click());
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceInstanceId: "figma-text-instance",
+        props: expect.objectContaining({ ignoreSpaces: true }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
+
+    const orderTrigger = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.nativeTextStagger.order"]',
+    )!;
+    await selectOption(
+      orderTrigger,
+      "designEditor.motion.nativeTextStagger.orderOptions.random",
+    );
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceInstanceId: "figma-text-instance",
+        props: expect.objectContaining({ textDelayOrder: "RANDOM" }),
       }),
       expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
     );

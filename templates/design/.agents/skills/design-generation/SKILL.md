@@ -1055,8 +1055,12 @@ as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
 `localSource`. Write through `apply-motion-edit` so edits stay parseable and
 round-trip between timeline and CSS/JSX. The inline output is standard CSS
 `@keyframes`; the React adapter updates verified JSX/source spans and emits the
-same managed CSS contract. Do not keep the only copy of animation state in a
-GSAP runtime timeline or a one-way export.
+same managed CSS contract. Text animations use `textDocument` version 2 for
+`animationDirection`, `order`, `overlapPercent`, and `ignoreSpaces`; preserve
+their unit, stagger interval, property, duration, and keyframes when editing.
+Version 1 text documents remain readable and are normalized on write. Do not
+keep the only copy of animation state in a GSAP runtime timeline or a one-way
+export.
 
 ## Imagery
 

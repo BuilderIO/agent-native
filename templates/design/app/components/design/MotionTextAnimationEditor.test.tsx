@@ -78,6 +78,15 @@ describe("MotionTextAnimationEditor", () => {
     });
   }
 
+  async function selectOption(trigger: HTMLButtonElement, optionText: string) {
+    await act(async () => trigger.click());
+    const option = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((element) => element.textContent?.trim() === optionText);
+    expect(option).toBeDefined();
+    await act(async () => option!.click());
+  }
+
   it("renders shared text controls and per-property tracks", async () => {
     await render({ animations: [opacityAnimation, translateAnimation] });
 
@@ -88,12 +97,20 @@ describe("MotionTextAnimationEditor", () => {
     ).not.toBeNull();
     expect(
       container.querySelector(
-        '[aria-label="designEditor.motion.textAnimation.direction"]',
+        '[aria-label="designEditor.motion.nativeTextStagger.animationDirection"]',
       ),
     ).not.toBeNull();
-    expect(container.textContent).toContain(
-      "designEditor.motion.textAnimation.stagger",
-    );
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+      ),
+    ).not.toBeNull();
+    expect(container.querySelector('input[id$="-overlap"]')).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+      ),
+    ).not.toBeNull();
     expect(
       container.querySelectorAll(
         '[aria-label="designEditor.motion.textAnimation.property"]',
@@ -118,16 +135,28 @@ describe("MotionTextAnimationEditor", () => {
       onChange,
     });
 
-    const numberInputs = container.querySelectorAll<HTMLInputElement>(
-      'input[type="number"]',
-    );
-    await enterValue(numberInputs[0]!, "125");
+    const overlapInput = container.querySelector<HTMLInputElement>(
+      'input[id$="-overlap"]',
+    )!;
+    await enterValue(overlapInput, "25");
     expect(onChange).toHaveBeenLastCalledWith([
-      { ...opacityAnimation, staggerMs: 125 },
-      { ...translateAnimation, staggerMs: 125 },
+      { ...opacityAnimation, staggerMs: 450, overlapPercent: 25 },
+      { ...translateAnimation, staggerMs: 450, overlapPercent: 25 },
     ]);
 
-    await enterValue(numberInputs[1]!, "900");
+    const delayInput = container.querySelector<HTMLInputElement>(
+      'input[id$="-opacity-delay"]',
+    )!;
+    await enterValue(delayInput, "75");
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, delayMs: 75 },
+      translateAnimation,
+    ]);
+
+    const durationInput = container.querySelector<HTMLInputElement>(
+      'input[id$="-opacity-duration"]',
+    )!;
+    await enterValue(durationInput, "900");
     expect(onChange).toHaveBeenLastCalledWith([
       { ...opacityAnimation, durationMs: 900 },
       translateAnimation,
@@ -165,6 +194,39 @@ describe("MotionTextAnimationEditor", () => {
           { t: 1, value: "12px", ease: "linear" },
         ],
       },
+    ]);
+  });
+
+  it("writes direction, order, and whitespace settings to every text track", async () => {
+    const onChange = vi.fn();
+    await render({ onChange });
+
+    await selectOption(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.nativeTextStagger.animationDirection"]',
+      )!,
+      "designEditor.motion.nativeTextStagger.exit",
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, animationDirection: "out" },
+    ]);
+
+    await selectOption(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+      )!,
+      "designEditor.motion.nativeTextStagger.orderOptions.centerOut",
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, order: "center-out", direction: "forward" },
+    ]);
+
+    const ignoreSpaces = container.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+    )!;
+    await act(async () => ignoreSpaces.click());
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, ignoreSpaces: false },
     ]);
   });
 
@@ -210,6 +272,10 @@ describe("MotionTextAnimationEditor", () => {
         ...opacityAnimation,
         property: "translate",
         delayMs: 0,
+        animationDirection: "in",
+        order: "left-to-right",
+        overlapPercent: 93,
+        ignoreSpaces: true,
         keyframes: [
           { t: 0, value: "0px", ease: "ease-out" },
           { t: 1, value: "16px" },

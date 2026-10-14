@@ -265,13 +265,17 @@ test.describe.serial("React Motion source browser writeback", () => {
       ],
     };
     const textDocument = {
-      version: 1,
+      version: 2,
       animations: [
         {
           targetNodeId: nodeId,
           unit: "character",
           direction: "forward",
           staggerMs: 30,
+          animationDirection: "out",
+          order: "center-out",
+          overlapPercent: 50,
+          ignoreSpaces: false,
           property: "opacity",
           durationMs: 320,
           keyframes: [
@@ -396,6 +400,49 @@ test.describe.serial("React Motion source browser writeback", () => {
                   keyframes: [{ value: "0.25" }, { value: "1" }],
                 },
               ],
+            },
+          },
+        ],
+      });
+    const textEditedSource = fs.readFileSync(
+      path.join(rootPath, sourcePath),
+      "utf8",
+    );
+    const textEditedHash = createHash("sha256")
+      .update(textEditedSource)
+      .digest("hex");
+    await expect(target).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      textEditedHash,
+    );
+    const overlapInput = page.getByRole("spinbutton", {
+      name: "Overlap",
+      exact: true,
+    });
+    await expect(overlapInput).toHaveValue("50");
+    const overlapEditSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await overlapInput.fill("35");
+    const overlapEditResponse = await overlapEditSave;
+    expect(overlapEditResponse.ok(), await overlapEditResponse.text()).toBe(
+      true,
+    );
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ overlapPercent: 35, order: "center-out" }],
             },
           },
         ],

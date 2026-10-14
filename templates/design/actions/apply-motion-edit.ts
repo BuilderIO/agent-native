@@ -74,6 +74,7 @@ import {
 import {
   injectMotionTextRuntime,
   MOTION_TEXT_PROPERTIES,
+  MOTION_TEXT_ORDERS,
   MOTION_TEXT_UNITS,
   MOTION_TEXT_SOURCE_VERSION,
   encodeMotionTextDocument,
@@ -123,7 +124,7 @@ const motionTextKeyframeSchema = z
 
 const motionTextDocumentSchema = z
   .object({
-    version: z.literal(MOTION_TEXT_SOURCE_VERSION),
+    version: z.union([z.literal(1), z.literal(MOTION_TEXT_SOURCE_VERSION)]),
     animations: z
       .array(
         z
@@ -132,6 +133,10 @@ const motionTextDocumentSchema = z
             unit: z.enum(MOTION_TEXT_UNITS),
             direction: z.enum(["forward", "reverse"]),
             staggerMs: z.number().min(0).max(5000),
+            animationDirection: z.enum(["in", "out"]).optional(),
+            order: z.enum(MOTION_TEXT_ORDERS).optional(),
+            overlapPercent: z.number().min(0).max(100).optional(),
+            ignoreSpaces: z.boolean().optional(),
             delayMs: z.number().min(0).max(MAX_MOTION_DURATION_MS).optional(),
             property: z.enum(MOTION_TEXT_PROPERTIES),
             durationMs: z.number().positive().max(MAX_MOTION_DURATION_MS),

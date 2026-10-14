@@ -2586,26 +2586,6 @@ export function AddTrackMenu({
     Icon: typeof IconTypography;
     onSelect: () => void;
   }> = [
-    ...(selectedTarget.isText && onCreateText
-      ? [
-          {
-            key: "Text",
-            labelKey: "designEditor.motion.text",
-            Icon: IconTypography,
-            onSelect: onCreateText,
-          },
-        ]
-      : []),
-    ...(selectedTarget.isText && onCreateNativeStyle
-      ? [
-          {
-            key: "TextStagger",
-            labelKey: "designEditor.motion.nativeTextStagger.create",
-            Icon: IconTypography,
-            onSelect: () => onCreateNativeStyle("TextStagger"),
-          },
-        ]
-      : []),
     ...(selectedTarget.isPath && onCreateNativeStyle
       ? [
           {
@@ -2629,6 +2609,22 @@ export function AddTrackMenu({
               label: selectedTarget.label,
             })}
           </DropdownMenuLabel>
+          {selectedTarget.isText && (onCreateNativeStyle || onCreateText) ? (
+            <DropdownMenuItem
+              className="h-6 gap-2 px-2 text-[12px] leading-none"
+              onSelect={() =>
+                onCreateNativeStyle
+                  ? onCreateNativeStyle("TextStagger")
+                  : onCreateText?.()
+              }
+            >
+              <IconTypography
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              {t("designEditor.motion.text")}
+            </DropdownMenuItem>
+          ) : null}
           {onCreateNativeStyle
             ? nativeStyleOptions.map(({ styleKey, labelKey, Icon }) => (
                 <DropdownMenuItem

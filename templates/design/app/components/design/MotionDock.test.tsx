@@ -468,14 +468,15 @@ describe("Motion animation style menu", () => {
     });
   }
 
-  it("matches Figma's animation choices and order for text layers", async () => {
-    await renderMenu(true);
+  it("adds the text preset before property animations for text layers", async () => {
+    await renderMenu(true, vi.fn());
     await openMenu("Add animation");
 
     const menuItems = Array.from(
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     );
     expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+      "Text",
       "Position",
       "Scale",
       "Rotation",
@@ -589,11 +590,12 @@ describe("Motion animation style menu", () => {
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Position");
   });
 
-  it("keeps native Text Stagger out of Add animation and exposes it in More Motion", async () => {
+  it("creates the code-backed Text preset from Add animation", async () => {
     const onCreateNativeStyle = vi.fn();
     await renderMenu(true, vi.fn(), vi.fn(), onCreateNativeStyle);
     await openMenu("Add animation");
     expect(menuItemLabels()).toEqual([
+      "Text",
       "Position",
       "Scale",
       "Rotation",
@@ -601,15 +603,11 @@ describe("Motion animation style menu", () => {
       "Opacity",
     ]);
 
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await openMenu("More Motion");
-    expect(menuItemLabels()).toEqual(["Text", "Text Stagger"]);
-    await selectMenuItem("Text Stagger");
+    await selectMenuItem("Text");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
   });
 
   it("offers Path trim only for SVG path targets", async () => {
@@ -634,24 +632,18 @@ describe("Motion animation style menu", () => {
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Path");
   });
 
-  it("offers and creates Text animation only for text layers", async () => {
+  it("offers and creates Text from the primary menu only for text layers", async () => {
     const onCreateText = vi.fn();
     await renderMenu(true, onCreateText);
     await openMenu("Add animation");
     expect(menuItemLabels()).toEqual([
+      "Text",
       "Position",
       "Scale",
       "Rotation",
       "Size",
       "Opacity",
     ]);
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await openMenu("More Motion");
-    expect(menuItemLabels()).toEqual(["Text"]);
     await selectMenuItem("Text");
     expect(onCreateText).toHaveBeenCalledOnce();
 

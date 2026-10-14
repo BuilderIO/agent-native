@@ -12,6 +12,7 @@ import type {
   MotionTextAnimation,
   MotionTextDocument,
 } from "./motion-text-code";
+import { MOTION_TEXT_SOURCE_VERSION } from "./motion-text-code";
 import {
   isMotionPathSegmentV1,
   type MotionTrack,
@@ -45,6 +46,7 @@ const DEFAULT_PROPS: Record<MotionNativeStyleKey, Record<string, unknown>> = {
     textDelayGrouping: "CHARACTER",
     presetStaggerOverlap: 50,
     textDelayOrder: "LEFT_RIGHT",
+    ignoreSpaces: false,
     clipContent: false,
     elementTransformOriginMode: "MATCH",
     elementTransformOriginX: 50,
@@ -148,6 +150,7 @@ const TEXT_STAGGER_SUPPORTED_PROPS = new Set([
   "textDelayGrouping",
   "presetStaggerOverlap",
   "textDelayOrder",
+  "ignoreSpaces",
   "clipContent",
   "elementTransformOriginMode",
   "elementTransformOriginX",
@@ -279,7 +282,9 @@ export function motionTextDocumentWithoutNativeStyles(
     projected.set(key, count - 1);
     return false;
   });
-  return animations.length > 0 ? { version: 1, animations } : null;
+  return animations.length > 0
+    ? { version: MOTION_TEXT_SOURCE_VERSION, animations }
+    : null;
 }
 
 /** Combines authored and derived tracks only for runtime compilation. */
@@ -304,7 +309,7 @@ export function motionTextDocumentWithNativeStyles(
   }
 
   return {
-    version: 1,
+    version: MOTION_TEXT_SOURCE_VERSION,
     animations: [...authoredAnimations, ...nativeAnimations],
   };
 }
@@ -708,10 +713,14 @@ function textStaggerAnimations(
     }
   }
   const unit = textStaggerUnit(text(props.textDelayGrouping, "CHARACTER"));
-  const direction = textStaggerOrder(
+  const order = textStaggerOrder(
     text(props.textDelayOrder, "LEFT_RIGHT"),
     unit,
   );
+  const direction: MotionTextAnimation["direction"] =
+    order === "right-to-left" || order === "bottom-to-top"
+      ? "reverse"
+      : "forward";
   const animationDirection = text(props.animationDirection, "in");
   if (animationDirection !== "in" && animationDirection !== "out") {
     invalid("Native Figma TextStagger animationDirection must be in or out.");
@@ -722,6 +731,7 @@ function textStaggerAnimations(
   }
   const durationMs = Math.round(style.duration * 1000);
   const staggerMs = Math.round((durationMs * (100 - overlap)) / 100);
+  const ignoreSpaces = booleanProp(props.ignoreSpaces, false, "ignoreSpaces");
   const delayMs = Math.round(
     (style.timelineOffset + numeric(props.delay, 0)) * 1000,
   );
@@ -730,10 +740,6 @@ function textStaggerAnimations(
 
   if (booleanProp(props.blurEnabled, false, "blurEnabled")) {
     const amount = numeric(props.blurAmount, 20);
-    const values: [string, string] =
-      animationDirection === "in"
-        ? [`blur(${amount}px)`, "blur(0px)"]
-        : ["blur(0px)", `blur(${amount}px)`];
     animations.push(
       textAnimation(
         style,
@@ -743,8 +749,9 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "filter",
-        values,
+        [`blur(${amount}px)`, "blur(0px)"],
         ease,
+        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
       ),
     );
   }
@@ -778,10 +785,9 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "translate",
-        animationDirection === "in"
-          ? [`${vector[0] * distance}px ${vector[1] * distance}px`, "0px 0px"]
-          : ["0px 0px", `${vector[0] * distance}px ${vector[1] * distance}px`],
+        [`${vector[0] * distance}px ${vector[1] * distance}px`, "0px 0px"],
         ease,
+        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
       ),
     );
   }
@@ -807,10 +813,9 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "rotate",
-        animationDirection === "in"
-          ? [`${signed}deg`, "0deg"]
-          : ["0deg", `${-signed}deg`],
+        [`${signed}deg`, "0deg"],
         ease,
+        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
       ),
     );
   }
@@ -825,10 +830,9 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "scale",
-        animationDirection === "in"
-          ? [String(amount), "1"]
-          : ["1", String(amount)],
+        [String(amount), "1"],
         ease,
+        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
       ),
     );
   }
@@ -843,10 +847,9 @@ function textStaggerAnimations(
         delayMs,
         durationMs,
         "opacity",
-        animationDirection === "in"
-          ? [String(amount), "1"]
-          : ["1", String(amount)],
+        [String(amount), "1"],
         ease,
+        { animationDirection, order, overlapPercent: overlap, ignoreSpaces },
       ),
     );
   }
@@ -863,12 +866,17 @@ function textAnimation(
   property: MotionTextAnimation["property"],
   values: [string, string],
   ease: string,
+  textOptions: Pick<
+    MotionTextAnimation,
+    "animationDirection" | "order" | "overlapPercent" | "ignoreSpaces"
+  >,
 ): MotionTextAnimation {
   return {
     targetNodeId: style.targetNodeId,
     unit,
     direction,
     staggerMs,
+    ...textOptions,
     delayMs,
     property,
     durationMs,
@@ -896,14 +904,16 @@ function textStaggerUnit(value: string): MotionTextAnimation["unit"] {
 function textStaggerOrder(
   value: string,
   unit: MotionTextAnimation["unit"],
-): MotionTextAnimation["direction"] {
-  if (value === "LEFT_RIGHT") return "forward";
-  if (value === "RIGHT_LEFT") return "reverse";
+): NonNullable<MotionTextAnimation["order"]> {
+  if (value === "LEFT_RIGHT") return "left-to-right";
+  if (value === "RIGHT_LEFT") return "right-to-left";
+  if (value === "CENTER_OUT") return "center-out";
+  if (value === "RANDOM") return "random";
   if (
     (value === "TOP_BOTTOM" || value === "BOTTOM_TOP") &&
     (unit === "line" || unit === "paragraph")
   ) {
-    return value === "TOP_BOTTOM" ? "forward" : "reverse";
+    return value === "TOP_BOTTOM" ? "top-to-bottom" : "bottom-to-top";
   }
   if (value === "CENTER_OUT" || value === "OUTSIDE_IN") {
     unsupportedTextStaggerProp("textDelayOrder");

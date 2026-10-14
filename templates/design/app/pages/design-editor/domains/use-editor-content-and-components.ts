@@ -19,6 +19,7 @@ import type {
   MotionTextAnimation,
   MotionTextDocument,
 } from "@shared/motion-text-code";
+import { MOTION_TEXT_SOURCE_VERSION } from "@shared/motion-text-code";
 import {
   motionTimelineDurationForContent,
   type MotionPlaybackMode,
@@ -783,7 +784,7 @@ export function useEditorContentAndComponents({
       if (!inserted) nextAnimations.push(...targetAnimations);
       handleMotionTextDocumentChange(
         nextAnimations.length > 0
-          ? { version: 1, animations: nextAnimations }
+          ? { version: MOTION_TEXT_SOURCE_VERSION, animations: nextAnimations }
           : null,
       );
     },

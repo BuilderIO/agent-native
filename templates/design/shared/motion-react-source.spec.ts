@@ -559,7 +559,7 @@ describe("React Motion source adapter", () => {
     ).toHaveLength(1);
     expect(readMotionReactSource(edit.source)).toMatchObject({
       status: "valid",
-      textDocument: composite,
+      textDocument: { ...composite, version: 2 },
     });
 
     const reduced = applyMotionReactSourceEdit({
@@ -572,7 +572,10 @@ describe("React Motion source adapter", () => {
     expect(reduced.source).toContain(" animations={[{");
     expect(readMotionReactSource(reduced.source)).toMatchObject({
       status: "valid",
-      textDocument: { animations: [composite.animations[0]] },
+      textDocument: {
+        version: 2,
+        animations: [composite.animations[0]],
+      },
     });
   });
 
@@ -598,7 +601,7 @@ describe("React Motion source adapter", () => {
         status: "valid",
         playbackMode,
         document: { playbackMode, tracks: [] },
-        textDocument,
+        textDocument: { ...textDocument, version: 2 },
       });
     },
   );
@@ -621,7 +624,7 @@ describe("React Motion source adapter", () => {
     );
     expect(readMotionReactSource(edit.source)).toMatchObject({
       status: "valid",
-      textDocument,
+      textDocument: { ...textDocument, version: 2 },
     });
   });
 
@@ -636,7 +639,7 @@ describe("React Motion source adapter", () => {
     expect(readMotionReactSource(textOnly.source)).toMatchObject({
       status: "valid",
       document: { tracks: [] },
-      textDocument,
+      textDocument: { ...textDocument, version: 2 },
     });
 
     const removed = removeMotionReactSource(textOnly.source);

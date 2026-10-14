@@ -68,12 +68,16 @@ describe("native Figma Motion runtime adapter", () => {
     });
 
     expect(motionNativeStylesToTracks([style])).toEqual([]);
-    expect(motionNativeStylesToTextAnimations([style])).toEqual([
+    expect(motionNativeStylesToTextAnimations([style])).toMatchObject([
       {
         targetNodeId: "hero",
         unit: "character",
         direction: "forward",
         staggerMs: 250,
+        animationDirection: "in",
+        order: "left-to-right",
+        overlapPercent: 50,
+        ignoreSpaces: false,
         delayMs: 0,
         property: "translate",
         durationMs: 500,
@@ -185,18 +189,22 @@ describe("native Figma Motion runtime adapter", () => {
       },
     };
 
-    expect(motionNativeStylesToTextAnimations([style])).toEqual([
+    expect(motionNativeStylesToTextAnimations([style])).toMatchObject([
       {
         targetNodeId: "hero",
         unit: "word",
         direction: "reverse",
         staggerMs: 400,
+        animationDirection: "out",
+        order: "right-to-left",
+        overlapPercent: 20,
+        ignoreSpaces: false,
         delayMs: 325,
         property: "filter",
         durationMs: 500,
         keyframes: [
-          { t: 0, value: "blur(0px)", ease: "ease-out" },
-          { t: 1, value: "blur(20px)" },
+          { t: 0, value: "blur(20px)", ease: "ease-out" },
+          { t: 1, value: "blur(0px)" },
         ],
       },
       {
@@ -204,12 +212,16 @@ describe("native Figma Motion runtime adapter", () => {
         unit: "word",
         direction: "reverse",
         staggerMs: 400,
+        animationDirection: "out",
+        order: "right-to-left",
+        overlapPercent: 20,
+        ignoreSpaces: false,
         delayMs: 325,
         property: "translate",
         durationMs: 500,
         keyframes: [
-          { t: 0, value: "0px 0px", ease: "ease-out" },
-          { t: 1, value: "-40px 0px" },
+          { t: 0, value: "-40px 0px", ease: "ease-out" },
+          { t: 1, value: "0px 0px" },
         ],
       },
       {
@@ -217,12 +229,16 @@ describe("native Figma Motion runtime adapter", () => {
         unit: "word",
         direction: "reverse",
         staggerMs: 400,
+        animationDirection: "out",
+        order: "right-to-left",
+        overlapPercent: 20,
+        ignoreSpaces: false,
         delayMs: 325,
         property: "rotate",
         durationMs: 500,
         keyframes: [
-          { t: 0, value: "0deg", ease: "ease-out" },
-          { t: 1, value: "180deg" },
+          { t: 0, value: "-180deg", ease: "ease-out" },
+          { t: 1, value: "0deg" },
         ],
       },
       {
@@ -230,12 +246,16 @@ describe("native Figma Motion runtime adapter", () => {
         unit: "word",
         direction: "reverse",
         staggerMs: 400,
+        animationDirection: "out",
+        order: "right-to-left",
+        overlapPercent: 20,
+        ignoreSpaces: false,
         delayMs: 325,
         property: "scale",
         durationMs: 500,
         keyframes: [
-          { t: 0, value: "1", ease: "ease-out" },
-          { t: 1, value: "1.2" },
+          { t: 0, value: "1.2", ease: "ease-out" },
+          { t: 1, value: "1" },
         ],
       },
       {
@@ -243,12 +263,16 @@ describe("native Figma Motion runtime adapter", () => {
         unit: "word",
         direction: "reverse",
         staggerMs: 400,
+        animationDirection: "out",
+        order: "right-to-left",
+        overlapPercent: 20,
+        ignoreSpaces: false,
         delayMs: 325,
         property: "opacity",
         durationMs: 500,
         keyframes: [
-          { t: 0, value: "1", ease: "ease-out" },
-          { t: 1, value: "0" },
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1" },
         ],
       },
     ]);
@@ -279,9 +303,9 @@ describe("native Figma Motion runtime adapter", () => {
     const combined = motionTextDocumentWithNativeStyles(authored, [style]);
 
     expect(combined?.animations).toHaveLength(2);
-    expect(motionTextDocumentWithoutNativeStyles(combined, [style])).toEqual(
-      authored,
-    );
+    expect(
+      motionTextDocumentWithoutNativeStyles(combined, [style]),
+    ).toMatchObject({ version: 2, animations: authored.animations });
     const css = compileMotionCode({
       id: "timeline",
       designId: "design",
@@ -303,28 +327,44 @@ describe("native Figma Motion runtime adapter", () => {
     }
   });
 
-  it.each([
-    ["CENTER_OUT", "textDelayOrder"],
-    ["OUTSIDE_IN", "textDelayOrder"],
-  ])("reports unsupported TextStagger order %s explicitly", (order, prop) => {
+  it("keeps center-out and random order in the editable text source", () => {
     const base = createMotionNativeStyleInstance({
       styleKey: "TextStagger",
       targetNodeId: "hero",
     });
-    const style = {
-      ...base,
-      props: { ...base.props, textDelayOrder: order },
-    };
-    expectRuntimeError(
-      () => motionNativeStylesToTextAnimations([style]),
-      "unsupported-style",
-    );
-    try {
-      motionNativeStylesToTextAnimations([style]);
-    } catch (error) {
-      expect(error).toMatchObject({ message: expect.stringContaining(prop) });
-    }
+    const center = motionNativeStylesToTextAnimations([
+      { ...base, props: { ...base.props, textDelayOrder: "CENTER_OUT" } },
+    ]);
+    const random = motionNativeStylesToTextAnimations([
+      { ...base, props: { ...base.props, textDelayOrder: "RANDOM" } },
+    ]);
+
+    expect(center[0]?.order).toBe("center-out");
+    expect(random[0]?.order).toBe("random");
   });
+
+  it.each([["OUTSIDE_IN", "textDelayOrder"]])(
+    "reports unsupported TextStagger order %s explicitly",
+    (order, prop) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "hero",
+      });
+      const style = {
+        ...base,
+        props: { ...base.props, textDelayOrder: order },
+      };
+      expectRuntimeError(
+        () => motionNativeStylesToTextAnimations([style]),
+        "unsupported-style",
+      );
+      try {
+        motionNativeStylesToTextAnimations([style]);
+      } catch (error) {
+        expect(error).toMatchObject({ message: expect.stringContaining(prop) });
+      }
+    },
+  );
 
   it.each([
     ["clipContent", true],

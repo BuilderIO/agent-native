@@ -210,18 +210,18 @@ describe("HTML Motion source adapter", () => {
     );
   });
 
-  it("writes and reads the existing versioned Motion Text runtime", () => {
+  it("writes and reads the current versioned Motion Text runtime", () => {
     const edit = apply(html, { textDocument });
     const read = readMotionHtmlSource(edit.source);
 
     expect(read).toMatchObject({
       status: "valid",
-      textDocument,
+      textDocument: { ...textDocument, version: 2 },
       targetNodeIds: ["hero-title"],
     });
     expect(edit.source).toContain('<script src="./page.js"></script>');
-    expect(edit.source).toContain('data-agent-native-motion-text-source="v1"');
-    expect(edit.source).toContain('data-agent-native-motion-text-runtime="v1"');
+    expect(edit.source).toContain('data-agent-native-motion-text-source="v2"');
+    expect(edit.source).toContain('data-agent-native-motion-text-runtime="v2"');
     expect(removeMotionHtmlSource(edit.source)).toEqual({
       source: html,
       changed: true,

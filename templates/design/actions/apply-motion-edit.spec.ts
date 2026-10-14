@@ -500,7 +500,7 @@ describe("Motion Text source action input", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects empty or unsupported Text source documents", () => {
+  it("accepts supported Text source versions and rejects empty or unsupported documents", () => {
     expect(
       action.schema.safeParse({
         designId: "d1",
@@ -513,6 +513,13 @@ describe("Motion Text source action input", () => {
         designId: "d1",
         tracks: [],
         textDocument: { ...textDocument, version: 2 },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        designId: "d1",
+        tracks: [],
+        textDocument: { ...textDocument, version: 3 },
       }).success,
     ).toBe(false);
   });

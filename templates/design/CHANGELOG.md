@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Text motion presets now include editable direction, grouping, order, overlap, and space handling.
 - Show Figma fidelity warnings in Home URL imports
 
 ## 2026-10-13
@@ -17,6 +18,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The Tokens panel import menu now imports DTCG token files, CSS or Tailwind files, the clipboard, or tokens generated from the design, and DTCG tokens keep their type.
+- The Tokens panel + menu now creates a token of a chosen kind (color, font size, opacity, and more) as an inline draft row in its group.
 - Fill and effect rows keep the reorder handle outside the field, so OKLCH values show in full.
 - HTML token imports now skip prose and preserve CSS declaration precedence.
 - Left panels keep one width, Tokens search and rows match Layers, the org menu matches other apps, and the import picker names Figma and HTML files.
@@ -24,6 +27,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Home prompt suggestions stay hidden until AI is connected
 - Comment pins no longer show in Interact mode or paint over the editor panels.
 - Design token imports now accept trailing commas after quoted values
 - Design token imports now handle size-limited files, attribute-selector CSS, and SCSS interpolation.

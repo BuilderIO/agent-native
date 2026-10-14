@@ -1,6 +1,7 @@
 import type {
   MotionTextAnimation,
-  MotionTextDirection,
+  MotionTextAnimationDirection,
+  MotionTextOrder,
   MotionTextProperty,
   MotionTextUnit,
 } from "@shared/motion-text-code";
@@ -8,6 +9,7 @@ import { IconPlus, IconX } from "@tabler/icons-react";
 import { useId, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,7 +28,21 @@ import {
 
 const TEXT_UNITS: MotionTextUnit[] = ["character", "word", "line", "paragraph"];
 
-const TEXT_DIRECTIONS: MotionTextDirection[] = ["forward", "reverse"];
+const TEXT_ANIMATION_DIRECTIONS: MotionTextAnimationDirection[] = ["in", "out"];
+const TEXT_ORDERS: MotionTextOrder[] = [
+  "left-to-right",
+  "right-to-left",
+  "center-out",
+  "random",
+];
+const TEXT_ORDER_TRANSLATION_KEYS: Record<MotionTextOrder, string> = {
+  "left-to-right": "leftToRight",
+  "right-to-left": "rightToLeft",
+  "center-out": "centerOut",
+  random: "random",
+  "top-to-bottom": "topToBottom",
+  "bottom-to-top": "bottomToTop",
+};
 
 const TEXT_PROPERTIES: MotionTextProperty[] = [
   "opacity",
@@ -56,13 +72,38 @@ export function MotionTextAnimationEditor({
   const shared = animations[0];
   if (!shared) return null;
   const usedProperties = new Set(animations.map(({ property }) => property));
+  const order =
+    shared.order ??
+    (shared.direction === "reverse" ? "right-to-left" : "left-to-right");
+  const animationDirection = shared.animationDirection ?? "in";
+  const overlapPercent =
+    shared.overlapPercent ??
+    Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          100 * (1 - shared.staggerMs / Math.max(1, shared.durationMs)),
+        ),
+      ),
+    );
+  const ignoreSpaces = shared.ignoreSpaces ?? true;
   const availableProperties = TEXT_PROPERTIES.filter(
     (property) => !usedProperties.has(property),
   );
 
   function updateShared(
     update: Partial<
-      Pick<MotionTextAnimation, "unit" | "direction" | "staggerMs">
+      Pick<
+        MotionTextAnimation,
+        | "unit"
+        | "direction"
+        | "staggerMs"
+        | "animationDirection"
+        | "order"
+        | "overlapPercent"
+        | "ignoreSpaces"
+      >
     >,
   ) {
     onChange(animations.map((animation) => ({ ...animation, ...update })));
@@ -126,6 +167,10 @@ export function MotionTextAnimationEditor({
         ...shared,
         property,
         delayMs: shared.delayMs ?? 0,
+        animationDirection,
+        order,
+        overlapPercent,
+        ignoreSpaces,
         durationMs: shared.durationMs,
         keyframes,
       },
@@ -196,28 +241,69 @@ export function MotionTextAnimationEditor({
         </Field>
 
         <Field
-          id={`${id}-direction`}
-          label={t("designEditor.motion.textAnimation.direction")}
+          id={`${id}-animation-direction`}
+          label={t("designEditor.motion.nativeTextStagger.animationDirection")}
         >
           <Select
-            value={shared.direction}
+            value={animationDirection}
             disabled={disabled}
-            onValueChange={(direction) =>
-              updateShared({ direction: direction as MotionTextDirection })
+            onValueChange={(value) =>
+              updateShared({
+                animationDirection: value as MotionTextAnimationDirection,
+              })
             }
           >
             <SelectTrigger
-              id={`${id}-direction`}
-              aria-label={t("designEditor.motion.textAnimation.direction")}
+              id={`${id}-animation-direction`}
+              aria-label={t(
+                "designEditor.motion.nativeTextStagger.animationDirection",
+              )}
               className={FIELD_CLASS}
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TEXT_DIRECTIONS.map((direction) => (
-                <SelectItem key={direction} value={direction}>
+              {TEXT_ANIMATION_DIRECTIONS.map((value) => (
+                <SelectItem key={value} value={value}>
                   {t(
-                    `designEditor.motion.textAnimation.directions.${direction}`,
+                    `designEditor.motion.nativeTextStagger.${value === "in" ? "enter" : "exit"}`,
+                  )}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field
+          id={`${id}-order`}
+          label={t("designEditor.motion.nativeTextStagger.order")}
+        >
+          <Select
+            value={order}
+            disabled={disabled}
+            onValueChange={(value) => {
+              const nextOrder = value as MotionTextOrder;
+              updateShared({
+                order: nextOrder,
+                direction:
+                  nextOrder === "right-to-left" || nextOrder === "bottom-to-top"
+                    ? "reverse"
+                    : "forward",
+              });
+            }}
+          >
+            <SelectTrigger
+              id={`${id}-order`}
+              aria-label={t("designEditor.motion.nativeTextStagger.order")}
+              className={FIELD_CLASS}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TEXT_ORDERS.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {t(
+                    `designEditor.motion.nativeTextStagger.orderOptions.${TEXT_ORDER_TRANSLATION_KEYS[value]}`,
                   )}
                 </SelectItem>
               ))}
@@ -226,26 +312,52 @@ export function MotionTextAnimationEditor({
         </Field>
 
         <NumberField
-          id={`${id}-stagger`}
-          label={t("designEditor.motion.textAnimation.stagger")}
-          value={shared.staggerMs}
+          id={`${id}-overlap`}
+          label={t("designEditor.motion.nativeTextStagger.overlap")}
+          value={overlapPercent}
           min={0}
-          max={5_000}
+          max={100}
+          unit="%"
           disabled={disabled}
           onChange={(value) =>
             updateNumber(
               value,
-              (staggerMs) => updateShared({ staggerMs }),
+              (nextOverlap) =>
+                updateShared({
+                  overlapPercent: nextOverlap,
+                  staggerMs: Math.round(
+                    (shared.durationMs * (100 - nextOverlap)) / 100,
+                  ),
+                }),
               0,
-              5_000,
+              100,
             )
           }
         />
+
+        <div className="col-span-2 flex min-h-6 items-center gap-2">
+          <Checkbox
+            id={`${id}-ignore-spaces`}
+            aria-label={t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+            checked={ignoreSpaces}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              updateShared({ ignoreSpaces: checked === true })
+            }
+          />
+          <Label
+            htmlFor={`${id}-ignore-spaces`}
+            className="!text-[10px] text-muted-foreground"
+          >
+            {t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+          </Label>
+        </div>
       </div>
 
       <div className="space-y-1.5">
         {animations.map((animation, animationIndex) => {
           const propertyId = `${id}-${animation.property}-property`;
+          const delayId = `${id}-${animation.property}-delay`;
           const durationId = `${id}-${animation.property}-duration`;
           return (
             <section
@@ -309,6 +421,24 @@ export function MotionTextAnimationEditor({
                   <IconX aria-hidden="true" className="size-3.5" />
                 </Button>
               </header>
+
+              <NumberField
+                id={delayId}
+                label={t("designEditor.motion.animationStyles.delay")}
+                value={animation.delayMs ?? 0}
+                min={0}
+                max={120_000}
+                unit="ms"
+                disabled={disabled}
+                onChange={(value) =>
+                  updateNumber(
+                    value,
+                    (delayMs) => updateTrack(animation.property, { delayMs }),
+                    0,
+                    120_000,
+                  )
+                }
+              />
 
               <NumberField
                 id={durationId}
@@ -417,6 +547,7 @@ function NumberField({
   value,
   min,
   max,
+  unit,
   disabled,
   onChange,
 }: {
@@ -425,22 +556,30 @@ function NumberField({
   value: number;
   min: number;
   max: number;
+  unit?: string;
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
   return (
     <Field id={id} label={label}>
-      <Input
-        id={id}
-        type="number"
-        min={min}
-        max={max}
-        step={1}
-        value={value}
-        disabled={disabled}
-        className={FIELD_CLASS}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      />
+      <div className="flex min-w-0 items-center gap-1">
+        <Input
+          id={id}
+          type="number"
+          min={min}
+          max={max}
+          step={1}
+          value={value}
+          disabled={disabled}
+          className={FIELD_CLASS}
+          onChange={(event) => onChange(event.currentTarget.value)}
+        />
+        {unit ? (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {unit}
+          </span>
+        ) : null}
+      </div>
     </Field>
   );
 }

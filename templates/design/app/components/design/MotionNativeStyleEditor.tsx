@@ -41,6 +41,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -143,10 +144,10 @@ const TEXT_STAGGER_GROUPING_OPTIONS = [
 ];
 
 const TEXT_STAGGER_ORDER_OPTIONS = [
-  { value: "LEFT_RIGHT", labelKey: "forward" },
-  { value: "RIGHT_LEFT", labelKey: "reverse" },
-  { value: "TOP_BOTTOM", labelKey: "forward" },
-  { value: "BOTTOM_TOP", labelKey: "reverse" },
+  { value: "LEFT_RIGHT", labelKey: "leftToRight" },
+  { value: "RIGHT_LEFT", labelKey: "rightToLeft" },
+  { value: "CENTER_OUT", labelKey: "centerOut" },
+  { value: "RANDOM", labelKey: "random" },
 ];
 
 const TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS = [
@@ -991,11 +992,7 @@ function NativeTextStaggerDetails({
     value: option.value,
     labelKey: option.labelKey,
   }));
-  const orderOptions = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
-    grouping === "LINE" || grouping === "PARAGRAPH"
-      ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
-      : option.value === "LEFT_RIGHT" || option.value === "RIGHT_LEFT",
-  );
+  const orderOptions = TEXT_STAGGER_ORDER_OPTIONS;
   const order = stringValue(
     instance.props.textDelayOrder,
     orderOptions[0]?.value ?? "LEFT_RIGHT",
@@ -1052,25 +1049,7 @@ function NativeTextStaggerDetails({
           labelBase="designEditor.motion.textAnimation.units"
           t={t}
           onChange={(value) => {
-            const nextGrouping = value;
-            const nextOrders = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
-              nextGrouping === "LINE" || nextGrouping === "PARAGRAPH"
-                ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
-                : option.value === "LEFT_RIGHT" ||
-                  option.value === "RIGHT_LEFT",
-            );
-            const currentOrderIsValid = nextOrders.some(
-              (option) => option.value === order,
-            );
             onUpdateProp(instance, identity, "textDelayGrouping", value);
-            if (!currentOrderIsValid && nextOrders[0]) {
-              onUpdateProp(
-                instance,
-                identity,
-                "textDelayOrder",
-                nextOrders[0].value,
-              );
-            }
           }}
         />
       </Field>
@@ -1103,6 +1082,26 @@ function NativeTextStaggerDetails({
         unit="%"
         onChange={(value) => updateNumberProp("presetStaggerOverlap", value)}
       />
+
+      {grouping === "CHARACTER" || grouping === "WORD" ? (
+        <div className="flex min-h-6 items-center gap-2">
+          <Checkbox
+            id={`${id}-ignore-spaces`}
+            aria-label={t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+            checked={booleanValue(instance.props.ignoreSpaces, false)}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              onUpdateProp(instance, identity, "ignoreSpaces", checked === true)
+            }
+          />
+          <Label
+            htmlFor={`${id}-ignore-spaces`}
+            className="!text-[10px] text-muted-foreground"
+          >
+            {t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+          </Label>
+        </div>
+      ) : null}
 
       <div className="space-y-1 border-t border-border pt-1">
         {TEXT_STAGGER_EFFECTS.map((effect) => {

@@ -7,7 +7,7 @@ import {
 import { isValidMotionEase } from "./motion-easing";
 import type { MotionPlaybackMode } from "./motion-timeline";
 
-export const MOTION_TEXT_SOURCE_VERSION = 1 as const;
+export const MOTION_TEXT_SOURCE_VERSION = 2 as const;
 export const MOTION_TEXT_SOURCE_ATTRIBUTE =
   "data-agent-native-motion-text-source";
 export const MOTION_TEXT_RUNTIME_ATTRIBUTE =
@@ -19,6 +19,14 @@ export const MOTION_TEXT_UNITS = [
   "line",
   "paragraph",
 ] as const;
+export const MOTION_TEXT_ORDERS = [
+  "left-to-right",
+  "right-to-left",
+  "center-out",
+  "random",
+  "top-to-bottom",
+  "bottom-to-top",
+] as const;
 export const MOTION_TEXT_PROPERTIES = [
   "opacity",
   "translate",
@@ -29,6 +37,8 @@ export const MOTION_TEXT_PROPERTIES = [
 
 export type MotionTextUnit = (typeof MOTION_TEXT_UNITS)[number];
 export type MotionTextDirection = "forward" | "reverse";
+export type MotionTextAnimationDirection = "in" | "out";
+export type MotionTextOrder = (typeof MOTION_TEXT_ORDERS)[number];
 export type MotionTextProperty = (typeof MOTION_TEXT_PROPERTIES)[number];
 
 export interface MotionTextKeyframe {
@@ -42,6 +52,10 @@ export interface MotionTextAnimation {
   unit: MotionTextUnit;
   direction: MotionTextDirection;
   staggerMs: number;
+  animationDirection?: MotionTextAnimationDirection;
+  order?: MotionTextOrder;
+  overlapPercent?: number;
+  ignoreSpaces?: boolean;
   delayMs?: number;
   property: MotionTextProperty;
   durationMs: number;
@@ -49,7 +63,7 @@ export interface MotionTextAnimation {
 }
 
 export interface MotionTextDocument {
-  version: typeof MOTION_TEXT_SOURCE_VERSION;
+  version: 1 | typeof MOTION_TEXT_SOURCE_VERSION;
   animations: MotionTextAnimation[];
 }
 
@@ -189,12 +203,13 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
   if (!isRecord(value)) {
     sourceError("invalid-document", "Motion text source must be an object.");
   }
-  if (value.version !== MOTION_TEXT_SOURCE_VERSION) {
+  const sourceVersion = value.version;
+  if (sourceVersion !== 1 && sourceVersion !== MOTION_TEXT_SOURCE_VERSION) {
     sourceError(
       value.version === undefined || typeof value.version !== "number"
         ? "malformed-document"
         : "unsupported-version",
-      `Motion text source version must be ${MOTION_TEXT_SOURCE_VERSION}.`,
+      `Motion text source version must be 1 or ${MOTION_TEXT_SOURCE_VERSION}.`,
     );
   }
   assertOnlyKeys(value, ["version", "animations"], "Motion text source");
@@ -215,6 +230,10 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       unit: MotionTextUnit;
       direction: MotionTextDirection;
       staggerMs: number;
+      animationDirection: MotionTextAnimationDirection;
+      order: MotionTextOrder;
+      overlapPercent?: number;
+      ignoreSpaces: boolean;
       properties: Set<MotionTextProperty>;
     }
   >();
@@ -225,16 +244,31 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
     }
     assertOnlyKeys(
       raw,
-      [
-        "targetNodeId",
-        "unit",
-        "direction",
-        "staggerMs",
-        "delayMs",
-        "property",
-        "durationMs",
-        "keyframes",
-      ],
+      sourceVersion === 1
+        ? [
+            "targetNodeId",
+            "unit",
+            "direction",
+            "staggerMs",
+            "delayMs",
+            "property",
+            "durationMs",
+            "keyframes",
+          ]
+        : [
+            "targetNodeId",
+            "unit",
+            "direction",
+            "staggerMs",
+            "animationDirection",
+            "order",
+            "overlapPercent",
+            "ignoreSpaces",
+            "delayMs",
+            "property",
+            "durationMs",
+            "keyframes",
+          ],
       field,
     );
 
@@ -263,6 +297,46 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
 
     const unit = raw.unit as MotionTextUnit;
     const direction = raw.direction as MotionTextDirection;
+    const animationDirection: MotionTextAnimationDirection =
+      raw.animationDirection === undefined
+        ? "in"
+        : (raw.animationDirection as MotionTextAnimationDirection);
+    if (animationDirection !== "in" && animationDirection !== "out") {
+      sourceError(
+        "invalid-document",
+        `${field}.animationDirection must be in or out.`,
+      );
+    }
+    const order =
+      raw.order === undefined
+        ? direction === "reverse"
+          ? "right-to-left"
+          : "left-to-right"
+        : raw.order;
+    if (!MOTION_TEXT_ORDERS.includes(order as MotionTextOrder)) {
+      sourceError("invalid-document", `${field}.order is not supported.`);
+    }
+    const overlapPercent =
+      raw.overlapPercent === undefined
+        ? undefined
+        : finiteNumber(raw.overlapPercent, `${field}.overlapPercent`);
+    if (
+      overlapPercent !== undefined &&
+      (overlapPercent < 0 || overlapPercent > 100)
+    ) {
+      sourceError(
+        "invalid-document",
+        `${field}.overlapPercent must be between 0 and 100.`,
+      );
+    }
+    const ignoreSpaces =
+      raw.ignoreSpaces === undefined ? sourceVersion === 1 : raw.ignoreSpaces;
+    if (typeof ignoreSpaces !== "boolean") {
+      sourceError(
+        "invalid-document",
+        `${field}.ignoreSpaces must be a boolean.`,
+      );
+    }
     const property = raw.property as MotionTextProperty;
     const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
     if (staggerMs < 0 || staggerMs > MAX_TEXT_STAGGER_MS) {
@@ -276,7 +350,11 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       if (
         targetTrack.unit !== unit ||
         targetTrack.direction !== direction ||
-        targetTrack.staggerMs !== staggerMs
+        targetTrack.staggerMs !== staggerMs ||
+        targetTrack.animationDirection !== animationDirection ||
+        targetTrack.order !== order ||
+        targetTrack.overlapPercent !== overlapPercent ||
+        targetTrack.ignoreSpaces !== ignoreSpaces
       ) {
         sourceError(
           "invalid-document",
@@ -295,6 +373,10 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
         unit,
         direction,
         staggerMs,
+        animationDirection,
+        order: order as MotionTextOrder,
+        overlapPercent,
+        ignoreSpaces,
         properties: new Set([property]),
       });
     }
@@ -381,6 +463,10 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       unit,
       direction,
       staggerMs,
+      animationDirection,
+      order: order as MotionTextOrder,
+      ...(overlapPercent !== undefined ? { overlapPercent } : {}),
+      ignoreSpaces,
       delayMs,
       property,
       durationMs,
@@ -544,7 +630,11 @@ export function readMotionTextDocument(html: string): MotionTextReadResult {
     sourceScript,
     MOTION_TEXT_SOURCE_ATTRIBUTE,
   );
-  if (sourceMarkerVersion !== `v${MOTION_TEXT_SOURCE_VERSION}`) {
+  const supportedSourceVersions = new Set([
+    "v1",
+    `v${MOTION_TEXT_SOURCE_VERSION}`,
+  ]);
+  if (!supportedSourceVersions.has(sourceMarkerVersion ?? "")) {
     return {
       status: "invalid",
       error: new MotionTextSourceError(
@@ -559,7 +649,7 @@ export function readMotionTextDocument(html: string): MotionTextReadResult {
   if (
     runtimeScript &&
     attrValue(runtimeScript, MOTION_TEXT_RUNTIME_ATTRIBUTE) !==
-      `v${MOTION_TEXT_SOURCE_VERSION}`
+      sourceMarkerVersion
   ) {
     const runtimeMarkerVersion = attrValue(
       runtimeScript,
@@ -735,11 +825,11 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
   var previewAnimations = [];
   var allTargets = Array.prototype.slice.call(document.querySelectorAll("[data-agent-native-node-id]"));
   var paragraphTags = { blockquote: true, h1: true, h2: true, h3: true, h4: true, h5: true, h6: true, li: true, p: true };
-  function textTokens(value, kind) {
+  function textTokens(value, kind, ignoreSpaces) {
     var Segmenter = typeof Intl !== "undefined" ? Intl.Segmenter : null;
     if (kind === "character") {
       var characters = Segmenter ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(value), function (part) { return part.segment; }) : Array.from(value);
-      return characters.map(function (part) { return { value: part, animated: !/^\s+$/u.test(part) }; });
+      return characters.map(function (part) { return { value: part, animated: !ignoreSpaces || !/^\s+$/u.test(part) }; });
     }
     var chunks;
     if (Segmenter) {
@@ -751,7 +841,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     for (var index = 0; index < chunks.length; index += 1) {
       var chunk = chunks[index];
       if (/^\s+$/u.test(chunk.value)) {
-        tokens.push({ value: chunk.value, animated: false });
+        tokens.push({ value: chunk.value, animated: !ignoreSpaces });
       } else if (chunk.word) {
         tokens.push({ value: chunk.value, animated: true });
       } else if (tokens.length && tokens[tokens.length - 1].animated) {
@@ -781,10 +871,10 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
   function nodeText(node) {
     return typeof node.nodeValue === "string" ? node.nodeValue : (node.value || "");
   }
-  function splitTextTarget(target, kind) {
+  function splitTextTarget(target, kind, ignoreSpaces) {
     var leaves = descendantTextNodes(target);
     var value = leaves.map(nodeText).join("");
-    var tokens = textTokens(value, kind === "line" ? "word" : kind);
+    var tokens = textTokens(value, kind === "line" ? "word" : kind, ignoreSpaces);
     var units = [];
     var sourceOffset = 0;
     tokens.forEach(function (token) {
@@ -823,6 +913,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         var span = document.createElement("span");
         span.setAttribute("data-agent-native-motion-text-unit", String(unit.index));
         span.style.display = "inline-block";
+        if (/^\s+$/u.test(part)) span.style.whiteSpace = "pre";
         span.appendChild(document.createTextNode(part));
         fragment.appendChild(span);
         unit.fragments.push(span);
@@ -847,6 +938,31 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       if (found < 0) { tops.push(top); found = tops.length - 1; }
       return { unit: unit, index: found };
     });
+  }
+  function textOrderRanks(count, order, seed) {
+    var indexes = Array.from({ length: count }, function (_, index) { return index; });
+    if (order === "right-to-left" || order === "bottom-to-top") indexes.reverse();
+    else if (order === "center-out") indexes.sort(function (left, right) {
+      var center = (count - 1) / 2;
+      return Math.abs(left - center) - Math.abs(right - center) || left - right;
+    });
+    else if (order === "random") {
+      var state = 2166136261;
+      var seedValue = String(seed);
+      for (var seedIndex = 0; seedIndex < seedValue.length; seedIndex += 1) {
+        state = Math.imul(state ^ seedValue.charCodeAt(seedIndex), 16777619);
+      }
+      for (var shuffleIndex = indexes.length - 1; shuffleIndex > 0; shuffleIndex -= 1) {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        var swapIndex = state % (shuffleIndex + 1);
+        var current = indexes[shuffleIndex];
+        indexes[shuffleIndex] = indexes[swapIndex];
+        indexes[swapIndex] = current;
+      }
+    }
+    var ranks = [];
+    indexes.forEach(function (index, rank) { ranks[index] = rank; });
+    return ranks;
   }
   function springSample(bounce, settle, x) {
     if (x <= 0) return 0;
@@ -898,34 +1014,48 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (animation.unit === "paragraph") {
       entries = paragraphUnits(target).map(function (unit, index) { return { unit: unit, index: index }; });
     } else {
-      var units = splitTextTarget(target, animation.unit);
+      var ignoreSpaces = animation.unit === "character" || animation.unit === "word"
+        ? animation.ignoreSpaces !== false
+        : true;
+      var units = splitTextTarget(target, animation.unit, ignoreSpaces);
       var fragments = units.reduce(function (all, unit) { return all.concat(unit.fragments); }, []);
       entries = animation.unit === "line"
         ? lineGroups(fragments)
         : fragments.map(function (unit) { return { unit: unit, index: Number(unit.getAttribute("data-agent-native-motion-text-unit")) }; });
     }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
-    if ((groupCount - 1) * animation.staggerMs > 120000) throw new Error("Motion text stagger exceeds the 120000ms runtime limit.");
+    if (typeof animation.overlapPercent !== "number" && (groupCount - 1) * animation.staggerMs > 120000) throw new Error("Motion text stagger exceeds the 120000ms runtime limit.");
+    var order = animation.order || (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
+    var orderRanks = textOrderRanks(groupCount, order, targetGroup.targetNodeId + "|" + target.textContent);
     targetGroup.animations.forEach(function (track) {
+      var unitDuration = track.durationMs;
+      var staggerMs = track.staggerMs;
+      if (typeof track.overlapPercent === "number") {
+        var overlap = Math.max(0, Math.min(100, track.overlapPercent)) / 100;
+        unitDuration = track.durationMs / (1 + Math.max(0, groupCount - 1) * (1 - overlap));
+        staggerMs = unitDuration * (1 - overlap);
+      }
       entries.forEach(function (entry) {
         if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
-        var delayIndex = track.direction === "reverse" ? groupCount - 1 - entry.index : entry.index;
+        var delayIndex = orderRanks[entry.index] === undefined ? entry.index : orderRanks[entry.index];
         var keyframes = track.keyframes.map(function (keyframe) {
           var frame = { offset: keyframe.t, easing: motionEaseForWebAnimations(keyframe.ease || "ease", entry.unit) };
           frame[track.property] = keyframe.value;
           return frame;
         });
-        var delay = track.delayMs + delayIndex * track.staggerMs;
-        var options = { duration: track.durationMs, delay: delay, fill: "both" };
+        var delay = track.delayMs + delayIndex * staggerMs;
+        var options = { duration: unitDuration, delay: delay, fill: "both" };
+        var pingPong = !previewBridge && playbackMode === "ping-pong";
+        if (track.animationDirection === "out") options.direction = pingPong ? "alternate-reverse" : "reverse";
+        else if (pingPong) options.direction = "alternate";
         if (!previewBridge && playbackMode !== "once") {
           options.iterations = Infinity;
-          if (playbackMode === "ping-pong") options.direction = "alternate";
         }
         var runningAnimation = entry.unit.animate(keyframes, options);
         if (previewBridge) {
           runningAnimation.pause();
           runningAnimation.currentTime = 0;
-          previewAnimations.push({ animation: runningAnimation, delay: delay, duration: track.durationMs });
+          previewAnimations.push({ animation: runningAnimation, delay: delay, duration: unitDuration });
         }
       });
     });
