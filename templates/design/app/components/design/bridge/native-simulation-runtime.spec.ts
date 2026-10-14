@@ -3,6 +3,7 @@ import { build } from "esbuild";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { FLOCKING_SWARM_EFFECT } from "../../../../shared/native-effect-owned-aa-flocking";
+import { SOURCE_IMAGE_PARTICLE_DEFINITIONS } from "../../../../shared/native-effect-owned-ah-image-particles";
 import { FLUID_ADVECTED_PARTICLES_EFFECT } from "../../../../shared/native-effect-owned-aq-fluid-particles";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../../shared/native-effect-owned-test-fixtures";
 import { GRAIN_GRADIENT_EFFECT } from "../../../../shared/native-effect-presets";
@@ -1723,6 +1724,10 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       rejectSubmitted(error: unknown): Promise<void>;
       abandon(): void;
     } | null,
+    simulation: null as {
+      completedStep: number;
+      readIndex: number;
+    } | null,
     feedback: null as FeedbackFixture | null,
     feedbackCandidate: null as FeedbackFixture | null,
     feedbackFrame: null as {
@@ -1755,6 +1760,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   let stageStatefulChild = false;
   let partialChildFrame = false;
   let stageFeedbackChild = false;
+  let stageSimulationChild = false;
   const feedbackSubmitted = vi.fn();
   const feedbackSettled = vi.fn(async () => {});
   const feedbackPromoted = vi.fn();
@@ -1831,6 +1837,8 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
           abandon: abandonedChildFrame,
         };
       }
+      if (candidate === liveFrost && stageSimulationChild)
+        return originalEffectPasses(candidate, ...args);
       return candidate === liveFrost
         ? frostSource
         : candidate === secondFrost
@@ -2153,6 +2161,118 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(liveFrost.feedback?.sourceRevision).toBe("next-source");
   expect(liveFrost.outputTexture).toBe(frostSource);
   stageFeedbackChild = false;
+  const particleDrift = SOURCE_IMAGE_PARTICLE_DEFINITIONS[0]!;
+  liveFrost.definition = particleDrift;
+  liveFrost.definitionHash = await hashEffectDefinition(particleDrift);
+  liveFrost.instance = {
+    ...liveFrost.instance,
+    definitionId: particleDrift.id,
+    definitionVersion: particleDrift.version,
+    params: {},
+    timing: { speed: 1, paused: false, time: 0 },
+  };
+  liveFrost.resourceTextures = new Map();
+  liveFrost.authoredInputs = new Map();
+  liveFrost.pendingGraphInputEpochs = null;
+  stageSimulationChild = true;
+  await runtime.renderMount(staticFillMount, 0, true, new Set(), new Set());
+  expect(liveFrost.simulation?.completedStep).toBe(0);
+  expect(liveFrost.resourceTextures.has("trail")).toBe(true);
+  expect(liveFrost.resourceTextures.has("__native_trail_back")).toBe(true);
+  const committedParticleState = liveFrost.simulation;
+  const committedParticleBank = committedParticleState!.readIndex;
+  const committedParticleTrail = liveFrost.resourceTextures.get("trail");
+  const committedParticleBack = liveFrost.resourceTextures.get(
+    "__native_trail_back",
+  );
+  const committedParticleOutput = liveFrost.outputTexture;
+  let releaseParticleValidation!: () => void;
+  const particleValidation = new Promise<void>((resolve) => {
+    releaseParticleValidation = resolve;
+  });
+  const beforeParticleSubmission = submittedFrames;
+  device.popErrorScope = async () => {
+    await particleValidation;
+    return null;
+  };
+  const particleTime = particleDrift.simulation!.fixedDt * 2;
+  const staleParticle = runtime.renderMount(
+    staticFillMount,
+    particleTime,
+    true,
+    new Set(),
+    new Set(),
+  );
+  await vi.waitFor(() =>
+    expect(submittedFrames).toBe(beforeParticleSubmission + 1),
+  );
+  fillEpoch = 1;
+  releaseParticleValidation();
+  await expect(staleParticle).rejects.toMatchObject({
+    code: "source-epoch-stale",
+  });
+  expect(liveFrost.simulation).toBe(committedParticleState);
+  expect(liveFrost.simulation?.readIndex).toBe(committedParticleBank);
+  expect(liveFrost.simulation?.completedStep).toBe(0);
+  expect(liveFrost.resourceTextures.get("trail")).toBe(committedParticleTrail);
+  expect(liveFrost.resourceTextures.get("__native_trail_back")).toBe(
+    committedParticleBack,
+  );
+  expect(liveFrost.outputTexture).toBe(committedParticleOutput);
+  fillEpoch = 0;
+  device.popErrorScope = popNestedValidation;
+  await runtime.renderMount(
+    staticFillMount,
+    particleTime,
+    true,
+    new Set(),
+    new Set(),
+  );
+  expect(liveFrost.simulation).toBe(committedParticleState);
+  expect(liveFrost.simulation?.completedStep).toBe(2);
+  expect(liveFrost.simulation?.readIndex).not.toBe(committedParticleBank);
+  expect(liveFrost.resourceTextures.get("trail")).toBe(committedParticleBack);
+  expect(liveFrost.resourceTextures.get("__native_trail_back")).toBe(
+    committedParticleTrail,
+  );
+  const advancedParticleState = liveFrost.simulation;
+  const advancedParticleTrail = liveFrost.resourceTextures.get("trail");
+  const advancedParticleOutput = liveFrost.outputTexture;
+  liveFrost.instance = {
+    ...liveFrost.instance,
+    seed: liveFrost.instance.seed + 1,
+  };
+  let releaseResetValidation!: () => void;
+  const resetValidation = new Promise<void>((resolve) => {
+    releaseResetValidation = resolve;
+  });
+  const beforeResetSubmission = submittedFrames;
+  device.popErrorScope = async () => {
+    await resetValidation;
+    return null;
+  };
+  const staleReset = runtime.renderMount(
+    staticFillMount,
+    particleTime,
+    true,
+    new Set(),
+    new Set(),
+  );
+  await vi.waitFor(() =>
+    expect(submittedFrames).toBe(beforeResetSubmission + 1),
+  );
+  fillEpoch = 1;
+  releaseResetValidation();
+  await expect(staleReset).rejects.toMatchObject({
+    code: "source-epoch-stale",
+  });
+  expect(liveFrost.simulation).toBe(advancedParticleState);
+  expect(liveFrost.simulation?.completedStep).toBe(2);
+  expect(liveFrost.resourceTextures.get("trail")).toBe(advancedParticleTrail);
+  expect(liveFrost.outputTexture).toBe(advancedParticleOutput);
+  fillEpoch = 0;
+  device.popErrorScope = popNestedValidation;
+  stageSimulationChild = false;
   childCanvasPresent.mockRestore();
   nestedCompose.mockRestore();
   nestedFinish.mockRestore();

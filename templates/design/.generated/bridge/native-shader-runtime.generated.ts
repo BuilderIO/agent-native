@@ -22411,6 +22411,34 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     retireSimulationState(state) {
       for (const buffer of state.buffers) this.destroyStatefulBuffer(buffer);
     }
+    promoteSimulationFrame(mount, frame, draft = null) {
+      frame.transaction.promote();
+      if (draft) {
+        draft.simulation = frame.state;
+        draft.simulationFrame = null;
+        if (mount.pointerState === frame.pointerSource)
+          frame.state.pointer = frame.pointer;
+        draft.caughtUp = frame.caughtUp;
+      } else {
+        mount.simulation = frame.state;
+        mount.simulationFrame = null;
+        mount.simulationCaughtUp = frame.caughtUp;
+        mount.target.setAttribute(
+          "data-an-native-simulation-step",
+          String(frame.state.completedStep)
+        );
+        mount.target.setAttribute(
+          "data-an-native-simulation-target-step",
+          String(frame.targetStep)
+        );
+        mount.target.setAttribute(
+          "data-an-native-particle-count",
+          String(frame.count)
+        );
+      }
+      if (frame.previousState && frame.previousState !== frame.state)
+        this.retireSimulationState(frame.previousState);
+    }
     releaseSimulation(mount) {
       if (!mount.simulation && !mount.simulationFrame) return;
       mount.pointerHistory?.invalidate();
@@ -28320,7 +28348,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-dependency-cycle",
           "effect-dependency-cycle"
         );
-      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (child.instance.placement !== "backdrop" || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -28336,7 +28364,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       const resources = new NativeFrameResourceScratch(
         child.resourceTextures,
-        []
+        child.definition.simulation ? [...child.resourceTextures.keys()] : []
       );
       child.resourceTextures = resources.scratch;
       let staged = false;
@@ -28418,6 +28446,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount: child,
           texture: finished,
           resources,
+          simulationFrame: child.simulationFrame ?? void 0,
           statefulFrame: child.statefulFrame ?? void 0,
           feedbackFrame: child.feedbackFrame ?? void 0,
           sourceEpoch: child.provider?.sourceEpoch?.() ?? null,
@@ -28426,6 +28455,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           localTime: childTime,
           inputEpochs: new Map(child.pendingGraphInputEpochs ?? [])
         });
+        child.simulationFrame = null;
         child.statefulFrame = null;
         child.feedbackFrame = null;
         staged = true;
@@ -28433,6 +28463,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       } finally {
         child.resourceTextures = resources.committed;
         if (!staged) {
+          const simulationFrame = child.simulationFrame;
+          child.simulationFrame = null;
+          if (simulationFrame) {
+            try {
+              await simulationFrame.transaction.abandon();
+            } finally {
+              if (simulationFrame.state !== child.simulation)
+                this.retireSimulationState(simulationFrame.state);
+            }
+          }
           child.statefulFrame?.abandon();
           child.statefulFrame = null;
           child.feedbackFrame?.abandon();
@@ -28451,7 +28491,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
     }
     async stageFillLocalBackdrop(parent, child, prefix, prefixExtent, encoder, transaction, authoredSourceEpoch) {
-      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.definition.simulation || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -28463,7 +28503,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       const resources = new NativeFrameResourceScratch(
         child.resourceTextures,
-        []
+        child.definition.simulation ? [...child.resourceTextures.keys()] : []
       );
       child.resourceTextures = resources.scratch;
       let staged = false;
@@ -28570,6 +28610,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount: child,
           texture: finished,
           resources,
+          simulationFrame: child.simulationFrame ?? void 0,
           statefulFrame: child.statefulFrame ?? void 0,
           feedbackFrame: child.feedbackFrame ?? void 0,
           sourceEpoch: child.provider.sourceEpoch?.() ?? null,
@@ -28578,6 +28619,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           localTime: childTime,
           inputEpochs: new Map(child.pendingGraphInputEpochs ?? [])
         });
+        child.simulationFrame = null;
         child.statefulFrame = null;
         child.feedbackFrame = null;
         staged = true;
@@ -28585,6 +28627,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       } finally {
         child.resourceTextures = resources.committed;
         if (!staged) {
+          const simulationFrame = child.simulationFrame;
+          child.simulationFrame = null;
+          if (simulationFrame) {
+            try {
+              await simulationFrame.transaction.abandon();
+            } finally {
+              if (simulationFrame.state !== child.simulation)
+                this.retireSimulationState(simulationFrame.state);
+            }
+          }
           child.statefulFrame?.abandon();
           child.statefulFrame = null;
           child.feedbackFrame?.abandon();
@@ -28785,7 +28837,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "source-group-local-chain-unsupported"
         );
       const nestedRetainedChild = nestedChildren.some(
-        (child) => isStatefulResourceGraph(child.definition.resourceGraph) || !!child.definition.feedback
+        (child) => !!child.definition.simulation || isStatefulResourceGraph(child.definition.resourceGraph) || !!child.definition.feedback
       );
       if (nestedRetainedChild && mount.instance.placement === "layer" && (!mount.isTopLayer || draft))
         throw new NativeSourceError(
@@ -29629,6 +29681,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
         (draft?.feedbackFrame ?? mount.feedbackFrame)?.markSubmitted();
         for (const staged of nestedTransaction?.staged.values() ?? [])
+          staged.simulationFrame?.transaction.markSubmitted();
+        for (const staged of nestedTransaction?.staged.values() ?? [])
           staged.statefulFrame?.markSubmitted();
         for (const staged of nestedTransaction?.staged.values() ?? [])
           staged.feedbackFrame?.markSubmitted();
@@ -29707,6 +29761,19 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               );
           });
         }
+        for (const staged of nestedTransaction?.staged.values() ?? [])
+          if (staged.simulationFrame)
+            await staged.simulationFrame.transaction.settle(() => {
+              assertNestedChildren();
+              assertCaptureOriginCurrent();
+              assertStatelessCurrent();
+              assertTwoSurfacePublishable();
+              if (this.device !== device)
+                throw new NativeSourceError(
+                  "simulation-frame-invalid",
+                  "simulation-frame-invalid"
+                );
+            });
         const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
         if (statefulFrame)
           await statefulFrame.settle(() => {
@@ -29759,34 +29826,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
         const postSubmitStarted = hostWallPhases ? performance.now() : 0;
         if (simulationFrame) {
-          simulationFrame.transaction.promote();
-          if (draft) {
-            draft.simulation = simulationFrame.state;
-            draft.simulationFrame = null;
-            if (mount.pointerState === simulationFrame.pointerSource)
-              simulationFrame.state.pointer = simulationFrame.pointer;
-          } else {
-            mount.simulation = simulationFrame.state;
-            mount.simulationFrame = null;
-          }
-          if (simulationFrame.previousState && simulationFrame.previousState !== simulationFrame.state)
-            this.retireSimulationState(simulationFrame.previousState);
-          if (draft) draft.caughtUp = simulationFrame.caughtUp;
-          else mount.simulationCaughtUp = simulationFrame.caughtUp;
-          if (!draft) {
-            mount.target.setAttribute(
-              "data-an-native-simulation-step",
-              String(simulationFrame.state.completedStep)
-            );
-            mount.target.setAttribute(
-              "data-an-native-simulation-target-step",
-              String(simulationFrame.targetStep)
-            );
-            mount.target.setAttribute(
-              "data-an-native-particle-count",
-              String(simulationFrame.count)
-            );
-          }
+          this.promoteSimulationFrame(mount, simulationFrame, draft);
         }
         if (simulationFrameResources && frameResources && !twoSurface) {
           const staleResources = frameResources.retiredOnCommit();
@@ -30010,16 +30050,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount: child,
             texture,
             resources,
+            simulationFrame: childSimulationFrame,
             statefulFrame: childStatefulFrame,
             feedbackFrame: childFeedbackFrame
           } = staged;
           const previous = child.outputTexture;
           const previousOwnedByStateful = !!previous && !!child.stateful?.textures.has(previous);
           const previousOwnedByResources = !!previous && !!resources && [...resources.committed.values()].includes(previous);
+          if (childSimulationFrame)
+            this.promoteSimulationFrame(child, childSimulationFrame);
           if (childStatefulFrame)
             this.promoteStatefulFrame(child, childStatefulFrame);
           if (childFeedbackFrame)
             this.promoteFeedbackFrame(child, childFeedbackFrame);
+          staged.simulationFrame = void 0;
           staged.statefulFrame = void 0;
           staged.feedbackFrame = void 0;
           if (resources) {
@@ -30126,6 +30170,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.staticGeneratorPassCache.invalidate();
         if (mirrorCandidate) this.publishedPresentationMirror.discard();
         for (const staged of nestedTransaction?.staged.values() ?? []) {
+          if (staged.simulationFrame) {
+            try {
+              if (submitted)
+                await staged.simulationFrame.transaction.rejectSubmitted();
+              else await staged.simulationFrame.transaction.abandon();
+            } finally {
+              if (staged.simulationFrame.state !== staged.mount.simulation)
+                this.retireSimulationState(staged.simulationFrame.state);
+              staged.simulationFrame = void 0;
+            }
+          }
           if (staged.statefulFrame) {
             if (submitted && !gpuValidated)
               await staged.statefulFrame.rejectSubmitted(error);

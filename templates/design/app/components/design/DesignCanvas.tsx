@@ -1189,16 +1189,25 @@ const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-igno
  * the document) so both sides compare the DOM's own canonical serialization
  * instead of whichever byte-for-byte form the source happened to be in.
  */
-function normalizeScriptMarkup(scriptHtml: string): string {
+function scriptReloadMarkup(scriptHtml: string): string | null {
   const template = document.createElement("template");
   template.innerHTML = scriptHtml;
-  return template.content.firstElementChild?.outerHTML ?? scriptHtml;
+  const script = template.content.firstElementChild;
+  if (
+    script instanceof HTMLScriptElement &&
+    script.type.trim().toLowerCase() === "application/x-agent-native-effects"
+  ) {
+    return null;
+  }
+  return script?.outerHTML ?? scriptHtml;
 }
 
 /**
  * Runtime document replacement morphs the live DOM, which preserves the iframe
  * browsing context but cannot execute newly inserted or changed scripts.
- * Reload only when source script elements change.
+ * Reload only when executable source script elements change. Native effect
+ * manifests are inert data; their edits are handled by the in-place bridge
+ * morph and native rescan without replacing the selected iframe.
  *
  * A changed `<head>` is NOT a reload trigger: the bridge swaps only the nodes
  * the previous source head contributed (replaceSourceHeadNodes), leaving what
@@ -1213,11 +1222,14 @@ function runtimeDocumentNeedsReload(
   const scriptSignature = (html: string) => {
     const headEnd = html.search(/<\/head\s*>/i);
     const boundary = headEnd === -1 ? 0 : headEnd;
-    return Array.from(
-      html.matchAll(SCRIPT_ELEMENT_RE),
-      (match) =>
-        `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`,
-    ).join("\n");
+    return Array.from(html.matchAll(SCRIPT_ELEMENT_RE))
+      .flatMap((match) => {
+        const script = scriptReloadMarkup(match[0]);
+        return script === null
+          ? []
+          : [`${(match.index ?? 0) < boundary ? "head" : "body"}:${script}`];
+      })
+      .join("\n");
   };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }

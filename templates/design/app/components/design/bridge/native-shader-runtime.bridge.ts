@@ -456,6 +456,7 @@ type NestedBackdropTransaction = {
       mount: Mount;
       texture: GPUTexture;
       resources?: NativeFrameResourceScratch<GPUTexture>;
+      simulationFrame?: NativeSimulationFrame;
       statefulFrame?: NativeStatefulEncodedFrame;
       feedbackFrame?: NativeFeedbackEncodedFrame;
       sourceEpoch: number | null;
@@ -3954,6 +3955,39 @@ class NativeShaderRuntime {
 
   private retireSimulationState(state: NativeSimulationState): void {
     for (const buffer of state.buffers) this.destroyStatefulBuffer(buffer);
+  }
+
+  private promoteSimulationFrame(
+    mount: Mount,
+    frame: NativeSimulationFrame,
+    draft: DraftPreview | null = null,
+  ): void {
+    frame.transaction.promote();
+    if (draft) {
+      draft.simulation = frame.state;
+      draft.simulationFrame = null;
+      if (mount.pointerState === frame.pointerSource)
+        frame.state.pointer = frame.pointer;
+      draft.caughtUp = frame.caughtUp;
+    } else {
+      mount.simulation = frame.state;
+      mount.simulationFrame = null;
+      mount.simulationCaughtUp = frame.caughtUp;
+      mount.target.setAttribute(
+        "data-an-native-simulation-step",
+        String(frame.state.completedStep),
+      );
+      mount.target.setAttribute(
+        "data-an-native-simulation-target-step",
+        String(frame.targetStep),
+      );
+      mount.target.setAttribute(
+        "data-an-native-particle-count",
+        String(frame.count),
+      );
+    }
+    if (frame.previousState && frame.previousState !== frame.state)
+      this.retireSimulationState(frame.previousState);
   }
 
   private releaseSimulation(mount: Mount): void {
@@ -11826,7 +11860,6 @@ class NativeShaderRuntime {
       );
     if (
       child.instance.placement !== "backdrop" ||
-      child.definition.simulation ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -11854,7 +11887,7 @@ class NativeShaderRuntime {
       );
     const resources = new NativeFrameResourceScratch(
       child.resourceTextures,
-      [],
+      child.definition.simulation ? [...child.resourceTextures.keys()] : [],
     );
     child.resourceTextures = resources.scratch;
     let staged = false;
@@ -11952,6 +11985,7 @@ class NativeShaderRuntime {
         mount: child,
         texture: finished,
         resources,
+        simulationFrame: child.simulationFrame ?? undefined,
         statefulFrame: child.statefulFrame ?? undefined,
         feedbackFrame: child.feedbackFrame ?? undefined,
         sourceEpoch: child.provider?.sourceEpoch?.() ?? null,
@@ -11960,6 +11994,7 @@ class NativeShaderRuntime {
         localTime: childTime,
         inputEpochs: new Map(child.pendingGraphInputEpochs ?? []),
       });
+      child.simulationFrame = null;
       child.statefulFrame = null;
       child.feedbackFrame = null;
       staged = true;
@@ -11967,6 +12002,16 @@ class NativeShaderRuntime {
     } finally {
       child.resourceTextures = resources.committed;
       if (!staged) {
+        const simulationFrame = child.simulationFrame;
+        child.simulationFrame = null;
+        if (simulationFrame) {
+          try {
+            await simulationFrame.transaction.abandon();
+          } finally {
+            if (simulationFrame.state !== child.simulation)
+              this.retireSimulationState(simulationFrame.state);
+          }
+        }
         child.statefulFrame?.abandon();
         child.statefulFrame = null;
         child.feedbackFrame?.abandon();
@@ -12001,7 +12046,6 @@ class NativeShaderRuntime {
       !transaction.active.has(parent.instance.id) ||
       this.nestedBackdropOwner(child.target) !== parent ||
       child.instance.placement !== "backdrop" ||
-      child.definition.simulation ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -12021,7 +12065,7 @@ class NativeShaderRuntime {
       );
     const resources = new NativeFrameResourceScratch(
       child.resourceTextures,
-      [],
+      child.definition.simulation ? [...child.resourceTextures.keys()] : [],
     );
     child.resourceTextures = resources.scratch;
     let staged = false;
@@ -12156,6 +12200,7 @@ class NativeShaderRuntime {
         mount: child,
         texture: finished,
         resources,
+        simulationFrame: child.simulationFrame ?? undefined,
         statefulFrame: child.statefulFrame ?? undefined,
         feedbackFrame: child.feedbackFrame ?? undefined,
         sourceEpoch: child.provider.sourceEpoch?.() ?? null,
@@ -12164,6 +12209,7 @@ class NativeShaderRuntime {
         localTime: childTime,
         inputEpochs: new Map(child.pendingGraphInputEpochs ?? []),
       });
+      child.simulationFrame = null;
       child.statefulFrame = null;
       child.feedbackFrame = null;
       staged = true;
@@ -12171,6 +12217,16 @@ class NativeShaderRuntime {
     } finally {
       child.resourceTextures = resources.committed;
       if (!staged) {
+        const simulationFrame = child.simulationFrame;
+        child.simulationFrame = null;
+        if (simulationFrame) {
+          try {
+            await simulationFrame.transaction.abandon();
+          } finally {
+            if (simulationFrame.state !== child.simulation)
+              this.retireSimulationState(simulationFrame.state);
+          }
+        }
         child.statefulFrame?.abandon();
         child.statefulFrame = null;
         child.feedbackFrame?.abandon();
@@ -12417,6 +12473,7 @@ class NativeShaderRuntime {
       );
     const nestedRetainedChild = nestedChildren.some(
       (child) =>
+        !!child.definition.simulation ||
         isStatefulResourceGraph(child.definition.resourceGraph) ||
         !!child.definition.feedback,
     );
@@ -13529,6 +13586,8 @@ class NativeShaderRuntime {
       (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
       (draft?.feedbackFrame ?? mount.feedbackFrame)?.markSubmitted();
       for (const staged of nestedTransaction?.staged.values() ?? [])
+        staged.simulationFrame?.transaction.markSubmitted();
+      for (const staged of nestedTransaction?.staged.values() ?? [])
         staged.statefulFrame?.markSubmitted();
       for (const staged of nestedTransaction?.staged.values() ?? [])
         staged.feedbackFrame?.markSubmitted();
@@ -13619,6 +13678,19 @@ class NativeShaderRuntime {
             );
         });
       }
+      for (const staged of nestedTransaction?.staged.values() ?? [])
+        if (staged.simulationFrame)
+          await staged.simulationFrame.transaction.settle(() => {
+            assertNestedChildren();
+            assertCaptureOriginCurrent();
+            assertStatelessCurrent();
+            assertTwoSurfacePublishable();
+            if (this.device !== device)
+              throw new NativeSourceError(
+                "simulation-frame-invalid",
+                "simulation-frame-invalid",
+              );
+          });
       const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
       if (statefulFrame)
         await statefulFrame.settle(() => {
@@ -13671,37 +13743,7 @@ class NativeShaderRuntime {
       }
       const postSubmitStarted = hostWallPhases ? performance.now() : 0;
       if (simulationFrame) {
-        simulationFrame.transaction.promote();
-        if (draft) {
-          draft.simulation = simulationFrame.state;
-          draft.simulationFrame = null;
-          if (mount.pointerState === simulationFrame.pointerSource)
-            simulationFrame.state.pointer = simulationFrame.pointer;
-        } else {
-          mount.simulation = simulationFrame.state;
-          mount.simulationFrame = null;
-        }
-        if (
-          simulationFrame.previousState &&
-          simulationFrame.previousState !== simulationFrame.state
-        )
-          this.retireSimulationState(simulationFrame.previousState);
-        if (draft) draft.caughtUp = simulationFrame.caughtUp;
-        else mount.simulationCaughtUp = simulationFrame.caughtUp;
-        if (!draft) {
-          mount.target.setAttribute(
-            "data-an-native-simulation-step",
-            String(simulationFrame.state.completedStep),
-          );
-          mount.target.setAttribute(
-            "data-an-native-simulation-target-step",
-            String(simulationFrame.targetStep),
-          );
-          mount.target.setAttribute(
-            "data-an-native-particle-count",
-            String(simulationFrame.count),
-          );
-        }
+        this.promoteSimulationFrame(mount, simulationFrame, draft);
       }
       if (simulationFrameResources && frameResources && !twoSurface) {
         const staleResources = frameResources.retiredOnCommit();
@@ -13974,6 +14016,7 @@ class NativeShaderRuntime {
           mount: child,
           texture,
           resources,
+          simulationFrame: childSimulationFrame,
           statefulFrame: childStatefulFrame,
           feedbackFrame: childFeedbackFrame,
         } = staged;
@@ -13984,10 +14027,13 @@ class NativeShaderRuntime {
           !!previous &&
           !!resources &&
           [...resources.committed.values()].includes(previous);
+        if (childSimulationFrame)
+          this.promoteSimulationFrame(child, childSimulationFrame);
         if (childStatefulFrame)
           this.promoteStatefulFrame(child, childStatefulFrame);
         if (childFeedbackFrame)
           this.promoteFeedbackFrame(child, childFeedbackFrame);
+        staged.simulationFrame = undefined;
         staged.statefulFrame = undefined;
         staged.feedbackFrame = undefined;
         if (resources) {
@@ -14106,6 +14152,17 @@ class NativeShaderRuntime {
       mount.staticGeneratorPassCache.invalidate();
       if (mirrorCandidate) this.publishedPresentationMirror.discard();
       for (const staged of nestedTransaction?.staged.values() ?? []) {
+        if (staged.simulationFrame) {
+          try {
+            if (submitted)
+              await staged.simulationFrame.transaction.rejectSubmitted();
+            else await staged.simulationFrame.transaction.abandon();
+          } finally {
+            if (staged.simulationFrame.state !== staged.mount.simulation)
+              this.retireSimulationState(staged.simulationFrame.state);
+            staged.simulationFrame = undefined;
+          }
+        }
         if (staged.statefulFrame) {
           if (submitted && !gpuValidated)
             await staged.statefulFrame.rejectSubmitted(error);

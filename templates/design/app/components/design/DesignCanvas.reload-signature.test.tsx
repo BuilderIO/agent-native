@@ -217,6 +217,28 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
     }
   });
 
+  it("keeps the editor iframe mounted when its inert native effect manifest changes", async () => {
+    const before = BASE.replace(
+      "</body>",
+      '<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body>',
+    );
+    const after = before.replace(
+      '{"schemaVersion":2,"definitions":[],"instances":[]}',
+      '{"schemaVersion":2,"instances":[],"definitions":[]}',
+    );
+    const canvas = await renderCanvas(before);
+    try {
+      const mountedFrame = canvas.iframe();
+      const mountedSrcdoc = mountedFrame?.srcdoc;
+      expect(mountedSrcdoc).toBeTruthy();
+      await canvas.update(after);
+      expect(canvas.iframe()).toBe(mountedFrame);
+      expect(canvas.iframe()?.srcdoc).toBe(mountedSrcdoc);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
   it("byte-for-byte: the <head> script region never changes across any structural edit", () => {
     const headOf = (html: string) => html.slice(0, html.search(/<\/head\s*>/i));
 
