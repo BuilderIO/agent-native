@@ -331,6 +331,32 @@ test("Motion inspector states match the editable timeline", async ({
   ]);
   await captureReferenceState(page, "motion-controls-position-type-menu");
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Ease out", exact: true }).click();
+  const easingPresetPanel = page.getByRole("tabpanel", {
+    name: "Presets",
+  });
+  for (const easing of [
+    "Hold",
+    "Linear",
+    "Ease in",
+    "Ease out",
+    "Ease in and out",
+    "Ease in back",
+    "Ease out back",
+    "Ease in and out back",
+    "Custom bezier",
+    "Gentle",
+    "Quick",
+    "Bouncy",
+    "Slow",
+    "Custom spring",
+  ]) {
+    await expect(
+      easingPresetPanel.getByRole("button", { name: easing, exact: true }),
+    ).toBeVisible();
+  }
+  await captureReferenceState(page, "motion-controls-easing-menu");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     dock.locator(
