@@ -2299,7 +2299,14 @@ async function createBetterAuthInstance(
         ? async ({ user }) => {
             // Duplicate signup is unauthenticated, and direct auth.api calls
             // such as the register route skip Better Auth's IP rate limit.
-            const { rows } = await getDbExec().execute({
+            // The lock makes a concurrent signup for this address wait for
+            // this transaction, so it sees the sent row before checking.
+            const db = getDbExec();
+            await db.execute({
+              sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+              args: [`existing-account-verification:${user.email}`],
+            });
+            const { rows } = await db.execute({
               sql: `SELECT 1 FROM email_log
                 WHERE template_id = ? AND recipient = ? AND status = 'sent' AND created_at > ?
                 LIMIT 1`,
@@ -2312,7 +2319,8 @@ async function createBetterAuthInstance(
             if (rows.length > 0) return;
             const endpoint = getCurrentAuthEndpointContext();
             const callbackURL =
-              typeof endpoint.body?.callbackURL === "string"
+              typeof endpoint.body?.callbackURL === "string" &&
+              endpoint.body.callbackURL
                 ? endpoint.body.callbackURL
                 : "/";
             const token = await createEmailVerificationToken(

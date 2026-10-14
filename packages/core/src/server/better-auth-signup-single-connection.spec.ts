@@ -313,27 +313,50 @@ describe("password sign-up on a one-connection Neon pool", () => {
   );
 
   it("mails an existing account once per cooldown with a direct caller's callback URL", async () => {
-    const fetchMock = vi.fn(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(JSON.stringify({ id: "email_direct" }), { status: 200 }),
-    );
+    let pglite!: Awaited<ReturnType<typeof bootSignUp>>["pglite"];
+    const advisoryLocksDuringDelivery: number[] = [];
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => {
+      // PGlite is one session, so this read sees the delivering transaction's
+      // locks; a concurrent signup on a real pool would wait on them.
+      const locks = await pglite.query(
+        "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted",
+      );
+      advisoryLocksDuringDelivery.push(locks.rows.length);
+      return new Response(JSON.stringify({ id: "email_direct" }), {
+        status: 200,
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
-    const { auth, pglite } = await bootSignUp({
+    const booted = await bootSignUp({
       AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
       RESEND_API_KEY: "re_test_not_a_real_key",
       EMAIL_FROM: "Test <test@example.test>",
       APP_URL: "https://auth.example.test",
     });
+    const { auth } = booted;
+    pglite = booted.pglite;
     const callbackURL = "https://auth.example.test/after-signup";
-    const signup = () =>
+    const signup = (requestCallbackURL = callbackURL) =>
       auth.api.signUpEmail({
         body: {
           email: "direct-signup@example.test",
           password: "correct-horse-battery",
           name: "direct-signup",
-          callbackURL,
+          callbackURL: requestCallbackURL,
         },
       });
+    const deliveredCallbackURL = (call: number) => {
+      const payload = JSON.parse(
+        String(fetchMock.mock.calls[call]?.[1]?.body),
+      ) as { html: string };
+      const href = payload.html.match(
+        /href="([^"]*email-link\/landing[^"]*)"/,
+      )?.[1];
+      expect(href).toBeTruthy();
+      return new URL(href!.replaceAll("&amp;", "&")).searchParams.get(
+        "callbackURL",
+      );
+    };
 
     await signup();
     await signup();
@@ -343,16 +366,19 @@ describe("password sign-up on a one-connection Neon pool", () => {
     await pglite.exec("UPDATE email_log SET created_at = 0");
     await signup();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const payload = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
-      html: string;
-    };
-    const href = payload.html.match(
-      /href="([^"]*email-link\/landing[^"]*)"/,
-    )?.[1];
-    expect(href).toBeTruthy();
+    expect(deliveredCallbackURL(1)).toBe(callbackURL);
+    expect(advisoryLocksDuringDelivery).toEqual([0, 1]);
     expect(
-      new URL(href!.replaceAll("&amp;", "&")).searchParams.get("callbackURL"),
-    ).toBe(callbackURL);
+      (
+        await pglite.query(
+          "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted",
+        )
+      ).rows,
+    ).toHaveLength(0);
+
+    await pglite.exec("UPDATE email_log SET created_at = 0");
+    await signup("");
+    expect(deliveredCallbackURL(2)).toBe("/");
   });
 
   it("detects sibling Drizzle queries inside a Better Auth Worker transaction", async () => {
