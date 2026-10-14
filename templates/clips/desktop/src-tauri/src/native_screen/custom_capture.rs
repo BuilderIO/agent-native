@@ -3817,6 +3817,9 @@ fn spawn_capture_watchdog(
                         if let Some(stream) = pending_stream {
                             let _ = stream.stop_capture();
                         }
+                        if watch.is_paused() || watch.user_stopped() {
+                            continue;
+                        }
                         return;
                     }
                     let _ = watch.take_stream_stopped();
