@@ -78,6 +78,37 @@ describe("resolveAppAdditionalActions", () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
+  it("never asks the app for anonymous callers on any surface", async () => {
+    const resolver = vi.fn(() => ({ extra: entry("extra") }));
+    const external = config({ resolver, externalSurfaces: ["a2a", "mcp"] });
+
+    for (const surface of ["chat", "a2a", "mcp"] as const) {
+      await expect(
+        resolveAppAdditionalActions(
+          external,
+          {
+            surface,
+            ownerEmail: "anon-123@agent-native.com",
+            orgId: null,
+          },
+          {},
+        ),
+      ).resolves.toEqual({});
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "alice@example.com",
+            orgId: "acme",
+            agentRunAnonymous: true,
+          },
+          () =>
+            resolveAppAdditionalActions(external, { ...alice, surface }, {}),
+        ),
+      ).resolves.toEqual({});
+    }
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
   it("passes the surface, caller, and event to the app resolver", async () => {
     const event = { path: "/_agent-native/agent-chat" };
     const resolver = vi.fn(async () => ({ extra: entry("extra") }));
@@ -227,6 +258,51 @@ describe("resolveAppAdditionalActions", () => {
       );
 
       expect(Object.keys(added)).toEqual(["untrusted-ok"]);
+    });
+
+    it("checks each schema against its meta-schema", async () => {
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "zero-multiple": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: { n: { type: "number", multipleOf: 0 } },
+                } as never,
+              },
+            }),
+            "negative-length": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  $schema: "https://json-schema.org/draft/2020-12/schema",
+                  type: "object",
+                  properties: { s: { type: "string", minLength: -1 } },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(added).toEqual({});
+      const warnings = vi
+        .mocked(console.warn)
+        .mock.calls.map(([message]) => String(message));
+      for (const name of ["zero-multiple", "negative-length"]) {
+        expect(
+          warnings.some(
+            (message) =>
+              message.includes(`"${name}"`) &&
+              message.includes("schema is invalid"),
+          ),
+          name,
+        ).toBe(true);
+      }
     });
 
     it("refuses __proto__ as a name instead of dropping it silently", async () => {
@@ -654,6 +730,14 @@ describe("resolveAppAdditionalActions", () => {
       // Ajv keeps every compiled schema in instance-wide state, so a shared
       // instance would grow with every new schema.
       expect(new Set(instances).size).toBe(302);
+      // Per-validator instances skip the meta-schemas, which would cost about
+      // 30 ms each to set up; schemas are checked against them elsewhere.
+      expect(
+        instances.every(
+          (instance) =>
+            (instance as { opts: { meta?: unknown } }).opts.meta === false,
+        ),
+      ).toBe(true);
     });
 
     it("shows the model the checked copy of the schema, not the app's object", async () => {

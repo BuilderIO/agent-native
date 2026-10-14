@@ -5,6 +5,7 @@ import type { ActionRunContext } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { registerStrictToolInput } from "../../agent/strict-tool-input.js";
 import { assertRegisteredActionAccess } from "../../authorization/action-access-runtime.js";
+import { normalizeMcpPrincipal } from "../../mcp-client/principal.js";
 import { isMcpToolAllowedForRequest } from "../../mcp-client/visibility.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
@@ -83,6 +84,15 @@ const strictAjvOptions = {
   validateFormats: false,
 } as const;
 const strictAjv = new Ajv(strictAjvOptions);
+const strictAjv2020 = new Ajv2020(strictAjvOptions);
+// A cached validator's own instance skips the meta-schemas, which cost about
+// 30 ms to set up per instance; the shared instances above check each schema
+// against its meta-schema instead, which retains nothing per schema.
+const compileAjvOptions = {
+  ...strictAjvOptions,
+  meta: false,
+  validateSchema: false,
+} as const;
 const validateAnyObject = strictAjv.compile({ type: "object" });
 // allErrors reports every failure; the model needs the first few.
 const MAX_REPORTED_INPUT_ERRORS = 10;
@@ -224,7 +234,14 @@ export async function resolveAppAdditionalActions(
 ): Promise<Record<string, ActionEntry>> {
   const { resolver } = config;
   const { ownerEmail, surface } = details;
-  if (!resolver || !ownerEmail) return {};
+  // Anonymous callers get no app actions, by the same rule as MCP tools.
+  if (
+    !resolver ||
+    !ownerEmail ||
+    !normalizeMcpPrincipal({ userEmail: ownerEmail, orgId: details.orgId })
+  ) {
+    return {};
+  }
   if (surface !== "chat" && !config.externalSurfaces.includes(surface)) {
     return {};
   }
@@ -760,9 +777,13 @@ function compileStrict(
     validatorCache.set(key, cached);
     return cached.validate;
   }
+  const metaAjv = is2020 ? strictAjv2020 : strictAjv;
+  if (!metaAjv.validateSchema(schema)) {
+    throw new Error(`schema is invalid: ${metaAjv.errorsText(metaAjv.errors)}`);
+  }
   const ajv = is2020
-    ? new Ajv2020(strictAjvOptions)
-    : new Ajv(strictAjvOptions);
+    ? new Ajv2020(compileAjvOptions)
+    : new Ajv(compileAjvOptions);
   const validate = ajv.compile(schema);
   if ((validate as { $async?: unknown }).$async) {
     throw new Error("the schema validates asynchronously");
