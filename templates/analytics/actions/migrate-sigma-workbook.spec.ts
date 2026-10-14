@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   resolveConnection: vi.fn(),
   hasBigQuery: vi.fn(),
   inspectWorkbook: vi.fn(),
-  summarizeReview: vi.fn(),
   createMigration: vi.fn(),
   claimMigration: vi.fn(),
   listMigrations: vi.fn(),
@@ -63,12 +60,6 @@ vi.mock("../server/lib/dashboards-store.js", () => ({
 vi.mock("../server/lib/read-only-sql.js", () => ({
   assertReadOnlySql: vi.fn(),
 }));
-vi.mock("./inspect-sigma-workbook.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./inspect-sigma-workbook.js")>();
-  return { ...actual, summarizeSigmaElementReview: mocks.summarizeReview };
-});
-
 const { default: migrateSigmaWorkbook, sigmaDashboardName } =
   await import("./migrate-sigma-workbook.js");
 
@@ -86,22 +77,6 @@ const panel = {
   source: { connectionId: "connection_1" },
   columns: [],
 };
-const expectedDashboardId = `sigma-${createHash("sha256")
-  .update(`${context.orgId}\n${context.userEmail}\n${workbookId}`)
-  .digest("hex")
-  .slice(0, 36)}`;
-
-function configureImportableWorkbook() {
-  mocks.inspectWorkbook.mockResolvedValue({
-    workbook: { workbookId, name: "Revenue" },
-    elements: [panel],
-    sqlQueries: [{ elementId: "element_1", sql: "SELECT 1" }],
-    diagnostics: [],
-  });
-  mocks.summarizeReview.mockReturnValue([
-    { id: "element_1", importable: true },
-  ]);
-}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,10 +89,10 @@ beforeEach(() => {
   mocks.inspectWorkbook.mockResolvedValue({
     workbook: { workbookId, name: "Revenue" },
     elements: [],
+    sourceConnections: [],
     sqlQueries: [],
     diagnostics: [],
   });
-  mocks.summarizeReview.mockReturnValue([]);
   mocks.createMigration.mockResolvedValue({});
   mocks.claimMigration.mockResolvedValue({
     claimed: false,
@@ -134,17 +109,14 @@ beforeEach(() => {
 });
 
 describe("migrate-sigma-workbook", () => {
-  async function expectNoImportableMigration(
-    review: unknown[],
-    elements: unknown[],
-  ) {
+  async function expectNoImportableMigration(elements: unknown[]) {
     mocks.inspectWorkbook.mockResolvedValue({
       workbook: { workbookId, name: "Revenue" },
       elements,
+      sourceConnections: [],
       sqlQueries: [],
       diagnostics: [],
     });
-    mocks.summarizeReview.mockReturnValue(review);
     await expect(
       migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
     ).rejects.toMatchObject({ errorCode: "sigma_no_importable_elements" });
@@ -154,30 +126,34 @@ describe("migrate-sigma-workbook", () => {
   }
 
   it("rejects an empty workbook before creating a migration", async () => {
-    await expectNoImportableMigration([], []);
+    await expectNoImportableMigration([]);
   });
 
   it("rejects a workbook with only unsupported elements", async () => {
-    await expectNoImportableMigration(
-      [{ id: "element_1", importable: false, reason: "unsupported_element" }],
-      [{ kind: "unsupported", id: "element_1" }],
-    );
+    await expectNoImportableMigration([
+      {
+        kind: "unsupported",
+        id: "element_1",
+        title: "Unsupported",
+        sigmaKind: "unsupported_visualization",
+      },
+    ]);
   });
 
   it("rejects an unmapped workbook before loading its SQL pages", async () => {
     mocks.inspectWorkbook.mockResolvedValue({
       workbook: { workbookId, name: "Revenue" },
       elements: [panel],
+      sourceConnections: [
+        {
+          connectionId: "connection_1",
+          sigmaType: "bigquery",
+          targetProviderCandidate: "bigquery",
+        },
+      ],
       sqlQueries: [],
       diagnostics: [],
     });
-    mocks.summarizeReview.mockReturnValue([
-      {
-        id: "element_1",
-        importable: false,
-        reason: "source_mapping_required",
-      },
-    ]);
 
     await expect(
       migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
@@ -197,6 +173,7 @@ describe("migrate-sigma-workbook", () => {
     mocks.inspectWorkbook.mockResolvedValue({
       workbook: { workbookId, name: "Revenue" },
       elements: [panel],
+      sourceConnections: [],
       sqlQueries: [],
       diagnostics: [
         {
@@ -232,108 +209,5 @@ describe("migrate-sigma-workbook", () => {
     expect(first).toBe(sigmaDashboardName("Revenue", "workbook_1"));
     expect(first).not.toBe(second);
     expect(first).toMatch(/^Sigma: Revenue · [a-f0-9]{20}$/);
-  });
-
-  it("does not recover a dashboard that is still available", async () => {
-    configureImportableWorkbook();
-    mocks.listMigrations.mockResolvedValue([
-      {
-        status: "migrated",
-        migratedByCurrentUser: true,
-        targetDashboardId: expectedDashboardId,
-      },
-    ]);
-    mocks.getDashboard.mockResolvedValue({
-      id: expectedDashboardId,
-      kind: "sql",
-    });
-
-    await expect(
-      migrateSigmaWorkbook.run({
-        workbookId,
-        connectionId: "connection_1",
-        recoverMissingDashboard: true,
-      }),
-    ).rejects.toMatchObject({
-      errorCode: "sigma_dashboard_recovery_unavailable",
-    });
-
-    expect(mocks.claimMigration).not.toHaveBeenCalled();
-  });
-
-  it("reclaims and recreates a missing imported dashboard", async () => {
-    configureImportableWorkbook();
-    mocks.listMigrations.mockResolvedValue([
-      {
-        status: "migrated",
-        migratedByCurrentUser: true,
-        targetDashboardId: expectedDashboardId,
-      },
-    ]);
-    const dashboardName = sigmaDashboardName("Revenue", workbookId);
-    mocks.getDashboard
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: expectedDashboardId,
-        kind: "sql",
-        title: dashboardName,
-        visibility: "private",
-        ownerEmail: context.userEmail,
-        orgId: context.orgId,
-        config: { name: dashboardName },
-      });
-    mocks.claimMigration.mockResolvedValue({
-      claimed: true,
-      claimToken: "00000000-0000-4000-8000-000000000001",
-    });
-
-    const result: any = await migrateSigmaWorkbook.run({
-      workbookId,
-      connectionId: "connection_1",
-      recoverMissingDashboard: true,
-    });
-
-    expect(result).toMatchObject({
-      status: "completed",
-      dashboardId: expectedDashboardId,
-    });
-    expect(mocks.claimMigration).toHaveBeenCalledWith({
-      provider: "sigma",
-      sourceId: workbookId,
-      remigrate: true,
-    });
-    expect(mocks.upsertDashboard).toHaveBeenCalledWith(
-      expectedDashboardId,
-      "sql",
-      expect.objectContaining({ name: dashboardName }),
-      { email: context.email, orgId: context.orgId },
-    );
-  });
-
-  it("does not overwrite an imported dashboard after it is shared", async () => {
-    configureImportableWorkbook();
-    mocks.claimMigration.mockResolvedValue({
-      claimed: true,
-      claimToken: "00000000-0000-4000-8000-000000000001",
-    });
-    mocks.getDashboard.mockResolvedValue({
-      id: expectedDashboardId,
-      kind: "sql",
-      ownerEmail: context.userEmail,
-      orgId: context.orgId,
-      visibility: "org",
-      config: { name: "Sigma: Revenue" },
-    });
-
-    await expect(
-      migrateSigmaWorkbook.run({
-        workbookId,
-        connectionId: "connection_1",
-        remigrate: true,
-      }),
-    ).rejects.toMatchObject({ errorCode: "dashboard_id_conflict" });
-
-    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,17 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../../db/index.js";
@@ -185,6 +195,7 @@ const FailSchema = z
     claimToken: z.string().uuid(),
     failureCode: z.enum(EXTERNAL_DASHBOARD_FAILURE_CODES),
     providerStatus: z.number().int().min(100).max(599).optional(),
+    preservePreviousMigration: z.boolean().optional(),
   })
   .strict();
 
@@ -455,23 +466,45 @@ async function finishClaim(
     claimToken: string;
   },
   values: {
-    status: "migrated" | "failed";
+    status: "migrated" | "failed" | SQL<ExternalDashboardMigrationStatus>;
     updatedAt: string;
     migrationClaimedAt: null;
     migrationClaimToken: null;
-    failureCode: ExternalDashboardFailureCode | null;
-    providerStatus: number | null;
-    migratedAt: string | null;
+    failureCode:
+      | ExternalDashboardFailureCode
+      | null
+      | SQL<ExternalDashboardFailureCode | null>;
+    providerStatus: number | null | SQL<number | null>;
+    migratedAt: string | null | SQL<string | null>;
     targetDashboardId?: string;
     elementDiagnostics?: string;
     flaggedCount?: number;
+    preservePreviousMigration?: boolean;
   },
 ): Promise<ExternalDashboardSummary> {
   const { orgId, userEmail } = requireExternalDashboardContext();
   const table = schema.externalDashboardMigrations;
+  const { preservePreviousMigration, ...updates } = values;
+  const keepPriorMigration = preservePreviousMigration
+    ? sql`(${table.migratedAt} IS NOT NULL AND ${table.targetDashboardId} IS NOT NULL)`
+    : null;
   const [row] = await getDb()
     .update(table)
-    .set(values)
+    .set({
+      ...updates,
+      ...(keepPriorMigration
+        ? {
+            status: sql<ExternalDashboardMigrationStatus>`CASE WHEN ${keepPriorMigration} THEN 'migrated' ELSE 'failed' END`,
+            failureCode: sql<ExternalDashboardFailureCode | null>`CASE WHEN ${keepPriorMigration} THEN NULL ELSE ${values.failureCode} END`,
+            providerStatus: sql<
+              number | null
+            >`CASE WHEN ${keepPriorMigration} THEN NULL ELSE ${values.providerStatus}::integer END`,
+            migratedAt: sql<
+              string | null
+            >`CASE WHEN ${keepPriorMigration} THEN ${table.migratedAt} ELSE NULL END`,
+          }
+        : {}),
+    })
     .where(
       and(
         eq(table.orgId, orgId),
@@ -522,6 +555,7 @@ export async function failExternalDashboard(input: {
   claimToken: string;
   failureCode: ExternalDashboardFailureCode;
   providerStatus?: number;
+  preservePreviousMigration?: boolean;
 }): Promise<ExternalDashboardSummary> {
   const parsed = FailSchema.parse(input);
   return finishClaim(parsed, {
@@ -532,5 +566,6 @@ export async function failExternalDashboard(input: {
     failureCode: parsed.failureCode,
     providerStatus: parsed.providerStatus ?? null,
     migratedAt: null,
+    preservePreviousMigration: parsed.preservePreviousMigration,
   });
 }

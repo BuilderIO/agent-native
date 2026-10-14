@@ -454,6 +454,7 @@ export default defineAction({
 
     let failureCode: "dashboard_write_failed" | "verification_failed" =
       "dashboard_write_failed";
+    let dashboardWriteStarted = false;
     try {
       const installedAt = new Date().toISOString();
       const compiled = compileSigmaDashboard({
@@ -492,6 +493,7 @@ export default defineAction({
         email: context.email,
         orgId: context.orgId,
       });
+      dashboardWriteStarted = true;
       await upsertDashboard(
         id,
         "sql",
@@ -563,6 +565,7 @@ export default defineAction({
         sourceId: args.workbookId,
         claimToken: claim.claimToken,
         failureCode,
+        preservePreviousMigration: !dashboardWriteStarted,
       });
       throw error;
     }

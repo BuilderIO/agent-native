@@ -233,6 +233,53 @@ describe("external dashboard migration store", () => {
     ).toMatchObject({ claimed: true });
   });
 
+  it("preserves a successful import when remigration fails before dashboard writes", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_remigrate",
+    });
+    const initialClaim = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_remigrate",
+    });
+    if (!initialClaim.claimed) throw new Error("expected initial claim");
+    await store.completeExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_remigrate",
+      claimToken: initialClaim.claimToken,
+      targetDashboardId: "native-dashboard-remigrate",
+      elementDiagnostics: [],
+      flaggedCount: 0,
+    });
+    const [beforeRemigration] = await store.listExternalDashboards({
+      provider: "sigma",
+      sourceIds: ["workbook_remigrate"],
+    });
+
+    const remigrationClaim = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_remigrate",
+      remigrate: true,
+    });
+    if (!remigrationClaim.claimed)
+      throw new Error("expected remigration claim");
+    const failedAttempt = await store.failExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_remigrate",
+      claimToken: remigrationClaim.claimToken,
+      failureCode: "dashboard_write_failed",
+      preservePreviousMigration: true,
+    });
+
+    expect(failedAttempt).toMatchObject({
+      status: "migrated",
+      targetDashboardId: "native-dashboard-remigrate",
+      migratedAt: beforeRemigration?.migratedAt,
+      failureCode: null,
+      providerStatus: null,
+    });
+  });
+
   it("recovers stale claims after ten minutes and fences the previous claimant token", async () => {
     await store.createExternalDashboard({
       provider: "sigma",
