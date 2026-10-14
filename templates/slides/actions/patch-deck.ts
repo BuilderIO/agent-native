@@ -770,8 +770,9 @@ async function resolvePatchSlideEdits(
     }
     const slide = slides.find((entry) => entry?.id === operation.slideId);
     if (!slide) {
-      throw new Error(
+      fail(
         `patch-slide edits target slide "${operation.slideId}", which does not exist in the current deck. Check the slideId; if this slide is added by add-slide in the same call, edits cannot target it until a later call. No slides were changed.`,
+        { errorCode: "slide_not_found", statusCode: 404 },
       );
     }
     const originalContent = String(slide.content ?? "");
