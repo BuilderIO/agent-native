@@ -5950,13 +5950,65 @@ export async function runAuthoringFuzz(
           await typeText(token);
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          const plainSibling = await editor.evaluate((root: HTMLElement) =>
-            Array.from(root.querySelectorAll("h2")).some(
-              (heading) => heading.nextElementSibling?.tagName === "P",
-            ),
+          const headingState = await editor.evaluate(
+            (root: HTMLElement, value: string) => {
+              const headings = [
+                ...(root.matches("h2") ? [root] : []),
+                ...Array.from(root.querySelectorAll<HTMLElement>("h2")),
+              ];
+              const heading = headings.find((candidate) =>
+                candidate.textContent?.includes(value),
+              );
+              const selection = window.getSelection();
+              let caretBlock = selection?.anchorNode ?? null;
+              while (
+                caretBlock &&
+                caretBlock !== root &&
+                !(
+                  caretBlock instanceof HTMLElement &&
+                  caretBlock.tagName === "P"
+                )
+              ) {
+                caretBlock = caretBlock.parentNode;
+              }
+              const paragraph =
+                caretBlock instanceof HTMLElement && caretBlock.tagName === "P"
+                  ? caretBlock
+                  : null;
+              let createdParagraph = false;
+              const headingPath: Array<{
+                tag: string;
+                nextTag: string | null;
+              }> = [];
+              for (
+                let current: HTMLElement | null = heading ?? null;
+                current && current !== root;
+                current = current.parentElement
+              ) {
+                headingPath.push({
+                  tag: current.tagName,
+                  nextTag: current.nextElementSibling?.tagName ?? null,
+                });
+                if (paragraph && current.nextElementSibling === paragraph) {
+                  createdParagraph = true;
+                  break;
+                }
+              }
+              return {
+                createdParagraph,
+                headingFound: !!heading,
+                headingPath,
+                caretBlockTag:
+                  caretBlock instanceof HTMLElement ? caretBlock.tagName : null,
+              };
+            },
+            token,
           );
-          if (!plainSibling)
-            throw new Error("Enter at heading end did not create a paragraph");
+          if (!headingState.createdParagraph) {
+            throw new Error(
+              `Enter at heading end did not create a paragraph (${JSON.stringify(headingState)})`,
+            );
+          }
           break;
         }
         case "quote-exit": {

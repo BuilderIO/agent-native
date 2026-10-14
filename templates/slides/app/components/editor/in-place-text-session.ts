@@ -713,8 +713,7 @@ function rowTextVisualLinePoint(
 
 /**
  * Characters before a point in `root`. With `breaks`, each `<br>` counts as
- * one, so a caret between two `<br>`s keeps its line; a count that must
- * survive `<br>`s turning into items (a list toggle) leaves them out.
+ * one, so a caret between two `<br>`s keeps its line.
  */
 function textOffset(
   root: HTMLElement,
@@ -821,6 +820,7 @@ function textPoint(
 ): [Node, number] {
   let remaining = offset;
   let last: Text | null = null;
+  let lastBreak: HTMLBRElement | null = null;
   const walker = document.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
@@ -834,9 +834,11 @@ function textPoint(
         ];
       }
       remaining -= 1;
+      lastBreak = node;
       continue;
     }
     if (!(node instanceof Text)) continue;
+    if (node.length > 0) lastBreak = null;
     if (
       remaining < node.length ||
       (before && node.length > 0 && remaining === node.length)
@@ -845,6 +847,12 @@ function textPoint(
     }
     remaining -= node.length;
     last = node;
+  }
+  if (breaks && remaining === 0 && lastBreak) {
+    return [
+      lastBreak.parentNode!,
+      Array.from(lastBreak.parentNode!.childNodes).indexOf(lastBreak) + 1,
+    ];
   }
   return last ? [last, last.length] : [root, root.childNodes.length];
 }
@@ -4087,7 +4095,12 @@ export function startInPlaceTextSession(
       caretBefore?.collapsed &&
       !(caretBefore.startContainer instanceof Text) &&
       block.contains(caretBefore.startContainer)
-        ? textOffset(block, caretBefore.startContainer, caretBefore.startOffset)
+        ? textOffset(
+            block,
+            caretBefore.startContainer,
+            caretBefore.startOffset,
+            true,
+          )
         : null;
     if (
       block === el &&
@@ -4181,7 +4194,7 @@ export function startInPlaceTextSession(
       return true;
     });
     if (changed && elementCaretOffset !== null && convertedLine) {
-      placeCaret(...textPoint(convertedLine, elementCaretOffset));
+      placeCaret(...textPoint(convertedLine, elementCaretOffset, false, true));
     }
     return changed;
   }

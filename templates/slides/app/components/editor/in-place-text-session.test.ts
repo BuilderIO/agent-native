@@ -5580,6 +5580,40 @@ describe("in-place text session: Content authoring parity", () => {
     expect(session.element.querySelector("li")?.style.fontSize).toBe("30px");
   });
 
+  it("keeps the caret after a trailing soft break when toggling a paragraph into a list", () => {
+    const el = mount('<div id="t"><p>Text<br></p></div>');
+    session = startInPlaceTextSession(el);
+    const paragraph = el.querySelector("p")!;
+    caret(paragraph, paragraph.childNodes.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    const item = el.querySelector(":scope > ul > li")!;
+    expect(item.innerHTML).toBe("Text<br>");
+    expect(window.getSelection()?.anchorNode).toBe(item);
+    expect(window.getSelection()?.anchorOffset).toBe(item.childNodes.length);
+
+    type(el, "x");
+    expect(item.innerHTML).toBe("Text<br>x");
+  });
+
+  it("keeps the caret after text following a soft break when toggling a paragraph into a list", () => {
+    const el = mount('<div id="t"><p>Text<br>More</p></div>');
+    session = startInPlaceTextSession(el);
+    const paragraph = el.querySelector("p")!;
+    caret(paragraph, paragraph.childNodes.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    const item = el.querySelector(":scope > ul > li")!;
+    expect(item.innerHTML).toBe("Text<br>More");
+    expect(window.getSelection()?.anchorNode).toBe(item.lastChild);
+    expect(window.getSelection()?.anchorOffset).toBe("More".length);
+
+    type(el, "x");
+    expect(item.innerHTML).toBe("Text<br>Morex");
+  });
+
   it("turns off one nested list item without unwrapping its styled sibling", () => {
     const el = mount(
       '<ul id="t"><li>Parent<ul><li style="color: red">A</li><li>B</li></ul></li></ul>',
