@@ -3432,6 +3432,7 @@ async function startNativeFullscreenRecording(
   console.log("[clips-recorder] using native macOS capture");
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
+  const includeCameraOverlay = wantsCamera && localRecordingMode !== "separate";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
@@ -3550,9 +3551,10 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] preparing native local recording"
         : "[clips-recorder] preparing native recording",
     );
-    const captureAudioParams = {
+    const captureParams = {
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
+      includeCameraOverlay,
       micDeviceId: params.micId || null,
       micDeviceLabel,
       captureRegion,
@@ -3564,7 +3566,7 @@ async function startNativeFullscreenRecording(
       await guardRecordingStart(
         invoke("native_fullscreen_recording_warm", {
           recordingId,
-          ...captureAudioParams,
+          ...captureParams,
         }),
         { signal: params.signal },
       );
@@ -3659,7 +3661,7 @@ async function startNativeFullscreenRecording(
     const beginStartedAt = Date.now();
     const beginPromise = invoke("native_fullscreen_recording_begin", {
       recordingId: id,
-      ...captureAudioParams,
+      ...captureParams,
       localOnly,
       hasCamera: wantsCamera,
     });

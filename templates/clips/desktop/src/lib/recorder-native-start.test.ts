@@ -659,6 +659,27 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("includes the camera bubble in selected-window native capture", async () => {
+    const pending = startRecording({
+      ...params,
+      mode: "screen-camera",
+      cameraOn: true,
+      micOn: false,
+      systemAudioOn: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+
+    expect(calls("native_fullscreen_recording_warm")[0][1]).toMatchObject({
+      includeCameraOverlay: true,
+    });
+    expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
+      includeCameraOverlay: true,
+    });
+    await handle.cancel();
+  });
+
   it("cleans up a failed server create and enables capture and toolbar on retry", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response("Unavailable", { status: 503 }),

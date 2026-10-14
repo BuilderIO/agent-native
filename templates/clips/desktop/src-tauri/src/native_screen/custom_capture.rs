@@ -1,4 +1,3 @@
-
 use super::*;
 use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
@@ -111,7 +110,6 @@ impl CaptureWatch {
         self.paused.load(Ordering::SeqCst)
     }
 }
-
 
 const AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION: isize = 1;
 const AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE: isize = 2;
@@ -2046,7 +2044,6 @@ impl CustomScreenCaptureWriter {
     }
 }
 
-
 const MIX_CHUNK_FRAMES: i64 = 4096;
 const MIX_STALL_TIMEOUT: Duration = Duration::from_millis(250);
 const MIX_SOURCE_GRACE: Duration = Duration::from_millis(2000);
@@ -3284,6 +3281,7 @@ unsafe fn av_string_suffix(obj: *mut objc2::runtime::AnyObject) -> String {
 struct RestartParams {
     include_audio: bool,
     capture_system_audio: bool,
+    include_camera_overlay: bool,
     emit_recorder_stop: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
@@ -3426,17 +3424,17 @@ fn build_custom_scstream(
     } else {
         region_source_rect(params.capture_region, source_width, source_height)?
     };
-    let filter = if let Some(window) = window.as_ref() {
-        SCContentFilter::create().with_window(window).build()
+    let (filter, window_source_rect) = if let Some(window) = window.as_ref() {
+        super::selected_window_capture_filter(&content, window, params.include_camera_overlay)?
     } else {
         let display = display.expect("display is present when no window is selected");
         let filter_builder = SCContentFilter::create()
             .with_display(display)
             .with_excluding_windows(&[]);
         if let Some((rect, _, _)) = region_rect {
-            filter_builder.with_content_rect(rect).build()
+            (filter_builder.with_content_rect(rect).build(), None)
         } else {
-            filter_builder.build()
+            (filter_builder.build(), None)
         }
     };
 
@@ -3461,7 +3459,7 @@ fn build_custom_scstream(
         .with_sample_rate(48000)
         .with_channel_count(2);
     config.set_pixel_format(screencapturekit::stream::configuration::PixelFormat::YCbCr_420v);
-    if let Some((rect, _, _)) = region_rect {
+    if let Some(rect) = window_source_rect.or_else(|| region_rect.map(|(rect, _, _)| rect)) {
         config.set_source_rect(rect);
     }
     if let Some(device) = selected_mic.as_ref() {
@@ -3718,6 +3716,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
+    include_camera_overlay: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
@@ -3784,6 +3783,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     let params = RestartParams {
         include_audio,
         capture_system_audio,
+        include_camera_overlay,
         emit_recorder_stop,
         mic_device_id: mic_device_id.map(str::to_string),
         mic_device_label: mic_device_label.map(str::to_string),
