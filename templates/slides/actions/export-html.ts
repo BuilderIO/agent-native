@@ -39,7 +39,10 @@ import {
   SLIDE_NUMBER_CSS,
   slideNumberInlineStyle,
 } from "../shared/slide-number.js";
-import { readDeckLinkedDesignSystem } from "./_linked-design-system.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 
 function safeCssToken(
   value: unknown,
@@ -679,11 +682,16 @@ export default defineAction({
         row,
         designSystemId,
       );
-      const rawData = designSystemAccess?.resource?.data;
+      // Deck-only readers get the rendering projection and no Builder token
+      // hydration: the token map is emitted whole into the exported HTML.
+      const rawData = designSystemAccess?.viaDeck
+        ? projectRenderingDesignSystemData(designSystemAccess.resource.data)
+        : designSystemAccess?.resource?.data;
       if (typeof rawData === "string") {
         designSystem = parseStoredDesignSystem(rawData);
-        const builderReference =
-          parseBuilderDesignSystemProxyReference(rawData);
+        const builderReference = designSystemAccess?.viaDeck
+          ? null
+          : parseBuilderDesignSystemProxyReference(rawData);
         if (builderReference) {
           try {
             builderTokenValues = (
