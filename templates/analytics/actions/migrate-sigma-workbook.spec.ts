@@ -159,6 +159,34 @@ describe("migrate-sigma-workbook", () => {
     );
   });
 
+  it("rejects an unmapped workbook before loading its SQL pages", async () => {
+    mocks.inspectWorkbook.mockResolvedValue({
+      workbook: { workbookId, name: "Revenue" },
+      elements: [panel],
+      sqlQueries: [],
+    });
+    mocks.summarizeReview.mockReturnValue([
+      {
+        id: "element_1",
+        importable: false,
+        reason: "source_mapping_required",
+      },
+    ]);
+
+    await expect(
+      migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+    ).rejects.toMatchObject({ errorCode: "sigma_source_mapping_required" });
+
+    expect(mocks.inspectWorkbook).toHaveBeenCalledTimes(1);
+    expect(mocks.inspectWorkbook).toHaveBeenCalledWith({
+      connectionId: "connection_1",
+      workbookId,
+      includeSqlQueries: false,
+    });
+    expect(mocks.createMigration).not.toHaveBeenCalled();
+    expect(mocks.claimMigration).not.toHaveBeenCalled();
+  });
+
   it("uses a stable source suffix to distinguish same-named workbooks", () => {
     const first = sigmaDashboardName("Revenue", "workbook_1");
     const second = sigmaDashboardName("Revenue", "workbook_2");

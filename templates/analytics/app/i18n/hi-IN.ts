@@ -49,7 +49,7 @@ export default {
     moveDashboard: "डैशबोर्ड को स्थानांतरित करें",
     folderCreateFailed: "फ़ोल्डर नहीं बनाया जा सका",
     moveFailed: "डैशबोर्ड स्थानांतरित नहीं किया जा सका",
-    importFromSigma: "Sigma से आयात करें",
+    previewSigma: "Sigma का पूर्वावलोकन",
     sigmaConnection: "Sigma कनेक्शन",
     sigmaConnectedTo: "{{name}} से कनेक्ट है",
     sigmaChooseConnection: "Sigma कनेक्शन",
@@ -77,7 +77,6 @@ export default {
     sigmaImportable: "आयात योग्य",
     sigmaUnsupported: "असमर्थित",
     sigmaNoElements: "वर्कबुक में कोई एलिमेंट नहीं मिला।",
-    sigmaNoImportable: "कोई एलिमेंट आयात के लिए तैयार नहीं है। नीचे दिए गए नोट देखें।",
     sigmaPreviewOnly:
       "अभी केवल पूर्वावलोकन: Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके। यह मैपिंग उपलब्ध होने तक आयात बंद रहेगा।",
     sigmaPreviewTruncated: "{{total}} में से {{shown}} एलिमेंट दिखाए गए हैं।",
@@ -94,14 +93,9 @@ export default {
     sigmaImportedNoDashboard:
       "डैशबोर्ड आयात किया गया, लेकिन इसे इस खाते से खोला नहीं जा सकता।",
     sigmaReviewRequiredCount: "{{count}} की समीक्षा ज़रूरी है",
-    sigmaBigQueryRequired:
-      "समर्थित एलिमेंट आयात करने से पहले Analytics BigQuery स्रोत कनेक्ट करें।",
-    sigmaSetupBigQuery: "BigQuery सेट अप करें",
     sigmaBetaRepresentationWarning:
       "इस बीटा आयात में कुछ विज़ुअलाइज़ेशन Sigma से अलग दिख सकते हैं।",
     sigmaReasonUnsupportedElement: "यह एलिमेंट प्रकार आयात के लिए समर्थित नहीं है।",
-    sigmaReasonBigQueryRequired:
-      "यह एलिमेंट आयात करने के लिए Analytics BigQuery स्रोत कनेक्ट करें।",
     sigmaReasonUnsupportedSource:
       "यह एलिमेंट ऐसे स्रोत का उपयोग करता है जो आयात के लिए समर्थित नहीं है।",
     sigmaReasonSourceMappingRequired:

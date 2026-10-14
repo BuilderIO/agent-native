@@ -50,7 +50,7 @@ export default {
     moveDashboard: "대시보드 이동",
     folderCreateFailed: "폴더를 만들지 못했습니다",
     moveFailed: "대시보드를 이동하지 못했습니다",
-    importFromSigma: "Sigma에서 가져오기",
+    previewSigma: "Sigma 미리 보기",
     sigmaConnection: "Sigma 연결",
     sigmaConnectedTo: "{{name}}에 연결됨",
     sigmaChooseConnection: "Sigma 연결",
@@ -79,8 +79,6 @@ export default {
     sigmaImportable: "가져올 수 있음",
     sigmaUnsupported: "지원되지 않음",
     sigmaNoElements: "워크북 요소를 찾지 못했습니다.",
-    sigmaNoImportable:
-      "가져올 준비가 된 요소가 없습니다. 아래 안내를 확인하세요.",
     sigmaPreviewOnly:
       "현재는 미리보기만 가능합니다. Sigma는 Analytics가 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않으므로 해당 매핑을 확인할 수 있을 때까지 가져오기가 비활성화됩니다.",
     sigmaPreviewTruncated: "{{total}}개 중 {{shown}}개 요소 표시 중입니다.",
@@ -97,14 +95,9 @@ export default {
     sigmaImportedNoDashboard:
       "대시보드를 가져왔지만 이 계정에서는 열 수 없습니다.",
     sigmaReviewRequiredCount: "{{count}}개 검토 필요",
-    sigmaBigQueryRequired:
-      "지원되는 요소를 가져오려면 Analytics BigQuery 소스를 연결하세요.",
-    sigmaSetupBigQuery: "BigQuery 설정",
     sigmaBetaRepresentationWarning:
       "베타 가져오기에서는 일부 시각화가 Sigma와 다르게 표시될 수 있습니다.",
     sigmaReasonUnsupportedElement: "이 요소 유형은 가져올 수 없습니다.",
-    sigmaReasonBigQueryRequired:
-      "이 요소를 가져오려면 Analytics BigQuery 소스를 연결하세요.",
     sigmaReasonUnsupportedSource: "이 요소는 가져올 수 없는 소스를 사용합니다.",
     sigmaReasonSourceMappingRequired:
       "Sigma가 Analytics에서 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않아 이 SQL을 아직 가져올 수 없습니다.",

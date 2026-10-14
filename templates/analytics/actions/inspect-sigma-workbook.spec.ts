@@ -34,7 +34,6 @@ describe("summarizeSigmaElementReview", () => {
     expect(
       summarizeSigmaElementReview({
         inspection,
-        analyticsBigQueryReady: true,
       }),
     ).toEqual([
       {

@@ -183,7 +183,7 @@ export default {
     moveDashboard: "移動儀表板",
     folderCreateFailed: "無法建立資料夾",
     moveFailed: "無法移動儀表板",
-    importFromSigma: "從 Sigma 匯入",
+    previewSigma: "預覽 Sigma",
     sigmaConnection: "Sigma 連線",
     sigmaConnectedTo: "已連線至 {{name}}",
     sigmaChooseConnection: "Sigma 連線",
@@ -211,7 +211,6 @@ export default {
     sigmaImportable: "可匯入",
     sigmaUnsupported: "不支援",
     sigmaNoElements: "找不到活頁簿元素。",
-    sigmaNoImportable: "目前沒有可匯入的元素，請查看下方說明。",
     sigmaPreviewOnly:
       "目前僅供預覽：Sigma 未提供 Analytics 可驗證的 BigQuery 專案對應資訊，因此在該資訊可用前，匯入功能會維持停用。",
     sigmaPreviewTruncated: "顯示 {{total}} 個元素中的 {{shown}} 個。",
@@ -227,14 +226,9 @@ export default {
     sigmaAlreadyImported: "此活頁簿已匯入。",
     sigmaImportedNoDashboard: "儀表板已匯入，但此帳戶無法開啟。",
     sigmaReviewRequiredCount: "{{count}} 項需要檢查",
-    sigmaBigQueryRequired:
-      "匯入支援的元素前，請先連結 Analytics BigQuery 資料來源。",
-    sigmaSetupBigQuery: "設定 BigQuery",
     sigmaBetaRepresentationWarning:
       "此 Beta 匯入可能會以不同於 Sigma 的方式呈現部分視覺化內容。",
     sigmaReasonUnsupportedElement: "此元素類型不支援匯入。",
-    sigmaReasonBigQueryRequired:
-      "連結 Analytics BigQuery 資料來源後才能匯入此元素。",
     sigmaReasonUnsupportedSource: "此元素使用了不支援匯入的資料來源。",
     sigmaReasonSourceMappingRequired:
       "Sigma 未提供 Analytics 可驗證的 BigQuery 專案對應資訊，因此目前無法匯入此 SQL。",

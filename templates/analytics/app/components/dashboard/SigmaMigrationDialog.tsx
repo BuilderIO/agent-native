@@ -71,7 +71,6 @@ type SigmaWorkbookListResult = {
 
 type SigmaElementReviewReason =
   | "unsupported_element"
-  | "analytics_bigquery_required"
   | "unsupported_source"
   | "source_mapping_required"
   | "query_unavailable"
@@ -93,8 +92,6 @@ type SigmaWorkbookInspection = {
   unsupportedCount: number;
   reviewRequiredCount: number;
   sourceMappingRequiredCount: number;
-  analyticsBigQueryReady: boolean;
-  bigQuerySetupUrl: string;
   elements: SigmaWorkbookElement[];
   betaRepresentationWarning: boolean;
 };
@@ -460,7 +457,7 @@ export function SigmaMigrationDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-xl">
           <DialogHeader className="px-6 pt-6">
-            <DialogTitle>{t("dashboardOverview.importFromSigma")}</DialogTitle>
+            <DialogTitle>{t("dashboardOverview.previewSigma")}</DialogTitle>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-2">
@@ -666,13 +663,6 @@ export function SigmaMigrationDialog({
                       ) : inspection.data ? (
                         <>
                           <WorkbookPreview inspection={inspection.data} t={t} />
-                          {inspection.data.importableCount === 0 &&
-                          inspection.data.analyticsBigQueryReady &&
-                          selectedWorkbook.status !== "migrated" ? (
-                            <p className="text-sm text-muted-foreground">
-                              {t("dashboardOverview.sigmaNoImportable")}
-                            </p>
-                          ) : null}
                         </>
                       ) : null}
 
@@ -831,19 +821,6 @@ function WorkbookPreview({
           ) : null}
         </div>
       </div>
-      {!inspection.analyticsBigQueryReady ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
-          <p className="text-sm text-muted-foreground">
-            {t("dashboardOverview.sigmaBigQueryRequired")}
-          </p>
-          <Button asChild type="button" variant="outline" size="sm">
-            <Link to="/data-sources?source=bigquery">
-              {t("dashboardOverview.sigmaSetupBigQuery")}
-              <IconExternalLink />
-            </Link>
-          </Button>
-        </div>
-      ) : null}
       {inspection.betaRepresentationWarning ? (
         <p className="text-sm text-muted-foreground">
           {t("dashboardOverview.sigmaBetaRepresentationWarning")}
@@ -895,8 +872,6 @@ function WorkbookPreview({
 function reasonTranslationKey(reason: SigmaElementReviewReason) {
   return {
     unsupported_element: "dashboardOverview.sigmaReasonUnsupportedElement",
-    analytics_bigquery_required:
-      "dashboardOverview.sigmaReasonBigQueryRequired",
     unsupported_source: "dashboardOverview.sigmaReasonUnsupportedSource",
     source_mapping_required:
       "dashboardOverview.sigmaReasonSourceMappingRequired",
@@ -1038,8 +1013,6 @@ function isWorkbookInspection(
     result.reviewRequiredCount >= 0 &&
     typeof result.sourceMappingRequiredCount === "number" &&
     result.sourceMappingRequiredCount >= 0 &&
-    typeof result.analyticsBigQueryReady === "boolean" &&
-    typeof result.bigQuerySetupUrl === "string" &&
     typeof result.betaRepresentationWarning === "boolean" &&
     Array.isArray(result.elements) &&
     result.elements.every(
@@ -1052,7 +1025,6 @@ function isWorkbookInspection(
         (element.reason === undefined ||
           [
             "unsupported_element",
-            "analytics_bigquery_required",
             "unsupported_source",
             "source_mapping_required",
             "query_unavailable",

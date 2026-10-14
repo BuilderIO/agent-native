@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   requireContext: vi.fn(),
   resolveConnection: vi.fn(),
   inspectWorkbook: vi.fn(),
-  hasBigQuery: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -20,9 +19,7 @@ vi.mock("../server/lib/bi-migration/sigma-connections.js", () => ({
   resolveSigmaConnectionSelection: mocks.resolveConnection,
 }));
 vi.mock("../server/lib/bi-migration/sigma-migration.js", () => ({
-  hasAnalyticsBigQuerySource: mocks.hasBigQuery,
   requireSigmaMigrationContext: mocks.requireContext,
-  sigmaMigrationSetupLink: () => "/data-sources?source=bigquery",
 }));
 
 const { default: inspectSigmaWorkbook } =
@@ -46,7 +43,6 @@ beforeEach(() => {
     sqlQueries: [],
     diagnostics: [],
   });
-  mocks.hasBigQuery.mockResolvedValue(true);
 });
 
 describe("inspect-sigma-workbook action", () => {
@@ -121,6 +117,5 @@ describe("inspect-sigma-workbook action", () => {
       errorCode: "sigma_source_inspection_failed",
       statusCode: 503,
     });
-    expect(mocks.hasBigQuery).not.toHaveBeenCalled();
   });
 });

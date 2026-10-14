@@ -52,7 +52,7 @@ export default {
     moveDashboard: "Déplacer le tableau de bord",
     folderCreateFailed: "Impossible de créer le dossier",
     moveFailed: "Impossible de déplacer le tableau de bord",
-    importFromSigma: "Importer depuis Sigma",
+    previewSigma: "Aperçu Sigma",
     sigmaConnection: "Connexion Sigma",
     sigmaConnectedTo: "Connecté à {{name}}",
     sigmaChooseConnection: "Connexion Sigma",
@@ -81,8 +81,6 @@ export default {
     sigmaImportable: "Importable",
     sigmaUnsupported: "Non pris en charge",
     sigmaNoElements: "Aucun élément n’a été trouvé dans ce classeur.",
-    sigmaNoImportable:
-      "Aucun élément n’est prêt à être importé. Consultez les remarques ci-dessous.",
     sigmaPreviewOnly:
       "Aperçu uniquement pour le moment : Sigma ne fournit pas de correspondance de projet BigQuery qu’Analytics puisse vérifier. L’importation restera désactivée jusqu’à ce que cette correspondance soit disponible.",
     sigmaPreviewTruncated: "{{shown}} éléments sur {{total}} affichés.",
@@ -99,15 +97,10 @@ export default {
     sigmaImportedNoDashboard:
       "Le tableau de bord a été importé, mais ce compte ne peut pas l’ouvrir.",
     sigmaReviewRequiredCount: "{{count}} à vérifier",
-    sigmaBigQueryRequired:
-      "Connectez une source BigQuery d’Analytics avant d’importer les éléments compatibles.",
-    sigmaSetupBigQuery: "Configurer BigQuery",
     sigmaBetaRepresentationWarning:
       "Cette importation bêta peut représenter certaines visualisations différemment de Sigma.",
     sigmaReasonUnsupportedElement:
       "Ce type d’élément n’est pas pris en charge pour l’importation.",
-    sigmaReasonBigQueryRequired:
-      "Connectez une source BigQuery d’Analytics pour importer cet élément.",
     sigmaReasonUnsupportedSource:
       "Cet élément utilise une source qui n’est pas prise en charge.",
     sigmaReasonSourceMappingRequired:

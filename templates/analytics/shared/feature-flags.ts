@@ -16,9 +16,9 @@ export const RESILIENT_FLEET_FLAG_DIRECTORY = defineFeatureFlag({
 
 export const SIGMA_DASHBOARD_MIGRATION = defineFeatureFlag({
   key: "analytics.sigma-dashboard-migration",
-  displayName: "Sigma dashboard migration",
+  displayName: "Sigma workbook preview",
   description:
-    "Import Sigma workbooks into private Analytics dashboards with visible review warnings.",
+    "Enable read-only discovery and preview of Sigma workbooks in Analytics.",
 });
 
 export const ANALYTICS_FEATURE_FLAGS = [

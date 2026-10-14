@@ -49,7 +49,7 @@ export default {
     moveDashboard: "移动仪表板",
     folderCreateFailed: "无法创建文件夹",
     moveFailed: "无法移动仪表板",
-    importFromSigma: "从 Sigma 导入",
+    previewSigma: "预览 Sigma",
     sigmaConnection: "Sigma 连接",
     sigmaConnectedTo: "已连接到 {{name}}",
     sigmaChooseConnection: "Sigma 连接",
@@ -77,7 +77,6 @@ export default {
     sigmaImportable: "可导入",
     sigmaUnsupported: "不支持",
     sigmaNoElements: "未找到工作簿元素。",
-    sigmaNoImportable: "没有可导入的元素。请查看下方说明。",
     sigmaPreviewOnly:
       "目前仅供预览：Sigma 未提供 Analytics 可验证的 BigQuery 项目映射，因此在该映射可用前，导入功能会保持禁用。",
     sigmaPreviewTruncated: "显示 {{total}} 个元素中的 {{shown}} 个。",
@@ -93,14 +92,9 @@ export default {
     sigmaAlreadyImported: "此工作簿已导入。",
     sigmaImportedNoDashboard: "仪表板已导入，但此账户无法打开它。",
     sigmaReviewRequiredCount: "{{count}} 项需要检查",
-    sigmaBigQueryRequired:
-      "导入受支持的元素前，请先连接 Analytics BigQuery 数据源。",
-    sigmaSetupBigQuery: "设置 BigQuery",
     sigmaBetaRepresentationWarning:
       "此 Beta 导入可能会以不同于 Sigma 的方式呈现某些可视化内容。",
     sigmaReasonUnsupportedElement: "此元素类型不支持导入。",
-    sigmaReasonBigQueryRequired:
-      "连接 Analytics BigQuery 数据源后才能导入此元素。",
     sigmaReasonUnsupportedSource: "此元素使用了不支持导入的数据源。",
     sigmaReasonSourceMappingRequired:
       "Sigma 未提供 Analytics 可验证的 BigQuery 项目映射，因此暂时无法导入此 SQL。",

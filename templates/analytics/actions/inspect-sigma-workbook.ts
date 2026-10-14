@@ -7,11 +7,7 @@ import {
   type SigmaWorkbookInspection,
 } from "../server/lib/bi-migration/sigma-adapter.js";
 import { resolveSigmaConnectionSelection } from "../server/lib/bi-migration/sigma-connections.js";
-import {
-  hasAnalyticsBigQuerySource,
-  requireSigmaMigrationContext,
-  sigmaMigrationSetupLink,
-} from "../server/lib/bi-migration/sigma-migration.js";
+import { requireSigmaMigrationContext } from "../server/lib/bi-migration/sigma-migration.js";
 
 const inspectSchema = z.object({
   workbookId: z
@@ -32,7 +28,6 @@ const inspectSchema = z.object({
 
 export type SigmaElementReviewReason =
   | "unsupported_element"
-  | "analytics_bigquery_required"
   | "unsupported_source"
   | "source_mapping_required"
   | "query_unavailable"
@@ -51,7 +46,6 @@ export interface SigmaElementReview {
 function reviewElement(
   element: SigmaPortableElement,
   inspection: SigmaWorkbookInspection,
-  analyticsBigQueryReady: boolean,
 ): SigmaElementReview {
   if (element.kind !== "panel") {
     return {
@@ -61,17 +55,6 @@ function reviewElement(
       importable: false,
       visualizationPreserved: false,
       reason: "unsupported_element",
-    };
-  }
-
-  if (!analyticsBigQueryReady) {
-    return {
-      id: element.id,
-      name: element.title,
-      type: element.chartType,
-      importable: false,
-      visualizationPreserved: false,
-      reason: "analytics_bigquery_required",
     };
   }
 
@@ -103,10 +86,9 @@ function reviewElement(
 
 export function summarizeSigmaElementReview(args: {
   inspection: SigmaWorkbookInspection;
-  analyticsBigQueryReady: boolean;
 }): SigmaElementReview[] {
   return args.inspection.elements.map((element) =>
-    reviewElement(element, args.inspection, args.analyticsBigQueryReady),
+    reviewElement(element, args.inspection),
   );
 }
 
@@ -119,7 +101,7 @@ export default defineAction({
   mcpTool: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
-    const context = await requireSigmaMigrationContext();
+    await requireSigmaMigrationContext();
     const selection = await resolveSigmaConnectionSelection(args.connectionId);
     if (!selection.selected) {
       fail("Select a connected Sigma workspace connection first.", {
@@ -145,10 +127,8 @@ export default defineAction({
         },
       );
     }
-    const analyticsBigQueryReady = await hasAnalyticsBigQuerySource(context);
     const elements = summarizeSigmaElementReview({
       inspection,
-      analyticsBigQueryReady,
     });
     const importableCount = elements.filter(
       (element) => element.importable,
@@ -169,8 +149,6 @@ export default defineAction({
       },
       connectionId: selection.selected.id,
       connectionLabel: selection.selected.label,
-      analyticsBigQueryReady,
-      bigQuerySetupUrl: sigmaMigrationSetupLink("bigquery"),
       importableCount,
       unsupportedCount,
       reviewRequiredCount,

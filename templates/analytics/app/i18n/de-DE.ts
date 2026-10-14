@@ -51,7 +51,7 @@ export default {
     moveDashboard: "Dashboard verschieben",
     folderCreateFailed: "Ordner konnte nicht erstellt werden",
     moveFailed: "Dashboard konnte nicht verschoben werden",
-    importFromSigma: "Aus Sigma importieren",
+    previewSigma: "Sigma-Vorschau",
     sigmaConnection: "Sigma-Verbindung",
     sigmaConnectedTo: "Verbunden mit {{name}}",
     sigmaChooseConnection: "Sigma-Verbindung",
@@ -81,8 +81,6 @@ export default {
     sigmaImportable: "Importierbar",
     sigmaUnsupported: "Nicht unterstützt",
     sigmaNoElements: "In dieser Arbeitsmappe wurden keine Elemente gefunden.",
-    sigmaNoImportable:
-      "Es sind keine Elemente zum Import bereit. Lies die Hinweise unten.",
     sigmaPreviewOnly:
       "Vorerst nur Vorschau: Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics überprüfen kann. Der Import bleibt deaktiviert, bis diese Zuordnung verfügbar ist.",
     sigmaPreviewTruncated:
@@ -101,15 +99,10 @@ export default {
     sigmaImportedNoDashboard:
       "Das importierte Dashboard kann von diesem Konto aus nicht geöffnet werden.",
     sigmaReviewRequiredCount: "{{count}} zur Überprüfung",
-    sigmaBigQueryRequired:
-      "Verbinde eine Analytics-BigQuery-Quelle, bevor du unterstützte Elemente importierst.",
-    sigmaSetupBigQuery: "BigQuery einrichten",
     sigmaBetaRepresentationWarning:
       "Dieser Beta-Import kann einige Visualisierungen anders als Sigma darstellen.",
     sigmaReasonUnsupportedElement:
       "Dieser Elementtyp wird beim Import nicht unterstützt.",
-    sigmaReasonBigQueryRequired:
-      "Verbinde eine Analytics-BigQuery-Quelle, um dieses Element zu importieren.",
     sigmaReasonUnsupportedSource:
       "Dieses Element verwendet eine nicht unterstützte Quelle.",
     sigmaReasonSourceMappingRequired:

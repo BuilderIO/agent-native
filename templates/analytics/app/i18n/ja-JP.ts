@@ -51,7 +51,7 @@ export default {
     moveDashboard: "ダッシュボードを移動",
     folderCreateFailed: "フォルダーを作成できませんでした",
     moveFailed: "ダッシュボードを移動できませんでした",
-    importFromSigma: "Sigma からインポート",
+    previewSigma: "Sigma をプレビュー",
     sigmaConnection: "Sigma 接続",
     sigmaConnectedTo: "{{name}} に接続済み",
     sigmaChooseConnection: "Sigma 接続",
@@ -80,8 +80,6 @@ export default {
     sigmaImportable: "インポート可能",
     sigmaUnsupported: "未対応",
     sigmaNoElements: "ワークブックに要素が見つかりませんでした。",
-    sigmaNoImportable:
-      "インポートできる要素がありません。下のメモを確認してください。",
     sigmaPreviewOnly:
       "現在はプレビューのみです。Sigma は Analytics が検証できる BigQuery プロジェクトの対応関係を公開していないため、その情報が利用可能になるまでインポートは無効です。",
     sigmaPreviewTruncated: "{{total}} 件中 {{shown}} 件を表示しています。",
@@ -99,15 +97,10 @@ export default {
     sigmaImportedNoDashboard:
       "ダッシュボードはインポートされましたが、このアカウントからは開けません。",
     sigmaReviewRequiredCount: "{{count}} 件の確認が必要",
-    sigmaBigQueryRequired:
-      "対応する要素をインポートするには、Analytics の BigQuery ソースを接続してください。",
-    sigmaSetupBigQuery: "BigQuery を設定",
     sigmaBetaRepresentationWarning:
       "ベータ版のインポートでは、一部の可視化が Sigma と異なる表示になる場合があります。",
     sigmaReasonUnsupportedElement:
       "この要素タイプはインポートに対応していません。",
-    sigmaReasonBigQueryRequired:
-      "この要素をインポートするには、Analytics の BigQuery ソースを接続してください。",
     sigmaReasonUnsupportedSource:
       "この要素のソースはインポートに対応していません。",
     sigmaReasonSourceMappingRequired:

@@ -324,7 +324,7 @@ export default function DashboardOverview() {
               onClick={() => setSigmaMigrationOpen(true)}
             >
               <IconDownload />
-              {t("dashboardOverview.importFromSigma")}
+              {t("dashboardOverview.previewSigma")}
             </Button>
           ) : null}
           <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>

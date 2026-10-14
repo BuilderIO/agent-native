@@ -51,7 +51,7 @@ export default {
     moveDashboard: "Mover panel",
     folderCreateFailed: "No se ha podido crear la carpeta",
     moveFailed: "No se ha podido mover el panel",
-    importFromSigma: "Importar desde Sigma",
+    previewSigma: "Vista previa de Sigma",
     sigmaConnection: "Conexión de Sigma",
     sigmaConnectedTo: "Conectado a {{name}}",
     sigmaChooseConnection: "Conexión de Sigma",
@@ -81,8 +81,6 @@ export default {
     sigmaImportable: "Importable",
     sigmaUnsupported: "No compatible",
     sigmaNoElements: "No se han encontrado elementos en este libro de trabajo.",
-    sigmaNoImportable:
-      "No hay elementos listos para importar. Revisa las notas siguientes.",
     sigmaPreviewOnly:
       "Solo vista previa por ahora: Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar. La importación seguirá desactivada hasta que esa asignación esté disponible.",
     sigmaPreviewTruncated: "Se muestran {{shown}} de {{total}} elementos.",
@@ -101,15 +99,10 @@ export default {
     sigmaImportedNoDashboard:
       "El panel se importó, pero no se puede abrir desde esta cuenta.",
     sigmaReviewRequiredCount: "{{count}} requieren revisión",
-    sigmaBigQueryRequired:
-      "Conecta una fuente de BigQuery de Analytics antes de importar elementos compatibles.",
-    sigmaSetupBigQuery: "Configurar BigQuery",
     sigmaBetaRepresentationWarning:
       "Esta importación beta puede representar algunas visualizaciones de forma distinta a Sigma.",
     sigmaReasonUnsupportedElement:
       "Este tipo de elemento no se admite para la importación.",
-    sigmaReasonBigQueryRequired:
-      "Conecta una fuente de BigQuery de Analytics para importar este elemento.",
     sigmaReasonUnsupportedSource:
       "Este elemento usa una fuente que no se admite para la importación.",
     sigmaReasonSourceMappingRequired:

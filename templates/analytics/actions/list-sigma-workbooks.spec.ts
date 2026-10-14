@@ -80,7 +80,7 @@ describe("list-sigma-workbooks", () => {
     );
   });
 
-  it("keeps accessible imports linked instead of marking them recoverable", async () => {
+  it("keeps an owned shared import linked instead of marking it recoverable", async () => {
     mocks.listMigrations.mockResolvedValue([
       {
         status: "migrated",
@@ -95,7 +95,7 @@ describe("list-sigma-workbooks", () => {
         id: "dashboard_1",
         kind: "sql",
         title: "Sigma: Revenue",
-        visibility: "private",
+        visibility: "org",
         ownerEmail: "alice@example.com",
         orgId: "org-1",
       },

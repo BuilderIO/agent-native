@@ -52,7 +52,7 @@ export default {
     moveDashboard: "نقل لوحة المعلومات",
     folderCreateFailed: "تعذر إنشاء المجلد",
     moveFailed: "تعذر نقل لوحة المعلومات",
-    importFromSigma: "استيراد من Sigma",
+    previewSigma: "معاينة Sigma",
     sigmaConnection: "اتصال Sigma",
     sigmaConnectedTo: "متصل بـ {{name}}",
     sigmaChooseConnection: "اتصال Sigma",
@@ -80,7 +80,6 @@ export default {
     sigmaImportable: "قابل للاستيراد",
     sigmaUnsupported: "غير مدعوم",
     sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
-    sigmaNoImportable: "لا توجد عناصر جاهزة للاستيراد. راجع الملاحظات أدناه.",
     sigmaPreviewOnly:
       "المعاينة فقط حاليًا: لا تكشف Sigma عن تعيين لمشروع BigQuery يمكن لـ Analytics التحقق منه، لذا يظل الاستيراد معطّلًا حتى يتوفر هذا التعيين.",
     sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
@@ -97,14 +96,9 @@ export default {
     sigmaImportedNoDashboard:
       "تم استيراد لوحة المعلومات، لكن لا يمكن فتحها من هذا الحساب.",
     sigmaReviewRequiredCount: "{{count}} بحاجة إلى مراجعة",
-    sigmaBigQueryRequired:
-      "اربط مصدر BigQuery في Analytics قبل استيراد العناصر المدعومة.",
-    sigmaSetupBigQuery: "إعداد BigQuery",
     sigmaBetaRepresentationWarning:
       "قد يعرض هذا الاستيراد التجريبي بعض التصورات بطريقة مختلفة عن Sigma.",
     sigmaReasonUnsupportedElement: "نوع هذا العنصر غير مدعوم للاستيراد.",
-    sigmaReasonBigQueryRequired:
-      "اربط مصدر BigQuery في Analytics لاستيراد هذا العنصر.",
     sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
     sigmaReasonSourceMappingRequired:
       "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",

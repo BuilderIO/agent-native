@@ -217,7 +217,7 @@ export default {
     moveDashboard: "Move dashboard",
     folderCreateFailed: "Couldn't create folder",
     moveFailed: "Couldn't move dashboard",
-    importFromSigma: "Import from Sigma",
+    previewSigma: "Preview Sigma",
     sigmaConnection: "Sigma connection",
     sigmaConnectedTo: "Connected to {{name}}",
     sigmaChooseConnection: "Sigma connection",
@@ -246,8 +246,6 @@ export default {
     sigmaImportable: "Importable",
     sigmaUnsupported: "Unsupported",
     sigmaNoElements: "No workbook elements were found.",
-    sigmaNoImportable:
-      "No elements are ready to import. Review the notes below.",
     sigmaPreviewOnly:
       "Preview only for now: Sigma does not expose a BigQuery project mapping Analytics can verify, so importing is disabled until that mapping is available.",
     sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
@@ -265,15 +263,10 @@ export default {
     sigmaImportedNoDashboard:
       "The imported dashboard isn't available to open from this account.",
     sigmaReviewRequiredCount: "{{count}} need review",
-    sigmaBigQueryRequired:
-      "Connect an Analytics BigQuery source before importing supported elements.",
-    sigmaSetupBigQuery: "Set up BigQuery",
     sigmaBetaRepresentationWarning:
       "This beta import may represent some visualizations differently from Sigma.",
     sigmaReasonUnsupportedElement:
       "This element type is not supported for import.",
-    sigmaReasonBigQueryRequired:
-      "Connect an Analytics BigQuery source to import this element.",
     sigmaReasonUnsupportedSource:
       "This element uses a source that is not supported for import.",
     sigmaReasonSourceMappingRequired:

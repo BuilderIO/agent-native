@@ -39,7 +39,10 @@ import {
   upsertDashboard,
 } from "../server/lib/dashboards-store.js";
 import { assertReadOnlySql } from "../server/lib/read-only-sql.js";
-import { summarizeSigmaElementReview } from "./inspect-sigma-workbook.js";
+import {
+  summarizeSigmaElementReview,
+  type SigmaElementReview,
+} from "./inspect-sigma-workbook.js";
 
 const migrateSchema = z.object({
   workbookId: z
@@ -297,6 +300,29 @@ function dashboardUrl(dashboardId: string): string {
   });
 }
 
+function requireImportableSigmaReview(
+  inspection: SigmaWorkbookInspection,
+): SigmaElementReview[] {
+  const review = summarizeSigmaElementReview({ inspection });
+  if (review.some((element) => element.reason === "source_mapping_required")) {
+    fail(
+      "Sigma does not expose a BigQuery project mapping Analytics can verify, so this workbook's SQL cannot be imported yet.",
+      {
+        errorCode: "sigma_source_mapping_required",
+        statusCode: 409,
+        details: { setupUrl: sigmaMigrationSetupLink("bigquery") },
+      },
+    );
+  }
+  if (!review.some((element) => element.importable)) {
+    fail("This Sigma workbook has no elements that can be imported.", {
+      errorCode: "sigma_no_importable_elements",
+      statusCode: 422,
+    });
+  }
+  return review;
+}
+
 export default defineAction({
   description:
     "Reserved for Sigma workbook imports after Analytics can verify the Sigma BigQuery source-project mapping. The current Sigma API does not expose that mapping, so this action remains fail-closed and is not available to the agent; use list-sigma-workbooks and inspect-sigma-workbook for the read-only preview.",
@@ -338,32 +364,15 @@ export default defineAction({
     const preliminaryInspection = await inspectSigmaWorkbook({
       connectionId: selection.selected.id,
       workbookId: args.workbookId,
+      includeSqlQueries: false,
+    });
+    requireImportableSigmaReview(preliminaryInspection);
+    const inspection = await inspectSigmaWorkbook({
+      connectionId: selection.selected.id,
+      workbookId: args.workbookId,
       includeSqlQueries: true,
     });
-    const preliminaryReview = summarizeSigmaElementReview({
-      inspection: preliminaryInspection,
-      analyticsBigQueryReady: true,
-    });
-    if (
-      preliminaryReview.some(
-        (element) => element.reason === "source_mapping_required",
-      )
-    ) {
-      fail(
-        "Sigma does not expose a BigQuery project mapping Analytics can verify, so this workbook's SQL cannot be imported yet.",
-        {
-          errorCode: "sigma_source_mapping_required",
-          statusCode: 409,
-          details: { setupUrl: sigmaMigrationSetupLink("bigquery") },
-        },
-      );
-    }
-    if (!preliminaryReview.some((element) => element.importable)) {
-      fail("This Sigma workbook has no elements that can be imported.", {
-        errorCode: "sigma_no_importable_elements",
-        statusCode: 422,
-      });
-    }
+    const review = requireImportableSigmaReview(inspection);
 
     if (args.recoverMissingDashboard) {
       if (args.remigrate) {
@@ -443,8 +452,6 @@ export default defineAction({
     let failureCode: "dashboard_write_failed" | "verification_failed" =
       "dashboard_write_failed";
     try {
-      const inspection = preliminaryInspection;
-      const review = preliminaryReview;
       const installedAt = new Date().toISOString();
       const compiled = compileSigmaDashboard({
         inspection,
