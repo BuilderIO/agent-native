@@ -1249,6 +1249,7 @@ describe("realDataFinalGuard", () => {
   it.each([
     "I can provide a table of the results if that helps.",
     "I need the table to reload, so I re-ran the query and it shows 43 accounts.",
+    "There are 43 accounts. Want me to show which table this came from?",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1274,6 +1275,8 @@ describe("realDataFinalGuard", () => {
     "I need the table name before I can continue.",
     "I need a table name before I can continue.",
     "I need to know which table holds monthly usage before I can continue.",
+    "I need to know the table name before I can continue.",
+    "Do you know which table holds the monthly credit usage?",
     "To continue, please provide:\n- the dataset name\n- the column that holds usage",
     "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
     "Share the dataset name.",

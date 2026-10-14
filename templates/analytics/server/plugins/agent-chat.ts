@@ -332,17 +332,19 @@ const SCHEMA_DETAILS_NOUN =
 // line; mid-sentence they are the agent offering its answer ("I can provide a
 // table of the results").
 const SCHEMA_DETAILS_ASK =
-  "(?:\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b)";
+  "(?:\\b(?:could you|can you|would you|do you know|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b)";
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know (?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b)`,
+  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know (?:which|what|the)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b)`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
   `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
   "i",
 );
+// The interrogative must open the sentence: "Want me to show which table this
+// came from?" is an offer, not a request for an identifier.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `\\b(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}[^.?!\\n]*\\?`,
+  `(?:^|[.?!:]\\s+|\\n\\s*)(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}[^.?!\\n]*\\?`,
   "i",
 );
 
