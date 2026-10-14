@@ -382,12 +382,12 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v19";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v20";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "4715962a57720a2ff5881cb8eea39c1535518cf8";
+const BASELINE_GIT_REVISION = "217b06fdb294e8efc5ac9f0dd9f079c65307c406";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -799,7 +799,7 @@ async function assertCandidateSourceIntegrity(
 ): Promise<void> {
   const statusOutput = execFileSync(
     "git",
-    ["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
     { cwd: REPOSITORY_ROOT, encoding: "utf8" },
   );
   assertCandidateWorkingTreeStatus(statusOutput);
@@ -823,7 +823,7 @@ async function assertCandidateSourceIntegrity(
 async function assertBaselineSourceIntegrity(): Promise<void> {
   const statusOutput = execFileSync(
     "git",
-    ["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
     { cwd: REPOSITORY_ROOT, encoding: "utf8" },
   );
   assertBaselineWorkingTreeStatus(statusOutput);
@@ -1259,6 +1259,11 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(() =>
       assertBaselineWorkingTreeStatus(
         ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/\0`,
+      ),
+    ).toThrow("only the candidate production-path harness may be modified");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        ` M ${BASELINE_HARNESS_PATH}\0?? packages/core-corpus/corpus.tmp-91240-ead84192/unreviewed.ts\0`,
       ),
     ).toThrow("only the candidate production-path harness may be modified");
     expect(() =>

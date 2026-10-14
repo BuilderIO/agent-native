@@ -142,8 +142,41 @@ export const sourceIndexBundleSchema = z
   })
   .strict()
   .superRefine((bundle, ctx) => {
+    const sourcesById = new Map(
+      bundle.sources.map((source) => [source.id, source]),
+    );
+    const seenSourceIds = new Set<string>();
+    for (const [index, source] of bundle.sources.entries()) {
+      if (seenSourceIds.has(source.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["sources", index, "id"],
+          message: `duplicate source index source ID: ${source.id}`,
+        });
+      }
+      seenSourceIds.add(source.id);
+    }
+
     const ids = new Set<string>();
     for (const [index, entry] of bundle.entries.entries()) {
+      const source = sourcesById.get(entry.source);
+      if (!source) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "source"],
+          message: `must reference a declared source: ${entry.source}`,
+        });
+      } else if (
+        source.sourceKind &&
+        entry.sourceKind &&
+        source.sourceKind !== entry.sourceKind
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "sourceKind"],
+          message: "must match the declared source kind",
+        });
+      }
       if (ids.has(entry.id)) {
         ctx.addIssue({
           code: "custom",

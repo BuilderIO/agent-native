@@ -64,6 +64,67 @@ describe("parseSourceIndexBundle scan summary compatibility", () => {
     expect(bundle.scanSummary?.unresolvedTrackingCallSites).toBeUndefined();
   });
 
+  it("rejects duplicate source IDs before a merge can remove another source", () => {
+    expect(() =>
+      parseSourceIndexBundle({
+        schemaVersion: 1,
+        generatedAt: "2026-10-09T12:00:00.000Z",
+        sources: [
+          { id: "shared", sourceKind: "dbt", revision: "abcdef123456" },
+          { id: "shared", sourceKind: "code", revision: "abcdef654321" },
+        ],
+        entries: [
+          {
+            id: "dbt-model",
+            metric: "model:users",
+            definition: "User profile records.",
+            source: "shared",
+            sourceKind: "dbt",
+          },
+          {
+            id: "code-event",
+            metric: "event:signup",
+            definition: "Signup tracking call.",
+            source: "shared",
+            sourceKind: "code",
+          },
+        ],
+      }),
+    ).toThrow("duplicate source index source ID");
+  });
+
+  it("rejects orphan entries and source-kind mismatches", () => {
+    const base = {
+      schemaVersion: 1,
+      generatedAt: "2026-10-09T12:00:00.000Z",
+      sources: [
+        { id: "tracking-code", sourceKind: "code", revision: "abcdef123456" },
+      ],
+      entries: [
+        {
+          id: "signup-event",
+          metric: "event:signup",
+          definition: "Signup tracking call.",
+          source: "tracking-code",
+          sourceKind: "code",
+        },
+      ],
+    };
+
+    expect(() =>
+      parseSourceIndexBundle({
+        ...base,
+        entries: [{ ...base.entries[0], source: "missing-source" }],
+      }),
+    ).toThrow("must reference a declared source");
+    expect(() =>
+      parseSourceIndexBundle({
+        ...base,
+        entries: [{ ...base.entries[0], sourceKind: "dbt" }],
+      }),
+    ).toThrow("must match the declared source kind");
+  });
+
   it("requires inferred membership roles to name projected membership keys", () => {
     expect(() =>
       parseSourceIndexBundle({
@@ -442,6 +503,7 @@ describe("mergeSourceIndexBundles", () => {
         id: "active-users",
         source: "analytics-dbt",
         definition: "Definition from the previous repository.",
+        status: "deprecated",
       }),
     );
     expect(firstMerge.entries).toContainEqual(
@@ -459,6 +521,88 @@ describe("mergeSourceIndexBundles", () => {
         (source) => source.repositoryRef === "new-org/analytics-dbt",
       ),
     ).toHaveLength(1);
+  });
+
+  it("keeps renamed-repository entries but marks the previous source deprecated", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-09-01T00:00:00.000Z",
+      sources: [
+        {
+          id: "old-analytics-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "acme/old-analytics-dbt",
+          revision: "111111111111",
+        },
+        {
+          id: "builder-internal",
+          sourceKind: "code",
+          revision: "222222222222",
+        },
+      ],
+      entries: [
+        {
+          id: "old-users",
+          metric: "model:users",
+          definition: "Previous dbt repository definition.",
+          source: "old-analytics-dbt",
+          sourceKind: "dbt",
+        },
+        {
+          id: "signup-event",
+          metric: "event:signup",
+          definition: "Tracking event from code.",
+          source: "builder-internal",
+          sourceKind: "code",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "analytics-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "acme/analytics-dbt",
+          revision: "333333333333",
+        },
+      ],
+      entries: [
+        {
+          id: "new-users",
+          metric: "model:users",
+          definition: "Current dbt repository definition.",
+          source: "analytics-dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    const merged = mergeSourceIndexBundles(current, update);
+
+    expect(merged.entries).toContainEqual(
+      expect.objectContaining({
+        id: "old-users",
+        source: "old-analytics-dbt",
+        status: "deprecated",
+        definition: "Previous dbt repository definition.",
+      }),
+    );
+    expect(merged.entries).toContainEqual(
+      expect.objectContaining({
+        id: "signup-event",
+        source: "builder-internal",
+        definition: "Tracking event from code.",
+      }),
+    );
+    expect(merged.entries).toContainEqual(
+      expect.objectContaining({
+        id: "new-users",
+        source: "analytics-dbt",
+        status: "active",
+      }),
+    );
   });
 
   it("does not replace a source ID that belongs to another source type", () => {
@@ -493,6 +637,68 @@ describe("mergeSourceIndexBundles", () => {
 
     expect(() => mergeSourceIndexBundles(current, update)).toThrow(
       "conflicting or unknown source types",
+    );
+  });
+
+  it("does not reuse a repository-qualified ID owned by another source type", () => {
+    const current = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      sources: [
+        {
+          id: "analytics-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "old-org/analytics-dbt",
+          revision: "111111111111",
+        },
+        {
+          id: "analytics-dbt-new-org-analytics-dbt-2b503b89",
+          sourceKind: "code",
+          repositoryRef: "new-org/analytics-dbt",
+          revision: "222222222222",
+        },
+      ],
+      entries: [
+        {
+          id: "old-dbt-entry",
+          metric: "model:users",
+          definition: "Previous dbt source definition.",
+          source: "analytics-dbt",
+          sourceKind: "dbt",
+        },
+        {
+          id: "code-entry",
+          metric: "event:signup",
+          definition: "Tracking source definition.",
+          source: "analytics-dbt-new-org-analytics-dbt-2b503b89",
+          sourceKind: "code",
+        },
+      ],
+    });
+    const update = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-12T00:00:00.000Z",
+      sources: [
+        {
+          id: "analytics-dbt",
+          sourceKind: "dbt",
+          repositoryRef: "new-org/analytics-dbt",
+          revision: "333333333333",
+        },
+      ],
+      entries: [
+        {
+          id: "new-dbt-entry",
+          metric: "model:users",
+          definition: "Current dbt source definition.",
+          source: "analytics-dbt",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    expect(() => mergeSourceIndexBundles(current, update)).toThrow(
+      "already assigned to another repository",
     );
   });
 });

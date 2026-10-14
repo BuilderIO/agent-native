@@ -149,7 +149,8 @@ export function mergeSourceIndexBundles(
       );
       if (
         existingUniqueSource &&
-        existingUniqueSource.repositoryRef !== source.repositoryRef
+        (existingUniqueSource.repositoryRef !== source.repositoryRef ||
+          sourceKind(current, existingUniqueSource.id) !== updateKind)
       ) {
         throw new Error(
           `Source ID "${uniqueId}" is already assigned to another repository; no index was written.`,
@@ -178,9 +179,32 @@ export function mergeSourceIndexBundles(
   const preservedEntries = current.entries.filter(
     (entry) => !replacedSourceIds.has(entry.source),
   );
-  const reservedEntryIds = new Set(preservedEntries.map((entry) => entry.id));
+  const updatedDbtRepositories = new Set(
+    update.sources
+      .filter((source) => sourceKind(update, source.id) === "dbt")
+      .map((source) => source.repositoryRef)
+      .filter((repositoryRef): repositoryRef is string =>
+        Boolean(repositoryRef),
+      ),
+  );
+  const retiredDbtSourceIds = new Set(
+    current.sources
+      .filter(
+        (source) =>
+          sourceKind(current, source.id) === "dbt" &&
+          source.repositoryRef &&
+          !updatedDbtRepositories.has(source.repositoryRef),
+      )
+      .map((source) => source.id),
+  );
+  const retainedEntries = preservedEntries.map((entry) =>
+    retiredDbtSourceIds.has(entry.source)
+      ? { ...entry, status: "deprecated" as const }
+      : entry,
+  );
+  const reservedEntryIds = new Set(retainedEntries.map((entry) => entry.id));
   const entries = [
-    ...preservedEntries,
+    ...retainedEntries,
     ...update.entries.map((entry) => {
       const source = sourceIdMap.get(entry.source) ?? entry.source;
       let id = entry.id;
