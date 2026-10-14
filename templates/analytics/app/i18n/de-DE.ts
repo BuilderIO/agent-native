@@ -1208,6 +1208,7 @@ export default {
     saveViewFailedWithMessage:
       "Ansicht konnte nicht gespeichert werden: {{message}}",
     clearAll: "Alles löschen",
+    resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
     filterSeries: "Filter",

@@ -1148,6 +1148,7 @@ export default {
     saveViewFailed: "दृश्य सहेजा नहीं जा सका",
     saveViewFailedWithMessage: "दृश्य सहेजा नहीं जा सका: {{message}}",
     clearAll: "सब साफ़ करें",
+    resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
     filterSeries: "Filter",

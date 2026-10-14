@@ -51,27 +51,48 @@ import type { DashboardFilter } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
-/** Check if any filter param in the URL differs from the defaults */
-function hasActiveFilters(
+export interface DashboardDefaultView {
+  id: string;
+  filters: Record<string, string>;
+}
+
+// Compare resolved values, not param presence: a URL that spells out a default
+// (f_timeRange=30d) is still at the defaults.
+export function filtersAtDefaults(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
+  defaultView: DashboardDefaultView | undefined,
 ): boolean {
-  for (const f of filters) {
-    if (f.type === "date-range") {
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
-    } else {
-      if (
-        isDateRangePresetFilter(f) &&
-        (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start") ||
-          searchParams.has(FILTER_PARAM_PREFIX + f.id + "End"))
-      ) {
-        return true;
-      }
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
-    }
+  const current = resolveFilterVars(
+    filters,
+    (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
+  );
+  const defaults = resolveFilterVars(
+    filters,
+    (key) => defaultView?.filters[FILTER_PARAM_PREFIX + key] ?? "",
+  );
+  return Object.keys(defaults).every((key) => current[key] === defaults[key]);
+}
+
+// A fresh load lands on the default view when the dashboard has one, so a
+// reset goes there too; otherwise every filter falls back to its own default.
+export function resetFilterParams(
+  prev: URLSearchParams,
+  defaultView: DashboardDefaultView | undefined,
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  for (const key of Array.from(next.keys())) {
+    if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
   }
-  return false;
+  if (defaultView) {
+    for (const [key, value] of Object.entries(defaultView.filters)) {
+      if (value) next.set(key, value);
+    }
+    next.set("view", defaultView.id);
+  } else {
+    next.delete("view");
+  }
+  return next;
 }
 
 export function extractFilterParams(
@@ -103,6 +124,7 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  defaultView?: DashboardDefaultView;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
@@ -112,6 +134,7 @@ interface DashboardFilterBarProps {
 
 export function DashboardFilterBar({
   filters,
+  defaultView,
   onSaveView,
 }: DashboardFilterBarProps) {
   const t = useT();
@@ -162,18 +185,9 @@ export function DashboardFilterBar({
     [setSearchParams],
   );
 
-  const clearAllFilters = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      const keysToRemove: string[] = [];
-      next.forEach((_, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
-      });
-      keysToRemove.forEach((k) => next.delete(k));
-      next.delete("view");
-      return next;
-    });
-  }, [setSearchParams]);
+  const resetFilters = useCallback(() => {
+    setSearchParams((prev) => resetFilterParams(prev, defaultView));
+  }, [defaultView, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
     if (!viewName.trim() || !onSaveView || savingView) return;
@@ -211,7 +225,11 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const filtersActive = hasActiveFilters(uniqueFilters, searchParams);
+  const filtersChanged = !filtersAtDefaults(
+    uniqueFilters,
+    searchParams,
+    defaultView,
+  );
 
   return (
     <>
@@ -239,49 +257,54 @@ export function DashboardFilterBar({
               ))}
             </div>
           </CollapsibleContent>
-          <div className="flex shrink-0 items-center gap-1 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
-            {onSaveView && filtersActive && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
-                onClick={() => setSaveDialogOpen(true)}
-              >
-                <IconDeviceFloppy className="h-3 w-3 mr-1" />
-                {t("sqlDashboard.saveView")}
-              </Button>
-            )}
-            {filtersActive && (
+          <div className="flex shrink-0 items-center gap-1 self-center">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
+              {onSaveView && filtersChanged && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setSaveDialogOpen(true)}
+                >
+                  <IconDeviceFloppy className="h-3 w-3 mr-1" />
+                  {t("sqlDashboard.saveView")}
+                </Button>
+              )}
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  aria-label={
+                    filtersOpen
+                      ? t("sqlDashboard.collapseFilters")
+                      : t("sqlDashboard.expandFilters")
+                  }
+                >
+                  {filtersOpen
+                    ? t("sqlDashboard.hide")
+                    : t("sqlDashboard.show")}
+                  <IconChevronDown
+                    className={cn(
+                      "ml-1 h-3 w-3 transition-transform",
+                      filtersOpen && "rotate-180",
+                    )}
+                  />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
+            {filtersChanged && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={clearAllFilters}
+                onClick={resetFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
-                {t("sqlDashboard.clearAll")}
+                {t("sqlDashboard.resetFilters")}
               </Button>
             )}
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                aria-label={
-                  filtersOpen
-                    ? t("sqlDashboard.collapseFilters")
-                    : t("sqlDashboard.expandFilters")
-                }
-              >
-                {filtersOpen ? t("sqlDashboard.hide") : t("sqlDashboard.show")}
-                <IconChevronDown
-                  className={cn(
-                    "ml-1 h-3 w-3 transition-transform",
-                    filtersOpen && "rotate-180",
-                  )}
-                />
-              </Button>
-            </CollapsibleTrigger>
           </div>
         </div>
       </Collapsible>
