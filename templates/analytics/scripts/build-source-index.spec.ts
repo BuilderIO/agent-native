@@ -1495,6 +1495,7 @@ describe("compileSourceIndex", () => {
     expect(bundle.sources).toEqual([
       {
         id: "dbt",
+        sourceKind: "dbt",
         revision,
         contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       },
