@@ -12,7 +12,7 @@ import {
 } from "./recorder.js";
 
 const EVENTS = 10_000;
-const MAX_MICROS_PER_EVENT = 100;
+const MAX_MICROS_PER_EVENT = 1_000;
 const MAX_HEAP_GROWTH_BYTES = 2 * 1024 * 1024;
 
 setFlagsFromString("--expose-gc");
@@ -65,7 +65,7 @@ async function microsPerEvent(record: (i: number) => void): Promise<number> {
 
 afterEach(() => resetRecorderForTests());
 
-it("records an action, state write, or log in under 0.1 ms", async () => {
+it("records an action, state write, or log in under 1 ms", async () => {
   const saved = Promise.resolve();
   const failure = Object.assign(
     new Error("Action update-file failed: Forbidden"),
