@@ -187,6 +187,32 @@ describe("Analytics synthetic production source evals", () => {
       ),
       { persist: false },
     );
+    const unboundEvidence = await runEvals(
+      [cases[0]!],
+      runnerFor(
+        outputFor(contract, {
+          toolCallDetails: [
+            {
+              name: "find-data",
+              input: { question: "synthetic metadata contract" },
+              completed: true,
+              isError: false,
+              result: JSON.stringify({
+                results: [
+                  {
+                    table: "dbt_mart.other_user_table",
+                    grain: "one row per account",
+                    definition:
+                      "dbt_mart.dim_users_core has a user grain and one row per user.",
+                  },
+                ],
+              }),
+            },
+          ],
+        }),
+      ),
+      { persist: false },
+    );
 
     expect(noEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
     expect(noEvidence.results[0]?.scores[0]?.reason).toContain(
@@ -198,6 +224,10 @@ describe("Analytics synthetic production source evals", () => {
       failed: 1,
     });
     expect(mismatchedEvidence.results[0]?.scores[0]?.reason).toContain(
+      "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
+    );
+    expect(unboundEvidence).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(unboundEvidence.results[0]?.scores[0]?.reason).toContain(
       "retrieved metadata did not support dbt_mart.dim_users_core at user grain",
     );
   });

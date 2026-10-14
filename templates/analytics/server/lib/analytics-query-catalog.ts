@@ -314,6 +314,28 @@ function isMembershipRosterRequest(search: string): boolean {
   return inferSemanticScope(search) === "membership_roster";
 }
 
+function isAggregateRequest(search: string): boolean {
+  const asksForAggregation =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by)\b/i.test(
+      search,
+    );
+  const asksForTemporalGrouping =
+    /\b(?:(?:group(?:ed)?\s+)?by|per)\s+(?:date|day|week|month|quarter|year)\b/i.test(
+      search,
+    );
+  const recurringCadence =
+    /\b(?:daily|weekly|monthly|quarterly|yearly)\b/i.test(search);
+  const explicitTimeConstraint =
+    /\b(?:last|past|previous|prior|this|current|next|since|before|after)\s+(?:day|week|month|quarter|year)\b/i.test(
+      search,
+    );
+  return (
+    asksForAggregation ||
+    asksForTemporalGrouping ||
+    (recurringCadence && !explicitTimeConstraint)
+  );
+}
+
 function candidateTextFields(
   candidate: AnalyticsQueryCatalogCandidate,
 ): string[] {
@@ -358,7 +380,13 @@ function hasTemporalMembershipSnapshotShape(
   const normalize = (value: string | undefined) =>
     (value ?? "").toLowerCase().replace(/[_-]+/g, " ");
   const grain = normalize(candidate.grain);
-  const descriptor = [candidate.metric, candidate.table, candidate.definition]
+  const descriptor = [
+    candidate.metric,
+    candidate.table,
+    candidate.definition,
+    candidate.primaryEntity,
+    candidate.semanticModel,
+  ]
     .map(normalize)
     .filter(Boolean)
     .join(" ");
@@ -1240,10 +1268,7 @@ export function candidateQueryPriority(
 } {
   const rankingIntent = stripNonPositiveInstructions(search);
   const requestedScope = requestedSemanticScope(rankingIntent);
-  const aggregateRequest =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
-      rankingIntent,
-    );
+  const aggregateRequest = isAggregateRequest(rankingIntent);
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
@@ -1336,10 +1361,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
     (requestedScope === "membership" ||
       requestedScope === "membership_roster") &&
     requestsActiveMembers(rankingIntent);
-  const aggregateRequest =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
-      rankingIntent,
-    );
+  const aggregateRequest = isAggregateRequest(rankingIntent);
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
   const aggregateMembershipIsNotRelevant = plainMembershipRequest;

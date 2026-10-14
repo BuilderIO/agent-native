@@ -1223,6 +1223,11 @@ describe("compileSourceIndex", () => {
     const serialized = JSON.stringify(bundle);
     expect(bundle.entries).toHaveLength(1);
     expect(bundle.entries[0]).toMatchObject({ sourceKind: "sigma" });
+    expect(
+      bundle.sources.find((source) => source.id === "sigma"),
+    ).toMatchObject({
+      generatedAt: bundle.generatedAt,
+    });
     expect(serialized).not.toContain("fake-sigma-client-id");
     expect(serialized).not.toContain("fake-sigma-client-secret");
     expect(serialized).not.toContain("fake-token");
@@ -1350,10 +1355,12 @@ describe("compileSourceIndex", () => {
         {
           id: "dbt",
           contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+          generatedAt: "2026-10-09T12:00:00.000Z",
         },
         {
           id: "product-app",
           contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+          generatedAt: "2026-10-09T12:00:00.000Z",
         },
       ],
     });
@@ -1498,6 +1505,7 @@ describe("compileSourceIndex", () => {
         sourceKind: "dbt",
         revision,
         contentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        generatedAt: "2024-02-03T04:05:06.000Z",
       },
     ]);
     expect(JSON.stringify(bundle)).not.toContain("SELECT account_id");

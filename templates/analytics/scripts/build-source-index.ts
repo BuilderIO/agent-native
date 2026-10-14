@@ -3698,13 +3698,17 @@ export async function compileSourceIndex(
       "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
     );
   }
+  const timestampedSources = sources.map((source) => ({
+    ...source,
+    generatedAt,
+  }));
   const indexedEntries = entries
     .map((entry) => ({ ...entry, status: entry.status ?? "active" }))
     .sort((a, b) => a.id.localeCompare(b.id));
   const bundle: SourceIndexBundle = {
     schemaVersion: SCHEMA_VERSION,
     generatedAt,
-    sources,
+    sources: timestampedSources,
     entries: indexedEntries,
     scanSummary,
   };

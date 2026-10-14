@@ -1340,6 +1340,44 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("keeps a time-scoped workspace roster separate from monthly aggregates", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace users last month",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly workspace user count",
+          definition: "Month-end count of users by workspace.",
+          table: "workspace_user_monthly_rollup",
+          columnsUsed: "workspace_id, month, user_count",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "workspace-membership-bridge",
+          metric: "Workspace membership bridge",
+          definition: "One row per user-workspace membership.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "workspace-membership-bridge",
+      table: "workspace_member_role_bridge",
+    });
+    expect(results).not.toContainEqual(
+      expect.objectContaining({ id: "approved-monthly-workspace-user-count" }),
+    );
+  });
+
   it("keeps active membership aggregates eligible for unqualified aggregate searches", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly member count by org",
@@ -1772,6 +1810,28 @@ describe("analytics query catalog", () => {
           definition: "One row per user per workspace membership.",
           table: "workspace_user_membership_counts",
           columnsUsed: "user_id, workspace_id, member_count",
+          semanticScope: "membership",
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("treats snapshot markers in primaryEntity as aggregate metadata", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "monthly-primary-entity-snapshot",
+          metric: "Workspace user membership",
+          definition: "One row per user-workspace membership.",
+          table: "workspace_user_membership_history",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          primaryEntity: "monthly membership snapshot",
           semanticScope: "membership",
         },
       ],
