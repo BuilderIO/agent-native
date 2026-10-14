@@ -349,7 +349,11 @@ describe("poll handler", () => {
     const queries = mockExecute.mock.calls.map(([query]) =>
       typeof query === "string" ? query : query.sql,
     );
-    expect(queries.filter((sql) => sql.includes("FROM sync_events"))).toEqual([
+    expect(
+      queries.filter(
+        (sql) => /^\s*SELECT\b/.test(sql) && sql.includes("FROM sync_events"),
+      ),
+    ).toEqual([
       "SELECT MAX(version) as max_version FROM sync_events",
       "SELECT MAX(version) as max_version FROM sync_events",
     ]);

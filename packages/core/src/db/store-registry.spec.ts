@@ -221,6 +221,7 @@ describe("hosted runtime without release migrations", () => {
       await b.store.ready();
     });
 
+    __resetStoreLedgerSnapshotForTests();
     simulateHostedFunction({ releaseMigrations: false });
     const execute = vi.fn(getDbExec().execute);
     const { withDbExec } = await import("./client.js");
@@ -235,7 +236,9 @@ describe("hosted runtime without release migrations", () => {
       }).ready();
     });
 
-    expect(execute).toHaveBeenCalledTimes(1);
+    // An existence check, then the shared read: neither can abort a caller's
+    // open transaction.
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -122,15 +122,16 @@ async function runMigration(
 
 async function applyWithLedger(store: StoreDefinition): Promise<void> {
   const exec = getDbExec();
-  const known = await readLedgerSnapshot().catch((err) => {
-    ledgerSnapshot = undefined;
-    if (isMissingRelation(err)) return undefined;
-    throw err;
-  });
+  // A failed statement aborts the caller's transaction (stores are often first
+  // touched inside one), so a missing ledger must be detected, not caught.
+  const known = (await ledgerExists(exec))
+    ? await readLedgerSnapshot()
+    : undefined;
   const recorded = known?.get(store.id);
   if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
 
   await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
+  ledgerPresent = true;
   const { rows } = await exec.execute({
     sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
     args: [store.id],
@@ -176,6 +177,7 @@ function isMissingRelation(err: unknown): boolean {
 
 async function loadLedger(): Promise<Map<string, Set<string>>> {
   const { rows } = await getDbExec().execute(
+    // guard:allow-unbounded-read — one row per declared migration; this is the single shared read
     `SELECT store_id, name FROM ${STORE_MIGRATIONS_TABLE}`,
   );
   const ledger = new Map<string, Set<string>>();
@@ -186,6 +188,18 @@ async function loadLedger(): Promise<Map<string, Set<string>>> {
     names.add(String(row.name));
   }
   return ledger;
+}
+
+let ledgerPresent = false;
+
+async function ledgerExists(exec: DbExec): Promise<boolean> {
+  if (ledgerPresent) return true;
+  const { rows } = await exec.execute(
+    `SELECT to_regclass('public.${STORE_MIGRATIONS_TABLE}') IS NOT NULL AS present`,
+  );
+  const present = rows[0]?.present;
+  ledgerPresent = present === true || present === "t";
+  return ledgerPresent;
 }
 
 function readLedgerSnapshot(): Promise<Map<string, Set<string>>> {
@@ -283,4 +297,5 @@ export function defineStore(definition: StoreDefinition): Store {
 
 export function __resetStoreLedgerSnapshotForTests(): void {
   ledgerSnapshot = undefined;
+  ledgerPresent = false;
 }
