@@ -1309,6 +1309,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
     );
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
+  const aggregateMembershipIsNotRelevant =
+    plainMembershipRequest && !/\bgrain\b/i.test(rankingIntent);
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
@@ -1336,6 +1338,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
       ) &&
+      !(aggregateMembershipIsNotRelevant && hasAggregateShape(candidate)) &&
       !(
         excludesMembershipForActivity &&
         ["membership", "membership_roster"].includes(

@@ -60,7 +60,7 @@ function sourceIndexFreshnessGuidance(
 
 export default defineAction({
   description:
-    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, source-index freshness and scan coverage, never live values. Treat stale generated entries as discovery hints; use `search-bigquery-schema` for exact columns or partitions, then run one live query before reporting values.",
+    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, source-index freshness and scan coverage, never live values. For member rosters, use row-grain membership references; a monthly or other aggregate is not a roster. Treat stale generated entries as discovery hints; use `search-bigquery-schema` for exact columns or partitions, then run one live query before reporting values.",
   schema: z.object({
     question: z
       .string()
@@ -109,7 +109,7 @@ export default defineAction({
       ...paginationAndCoverage,
       resultType: "reference-metadata",
       guidance: [
-        "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. For roster or member-record questions, aggregate and snapshot references are not row-level membership sources; if none are returned, say no suitable row-grain source was found and check index coverage or schema before concluding none exists. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
         sourceIndexGuidance,
         scanGuidance,
         freshnessGuidance,

@@ -256,8 +256,13 @@ const storage = vi.hoisted(() => ({
     const includeAliasedRoster =
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain";
+    const includeAggregateOnlyMembership =
+      syntheticData.activeCaseId === "aggregate-only-membership-reference";
     const entries = bundle.entries
       .filter((entry) => {
+        if (includeAggregateOnlyMembership) {
+          return entry.id === "fixture-approved-monthly-workspace-membership";
+        }
         if (includeAliasedRoster) {
           return entry.id === "fixture-aliased-workspace-member-roster";
         }
@@ -290,6 +295,14 @@ const storage = vi.hoisted(() => ({
       throw new Error("Synthetic fixture received an unexpected org scope.");
     }
     if (prefix !== "data-dict-") return {};
+    if (syntheticData.activeCaseId === "aggregate-only-membership-reference") {
+      return {
+        "data-dict-fixture-approved-monthly-workspace-membership":
+          syntheticData.dictionaryEntries[
+            "data-dict-fixture-approved-monthly-workspace-membership"
+          ],
+      };
+    }
     if (
       syntheticData.activeCaseId ===
       "aliased-membership-keys-preserve-roster-grain"
@@ -382,12 +395,12 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v21";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v22";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "8961aeb5a901eb8be8e821c10b957fa9203796c7";
+const BASELINE_GIT_REVISION = "3f5d70102cb653147533c1065e194e43fb49515d";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -408,7 +421,7 @@ const IDENTITY: EvalProductionIdentity = {
 type SyntheticCase = {
   id: string;
   prompt: string;
-  expectedTable: string;
+  expectedTable: string | null;
 };
 
 const SYNTHETIC_CASES: readonly SyntheticCase[] = [
@@ -509,6 +522,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.workspace_membership_bridge",
   },
   {
+    id: "aggregate-only-membership-reference",
+    prompt:
+      "Find the catalog reference for workspace membership. Metadata only; do not report live counts or values.",
+    expectedTable: null,
+  },
+  {
     id: "aliased-membership-keys-preserve-roster-grain",
     prompt:
       "Find the catalog reference for a current workspace member roster with role detail. Metadata only; do not report live counts or values.",
@@ -567,7 +586,9 @@ type SafeReasonCode =
   | "unexpected_action"
   | "action_failed"
   | "usage_missing"
-  | "guard_not_applied";
+  | "guard_not_applied"
+  | "no_match_expected"
+  | "unexpected_match";
 
 type EvalPhase = "before" | "after";
 
@@ -629,6 +650,8 @@ const SAFE_REASON_CODES = new Set<SafeReasonCode>([
   "action_failed",
   "usage_missing",
   "guard_not_applied",
+  "no_match_expected",
+  "unexpected_match",
 ]);
 
 function requestedEvalPhase(requested: string | undefined): EvalPhase {
@@ -908,8 +931,9 @@ function getToolResult(output: AgentRunOutput): Record<string, unknown> | null {
 
 function expectedCandidateRank(
   output: AgentRunOutput,
-  expectedTable: string,
+  expectedTable: string | null,
 ): number | null {
+  if (expectedTable === null) return null;
   const result = getToolResult(output);
   const candidates = result?.results;
   if (!Array.isArray(candidates)) return null;
@@ -962,6 +986,11 @@ function reasonForRun(
   ) {
     return "guard_not_applied";
   }
+  if (testCase.expectedTable === null) {
+    const candidates = getToolResult(output)?.results;
+    if (!Array.isArray(candidates)) return "candidate_missing";
+    return candidates.length === 0 ? "no_match_expected" : "unexpected_match";
+  }
   if (rank === null) return "candidate_missing";
   return rank === 1 ? "rank_1" : "ranked_below_1";
 }
@@ -978,21 +1007,25 @@ function evalCaseFor(testCase: SyntheticCase, capture: Capture): Eval {
       capture.output = output;
       return output;
     },
-    generateScore: (output) =>
-      expectedCandidateRank(output, testCase.expectedTable) === 1 ? 1 : 0,
+    generateScore: (output) => {
+      const reason = reasonForRun(testCase, output, capture.receipt!);
+      return ["rank_1", "no_match_expected"].includes(reason) ? 1 : 0;
+    },
     generateReason: ({ run }) => {
+      const reason = reasonForRun(testCase, run, capture.receipt!);
+      if (reason !== "candidate_missing") return reason;
       const rank = expectedCandidateRank(run, testCase.expectedTable);
-      return rank === 1
-        ? "rank_1"
-        : rank === null
-          ? "candidate_missing"
-          : "ranked_below_1";
+      return rank === null ? "candidate_missing" : "ranked_below_1";
     },
   };
   const pathScorer: Scorer<AgentRunOutput> = {
     name: "synthetic-production-path-integrity",
     generateScore: (output) =>
-      reasonForRun(testCase, output, capture.receipt!) === "rank_1" ? 1 : 0,
+      ["rank_1", "no_match_expected"].includes(
+        reasonForRun(testCase, output, capture.receipt!),
+      )
+        ? 1
+        : 0,
     generateReason: ({ run }) => reasonForRun(testCase, run, capture.receipt!),
   };
   return {
@@ -1142,7 +1175,8 @@ async function makeRows(
           ? rank
           : null;
         const successful =
-          reasonCode === "rank_1" && report.results[0]?.passed === true;
+          ["rank_1", "no_match_expected"].includes(reasonCode) &&
+          report.results[0]?.passed === true;
         rows.push({
           case_id: testCase.id,
           phase,
@@ -1242,6 +1276,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "negated-counts-preserve-role-detail",
       "monthly-organization-user-count",
       "workspace-membership-prefers-row-grain",
+      "aggregate-only-membership-reference",
       "aliased-membership-keys-preserve-roster-grain",
       "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",
@@ -1319,14 +1354,15 @@ describe("Analytics synthetic production-path retrieval harness", () => {
           }),
         ),
       ).toEqual(
-        SYNTHETIC_CASES.flatMap(({ id }) =>
+        SYNTHETIC_CASES.flatMap(({ id, expectedTable }) =>
           [1, 2].map((run) => ({
             case_id: id,
             run,
             score: 1,
-            reason_code: "rank_1",
-            expected_rank: 1,
-            hit_at_5: true,
+            reason_code:
+              expectedTable === null ? "no_match_expected" : "rank_1",
+            expected_rank: expectedTable === null ? null : 1,
+            hit_at_5: expectedTable !== null,
           })),
         ),
       );

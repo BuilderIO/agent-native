@@ -1059,10 +1059,59 @@ describe("analytics query catalog", () => {
           ? candidate.id
           : candidate.dashboardId,
       ),
-    ).toEqual([
-      "workspace-membership-bridge",
-      "approved-monthly-workspace-user-count",
-    ]);
+    ).toEqual(["workspace-membership-bridge"]);
+  });
+
+  it("does not present a monthly aggregate as a source for generic organization membership", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Builder.io organization users and membership",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-organization-user-count",
+          metric: "Monthly Organization User Count",
+          definition:
+            "Month-end count of users associated with each organization.",
+          table: "aggregate_monthly_users_per_org",
+          columnsUsed: "organization_id, month, user_count",
+          grain: "One row per organization per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("keeps monthly aggregates available for an explicit count question", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly organization user count",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-organization-user-count",
+          metric: "Monthly Organization User Count",
+          definition:
+            "Month-end count of users associated with each organization.",
+          table: "aggregate_monthly_users_per_org",
+          columnsUsed: "organization_id, month, user_count",
+          grain: "One row per organization per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      ),
+    ).toEqual(["approved-monthly-organization-user-count"]);
   });
 
   it("ignores a negated live-count instruction when ranking workspace members", () => {

@@ -76,6 +76,9 @@ describe("find-data scan coverage", () => {
     expect(result.guidance).toContain(
       "Treat missing source-index matches as incomplete",
     );
+    expect(result.guidance).toContain(
+      "aggregate and snapshot references are not row-level membership sources",
+    );
   });
 
   it("keeps missing legacy scan counts unavailable instead of reporting zero", async () => {
