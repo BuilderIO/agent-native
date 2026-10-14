@@ -370,7 +370,7 @@ const SCHEMA_DETAILS_SENTENCE = "(?:[^.?!\\n]|[.?!](?=\\S))*";
 const SCHEMA_DETAILS_RESOLUTION =
   "\\bi(?:['’]ve|\\s+have)?\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|run(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
 const SCHEMA_DETAILS_FAILED =
-  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|no|none)|no\\s+(?:match(?:es|ing)?|results?|luck|such|hits?)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
+  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|none|no\\s+(?!(?:other|more|additional|further|duplicate)\\b))|no\\s+(?:match(?:es|ing)?|results?|luck|such|hits?)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
 const SCHEMA_DETAILS_FOLLOW_ON =
   "(?:(?:so|then|and|but|luckily|fortunately|however|instead|first|now)\\b,?\\s+)?";
 const SCHEMA_DETAILS_DISCOVERED = `${SCHEMA_DETAILS_RESOLUTION}(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED})`;
@@ -396,7 +396,7 @@ const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
 // and "what is the table size?" are answer-shaped questions that only mention a
 // table.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_MODIFIERS}${SCHEMA_DETAILS_OBJECT}\\b|what\\s+(?:is|are)\\s+(?:the|your)\\s+(?:schema|sql\\s+quer(?:y|ies))\\b|(?:which|what)\\s+${SCHEMA_DETAILS_MODIFIERS}(?:(?:dataset|table|column|field|schema)s?|sql\\s+quer(?:y|ies))\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
   "i",
 );
 
