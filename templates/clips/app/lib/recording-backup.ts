@@ -419,6 +419,17 @@ export function recordingBackupFilename(meta: RecordingBackupMeta): string {
   return `clips-recording-${stamp}.${extension}`;
 }
 
+export function recordingBackupTracksServerId(
+  meta: RecordingBackupMeta,
+  serverRecordingId: string,
+): boolean {
+  return (
+    meta.recordingId === serverRecordingId ||
+    meta.serverRecordingId === serverRecordingId ||
+    (meta.staleServerRecordingIds ?? []).includes(serverRecordingId)
+  );
+}
+
 /**
  * The copy's recoverable bytes. `whole` is true only for a finished copy with
  * every chunk; anything else (cut off mid-recording, a missing final chunk, a
@@ -441,6 +452,21 @@ export async function readRecoverableRecordingBackup(recordingId: string) {
     whole:
       !meta.incomplete && !!meta.completedAt && usable.length === chunks.length,
   };
+}
+
+/** Finds a local copy by the server row holding this upload attempt. */
+export async function readRecoverableRecordingBackupForServerId(
+  serverRecordingId: string,
+) {
+  const metas = await listRecordingBackupMetas();
+  const meta =
+    metas.find(
+      (candidate) => candidate.serverRecordingId === serverRecordingId,
+    ) ??
+    metas.find((candidate) =>
+      recordingBackupTracksServerId(candidate, serverRecordingId),
+    );
+  return meta ? readRecoverableRecordingBackup(meta.recordingId) : null;
 }
 
 /** Same tolerance the desktop app applies to a finalize receipt. */

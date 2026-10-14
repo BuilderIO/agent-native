@@ -316,6 +316,26 @@ describe.each([
     await expect(read("thread")).resolves.toEqual([]);
   });
 
+  it("retains the structured approval pause outcome during journal replay", async () => {
+    const event = {
+      type: "tool_done",
+      tool: "send-message",
+      id: "call-approved",
+      result: "Awaiting human approval. This action did NOT execute.",
+      completedSideEffect: false,
+      approvalPause: true,
+    };
+    mocks.events = [{ ...done, event_data: JSON.stringify(event) }];
+
+    const events = await read("thread", "turn");
+
+    expect(events[0]).toMatchObject(
+      _name === "run events"
+        ? { runId: "run-first", event: { approvalPause: true } }
+        : { approvalPause: true },
+    );
+  });
+
   it("propagates database read failure", async () => {
     const error = new Error("test database unavailable");
     mocks.execute.mockRejectedValueOnce(error);

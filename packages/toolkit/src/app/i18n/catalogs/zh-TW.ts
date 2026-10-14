@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "此區塊暫時無法使用。",
+  "block.loading": "正在載入區塊。",
   "composer.contextUrlLabel": "網址",
   "composer.contextInvalidUrl": "請輸入有效的 HTTP 或 HTTPS 網址。",
   "composer.contextAttach": "附加",
@@ -148,9 +150,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
   "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
   "onboarding.builderActivationUnavailable":
-    "此應用程式未啟用新帳戶建立功能。你仍可連結現有帳戶。",
+    "建立帳戶或登入以連線至 Builder.io。",
   "onboarding.builderActivationUnavailableInMode":
-    "此模式無法啟用新帳戶。你仍可連結現有帳戶。",
+    "建立帳戶或登入以連線至 Builder.io。",
   "onboarding.builderActivationCheckFailed":
     "無法確認此應用程式是否可以建立新帳戶。",
 
@@ -164,6 +166,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
@@ -1103,6 +1106,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
   "errorMessages.invalidAttachmentNamed":
     "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.resendVerificationEmail": "重新傳送驗證郵件",
+  "recovery.sendingVerificationEmail": "正在傳送...",
+  "recovery.verificationEmailRequested":
+    "已要求傳送驗證郵件。請檢查收件匣和垃圾郵件資料夾。",
+  "recovery.verificationEmailFailed": "無法要求傳送驗證郵件。請再試一次。",
   "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
@@ -1144,6 +1152,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "新增金鑰以使用您自己的帳戶。",
   "secrets.emptyMore": "另有 {{count}} 個在「新增」下方，或新增任何自訂金鑰",
   "secrets.emptyTitle": "尚無金鑰。",
+  "secrets.figmaTokenMustBeToken":
+    "請貼上 Figma 存取權杖，而不是 Figma 檔案 URL。",
   "secrets.fromEnvironment": "由部署環境提供。",
   "secrets.managedInVault":
     "在工作區 Vault 中管理。此工作區中的每個應用程式都會使用此值。",

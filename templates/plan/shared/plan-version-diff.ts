@@ -26,7 +26,8 @@ function flattenBlocks(blocks: PlanBlock[]): PlanBlock[] {
   const visit = (block: PlanBlock) => {
     result.push(block);
     if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
+      const tabs = block.data.tabs === undefined ? [] : block.data.tabs;
+      for (const tab of tabs) {
         for (const child of tab.blocks) visit(child);
       }
     }
@@ -122,13 +123,15 @@ function blockLabel(block: PlanBlock): string {
     case "diagram":
       if (block.data.caption) return block.data.caption;
       break;
-    case "data-model":
-      if (block.data.entities.length)
-        return block.data.entities
+    case "data-model": {
+      const entities = block.data.entities ?? [];
+      if (entities.length)
+        return entities
           .map((e) => e.name)
           .slice(0, 3)
           .join(", ");
       break;
+    }
     case "file-tree":
       if (block.data.title) return block.data.title;
       break;

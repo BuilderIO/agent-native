@@ -9,6 +9,40 @@ import {
 import { sniffFragmentedMp4 } from "@/lib/fmp4";
 import { MseVideoLoader, isMediaSourceSupported } from "@/lib/mse-video-loader";
 
+const ACCESS_PASS_QUERY_PARAMS = [
+  "t",
+  "password",
+  "X-Amz-Algorithm",
+  "X-Amz-Credential",
+  "X-Amz-Date",
+  "X-Amz-Expires",
+  "X-Amz-Security-Token",
+  "X-Amz-Signature",
+  "X-Amz-SignedHeaders",
+  "AWSAccessKeyId",
+  "Expires",
+  "Signature",
+];
+
+export function mseVideoSourceIdentity(sourceUrl: string | undefined): string {
+  if (!sourceUrl) return "";
+  try {
+    const base =
+      typeof window === "undefined"
+        ? "http://clips.local"
+        : window.location.href;
+    const parsed = new URL(sourceUrl, base);
+    parsed.hash = "";
+    for (const key of ACCESS_PASS_QUERY_PARAMS) {
+      parsed.searchParams.delete(key);
+    }
+    parsed.searchParams.sort();
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return sourceUrl;
+  }
+}
+
 export type MseSourceMode = "pending" | "native" | "mse";
 
 export interface UseMseVideoSourceParams {
@@ -37,12 +71,15 @@ export function useMseVideoSource({
     !!sourceUrl &&
     videoFormat !== "webm" &&
     isMediaSourceSupported();
+  const sourceIdentity = mseVideoSourceIdentity(sourceUrl);
 
   const [mode, setMode] = useState<MseSourceMode>(() =>
     eligible ? "pending" : "native",
   );
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
   const loaderRef = useRef<MseVideoLoader | null>(null);
+  const sourceUrlRef = useRef(sourceUrl);
+  sourceUrlRef.current = sourceUrl;
 
   const durationMsRef = useRef(durationMs);
   durationMsRef.current = durationMs;
@@ -70,7 +107,7 @@ export function useMseVideoSource({
         }
         try {
           const loader = new MseVideoLoader({
-            url: sourceUrl,
+            url: sourceUrlRef.current ?? sourceUrl,
             durationMs: durationMsRef.current,
             video,
             onFatal: () => {
@@ -102,7 +139,11 @@ export function useMseVideoSource({
     // below, so a metadata-poll update must not rebuild the loader (which would
     // revoke the object URL and restart playback from byte zero).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eligible, sourceUrl]);
+  }, [eligible, sourceIdentity]);
+
+  useEffect(() => {
+    if (sourceUrl) loaderRef.current?.updateUrl(sourceUrl);
+  }, [sourceUrl]);
 
   useEffect(() => {
     loaderRef.current?.setDuration(durationMs);

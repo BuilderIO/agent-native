@@ -36,6 +36,7 @@ vi.mock("./credential-provider.js", async (importOriginal) => {
   };
 });
 
+import { ActionContractError } from "../action.js";
 import {
   appendBuilderConnectToken,
   appendBuilderConnectStateCookie,
@@ -1725,7 +1726,6 @@ describe("Builder callback CSRF state", () => {
           name: "notes.txt",
           dataUrl: "",
           text: "Read these notes",
-          size: Buffer.byteLength("Read these notes", "utf8"),
           id: "file-notes",
         },
         { type: "url" as const, value: "https://example.com/spec" },
@@ -1741,7 +1741,13 @@ describe("Builder callback CSRF state", () => {
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(body.userMessage).toEqual({
         userPrompt: "Use the attached requirements",
-        attachments,
+        attachments: [
+          {
+            ...attachments[0],
+            size: Buffer.byteLength("Read these notes", "utf8"),
+          },
+          attachments[1],
+        ],
       });
     });
 
@@ -1753,7 +1759,6 @@ describe("Builder callback CSRF state", () => {
             contentType: "image/png",
             name: "preview.png",
             dataUrl: "data:image/png;charset=binary;base64,ZmFrZQ==",
-            size: 5,
             id: "file-image",
           },
           {
@@ -1761,7 +1766,6 @@ describe("Builder callback CSRF state", () => {
             contentType: "application/pdf",
             name: "requirements.pdf",
             dataUrl: "data:application/pdf;base64,ZmFrZQ==",
-            size: 5,
             id: "file-pdf",
           },
           {
@@ -1770,7 +1774,6 @@ describe("Builder callback CSRF state", () => {
             name: "config.json",
             dataUrl: "",
             text: '{"enabled":true}',
-            size: Buffer.byteLength('{"enabled":true}', "utf8"),
             id: "file-json",
           },
         ]),
@@ -1785,11 +1788,67 @@ describe("Builder callback CSRF state", () => {
             contentType: "application/octet-stream" as never,
             name: "data.bin",
             dataUrl: "",
-            size: 1,
             id: "file-bin",
           },
         ]),
       ).toThrow("Unsupported Builder attachment content type");
+    });
+
+    it("derives each upload's byte size on the server", () => {
+      const text = "“Curly” – quotes";
+      const sizes = normalizeBuilderAgentAttachments([
+        {
+          type: "upload",
+          contentType: "text/plain",
+          name: "notes.md",
+          dataUrl: "",
+          text,
+          id: "file-text",
+        },
+        {
+          type: "upload",
+          contentType: "application/pdf",
+          name: "spec.pdf",
+          dataUrl: "data:application/pdf;base64,ZmFrZQ==",
+          id: "file-pdf",
+        },
+      ])?.map((attachment) =>
+        attachment.type === "upload" ? attachment.size : null,
+      );
+
+      expect(sizes).toEqual([Buffer.byteLength(text, "utf8"), 4]);
+    });
+
+    it("rejects invalid attachments with a typed error", () => {
+      expect(() =>
+        normalizeBuilderAgentAttachments([
+          {
+            type: "upload",
+            contentType: "application/pdf",
+            name: "spec.pdf",
+            dataUrl: "data:image/png;base64,ZmFrZQ==",
+            id: "file-pdf",
+          },
+        ]),
+      ).toThrow(ActionContractError);
+      expect(() =>
+        normalizeBuilderAgentAttachments([
+          { type: "url", value: "ftp://example.test/a.txt" },
+        ]),
+      ).toThrow(ActionContractError);
+      for (const data of ["@@@@", "ab=c", "abcde", "ab="]) {
+        expect(() =>
+          normalizeBuilderAgentAttachments([
+            {
+              type: "upload",
+              contentType: "application/pdf",
+              name: "spec.pdf",
+              dataUrl: `data:application/pdf;base64,${data}`,
+              id: "file-pdf",
+            },
+          ]),
+        ).toThrow(ActionContractError);
+      }
     });
 
     it("omits attachments when none are supplied", async () => {

@@ -218,10 +218,11 @@ describe("tools that are gone since earlier in the conversation", () => {
 describe("a durable continuation whose pinned tool was removed", () => {
   // The turn pinned both names; editor-format was removed before this run.
   const pinned = () =>
-    pinAdditionalActionsToTurn({ "task-run": tool("Run a task") }, [
-      "editor-format",
-      "task-run",
-    ]);
+    pinAdditionalActionsToTurn(
+      { "task-run": tool("Run a task") },
+      ["editor-format", "task-run"],
+      {},
+    );
 
   it("treats the placeholder as gone, not as a tool that failed", async () => {
     const { seen, done } = await run({

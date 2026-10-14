@@ -16,7 +16,7 @@ import {
   runId,
   writeJson,
 } from "../../fragility-common/lib/cli.ts";
-import { type Finding, isDeclined, isOpen, Jira } from "./jira.ts";
+import { isDeclined, isOpen, Jira, overlap } from "./jira.ts";
 
 export interface Match {
   system: string;
@@ -96,21 +96,4 @@ function targetsFor(
   return existsSync(path.join(artifact(id, "targets")))
     ? readTargets(id)
     : null;
-}
-
-function overlap(system: string, files: string[], finding: Finding): string[] {
-  const why: string[] = [];
-  if (finding.fingerprint?.startsWith(`fsys:${system.toLowerCase()}:`))
-    why.push("fingerprint anchor");
-  for (const s of finding.systems) {
-    if (s === system) why.push("same system");
-    else if (s.startsWith(`${system}/`) || system.startsWith(`${s}/`))
-      why.push(`nested system ${s}`);
-  }
-  const shared = files.filter((f) => finding.paths.includes(f));
-  if (shared.length)
-    why.push(
-      `${shared.length} shared file(s): ${shared.slice(0, 3).join(", ")}`,
-    );
-  return [...new Set(why)];
 }

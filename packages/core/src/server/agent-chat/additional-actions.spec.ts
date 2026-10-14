@@ -78,6 +78,37 @@ describe("resolveAppAdditionalActions", () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
+  it("never asks the app for anonymous callers on any surface", async () => {
+    const resolver = vi.fn(() => ({ extra: entry("extra") }));
+    const external = config({ resolver, externalSurfaces: ["a2a", "mcp"] });
+
+    for (const surface of ["chat", "a2a", "mcp"] as const) {
+      await expect(
+        resolveAppAdditionalActions(
+          external,
+          {
+            surface,
+            ownerEmail: "anon-123@agent-native.com",
+            orgId: null,
+          },
+          {},
+        ),
+      ).resolves.toEqual({});
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "alice@example.com",
+            orgId: "acme",
+            agentRunAnonymous: true,
+          },
+          () =>
+            resolveAppAdditionalActions(external, { ...alice, surface }, {}),
+        ),
+      ).resolves.toEqual({});
+    }
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
   it("passes the surface, caller, and event to the app resolver", async () => {
     const event = { path: "/_agent-native/agent-chat" };
     const resolver = vi.fn(async () => ({ extra: entry("extra") }));
@@ -229,97 +260,262 @@ describe("resolveAppAdditionalActions", () => {
       expect(Object.keys(added)).toEqual(["untrusted-ok"]);
     });
 
-    it("rejects regex keywords and schema identifiers but not properties that share their names", async () => {
-      const schemaEntry = (parameters: unknown) =>
-        entry("x", {
-          tool: { description: "x", parameters: parameters as never },
-        });
+    it("checks each schema against its meta-schema", async () => {
       const added = await resolveAppAdditionalActions(
         config({
           resolver: () => ({
-            "schema-pattern": schemaEntry({
-              type: "object",
-              properties: { a: { type: "string", pattern: "^(a+)+$" } },
-            }),
-            "schema-nested-pattern": schemaEntry({
-              type: "object",
-              properties: {
-                a: { type: "array", items: { anyOf: [{ pattern: "x" }] } },
-              },
-            }),
-            "schema-pattern-properties": schemaEntry({
-              type: "object",
-              patternProperties: { "^x": { type: "string" } },
-            }),
-            "schema-id": schemaEntry({
-              $id: "https://example.com/tool",
-              type: "object",
-            }),
-            "schema-remote-ref": schemaEntry({
-              type: "object",
-              properties: { a: { $ref: "https://example.com/a.json" } },
-            }),
-            "schema-ref-to-unknown-key": schemaEntry({
-              type: "object",
-              properties: { a: { $ref: "#/x" } },
-              x: { type: "string", pattern: "^(a+)+$" },
-            }),
-            "schema-anchor-ref": schemaEntry({
-              type: "object",
-              properties: { a: { $ref: "#a" } },
-            }),
-            "schema-encoded-ref": schemaEntry({
-              type: "object",
-              properties: { a: { $ref: "#/x/a%2Fb" } },
-              x: {
-                "a/b": { type: "string" },
-                a: { b: { type: "string", pattern: "^(a+)+$" } },
-              },
-            }),
-            "schema-ref-fanout": schemaEntry({
-              type: "object",
-              properties: { a: { $ref: "#/$defs/d0" } },
-              $defs: Object.fromEntries(
-                Array.from({ length: 20 }, (_, i) => [
-                  `d${i}`,
-                  i === 19
-                    ? { type: "string" }
-                    : {
-                        anyOf: [
-                          { $ref: `#/$defs/d${i + 1}` },
-                          { $ref: `#/$defs/d${i + 1}` },
-                        ],
-                      },
-                ]),
-              ),
-            }),
-            "schema-same-location-cycle": schemaEntry({
-              type: "object",
-              allOf: [{ $ref: "#" }],
-            }),
-            "schema-recursive-ref": schemaEntry({
-              type: "object",
-              properties: { tree: { $ref: "#/$defs/node" } },
-              $defs: {
-                node: {
+            "zero-multiple": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
                   type: "object",
-                  properties: {
-                    children: {
-                      type: "array",
-                      items: { $ref: "#/$defs/node" },
+                  properties: { n: { type: "number", multipleOf: 0 } },
+                } as never,
+              },
+            }),
+            "negative-length": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  $schema: "https://json-schema.org/draft/2020-12/schema",
+                  type: "object",
+                  properties: { s: { type: "string", minLength: -1 } },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(added).toEqual({});
+      const warnings = vi
+        .mocked(console.warn)
+        .mock.calls.map(([message]) => String(message));
+      for (const name of ["zero-multiple", "negative-length"]) {
+        expect(
+          warnings.some(
+            (message) =>
+              message.includes(`"${name}"`) &&
+              message.includes("schema is invalid"),
+          ),
+          name,
+        ).toBe(true);
+      }
+    });
+
+    it("refuses __proto__ as a name instead of dropping it silently", async () => {
+      const added = await resolveAppAdditionalActions(
+        config({ resolver: () => ({ ["__proto__"]: entry("x") }) }),
+        alice,
+        {},
+      );
+
+      expect(Object.getPrototypeOf(added)).toBe(Object.prototype);
+      expect(Object.keys(added)).toEqual([]);
+      expect(String(vi.mocked(console.warn).mock.calls[0]?.[0])).toMatch(
+        /"__proto__".*is not a valid action name/,
+      );
+    });
+
+    it("refuses schema keywords and shapes outside the allowlist, each for its own reason", async () => {
+      const regex = { type: "string", pattern: "^(a+)+$" };
+      const cases: Array<[string, unknown, string]> = [
+        [
+          "schema-pattern",
+          { type: "object", properties: { a: regex } },
+          'uses "pattern"',
+        ],
+        [
+          "schema-nested-pattern",
+          {
+            type: "object",
+            properties: {
+              a: { type: "array", items: { anyOf: [{ pattern: "x" }] } },
+            },
+          },
+          'uses "pattern"',
+        ],
+        [
+          "schema-pattern-properties",
+          { type: "object", patternProperties: { "^x": { type: "string" } } },
+          'uses "patternProperties"',
+        ],
+        [
+          "schema-unique-items",
+          {
+            type: "object",
+            properties: { xs: { type: "array", uniqueItems: true } },
+          },
+          'uses "uniqueItems"',
+        ],
+        [
+          "schema-async",
+          {
+            type: "object",
+            $async: true,
+            properties: { n: { type: "number" } },
+          },
+          'uses "$async"',
+        ],
+        [
+          "schema-id",
+          { $id: "https://example.com/tool", type: "object" },
+          'uses "$id"',
+        ],
+        [
+          // Ajv registers a `$id` under any key it does not know, which
+          // rebases the inner `$ref` from the root `y` onto `x.y`.
+          "schema-hidden-id",
+          {
+            type: "object",
+            properties: { a: { $ref: "#/x/a" } },
+            y: { type: "string" },
+            x: {
+              $id: "https://example.com/scoped/",
+              a: { $ref: "#/y" },
+              y: regex,
+            },
+          },
+          'uses "y"',
+        ],
+        [
+          "schema-ref-into-default",
+          {
+            type: "object",
+            properties: { a: { $ref: "#/default" } },
+            default: regex,
+          },
+          'uses "pattern"',
+        ],
+        [
+          "schema-remote-ref",
+          {
+            type: "object",
+            properties: { a: { $ref: "https://example.com/a.json" } },
+          },
+          "unencoded JSON pointer",
+        ],
+        [
+          "schema-anchor-ref",
+          { type: "object", properties: { a: { $ref: "#a" } } },
+          "unencoded JSON pointer",
+        ],
+        [
+          "schema-encoded-ref",
+          {
+            type: "object",
+            properties: { a: { $ref: "#/$defs/a%2Fb" } },
+            $defs: { "a/b": { type: "string" } },
+          },
+          "unencoded JSON pointer",
+        ],
+        [
+          "schema-ref-fanout",
+          {
+            type: "object",
+            properties: { a: { $ref: "#/$defs/d0" } },
+            $defs: Object.fromEntries(
+              Array.from({ length: 20 }, (_, i) => [
+                `d${i}`,
+                i === 19
+                  ? { type: "string" }
+                  : {
+                      anyOf: [
+                        { $ref: `#/$defs/d${i + 1}` },
+                        { $ref: `#/$defs/d${i + 1}` },
+                      ],
                     },
-                  },
+              ]),
+            ),
+          },
+          "expands to more than",
+        ],
+        [
+          "schema-same-location-cycle",
+          { type: "object", allOf: [{ $ref: "#" }] },
+          "recursive $ref",
+        ],
+        [
+          "schema-recursive-ref",
+          {
+            type: "object",
+            properties: { tree: { $ref: "#/$defs/node" } },
+            $defs: {
+              node: {
+                type: "object",
+                properties: {
+                  children: { type: "array", items: { $ref: "#/$defs/node" } },
                 },
               },
-            }),
-            "schema-property-names": schemaEntry({
-              type: "object",
-              properties: {
-                pattern: { type: "string" },
-                $id: { type: "string" },
-                b: { $ref: "#/$defs/b" },
+            },
+          },
+          "recursive $ref",
+        ],
+        [
+          "schema-inherited-keyword",
+          {
+            type: "object",
+            properties: {
+              s: Object.assign(Object.create({ pattern: "^(a+)+$" }), {
+                type: "string",
+              }),
+            },
+          },
+          "custom prototype",
+        ],
+        [
+          "schema-accessor",
+          {
+            type: "object",
+            properties: {
+              s: {
+                get type() {
+                  return "string";
+                },
               },
-              $defs: { b: { type: "number" } },
+            },
+          },
+          "getter or setter",
+        ],
+        [
+          "schema-proto-key",
+          JSON.parse(
+            '{"type":"object","properties":{"s":{"__proto__":{"pattern":"x"},"type":"string"}}}',
+          ),
+          "__proto__ key",
+        ],
+        [
+          "schema-sparse",
+          { type: "object", anyOf: new Array(200_000) },
+          "holes",
+        ],
+      ];
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            ...Object.fromEntries(
+              cases.map(([name, parameters]) => [
+                name,
+                entry("x", {
+                  tool: { description: "x", parameters: parameters as never },
+                }),
+              ]),
+            ),
+            "schema-property-names": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    pattern: { type: "string" },
+                    $id: { type: "string" },
+                    b: { $ref: "#/$defs/b" },
+                  },
+                  $defs: { b: { type: "number" } },
+                } as never,
+              },
             }),
           }),
         }),
@@ -328,6 +524,241 @@ describe("resolveAppAdditionalActions", () => {
       );
 
       expect(Object.keys(added)).toEqual(["schema-property-names"]);
+      const warnings = vi
+        .mocked(console.warn)
+        .mock.calls.map(([message]) => String(message));
+      for (const [name, , reason] of cases) {
+        const warning = warnings.find((message) =>
+          message.includes(`"${name}"`),
+        );
+        expect(warning, name).toContain(reason);
+      }
+    });
+
+    it("counts required and dependency names toward the expansion limit", async () => {
+      // Ajv looks up every listed name in every validated object.
+      const names = Array.from({ length: 5_100 }, (_, i) => `n${i}`);
+      const resolver = () => ({
+        "required-names": entry("x", {
+          tool: {
+            description: "x",
+            parameters: { type: "object", required: names },
+          },
+        }),
+      });
+      const dependencyResolver = () => ({
+        "dependency-names": entry("x", {
+          tool: {
+            description: "x",
+            parameters: {
+              type: "object",
+              dependencies: { a: names },
+            } as never,
+          },
+        }),
+      });
+
+      for (const [name, r] of [
+        ["required-names", resolver],
+        ["dependency-names", dependencyResolver],
+      ] as const) {
+        const added = await resolveAppAdditionalActions(
+          config({ resolver: r }),
+          alice,
+          {},
+        );
+        expect(added, name).toEqual({});
+        expect(
+          vi
+            .mocked(console.warn)
+            .mock.calls.some(
+              ([message]) =>
+                String(message).includes(`"${name}"`) &&
+                String(message).includes("expands to more than"),
+            ),
+          name,
+        ).toBe(true);
+      }
+    });
+
+    it("accepts dialect-specific array keywords only where they are enforced", async () => {
+      const tuple = {
+        type: "object" as const,
+        properties: {
+          xs: {
+            type: "array",
+            prefixItems: [{ type: "number" }],
+            contains: { type: "number" },
+            maxContains: 1,
+          },
+        },
+      };
+      const run = vi.fn(async () => "ran");
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "draft-07-tuple": entry("x", {
+              tool: { description: "x", parameters: tuple as never },
+            }),
+            "draft-2020-additional-items": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  $schema: "https://json-schema.org/draft/2020-12/schema",
+                  type: "object",
+                  properties: {
+                    xs: {
+                      type: "array",
+                      prefixItems: [{ type: "number" }],
+                      additionalItems: false,
+                    },
+                  },
+                } as never,
+              },
+            }),
+            "draft-2020-tuple": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  $schema: "https://json-schema.org/draft/2020-12/schema",
+                  ...tuple,
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(Object.keys(added)).toEqual(["draft-2020-tuple"]);
+      const warnings = vi
+        .mocked(console.warn)
+        .mock.calls.map(([message]) => String(message));
+      expect(warnings[0]).toMatch(
+        /"draft-07-tuple".*"prefixItems".*would not be enforced/,
+      );
+      expect(warnings[1]).toMatch(
+        /"draft-2020-additional-items".*"additionalItems".*draft 2020-12 does not enforce/,
+      );
+      const tool = added["draft-2020-tuple"]!;
+      await expect(asAlice(() => tool.run({ xs: ["x"] }))).rejects.toThrow(
+        /Invalid arguments/,
+      );
+      await expect(asAlice(() => tool.run({ xs: [1, 2] }))).rejects.toThrow(
+        /Invalid arguments/,
+      );
+      expect(run).not.toHaveBeenCalled();
+      await expect(asAlice(() => tool.run({ xs: [1, "a"] }))).resolves.toBe(
+        "ran",
+      );
+    });
+
+    it("reads each tool field once, so a getter cannot swap in an unchecked schema", async () => {
+      let reads = 0;
+      const tool = {
+        description: "x",
+        get parameters() {
+          reads += 1;
+          return reads === 1
+            ? undefined
+            : {
+                type: "object",
+                properties: { s: { type: "string", pattern: "^(a+)+$" } },
+              };
+        },
+      };
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "changing-schema": entry("x", { tool: tool as never }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(added["changing-schema"].tool.parameters).toBeUndefined();
+      expect(reads).toBe(1);
+    });
+
+    it("reuses a validator for an unchanged schema from a bounded cache, one Ajv instance each", async () => {
+      const { default: Ajv } = await import("ajv");
+      const instances: unknown[] = [];
+      const compile = Ajv.prototype.compile;
+      vi.spyOn(Ajv.prototype, "compile").mockImplementation(function (
+        this: InstanceType<typeof Ajv>,
+        ...args: Parameters<typeof compile>
+      ) {
+        instances.push(this);
+        return compile.apply(this, args);
+      } as typeof compile);
+      const schemaFor = (name: string) => ({
+        type: "object" as const,
+        properties: { [name]: { type: "string" as const } },
+      });
+      const resolveSchemas = (names: string[]) =>
+        resolveAppAdditionalActions(
+          config({
+            resolver: () =>
+              Object.fromEntries(
+                names.map((name) => [
+                  name,
+                  entry("x", {
+                    tool: { description: "x", parameters: schemaFor(name) },
+                  }),
+                ]),
+              ),
+          }),
+          alice,
+          {},
+        );
+
+      for (let i = 0; i < 3; i += 1) await resolveSchemas(["cached-tool"]);
+      expect(instances).toHaveLength(1);
+
+      // Fill the cache past its entry bound, which evicts the oldest schema.
+      for (let batch = 0; batch < 3; batch += 1) {
+        await resolveSchemas(
+          Array.from({ length: 100 }, (_, i) => `filler-${batch}-${i}`),
+        );
+      }
+      await resolveSchemas(["cached-tool"]);
+
+      expect(instances).toHaveLength(302);
+      // Ajv keeps every compiled schema in instance-wide state, so a shared
+      // instance would grow with every new schema.
+      expect(new Set(instances).size).toBe(302);
+      // Per-validator instances skip the meta-schemas, which would cost about
+      // 30 ms each to set up; schemas are checked against them elsewhere.
+      expect(
+        instances.every(
+          (instance) =>
+            (instance as { opts: { meta?: unknown } }).opts.meta === false,
+        ),
+      ).toBe(true);
+    });
+
+    it("shows the model the checked copy of the schema, not the app's object", async () => {
+      const parameters = {
+        type: "object" as const,
+        properties: { a: { type: "string" as const } },
+      };
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "copied-schema": entry("x", {
+              tool: { description: "x", parameters },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(added["copied-schema"].tool.parameters).toEqual(parameters);
+      expect(added["copied-schema"].tool.parameters).not.toBe(parameters);
     });
 
     it("bounds the whole registry, not just each schema", async () => {
@@ -688,6 +1119,171 @@ describe("resolveAppAdditionalActions", () => {
       await expect(asAlice(() => strict.run({ count: 3 }))).resolves.toEqual({
         count: 3,
       });
+    });
+
+    it("reports only the first validation errors", async () => {
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "closed-tool": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false,
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const input = Object.fromEntries(
+        Array.from({ length: 500 }, (_, i) => [`k${i}`, i]),
+      );
+
+      const error = await asAlice(() => added["closed-tool"]!.run(input)).catch(
+        (caught: unknown) => caught as Error,
+      );
+
+      expect(error.message).toContain("and 490 more");
+      expect(error.message.length).toBeLessThan(2_000);
+    });
+
+    it("charges long strings for every length check a schema runs on them", async () => {
+      const run = vi.fn(async () => "ran");
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "many-length-checks": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    s: {
+                      allOf: Array.from({ length: 1_000 }, () => ({
+                        minLength: 1,
+                      })),
+                    },
+                  },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const tool = added["many-length-checks"]!;
+
+      // Each of the 1,000 checks scans the whole string.
+      await expect(
+        asAlice(() => tool.run({ s: "x".repeat(600_000) })),
+      ).rejects.toThrow(/too large to validate/);
+      expect(run).not.toHaveBeenCalled();
+      await expect(
+        asAlice(() => tool.run({ s: "x".repeat(1_000) })),
+      ).resolves.toBe("ran");
+    });
+
+    it("charges object keys, which propertyNames checks like strings", async () => {
+      const run = vi.fn(async () => "ran");
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "key-length-checks": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  propertyNames: {
+                    allOf: Array.from({ length: 1_000 }, () => ({
+                      minLength: 1,
+                    })),
+                  },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const tool = added["key-length-checks"]!;
+
+      await expect(
+        asAlice(() => tool.run({ ["k".repeat(600_000)]: 1 })),
+      ).rejects.toThrow(/too large to validate/);
+      expect(run).not.toHaveBeenCalled();
+      await expect(asAlice(() => tool.run({ short: 1 }))).resolves.toBe("ran");
+    });
+
+    it("refuses arguments too large to validate against a large schema", async () => {
+      const run = vi.fn(async () => "ran");
+      // About 4,300 subschemas once the shared $ref is expanded.
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "large-schema": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    xs: { type: "array", items: { type: "number" } },
+                    ...Object.fromEntries(
+                      Array.from({ length: 70 }, (_, i) => [
+                        `p${i}`,
+                        { $ref: "#/$defs/d" },
+                      ]),
+                    ),
+                  },
+                  $defs: {
+                    d: {
+                      type: "object",
+                      properties: Object.fromEntries(
+                        Array.from({ length: 60 }, (_, i) => [
+                          `q${i}`,
+                          { type: "string" },
+                        ]),
+                      ),
+                    },
+                  },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const large = added["large-schema"]!;
+
+      await expect(
+        asAlice(() =>
+          large.run({ xs: Array.from({ length: 6_000 }, () => 1) }),
+        ),
+      ).rejects.toThrow(/too large to validate/);
+      expect(run).not.toHaveBeenCalled();
+      await expect(
+        asAlice(() => large.run({ xs: Array.from({ length: 100 }, () => 1) })),
+      ).resolves.toBe("ran");
+      // The walk stops once the queue is over budget, before reading the rest.
+      const unread = Array.from({ length: 6_000 }, () => 1);
+      Object.defineProperty(unread, 5_500, {
+        get() {
+          throw new Error("read past the budget");
+        },
+      });
+      await expect(asAlice(() => large.run({ xs: unread }))).rejects.toThrow(
+        /too large to validate/,
+      );
     });
 
     it("keeps the agent loop from coercing arguments before the strict check", async () => {

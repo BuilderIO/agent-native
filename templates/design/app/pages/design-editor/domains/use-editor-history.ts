@@ -17,10 +17,7 @@ import {
   recordDesignPerformance,
   trace,
 } from "@/components/design/design-trace";
-import {
-  type InspectorTab,
-  type StyleChangeMeta,
-} from "@/components/design/EditPanel";
+import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type { ElementInfo } from "@/components/design/types";
 import { rememberBuilderHostOrigin } from "@/lib/builder-host-origin";
@@ -166,12 +163,9 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   );
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  const [activeInspectorTab, setActiveInspectorTab] =
-    useState<InspectorTab>("design");
-  const activeInspectorTabRef = useRef(activeInspectorTab);
-  activeInspectorTabRef.current = activeInspectorTab;
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  const collapseLeftPanel = useCallback(() => setActiveLeftPanel(null), []);
   // The workbench loads Monaco and follows the selection with source reads, so
   // it mounts on first open and then stays mounted to keep its state.
   const codeWorkbenchOpenedRef = useRef(false);
@@ -324,7 +318,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   >(new Map());
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
-  const hasSelectedElement = Boolean(selectedElement);
 
   const [motionDockOpen, setMotionDockOpen] = useState(false);
   const [motionDockMounted, setMotionDockMounted] = useState(false);
@@ -418,12 +411,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   activeInteractionStateStateRef.current = activeInteractionStateState;
 
   const builderHostProtocolActive = isBuilderDesignEmbed || hostEmbeddedEditor;
-
-  const focusDesignInspectorForSelection = useCallback(() => {
-    if (activeInspectorTabRef.current !== "design") {
-      setActiveInspectorTab("design");
-    }
-  }, []);
 
   const startSidebarResize = useCallback(
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
@@ -828,9 +815,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     return () => window.removeEventListener("message", handleDesignHostMessage);
   }, [builderHostProtocolActive]);
 
-  useEffect(() => {
-    if (hasSelectedElement) focusDesignInspectorForSelection();
-  }, [focusDesignInspectorForSelection, hasSelectedElement]);
   const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const clearRedoStacks = useCallback(() => {
@@ -1310,10 +1294,9 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
     handleLiveScreenRuntimeReload,
-    activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
+    collapseLeftPanel,
     codeWorkbenchOpenedRef,
     leftSidebarWidth,
     rightSidebarWidth,
@@ -1374,7 +1357,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
     activeInteractionStateState,
-    focusDesignInspectorForSelection,
     startSidebarResize,
     canUndo,
     canRedo,

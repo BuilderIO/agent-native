@@ -1,21 +1,16 @@
-import { expect, test } from "@playwright/test";
-
 import { appPath } from "./helpers";
+import { expect, test } from "./rails";
 
 test("create-design preserves an explicit no-system choice", async ({
   request,
 }) => {
   let designId: string | undefined;
+  const title = `QA no-system design ${Date.now()}`;
 
   try {
     const response = await request.post(
       appPath("/_agent-native/actions/create-design"),
-      {
-        data: {
-          title: `QA no-system design ${Date.now()}`,
-          designSystemId: null,
-        },
-      },
+      { data: { title, designSystemId: null } },
     );
     expect(response.ok()).toBe(true);
 
@@ -32,7 +27,7 @@ test("create-design preserves an explicit no-system choice", async ({
       { params: { id: createdId } },
     );
     expect(saved.ok()).toBe(true);
-    expect(await saved.json()).toHaveProperty("designSystemId", null);
+    expect(await saved.json()).toMatchObject({ title, designSystemId: null });
   } finally {
     if (designId) {
       await request
@@ -97,8 +92,18 @@ test("Home creates a blank design without a system and reloads it", async ({
       { params: { id: createdId } },
     );
     expect(saved.ok()).toBe(true);
-    expect(await saved.json()).toHaveProperty("designSystemId", null);
+    const record = await saved.json();
+    expect(record).toHaveProperty("designSystemId", null);
+    const screens = (record.files ?? []).filter(
+      (file: { filename: string }) => file.filename !== "__board__.html",
+    );
+    await expect(
+      page.locator("[data-screen-shell]"),
+      "the reloaded editor shows the saved screens",
+    ).toHaveCount(screens.length);
   } finally {
+    // The design is created by the product flow, not app.seed, so it is deleted here, after leaving the editor.
+    await page.goto("about:blank");
     if (designId) {
       await request
         .post(appPath("/_agent-native/actions/delete-design"), {

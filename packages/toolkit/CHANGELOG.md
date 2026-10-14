@@ -1,5 +1,47 @@
 # @agent-native/toolkit
 
+## 0.209.0
+
+### Patch Changes
+
+- fadfb1b: Give the share panel one compact design in every app: underline tabs for the built-in and app-owned tabs, a 360px popover, and a single-row invite field with an inline role picker.
+- 7407dca: Keep the Connect AI setup card rendering and its setup links working when a setup analytics call throws.
+- 980bd9f: Realtime voice sessions use reasoning effort values supported by GPT-Live.
+- 7407dca: Dispatch an `agentNative.guidedQuestionsSubmitted` window event (`GUIDED_QUESTIONS_SUBMITTED_EVENT`) once per guided question submit whose `onSubmitMessage` resolves `{ delivered: true }`, so apps can observe answers without owning the flow.
+- Release all public npm packages with a patch version bump.
+- d6a3ea3: Wait for a new chat tab to render a submitted model override before handing it the prompt, so a first prompt sent with a model choice (such as a new Slides deck) is no longer rejected while the model list is still loading.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.0
+
+## 0.208.0
+
+### Patch Changes
+
+- 9cb95d8: The workspace switch menu closes after persistence while session and query refresh continues.
+- afe2ee7: Preserve completed tool history and render legacy Plan blocks through their authoring controls.
+- Release all public npm packages with a patch version bump.
+- 4434457: Stamp dev-rendered JSX with source provenance, add a CSP-safe React Motion Text runtime, and allow accessible slider thumb labels.
+- 0fb4de3: Add an isolated, file-scoped Google Sheets connection for Analytics exports and localize Figma token-validation errors across settings and hydration flows.
+- cde733c: Render registered block failures through the shared error boundary and show a neutral placeholder while a renderer suspends.
+- Updated dependencies [0fb4de3]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [0fb4de3]
+  - @agent-native/agentkit@0.208.0
+
+## 0.207.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77c15ee: Recover AgentKit run cursors from trusted protocol metadata, compact omitted event ranges, and retry transient first-run status failures.
+- e913bfb: Scrubbing a numeric design control after a typed edit now starts from the committed value instead of the previous one.
+- 1c4a192: Add an explicit cancellation hook for active visual scrub inputs.
+- 4452c7f: Selecting the current workspace now saves it as the active workspace.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+  - @agent-native/agentkit@0.207.1
+
 ## 0.207.0
 
 ### Minor Changes
@@ -1163,30 +1205,5 @@
 ### Patch Changes
 
 - 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
-
-## 0.10.11
-
-### Patch Changes
-
-- 0aada94: Allow the new chat control to fill the available history rail space.
-- 0aada94: Show relative cost per model in the composer's model picker. Each row now
-  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
-  flagship one before selecting it, rather than discovering the difference in
-  their bill. The tier reuses the token list the picker already sorts by
-  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
-  — it is not a cross-provider price claim. Models outside that list render with
-  no label at all; a guessed tier would read as fact.
-
-## 0.10.10
-
-### Patch Changes
-
-- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
-
-## 0.10.9
-
-### Patch Changes
-
-- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

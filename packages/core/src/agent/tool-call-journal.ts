@@ -46,12 +46,17 @@ export function toolCallInputFingerprint(input: unknown): string {
   return createHash("sha256").update(inputSignature(input)).digest("hex");
 }
 
-export function isRedactedToolCallInput(input: unknown): boolean {
+export function isUnavailableToolCallInput(input: unknown): boolean {
   if (typeof input === "string")
     return /\[inline [^\]]+ data omitted\]/.test(input);
   if (!input || typeof input !== "object") return false;
-  if ("omitted" in input && input.omitted === "inline-bytes") return true;
-  return Object.values(input).some(isRedactedToolCallInput);
+  if (
+    "omitted" in input &&
+    (input.omitted === "inline-bytes" || input.omitted === "tool-input")
+  ) {
+    return true;
+  }
+  return Object.values(input).some(isUnavailableToolCallInput);
 }
 
 export function isConsistentToolCallInputFingerprint(

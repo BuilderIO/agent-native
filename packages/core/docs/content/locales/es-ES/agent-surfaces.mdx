@@ -238,9 +238,13 @@ acción de plantilla, del framework, de desarrollo o de MCP, incluidas las
 acciones ocultas para el agente; cuando es un nombre `mcp__` que quien llama no
 puede ver; o cuando la definición de su herramienta no es utilizable. Las
 descripciones pierden los caracteres de control ocultos y se limitan en
-longitud. `parameters` debe ser un esquema JSON acotado con raíz `object` que no
-use `pattern`, `patternProperties`, `$id`, anclas ni un `$ref` que sea recursivo
-o apunte fuera del esquema. Los indicadores como `readOnly` y `access` son
+longitud. `parameters` debe ser un esquema acotado de datos JSON simples con raíz
+`object` que use solo palabras clave comunes de validación y de anotación. Se
+rechazan las palabras clave desconocidas, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, las anclas y cualquier `$ref` que sea recursivo
+o apunte fuera del esquema. El modelo ve la copia verificada del esquema, y se
+rechaza una llamada cuyos argumentos sean demasiado grandes para validarlos con
+él. Los indicadores como `readOnly` y `access` son
 declaraciones propias de tu aplicación, en las que el framework confía igual que
 en `run`: establécelos según lo que hace tu código, nunca a partir de metadatos
 que haya registrado un usuario.
@@ -248,24 +252,35 @@ que haya registrado un usuario.
 Cada entrada queda vinculada al llamador para el que se resolvió. Toda llamada,
 sea cual sea el despachador que la realice, se niega a ejecutarse para un
 usuario u organización distintos, aplica la política `access` de la entrada y
-valida los argumentos contra su esquema sin coerción de tipos. Cuando un turno
-de chat continúa como una ejecución duradera en segundo plano, el callback se
-ejecuta de nuevo, pero el turno conserva sus nombres originales: las entradas
-nuevas quedan fuera, y un nombre que desapareció devuelve un error al llamarlo.
+valida los argumentos contra su esquema sin coerción de tipos.
 
-Cualquier otra ejecución ve las entradas actuales de quien llama, así que una
-herramienta puede desaparecer entre ejecuciones. Una llamada a una herramienta
-que la conversación usó o cargó antes falla entonces con
-`Error: Tool no longer available` en lugar de `Unknown tool`, y una ejecución
-que empieza después de que desaparecieran herramientas cargadas le indica al
-modelo cuáles. Si el usuario había aprobado esa llamada, la ejecución se detiene
-en lugar de dejar que el modelo continúe sin ella. Establece `revision` en una
-entrada para vincular las aprobaciones a lo que hace: las aprobaciones de una
-sola vez y "Permitir siempre" registran la revisión para la que se dieron, y una
-revisión distinta vuelve a preguntar al usuario. En el chat, el callback también
-recibe `threadId`, `requestedTurnId` e `internalContinuation`, de modo que una
-app que quiera un único conjunto de herramientas para todo un turno pueda
-mantener su propia instantánea.
+Los nombres solo se fijan cuando un turno de chat alojado continúa como una
+ejecución duradera en segundo plano. El callback se ejecuta de nuevo, y el turno
+conserva sus nombres originales tanto para estas entradas como para las
+herramientas MCP de quien llama: las entradas nuevas quedan fuera, un nombre que
+desapareció devuelve un error al llamarlo, y un nombre que sigue presente
+ejecuta su definición actual. Cualquier otra solicitud se resuelve de nuevo,
+incluida cada continuación en un sidecar local, y un stream interrumpido que se
+vuelve a conectar a su ejecución no resuelve nada.
+
+Incluye la identidad del enlace en el nombre, como un id de ventana o un ámbito
+(`notes_window_42_insert`), para que un nuevo enlace se lea como una herramienta
+que se va y otra que aparece. Las aprobaciones de "Permitir siempre" siguen al
+nombre de la herramienta, así que se mantienen cuando ese mismo nombre pasa a
+significar algo nuevo.
+
+Establece `revision` en una entrada para evitarlo: las aprobaciones de una sola
+vez y "Permitir siempre" registran la revisión para la que se dieron, y una
+revisión distinta vuelve a preguntar al usuario.
+
+Una llamada a una herramienta que la conversación usó o cargó antes, pero que esta
+ejecución ya no tiene, falla con `Error: Tool no longer available` en lugar de
+`Unknown tool`, y una ejecución que empieza después de que desaparecieran
+herramientas cargadas le indica al modelo cuáles. Si el usuario había aprobado esa
+llamada, la ejecución se detiene en lugar de dejar que el modelo continúe sin
+ella. En el chat, el callback también recibe `threadId`, `requestedTurnId` e
+`internalContinuation`, de modo que una app que quiera un único conjunto de
+herramientas para todo un turno pueda mantener su propia instantánea.
 
 Estas entradas son herramientas nativas solo para el bucle del agente. Igual que
 las herramientas MCP de quien llama, no son accesibles desde `run-code` ni

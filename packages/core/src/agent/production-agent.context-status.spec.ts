@@ -214,7 +214,7 @@ describe("reference prefetch status", () => {
       });
 
       expect(text).toContain(
-        `<context-note>Preloaded context was unavailable this turn (${reason}); search for anything relevant with the available tools before answering.</context-note>`,
+        `<context-note>Preloaded context was unavailable this turn (${reason}); if the request depends on workspace knowledge, such as prior work, team docs, brand defaults, or people, search for it with the available tools before answering; otherwise continue without it.</context-note>`,
       );
       expect(runContext?.contextStatus?.prefetch).toBe(status);
     },

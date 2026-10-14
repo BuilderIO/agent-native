@@ -21,9 +21,39 @@ import {
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
+  shouldDisableExportsUntilCanvasFramesExist,
   shouldEscapeToOverview,
   updateExplicitOverviewScreenSelection,
 } from "./selection-state";
+
+describe("shouldDisableExportsUntilCanvasFramesExist", () => {
+  it("disables exports during generation until a canvas frame exists", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 1,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows exports when generation is not pending", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: false,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("overview screen export geometry", () => {
   it("uses the live natural height only for explicit Hug screens", () => {

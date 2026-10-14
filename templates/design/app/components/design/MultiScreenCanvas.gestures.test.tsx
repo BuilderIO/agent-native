@@ -2195,6 +2195,50 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     ).toBe("Mobile");
   });
 
+  it("keeps breakpoint labels within their frames at low canvas zoom", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={13}
+          creation={{ activeTool: "move" }}
+          metadataById={{ "screen-a": { width: 1280, height: 640 } }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 1280, height: 640 },
+            },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const breakpointFrame = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    const label =
+      breakpointFrame?.querySelector<HTMLElement>("[data-frame-label]");
+    expect(breakpointFrame).not.toBeNull();
+    expect(label).not.toBeNull();
+    expect(
+      label!.style.getPropertyValue("--an-breakpoint-label-max-width"),
+    ).toContain("100% / var(--an-chrome-scale");
+    expect(label!.className).toContain(
+      "w-[var(--an-breakpoint-label-max-width)]",
+    );
+    expect(label!.style.visibility).toBe("hidden");
+    expect(
+      breakpointFrame?.querySelector("[data-breakpoint-width]"),
+    ).toBeNull();
+  });
+
   it("does not visually nudge a draft for pointer jitter below the drag threshold", async () => {
     const surface = await renderHarness("rect");
     const draft = await createSelectedDraft(surface);

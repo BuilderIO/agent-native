@@ -136,29 +136,34 @@ Turn Rewind on under the Rewind tab in Settings. Once it's on, you can ask the a
 
 ### Earlier screen time {#earlier-screen-time}
 
-Earlier screen time adds up to five minutes of your screen from before you started a recording, taken from Rewind on this device. It is attached to the recording as its own context. It is not stitched into the recording's video.
+Earlier screen time attaches up to five minutes of local screen history from before a recording as its own context. It never becomes part of the video's footage.
 
-Earlier screen time is an optional lab that is on by default. You can turn it off under **Settings > Labs**, "Include earlier screen time", in the Clips web app or the desktop app.
+<WireframeBlock id="clips-earlier-screen-time-popover">
+  <Screen
+    surface="popover"
+    frame="show"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:8px'><span>Include last</span><div style='flex:1'></div><span>Off</span><span data-icon='chevronDown'></span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><strong>Turn on Rewind</strong><small class='wf-muted'>Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.</small><button class='primary'>Turn on Rewind</button><button style='width:100%;display:flex;justify-content:center;background:transparent;border:0'>What is this?</button></div></div>"
+    }
+  />
+</WireframeBlock>
 
-With the lab on, the Clips desktop popover has an **Include last** control. Choose **Off** (the default), **30 s**, **5 min**, or **Custom…** for any length up to five minutes. Rewind must be on and running for an amount to take effect. If Rewind is off, choosing an amount opens a short explanation with a **Turn on Rewind** button.
+**Include it with a recording**
 
-When you start a recording, the window you chose under **Include last** is requested and uploads from this device when the recording starts. With **Off**, nothing is requested.
+- **Include earlier screen time** is an optional lab, on by default. Turn it off under **Settings > Labs** in the Clips web or desktop app. In the desktop tray, choose **Off** (default), **30 s**, **5 min**, or **Custom…** up to five minutes. Rewind must be on and running; if it is off, choosing a duration opens the **Turn on Rewind** explanation.
+- When you start a recording, Clips requests the selected window from Rewind on this device and uploads it. **Off** makes no request.
 
-To see exactly what you're sharing, choose **Edit** next to the earlier screen time in the desktop app once it's ready. The editor shows a preview of up to five minutes of local history from before the recording started. The preview is built on your device and is never uploaded. The selection starts on the window you chose. Drag its handles to trim it, and use **Play selection** to play only that part.
+**Review before upload**
 
-The window has three readouts: **From 1:30 before** (how far back it starts), **Length 1 min 30 s**, and **To recording start**, because every window ends where the recording starts. When the window starts at the recording start, its first readout reads **From recording start**.
+- In the Clips desktop app, choose **Edit** when it's ready to review an on-device preview of up to five minutes. It is never uploaded, starts at the selected window, and ends at recording start. Drag the handles to trim it, or use **Play selection** to play that range.
+- **Save** uploads only the selection. Cancel or close the editor to discard the preview. Readouts show the start offset, length, and recording start; when the range starts with the recording, the offset reads **From recording start**.
 
-**Save** uploads only the selected window. Cancel, or closing the editor in any other way, discards the preview and uploads nothing.
+**Privacy and removal**
 
-To remove earlier screen time, choose **Remove earlier screen time** in the desktop edit view or in the Transcript tab's panel on the clip page, then confirm. You can also ask the agent to remove it. The footage recording moves to Trash, where it stays until you delete it there, and the clip no longer includes it. Discarding a recording also removes the earlier screen time it had.
-
-A recording captured on another device shows **Waiting for the device that recorded this clip** until that device saves it. Only that device can export its footage, so your other devices skip it. An item with no recording device on file, such as one requested before device tracking, is still processed by the desktop app that captured the recording.
-
-While a clip has earlier screen time, it stays private. Requesting it makes the clip private, and the request is refused if the clip is still shared directly with other people. Sharing is blocked until you remove the earlier screen time: making the clip public or visible to your organization, or giving someone access, is refused.
-
-On the clip page, the Transcript tab shows earlier screen time above the transcript, with its window and an inline player. Editing happens in the Clips desktop app; the same panel can remove it. The agent can read the window and its status.
-
-Limits: earlier screen time is five minutes at most. The history is only what Rewind still keeps on this device, so older moments may no longer be available.
+- Earlier screen time stays private while attached. Requesting it makes the clip private, and a request is refused while the clip is shared directly with others. Sharing, public or organization visibility, and new access stay blocked until you remove it.
+- The clip's **Transcript** tab shows the attached window above the transcript with an inline player. Remove it from the desktop edit view or that panel, then confirm. Its footage moves to Trash and the clip no longer includes it. Discarding the recording removes it too. The agent can read its window and status, and can remove it.
+- If another device captured the recording, it waits for that device to save the footage; only that device can export it, and other devices skip it. If no recording device is on file, the desktop app that captured the recording processes it.
+- The limit is five minutes, and only history Rewind still keeps on this device is available.
 
 ### Chrome extension browser logs
 

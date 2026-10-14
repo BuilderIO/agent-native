@@ -58,7 +58,15 @@ describe("new deck generation flow", () => {
 
   it("defers new empty deck persistence until generation setup is ready", () => {
     const createIndex = flow.indexOf("deck = createDeck(undefined, {");
+    const validationIndex = flow.indexOf("validateUploadedDeckImport(");
     const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const contextLoadIndex = flow.indexOf(
+      "loadReferenceDeckGenerationContext(referenceDeckId)",
+    );
+    const sourcePersistenceIndex = flow.indexOf(
+      "await ensureDeckPersisted(deck.id)",
+    );
+    const sourceImportIndex = flow.indexOf("await importUploadedDeckIntoDeck(");
     const contextIndex = flow.indexOf(
       "updateDeck(deckId, { generationContext:",
     );
@@ -74,8 +82,15 @@ describe("new deck generation flow", () => {
     expect(flow.slice(createIndex, createIndex + 260)).toContain(
       "undoableCreation: false",
     );
+    expect(validationIndex).toBeGreaterThan(createIndex);
+    expect(validationIndex).toBeLessThan(hydrationIndex);
     expect(contextIndex).toBeGreaterThan(hydrationIndex);
+    expect(hydrationIndex).toBeLessThan(sourcePersistenceIndex);
+    expect(contextLoadIndex).toBeLessThan(sourcePersistenceIndex);
     expect(latePersistenceIndex).toBeGreaterThan(contextIndex);
+    expect(sourcePersistenceIndex).toBeGreaterThan(-1);
+    expect(sourceImportIndex).toBeGreaterThan(sourcePersistenceIndex);
+    expect(sourceImportIndex).toBeLessThan(contextIndex);
     expect(flow).toContain("if (sourceImprovementRequest)");
   });
 

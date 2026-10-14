@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   availableKeys: new Set<string>(),
+  isBrainAdmin: true,
   providerId: "jira",
   sourceRows: [] as Array<{ provider: string }>,
   workspace: {
@@ -137,6 +138,15 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "owner@example.test",
+  getRequestOrgId: () => "org-1",
+}));
+
+vi.mock("../server/lib/zoom-governance.js", () => ({
+  isBrainAdmin: async () => mocks.isBrainAdmin,
+}));
+
 vi.mock("../server/lib/source-credentials.js", () => ({
   inspectSourceCredentialAvailability: async ({
     key,
@@ -159,6 +169,7 @@ const { default: action } = await import("./list-connection-providers.js");
 describe("list-connection-providers", () => {
   beforeEach(() => {
     mocks.availableKeys.clear();
+    mocks.isBrainAdmin = true;
     mocks.providerId = "jira";
     mocks.sourceRows = [];
     mocks.workspace.provider = "jira";
@@ -265,5 +276,16 @@ describe("list-connection-providers", () => {
       configured: true,
       providerHealth: { status: "ready" },
     });
+  });
+
+  it("lists Zoom only for Brain admins", async () => {
+    const admin = await action.run({});
+    expect(admin.canManageZoom).toBe(true);
+    expect(admin.providers.map((provider) => provider.id)).toContain("zoom");
+
+    mocks.isBrainAdmin = false;
+    const member = await action.run({});
+    expect(member.canManageZoom).toBe(false);
+    expect(member.providers.map((provider) => provider.id)).toEqual(["jira"]);
   });
 });

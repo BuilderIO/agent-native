@@ -12,6 +12,7 @@ import {
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
 const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
+const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
 
 /**
  * Fired on `window` the first time a stale chunk could not be recovered by a
@@ -71,6 +72,17 @@ export function rememberIntendedNavigation(
 ): void {
   state.intendedHref = href;
   state.intendedAt = now;
+}
+
+/** Preserve router-driven targets whose route module fails before history commits. */
+export function rememberRouteChunkRecoveryNavigation(
+  href: string,
+  win: Window | undefined = typeof window === "undefined" ? undefined : window,
+): void {
+  if (!win) return;
+  const state = recoveryStates.get(win);
+  const sameOrigin = sameOriginHref(win, href);
+  if (state && sameOrigin) rememberIntendedNavigation(state, sameOrigin);
 }
 
 export function getFreshIntendedNavigation(
@@ -497,6 +509,7 @@ export function installRouteChunkRecovery(
   clearChunkRecoveryCacheBuster(win);
 
   const state = createRouteChunkRecoveryState();
+  recoveryStates.set(win, state);
 
   win.document.addEventListener(
     "click",

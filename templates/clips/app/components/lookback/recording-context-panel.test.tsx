@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +26,7 @@ const queryState = vi.hoisted(() => ({
 }));
 
 const labState = vi.hoisted(() => ({ enabled: true }));
+const sessionState = vi.hoisted(() => ({ authenticated: true }));
 const queryOptions = vi.hoisted(() => ({
   current: undefined as
     | {
@@ -34,12 +37,20 @@ const queryOptions = vi.hoisted(() => ({
       }
     | undefined,
 }));
+const syncOptions = vi.hoisted(() => ({ current: undefined as unknown }));
+const queryClient = new QueryClient();
 const removal = vi.hoisted(() => ({
   calls: [] as Array<{ action: string; input: unknown }>,
   outcome: "success" as "success" | "error",
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useDbSync: (options: unknown) => {
+    syncOptions.current = options;
+  },
+  useSession: () => ({
+    session: sessionState.authenticated ? { userId: "local-user" } : null,
+  }),
   useActionQuery: (
     _action: string,
     _input: unknown,
@@ -203,6 +214,37 @@ describe("RecordingContextPanel", () => {
     expect(alert?.textContent).toBe("Export failed: disk full");
   });
 
+  it("retries a failed item using its saved time window", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: {
+        items: [
+          item({
+            status: "failed",
+            mediaRecordingId: null,
+            error: "Export failed: disk full",
+          }),
+        ],
+      },
+    });
+    render();
+
+    act(() => buttonWithText(container, "Retry")?.click());
+
+    expect(removal.calls).toEqual([
+      {
+        action: "set-recording-context-window",
+        input: {
+          id: "ctx_1",
+          startedAt: "2026-10-09T10:04:30.000Z",
+          endedAt: "2026-10-09T10:05:00.000Z",
+        },
+      },
+    ]);
+    expect(toast.success).toHaveBeenCalledWith("Saving earlier screen time…");
+  });
+
   it("plays a ready item inline from the media recording and offers a larger view", () => {
     setQuery({
       isSuccess: true,
@@ -353,7 +395,9 @@ describe("RecordingContextSection", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     labState.enabled = true;
+    sessionState.authenticated = true;
     queryOptions.current = undefined;
+    syncOptions.current = undefined;
   });
 
   afterEach(() => {
@@ -361,9 +405,18 @@ describe("RecordingContextSection", () => {
     container.remove();
   });
 
-  function render(recordingId: string | undefined = "rec_1") {
+  function render(
+    recordingId: string | undefined = "rec_1",
+    pathname = "/r/rec_1",
+  ) {
     act(() =>
-      root.render(<RecordingContextSection recordingId={recordingId} />),
+      root.render(
+        <MemoryRouter key={pathname} initialEntries={[pathname]}>
+          <QueryClientProvider client={queryClient}>
+            <RecordingContextSection recordingId={recordingId} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      ),
     );
   }
 
@@ -393,6 +446,69 @@ describe("RecordingContextSection", () => {
     render();
     expect(container.innerHTML).toBe("");
     expect(queryOptions.current?.enabled).toBe(false);
+    expect((syncOptions.current as { realtime?: unknown }).realtime).toBe(
+      undefined,
+    );
+  });
+
+  it("refreshes only this clip's context when the desktop changes it", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [] },
+    });
+    render("rec_1");
+
+    const options = syncOptions.current as {
+      realtime?: { reason?: string };
+      actionInvalidatePredicate?: (
+        query: { queryKey: readonly unknown[] },
+        events: Array<Record<string, unknown>>,
+      ) => boolean;
+    };
+    expect(options.realtime?.reason).toContain("desktop");
+    const shouldRefresh = options.actionInvalidatePredicate;
+    expect(shouldRefresh).toBeDefined();
+
+    const query = {
+      queryKey: ["action", "list-recording-context", { recordingId: "rec_1" }],
+    };
+    expect(
+      shouldRefresh?.(query, [
+        { source: "action", key: "update-recording-context" },
+      ]),
+    ).toBe(true);
+    expect(
+      shouldRefresh?.(query, [
+        { source: "action", key: "get-recording-player-data" },
+      ]),
+    ).toBe(false);
+    expect(
+      shouldRefresh?.(
+        {
+          queryKey: [
+            "action",
+            "list-recording-context",
+            { recordingId: "another-clip" },
+          ],
+        },
+        [{ source: "action", key: "update-recording-context" }],
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps background sync off for anonymous or public recording pages", () => {
+    sessionState.authenticated = false;
+    render();
+    expect((syncOptions.current as { realtime?: unknown }).realtime).toBe(
+      undefined,
+    );
+
+    sessionState.authenticated = true;
+    render("rec_1", "/share/public-id");
+    expect((syncOptions.current as { realtime?: unknown }).realtime).toBe(
+      undefined,
+    );
   });
 
   it("renders nothing when the lab is on but the clip has no context items", () => {
@@ -412,7 +528,15 @@ describe("RecordingContextSection", () => {
       data: { items: [item({})] },
     });
     // Inline, not render(): the helper's default id would replace undefined.
-    act(() => root.render(<RecordingContextSection recordingId={undefined} />));
+    act(() =>
+      root.render(
+        <MemoryRouter initialEntries={["/r/rec_1"]}>
+          <QueryClientProvider client={queryClient}>
+            <RecordingContextSection recordingId={undefined} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      ),
+    );
     expect(container.innerHTML).toBe("");
   });
 });

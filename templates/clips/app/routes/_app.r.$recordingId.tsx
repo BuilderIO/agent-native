@@ -46,7 +46,6 @@ import {
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
-import { WAITING_STORAGE_EXPIRED_REASON } from "@shared/upload-interruption";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -158,9 +157,11 @@ import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
+import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
@@ -168,7 +169,6 @@ import {
   setRecordingSection,
   type RecordingSection,
 } from "@/lib/recording-section";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -952,8 +952,15 @@ export default function RecordingPage() {
     const hasMedia = isImageRecording(recording)
       ? Boolean(recording.imageUrl || recording.thumbnailUrl)
       : Boolean(recording.videoUrl);
-    const phase =
-      recording.status === "ready"
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const waitingForStorage = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
+    const phase = waitingForStorage
+      ? "waiting-storage"
+      : recording.status === "ready"
         ? hasMedia
           ? "ready"
           : "processing"
@@ -964,7 +971,9 @@ export default function RecordingPage() {
       dismissProcessingToast();
     }
     const transition = recordingProcessingTransition(previous, current);
-    if (transition === "processing") {
+    if (transition === "dismissed") {
+      dismissProcessingToast();
+    } else if (transition === "processing") {
       startProcessingToast(
         phase === "uploading"
           ? t("recordingPage.uploadingAssembling")
@@ -981,6 +990,8 @@ export default function RecordingPage() {
     dismissProcessingToast,
     failProcessingToast,
     recording?.id,
+    recording?.failureReason,
+    recording?.sourceAppName,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,
@@ -1665,21 +1676,45 @@ export default function RecordingPage() {
     const errorCode = (err as Error & { errorCode?: unknown }).errorCode;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
-    failAiRequestToast(t("recordingPage.aiRequestFailed"), {
-      description:
-        errorCode === "edits_unreadable"
-          ? t("recordingPage.silenceEditsUnreadable")
-          : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
-      ...(retryKind === "remove-filler-words" || retryKind === "remove-silences"
-        ? {
-            action: {
-              label: t("agentChat.common.retry"),
-              onClick: () => retryAiRequestRef.current?.(retryKind),
-            },
-          }
-        : {}),
-      duration: Number.POSITIVE_INFINITY,
-    });
+    const transcriptNeedsRegeneration = shouldOfferTranscriptRegeneration(
+      retryKind,
+      errorCode,
+      recording?.id,
+    );
+    failAiRequestToast(
+      transcriptNeedsRegeneration
+        ? t("recordingPage.silenceTranscriptUnavailableTitle")
+        : t("recordingPage.aiRequestFailed"),
+      {
+        description: transcriptNeedsRegeneration
+          ? t("recordingPage.silenceTranscriptUnavailableDescription")
+          : errorCode === "edits_unreadable"
+            ? t("recordingPage.silenceEditsUnreadable")
+            : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
+        ...(transcriptNeedsRegeneration
+          ? {
+              action: {
+                label: t("transcriptPanel.regenerate"),
+                onClick: () =>
+                  requestTranscriptWithLifecycle({
+                    recordingId: recording!.id,
+                    force: true,
+                    regenerate: true,
+                  }),
+              },
+            }
+          : retryKind === "remove-filler-words" ||
+              retryKind === "remove-silences"
+            ? {
+                action: {
+                  label: t("agentChat.common.retry"),
+                  onClick: () => retryAiRequestRef.current?.(retryKind),
+                },
+              }
+            : {}),
+        duration: Number.POSITIVE_INFINITY,
+      },
+    );
   };
   const requestTranscript = useActionMutation("request-transcript" as any, {
     onSuccess: (result: any) => {
@@ -2108,11 +2143,10 @@ export default function RecordingPage() {
       ((recording as any).failureReason as string | null | undefined) ?? null;
     // An import that expired waiting for storage keeps its source URL, so it
     // can still be retried once storage connects.
-    const waitingForStorage =
-      isStorageSetupFailureReason(rawFailureReason) ||
-      ((isLoomRecording ||
-        recording.sourceAppName?.trim().toLowerCase() === "video link") &&
-        rawFailureReason === WAITING_STORAGE_EXPIRED_REASON);
+    const waitingForStorage = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const storedButUnservableFailure =
       isStoredButUnservableFinalizeError(rawFailureReason);
     const loomStorageSetupFailure = waitingForStorage && isLoomRecording;
@@ -2247,6 +2281,7 @@ export default function RecordingPage() {
                 </div>
               ) : (
                 <StorageSetupCard
+                  connectSource="clips_recording_page_storage_setup_card"
                   title={
                     loomStorageSetupFailure
                       ? t("recordingPage.connectStorageImportLoomTitle")
@@ -2634,29 +2669,33 @@ export default function RecordingPage() {
                   {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("remove-filler-words");
-                    removeFillerWords.mutate({
-                      recordingId: recording.id,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.removeFillerWords")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("remove-silences");
-                    removeSilences.mutate({
-                      recordingId: recording.id,
-                      thresholdMs: 1200,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.removeSilences")}
-                </DropdownMenuItem>
+                {isLoomEmbedBacked ? null : (
+                  <>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("remove-filler-words");
+                        removeFillerWords.mutate({
+                          recordingId: recording.id,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.removeFillerWords")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("remove-silences");
+                        removeSilences.mutate({
+                          recordingId: recording.id,
+                          thresholdMs: 1200,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.removeSilences")}
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuItem
                   disabled={backgroundAiBusy}
                   onSelect={() => {

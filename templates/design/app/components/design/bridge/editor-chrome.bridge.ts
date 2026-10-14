@@ -18,8 +18,8 @@
  *   __RUNTIME_LAYER_SNAPSHOT_ENABLED__ — true only for URL-backed localhost apps
  *
  * Rules:
- *   • The shared, build-time-inlined canvas interaction controller is the one
- *     permitted import. No runtime module lookup survives code generation.
+ *   • Imports only from BRIDGE_SAFE_IMPORTS in bridge.guard.spec.ts, which
+ *     codegen inlines; no runtime module lookup survives code generation.
  *   • No require of any module (DOM globals only at iframe runtime).
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.
@@ -29,6 +29,17 @@
  */
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
+
+import {
+  isAutoLayoutDisplay,
+  marginHandlesApply,
+} from "../../../../shared/spacing-handle-rule";
+import {
+  INLINE_TEXT_TAGS,
+  padsBox,
+  paintsBox,
+  TEXT_LAYER_TAGS,
+} from "../../../../shared/text-layer-rule";
 
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
@@ -54,6 +65,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
   var designCanvasContentOffsetY =
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+  // A subtree style snapshot can cost a second on a deep screen, so only a frame
+  // the parent cannot call into ships one with every element info.
+  var portableStyleSnapshotsReadOnDemand = Boolean(window.frameElement);
 
   function clipboardScreenContext() {
     return !designCanvasBoardSurface && designCanvasScreenId
@@ -931,7 +945,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}' +
       '@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}' +
       '@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' +
-      "html{overflow:clip}" +
+      // A clipped root is a hidden viewport: the wheel reaches a live page in
+      // Interact and moves nothing. Interact owns scrolling, so it is released.
+      "html:not([data-agent-native-interact]){overflow:clip}" +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -3413,6 +3429,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     };
   }
 
+  // display:none here or on an ancestor (a breakpoint frame hiding `md:flex`)
+  // leaves no box, and getBoundingClientRect() then reads 0x0 at the origin.
+  function hasLayoutBox(el: Element): boolean {
+    return el.getClientRects().length > 0;
+  }
+
   function outermostSvgAncestor(el: Element | null): Element | null {
     var owner = el && (el as SVGElement).ownerSVGElement;
     if (!owner) return null;
@@ -3838,6 +3860,22 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
+    if (
+      typeof target.matches === "function" &&
+      target.matches("span[data-agent-native-motion-text-unit]")
+    ) {
+      var sourceTextTarget = target.parentElement;
+      while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
+        if (
+          sourceTextTarget.hasAttribute("data-agent-native-node-id") &&
+          !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")
+        ) {
+          target = sourceTextTarget;
+          break;
+        }
+        sourceTextTarget = sourceTextTarget.parentElement;
+      }
+    }
     var textPrimitive = nativeTextPrimitiveForHit(target);
     if (textPrimitive) target = textPrimitive;
     if (!descendIntoGroup) {
@@ -4277,15 +4315,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         ? undefined
         : "The runtime did not expose a verified authored component invocation location.",
     };
-  }
-
-  function isAutoLayoutDisplay(display: string | undefined): boolean {
-    return (
-      display === "flex" ||
-      display === "inline-flex" ||
-      display === "grid" ||
-      display === "inline-grid"
-    );
   }
 
   function rectInfoForElement(el: Element) {
@@ -4850,6 +4879,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   var portableStyleProbeDoc: Document | null | undefined;
   var portableStyleProbeContainer: HTMLElement | ShadowRoot | null | undefined;
+  var portableStyleProbeHost: Element | undefined;
+
+  // Tag defaults are cached, so the probe lives only for the task that needed
+  // it; kept, it is a second document for the life of every selected editor.
+  function releasePortableStyleProbe(): void {
+    portableStyleProbeHost?.remove();
+    portableStyleProbeHost = undefined;
+    portableStyleProbeDoc = undefined;
+    portableStyleProbeContainer = undefined;
+  }
 
   function portableStyleProbeDocument(): Document | null {
     if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
@@ -4858,6 +4897,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     try {
       frame = document.createElement("iframe");
       frame.setAttribute("aria-hidden", "true");
+      // An overlay node, so creating it mid-snapshot leaves the style cache valid.
+      frame.setAttribute(
+        "data-agent-native-edit-overlay",
+        "portable-style-probe",
+      );
       frame.tabIndex = -1;
       frame.style.cssText =
         "position:fixed!important;width:0!important;height:0!important;" +
@@ -4865,6 +4909,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       document.body.appendChild(frame);
       var probeDoc = frame.contentDocument;
       if (probeDoc) {
+        portableStyleProbeHost = frame;
         portableStyleProbeDoc = probeDoc;
         portableStyleProbeContainer = probeDoc.body;
       } else {
@@ -4879,11 +4924,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
         );
         document.body.appendChild(fallbackHost);
+        portableStyleProbeHost = fallbackHost;
         portableStyleProbeDoc = document;
         portableStyleProbeContainer = fallbackHost.attachShadow({
           mode: "open",
         });
       }
+      window.setTimeout(releasePortableStyleProbe, 0);
     } catch (err) {
       frame?.remove();
       console.warn("Portable style probe unavailable", err);
@@ -6029,6 +6076,93 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     };
   }
 
+  var srgbColorContext: CanvasRenderingContext2D | null | undefined;
+  var srgbColorByValue = new Map<string, string>();
+  var SRGB_COLOR_SENTINEL = "#010203"; // guard:allow-raw-color — a parse sentinel, never painted
+
+  // Computed Tailwind v4 colors stay in oklch(), which the editor's color
+  // parsing cannot read, so each one is painted once and read back as hex.
+  function srgbColor(value: string): string {
+    var known = srgbColorByValue.get(value);
+    if (known !== undefined) return known;
+    if (srgbColorContext === undefined) {
+      srgbColorContext = document
+        .createElement("canvas")
+        .getContext("2d", { willReadFrequently: true });
+    }
+    if (!srgbColorContext) return value;
+    // A value the canvas rejects leaves fillStyle unchanged, which would
+    // otherwise paint whatever color came before it.
+    srgbColorContext.fillStyle = SRGB_COLOR_SENTINEL;
+    srgbColorContext.fillStyle = value;
+    if (srgbColorContext.fillStyle === SRGB_COLOR_SENTINEL) return value;
+    srgbColorContext.clearRect(0, 0, 1, 1);
+    srgbColorContext.fillRect(0, 0, 1, 1);
+    var hex = "#";
+    srgbColorContext.getImageData(0, 0, 1, 1).data.forEach(function (channel) {
+      hex += channel.toString(16).padStart(2, "0");
+    });
+    srgbColorByValue.set(value, hex);
+    return hex;
+  }
+
+  function srgbColorTokens(value: string): string {
+    return value.replace(
+      /\b(?:oklch|oklab|lch|lab|hwb|color)\([^()]*\)/g,
+      srgbColor,
+    );
+  }
+
+  function hasOwnText(el: Element): boolean {
+    for (var child = el.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === 3 && child.textContent?.trim()) return true;
+    }
+    return false;
+  }
+
+  function paintedColorStyles(el: Element): Record<string, string> {
+    var cs = window.getComputedStyle(el);
+    var styles: Record<string, string> = {};
+    var read = function (property: string) {
+      styles[property] = srgbColorTokens(cs.getPropertyValue(property));
+    };
+    if (hasOwnText(el)) read("color");
+    read("background-color");
+    if (cs.backgroundImage !== "none") read("background-image");
+    ["top", "right", "bottom", "left"].forEach(function (side) {
+      if (portableBorderSidePaints(cs, side)) read("border-" + side + "-color");
+    });
+    if (cs.boxShadow !== "none") read("box-shadow");
+    if (
+      el instanceof SVGGeometryElement ||
+      el instanceof SVGTextContentElement
+    ) {
+      if (cs.fill !== "none") read("fill");
+      if (cs.stroke !== "none") read("stroke");
+    }
+    return styles;
+  }
+
+  // Swatches only need painted colors, so this skips the full snapshot's
+  // per-node work; the cap keeps a huge subtree from stalling a picker opening.
+  var SUBTREE_COLOR_NODE_LIMIT = 5000;
+
+  function collectSubtreeColorStyles(root: Element): {
+    nodes: Array<Record<string, string>>;
+    truncated: boolean;
+  } {
+    srgbColorByValue.clear();
+    var nodes = [paintedColorStyles(root)];
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (nodes.length >= SUBTREE_COLOR_NODE_LIMIT) {
+        return { nodes: nodes, truncated: true };
+      }
+      nodes.push(paintedColorStyles(node as Element));
+    }
+    return { nodes: nodes, truncated: false };
+  }
+
   // Raw authored (not computed) inline style values for the properties the
   // EditPanel constraints/position/auto-size readers need to distinguish
   // "unset" from "resolved to a computed pixel value" (e.g. an absolutely
@@ -6710,7 +6844,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function getElementInfo(
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
-    includePortableStyleSnapshot = true,
+    includePortableStyleSnapshot = !portableStyleSnapshotsReadOnDemand,
     sharedPositionComputedStylesCache?: PositionComputedStylesCache,
   ): unknown {
     var cs = window.getComputedStyle(el);
@@ -6853,6 +6987,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         portableStyleSnapshot === null ? undefined : portableStyleSnapshot,
       styleSnapshotCaptureFailed:
         portableStyleSnapshot === null ? true : undefined,
+      styleSnapshotReadOnDemand:
+        portableStyleSnapshotsReadOnDemand || undefined,
       boundingRect,
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
@@ -6890,6 +7026,35 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }, 0),
       provenance: provenance,
     };
+  }
+
+  // What is painted at an element and each ancestor above it, nearest first.
+  // The editor decides what that means for text contrast; the bridge only
+  // reports computed values.
+  function collectPaintLayers(el: Element): Array<{
+    backgroundColor: string;
+    backgroundImage: string;
+    opacity: string;
+    mixBlendMode: string;
+  }> {
+    var layers: Array<{
+      backgroundColor: string;
+      backgroundImage: string;
+      opacity: string;
+      mixBlendMode: string;
+    }> = [];
+    var node: Element | null = el;
+    while (node && layers.length < 64) {
+      var paint = window.getComputedStyle(node);
+      layers.push({
+        backgroundColor: paint.backgroundColor,
+        backgroundImage: paint.backgroundImage,
+        opacity: paint.opacity,
+        mixBlendMode: paint.mixBlendMode,
+      });
+      node = node.parentElement;
+    }
+    return layers;
   }
 
   var lastScreenRootStyleSnapshot = "";
@@ -7160,7 +7325,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         );
       });
     }
-    portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
@@ -10055,6 +10219,39 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return handles.filter(Boolean);
   }
 
+  // The overlay rebuilds every frame while a selection moves, and a parent's
+  // display almost never changes inside one; re-reading it per frame would make
+  // style reads scale with frames instead of elements.
+  var marginParentDisplayCache: {
+    el: Element;
+    parent: Element;
+    display: string;
+    at: number;
+  } | null = null;
+
+  function marginParentDisplay(el: Element): string | undefined {
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var now = Date.now();
+    var cached = marginParentDisplayCache;
+    if (
+      cached &&
+      cached.el === el &&
+      cached.parent === parent &&
+      now - cached.at < 250
+    ) {
+      return cached.display;
+    }
+    var display = window.getComputedStyle(parent).display;
+    marginParentDisplayCache = {
+      el: el,
+      parent: parent,
+      display: display,
+      at: now,
+    };
+    return display;
+  }
+
   function buildMarginSpacingHandles(
     el: Element,
     rect: DOMRect,
@@ -10069,6 +10266,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var right = clampSpacingValue(readPx(cs.marginRight), true);
     var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
     var left = clampSpacingValue(readPx(cs.marginLeft), true);
+    var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+    var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+    var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+    var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+    // A drag through 0 must not retire the handle being dragged.
+    var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+    if (
+      !draggingMargin &&
+      !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position,
+      })
+    ) {
+      return [];
+    }
 
     return [
       makeSpacingHandle({
@@ -10079,7 +10293,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "top",
         orientation: "horizontal",
         value: top,
-        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        valueLabel: autoTop ? "auto" : "",
         elementRect: rect,
         region: {
           x: 0,
@@ -10105,9 +10319,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "right",
         orientation: "vertical",
         value: right,
-        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
-          ? "auto"
-          : "",
+        valueLabel: autoRight ? "auto" : "",
         elementRect: rect,
         region: {
           x: rect.width + Math.min(0, right),
@@ -10134,9 +10346,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "bottom",
         orientation: "horizontal",
         value: bottom,
-        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
-          ? "auto"
-          : "",
+        valueLabel: autoBottom ? "auto" : "",
         elementRect: rect,
         region: {
           x: 0,
@@ -10163,7 +10373,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         side: "left",
         orientation: "vertical",
         value: left,
-        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        valueLabel: autoLeft ? "auto" : "",
         elementRect: rect,
         region: {
           x: Math.min(0, -left),
@@ -11825,13 +12035,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     setSelectionOverlayResizeChromeVisible(
       !readOnly && !activeTextEditEl && members.length < 2,
     );
-    if (members.length === 0 || selectionChromeHidden) {
+    var laidOutMembers = members.filter(hasLayoutBox);
+    if (laidOutMembers.length === 0 || selectionChromeHidden) {
       if (multiSelectionBoundsOverlay) {
         multiSelectionBoundsOverlay.style.display = "none";
       }
       return;
     }
-    var rects = members.map(function (el) {
+    var rects = laidOutMembers.map(function (el) {
       return (el as HTMLElement).getBoundingClientRect();
     });
     var left = Math.min.apply(
@@ -11896,9 +12107,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   }
 
   function positionOverlay(overlay: HTMLElement, el: Element): void {
-    if (!el || !document.documentElement.contains(el)) {
+    if (!el || !document.documentElement.contains(el) || !hasLayoutBox(el)) {
       overlay.style.display = "none";
-      if (overlay === selectionOverlay) hideSelectionOverlay();
+      if (overlay === selectionOverlay) {
+        hideSelectionOverlay();
+        // Still observed, so a selection hidden at this width reappears once it renders.
+        syncOverlayObservers();
+      }
       return;
     }
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
@@ -14488,8 +14703,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }> = [];
     // The hit stack is nested, so each candidate's subtree snapshot contains
     // the next one's; a shared cache reads each element's styles once.
-    portableStyleProbeDocument();
-    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    var portableComputedStylesCache = portableStyleSnapshotsReadOnDemand
+      ? undefined
+      : createPortableStyleComputedStylesCache();
     try {
       pointTargets.forEach(function (pointTarget) {
         if (!pointTarget || pointTarget.nodeType !== 1) return;
@@ -18244,6 +18460,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
         return luminance > 150;
       }
+      // A background this script cannot read (oklch(), color()) is not assumed
+      // to be light: the caller leaves the text color alone.
+      if (
+        !rgb &&
+        bg &&
+        bg !== "transparent" &&
+        !/\/\s*0(?:\.0+)?%?\s*\)$/.test(bg)
+      ) {
+        return false;
+      }
       cursor = cursor.parentElement;
     }
     return true;
@@ -18861,7 +19087,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        !INLINE_TEXT_TAGS.has(childTag) &&
         BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
       ) {
         return false;
@@ -23949,11 +24175,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     bridgeMoveController.pointerDown({
       kind: "move",
       objectIds: [getSelector(gestureEl)],
-      pointer: bridgeGesturePointer(
-        duplicatedForDrag && pointerStartParam
-          ? { ...e, ...pointerStartParam }
-          : e,
-      ),
+      pointer: { ...bridgeGesturePointer(e), x: startX, y: startY },
       viewport: gestureViewport,
       canvas: { width: gestureViewport.width, height: gestureViewport.height },
     });
@@ -24740,6 +24962,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onMoveKeyDown, true);
     setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
+    // A listener added mid-dispatch never sees the move that started the drag.
+    if (pointerStartParam) onMove(e);
   }
 
   var KSCALE_LENGTH_PROPERTIES = [
@@ -26408,6 +26632,48 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return hitEl;
   }
 
+  // The "text" branch of treeTypeForNode in shared/code-layer.ts: the layer
+  // tree folds this block's inline runs into it instead of listing them.
+  function isCodeLayerTextBlock(el: Element): boolean {
+    if (el.getAttribute("data-agent-native-group") === "true") return false;
+    var primitive = el.getAttribute("data-an-primitive");
+    if (primitive) return primitive === "text";
+    if ((el.getAttribute("data-agent-native-component") || "").trim()) {
+      return false;
+    }
+    if (!TEXT_LAYER_TAGS.has(el.tagName.toLowerCase())) return false;
+    var classes = Array.from(el.classList);
+    var inlineStyle = (el as HTMLElement).style;
+    var styleValue = function (property: string) {
+      return inlineStyle?.getPropertyValue(property) || undefined;
+    };
+    if (paintsBox(classes, styleValue) || padsBox(classes, styleValue)) {
+      return false;
+    }
+    for (var i = 0; i < el.children.length; i += 1) {
+      var child = el.children[i]!;
+      if (
+        !INLINE_TEXT_TAGS.has(child.tagName.toLowerCase()) ||
+        child.children.length > 0
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // A run folded into its text block is no layer of its own, so a drag moves
+  // the block; dropping the run elsewhere would strip the block's styling.
+  function textBlockOwningRun(el: Element | null): Element | null {
+    var parent = el?.parentElement;
+    return el &&
+      parent &&
+      INLINE_TEXT_TAGS.has(el.tagName.toLowerCase()) &&
+      isCodeLayerTextBlock(parent)
+      ? parent
+      : el;
+  }
+
   function nextStackCandidate(candidateKeys, currentKey) {
     if (!candidateKeys || candidateKeys.length === 0) return null;
     var idx = candidateKeys.indexOf(currentKey);
@@ -26486,15 +26752,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       selectedAlive && selectedEl.getBoundingClientRect
         ? selectedEl.getBoundingClientRect()
         : null;
-    var dragTarget = dragTargetForPointerDown({
-      selectedEl: selectedEl,
-      selectedAlive: selectedAlive,
-      selectedRect: selectedRect,
-      hitEl: hitTarget,
-      hitRaw: hit,
-      point: { x: e.clientX, y: e.clientY },
-      preferSelected: selectedLayerDragPriorityEnabled,
-    });
+    var dragTarget = textBlockOwningRun(
+      dragTargetForPointerDown({
+        selectedEl: selectedEl,
+        selectedAlive: selectedAlive,
+        selectedRect: selectedRect,
+        hitEl: hitTarget,
+        hitRaw: hit,
+        point: { x: e.clientX, y: e.clientY },
+        preferSelected: selectedLayerDragPriorityEnabled,
+      }),
+    );
     if ((window as any).__DND_DEBUG)
       dndLog("shield:down", {
         hit: getSelector(hit),
@@ -28530,6 +28798,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         trustedFocusIntent = null;
       }
       interactionMode = nextInteractionMode;
+      document.documentElement.toggleAttribute(
+        "data-agent-native-interact",
+        interactionMode,
+      );
       if (interactionMode) {
         hideMeasurements();
         var releaseSpacePan = bridgeSpaceKeyPressed;
@@ -28907,6 +29179,36 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       );
       return;
     }
+    if (e.data.type === "agent-native:measure-contrast-background") {
+      var contrastScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (contrastScreenId && contrastScreenId !== designCanvasScreenId) return;
+      var contrastSelector: string =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var contrastTarget: Element | null = null;
+      if (contrastSelector) {
+        try {
+          contrastTarget = document.querySelector(contrastSelector);
+        } catch (_err) {
+          contrastTarget = null;
+        }
+      } else {
+        contrastTarget = selectedEl;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:contrast-background-measured",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          screenId: designCanvasScreenId,
+          payload: contrastTarget ? collectPaintLayers(contrastTarget) : null,
+        },
+        "*",
+      );
+      return;
+    }
     if (e.data.type === "agent-native:collect-selectable-rects") {
       (window.parent as Window).postMessage(
         {
@@ -28918,7 +29220,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           payload: collectSelectableElementInfos(
             Boolean(e.data.deep),
             readSelectablePoint(e.data.atPoint),
-            e.data.includePortableStyleSnapshot !== false,
+            e.data.includePortableStyleSnapshot !== false &&
+              !portableStyleSnapshotsReadOnDemand,
           ),
         },
         "*",
@@ -30356,6 +30659,43 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     },
     inlineExportResources: function (html: string) {
       return inlineRuntimeSnapshotResources(html, 5_000_000);
+    },
+    collectPortableStyleSnapshot: function (
+      screenId: string,
+      selector: string,
+      instanceIndex: number,
+    ) {
+      if (screenId !== designCanvasScreenId) return null;
+      var target: Element | null;
+      try {
+        target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
+      } catch (_error) {
+        return { status: "failed" };
+      }
+      var snapshot = target ? collectPortableStyleSnapshot(target) : undefined;
+      if (snapshot === null) return { status: "failed" };
+      if (snapshot === undefined) return { status: "missing" };
+      return { status: "captured", snapshot: snapshot };
+    },
+    collectSubtreeColorStyles: function (
+      screenId: string,
+      selector: string,
+      instanceIndex: number,
+    ) {
+      if (screenId !== designCanvasScreenId) return null;
+      var target: Element | null;
+      try {
+        target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
+      } catch (_error) {
+        return { status: "failed" };
+      }
+      if (!target || isDocumentRootElement(target))
+        return { status: "missing" };
+      var read = collectSubtreeColorStyles(target);
+      return {
+        status: read.truncated ? "truncated" : "captured",
+        nodes: read.nodes,
+      };
     },
     updateConfig: function (next) {
       if (!next || typeof next !== "object") return;

@@ -1,4 +1,6 @@
 const messages = {
+  "block.renderUnavailable": "This block is temporarily unavailable.",
+  "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
   "composer.contextAttach": "Attach",
@@ -154,9 +156,9 @@ const messages = {
   "onboarding.builderActivationChecking":
     "Checking whether new account activation is available.",
   "onboarding.builderActivationUnavailable":
-    "New account creation isn't enabled for this app. You can still connect an existing account.",
+    "Create a Builder.io account or sign in to connect.",
   "onboarding.builderActivationUnavailableInMode":
-    "New account activation isn't available in this mode. You can still connect an existing account.",
+    "Create a Builder.io account or sign in to connect.",
   "onboarding.builderActivationCheckFailed":
     "Couldn't check whether this app can create new accounts.",
 
@@ -165,6 +167,7 @@ const messages = {
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConnect": "Connect Builder.io",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",
   "onboarding.builderTerms": "Terms of Service",
@@ -1177,6 +1180,12 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "errorMessages.invalidAttachmentNamed":
     "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.sendingVerificationEmail": "Sending...",
+  "recovery.verificationEmailRequested":
+    "Verification email requested. Check your inbox and spam folder.",
+  "recovery.verificationEmailFailed":
+    "Couldn't request the verification email. Please try again.",
   "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
@@ -1220,6 +1229,8 @@ const messages = {
   "secrets.emptyHint": "Add a key to use your own accounts.",
   "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
   "secrets.emptyTitle": "No keys yet.",
+  "secrets.figmaTokenMustBeToken":
+    "Paste a Figma access token, not a Figma file URL.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",

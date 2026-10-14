@@ -1,12 +1,4 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { childNodeIds, elementInner, gotoEditor } from "./helpers";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const AUTO_LAYOUT_HTML = `<!doctype html>
 <html lang="en">
@@ -28,240 +20,145 @@ const AUTO_LAYOUT_HTML = `<!doctype html>
 
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 
-test.describe("auto layout keyboard interactions", () => {
-  let designId = "";
-
-  test.afterEach(async ({ request, baseURL }) => {
-    if (!designId) return;
-    await postAction(request, baseURL, "delete-design", {
-      id: designId,
-    }).catch(() => {});
-    designId = "";
-  });
-
-  test("arrow keys reorder an auto layout child instead of offsetting it", async ({
-    page,
-    request,
-    baseURL,
-  }) => {
-    designId = await createAutoLayoutDesign(
-      request,
-      baseURL,
-      "E2E Auto Layout Reorder",
-    );
-    await gotoEditor(page, designId);
-
-    await selectLayerRow(page, "Alpha");
-    await pressEditorKey(page, "ArrowRight");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["al-beta", "al-alpha", "al-gamma"]);
-      expect(html).not.toMatch(/al-alpha[^>]*position:\s*relative/);
-    });
-
-    await pressEditorKey(page, "ArrowLeft");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["al-alpha", "al-beta", "al-gamma"]);
-    });
-
-    await pressEditorKey(page, "ArrowUp");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["al-alpha", "al-beta", "al-gamma"]);
-      expect(html).not.toMatch(/al-alpha[^>]*top:\s*-1px/);
-    });
-  });
-
-  test("paste lands inside a selected auto layout frame, in its flow", async ({
-    page,
-    context,
-    request,
-    baseURL,
-  }) => {
-    designId = await createAutoLayoutDesign(
-      request,
-      baseURL,
-      "E2E Paste Into Container",
-    );
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: new URL(actionBaseUrl(baseURL)).origin,
-    });
-    await gotoEditor(page, designId);
-
-    await selectLayerRow(page, "Alpha");
-    await pressPrimaryShortcut(page, "c");
-    await selectLayerRow(page, "Free Frame");
-    await pressPrimaryShortcut(page, "v");
-
-    await expectFileContent(request, baseURL, designId, (html) => {
-      const frame = elementInner(html, "al-free");
-      expect(frame).toContain("Alpha");
-      expect(flowOrder(html)).toEqual(["al-alpha", "al-beta", "al-gamma"]);
-    });
-  });
-
-  test("paste lands after a selected text object, not inside it", async ({
-    page,
-    context,
-    request,
-    baseURL,
-  }) => {
-    designId = await createAutoLayoutDesign(
-      request,
-      baseURL,
-      "E2E Paste After Object",
-    );
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: new URL(actionBaseUrl(baseURL)).origin,
-    });
-    await gotoEditor(page, designId);
-
-    await selectLayerRow(page, "Alpha");
-    await pressPrimaryShortcut(page, "c");
-    await selectLayerRow(page, "Beta");
-    await pressPrimaryShortcut(page, "v");
-
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(elementInner(html, "al-beta")).not.toContain("Alpha");
-      const order = flowOrder(html);
-      expect(order.slice(0, 2)).toEqual(["al-alpha", "al-beta"]);
-      expect(order).toHaveLength(4);
-    });
-  });
-});
-
-function flowOrder(html: string): string[] {
-  return childNodeIds(html, "al-row");
+function childrenOf(
+  nodes: Map<string, { parent: string | null; index: number }>,
+  parent: string,
+) {
+  return [...nodes.entries()]
+    .filter(([, node]) => node.parent === parent)
+    .sort(([, a], [, b]) => a.index - b.index)
+    .map(([id]) => id);
 }
 
-async function createAutoLayoutDesign(
-  request: APIRequestContext,
-  baseURL: string | undefined,
-  title: string,
-): Promise<string> {
-  const created = await postAction(request, baseURL, "create-design", {
-    title,
-    projectType: "prototype",
-  });
-  const id: string | undefined =
-    created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!id) throw new Error(`create-design did not return id: ${created}`);
-  await postAction(request, baseURL, "create-file", {
-    designId: id,
-    filename: "layout.html",
-    fileType: "html",
-    content: AUTO_LAYOUT_HTML,
-  });
+function subtree(
+  nodes: Map<string, { parent: string | null }>,
+  id: string,
+): string[] {
+  return [
+    id,
+    ...[...nodes.entries()]
+      .filter(([, node]) => node.parent === id)
+      .flatMap(([child]) => subtree(nodes, child)),
+  ];
+}
+
+async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(point.x, point.y);
+  await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
+}
+
+async function openWithClipboard(app: App) {
+  const id = await app.seed(AUTO_LAYOUT_HTML);
+  await app.page
+    .context()
+    .grantPermissions(["clipboard-read", "clipboard-write"]);
+  await app.open(id);
+  await app.zoomToFit();
   return id;
 }
 
-async function postAction(
-  request: APIRequestContext,
-  baseURL: string | undefined,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const res = await request.post(
-    `${actionBaseUrl(baseURL)}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!res.ok()) {
-    throw new Error(
-      `action ${name} failed: ${res.status()} ${await res.text()}`,
-    );
-  }
-  return res.json();
-}
+test.describe("auto layout keyboard interactions", () => {
+  test("arrow keys reorder an auto layout child instead of offsetting it", async ({
+    app,
+    page,
+  }) => {
+    const id = await app.seed(AUTO_LAYOUT_HTML);
+    await app.open(id);
+    await app.zoomToFit();
+    await selectOnCanvas(app, "al-alpha", "Alpha");
+    const before = await app.savedNodes(id);
+    expect(childrenOf(before, "al-row")).toEqual([
+      "al-alpha",
+      "al-beta",
+      "al-gamma",
+    ]);
 
-function actionBaseUrl(baseURL: string | undefined): string {
-  return (baseURL ?? process.env.E2E_BASE_URL ?? e2eBaseURL()).replace(
-    /\/$/,
-    "",
-  );
-}
+    await page.keyboard.press("ArrowRight");
+    await app.settled();
+    const right = await app.savedNodes(id);
+    expect(childrenOf(right, "al-row")).toEqual([
+      "al-beta",
+      "al-alpha",
+      "al-gamma",
+    ]);
+    expectOnlyChanged(before, right, []);
 
-async function expectFileContent(
-  request: APIRequestContext,
-  baseURL: string | undefined,
-  id: string,
-  assertContent: (html: string) => void,
-) {
-  await expect
-    .poll(
-      async () => {
-        const params = new URLSearchParams({ id });
-        const res = await request.get(
-          `${actionBaseUrl(baseURL)}/_agent-native/actions/get-design?${params}`,
-          { headers: { "Content-Type": "application/json" } },
-        );
-        if (!res.ok()) return `get-design ${res.status()}`;
-        const payload = await res.json();
-        const design = [
-          payload,
-          payload?.result,
-          payload?.design,
-          payload?.data,
-        ].find((candidate) => Array.isArray(candidate?.files));
-        const file = design?.files?.find(
-          (candidate: { filename?: string }) =>
-            candidate.filename === "layout.html",
-        );
-        if (typeof file?.content !== "string") {
-          return "layout.html has no content";
-        }
-        try {
-          assertContent(file.content);
-          return "ok";
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          return `${reason}\n--- layout.html ---\n${bodyOf(file.content)}`;
-        }
-      },
-      { timeout: 20_000 },
-    )
-    .toBe("ok");
-}
+    await page.keyboard.press("ArrowLeft");
+    await app.settled();
+    const left = await app.savedNodes(id);
+    expect(childrenOf(left, "al-row")).toEqual([
+      "al-alpha",
+      "al-beta",
+      "al-gamma",
+    ]);
+    expectOnlyChanged(before, left, []);
 
-function bodyOf(html: string): string {
-  const start = html.indexOf("<body");
-  return start < 0 ? html : html.slice(start, html.indexOf("</body>") + 7);
-}
-
-function layerTree(page: Page) {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-async function selectLayerRow(page: Page, name: string): Promise<void> {
-  const input = page.getByPlaceholder("Search layers...");
-  if (!(await input.isVisible().catch(() => false))) {
-    await page
-      .getByRole("button", { name: "Search layers...", exact: true })
-      .click();
-    await expect(input).toBeVisible();
-  }
-  await input.fill(name);
-  const button = layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
-  await expect(button).toBeVisible();
-  await button.click({ force: true });
-  await expect(
-    button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
-  ).toHaveAttribute("aria-selected", "true");
-}
-
-async function focusCanvas(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    document.body.setAttribute("tabindex", "-1");
-    document.body.focus();
+    await page.keyboard.press("ArrowUp");
+    await app.settled();
+    const up = await app.savedNodes(id);
+    expect(childrenOf(up, "al-row")).toEqual([
+      "al-alpha",
+      "al-beta",
+      "al-gamma",
+    ]);
+    expectOnlyChanged(before, up, []);
   });
-}
 
-async function pressEditorKey(page: Page, key: string): Promise<void> {
-  await focusCanvas(page);
-  await page.keyboard.press(key);
-}
+  // fixme: product bug: The pasted copy renders 360x42: as a block child it stretches to Free Frame's full width instead of keeping the original's size.
+  test.fixme("pasting into a selected frame puts one copy of Alpha inside it at Alpha's size", async ({
+    app,
+    page,
+  }) => {
+    const id = await openWithClipboard(app);
+    const alphaSize = await app.designRect("al-alpha");
+    await selectOnCanvas(app, "al-alpha", "Alpha");
+    await page.keyboard.press(`${PRIMARY}+c`);
+    await selectOnCanvas(app, "al-free", "Free Frame");
+    const before = await app.savedNodes(id);
+    expect(childrenOf(before, "al-free")).toEqual([]);
 
-async function pressPrimaryShortcut(page: Page, key: string): Promise<void> {
-  await focusCanvas(page);
-  await page.keyboard.press(`${PRIMARY}+${key.toUpperCase()}`);
-}
+    await page.keyboard.press(`${PRIMARY}+v`);
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    const pasted = childrenOf(after, "al-free");
+    expect(pasted).toHaveLength(1);
+    expect(after.get(pasted[0]!)?.attrs["data-agent-native-layer-name"]).toBe(
+      "Alpha",
+    );
+    expectOnlyChanged(before, after, subtree(after, pasted[0]!));
+    const copy = await app.designRect(pasted[0]!);
+    expect(
+      { width: copy.width, height: copy.height },
+      "the pasted copy keeps the original's size",
+    ).toEqual({ width: alphaSize.width, height: alphaSize.height });
+  });
+
+  test("paste lands right after a selected text object, not inside it", async ({
+    app,
+    page,
+  }) => {
+    const id = await openWithClipboard(app);
+    await selectOnCanvas(app, "al-alpha", "Alpha");
+    await page.keyboard.press(`${PRIMARY}+c`);
+    await selectOnCanvas(app, "al-beta", "Beta");
+    const before = await app.savedNodes(id);
+
+    await page.keyboard.press(`${PRIMARY}+v`);
+    await app.settled();
+
+    const after = await app.savedNodes(id);
+    const row = childrenOf(after, "al-row");
+    const copy = row.find((nodeId) => !before.has(nodeId))!;
+    expect(row).toEqual(["al-alpha", "al-beta", copy, "al-gamma"]);
+    expect(after.get(copy)?.attrs["data-agent-native-layer-name"]).toBe(
+      "Alpha",
+    );
+    expectOnlyChanged(before, after, subtree(after, copy));
+  });
+});

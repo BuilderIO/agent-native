@@ -1,549 +1,350 @@
-import { expect, test, type Page } from "@playwright/test";
-
+import { FIXTURE } from "./drag-and-drop.shared";
 import {
-  setBaseURL,
-  newDesign,
-  indexHtml,
-  node,
-  openEditor,
-  postAction,
-  selectViaTree,
-} from "./drag-and-drop.shared";
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
+const EXIT_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:700px">
+  <main data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:40px;top:40px;width:700px;height:400px;background:#eee">
+    <section data-an-primitive="frame" data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:0;top:0;display:flex;flex-direction:row;width:180px;height:140px;background:#ccc">
+      <div data-agent-native-node-id="dragme" data-agent-native-layer-name="Dragged layer" style="width:80px;height:60px;background:#6366f1">Dragged layer</div>
+    </section>
+    <div data-agent-native-node-id="candidate" data-agent-native-layer-name="Candidate" style="position:absolute;left:220px;top:20px;width:100px;height:100px;background:#9ca3af">Candidate</div>
+    <div data-agent-native-node-id="overlap" data-agent-native-layer-name="Later layer" style="position:absolute;left:340px;top:20px;width:120px;height:100px;background:#ef4444">Later layer</div>
+  </main>
+</body></html>`;
 
-async function persistedNodeParent(
-  page: Page,
-  designId: string,
+const NESTED_ROW_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px">
+  <div data-agent-native-node-id="frame-a" data-agent-native-layer-name="Container" style="position:absolute;left:20px;top:60px;width:280px;height:160px;background:#1f2937"></div>
+  <section data-an-primitive="frame" data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:360px;top:360px;width:300px;height:220px;display:flex;flex-direction:column;gap:8px;background:#374151">
+    <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;flex-direction:row;gap:8px">
+      <div data-agent-native-node-id="chip-1" data-agent-native-layer-name="Chip 1" style="width:80px;height:50px;background:#a855f7"></div>
+      <div data-agent-native-node-id="chip-2" data-agent-native-layer-name="Chip 2" style="width:80px;height:50px;background:#ec4899"></div>
+      <div data-agent-native-node-id="chip-3" data-agent-native-layer-name="Chip 3" style="width:80px;height:50px;background:#f59e0b"></div>
+    </div>
+  </section>
+</body></html>`;
+
+type Point = { x: number; y: number };
+
+function childrenOf(nodes: Map<string, SavedNode>, parent: string) {
+  return [...nodes.values()]
+    .filter((node) => node.parent === parent)
+    .sort((a, b) => a.index - b.index)
+    .map((node) => node.id);
+}
+
+async function openSeeded(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
+  return id;
+}
+
+/** Plain canvas click at the node's centre; returns that centre in design px. */
+async function selectOnCanvas(app: App, nodeId: string): Promise<Point> {
+  const rect = await app.designRect(nodeId);
+  const centre = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  const point = await app.pagePoint(centre.x, centre.y);
+  await app.page.mouse.click(point.x, point.y);
+  return centre;
+}
+
+async function pressAt(app: App, design: Point) {
+  const point = await app.pagePoint(design.x, design.y);
+  await app.page.mouse.move(point.x, point.y);
+  await app.page.mouse.down();
+}
+
+async function moveTo(app: App, design: Point, steps: number) {
+  const point = await app.pagePoint(design.x, design.y);
+  await app.page.mouse.move(point.x, point.y, { steps });
+}
+
+async function savedParentBecomes(
+  app: App,
+  id: string,
   nodeId: string,
+  parent: string,
 ) {
-  const html = await indexHtml(page, designId);
-  return page.evaluate(
-    ({ html, nodeId }) => {
-      const document = new DOMParser().parseFromString(html, "text/html");
-      return document
-        .querySelector(`[data-agent-native-node-id="${nodeId}"]`)
-        ?.parentElement?.getAttribute("data-agent-native-node-id");
-    },
-    { html, nodeId },
-  );
+  await expect
+    .poll(async () => (await app.savedNodes(id)).get(nodeId)?.parent, {
+      message: `${nodeId} never saved under ${parent}`,
+    })
+    .toBe(parent);
+  await app.settled();
+}
+
+/** Resolves once the editor reports an active drag, so a "nothing moved" result is not a drag that never began. */
+async function watchDragStart(app: App) {
+  await app.page.evaluate(() => {
+    const host = window as Window & { __e2eDragActive?: boolean };
+    host.__e2eDragActive = false;
+    window.addEventListener(
+      "message",
+      (event: MessageEvent) => {
+        if (
+          event.data?.type === "agent-native:editor-drag-state" &&
+          event.data.active === true
+        ) {
+          host.__e2eDragActive = true;
+        }
+      },
+      true,
+    );
+  });
+  return () =>
+    expect
+      .poll(() =>
+        app.page.evaluate(
+          () =>
+            (window as Window & { __e2eDragActive?: boolean }).__e2eDragActive,
+        ),
+      )
+      .toBe(true);
+}
+
+function expectNear(
+  actual: string | undefined,
+  expected: number,
+  label: string,
+) {
+  expect(
+    Math.abs(parseFloat(actual ?? "NaN") - expected),
+    `${label} ${actual}`,
+  ).toBeLessThanOrEqual(2);
 }
 
 test.describe("reparenting rules", () => {
-  test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
-    page,
+  test("dragging a flow child out places it directly above the exited frame in visible overlap, with exact undo and redo", async ({
+    app,
   }) => {
-    const designId = await newDesign(
-      page,
-      `<!doctype html><html><body style="margin:0;min-height:700px">
-        <main data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:40px;top:40px;width:700px;height:400px;background:#eee">
-          <section data-an-primitive="frame" data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:0;top:0;display:flex;flex-direction:row;width:180px;height:140px;background:#ccc">
-            <div data-agent-native-node-id="dragme" data-agent-native-layer-name="Dragged layer" style="width:80px;height:60px;background:#6366f1">Dragged layer</div>
-          </section>
-          <div data-agent-native-node-id="candidate" data-agent-native-layer-name="Candidate" style="position:absolute;left:220px;top:20px;width:100px;height:100px;background:#9ca3af">Candidate</div>
-          <div data-agent-native-node-id="overlap" data-agent-native-layer-name="Later layer" style="position:absolute;left:340px;top:20px;width:120px;height:100px;background:#ef4444">Later layer</div>
-        </main>
-      </body></html>`,
+    const id = await openSeeded(app, EXIT_FIXTURE);
+    const before = await app.savedNodes(id);
+    expect(childrenOf(before, "outer")).toEqual([
+      "nested",
+      "candidate",
+      "overlap",
+    ]);
+    expect(await app.designRect("dragme")).toEqual({
+      x: 40,
+      y: 40,
+      width: 80,
+      height: 60,
+    });
+    const savedBefore = await app.savedHtml(id);
+
+    await pressAt(app, { x: 108, y: 70 });
+    await moveTo(app, { x: 310, y: 110 }, 8);
+    await moveTo(app, { x: 108, y: 70 }, 8);
+    await moveTo(app, { x: 240, y: 110 }, 12);
+    await app.settled();
+    expect(
+      await app.savedHtml(id),
+      "nothing commits while the pointer crosses frames",
+    ).toBe(savedBefore);
+    await app.page.mouse.up();
+
+    await savedParentBecomes(app, id, "dragme", "outer");
+    const after = await app.savedNodes(id);
+    expect(
+      childrenOf(after, "outer"),
+      "directly above the frame it left",
+    ).toEqual(["nested", "dragme", "candidate", "overlap"]);
+    expect(childrenOf(after, "nested")).toEqual([]);
+    const saved = styleOf(after.get("dragme"));
+    expect({
+      position: saved.position,
+      width: saved.width,
+      height: saved.height,
+    }).toEqual({
+      position: "absolute",
+      width: "80px",
+      height: "60px",
+    });
+    expectNear(saved.left, 132, "saved left");
+    expectNear(saved.top, 40, "saved top");
+    expectOnlyChanged(before, after, ["dragme"]);
+    const topmost = await app.node("dragme").evaluate((element) =>
+      element.ownerDocument
+        .elementsFromPoint(196, 110)
+        .map((hit) =>
+          hit
+            .closest("[data-agent-native-node-id]")
+            ?.getAttribute("data-agent-native-node-id"),
+        )
+        .find((hitId) => hitId === "dragme" || hitId === "nested"),
+    );
+    expect(topmost, "the dropped layer paints over the frame it overlaps").toBe(
+      "dragme",
     );
 
-    const persistedStructure = async () => {
-      const html = await indexHtml(page, designId);
-      return page.evaluate((source) => {
-        const document = new DOMParser().parseFromString(source, "text/html");
-        const element = (id: string) =>
-          document.querySelector<HTMLElement>(
-            `[data-agent-native-node-id="${id}"]`,
-          );
-        const outer = element("outer");
-        const dragged = element("dragme");
-        const parent = dragged?.parentElement;
-        return {
-          parent: dragged?.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          order: Array.from(outer?.children ?? []).map((child) =>
-            child.getAttribute("data-agent-native-node-id"),
-          ),
-          parentOrder: Array.from(parent?.children ?? []).map((child) =>
-            child.getAttribute("data-agent-native-node-id"),
-          ),
-          style: dragged?.getAttribute("style"),
-          position: dragged?.style.position ?? "",
-          left: dragged?.style.left ?? "",
-          top: dragged?.style.top ?? "",
-        };
-      }, html);
-    };
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await savedParentBecomes(app, id, "dragme", "nested");
+    const undone = await app.savedNodes(id);
+    expectOnlyChanged(before, undone, []);
+    expect(childrenOf(undone, "outer")).toEqual([
+      "nested",
+      "candidate",
+      "overlap",
+    ]);
 
-    try {
-      await openEditor(page, designId);
-      await page.evaluate(() => {
-        const host = window as Window & {
-          __g4DragStates?: Array<{
-            active?: boolean;
-            preview?: {
-              phase?: string;
-              sourceId?: string;
-              anchorId?: string;
-              placement?: string;
-              insert?: boolean;
-            };
-          }>;
-        };
-        host.__g4DragStates = [];
-        window.addEventListener(
-          "message",
-          (event: MessageEvent) => {
-            if (event.data?.type !== "agent-native:editor-drag-state") return;
-            host.__g4DragStates?.push(event.data);
-          },
-          true,
-        );
-      });
-      await expect.poll(persistedStructure).toEqual({
-        parent: "nested",
-        order: ["nested", "candidate", "overlap"],
-        parentOrder: ["dragme"],
-        style: expect.any(String),
-        position: "",
-        left: "",
-        top: "",
-      });
-      const beforeDrop = await persistedStructure();
-
-      const dragged = node(page, "dragme");
-      const nested = node(page, "nested");
-      const candidate = node(page, "candidate");
-      const outer = node(page, "outer");
-      const [draggedBox, nestedBox, candidateBox, outerBox] = await Promise.all(
-        [
-          dragged.boundingBox(),
-          nested.boundingBox(),
-          candidate.boundingBox(),
-          outer.boundingBox(),
-        ],
-      );
-      if (!draggedBox || !nestedBox || !candidateBox || !outerBox) {
-        throw new Error("G4 fixture nodes need rendered bounds before drag");
-      }
-
-      const grabOffset = {
-        x: draggedBox.width * 0.85,
-        y: draggedBox.height / 2,
-      };
-      const start = {
-        x: draggedBox.x + grabOffset.x,
-        y: draggedBox.y + grabOffset.y,
-      };
-      const gapStart = nestedBox.x + nestedBox.width;
-      const gapWidth = candidateBox.x - gapStart;
-      expect(gapWidth).toBeGreaterThan(0);
-      const release = {
-        x: gapStart + gapWidth / 2,
-        y: nestedBox.y + nestedBox.height / 2,
-      };
-      expect(release.x).toBeGreaterThan(gapStart);
-      expect(release.x).toBeLessThan(candidateBox.x);
-      expect(release.x).toBeLessThan(outerBox.x + outerBox.width);
-      expect(release.y).toBeLessThan(outerBox.y + outerBox.height);
-      const crossedPath = {
-        x: candidateBox.x + candidateBox.width / 2,
-        y: candidateBox.y + candidateBox.height / 2,
-      };
-      expect(
-        crossedPath.x < nestedBox.x ||
-          crossedPath.x > nestedBox.x + nestedBox.width,
-      ).toBe(true);
-
-      await page.mouse.move(start.x, start.y);
-      await page.mouse.down();
-      await page.mouse.move(crossedPath.x, crossedPath.y, { steps: 8 });
-      await page.mouse.move(start.x, start.y, { steps: 8 });
-      await page.mouse.move(release.x, release.y, { steps: 12 });
-
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const host = window as Window & {
-              __g4DragStates?: Array<{
-                active?: boolean;
-                preview?: {
-                  phase?: string;
-                  sourceId?: string;
-                  anchorId?: string;
-                  placement?: string;
-                  insert?: boolean;
-                };
-              }>;
-            };
-            const previews = host.__g4DragStates?.filter(
-              (state) => state.preview?.phase === "preview",
-            );
-            return previews?.[previews.length - 1] ?? null;
-          }),
-        )
-        .toMatchObject({
-          active: true,
-          preview: {
-            phase: "preview",
-            sourceId: "dragme",
-            anchorId: "nested",
-            placement: "after",
-            insert: true,
-          },
-        });
-      // Reparenting commits on mouseup; the source tree remains stable while
-      // the pointer leaves and re-enters the frame during the held gesture.
-      await expect.poll(persistedStructure).toEqual(beforeDrop);
-      await page.mouse.up();
-
-      await expect.poll(persistedStructure).toEqual({
-        parent: "outer",
-        order: ["nested", "dragme", "candidate", "overlap"],
-        parentOrder: ["nested", "dragme", "candidate", "overlap"],
-        style: expect.any(String),
-        position: expect.any(String),
-        left: expect.any(String),
-        top: expect.any(String),
-      });
-      const afterDrop = await persistedStructure();
-
-      const visibleStacking = await node(page, "dragme").evaluate((dragged) => {
-        const document = dragged.ownerDocument;
-        const nested = document.querySelector<HTMLElement>(
-          '[data-agent-native-node-id="nested"]',
-        );
-        if (!nested) return null;
-        const nestedBox = nested.getBoundingClientRect();
-        const draggedBox = dragged.getBoundingClientRect();
-        const left = Math.max(nestedBox.left, draggedBox.left);
-        const top = Math.max(nestedBox.top, draggedBox.top);
-        const right = Math.min(nestedBox.right, draggedBox.right);
-        const bottom = Math.min(nestedBox.bottom, draggedBox.bottom);
-        if (right <= left || bottom <= top) return null;
-        const stack = document.elementsFromPoint(
-          (left + right) / 2,
-          (top + bottom) / 2,
-        );
-        const hitId = stack
-          .map((element) =>
-            element
-              .closest<HTMLElement>("[data-agent-native-node-id]")
-              ?.getAttribute("data-agent-native-node-id"),
-          )
-          .find((id) => id === "dragme" || id === "nested");
-        return {
-          overlapWidth: right - left,
-          overlapHeight: bottom - top,
-          hitId,
-        };
-      });
-      expect(visibleStacking).not.toBeNull();
-      expect(visibleStacking!.overlapWidth).toBeGreaterThan(0);
-      expect(visibleStacking!.overlapHeight).toBeGreaterThan(0);
-      expect(visibleStacking!.hitId).toBe("dragme");
-
-      await page.keyboard.press("ControlOrMeta+z");
-      await expect.poll(persistedStructure).toEqual(beforeDrop);
-      await page.keyboard.press("ControlOrMeta+Shift+z");
-      await expect.poll(persistedStructure).toEqual(afterDrop);
-
-      await openEditor(page, designId);
-      await expect.poll(persistedStructure).toEqual(afterDrop);
-    } finally {
-      await postAction(page, "delete-design", { id: designId }).catch(
-        () => undefined,
-      );
-    }
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await savedParentBecomes(app, id, "dragme", "outer");
+    const redone = await app.savedNodes(id);
+    expectOnlyChanged(after, redone, []);
+    expect(childrenOf(redone, "outer")).toEqual([
+      "nested",
+      "dragme",
+      "candidate",
+      "overlap",
+    ]);
   });
 
-  test("an object smaller than a frame becomes its direct child when dropped in", async ({
-    page,
+  test("an object smaller than a frame becomes its direct child at the drop point", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    const box = (await node(page, "box-a").boundingBox())!;
-    const target = (await node(page, "frame-a").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      target.x + target.width / 2,
-      target.y + target.height / 2,
-      { steps: 20 },
-    );
-    await page.mouse.up();
-    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+    const id = await openSeeded(app, FIXTURE);
+    const grab = await selectOnCanvas(app, "box-a");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const before = await app.savedNodes(id);
 
-    // Scope to the authored screen iframe, not `.first()`: a canvas Move
-    // drag always posts cross-screen claim messages (even within one
-    // screen) and that mounts a board-surface iframe ahead of it — same
-    // `[data-design-preview-iframe]` attribute, no `data-screen-iframe-id`,
-    // and none of this screen's own content. See `node()` in
-    // e2e/drag-and-drop.shared.ts, which guards against the same trap.
-    const directParent = await page
-      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-      .first()
-      .contentFrame()
-      .locator("body")
-      .evaluate(() => {
-        const child = document.querySelector(
-          '[data-agent-native-node-id="box-a"]',
-        );
-        return child?.parentElement?.getAttribute("data-agent-native-node-id");
-      });
+    await pressAt(app, grab);
+    await moveTo(app, { x: 160, y: 140 }, 20);
+    await app.page.mouse.up();
+
+    await savedParentBecomes(app, id, "box-a", "frame-a");
+    const after = await app.savedNodes(id);
+    const saved = styleOf(after.get("box-a"));
+    expect({
+      position: saved.position,
+      width: saved.width,
+      height: saved.height,
+    }).toEqual({
+      position: "absolute",
+      width: "120px",
+      height: "80px",
+    });
+    expectNear(saved.left, 80, "saved left");
+    expectNear(saved.top, 40, "saved top");
+    expectOnlyChanged(before, after, ["box-a"]);
+    const rendered = await app.designRect("box-a");
     expect(
-      directParent,
-      "Dropping a smaller object over a frame should place it inside the frame.",
-    ).toBe("frame-a");
+      Math.abs(rendered.x - 100) + Math.abs(rendered.y - 100),
+      `rendered at ${rendered.x},${rendered.y}`,
+    ).toBeLessThanOrEqual(3);
   });
 
   test("holding Space while dragging keeps the object in its current parent", async ({
-    page,
+    app,
   }) => {
-    const chipParent = () =>
-      node(page, "chip-1").evaluate((chip) =>
-        chip.parentElement?.getAttribute("data-agent-native-node-id"),
-      );
+    const id = await openSeeded(app, FIXTURE);
+    const grab = await selectOnCanvas(app, "chip-1");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Chip 1"]);
+    const before = await app.savedNodes(id);
+    const dragStarted = await watchDragStart(app);
 
-    const controlId = await newDesign(page);
-    let id: string | undefined;
-    try {
-      await openEditor(page, controlId);
-      await selectViaTree(page, "Chip 1");
-      let chip = (await node(page, "chip-1").boundingBox())!;
-      let outside = (await node(page, "frame-a").boundingBox())!;
-      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(
-        outside.x + outside.width / 2,
-        outside.y + outside.height / 2,
-        { steps: 18 },
-      );
-      await page.mouse.up();
-      await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-      await expect.poll(chipParent).not.toBe("row");
-      // The unmodified control proves this fixture can exercise reparenting.
+    await pressAt(app, grab);
+    await moveTo(app, { x: grab.x + 8, y: grab.y }, 2);
+    await dragStarted();
+    await app.page.keyboard.down("Space");
+    await moveTo(app, { x: 160, y: 140 }, 20);
+    await app.page.mouse.up();
+    await app.page.keyboard.up("Space");
+    await app.settled();
 
-      const retentionId = await newDesign(page);
-      id = retentionId;
-      await openEditor(page, retentionId);
-      await selectViaTree(page, "Chip 1");
-      chip = (await node(page, "chip-1").boundingBox())!;
-      outside = (await node(page, "frame-a").boundingBox())!;
-
-      await page.evaluate(() => {
-        document.body.dataset.editorDragStarted = "false";
-        window.addEventListener(
-          "message",
-          (event: MessageEvent) => {
-            if (
-              event.data?.type === "agent-native:editor-drag-state" &&
-              event.data.active === true
-            ) {
-              document.body.dataset.editorDragStarted = "true";
-            }
-          },
-          true,
-        );
-      });
-
-      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(
-        chip.x + chip.width / 2 + 8,
-        chip.y + chip.height / 2,
-        { steps: 2 },
-      );
-      await expect(page.locator("body")).toHaveAttribute(
-        "data-editor-drag-started",
-        "true",
-      );
-      await expect.poll(chipParent).toBe("row");
-      await page.keyboard.down("Space");
-      await page.mouse.move(
-        outside.x + outside.width / 2,
-        outside.y + outside.height / 2,
-        { steps: 20 },
-      );
-      await expect.poll(chipParent).toBe("row");
-      await page.mouse.up();
-      await page.keyboard.up("Space");
-      await expect.poll(chipParent).toBe("row");
-      await expect
-        .poll(() => persistedNodeParent(page, retentionId, "chip-1"))
-        .toBe("row");
-      await page.reload();
-      await expect
-        .poll(chipParent, {
-          message:
-            "The layer should stay in its current parent while Space is held.",
-        })
-        .toBe("row");
-    } finally {
-      await Promise.all(
-        [controlId, id]
-          .filter((designId): designId is string => Boolean(designId))
-          .map((designId) =>
-            postAction(page, "delete-design", { id: designId }).catch(
-              () => undefined,
-            ),
-          ),
-      );
-    }
+    const after = await app.savedNodes(id);
+    expect(
+      childrenOf(after, "row"),
+      "stays in Row, in the slot under the pointer",
+    ).toEqual(["chip-2", "chip-1", "chip-3"]);
+    expect(childrenOf(after, "frame-a")).toEqual([]);
+    expectOnlyChanged(before, after, []);
+    expect(await app.designRect("chip-1")).toEqual({
+      x: 108,
+      y: 600,
+      width: 80,
+      height: 50,
+    });
   });
 
   test("holding Space keeps a flow child in its nested auto-layout parent", async ({
-    page,
+    app,
   }) => {
-    const nestedFixture = `<!doctype html><html><body style="margin:0;min-height:900px">
-      <div data-agent-native-node-id="frame-a" data-agent-native-layer-name="Container" style="position:absolute;left:20px;top:60px;width:280px;height:160px;background:#1f2937"></div>
-      <section data-an-primitive="frame" data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:360px;top:360px;width:300px;height:220px;display:flex;flex-direction:column;gap:8px;background:#374151">
-        <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;flex-direction:row;gap:8px">
-          <div data-agent-native-node-id="chip-1" data-agent-native-layer-name="Chip 1" style="width:80px;height:50px;background:#a855f7"></div>
-          <div data-agent-native-node-id="chip-2" data-agent-native-layer-name="Chip 2" style="width:80px;height:50px;background:#ec4899"></div>
-          <div data-agent-native-node-id="chip-3" data-agent-native-layer-name="Chip 3" style="width:80px;height:50px;background:#f59e0b"></div>
-        </div>
-      </section>
-    </body></html>`;
-    const controlId = await newDesign(page, nestedFixture);
-    try {
-      await openEditor(page, controlId);
-      await selectViaTree(page, "Chip 1");
-      const controlChip = (await node(page, "chip-1").boundingBox())!;
-      const controlTarget = (await node(page, "frame-a").boundingBox())!;
-      await page.mouse.move(
-        controlChip.x + controlChip.width / 2,
-        controlChip.y + controlChip.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        controlChip.x + controlChip.width / 2 + 8,
-        controlChip.y + controlChip.height / 2,
-        { steps: 2 },
-      );
-      await page.mouse.move(
-        controlTarget.x + controlTarget.width / 2,
-        controlTarget.y + controlTarget.height / 2,
-        { steps: 20 },
-      );
-      await page.mouse.up();
-      await expect
-        .poll(() => persistedNodeParent(page, controlId, "chip-1"))
-        .toBe("frame-a");
-    } finally {
-      await postAction(page, "delete-design", { id: controlId }).catch(
-        () => undefined,
-      );
-    }
+    const id = await openSeeded(app, NESTED_ROW_FIXTURE);
+    const grab = await selectOnCanvas(app, "chip-1");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Chip 1"]);
+    const before = await app.savedNodes(id);
+    const dragStarted = await watchDragStart(app);
 
-    const id = await newDesign(page, nestedFixture);
-    try {
-      await openEditor(page, id);
-      await selectViaTree(page, "Chip 1");
+    await pressAt(app, grab);
+    await moveTo(app, { x: grab.x + 8, y: grab.y }, 2);
+    await dragStarted();
+    await app.page.keyboard.down("Space");
+    await moveTo(app, { x: 160, y: 140 }, 20);
+    await app.page.mouse.up();
+    await app.page.keyboard.up("Space");
+    await app.settled();
 
-      const chipParent = () =>
-        node(page, "chip-1").evaluate((chip) =>
-          chip.parentElement?.getAttribute("data-agent-native-node-id"),
-        );
-
-      await page.evaluate(() => {
-        document.body.dataset.editorDragStarted = "false";
-        window.addEventListener(
-          "message",
-          (event: MessageEvent) => {
-            if (
-              event.data?.type === "agent-native:editor-drag-state" &&
-              event.data.active === true
-            ) {
-              document.body.dataset.editorDragStarted = "true";
-            }
-          },
-          true,
-        );
-      });
-
-      const chip = (await node(page, "chip-1").boundingBox())!;
-      const outside = (await node(page, "frame-a").boundingBox())!;
-      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(
-        chip.x + chip.width / 2 + 8,
-        chip.y + chip.height / 2,
-        { steps: 2 },
-      );
-      await expect(page.locator("body")).toHaveAttribute(
-        "data-editor-drag-started",
-        "true",
-      );
-      await page.keyboard.down("Space");
-      await page.mouse.move(
-        outside.x + outside.width / 2,
-        outside.y + outside.height / 2,
-        { steps: 20 },
-      );
-      await expect.poll(chipParent).toBe("row");
-      await page.mouse.up();
-      await page.keyboard.up("Space");
-      await expect.poll(chipParent).toBe("row");
-      await expect
-        .poll(() => persistedNodeParent(page, id, "chip-1"))
-        .toBe("row");
-      await page.reload();
-      await expect
-        .poll(chipParent, {
-          message:
-            "The layer should stay in its current parent while Space is held.",
-        })
-        .toBe("row");
-    } finally {
-      await postAction(page, "delete-design", { id }).catch(() => undefined);
-    }
+    const after = await app.savedNodes(id);
+    expect(
+      childrenOf(after, "row"),
+      "stays first in its own Row, not the outer stack",
+    ).toEqual(["chip-1", "chip-2", "chip-3"]);
+    expect(childrenOf(after, "outer")).toEqual(["row"]);
+    expect(childrenOf(after, "frame-a")).toEqual([]);
+    expectOnlyChanged(before, after, []);
+    expect(await app.designRect("chip-1")).toEqual({
+      x: 360,
+      y: 360,
+      width: 80,
+      height: 50,
+    });
   });
 
   test("releasing Space before the drop restores normal reparenting", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    try {
-      await openEditor(page, id);
-      await selectViaTree(page, "Chip 1");
-      const chipParent = () =>
-        node(page, "chip-1").evaluate((chip) =>
-          chip.parentElement?.getAttribute("data-agent-native-node-id"),
-        );
-      const chip = (await node(page, "chip-1").boundingBox())!;
-      const outside = (await node(page, "frame-a").boundingBox())!;
+    const id = await openSeeded(app, FIXTURE);
+    const grab = await selectOnCanvas(app, "chip-1");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Chip 1"]);
+    const before = await app.savedNodes(id);
 
-      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(
-        chip.x + chip.width / 2 + 8,
-        chip.y + chip.height / 2,
-        { steps: 2 },
-      );
-      await page.keyboard.down("Space");
-      await page.mouse.move(
-        outside.x + outside.width / 2,
-        outside.y + outside.height / 2,
-        { steps: 20 },
-      );
-      await expect.poll(chipParent).toBe("row");
-      await page.keyboard.up("Space");
-      await page.mouse.up();
+    await pressAt(app, grab);
+    await moveTo(app, { x: grab.x + 8, y: grab.y }, 2);
+    await app.page.keyboard.down("Space");
+    await moveTo(app, { x: 150, y: 130 }, 20);
+    await app.page.keyboard.up("Space");
+    await moveTo(app, { x: 160, y: 140 }, 4);
+    await app.page.mouse.up();
 
-      await expect.poll(chipParent).toBe("frame-a");
-      await expect
-        .poll(() => persistedNodeParent(page, id, "chip-1"))
-        .toBe("frame-a");
-      await page.reload();
-      await expect.poll(chipParent).toBe("frame-a");
-    } finally {
-      await postAction(page, "delete-design", { id }).catch(() => undefined);
-    }
+    await savedParentBecomes(app, id, "chip-1", "frame-a");
+    const after = await app.savedNodes(id);
+    expect(childrenOf(after, "frame-a")).toEqual(["chip-1"]);
+    expect(childrenOf(after, "row")).toEqual(["chip-2", "chip-3"]);
+    expect(
+      styleOf(after.get("frame-a")),
+      "an empty container becomes a vertical auto layout",
+    ).toEqual({
+      ...styleOf(before.get("frame-a")),
+      display: "flex",
+      "flex-direction": "column",
+      gap: "10px",
+    });
+    expect(styleOf(after.get("chip-1"))).toEqual(styleOf(before.get("chip-1")));
+    expectOnlyChanged(before, after, ["chip-1", "frame-a"]);
+    expect(await app.designRect("chip-1")).toEqual({
+      x: 20,
+      y: 60,
+      width: 80,
+      height: 50,
+    });
   });
 });

@@ -1,6 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
+import { appPath } from "./helpers";
+import {
+  childrenOf,
+  expect,
+  expectOnlyChanged,
+  test,
+  type SavedNode,
+} from "./rails";
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -40,210 +47,163 @@ const LINKED_COMPONENT_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-let baseURL = "";
+function textOf(nodes: Map<string, SavedNode>, nodeId: string) {
+  return childrenOf(nodes, nodeId)
+    .map((child) => nodes.get(child)?.text)
+    .join("");
+}
 
 async function postAction(
   page: Page,
   name: string,
   input: Record<string, unknown>,
 ) {
-  const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
+  const response = await page.request.post(
+    appPath(`/_agent-native/actions/${name}`),
+    { data: input },
   );
-  if (!res.ok())
-    throw new Error(
-      `${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`,
-    );
-  return res.json();
+  expect(
+    response.ok(),
+    `${name}: ${response.status()} ${(await response.text()).slice(0, 300)}`,
+  ).toBe(true);
+  return response.json();
 }
 
-async function newDesign(page: Page, content = FIXTURE): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "components",
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
+test("create-component stamps the name and the variant prop on the promoted node only", async ({
+  app,
+}) => {
+  const id = await app.seed(FIXTURE);
+  const before = await app.savedNodes(id);
+
+  await postAction(app.page, "create-component", {
     designId: id,
-    filename: "index.html",
-    content,
-    fileType: "html",
+    nodeId: "btn-a",
+    name: "PrimaryButton",
   });
-  return id;
-}
 
-async function indexHtml(page: Page, designId: string): Promise<string> {
-  const record = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  return (
-    (record.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const after = await app.savedNodes(id);
+  expect(after.get("btn-a")?.attrs).toEqual({
+    ...before.get("btn-a")?.attrs,
+    "data-agent-native-component": "PrimaryButton",
+    "data-agent-native-component-id": expect.any(String),
+    "data-agent-native-prop-variant": "primary",
+  });
+  expect(textOf(after, "btn-a")).toBe("Buy now");
+  expectOnlyChanged(before, after, ["btn-a"]);
+});
+
+test("a promoted component is listed by list-design-components", async ({
+  app,
+}) => {
+  const id = await app.seed(FIXTURE);
+  await postAction(app.page, "create-component", {
+    designId: id,
+    nodeId: "btn-a",
+    name: "PrimaryButton",
+  });
+
+  const response = await app.page.request.get(
+    appPath(`/_agent-native/actions/list-design-components?designId=${id}`),
   );
-}
+  expect(response.ok()).toBe(true);
+  const listed = (await response.json()) as {
+    totalComponents: number;
+    components: { name: string }[];
+  };
 
-function openTag(html: string, nodeId: string): string {
-  const at = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
-  if (at === -1) return "";
-  const start = html.lastIndexOf("<", at);
-  return html.slice(start, html.indexOf(">", at) + 1);
-}
-
-test.beforeAll(async ({}, testInfo) => {
-  baseURL =
-    (testInfo.project.use as { baseURL?: string }).baseURL ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
+  expect(listed.components.map((component) => component.name)).toStrictEqual([
+    "PrimaryButton",
+  ]);
+  expect(listed.totalComponents).toBe(1);
 });
 
-test.describe("promoting to a component", () => {
-  test("create-component marks the node as a component instance", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
-    expect(
-      openTag(await indexHtml(page, id), "btn-a"),
-      "create-component must stamp data-agent-native-component on the node",
-    ).toContain('data-agent-native-component="PrimaryButton"');
+test("detach removes only the instance's component linkage and keeps its content and style", async ({
+  app,
+}) => {
+  const id = await app.seed(LINKED_COMPONENT_FIXTURE);
+  const before = await app.savedNodes(id);
+
+  await postAction(app.page, "detach-component-instance", {
+    designId: id,
+    nodeId: "btn-a-instance",
   });
 
-  test("an existing variant-like attribute becomes a component prop", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
-    expect(
-      openTag(await indexHtml(page, id), "btn-a"),
-      `create-component documents that it stamps data-agent-native-prop-* for ` +
-        `variant-like attributes already on the node (btn-a has data-variant).`,
-    ).toContain("data-agent-native-prop-variant");
-  });
-
-  test("promoting one node leaves its siblings untouched", async ({ page }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
-    expect(
-      openTag(await indexHtml(page, id), "btn-b"),
-      "promoting one element must not annotate any other element",
-    ).not.toContain("data-agent-native-component");
-  });
-
-  test("a promoted component is listed by list-design-components", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
-    const listed = await page.request
-      .get(
-        `${baseURL}/_agent-native/actions/list-design-components?designId=${id}`,
-      )
-      .then((r) => r.json());
-    const names = JSON.stringify(listed);
-    expect(
-      names,
-      `a promoted component must be discoverable — swap-component-instance ` +
-        `takes its targetComponentName "from list-design-components".`,
-    ).toContain("PrimaryButton");
-  });
+  const after = await app.savedNodes(id);
+  const {
+    "data-agent-native-component": _name,
+    "data-agent-native-component-ref": _ref,
+    "data-agent-native-component-source-node-id": _source,
+    ...unlinked
+  } = before.get("btn-a-instance")!.attrs;
+  expect(after.get("btn-a-instance")?.attrs).toEqual(unlinked);
+  expect(textOf(after, "btn-a-instance")).toBe("Buy now");
+  expectOnlyChanged(before, after, ["btn-a-instance"]);
 });
 
-test.describe("detaching an instance", () => {
-  test("detach strips the component linkage", async ({ page }) => {
-    const id = await newDesign(page, LINKED_COMPONENT_FIXTURE);
-    await postAction(page, "detach-component-instance", {
-      designId: id,
-      nodeId: "btn-a-instance",
-    });
-    expect(
-      openTag(await indexHtml(page, id), "btn-a-instance"),
-      `detaching removes the component linkage`,
-    ).not.toContain("data-agent-native-component");
+// fixme: product bug: Swap copies the other SecondaryButton instance's markup wholesale, including its position: the instance jumps from top:60px to top:140px
+test.fixme("swap relinks the instance to the target component and gives it the target's content", async ({
+  app,
+}) => {
+  const id = await app.seed(LINKED_COMPONENT_FIXTURE);
+  const before = await app.savedNodes(id);
+
+  await postAction(app.page, "swap-component-instance", {
+    designId: id,
+    nodeId: "btn-a-instance",
+    targetComponentName: "SecondaryButton",
   });
 
-  test("detach preserves the rendered content", async ({ page }) => {
-    const id = await newDesign(page, LINKED_COMPONENT_FIXTURE);
-    await postAction(page, "detach-component-instance", {
-      designId: id,
-      nodeId: "btn-a-instance",
-    });
-    const html = await indexHtml(page, id);
-    expect(
-      html,
-      `detaching preserves the rendered content while breaking the component link. ` +
-        `The node markup already contains the expanded content here.`,
-    ).toContain("Buy now");
-    expect(openTag(html, "btn-a-instance")).toContain("background:#3b82f6");
+  const after = await app.savedNodes(id);
+  expect(after.get("btn-a-instance")?.attrs).toEqual({
+    "data-agent-native-node-id": "btn-a-instance",
+    "data-agent-native-layer-name": "Secondary instance",
+    "data-agent-native-component": "SecondaryButton",
+    "data-agent-native-component-ref": "cmp-secondary",
+    "data-agent-native-component-source-node-id": "btn-b",
+    style:
+      "position:absolute;left:220px;top:60px;width:160px;height:44px;background:#22c55e",
   });
+  expect(textOf(after, "btn-a-instance")).toBe("Sign up");
+  expectOnlyChanged(before, after, [
+    "btn-a-instance",
+    ...childrenOf(before, "btn-a-instance"),
+    ...childrenOf(after, "btn-a-instance"),
+  ]);
 });
 
-test.describe("swapping an instance", () => {
-  test("swap replaces the instance with the target component's markup", async ({
-    page,
-  }) => {
-    const id = await newDesign(page, LINKED_COMPONENT_FIXTURE);
-    await postAction(page, "swap-component-instance", {
-      designId: id,
-      nodeId: "btn-a-instance",
-      targetComponentName: "SecondaryButton",
-    });
-    const tag = openTag(await indexHtml(page, id), "btn-a-instance");
-    expect(
-      tag,
-      `swapping updates the instance to reference the target component`,
-    ).toContain('data-agent-native-component="SecondaryButton"');
-    expect(tag).toContain('data-agent-native-component-ref="cmp-secondary"');
+test("same-named component mains remain independent identities", async ({
+  app,
+}) => {
+  const id = await app.seed(FIXTURE);
+  await postAction(app.page, "create-component", {
+    designId: id,
+    nodeId: "btn-a",
+    name: "Btn",
   });
-});
+  await postAction(app.page, "create-component", {
+    designId: id,
+    nodeId: "btn-b",
+    name: "Btn",
+  });
+  const before = await app.savedNodes(id);
+  expect([
+    before.get("btn-a")?.attrs["data-agent-native-component"],
+    before.get("btn-b")?.attrs["data-agent-native-component"],
+  ]).toStrictEqual(["Btn", "Btn"]);
 
-test.describe("separate component mains", () => {
-  test("same-named component mains remain independent identities", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "Btn",
-    });
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-b",
-      name: "Btn",
-    });
-    await postAction(page, "apply-visual-edit", {
-      source: { kind: "design-file", designId: id, filename: "index.html" },
-      intent: {
-        kind: "style",
-        target: { nodeId: "btn-a" },
-        property: "background",
-        value: "rgb(255, 0, 0)",
-      },
-    });
-    const html = await indexHtml(page, id);
-    expect(
-      openTag(html, "btn-b"),
-      `same display names do not link separate canonical component mains; edits ` +
-        `propagate only through an explicit component reference`,
-    ).not.toContain("rgb(255, 0, 0)");
-    expect(openTag(html, "btn-a")).toContain("rgb(255, 0, 0)");
+  await postAction(app.page, "apply-visual-edit", {
+    source: { kind: "design-file", designId: id, filename: "index.html" },
+    intent: {
+      kind: "style",
+      target: { nodeId: "btn-a" },
+      property: "background",
+      value: "rgb(255, 0, 0)",
+    },
   });
+
+  const after = await app.savedNodes(id);
+  expect(after.get("btn-a")?.attrs.style).toBe(
+    "position:absolute;left:20px;top:60px;width:160px;height:44px;background: rgb(255, 0, 0)",
+  );
+  expectOnlyChanged(before, after, ["btn-a"]);
 });

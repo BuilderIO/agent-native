@@ -29,6 +29,7 @@ export type WorkspaceConnectionProviderId =
   | "gmail"
   | "google_calendar"
   | "google_drive"
+  | "bigquery"
   | "google_docs"
   | "google_sheets"
   | "google_slides"
@@ -110,8 +111,8 @@ const GOOGLE_OAUTH_BASE = {
   tokenUrl: "https://oauth2.googleapis.com/token",
 } as const;
 
-function googleOAuth(scopes: readonly string[]) {
-  return { ...GOOGLE_OAUTH_BASE, scopes };
+function googleOAuth(scopes: readonly string[], provider = "google") {
+  return { ...GOOGLE_OAUTH_BASE, provider, scopes };
 }
 
 const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"] as const;
@@ -235,6 +236,19 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     ]),
   }),
   defineWorkspaceConnectionProvider({
+    id: "bigquery",
+    label: "BigQuery",
+    description:
+      "BigQuery datasets and SQL jobs for analytics and data exploration.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/bigquery",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
     id: "google_drive",
     label: "Google Drive",
     description:
@@ -275,10 +289,10 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "docs"],
     recommendedTemplateUses: ["analytics", "brain", "content", "dispatch"],
-    oauth: googleOAuth([
-      ...GOOGLE_IDENTITY_SCOPES,
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
-    ]),
+    oauth: googleOAuth(
+      [...GOOGLE_IDENTITY_SCOPES, "https://www.googleapis.com/auth/drive.file"],
+      "google_sheets",
+    ),
   }),
   defineWorkspaceConnectionProvider({
     id: "google_slides",

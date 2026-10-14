@@ -1,12 +1,4 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { childNodeIds, gotoEditor } from "./helpers";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const BLOCK_FLOW_HTML = `<!doctype html>
 <html lang="en">
@@ -31,199 +23,78 @@ const BLOCK_FLOW_HTML = `<!doctype html>
   </body>
 </html>`;
 
+function stackOrder(
+  nodes: Map<string, { parent: string | null; index: number }>,
+) {
+  return [...nodes.entries()]
+    .filter(([, node]) => node.parent === "bf-stack")
+    .sort(([, a], [, b]) => a.index - b.index)
+    .map(([id]) => id);
+}
+
+async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  await app.page.mouse.click(point.x, point.y);
+  await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
+}
+
 test.describe("block flow keyboard nudge", () => {
-  let designId = "";
-
-  test.afterEach(async ({ request, baseURL }) => {
-    if (!designId) return;
-    await postAction(request, baseURL, "delete-design", { id: designId }).catch(
-      () => {},
-    );
-    designId = "";
-  });
-
   test("arrow keys reorder a block child instead of writing a dead offset", async ({
+    app,
     page,
-    request,
-    baseURL,
   }) => {
-    designId = await createBlockFlowDesign(
-      request,
-      baseURL,
-      "E2E Block Flow Reorder",
-    );
-    await gotoEditor(page, designId);
+    const id = await app.seed(BLOCK_FLOW_HTML);
+    await app.open(id);
+    await app.zoomToFit();
+    await selectOnCanvas(app, "bf-alpha", "BlockAlpha");
+    const before = await app.savedNodes(id);
+    expect(stackOrder(before)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
 
-    await selectLayerRow(page, "BlockAlpha");
-    await pressEditorKey(page, "ArrowDown");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["bf-beta", "bf-alpha", "bf-gamma"]);
-      expect(html).not.toMatch(/bf-alpha[^>]*position:\s*relative/);
-      expect(html).not.toMatch(/bf-alpha[^>]*top:\s*1px/);
-    });
+    await page.keyboard.press("ArrowDown");
+    await app.settled();
+    const down = await app.savedNodes(id);
+    expect(stackOrder(down)).toEqual(["bf-beta", "bf-alpha", "bf-gamma"]);
+    expectOnlyChanged(before, down, []);
 
-    await pressEditorKey(page, "ArrowUp");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
-    });
+    await page.keyboard.press("ArrowUp");
+    await app.settled();
+    const up = await app.savedNodes(id);
+    expect(stackOrder(up)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
+    expectOnlyChanged(before, up, []);
 
-    await pressEditorKey(page, "ArrowRight");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
-      expect(html).not.toMatch(/bf-alpha[^>]*left:\s*1px/);
-    });
+    await page.keyboard.press("ArrowRight");
+    await app.settled();
+    const right = await app.savedNodes(id);
+    expect(stackOrder(right)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
+    expectOnlyChanged(before, right, []);
   });
 
-  test("does not reorder past the end of the stack", async ({
+  test("ArrowDown on the last block child changes nothing, while ArrowUp still moves it", async ({
+    app,
     page,
-    request,
-    baseURL,
   }) => {
-    designId = await createBlockFlowDesign(
-      request,
-      baseURL,
-      "E2E Block Flow Clamp",
-    );
-    await gotoEditor(page, designId);
+    const id = await app.seed(BLOCK_FLOW_HTML);
+    await app.open(id);
+    await app.zoomToFit();
+    await selectOnCanvas(app, "bf-gamma", "BlockGamma");
+    const before = await app.savedNodes(id);
 
-    await selectLayerRow(page, "BlockGamma");
-    await pressEditorKey(page, "ArrowDown");
-    await expectFileContent(request, baseURL, designId, (html) => {
-      expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
-      expect(html).not.toMatch(/bf-gamma[^>]*top:\s*1px/);
-    });
+    await page.keyboard.press("ArrowDown");
+    await app.settled();
+    const clamped = await app.savedNodes(id);
+    expect(stackOrder(clamped)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
+    expectOnlyChanged(before, clamped, []);
+
+    await page.keyboard.press("ArrowUp");
+    await app.settled();
+    expect(stackOrder(await app.savedNodes(id))).toEqual([
+      "bf-alpha",
+      "bf-gamma",
+      "bf-beta",
+    ]);
   });
 });
-
-function flowOrder(html: string): string[] {
-  return childNodeIds(html, "bf-stack");
-}
-
-async function createBlockFlowDesign(
-  request: APIRequestContext,
-  baseURL: string | undefined,
-  title: string,
-): Promise<string> {
-  const created = await postAction(request, baseURL, "create-design", {
-    title,
-    projectType: "prototype",
-  });
-  const id: string | undefined =
-    created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (!id) throw new Error(`create-design did not return id: ${created}`);
-  await postAction(request, baseURL, "create-file", {
-    designId: id,
-    filename: "layout.html",
-    fileType: "html",
-    content: BLOCK_FLOW_HTML,
-  });
-  return id;
-}
-
-async function postAction(
-  request: APIRequestContext,
-  baseURL: string | undefined,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const res = await request.post(
-    `${actionBaseUrl(baseURL)}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!res.ok()) {
-    throw new Error(
-      `action ${name} failed: ${res.status()} ${await res.text()}`,
-    );
-  }
-  return res.json();
-}
-
-function actionBaseUrl(baseURL: string | undefined): string {
-  return (baseURL ?? process.env.E2E_BASE_URL ?? e2eBaseURL()).replace(
-    /\/$/,
-    "",
-  );
-}
-
-async function expectFileContent(
-  request: APIRequestContext,
-  baseURL: string | undefined,
-  id: string,
-  assertContent: (html: string) => void,
-) {
-  await expect
-    .poll(
-      async () => {
-        const params = new URLSearchParams({ id });
-        const res = await request.get(
-          `${actionBaseUrl(baseURL)}/_agent-native/actions/get-design?${params}`,
-          { headers: { "Content-Type": "application/json" } },
-        );
-        if (!res.ok()) return `get-design ${res.status()}`;
-        const payload = await res.json();
-        const design = [
-          payload,
-          payload?.result,
-          payload?.design,
-          payload?.data,
-        ].find((candidate) => Array.isArray(candidate?.files));
-        const file = design?.files?.find(
-          (candidate: { filename?: string }) =>
-            candidate.filename === "layout.html",
-        );
-        if (typeof file?.content !== "string") {
-          return "layout.html has no content";
-        }
-        try {
-          assertContent(file.content);
-          return "ok";
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          return `${reason}\n--- layout.html ---\n${bodyOf(file.content)}`;
-        }
-      },
-      { timeout: 20_000 },
-    )
-    .toBe("ok");
-}
-
-function bodyOf(html: string): string {
-  const start = html.indexOf("<body");
-  return start < 0 ? html : html.slice(start, html.indexOf("</body>") + 7);
-}
-
-function layerTree(page: Page) {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-async function selectLayerRow(page: Page, name: string): Promise<void> {
-  const input = page.getByPlaceholder("Search layers...");
-  if (!(await input.isVisible().catch(() => false))) {
-    await page
-      .getByRole("button", { name: "Search layers...", exact: true })
-      .click();
-    await expect(input).toBeVisible();
-  }
-  await input.fill(name);
-  const button = layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
-  await expect(button).toBeVisible();
-  await button.click({ force: true });
-  await expect(
-    button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
-  ).toHaveAttribute("aria-selected", "true");
-}
-
-async function focusCanvas(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    document.body.setAttribute("tabindex", "-1");
-    document.body.focus();
-  });
-}
-
-async function pressEditorKey(page: Page, key: string): Promise<void> {
-  await focusCanvas(page);
-  await page.keyboard.press(key);
-}

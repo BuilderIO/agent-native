@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activer Rewind",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Rewind conserve un historique local de votre écran afin que vous puissiez inclure les dernières minutes avant un enregistrement. Les séquences vidéo ne sont envoyées que si vous les incluez ou les approuvez.",
+      "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:
@@ -212,9 +212,12 @@ const messages = {
     expandSidebar: "Développer la barre latérale",
     collapseSidebar: "Réduire la barre latérale",
     agentEmptyState: "Comment puis-je vous aider avec vos enregistrements ?",
-    agentSuggestionSummary: "Résume mon dernier enregistrement",
-    agentSuggestionPricing: "Trouve où j’ai mentionné les prix",
-    agentSuggestionFiller: "Supprime les mots de remplissage de ce clip",
+    agentSuggestionSummary: "Résume un enregistrement",
+    agentSuggestionPricing: "Trouve les prix mentionnés",
+    agentSuggestionFiller: "Supprime les mots parasites",
+    agentScreenshotSuggestionSummary: "Résume les captures",
+    agentScreenshotSuggestionText: "Trouve le texte dans les captures",
+    agentScreenshotSuggestionCompare: "Compare les captures",
     createFolderError: "Échec de la création",
     folderCreated: "Dossier créé",
     folderNamePlaceholder: "Nom du dossier",
@@ -310,6 +313,10 @@ const messages = {
     transcriptionCompleted: "Transcription terminée",
     transcriptNotReady: "La transcription n'est pas encore prête",
     tryAfterTranscription: "Réessayez une fois la transcription terminée.",
+    silenceTranscriptUnavailableTitle:
+      "Cette transcription ne permet pas de supprimer les silences",
+    silenceTranscriptUnavailableDescription:
+      "Essayez de générer une nouvelle transcription, puis de supprimer à nouveau les silences.",
     titleGenerationQueued: "Génération du titre…",
     descriptionQueued: "Génération de la description…",
     chapterQueued: "Génération des chapitres…",
@@ -1904,6 +1911,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Localisé)",
     recordingDownloadStarted: "Recording download started (Localisé)",
+    partialLocalCopyDownloadStarted:
+      "La copie locale est peut-être incomplète. Les données d’enregistrement disponibles sont en cours de téléchargement.",
     backToLibrary: "Back to library (Localisé)",
     clipsRecorder: "Clips recorder (Localisé)",
     preparingSources: "Preparing sources… (Localisé)",

@@ -8,6 +8,7 @@ export type LinkedScreenPreviewReplaceFn = (
   options?: {
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
+    allowSourceNodeSwap?: boolean;
   },
 ) => boolean;
 
@@ -98,6 +99,7 @@ export function replaceLinkedScreenPreviewContent(
   options?: {
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
+    allowSourceNodeSwap?: boolean;
   },
 ): boolean {
   if (!screenId) return false;

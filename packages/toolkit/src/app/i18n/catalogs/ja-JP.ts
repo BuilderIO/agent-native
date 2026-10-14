@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "このブロックは一時的に利用できません。",
+  "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl":
     "有効な HTTP または HTTPS の URL を入力してください。",
@@ -160,9 +162,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "新しいアカウントを作成できるか確認しています。",
   "onboarding.builderActivationUnavailable":
-    "このアプリでは新しいアカウントの作成が有効になっていません。既存のアカウントは接続できます。",
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
   "onboarding.builderActivationUnavailableInMode":
-    "このモードでは新しいアカウントを有効化できません。既存のアカウントは引き続き接続できます。",
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
   "onboarding.builderActivationCheckFailed":
     "このアプリで新しいアカウントを作成できるか確認できませんでした。",
 
@@ -177,6 +179,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
@@ -1191,6 +1194,12 @@ const messages: ToolkitAgentChatTranslation = {
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "errorMessages.invalidAttachmentNamed":
     "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.resendVerificationEmail": "確認メールを再送信",
+  "recovery.sendingVerificationEmail": "送信中...",
+  "recovery.verificationEmailRequested":
+    "確認メールの送信をリクエストしました。受信トレイと迷惑メールフォルダーを確認してください。",
+  "recovery.verificationEmailFailed":
+    "確認メールをリクエストできませんでした。もう一度お試しください。",
   "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
@@ -1235,6 +1244,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "他{{count}}件は「新規」の下にあるか、任意のカスタムキーを追加できます",
   "secrets.emptyTitle": "キーはまだありません。",
+  "secrets.figmaTokenMustBeToken":
+    "Figma ファイル URL ではなく、Figma アクセストークンを貼り付けてください。",
   "secrets.fromEnvironment": "デプロイ環境から提供されています。",
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",

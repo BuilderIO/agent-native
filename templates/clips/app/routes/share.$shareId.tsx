@@ -122,10 +122,15 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  readRecoverableRecordingBackupForServerId,
+  recordingBackupFilename,
+  recordingBackupTracksServerId,
+} from "@/lib/recording-backup";
+import {
+  isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -851,8 +856,15 @@ export default function ShareRoute() {
     const hasMedia = isImageRecording(recording)
       ? Boolean(recording.imageUrl || recording.thumbnailUrl)
       : Boolean(recording.videoUrl);
-    const phase =
-      recording.status === "ready"
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
+    const phase = storageSetupFailure
+      ? "waiting-storage"
+      : recording.status === "ready"
         ? hasMedia
           ? "ready"
           : "processing"
@@ -863,7 +875,9 @@ export default function ShareRoute() {
       dismissProcessingToast();
     }
     const transition = recordingProcessingTransition(previous, current);
-    if (transition === "processing") {
+    if (transition === "dismissed") {
+      dismissProcessingToast();
+    } else if (transition === "processing") {
       startProcessingToast(
         phase === "uploading"
           ? t("sharePage.uploadingAssembling")
@@ -880,6 +894,8 @@ export default function ShareRoute() {
     dismissProcessingToast,
     failProcessingToast,
     recording?.id,
+    recording?.failureReason,
+    recording?.sourceAppName,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,
@@ -1200,6 +1216,59 @@ export default function ShareRoute() {
     }
   }
 
+  async function downloadLocalCopy() {
+    if (!recording) return;
+    setDownloading(true);
+    try {
+      const copy = await readRecoverableRecordingBackupForServerId(
+        recording.id,
+      );
+      if (!copy) {
+        toast.error(t("recordRoute.noLocalRecordingData"));
+        return;
+      }
+      if (!recordingBackupTracksServerId(copy.meta, recording.id)) {
+        toast.error(t("recordRoute.localCopyUnreadable"));
+        return;
+      }
+      const localOwnerEmail = copy.meta.ownerEmail?.trim().toLowerCase();
+      const viewerEmail = session?.email?.trim().toLowerCase();
+      if (localOwnerEmail && localOwnerEmail !== viewerEmail) {
+        toast.error(t("recordRoute.recordingOwnedByAnotherAccount"));
+        return;
+      }
+      if (!copy.blob) {
+        toast.error(t("recordRoute.localCopyUnreadable"));
+        return;
+      }
+      const partial = !copy.whole;
+      const url = URL.createObjectURL(copy.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const filename = recordingBackupFilename(copy.meta);
+      link.download = partial
+        ? filename.replace(/(\.[^.]+)$/, "-partial$1")
+        : filename;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      if (partial) {
+        toast.warning(t("recordRoute.partialLocalCopyDownloadStarted"), {
+          duration: 12_000,
+        });
+      } else {
+        toast.success(t("recordRoute.recordingDownloadStarted"));
+      }
+    } catch (err) {
+      console.warn("[clips-share] reading the local copy failed:", err);
+      toast.error(t("recordRoute.localCopyUnreadable"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const shareNeedsSession =
     !needsPassword &&
     (!dataQ.data ||
@@ -1421,7 +1490,10 @@ export default function ShareRoute() {
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure =
@@ -1454,6 +1526,7 @@ export default function ShareRoute() {
         : explicitFailure
           ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
+    const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 
     return (
       <>
@@ -1491,6 +1564,7 @@ export default function ShareRoute() {
           {storageSetupFailure && canManageStorage ? (
             <div className="mb-4 w-full">
               <StorageSetupCard
+                connectSource="clips_share_page_storage_setup_card"
                 title={t("sharePage.connectStorageFinishSaving")}
                 description={t("sharePage.chooseStorageCheck")}
                 connectedDescription={t("sharePage.storageConnectedChecking")}
@@ -1501,6 +1575,20 @@ export default function ShareRoute() {
             </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-center gap-2">
+            {canDownloadLocalCopy ? (
+              <Button
+                onClick={() => void downloadLocalCopy()}
+                disabled={downloading}
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+              >
+                <IconDownload className="h-4 w-4" />
+                {downloading
+                  ? t("sharePage.downloading")
+                  : t("recordRoute.downloadCopy")}
+              </Button>
+            ) : null}
             {!session && isFailure ? (
               <Button asChild size="sm">
                 <a href={signInHref} className="gap-1.5">

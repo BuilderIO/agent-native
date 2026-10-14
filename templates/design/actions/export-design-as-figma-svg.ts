@@ -4,12 +4,17 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  designExportErrorType,
+  trackDesignExported,
+} from "../server/lib/design-export-tracking.js";
 import { trySaveExportFile } from "../server/lib/design-export.js";
 import {
   isMissingRootSelectorError,
   renderDesignToFigmaSvg,
   safeFigmaSvgFilename,
 } from "../server/lib/design-to-figma-svg.js";
+import { isHumanCaller } from "../server/lib/design-tracking.js";
 import { isMissingBrowserError } from "../server/lib/playwright-runtime.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
@@ -175,16 +180,19 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "POST" },
-  run: async ({
-    designId,
-    fileId,
-    filename,
-    nodeId,
-    autoLayout,
-    embedImages,
-    width,
-    height,
-  }) => {
+  run: async (
+    {
+      designId,
+      fileId,
+      filename,
+      nodeId,
+      autoLayout,
+      embedImages,
+      width,
+      height,
+    },
+    ctx,
+  ) => {
     if (!designId && !fileId) {
       throw new Error("designId or fileId is required.");
     }
@@ -232,6 +240,34 @@ export default defineAction({
         `export-design-as-figma-svg only supports HTML files (got "${file.fileType}").`,
       );
     }
+
+    // The Design UI calls this as a render step and records its own browser
+    // export, so only an agent or MCP caller's call is an export here. The
+    // file was found through the caller's access filter, so its ids are
+    // verified.
+    const recordAgentExport = (
+      status: "completed" | "failed",
+      failure?: { error?: unknown; errorType?: string },
+    ) => {
+      try {
+        if (isHumanCaller(ctx)) return;
+        const errorType =
+          failure?.errorType ??
+          (failure ? designExportErrorType(failure.error) : undefined);
+        trackDesignExported(
+          {
+            designId: file.designId,
+            fileId: file.id,
+            exportFormat: "figma_svg",
+            status,
+            ...(errorType ? { errorType } : {}),
+          },
+          ctx,
+        );
+      } catch {
+        // coercion-ok: a lost export event must never change the export result.
+      }
+    };
 
     const [designRow] = await db
       .select({ title: schema.designs.title, data: schema.designs.data })
@@ -284,6 +320,7 @@ export default defineAction({
       });
     } catch (err) {
       if (isMissingBrowserError(err)) {
+        recordAgentExport("failed", { errorType: "chromium_unavailable" });
         return { ok: false, reason: chromiumUnavailableReason(err) };
       }
       if (rootSelector && isMissingRootSelectorError(err)) {
@@ -291,15 +328,21 @@ export default defineAction({
           `The resolved selector for nodeId "${nodeId}" did not match the ` +
             "rendered screen — exported the whole screen instead.",
         );
-        result = await renderDesignToFigmaSvg({
-          html,
-          width: resolvedWidth,
-          height: resolvedHeight,
-          title: designRow?.title ?? file.filename,
-          rootSelector: null,
-          embedImages: embedImages ?? true,
-        });
+        try {
+          result = await renderDesignToFigmaSvg({
+            html,
+            width: resolvedWidth,
+            height: resolvedHeight,
+            title: designRow?.title ?? file.filename,
+            rootSelector: null,
+            embedImages: embedImages ?? true,
+          });
+        } catch (retryError) {
+          recordAgentExport("failed", { error: retryError });
+          throw retryError;
+        }
       } else {
+        recordAgentExport("failed", { error: err });
         throw err;
       }
     }
@@ -312,6 +355,8 @@ export default defineAction({
     const saveResult = await trySaveExportFile(filenameOut, result.svg);
 
     const nodes = autoLayout ? buildFigmaNodeSpec(result.scene) : null;
+
+    recordAgentExport("completed");
 
     return {
       ok: true,

@@ -2764,11 +2764,33 @@ describe("createAgentNativeAgentKitTransport", () => {
             status: "completed",
           },
           {
+            id: "tool-approval-history",
+            name: "publish-release",
+            input: { releaseId: "release-1" },
+            output: "Awaiting human approval. This action did NOT execute.",
+            status: "completed",
+            runId: "run-history",
+            messageId: "assistant-history",
+            metadata: {
+              approvalPause: true,
+              approvalAskId: "approval-1",
+            },
+          },
+          {
             id: "tool-large-history",
             name: "large-result",
             output: "x".repeat(65_536),
             status: "completed",
             messageId: "assistant-history",
+          },
+          {
+            id: "tool-large-approval-history",
+            name: "large-approval-input",
+            input: { payload: "x".repeat(70_000) },
+            output: "Awaiting human approval. This action did NOT execute.",
+            status: "completed",
+            runId: "run-large-approval",
+            metadata: { approvalPause: true },
           },
         ],
         widgets: [
@@ -3044,6 +3066,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         output: '{"value":1}',
       },
       {
+        id: "tool-approval-history",
+        name: "publish-release",
+        status: "completed",
+        input: { releaseId: "release-1" },
+        output: "Awaiting human approval. This action did NOT execute.",
+        runId: "run-history",
+        messageId: "assistant-history",
+        metadata: { approvalPause: true, approvalAskId: "approval-1" },
+      },
+      {
         id: "tool-large-history",
         name: "large-result",
         status: "completed",
@@ -3052,6 +3084,20 @@ describe("createAgentNativeAgentKitTransport", () => {
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: "size_limit",
+          },
+        },
+      },
+      {
+        id: "tool-large-approval-history",
+        name: "large-approval-input",
+        status: "completed",
+        runId: "run-large-approval",
+        metadata: {
+          approvalPause: true,
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+            inputFingerprint: expect.stringMatching(/^fnv1a64:[0-9a-f]{16}$/),
           },
         },
       },
@@ -3176,6 +3222,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         output: '{"value":1}',
       },
       {
+        id: "tool-approval-history",
+        name: "publish-release",
+        status: "completed",
+        input: { releaseId: "release-1" },
+        output: "Awaiting human approval. This action did NOT execute.",
+        runId: "run-history",
+        messageId: "assistant-history",
+        metadata: { approvalPause: true, approvalAskId: "approval-1" },
+      },
+      {
         id: "tool-large-history",
         name: "large-result",
         status: "completed",
@@ -3184,6 +3240,20 @@ describe("createAgentNativeAgentKitTransport", () => {
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: "size_limit",
+          },
+        },
+      },
+      {
+        id: "tool-large-approval-history",
+        name: "large-approval-input",
+        status: "completed",
+        runId: "run-large-approval",
+        metadata: {
+          approvalPause: true,
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+            inputFingerprint: expect.stringMatching(/^fnv1a64:[0-9a-f]{16}$/),
           },
         },
       },
@@ -3970,6 +4040,153 @@ describe("createAgentNativeAgentKitTransport", () => {
         status: "complete",
         parts: [{ type: "text", text: "Full answer with final lines" }],
       },
+    ]);
+    await transport.dispose();
+  });
+
+  it("uses the completed durable answer after mid-run and finished-thread reloads", async () => {
+    const threadId = "thread-two-reload-answer";
+    const runId = "run-two-reload-answer";
+    const nonce = "two-reload-7A4C";
+    const finalAnswer = `${nonce}-L1: one\n${nonce}-L40: forty`;
+    const staleAnswer = `${nonce}-L1: an earlier version\n${nonce}-L40: an earlier ending`;
+    let threadReads = 0;
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json(
+            threadReads === 1
+              ? { active: true, status: "running", runId }
+              : { active: false, status: "completed", runId },
+          );
+        }
+        if (url.includes("/runs/latest?")) {
+          return json({
+            runId,
+            turnId: "turn-1",
+            status: threadReads === 1 ? "running" : "completed",
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          threadReads += 1;
+          const completed = threadReads > 1;
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "server-user",
+                    role: "user",
+                    content: [
+                      { type: "text", text: `Write forty lines ${nonce}` },
+                    ],
+                    metadata: {
+                      custom: {
+                        agentKitMessageId: "snapshot-user",
+                        submittedRunId: runId,
+                        submittedTurnId: "turn-1",
+                      },
+                    },
+                  },
+                },
+                ...(completed
+                  ? [
+                      {
+                        message: {
+                          id: "server-assistant",
+                          role: "assistant",
+                          status: { type: "complete" },
+                          content: [{ type: "text", text: finalAnswer }],
+                          metadata: { runId, custom: { turnId: "turn-1" } },
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "snapshot-user",
+                    role: "user",
+                    parts: [
+                      { type: "text", text: `Write forty lines ${nonce}` },
+                    ],
+                  },
+                  ...(completed
+                    ? [
+                        {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "complete",
+                          parts: [{ type: "text", text: staleAnswer }],
+                          metadata: { runId },
+                        },
+                      ]
+                    : [
+                        {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "streaming",
+                          parts: [{ type: "text", text: `${nonce}-L1: one` }],
+                          metadata: { runId },
+                        },
+                      ]),
+                ],
+                events: completed
+                  ? ["message.created", "message.completed"].map(
+                      (type, index) => ({
+                        id: `${runId}:${index + 1}`,
+                        type,
+                        sequence: index + 1,
+                        threadId,
+                        runId,
+                        occurredAt: "2026-10-12T00:00:00.000Z",
+                        message: {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "complete",
+                          parts: [{ type: "text", text: staleAnswer }],
+                        },
+                      }),
+                    )
+                  : [],
+                runs: [
+                  {
+                    id: runId,
+                    threadId,
+                    status: completed ? "completed" : "running",
+                    ...(completed
+                      ? {}
+                      : { activeMessageId: "snapshot-assistant" }),
+                    lastSequence: completed ? 2 : 0,
+                  },
+                ],
+              },
+            }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const duringRun = await transport.getThreadSnapshot?.({ threadId });
+    expect(duringRun?.activeRunIds).toContain(runId);
+    expect(
+      duringRun?.messages.filter((message) => message.role === "assistant"),
+    ).toHaveLength(0);
+
+    const afterCompletion = await transport.getThreadSnapshot?.({ threadId });
+    expect(
+      afterCompletion?.messages.filter(
+        (message) => message.role === "assistant",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "server-assistant",
+        parts: [{ type: "text", text: finalAnswer }],
+      }),
     ]);
     await transport.dispose();
   });

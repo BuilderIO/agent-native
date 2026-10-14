@@ -20,9 +20,9 @@ import makeRecordingPrivateForRewind, {
 } from "./make-recording-private-for-rewind.js";
 import { trashRecordingContextFootage } from "./remove-recording-context.js";
 
-// The Clip row is created as its recording starts, so the window must end
-// within this of that row. It covers the desktop's start time and the row write.
-const ENDED_AT_TOLERANCE_MS = 120 * 1000;
+// The Clip row is created before native setup and the recording countdown.
+const MAX_STARTUP_DELAY_MS = 10 * 60 * 1000;
+const CLIENT_CLOCK_SKEW_TOLERANCE_MS = 120 * 1000;
 
 export default defineAction({
   description:
@@ -38,7 +38,7 @@ export default defineAction({
       .string()
       .datetime({ offset: true })
       .describe(
-        "When the recording started, as an ISO timestamp. Must be within 120 seconds of the Clip's start.",
+        "When capture started, as an ISO timestamp. May be up to 10 minutes after the Clip row is created for native setup, or 120 seconds before it for client clock skew.",
       ),
     deviceId: z
       .string()
@@ -65,17 +65,19 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    // Written as a negated <= so an unparseable time is refused, not passed.
+    const startOffsetMs = Date.parse(endedAt) - Date.parse(recording.createdAt);
     if (
-      !(
-        Math.abs(Date.parse(endedAt) - Date.parse(recording.createdAt)) <=
-        ENDED_AT_TOLERANCE_MS
-      )
+      !Number.isFinite(startOffsetMs) ||
+      startOffsetMs < -CLIENT_CLOCK_SKEW_TOLERANCE_MS ||
+      startOffsetMs > MAX_STARTUP_DELAY_MS
     ) {
-      fail("The screen history must end when this Clip started.", {
-        errorCode: "recording_context_invalid_window",
-        statusCode: 400,
-      });
+      fail(
+        "The requested screen history must end between 2 minutes before and 10 minutes after this Clip was created.",
+        {
+          errorCode: "recording_context_invalid_window",
+          statusCode: 400,
+        },
+      );
     }
     if (isPrivateClip(recording.visibility)) {
       await assertNoDirectRecordingShares(recordingId);

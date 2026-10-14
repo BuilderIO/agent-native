@@ -19,7 +19,7 @@ for example `skill-slide-editing--references-animations`.
 
 | Situation | Read |
 | --- | --- |
-| Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/style-only-edits.md` |
+| Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/restyling.md` |
 | Adding, changing, or removing click-to-reveal animations | `references/animations.md` |
 | Adding, moving, duplicating, or restyling hand-placed text boxes and other freeform objects | `references/freeform-objects.md` |
 | Adding or editing a video | `references/video.md` |
@@ -59,6 +59,10 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
      `selectionSlideContentHash` when present (the selection can be on another
      slide); otherwise `currentSlideId` and `currentSlideContentHash`. Never
      pair a `selectionSlideId` with the current slide's hash. Skip `get-deck`, `fullContent`, and layout-fit waits.
+   - **Slides you wrote this run:** you already hold their HTML, so send
+     `edits` directly (one `patch-deck` with `patch-slide` edits for several
+     slides) without re-reading. Read with `get-deck` only if an edit fails to
+     match or the write is rejected as stale; someone may have edited it since.
    - **Otherwise** (truncated, ambiguous, split by markup, or structural): call
      `get-deck` with that `slideId` (`compact=false` for full HTML, plus
      `format=true` for code-style work) and use its `contentHash` as

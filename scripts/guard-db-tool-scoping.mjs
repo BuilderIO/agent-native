@@ -111,6 +111,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "private snapshot blob cleanup outbox processed by Design actions",
   "design:design_screen_restore_claims":
     "one-use restore authorization scoped to a Design and accessed through Design actions",
+  "design:design_motion_bridge_receipt_challenges":
+    "one-use localhost bridge receipt nonces consumed only by scoped Design source actions",
+  "design:design_motion_bridge_relay_chains":
+    "short-lived Motion relay chains consumed only by scoped Design source actions",
   "forms:responses": "public submissions scoped through forms",
   "forms:response_deliveries":
     "internal delivery ledger scoped through form responses",

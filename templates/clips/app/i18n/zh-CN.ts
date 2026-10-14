@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "开启 Rewind",
     rewindOffTitle: "开启 Rewind",
     rewindOffBody:
-      "Rewind 会在本地保存屏幕的历史记录，方便你在录制前加入最近几分钟的画面。只有在你选择包含或批准后，画面才会上传。",
+      "默认关闭。屏幕历史记录会保留在此设备上，直到你将其加入录制内容或批准共享请求。",
     requestFailed: "无法包含更早的屏幕时间。录制将继续，但不包含这部分。",
     localOnlyUnavailable: "仅本地录制不会保存更早的屏幕时间。",
     saving: "正在保存录制前的 {{window}}…",
@@ -195,9 +195,12 @@ const messages = {
     expandSidebar: "展开侧边栏",
     collapseSidebar: "收起侧边栏",
     agentEmptyState: "我可以怎样帮助你处理录制？",
-    agentSuggestionSummary: "总结我最近的录制",
-    agentSuggestionPricing: "查找我提到价格的位置",
-    agentSuggestionFiller: "从这个剪辑中移除口头禅",
+    agentSuggestionSummary: "总结一段录制",
+    agentSuggestionPricing: "查找价格提及",
+    agentSuggestionFiller: "移除填充词",
+    agentScreenshotSuggestionSummary: "总结截图",
+    agentScreenshotSuggestionText: "查找截图中的文字",
+    agentScreenshotSuggestionCompare: "比较截图",
     createFolderError: "创建失败",
     folderCreated: "文件夹已创建",
     folderNamePlaceholder: "文件夹名称",
@@ -290,6 +293,9 @@ const messages = {
     transcriptionCompleted: "转录完成",
     transcriptNotReady: "成绩单尚未准备好",
     tryAfterTranscription: "转录完成后重试。",
+    silenceTranscriptUnavailableTitle: "无法使用此转录文本来移除静音片段",
+    silenceTranscriptUnavailableDescription:
+      "尝试生成新的转录文本，然后再次移除静音片段。",
     titleGenerationQueued: "正在生成标题…",
     descriptionQueued: "正在生成描述…",
     chapterQueued: "正在生成章节…",
@@ -1781,6 +1787,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (已本地化)",
     recordingDownloadStarted: "Recording download started (已本地化)",
+    partialLocalCopyDownloadStarted:
+      "本地副本可能不完整。正在下载当前可用的录制数据。",
     backToLibrary: "Back to library (已本地化)",
     clipsRecorder: "Clips recorder (已本地化)",
     preparingSources: "Preparing sources… (已本地化)",

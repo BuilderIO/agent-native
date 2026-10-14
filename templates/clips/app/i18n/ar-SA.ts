@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "تفعيل Rewind",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
-      "يحتفظ Rewind بسجل محلي لشاشتك حتى تتمكن من تضمين الدقائق القليلة الأخيرة قبل التسجيل. لا تُرفع اللقطات إلا عندما تضمّنها أو توافق على رفعها.",
+      "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",
     requestFailed: "تعذّر تضمين وقت الشاشة السابق. يستمر التسجيل بدونه.",
     localOnlyUnavailable: "لا يُحفظ وقت الشاشة السابق للتسجيلات المحلية فقط.",
     saving: "جارٍ حفظ {{window}} قبل…",
@@ -200,9 +200,12 @@ const messages = {
     expandSidebar: "توسيع الشريط الجانبي",
     collapseSidebar: "طي الشريط الجانبي",
     agentEmptyState: "كيف يمكنني مساعدتك في تسجيلاتك؟",
-    agentSuggestionSummary: "لخص آخر تسجيل لي",
-    agentSuggestionPricing: "اعثر على موضع ذكري للأسعار",
-    agentSuggestionFiller: "أزل كلمات الحشو من هذا المقطع",
+    agentSuggestionSummary: "لخص تسجيلاً",
+    agentSuggestionPricing: "اعثر على مواضع الأسعار",
+    agentSuggestionFiller: "أزل كلمات الحشو",
+    agentScreenshotSuggestionSummary: "لخص لقطات الشاشة",
+    agentScreenshotSuggestionText: "ابحث عن نص في لقطات الشاشة",
+    agentScreenshotSuggestionCompare: "قارن لقطات الشاشة",
     createFolderError: "فشل الإنشاء",
     folderCreated: "تم إنشاء المجلد",
     folderNamePlaceholder: "اسم المجلد",
@@ -298,6 +301,10 @@ const messages = {
     transcriptionCompleted: "اكتمل النسخ",
     transcriptNotReady: "النص ليس جاهزا بعد",
     tryAfterTranscription: "حاول مرة أخرى بعد انتهاء النسخ.",
+    silenceTranscriptUnavailableTitle:
+      "لا يمكن استخدام هذا النص لإزالة فترات الصمت",
+    silenceTranscriptUnavailableDescription:
+      "جرّب إنشاء نص جديد، ثم حاول إزالة فترات الصمت مرة أخرى.",
     titleGenerationQueued: "جارٍ إنشاء العنوان…",
     descriptionQueued: "جارٍ إنشاء الوصف…",
     chapterQueued: "جارٍ إنشاء الفصول…",
@@ -1855,6 +1862,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
+    partialLocalCopyDownloadStarted:
+      "قد تكون النسخة المحلية غير مكتملة. يتم تنزيل بيانات التسجيل المتاحة.",
     backToLibrary: "Back to library (مترجم)",
     clipsRecorder: "Clips recorder (مترجم)",
     preparingSources: "Preparing sources… (مترجم)",

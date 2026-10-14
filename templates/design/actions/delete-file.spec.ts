@@ -1250,6 +1250,55 @@ describe("delete-file", () => {
     );
   });
 
+  it("re-prepares the checkpoint once when collaboration changes during delete", async () => {
+    const firstCheckpoint = { id: "checkpoint-1" };
+    const retryCheckpoint = { id: "checkpoint-2" };
+    let preparationCount = 0;
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockImplementation(
+      async () =>
+        preparationCount++ === 0 ? firstCheckpoint : retryCheckpoint,
+    );
+    mocks.persistPreparedDesignVersionCheckpoint
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "Design or its history changed while the checkpoint was being prepared. Retry the operation.",
+          ),
+          {
+            errorCode: "design-version-checkpoint-changed",
+            retryable: true,
+            statusCode: 409,
+          },
+        ),
+      )
+      .mockImplementation(async (checkpoint) => ({
+        id: checkpoint.id,
+        createdAt: "now",
+        label: "Before",
+      }));
+
+    await expect(
+      action.run(
+        { id: "file-b", allowLockedLayers: true },
+        { caller: "frontend", actionName: "delete-file" },
+      ),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledTimes(2);
+    expect(mocks.persistPreparedDesignVersionCheckpoint).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      mocks.cleanupPreparedDesignVersionCheckpoint,
+    ).toHaveBeenNthCalledWith(1, firstCheckpoint, false, true);
+    expect(
+      mocks.cleanupPreparedDesignVersionCheckpoint,
+    ).toHaveBeenNthCalledWith(2, retryCheckpoint, true);
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the staged checkpoint when transaction commit outcome is unknown", async () => {
     const checkpoints: string[] = [];
     const preparedCheckpoint = { id: "checkpoint-1" };

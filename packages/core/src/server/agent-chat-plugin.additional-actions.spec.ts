@@ -152,7 +152,15 @@ async function boot(
     mcpEnabled = false,
     additionalActionSurfaces,
     appId,
-  }: Pick<AgentChatPluginOptions, "additionalActionSurfaces" | "appId"> & {
+    codeExecution,
+    resolveActionSurface,
+  }: Pick<
+    AgentChatPluginOptions,
+    | "additionalActionSurfaces"
+    | "appId"
+    | "codeExecution"
+    | "resolveActionSurface"
+  > & {
     mcpEnabled?: boolean;
   } = {},
 ): Promise<void> {
@@ -184,6 +192,8 @@ async function boot(
     resolveAdditionalActions,
     additionalActionSurfaces,
     ...(appId ? { appId } : {}),
+    ...(codeExecution ? { codeExecution } : {}),
+    ...(resolveActionSurface ? { resolveActionSurface } : {}),
   })(nitroApp);
   await booted.initPromises.at(-1);
 }
@@ -379,6 +389,37 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
       { surface: "a2a", names: ["user-registered-tool"] },
       { surface: "mcp", names: ["user-registered-tool"] },
     ]);
+  });
+
+  it("reserves trusted coding tools that request-scoped surfaces drop from chat", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await boot(
+      async () => ({
+        bash: entry("app bash"),
+        "user-registered-tool": entry("user tool"),
+      }),
+      {
+        codeExecution: { production: "trusted" },
+        resolveActionSurface: async () => ({ mode: "default" }),
+      },
+    );
+
+    const chatHandlers = booted.handlerOptions.filter(
+      (options) => options.resolveAdditionalActions,
+    );
+    expect(chatHandlers.length).toBeGreaterThan(0);
+    for (const options of chatHandlers) {
+      expect(options.actions.bash).toBeUndefined();
+      const added: Record<string, ActionEntry> =
+        await options.resolveAdditionalActions({
+          event: { path: "/_agent-native/agent-chat" },
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+        });
+      expect(added["user-registered-tool"]?.tool.description).toBe("user tool");
+      expect(added.bash).toBeUndefined();
+    }
   });
 
   it("reserves template actions hidden from the agent on every surface", async () => {

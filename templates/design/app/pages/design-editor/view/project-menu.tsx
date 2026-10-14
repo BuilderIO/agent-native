@@ -1,15 +1,4 @@
-import {
-  IconArrowLeft,
-  IconTemplate,
-  IconHistory,
-  IconFileExport,
-  IconPencil,
-  IconLayoutGrid,
-  IconPin,
-  IconKeyboard,
-  IconRocket,
-  IconPlayerPlay,
-} from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
@@ -19,6 +8,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
@@ -37,8 +28,29 @@ import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-structure";
 import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edits-and-presence";
 import type { EditorModes } from "../domains/use-editor-modes";
+import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import { overviewSelectionTargetsElement } from "../selection-state";
 import { ExportSubmenuContent } from "./export-submenu-content";
+
+const DOCS_URL = "https://www.agent-native.com/docs/";
+const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
+
+function ThemeRadioItems({ t }: { t: EditorCore["t"] }) {
+  const { theme, setTheme } = useTheme();
+  return (
+    <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={setTheme}>
+      <DropdownMenuRadioItem value="light" indicator="check">
+        {t("designEditor.appMenu.themeLight")}
+      </DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="dark" indicator="check">
+        {t("designEditor.appMenu.themeDark")}
+      </DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="system" indicator="check">
+        {t("designEditor.appMenu.themeSystem")}
+      </DropdownMenuRadioItem>
+    </DropdownMenuRadioGroup>
+  );
+}
 
 export function renderProjectMenu({
   editorCore,
@@ -52,7 +64,7 @@ export function renderProjectMenu({
   editorEditCommands,
   editorModes,
   editorExportAndHandoff,
-  id,
+  editorSourceAndSync,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -65,9 +77,9 @@ export function renderProjectMenu({
   editorEditCommands: EditorEditCommands;
   editorModes: EditorModes;
   editorExportAndHandoff: EditorExportAndHandoff;
-  id: string;
+  editorSourceAndSync: EditorSourceAndSync;
 }) {
-  const { t, viewMode, shortcut, selectedElement, isSignedIn } = editorCore;
+  const { t, id, viewMode, shortcut, selectedElement, isSignedIn } = editorCore;
   const {
     canUndo,
     canRedo,
@@ -75,8 +87,7 @@ export function renderProjectMenu({
     selectedLayerIdsState,
     setMotionDockOpenAnimated,
   } = editorHistory;
-  const { canEditDesign, canCommentDesign, pinMode } =
-    editorGenerationAndAccess;
+  const { canEditDesign, exportZipMutation } = editorGenerationAndAccess;
   const { files } = editorFilesAndSaving;
   const { activeFile, handleZoomOut, handleZoomIn, handleOpenMakeReal } =
     editorActiveScreenAndGeometry;
@@ -90,10 +101,11 @@ export function renderProjectMenu({
     handleUndo,
     handleRedo,
     handleViewModeToggle,
-    handlePinToolToggle,
     handleShowKeyboardShortcutsFromMenu,
   } = editorModes;
-  const {} = editorExportAndHandoff;
+  const { handleDownloadZip, handleCopyCodingHandoff, codingHandoffLoading } =
+    editorExportAndHandoff;
+  const { openImportFilePicker } = editorSourceAndSync;
 
   return (
     <DropdownMenu>
@@ -110,48 +122,74 @@ export function renderProjectMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="design-editor-app-menu-content w-64"
+        className="design-editor-app-menu-content w-[220px]"
         onCloseAutoFocus={(event) => {
           if (!suppressProjectMenuReturnFocusRef.current) return;
           event.preventDefault();
           suppressProjectMenuReturnFocusRef.current = false;
         }}
       >
-        <DropdownMenuItem asChild>
-          <Link to="/home">
-            <IconArrowLeft className="h-4 w-4" />
-            {t("designEditor.backToDesigns")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => setSaveTemplateOpen(true)}
-          disabled={!canEditDesign || files.length === 0}
-        >
-          <IconTemplate className="h-4 w-4" />
-          {t("designEditor.saveAsTemplate")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setHistoryOpen(true)} disabled={!id}>
-          <IconHistory className="h-4 w-4" />
-          {"Version history" /* i18n-ignore */}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconFileExport className="h-4 w-4" />
-            {t("designEditor.export")}
+            {t("designEditor.appMenu.file")}
           </DropdownMenuSubTrigger>
-          <ExportSubmenuContent
-            editorCore={editorCore}
-            editorGenerationAndAccess={editorGenerationAndAccess}
-            editorFilesAndSaving={editorFilesAndSaving}
-            editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-            editorExportAndHandoff={editorExportAndHandoff}
-          />
+          <DropdownMenuSubContent className="design-editor-app-menu-content w-60">
+            <DropdownMenuItem asChild>
+              <Link to="/home">{t("designEditor.appMenu.newDesign")}</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleDownloadZip}
+              disabled={!activeFile || exportZipMutation.isPending}
+            >
+              {t("designEditor.appMenu.saveLocalCopy")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setSaveTemplateOpen(true)}
+              disabled={!canEditDesign || files.length === 0}
+            >
+              {t("designEditor.saveAsTemplate")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setHistoryOpen(true)}
+              disabled={!id}
+            >
+              {t("designEditor.fileMenu.versionHistory")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={openImportFilePicker}
+              disabled={!canEditDesign}
+            >
+              {t("designEditor.fileMenu.import")}
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                {t("designEditor.export")}
+              </DropdownMenuSubTrigger>
+              <ExportSubmenuContent
+                editorCore={editorCore}
+                editorGenerationAndAccess={editorGenerationAndAccess}
+                editorFilesAndSaving={editorFilesAndSaving}
+                editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
+                editorExportAndHandoff={editorExportAndHandoff}
+              />
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              onClick={handleCopyCodingHandoff}
+              disabled={!activeFile || codingHandoffLoading}
+            >
+              {t("designEditor.copyCodingHandoff")}
+            </DropdownMenuItem>
+            {isSignedIn && (
+              <DropdownMenuItem onClick={handleOpenMakeReal}>
+                {t("designEditor.appMenu.makeAnApp")}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconPencil className="h-4 w-4" />
             {t("designEditor.modes.edit")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
@@ -170,7 +208,7 @@ export function renderProjectMenu({
               onClick={handleDuplicateSelection}
               disabled={!activeFile}
             >
-              {"Duplicate" /* i18n-ignore design menu command */}
+              {t("designEditor.duplicate")}
               <DropdownMenuShortcut>{shortcut("$mod+d")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -191,15 +229,14 @@ export function renderProjectMenu({
                   : !selectedElement && !activeFile
               }
             >
-              {"Delete" /* i18n-ignore design menu command */}
+              {t("designEditor.delete")}
               <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <IconLayoutGrid className="h-4 w-4" />
-            {"View" /* i18n-ignore design menu section */}
+            {t("designEditor.view")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
             <DropdownMenuItem onClick={handleViewModeToggle}>
@@ -214,49 +251,66 @@ export function renderProjectMenu({
             <DropdownMenuItem onClick={handleZoomIn}>
               {t("designEditor.zoomIn")}
             </DropdownMenuItem>
+            {editorLiveEditsAndPresence.motionLabEnabled ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setMotionDockOpenAnimated(true)}
+                  disabled={!activeFile}
+                >
+                  {t("designEditor.motion.openDock")}
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        {editorLiveEditsAndPresence.motionLabEnabled ? (
-          <DropdownMenuItem
-            onClick={() => setMotionDockOpenAnimated(true)}
-            disabled={!activeFile}
-          >
-            <IconPlayerPlay className="h-4 w-4" />
-            {t("designEditor.motion.openDock")}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuItem
-          onClick={handlePinToolToggle}
-          disabled={!activeFile || !canCommentDesign}
-        >
-          <IconPin className="h-4 w-4" />
-          {pinMode
-            ? t("designEditor.stopPinningComments")
-            : t("designEditor.pinComment")}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
-          <IconKeyboard className="h-4 w-4" />
-          {t("designEditor.keyboardShortcuts.title")}
-          <DropdownMenuShortcut>
-            {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
-                the browser consumes it before the page ever sees it. */}
-            {shortcut("ctrl+shift+?")}
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-        {isSignedIn && (
-          <>
-            <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            {t("designEditor.appMenu.preferences")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="design-editor-app-menu-content w-60">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                {t("designEditor.appMenu.theme")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="design-editor-app-menu-content w-[200px]">
+                <ThemeRadioItems t={t} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuItem
-              onClick={() => {
-                handleOpenMakeReal();
-              }}
+              onClick={() => handleShowKeyboardShortcutsFromMenu("search")}
             >
-              <IconRocket className="h-4 w-4" />
-              {"Make this a real app" /* i18n-ignore */}
+              {t("designEditor.keyboardShortcuts.title")}
+              <DropdownMenuShortcut>
+                {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
+                      the browser consumes it before the page ever sees it. */}
+                {shortcut("ctrl+shift+?")}
+              </DropdownMenuShortcut>
             </DropdownMenuItem>
-          </>
-        )}
+            <DropdownMenuItem
+              onClick={() => handleShowKeyboardShortcutsFromMenu("nudge")}
+            >
+              {t("designEditor.appMenu.nudgeAmount")}
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            {t("designEditor.appMenu.help")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="design-editor-app-menu-content w-60">
+            <DropdownMenuItem asChild>
+              <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">
+                {t("designEditor.appMenu.docs")}
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">
+                {t("designEditor.appMenu.joinDiscord")}
+              </a>
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
       </DropdownMenuContent>
     </DropdownMenu>
   );

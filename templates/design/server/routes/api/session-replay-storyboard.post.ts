@@ -3,6 +3,7 @@ import {
   isActionContractError,
   type ActionRunContext,
 } from "@agent-native/core/action";
+import { getPrivateStorageReadinessForRequest } from "@agent-native/core/file-upload";
 import { resolveActiveOrgIdForStorageCredential } from "@agent-native/core/org";
 import {
   deleteAttachment,
@@ -69,6 +70,40 @@ type CreatedDesignShell = {
 
 function badRequest(message: string, statusCode = 400): never {
   throw createError({ statusCode, statusMessage: message });
+}
+
+function requestDeadlineError() {
+  return createError({
+    statusCode: 504,
+    statusMessage: "Design screenshot upload request expired",
+    data: { errorCode: "request_deadline_exceeded" },
+  });
+}
+
+function throwIfRequestExpired(signal?: AbortSignal): void {
+  if (signal?.aborted) throw requestDeadlineError();
+}
+
+function beforeRequestExpiry<T>(
+  signal: AbortSignal | undefined,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  if (!signal) return Promise.resolve().then(operation);
+  throwIfRequestExpired(signal);
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(requestDeadlineError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    void Promise.resolve()
+      .then(operation)
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 function hasUnknownSaveOutcome(error: unknown): boolean {
@@ -399,6 +434,7 @@ function parseManifest(value: unknown): Manifest {
 }
 
 export default defineEventHandler(async (event) => {
+  const requestSignal = event.req?.signal;
   const authorization = getHeader(event, "authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(authorization)?.[1];
   if (!token) badRequest("A signed Analytics user is required", 401);
@@ -476,12 +512,14 @@ export default defineEventHandler(async (event) => {
     async () => {
       let storageCredentialOrgId: string | null;
       try {
-        storageCredentialOrgId = await resolveActiveOrgIdForStorageCredential(
-          caller.email!,
+        storageCredentialOrgId = await beforeRequestExpiry(requestSignal, () =>
+          resolveActiveOrgIdForStorageCredential(caller.email!),
         );
       } catch {
+        if (requestSignal?.aborted) throw requestDeadlineError();
         badRequest("Design private screenshot storage is unavailable", 503);
       }
+      throwIfRequestExpired(requestSignal);
       const withStorageCredentialOrg = <T>(operation: () => T | Promise<T>) =>
         runWithRequestContext(
           {
@@ -493,14 +531,28 @@ export default defineEventHandler(async (event) => {
           operation,
         );
 
+      const storageReadiness = await beforeRequestExpiry(requestSignal, () =>
+        withStorageCredentialOrg(getPrivateStorageReadinessForRequest),
+      );
+      throwIfRequestExpired(requestSignal);
+      if (storageReadiness.readiness !== "ready") {
+        throw createError({
+          statusCode: 503,
+          statusMessage: "Design private screenshot storage is unavailable",
+          data: { errorCode: "private_storage_unavailable" },
+        });
+      }
+
       let designId = manifest.designId;
       if (!designId) {
+        throwIfRequestExpired(requestSignal);
         const created = await createDesign.run(
           {
             title: manifest.title ?? "Session replay storyboard",
             description: "Private session replay storyboard from Analytics.",
             projectType: "prototype",
             designSystemId: null,
+            creationMethod: "import_analytics",
           },
           {
             caller: "frontend",
@@ -571,7 +623,9 @@ export default defineEventHandler(async (event) => {
         }
         createdDesignShell = createdShell;
       }
+      throwIfRequestExpired(requestSignal);
       await assertPersonalPrivateDesignBoard(designId, caller.email!);
+      throwIfRequestExpired(requestSignal);
 
       const refs: string[] = [];
       let cleanupPending = false;
@@ -592,6 +646,7 @@ export default defineEventHandler(async (event) => {
           [];
         await withStorageCredentialOrg(async () => {
           for (let index = 0; index < manifest.screenshots.length; index += 1) {
+            throwIfRequestExpired(requestSignal);
             const screenshot = manifest.screenshots[index]!;
             const minted = await mintAttachmentRef({
               data: screenshotBytes[index]!,
@@ -607,17 +662,21 @@ export default defineEventHandler(async (event) => {
                 offsetMs: screenshot.offsetMs,
               },
             });
+            if (minted.status === "ok") {
+              refs.push(minted.ref);
+              screenshots.push({ ...screenshot, attachmentRef: minted.ref });
+            }
+            throwIfRequestExpired(requestSignal);
             if (minted.status !== "ok") {
               badRequest(
                 "Design private screenshot storage is unavailable",
                 503,
               );
             }
-            refs.push(minted.ref);
-            screenshots.push({ ...screenshot, attachmentRef: minted.ref });
           }
         });
 
+        throwIfRequestExpired(requestSignal);
         const result = await withStorageCredentialOrg(() =>
           addSessionReplayScreenshotsToBoard.run(
             {

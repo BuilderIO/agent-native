@@ -1071,9 +1071,28 @@ describe("ChatGPT directory template profiles", () => {
             )
             .map((tool) => tool.name),
         ).toEqual([]);
+        // The OpenAI dashboard refuses submission when any advertised tool,
+        // including the app-only session helper, leaves a hint undeclared.
+        for (const tool of tools) {
+          for (const hint of [
+            "readOnlyHint",
+            "destructiveHint",
+            "openWorldHint",
+          ] as const) {
+            expect(
+              typeof tool.annotations?.[hint],
+              `${tool.name} ${hint}`,
+            ).toBe("boolean");
+          }
+        }
         const sessionTool = tools.find(
           (tool) => tool.name === "create_embed_session",
         );
+        expect(sessionTool?.annotations).toMatchObject({
+          readOnlyHint: false,
+          destructiveHint: false,
+          openWorldHint: false,
+        });
         expect(sessionTool?._meta?.ui?.visibility).toEqual(["app"]);
         expect(sessionTool?.inputSchema.required).toEqual(["sourceTicket"]);
         expect(sessionTool?.inputSchema.properties).not.toHaveProperty(

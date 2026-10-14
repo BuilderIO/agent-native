@@ -142,8 +142,6 @@ export function useEditorToolsAndVectors({
     setActiveFileId,
   } = editorCore;
   const {
-    activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
     selectedLayerIdsState,
@@ -202,6 +200,9 @@ export function useEditorToolsAndVectors({
     activeFile,
     handleBreakpointBarSelect,
     overviewCanvasZoom,
+    interactDeviceName,
+    interactDeviceSize,
+    interactTheme,
     setCameraCommand,
     cameraCommandNonceRef,
     exportCanvasFrameGeometryById,
@@ -219,6 +220,12 @@ export function useEditorToolsAndVectors({
     canvasContainerRef,
     activeProjectionContent,
     selectedCodeLayerNode,
+    motionAutoKeyframeEnabled,
+    motionDockLiveState,
+    motionDurationMs,
+    motionPlayhead,
+    motionPlaybackMode,
+    motionTimelineId,
   } = editorLiveEditsAndPresence;
   const { applyLocalContentUpdate, applyFileContentUpdate } =
     editorContentAndComponents;
@@ -376,7 +383,7 @@ export function useEditorToolsAndVectors({
         setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
-      setActiveInspectorTab("comments");
+      setActiveLeftPanel("threads");
       reviewFocusNonceRef.current += 1;
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
@@ -931,6 +938,9 @@ export function useEditorToolsAndVectors({
       });
   }, []);
   const spaceForwardArmedRef = useRef(false);
+  // Interact hands Space to the page: no pan, no Hand tool, no cancelled key.
+  const interactOwnsSpaceRef = useRef(mode === "interact");
+  interactOwnsSpaceRef.current = mode === "interact";
   useEffect(() => {
     if (
       shellMode ||
@@ -942,6 +952,7 @@ export function useEditorToolsAndVectors({
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
+      if (interactOwnsSpaceRef.current) return;
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isKeyboardShortcutsDialogTarget(event.target)) return;
@@ -1295,7 +1306,6 @@ export function useEditorToolsAndVectors({
         activeBreakpointWidthState,
         activeCodeFile,
         activeFile,
-        activeInspectorTab,
         activeLeftPanel,
         activeTool,
         design,
@@ -1305,9 +1315,21 @@ export function useEditorToolsAndVectors({
         files,
         hoveredElement,
         id,
+        interactDevice: {
+          name: interactDeviceName,
+          width: interactDeviceSize.width,
+          height: interactDeviceSize.height,
+        },
+        interactTheme,
         isSignedIn,
         mode,
+        motionAutoKeyframeEnabled,
         motionDockOpen,
+        motionDockLiveState,
+        motionDurationMs,
+        motionPlayhead,
+        motionPlaybackMode,
+        motionTimelineId,
         pendingPersistedSelectionWriteRef,
         persistedSelectionContextRef,
         persistedSelectionStateRef,
@@ -1329,19 +1351,28 @@ export function useEditorToolsAndVectors({
       hoveredElement,
       mode,
       activeTool,
-      activeInspectorTab,
       activeLeftPanel,
       activeCodeFile,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
       motionDockOpen,
+      motionAutoKeyframeEnabled,
+      motionDockLiveState,
+      motionDurationMs,
+      motionPlayhead,
+      motionPlaybackMode,
+      motionTimelineId,
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
       layoutGrids,
       selectedStateId,
       isSignedIn,
+      interactDeviceName,
+      interactDeviceSize.width,
+      interactDeviceSize.height,
+      interactTheme,
     ],
   );
 

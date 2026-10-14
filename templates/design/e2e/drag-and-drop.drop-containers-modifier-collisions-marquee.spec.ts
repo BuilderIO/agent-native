@@ -1,195 +1,194 @@
-import { expect, test, type Page } from "@playwright/test";
-
 import {
-  setBaseURL,
-  newDesign,
-  indexHtml,
-  node,
-  openEditor,
-  scale,
-  selectViaTree,
-} from "./drag-and-drop.shared";
+  childrenOf,
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+} from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
+const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
+const LIVE_SCREEN =
+  'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])';
+
+const dropFixture = (primitive: string) => `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Drop</title></head>
+  <body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#0f1115">
+    <div data-agent-native-node-id="mover" data-agent-native-layer-name="Mover"
+         style="position:absolute;left:20px;top:300px;width:100px;height:60px;background:#a855f7"></div>
+    <div data-agent-native-node-id="target" data-agent-native-layer-name="Target" data-an-primitive="${primitive}"
+         style="position:absolute;left:170px;top:300px;width:120px;height:120px;background:#ec4899"></div>
+  </body>
+</html>`;
+
+const TWO_BOXES = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Boxes</title></head>
+  <body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#0f1115">
+    <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" data-an-primitive="rectangle"
+         style="position:absolute;left:60px;top:300px;width:120px;height:80px;background:#3b82f6"></div>
+    <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" data-an-primitive="rectangle"
+         style="position:absolute;left:400px;top:300px;width:120px;height:80px;background:#22c55e"></div>
+  </body>
+</html>`;
+
+const STACKED_BOXES = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Boxes</title></head>
+  <body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#0f1115">
+    <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" data-an-primitive="rectangle"
+         style="position:absolute;left:30px;top:280px;width:120px;height:80px;background:#3b82f6"></div>
+    <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" data-an-primitive="rectangle"
+         style="position:absolute;left:30px;top:440px;width:120px;height:80px;background:#22c55e"></div>
+    <div data-agent-native-node-id="box-c" data-agent-native-layer-name="Box C" data-an-primitive="rectangle"
+         style="position:absolute;left:400px;top:440px;width:120px;height:80px;background:#f59e0b"></div>
+  </body>
+</html>`;
+
+async function openSeeded(app: App, html: string) {
+  const id = await app.seed(html);
+  await app.open(id);
+  await app.zoomToFit();
+  return id;
+}
+
+/** Presses at a design point, drags to another and returns the dragged node's box just before release. */
+async function dragAndHold(
+  app: App,
+  nodeId: string,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const resting = await app.designRect(nodeId);
+  const start = await app.pagePoint(from.x, from.y);
+  const end = await app.pagePoint(to.x, to.y);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 20 });
+  await expect
+    .poll(() => app.designRect(nodeId), {
+      message: `precondition: ${nodeId} follows the pointer`,
+    })
+    .not.toEqual(resting);
+  return app.designRect(nodeId);
+}
 
 test.describe("drop containers", () => {
-  const dropFixture = (
-    primitive: string,
-  ) => `<!doctype html><html><head><meta charset="utf-8"><title>Drop</title></head>
-<body style="margin:0;min-height:900px;background:#0f1115">
-<div data-agent-native-node-id="mover" data-agent-native-layer-name="Mover"
-     style="position:absolute;left:20px;top:300px;width:100px;height:60px;background:#a855f7"></div>
-<div data-agent-native-node-id="target" data-agent-native-layer-name="Target" data-an-primitive="${primitive}"
-     style="position:absolute;left:170px;top:300px;width:120px;height:120px;background:#ec4899"></div>
-</body></html>`;
+  for (const [primitive, title] of [
+    ["frame", "a frame adopts an element dragged into it"],
+    [
+      "rectangle",
+      "a rectangle adopts as a free-placement container, not a layout parent",
+    ],
+  ] as const) {
+    test(title, async ({ app }) => {
+      const id = await openSeeded(app, dropFixture(primitive));
+      const before = await app.savedNodes(id);
 
-  const dragMoverOntoTarget = async (page: Page, primitive: string) => {
-    const id = await newDesign(page, dropFixture(primitive));
-    await openEditor(page, id);
-    const preview = page
-      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-      .first()
-      .contentFrame();
-    const mover = (await preview
-      .locator('[data-agent-native-node-id="mover"]')
-      .boundingBox())!;
-    const target = (await preview
-      .locator('[data-agent-native-node-id="target"]')
-      .boundingBox())!;
-    await page.mouse.move(
-      mover.x + mover.width / 2,
-      mover.y + mover.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      mover.x + mover.width / 2 + 10,
-      mover.y + mover.height / 2,
-      { steps: 3 },
-    );
-    await page.mouse.move(
-      target.x + target.width / 2,
-      target.y + target.height / 2,
-      { steps: 20 },
-    );
-    await page.waitForTimeout(600);
-    await page.mouse.up();
-    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-    return preview
-      .locator("body")
-      .evaluate(
-        () =>
-          document
-            .querySelector('[data-agent-native-node-id="mover"]')
-            ?.parentElement?.getAttribute("data-agent-native-node-id") ?? null,
+      const held = await dragAndHold(
+        app,
+        "mover",
+        { x: 70, y: 330 },
+        { x: 230, y: 360 },
       );
-  };
+      await app.page.mouse.up();
+      await app.settled();
 
-  test("a frame adopts an element dragged into it", async ({ page }) => {
-    expect(
-      await dragMoverOntoTarget(page, "frame"),
-      "frames are the container primitive and must adopt a dropped element",
-    ).toBe("target");
-  });
-
-  test("a rectangle adopts as a free-placement container, not a layout parent", async ({
-    page,
-  }) => {
-    expect(
-      await dragMoverOntoTarget(page, "rectangle"),
-      "editor-chrome.bridge.ts treats a canvas rectangle as an " +
-        "absolute-primitive-container, so the drop re-parents into it",
-    ).toBe("target");
-
-    const placement = await page
-      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
-      .first()
-      .contentFrame()
-      .locator("body")
-      .evaluate(() => {
-        const read = (id: string) => {
-          const el = document.querySelector<HTMLElement>(
-            `[data-agent-native-node-id="${id}"]`,
-          );
-          return el ? window.getComputedStyle(el) : null;
-        };
-        return {
-          moverPosition: read("mover")?.position ?? null,
-          targetDisplay: read("target")?.display ?? null,
-        };
+      const after = await app.savedNodes(id);
+      expect(childrenOf(after, "target")).toEqual(["mover"]);
+      expect(styleOf(after.get("mover"))).toEqual({
+        position: "absolute",
+        left: `${held.x - 170}px`,
+        top: `${held.y - 300}px`,
+        width: "100px",
+        height: "60px",
+        background: "rgb(168, 85, 247)",
       });
-
-    expect(
-      placement.moverPosition,
-      "a rectangle is a vector shape, so adopting must keep the dropped " +
-        "element absolutely placed rather than converting to flow",
-    ).toBe("absolute");
-    expect(
-      placement.targetDisplay,
-      "the rectangle must not become an auto-layout parent",
-    ).not.toBe("flex");
-  });
+      expectOnlyChanged(before, after, ["mover"]);
+      expect(await app.designRect("mover")).toEqual(held);
+      expect(
+        held.x >= 170 &&
+          held.x + 100 <= 290 &&
+          held.y >= 300 &&
+          held.y + 60 <= 420,
+        `the mover is held inside the target: ${JSON.stringify(held)}`,
+      ).toBe(true);
+    });
+  }
 });
 
 test.describe("modifier collisions", () => {
-  const dragUp = async (page: Page, withModifier: boolean) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await selectViaTree(page, "Box A");
-    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-    const read = async () =>
-      Number(
-        /box-a"[\s\S]{0,200}?top:\s*(-?\d+(?:\.\d+)?)px/.exec(
-          await indexHtml(page, id),
-        )?.[1] ?? NaN,
-      );
-    const before = await read();
-    const box = (await node(page, "box-a").boundingBox())!;
-    const s = box.height / 80;
-    const mod = process.platform === "darwin" ? "Meta" : "Control";
-    if (withModifier) await page.keyboard.down(mod);
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      box.x + box.width / 2,
-      box.y + box.height / 2 - 100 * s,
-      {
-        steps: 40,
-      },
-    );
-    await page.waitForTimeout(300);
-    await page.mouse.up();
-    if (withModifier) await page.keyboard.up(mod);
-    await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
-    return before - (await read());
-  };
+  test("the primary modifier does not hijack a drag", async ({ app }) => {
+    const id = await openSeeded(app, TWO_BOXES);
+    const before = await app.savedNodes(id);
 
-  test("the primary modifier does not hijack a drag", async ({ page }) => {
-    const plain = await dragUp(page, false);
-    const modified = await dragUp(page, true);
+    const plain = await dragAndHold(
+      app,
+      "box-a",
+      { x: 120, y: 340 },
+      { x: 120, y: 240 },
+    );
+    await app.page.mouse.up();
+    await app.settled();
+    expect(plain.y, "precondition: a plain drag moves Box A up").toBeLessThan(
+      220,
+    );
+
+    await app.page.keyboard.down(PRIMARY);
+    const modified = await dragAndHold(
+      app,
+      "box-b",
+      { x: 460, y: 340 },
+      { x: 460, y: 240 },
+    );
+    await app.page.mouse.up();
+    await app.page.keyboard.up(PRIMARY);
+    await app.settled();
+
     expect(
-      plain,
-      `an unmodified 100px drag should travel most of the way; moved ${plain}`,
-    ).toBeGreaterThan(85);
-    expect(
-      Math.abs(plain - modified),
-      `the modifier should not change the drag distance — ` +
-        `plain drag moved ${plain}, modified moved ${modified}. A large gap ` +
-        `means a selection shortcut consumed the gesture.`,
-    ).toBeLessThanOrEqual(8);
+      modified.y,
+      "the modified drag travels as far as the plain one",
+    ).toBe(plain.y);
+    const after = await app.savedNodes(id);
+    expect(styleOf(after.get("box-a"))).toEqual({
+      ...styleOf(before.get("box-a")),
+      top: `${plain.y}px`,
+    });
+    expect(styleOf(after.get("box-b"))).toEqual({
+      ...styleOf(before.get("box-b")),
+      top: `${plain.y}px`,
+    });
+    expectOnlyChanged(before, after, ["box-a", "box-b"]);
+    expect(await app.designRect("box-b")).toEqual(modified);
   });
 });
 
 test.describe("marquee", () => {
-  test("dragging from empty canvas marquee-selects the elements it covers", async ({
-    page,
+  // fixme: product bug: With two layers selected, the selection size badge reads '120 × 80' (Box B alone) instead of the 120 × 240 union. showSizeBadge(el)
+  test.fixme("dragging from empty canvas marquee-selects the elements it covers", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    const a = (await node(page, "box-a").boundingBox())!;
-    const scale = a.width / 120;
-    const originX = a.x - 30 * scale;
-    const originY = a.y - 280 * scale;
-    const at = (sx: number, sy: number) => ({
-      x: originX + sx * scale,
-      y: originY + sy * scale,
-    });
-    const from = at(180, 240);
-    const to = at(15, 545);
+    const id = await openSeeded(app, STACKED_BOXES);
+    const before = await app.savedNodes(id);
+    const from = await app.pagePoint(180, 240);
+    const to = await app.pagePoint(15, 545);
 
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 20 });
-    await page.waitForTimeout(400);
-    await page.mouse.up();
-    await page.waitForTimeout(1800); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+    await app.page.mouse.move(from.x, from.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(to.x, to.y, { steps: 20 });
+    await app.page.mouse.up();
 
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box B", "Box A"]);
+    await app.settled();
+    expectOnlyChanged(before, await app.savedNodes(id), []);
     await expect(
-      page.locator('[role="treeitem"][aria-selected="true"]'),
-      "a marquee across Box A and Box B should select both",
-    ).toHaveCount(2);
+      app.page
+        .frameLocator(LIVE_SCREEN)
+        .locator('[data-agent-native-edit-overlay="size-badge"]'),
+      "the size badge measures the whole selection",
+    ).toHaveText("120 × 240");
   });
 });

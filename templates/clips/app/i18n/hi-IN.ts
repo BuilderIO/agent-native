@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind चालू करें",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
-      "Rewind आपकी स्क्रीन का स्थानीय इतिहास रखता है, ताकि आप रिकॉर्डिंग से पहले के आख़िरी कुछ मिनट शामिल कर सकें। फ़ुटेज तभी अपलोड होता है जब आप उसे शामिल करें या मंज़ूरी दें।",
+      "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",
     requestFailed:
       "पहले का स्क्रीन समय शामिल नहीं किया जा सका। रिकॉर्डिंग इसके बिना जारी रहती है।",
     localOnlyUnavailable:
@@ -200,9 +200,12 @@ const messages = {
     expandSidebar: "साइडबार फैलाएँ",
     collapseSidebar: "साइडबार समेटें",
     agentEmptyState: "आपकी रिकॉर्डिंग में मैं कैसे मदद कर सकता हूँ?",
-    agentSuggestionSummary: "मेरी पिछली रिकॉर्डिंग का सारांश दें",
-    agentSuggestionPricing: "जहाँ मैंने कीमतों का ज़िक्र किया है वह ढूँढें",
-    agentSuggestionFiller: "इस क्लिप से फिलर शब्द हटाएँ",
+    agentSuggestionSummary: "रिकॉर्डिंग का सारांश दें",
+    agentSuggestionPricing: "कीमत के उल्लेख खोजें",
+    agentSuggestionFiller: "फ़िलर शब्द हटाएँ",
+    agentScreenshotSuggestionSummary: "स्क्रीनशॉट का सारांश दें",
+    agentScreenshotSuggestionText: "स्क्रीनशॉट में टेक्स्ट खोजें",
+    agentScreenshotSuggestionCompare: "स्क्रीनशॉट की तुलना करें",
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
@@ -298,6 +301,10 @@ const messages = {
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
+    silenceTranscriptUnavailableTitle:
+      "इस ट्रांसक्रिप्ट का उपयोग खामोशी हटाने के लिए नहीं किया जा सकता",
+    silenceTranscriptUnavailableDescription:
+      "नई ट्रांसक्रिप्ट बनाने की कोशिश करें, फिर खामोशी हटाने के लिए दोबारा प्रयास करें।",
     titleGenerationQueued: "शीर्षक बनाया जा रहा है…",
     descriptionQueued: "विवरण बनाया जा रहा है…",
     chapterQueued: "अध्याय बनाए जा रहे हैं…",
@@ -1829,6 +1836,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
+    partialLocalCopyDownloadStarted:
+      "स्थानीय कॉपी अधूरी हो सकती है। उपलब्ध रिकॉर्डिंग डेटा डाउनलोड हो रहा है।",
     backToLibrary: "Back to library (स्थानीयकृत)",
     clipsRecorder: "Clips recorder (स्थानीयकृत)",
     preparingSources: "Preparing sources… (स्थानीयकृत)",

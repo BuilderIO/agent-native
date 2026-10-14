@@ -7,12 +7,13 @@ import { z } from "zod";
 
 import {
   readSourceIndex,
+  sourceIndexScanCoverage,
   sourceIndexFreshness,
 } from "../server/lib/source-index-store.js";
 
 export default defineAction({
   description:
-    "Read the status and aggregate metadata for the organization’s imported source index. Does not return index contents.",
+    "Read the status, source scan coverage counts, and aggregate metadata for the organization’s imported source index. Does not return index contents.",
   schema: z.object({}),
   readOnly: true,
   http: { method: "GET" },
@@ -27,6 +28,7 @@ export default defineAction({
     const result = await readSourceIndex(getRequestOrgId() || null);
     if (result.status !== "available") return { status: result.status };
     const freshness = sourceIndexFreshness(result.bundle.generatedAt);
+    const scanCoverage = sourceIndexScanCoverage(result.bundle);
     const entryCountsBySource = new Map<string, number>();
     for (const entry of result.bundle.entries) {
       entryCountsBySource.set(
@@ -38,8 +40,8 @@ export default defineAction({
       status: result.status,
       generatedAt: result.bundle.generatedAt,
       entryCount: result.bundle.entries.length,
-      unresolvedTrackingCallSites:
-        result.bundle.scanSummary?.unresolvedTrackingCallSites ?? null,
+      scanCoverage,
+      unresolvedTrackingCallSites: scanCoverage.unresolvedTrackingCallSites,
       sources: result.bundle.sources,
       sourceCounts: result.bundle.sources.map(({ id }) => ({
         source: id,

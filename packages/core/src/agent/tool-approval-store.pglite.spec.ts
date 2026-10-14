@@ -48,7 +48,6 @@ const {
   createAgentToolApproval,
   hashAgentToolApprovalKey,
   isAgentToolAlwaysAllowed,
-  listPendingAgentToolApprovalToolNames,
   setAgentToolApprovalPolicy,
 } = await import("./tool-approval-store.js");
 
@@ -231,27 +230,5 @@ describe("tool approvals bound to a revision", () => {
 
     await expect(allowed("r1")).resolves.toBe(false);
     await expect(allowed()).resolves.toBe(false);
-  });
-
-  it("names the tools of pending approvals in the thread that match approved keys, expired ones included", async () => {
-    await createAgentToolApproval({
-      ...call,
-      toolRevision: "r1",
-      expiresAt: Date.now() - 1_000,
-    });
-    await createAgentToolApproval({
-      ...call,
-      threadId: "thread-2",
-      toolName: "other-tool",
-      callId: "call-2",
-      approvalKey: "other-tool:{}",
-    });
-
-    await expect(
-      listPendingAgentToolApprovalToolNames({
-        ...scope,
-        approvalKeys: [call.approvalKey, "other-tool:{}"],
-      }),
-    ).resolves.toEqual([call.toolName]);
   });
 });

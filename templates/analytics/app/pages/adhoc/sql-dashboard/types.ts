@@ -61,12 +61,15 @@ export interface TableColumnConfig {
   format?: ColumnFormat;
   linkKey?: string;
   hidden?: boolean;
+  width?: number;
 }
 
 export interface PivotConfig {
   xKey: string;
   seriesKey: string;
   valueKey: string;
+  /** Series values drawn first, in this order; unlisted series follow. */
+  seriesOrder?: string[];
 }
 
 export type DashboardTimeScope =

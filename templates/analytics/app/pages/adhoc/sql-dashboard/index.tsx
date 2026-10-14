@@ -182,7 +182,7 @@ import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
-import { SqlChartCard } from "./SqlChartCard";
+import { dashboardTileElementId, SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
@@ -190,6 +190,7 @@ import {
   type DashboardFilter,
   type SqlDashboardConfig,
   type SqlPanel,
+  type TableColumnConfig,
 } from "./types";
 import { ViewsMenu } from "./ViewsMenu";
 
@@ -274,10 +275,12 @@ const PanelCell = memo(function PanelCell({
   reportScreenshot,
   isDragSource,
   selectedForChat,
+  highlighted,
   selectPanelForChat,
   onRemovePanel,
   onEditPanel,
   onSavePanel,
+  onSaveColumns,
   dashboardExtensionContext,
 }: {
   panel: SqlPanel;
@@ -289,6 +292,7 @@ const PanelCell = memo(function PanelCell({
   reportScreenshot: boolean;
   isDragSource: boolean;
   selectedForChat: boolean;
+  highlighted: boolean;
   selectPanelForChat: (
     panel: DashboardPanelChatContextArgs,
     options?: SelectDashboardPanelOptions,
@@ -296,6 +300,7 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
+  onSaveColumns: (panelId: string, columns: TableColumnConfig[]) => void;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
   const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
@@ -394,11 +399,15 @@ const PanelCell = memo(function PanelCell({
         onRemove={() => onRemovePanel(panel.id)}
         onEdit={() => onEditPanel(panel)}
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
+        onSaveColumns={
+          editable ? (columns) => onSaveColumns(panel.id, columns) : undefined
+        }
         editable={editable}
         eagerLoad={eagerLoad}
         reportScreenshot={reportScreenshot}
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
+        highlighted={highlighted}
         onSelectForChat={handleSelectForChat}
         dashboardId={
           typeof dashboardExtensionContext.dashboardId === "string"
@@ -609,6 +618,8 @@ async function saveDashboard(
     expectedUpdatedAt,
   });
 }
+
+const TILE_HIGHLIGHT_MS = 2000;
 
 export default function SqlDashboardPage() {
   const { session } = useSession();
@@ -1512,6 +1523,21 @@ function SqlDashboardPageContent({
     [dashboard, persistThrow],
   );
 
+  // Column edits apply optimistically through `persist`, the same path as
+  // removing a panel; a failed save toasts and refetches the saved config.
+  const handleSaveColumns = useCallback(
+    (panelId: string, columns: TableColumnConfig[]) => {
+      if (!dashboard) return;
+      persist({
+        ...dashboard,
+        panels: dashboard.panels.map((p) =>
+          p.id === panelId ? { ...p, config: { ...p.config, columns } } : p,
+        ),
+      });
+    },
+    [dashboard, persist],
+  );
+
   const openEditPanel = useCallback(
     (panel: SqlPanel) => {
       trackEvent("dashboard_panel_editor_opened", {
@@ -1696,6 +1722,40 @@ function SqlDashboardPageContent({
         group.tabs.some((tab) => tab.value === activeTab),
       )
     : null;
+
+  const requestedTileId = searchParams.get("tile");
+  const [highlightedTileId, setHighlightedTileId] = useState<string | null>(
+    null,
+  );
+  const handledTileIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!requestedTileId) {
+      handledTileIdRef.current = null;
+      return;
+    }
+    if (!dashboard || handledTileIdRef.current === requestedTileId) return;
+    const panel = dashboard.panels.find((p) => p.id === requestedTileId);
+    if (!panel) return;
+    const panelTab = panel.tab;
+    if (panelTab && panelTab !== selectedTab) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", panelTab);
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    const element = document.getElementById(dashboardTileElementId(panel.id));
+    if (!element) return;
+    handledTileIdRef.current = requestedTileId;
+    element.scrollIntoView({ block: "center" });
+    setHighlightedTileId(panel.id);
+    window.setTimeout(() => setHighlightedTileId(null), TILE_HIGHLIGHT_MS);
+  }, [dashboard, requestedTileId, selectedTab, setSearchParams]);
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -2680,10 +2740,12 @@ function SqlDashboardPageContent({
                                 reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
                                 selectedForChat={selectedPanelId === panel.id}
+                                highlighted={highlightedTileId === panel.id}
                                 selectPanelForChat={selectPanelForChat}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
+                                onSaveColumns={handleSaveColumns}
                                 dashboardExtensionContext={
                                   dashboardExtensionContext
                                 }

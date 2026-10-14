@@ -7,6 +7,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { hashAgentToolApprovalKey } from "./approval-key.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
@@ -18,6 +19,8 @@ import {
   AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
+
+export { hashAgentToolApprovalKey } from "./approval-key.js";
 
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
@@ -100,11 +103,8 @@ export interface AgentToolApprovalBinding {
   toolRevision?: string | null;
   callId: string;
   approvalKey: string;
+  approvalId?: string;
   expiresAt?: number;
-}
-
-export function hashAgentToolApprovalKey(approvalKey: string): string {
-  return createHash("sha256").update(approvalKey).digest("hex");
 }
 
 export interface AgentToolApprovalPolicyBinding {
@@ -183,7 +183,7 @@ export async function isAgentToolAlwaysAllowed(
   const result = await getDbExec().execute({
     sql: `SELECT 1 FROM agent_tool_approval_policies
       WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
         AND tool_name = ?
         AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
         AND enabled = TRUE
@@ -206,6 +206,7 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   threadId?: string | null;
   requestedTurnId?: string | null;
   approvalKeys: readonly string[];
+  approvalId?: string;
 }): Promise<string | null> {
   const approvalKeys = [...new Set(binding.approvalKeys)].slice(0, 200);
   if (!binding.threadId || approvalKeys.length === 0) return null;
@@ -214,12 +215,15 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   const now = Date.now();
   const hashes = approvalKeys.map(hashAgentToolApprovalKey);
   const placeholders = hashes.map(() => "?").join(", ");
+  const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
+  const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
   const result = await getDbExec().execute({
     sql: `SELECT turn_id FROM agent_tool_approvals
       WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = CAST(? AS TEXT))
         AND approval_key_hash IN (${placeholders})
+        ${exactApprovalFilter}
         AND status = 'pending'
         AND expires_at > ?
         AND turn_id IS NOT NULL`,
@@ -230,6 +234,7 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       binding.threadId,
       binding.threadId,
       ...hashes,
+      ...approvalIdArgs,
       now,
     ],
   });
@@ -243,46 +248,15 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       .filter((turnId: string | null): turnId is string => turnId !== null),
   );
   const requestedTurnId = binding.requestedTurnId?.trim();
+  if (binding.approvalId) {
+    if (turnIds.size !== 1) return null;
+    const exactTurnId = [...turnIds][0]!;
+    return requestedTurnId && requestedTurnId !== exactTurnId
+      ? null
+      : exactTurnId;
+  }
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
   return turnIds.size === 1 ? [...turnIds][0]! : null;
-}
-
-/**
- * The tool names of the caller's pending approvals in this thread that match
- * the client's approved keys, for checking that each approved tool still
- * exists before the model is told the approval went through. Expired rows are
- * included: this identifies what was approved and authorizes nothing.
- */
-export async function listPendingAgentToolApprovalToolNames(binding: {
-  ownerEmail: string;
-  orgId?: string | null;
-  threadId: string;
-  approvalKeys: readonly string[];
-}): Promise<string[]> {
-  const approvalKeys = [...new Set(binding.approvalKeys)].slice(0, 200);
-  if (approvalKeys.length === 0) return [];
-  await ensureAgentToolApprovalTable();
-  const hashes = approvalKeys.map(hashAgentToolApprovalKey);
-  const placeholders = hashes.map(() => "?").join(", ");
-  const result = await getDbExec().execute({
-    sql: `SELECT DISTINCT tool_name FROM agent_tool_approvals
-      WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND thread_id = ?
-        AND approval_key_hash IN (${placeholders})
-        AND status = 'pending'`,
-    args: [
-      binding.ownerEmail,
-      binding.orgId ?? null,
-      binding.orgId ?? null,
-      binding.threadId,
-      ...hashes,
-    ],
-  });
-  return (result.rows ?? []).flatMap((row: unknown) => {
-    const name = (row as { tool_name?: unknown }).tool_name;
-    return typeof name === "string" ? [name] : [];
-  });
 }
 
 export async function createAgentToolApproval(
@@ -342,22 +316,24 @@ export async function consumeAgentToolApproval(
 ): Promise<boolean> {
   await ensureAgentToolApprovalTable();
   const now = Date.now();
+  const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
+  const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
   const result = await getDbExec().execute({
     sql: `UPDATE agent_tool_approvals
       SET status = 'consumed', consumed_at = ?, updated_at = ?
       WHERE id = (
-        SELECT id FROM agent_tool_approvals
+        SELECT MIN(id) FROM agent_tool_approvals
         WHERE owner_email = ?
-          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
-          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
+          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = CAST(? AS TEXT))
+          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = CAST(? AS TEXT))
           AND tool_name = ?
           AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
           AND approval_key_hash = ?
+          ${exactApprovalFilter}
           AND status = 'pending'
           AND expires_at > ?
-        ORDER BY created_at DESC
-        LIMIT 1
+        HAVING COUNT(*) = 1
       )
       AND status = 'pending'`,
     args: [
@@ -374,6 +350,7 @@ export async function consumeAgentToolApproval(
       binding.toolRevision ?? null,
       binding.toolRevision ?? null,
       hashAgentToolApprovalKey(binding.approvalKey),
+      ...approvalIdArgs,
       now,
     ],
   });

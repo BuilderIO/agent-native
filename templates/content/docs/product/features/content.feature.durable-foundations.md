@@ -8,8 +8,8 @@ order: 1
 roadmap_status: "in_validation"
 summary: "Pages, Blocks, Collections, Search, history, and recovery form one trustworthy material loop."
 example_workflow: "A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context."
-works_today: "Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. Page saves and external edits use revision and retry identities, while editor recovery fences delayed stale drafts after confirmed saves. An early local pass of the current save-session repair preserved independent two-tab and browser/MCP edits with canonical read-back."
-remains: "The September 23 hosted beta two-tab pass still lost later independent edits and opened version-choice recovery. The current repair needs full local R01–R08 and authenticated repaired-beta acceptance. Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity also remain incomplete."
+works_today: "Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. October's two-tab convergence work added a repeatable loss test, kept concurrent words, reduced false conflict warnings, hardened durable saves and recovery, and measured save outcomes (#6656, #6721, #6737, #6984, #7028, #7033, #7111). A reported beta two-tab check converged 18 edits with every save returning 200."
+remains: "Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need proof. F1 remains in validation: the R01–R08 gate and authenticated beta acceptance remain open; the two-tab result alone does not make it Available."
 required_capabilities:
   [
     "content.object.page",
@@ -30,7 +30,7 @@ enhancing_capabilities:
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-09-23"
+last_reviewed: "2026-10-12"
 ---
 
 # Feature 1: Durable foundations

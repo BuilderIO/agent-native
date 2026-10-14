@@ -22,6 +22,7 @@ import {
   planPanelRender,
   stableStringify,
   unknownPanelConfigKeys,
+  type ChartPointLimit,
   type ConfigKeyIssue,
 } from "../../shared/panel-render-contract";
 import {
@@ -67,6 +68,8 @@ export interface PanelVerification {
   rowCount: number | null;
   /** Rows the renderer plots (post-pivot); this is what "No data" tests. */
   renderedRowCount: number | null;
+  /** Set when the chart draws only part of `renderedRowCount`. */
+  pointLimit?: ChartPointLimit;
   /** At most MAX_COLUMNS_LISTED names; `columnCount` is the true total. */
   columns: string[];
   columnCount: number;
@@ -639,6 +642,7 @@ async function verifyOne(
     status,
     rowCount: data.rows.length,
     renderedRowCount: plan.renderedRowCount,
+    ...(plan.pointLimit ? { pointLimit: plan.pointLimit } : {}),
     columns,
     columnCount: columns.length,
     missingKeys,
@@ -919,7 +923,11 @@ export function describePanelOutcome(panel: PanelVerification): string {
   if (panel.status === "ok" && panel.staticIssues.length === 0) {
     return panel.visualOnly
       ? `is a ${panel.chartType} panel with no data to run; only its config was checked`
-      : `renders ${panel.renderedRowCount} row(s), columns [${panel.columns.slice(0, 12).join(", ")}]`;
+      : `renders ${panel.renderedRowCount} row(s), columns [${panel.columns.slice(0, 12).join(", ")}]${
+          panel.pointLimit
+            ? `; the chart draws only the ${panel.pointLimit.keeps} ${panel.pointLimit.shown} of ${panel.pointLimit.total} points`
+            : ""
+        }`;
   }
   if (panel.status === "unverified") {
     const why = panel.note ? NOTE_REASONS[panel.note] : "could not be checked";
