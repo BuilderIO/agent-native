@@ -104,4 +104,17 @@ describe("compose-dashboard retrySafe", () => {
       }),
     ).toBe(false);
   });
+
+  it.each(["overwrite", "refreshExisting"])(
+    "refuses a stringified %s flag, which the schema coerces to true",
+    (flag) => {
+      expect(
+        retrySafe(composeDashboard, {
+          dashboardId,
+          metrics: ["dau"],
+          [flag]: "true",
+        }),
+      ).toBe(false);
+    },
+  );
 });
