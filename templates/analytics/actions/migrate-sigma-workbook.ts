@@ -63,6 +63,13 @@ const migrateSchema = z.object({
     .describe(
       "Set true only when intentionally replacing this user's prior imported dashboard with a fresh source snapshot.",
     ),
+  recoverMissingDashboard: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Set true only when the prior imported dashboard is no longer accessible and should be recreated.",
+    ),
 });
 
 function dashboardIdFor(args: {
@@ -88,6 +95,11 @@ function safeText(value: string, maxLength = 180): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+export function sigmaDashboardName(workbookName: string, workbookId: string) {
+  const sourceKey = createHash("sha256").update(workbookId).digest("hex");
+  return `Sigma: ${safeText(workbookName, 150)} · ${sourceKey.slice(0, 20)}`;
 }
 
 function makeReviewCallout(
@@ -240,7 +252,10 @@ function compileSigmaDashboard(args: {
     args.inspection.workbook.documentVersion;
   return {
     config: {
-      name: `Sigma: ${safeText(args.inspection.workbook.name, 180)}`,
+      name: sigmaDashboardName(
+        args.inspection.workbook.name,
+        args.inspection.workbook.workbookId,
+      ),
       columns: 6,
       catalog: {
         templateId: `sigma-${createHash("sha256")
@@ -341,6 +356,49 @@ export default defineAction({
         },
       );
     }
+    if (!preliminaryReview.some((element) => element.importable)) {
+      fail("This Sigma workbook has no elements that can be imported.", {
+        errorCode: "sigma_no_importable_elements",
+        statusCode: 422,
+      });
+    }
+
+    if (args.recoverMissingDashboard) {
+      if (args.remigrate) {
+        fail(
+          "Choose either missing-dashboard recovery or an intentional remigration.",
+          { errorCode: "sigma_recovery_mode_conflict", statusCode: 400 },
+        );
+      }
+      const [migration] = await listExternalDashboards({
+        provider: "sigma",
+        sourceIds: [args.workbookId],
+        limit: 1,
+      });
+      const expectedDashboardId = dashboardIdFor({
+        orgId: context.orgId,
+        userEmail: context.userEmail,
+        workbookId: args.workbookId,
+      });
+      if (
+        migration?.status !== "migrated" ||
+        !migration.migratedByCurrentUser ||
+        migration.targetDashboardId !== expectedDashboardId ||
+        (await getDashboard(expectedDashboardId, {
+          email: context.email,
+          orgId: context.orgId,
+        }))
+      ) {
+        fail(
+          "The prior Sigma dashboard is still available or cannot be recovered by this user.",
+          {
+            errorCode: "sigma_dashboard_recovery_unavailable",
+            statusCode: 409,
+          },
+        );
+      }
+    }
+
     await createExternalDashboard({
       provider: "sigma",
       sourceId: args.workbookId,
@@ -350,7 +408,7 @@ export default defineAction({
     const claim = await claimExternalDashboard({
       provider: "sigma",
       sourceId: args.workbookId,
-      remigrate: args.remigrate,
+      remigrate: args.remigrate || args.recoverMissingDashboard,
     });
     if (!claim.claimed) {
       if (claim.reason === "already_migrated") {
@@ -405,6 +463,12 @@ export default defineAction({
           errorCode: "dashboard_id_conflict",
           statusCode: 409,
         });
+      }
+      if (args.recoverMissingDashboard && existing) {
+        fail(
+          "The prior Sigma dashboard became available before recovery completed.",
+          { errorCode: "sigma_dashboard_recovery_conflict", statusCode: 409 },
+        );
       }
 
       const folder = await ensureSigmaFolder({

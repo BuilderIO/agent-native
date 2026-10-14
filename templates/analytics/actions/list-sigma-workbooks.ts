@@ -89,6 +89,12 @@ export default defineAction({
       const migration = migrationBySourceId.get(workbook.workbookId);
       const status: ExternalDashboardMigrationStatus =
         migration?.status ?? "not_started";
+      const migrationDashboard =
+        migration?.status === "migrated" &&
+        migration.migratedByCurrentUser &&
+        migration.targetDashboardId
+          ? dashboardById.get(migration.targetDashboardId)
+          : undefined;
       let dashboardId: string | undefined;
       let dashboardName: string | undefined;
       if (
@@ -123,6 +129,12 @@ export default defineAction({
                 params: { dashboardId },
               }),
             }
+          : {}),
+        ...(migration?.status === "migrated" &&
+        migration.migratedByCurrentUser &&
+        migration.targetDashboardId &&
+        !migrationDashboard
+          ? { canRecoverMissingDashboard: true }
           : {}),
         ...(migration?.flaggedCount
           ? { flaggedCount: migration.flaggedCount }

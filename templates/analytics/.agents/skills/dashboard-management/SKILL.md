@@ -250,6 +250,11 @@ that it targets the Sigma project. The Dispatch setup link can create a Sigma
 workspace connection from Vault-backed client ID and client secret references
 and grant Analytics access; never copy their values into Analytics settings.
 
+When the workbook list sets `canRecoverMissingDashboard`, pass
+`recoverMissingDashboard: true` to recreate the prior import only if its
+dashboard is no longer accessible. Use `remigrate: true` only for an explicit
+request to replace an existing imported dashboard.
+
 Once a source mapping can be verified, the workflow creates a private snapshot
 in the user's personal `Sigma` folder. Other source types and unsupported
 elements become review callouts. Preserve migration warnings and never describe

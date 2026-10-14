@@ -50,6 +50,7 @@ type SigmaWorkbook = {
   dashboardId?: string | null;
   dashboardName?: string;
   dashboardUrl?: string;
+  canRecoverMissingDashboard?: boolean;
   flaggedCount?: number;
   migratedByTeammate?: boolean;
   retryableByCurrentUser: boolean;
@@ -115,7 +116,11 @@ type SigmaMigrationResult =
     }
   | { status: "in_progress" };
 
-type MigrationArgs = { workbookId: string; connectionId?: string };
+type MigrationArgs = {
+  workbookId: string;
+  connectionId?: string;
+  recoverMissingDashboard?: boolean;
+};
 
 type LoadedWorkbookPage = { cursor?: string; workbooks: SigmaWorkbook[] };
 
@@ -298,7 +303,8 @@ export function SigmaMigrationDialog({
     (inspection.data?.importableCount ?? 0) > 0 &&
     !migrationInProgress &&
     selectedWorkbook?.retryableByCurrentUser !== false &&
-    selectedWorkbook?.status !== "migrated" &&
+    (selectedWorkbook?.status !== "migrated" ||
+      selectedWorkbook?.canRecoverMissingDashboard === true) &&
     selectedWorkbook?.status !== "migrating";
   const isImported =
     migrationResult?.status === "completed" ||
@@ -353,6 +359,9 @@ export function SigmaMigrationDialog({
       const result = await migrateWorkbook.mutateAsync({
         workbookId: selectedWorkbook.id,
         connectionId,
+        ...(selectedWorkbook.canRecoverMissingDashboard
+          ? { recoverMissingDashboard: true }
+          : {}),
       });
       if (!isMigrationResult(result)) {
         setMigrationError(t("dashboardOverview.sigmaMigrationResultInvalid"));
