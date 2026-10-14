@@ -851,7 +851,7 @@ export async function instrumentAgentLoop(opts: {
       finishOtelModelSpan(tripIndex, {
         status: modelCallFailed ? "error" : "success",
         errorMessage: modelErrorMessage,
-        errorCode: finalErrorCode,
+        errorCode: trip?.errorCode ?? finalErrorCode,
         attributes: modelSpanAttributes(tripIndex),
         endTime: modelRoundTrips[tripIndex]?.end,
       });

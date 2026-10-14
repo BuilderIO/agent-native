@@ -3112,6 +3112,46 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ).toEqual(["http_429", undefined]);
   });
 
+  it("keeps a retried model span's own error code", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({
+          type: "model_stream",
+          status: "end",
+          reason: "error",
+          errorCode: "http_429",
+        });
+        send({ type: "clear" });
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-retry-code",
+      threadId: "thread-1",
+      userId: "user-1",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    const modelSpans = spans.filter((span) => span.name.startsWith("chat "));
+    expect(
+      modelSpans.map((span) => span.attributes["agent.error_code"]),
+    ).toEqual(["http_429", undefined]);
+  });
+
   it("exports each bracketed model call as a live child span", async () => {
     const { spans, runtime } = createRecordingTracer();
     __setAgentTraceRuntimeForTests(runtime as any);

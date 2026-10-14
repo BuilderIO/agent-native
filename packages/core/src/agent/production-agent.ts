@@ -6970,6 +6970,13 @@ export async function runAgentLoop(opts: {
               break;
             }
           }
+        } catch (err: unknown) {
+          // A thrown engine error skips the `stop` event, so its code must
+          // reach the bracket end here or the failed attempt goes unlabeled.
+          const thrownCode = (err as { errorCode?: unknown } | null)?.errorCode;
+          if (typeof thrownCode === "string")
+            terminalStopErrorCode ??= thrownCode;
+          throw err;
         } finally {
           closeModelStreamBracket();
           if (!eventIteratorDone) {
