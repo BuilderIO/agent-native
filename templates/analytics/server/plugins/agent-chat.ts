@@ -334,13 +334,17 @@ const SCHEMA_DETAILS_NOUN =
 // table of the results").
 const SCHEMA_DETAILS_IMPERATIVE =
   "(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b";
-// "Would you like me to show ..." is an offer, never a request for details.
-const SCHEMA_DETAILS_ASK = `(?:\\b(?:could you|can you|would you(?! like)|do you know|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// "Would you like me to show ..." is an offer, and "tell me if/whether ..." or
+// "could you confirm the table has 43 rows" is feedback, never a request for
+// details; "could you" counts only before a verb that asks to be given one.
+const SCHEMA_DETAILS_FEEDBACK =
+  "(?! (?:if|whether|what else|anything|how|why)\\b)";
+const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)(?: please)? (?:provide|share|send|give|specify|name|list|tell me${SCHEMA_DETAILS_FEEDBACK})|do you know|please\\s+(?:provide|share|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 // A list lead-in must ask to be given something: "Can you tell me what else is
 // off:" followed by a summary bullet that mentions a table is feedback.
 const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)(?: please)? (?:provide|share|send)|please\\s+(?:provide|share|send)|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:(?:names?|identifiers?|details)|(?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?))\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|has|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
@@ -1210,11 +1214,14 @@ export function realDataFinalGuard(
   }
 
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
-  if (looksLikeSchemaDetailsRequest(context.text)) {
-    // The detector is a heuristic over prose. Once the retries are spent the
-    // draft stands: a real ask lets the user answer it, and a false match
-    // keeps a correct answer instead of replacing it with a canned failure.
-    if (context.retryCount >= SCHEMA_DETAILS_MAX_RETRIES) return null;
+  // The detector is a heuristic over prose. Once its retries are spent the
+  // schema ask is let through (a real ask lets the user answer it, and a false
+  // match keeps a correct answer instead of replacing it with a canned
+  // failure) and the remaining guards below still judge the draft.
+  if (
+    context.retryCount < SCHEMA_DETAILS_MAX_RETRIES &&
+    looksLikeSchemaDetailsRequest(context.text)
+  ) {
     const failedQueryRecovery = failedQueryMessage
       ? ` ${failedQueryMessage}`
       : "";

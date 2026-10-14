@@ -1257,6 +1257,8 @@ describe("realDataFinalGuard", () => {
     "I fixed both panels. Tell me what else is off: the table shows 43 rows.",
     "Tell me if anything else is off, since the table still shows 43 rows.",
     "I fixed both panels. Can you tell me what else is off:\n- the table shows 43 rows",
+    "Tell me if anything else is off and the table shows 43 rows.",
+    "Could you confirm the table has 43 rows?",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1292,6 +1294,24 @@ describe("realDataFinalGuard", () => {
     expect(realDataFinalGuard(context(2))).toBeNull();
   });
 
+  it("still checks unsupported figures after the schema-request retries are spent", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many accounts are under 5% utilization?",
+        draftText:
+          "Revenue was $4.2M across 43 accounts. Could you provide the BigQuery dataset name?",
+        retryCount: 2,
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(
+      (result as { retryMessage?: string } | string | null) &&
+        typeof result === "object" &&
+        (result as { retryMessage: string }).retryMessage,
+    ).not.toContain("Do not ask the user for warehouse schema identifiers");
+  });
+
   it.each([
     "I need the table name before I can continue.",
     "I need a table name before I can continue.",
@@ -1302,6 +1322,7 @@ describe("realDataFinalGuard", () => {
     "I need the column that holds usage before I can continue.",
     "For this metric, which table holds the monthly usage?",
     "I need the name of the table before I can continue.",
+    "I need table names before I can continue.",
     "What table stores monthly credit usage?",
     "To continue, please provide:\n- the dataset name\n- the column that holds usage",
     "To continue, please provide the following:\n\n- the dataset name\n- the column that holds usage",
