@@ -1259,6 +1259,7 @@ describe("realDataFinalGuard", () => {
     "I fixed both panels. Can you tell me what else is off:\n- the table shows 43 rows",
     "Tell me if anything else is off and the table shows 43 rows.",
     "Could you confirm the table has 43 rows?",
+    "Could you check the table has 43 rows?",
     "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
     "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
   ])(
@@ -1327,6 +1328,8 @@ describe("realDataFinalGuard", () => {
     "I need table names before I can continue.",
     "Could you let me know which table holds monthly usage?",
     "Could you clarify which table holds monthly usage?",
+    "Could you check which table holds monthly usage?",
+    "Can you check the dataset name?",
     "Would you mind providing the dataset name?",
     "Could you provide the following?\n- the BigQuery dataset name",
     "What table stores monthly credit usage?",
