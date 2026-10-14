@@ -262,7 +262,8 @@ the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
 fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
 with query values redacted, status, duration), plus `consoleIssues` and
 `failedNetworkRequests` highlights. All of it is bounded, and page URL, headers,
-bodies, and cookies stay omitted.
+bodies, and cookies stay omitted. When a list is trimmed, failures and
+pre-recording entries are kept before the newest.
 
 Password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.

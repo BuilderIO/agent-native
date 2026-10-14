@@ -887,4 +887,78 @@ describe("buildPublicAgentContext", () => {
     ]);
     expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
   });
+
+  it("keeps lookback entries and failures when trimming a busy session", () => {
+    const lookback = Array.from({ length: 10 }, (_, index) => ({
+      timestampMs: index,
+      elapsedMs: -10_000 + index * 1000,
+      level: "log" as const,
+      message: `before ${index}`,
+    }));
+    const failure = {
+      timestampMs: 20,
+      elapsedMs: 5,
+      level: "error" as const,
+      message: "early failure",
+    };
+    const later = Array.from({ length: 150 }, (_, index) => ({
+      timestampMs: 100 + index,
+      elapsedMs: 100 + index,
+      level: "log" as const,
+      message: `after ${index}`,
+    }));
+    const consoleLogs = [...lookback, failure, ...later];
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: { headers: new Headers() },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [],
+      reactions: [],
+      ctas: [],
+      browserDiagnostics: {
+        pageUrl: null,
+        userAgent: null,
+        startedAt: "2026-06-22T10:00:00.000Z",
+        endedAt: "2026-06-22T10:01:00.000Z",
+        summary: {
+          consoleCount: consoleLogs.length,
+          consoleErrorCount: 1,
+          consoleWarnCount: 0,
+          networkCount: 0,
+          networkFailureCount: 0,
+          capturedAt: "2026-06-22T10:01:00.000Z",
+        },
+        consoleLogs,
+        networkRequests: [],
+        timeline: consoleLogs.map((entry) => ({ ...entry, kind: "console" })),
+      },
+    });
+
+    const kept = context.browserDiagnostics!.consoleLogs.map(
+      (entry) => entry.message,
+    );
+    expect(kept).toHaveLength(100);
+    expect(kept.slice(0, 11)).toEqual([
+      ...lookback.map((entry) => entry.message),
+      "early failure",
+    ]);
+    expect(kept[kept.length - 1]).toBe("after 149");
+    expect(kept).not.toContain("after 60");
+    expect(
+      context.browserDiagnostics!.timeline.filter(
+        (entry) => entry.timestampMs < 0,
+      ),
+    ).toHaveLength(10);
+  });
 });

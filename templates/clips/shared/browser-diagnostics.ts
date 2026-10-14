@@ -344,6 +344,30 @@ export function buildBrowserDiagnosticTimeline({
     .map(({ event }) => event);
 }
 
+// Indices in the order entries are worth keeping when a list must shrink:
+// failures, then lookback (negative elapsedMs), then the newest of the rest.
+// Keeping only the newest would drop the lookback first.
+export function diagnosticKeepOrder<T extends { elapsedMs: number }>(
+  entries: readonly T[],
+  isFailure: (entry: T) => boolean,
+): number[] {
+  const rank = (entry: T) =>
+    isFailure(entry) ? 0 : entry.elapsedMs < 0 ? 1 : 2;
+  return entries
+    .map((entry, index) => ({ index, rank: rank(entry) }))
+    .sort((a, b) => a.rank - b.rank || b.index - a.index)
+    .map(({ index }) => index);
+}
+
+export function compactDiagnosticEntries<T extends { elapsedMs: number }>(
+  entries: readonly T[],
+  max: number,
+  isFailure: (entry: T) => boolean,
+): T[] {
+  const kept = new Set(diagnosticKeepOrder(entries, isFailure).slice(0, max));
+  return entries.filter((_, index) => kept.has(index));
+}
+
 export function summarizeBrowserDiagnostics(
   snapshot: Pick<
     BrowserDiagnosticsSnapshot,

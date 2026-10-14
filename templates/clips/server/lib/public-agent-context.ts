@@ -26,6 +26,7 @@ import {
   toAgentTranscriptSegments,
 } from "../../shared/agent-context.js";
 import {
+  compactDiagnosticEntries,
   parseBrowserDiagnosticsRow,
   sanitizeBrowserDiagnosticNavigationUrl,
   type BrowserDiagnosticsData,
@@ -637,25 +638,48 @@ function isFailedNetworkRequest(
   );
 }
 
+function isConsoleIssue(
+  entry: Pick<BrowserDiagnosticsData["consoleLogs"][number], "level">,
+): boolean {
+  return entry.level === "warn" || entry.level === "error";
+}
+
+function isTimelineFailure(entry: BrowserDiagnosticTimelineEvent): boolean {
+  if (entry.kind === "console") return isConsoleIssue(entry);
+  if (entry.kind === "network") {
+    return (
+      Boolean(entry.error) ||
+      (typeof entry.status === "number" && entry.status >= 400)
+    );
+  }
+  return false;
+}
+
 function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
   if (!diagnostics) return null;
-  const consoleLogs = diagnostics.consoleLogs
-    .slice(-MAX_PUBLIC_AGENT_CONSOLE_LOGS)
-    .map(toPublicConsoleEntry);
+  const consoleLogs = compactDiagnosticEntries(
+    diagnostics.consoleLogs,
+    MAX_PUBLIC_AGENT_CONSOLE_LOGS,
+    isConsoleIssue,
+  ).map(toPublicConsoleEntry);
   const consoleIssues = diagnostics.consoleLogs
-    .filter((entry) => entry.level === "warn" || entry.level === "error")
+    .filter(isConsoleIssue)
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicConsoleEntry);
-  const networkRequests = diagnostics.networkRequests
-    .slice(-MAX_PUBLIC_AGENT_NETWORK_REQUESTS)
-    .map(toPublicNetworkEntry);
+  const networkRequests = compactDiagnosticEntries(
+    diagnostics.networkRequests,
+    MAX_PUBLIC_AGENT_NETWORK_REQUESTS,
+    isFailedNetworkRequest,
+  ).map(toPublicNetworkEntry);
   const failedNetworkRequests = diagnostics.networkRequests
     .filter(isFailedNetworkRequest)
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicNetworkEntry);
-  const timeline = (diagnostics.timeline ?? [])
-    .slice(-MAX_PUBLIC_AGENT_TIMELINE_EVENTS)
-    .map(toPublicTimelineEntry);
+  const timeline = compactDiagnosticEntries(
+    diagnostics.timeline ?? [],
+    MAX_PUBLIC_AGENT_TIMELINE_EVENTS,
+    isTimelineFailure,
+  ).map(toPublicTimelineEntry);
   return {
     summary: diagnostics.summary,
     timeline,
@@ -663,7 +687,7 @@ function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
     consoleIssues,
     networkRequests,
     failedNetworkRequests,
-    note: "Timeline entries are relative to recording start and include redacted navigation, click/input targets, console events, and request/response markers. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
+    note: "Timeline entries are relative to recording start and include redacted navigation, click/input targets, console events, and request/response markers. Negative timestamps are from up to 30 seconds before the recording started. Lists are bounded: when one is trimmed, failures and pre-recording entries are kept first, then the newest; summary has the full counts. The recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
   };
 }
 
@@ -824,7 +848,7 @@ export function buildPublicAgentContext({
       : []),
     ...(browserDiagnostics
       ? [
-          "Use browserDiagnostics.timeline for the bounded, relative event sequence: navigation, click/input targets, console events, and request/response markers. Use browserDiagnostics.consoleLogs and browserDiagnostics.networkRequests for the full redacted streams; consoleIssues and failedNetworkRequests are curated failure highlights.",
+          "Use browserDiagnostics.timeline for the bounded, relative event sequence: navigation, click/input targets, console events, and request/response markers. Use browserDiagnostics.consoleLogs and browserDiagnostics.networkRequests for the bounded redacted streams; consoleIssues and failedNetworkRequests are curated failure highlights.",
         ]
       : []),
     ...(frameMode === "still"
