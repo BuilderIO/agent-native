@@ -26,7 +26,7 @@ const recorderEventSchema = z.looseObject({
 });
 
 export const recorderReportSchema = z.looseObject({
-  app: z.string(),
+  app: z.string().max(200),
   build: z.string(),
   url: z.string(),
   at: z.string(),
