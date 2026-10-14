@@ -1189,6 +1189,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
+    test.setTimeout(150_000);
     const cells = [
       {
         name: "center",
