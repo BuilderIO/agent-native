@@ -25,6 +25,15 @@ export default {
     templateCatalog: "目录",
     semanticLayer: "语义层",
   },
+  dashboardMode: {
+    label: "仪表板模式",
+    view: "查看",
+    edit: "编辑",
+    viewHint: "浏览而不做任何更改。您拖动的列宽只对您生效。",
+    editHint: "更改会为所有人保存",
+    columnResizePersonal: "拖动以仅为您调整列宽。双击可重置。",
+    columnResizeShared: "拖动以为所有人调整列宽",
+  },
   dashboardHeader: {
     updated: "更新于 {{date}}",
     created: "创建于 {{date}}",
