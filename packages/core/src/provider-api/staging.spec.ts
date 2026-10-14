@@ -20,12 +20,14 @@ vi.mock("../db/client.js", () => ({
         return { rows: [], rowsAffected: 1 };
       }
       if (/INSERT INTO staged_dataset_rows/i.test(rawSql)) {
-        const id = args[0] as string;
-        const idx = args[1] as number;
-        const data = args[2] as string;
-        if (!_rowStore.has(id)) _rowStore.set(id, []);
-        _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
-        return { rows: [], rowsAffected: 1 };
+        for (let i = 0; i < args.length; i += 3) {
+          const id = args[i] as string;
+          const idx = args[i + 1] as number;
+          const data = args[i + 2] as string;
+          if (!_rowStore.has(id)) _rowStore.set(id, []);
+          _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
+        }
+        return { rows: [], rowsAffected: args.length / 3 };
       }
       if (
         /SELECT row_data FROM staged_dataset_rows WHERE dataset_id/i.test(

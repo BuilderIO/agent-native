@@ -7,6 +7,8 @@ import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 export const MAX_ROWS_PER_APP = 200_000;
 export const MAX_BYTES_PER_APP = 50 * 1024 * 1024;
 export const STAGED_DATASET_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const INSERT_BATCH_ROWS = 500;
+const INSERT_BATCH_BYTES = 1024 * 1024;
 
 let _initPromise: Promise<void> | undefined;
 
@@ -356,15 +358,28 @@ export async function upsertStagedDataset(
       args: [id],
     });
 
-    const BATCH = 500;
-    for (let i = 0; i < serialized.length; i += BATCH) {
-      const slice = serialized.slice(i, i + BATCH);
-      for (let j = 0; j < slice.length; j++) {
-        await tx.execute({
-          sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, ?, ?)`,
-          args: [id, i + j, slice[j]],
-        });
+    // The app lock is held across these inserts, so they go in multi-row
+    // statements: one round trip per batch, not per row, keeps a large stage
+    // from holding every same-app stage and delete for minutes.
+    for (let start = 0; start < serialized.length; ) {
+      let end = start;
+      let bytes = 0;
+      while (
+        end < serialized.length &&
+        end - start < INSERT_BATCH_ROWS &&
+        (end === start || bytes + serialized[end]!.length <= INSERT_BATCH_BYTES)
+      ) {
+        bytes += serialized[end]!.length;
+        end += 1;
       }
+      const slice = serialized.slice(start, end);
+      await tx.execute({
+        sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES ${slice
+          .map(() => "(?, ?, ?)")
+          .join(", ")}`,
+        args: slice.flatMap((data, offset) => [id, start + offset, data]),
+      });
+      start = end;
     }
 
     await tx.execute({

@@ -76,10 +76,12 @@ function makeExec(tx: number | null) {
         return { rows: [], rowsAffected: 1 };
       }
       if (/INSERT INTO staged_dataset_rows/i.test(sql)) {
-        const id = args[0] as string;
-        if (!_rowStore.has(id)) _rowStore.set(id, []);
-        _rowStore.get(id)![args[1] as number] = args[2] as string;
-        return { rows: [], rowsAffected: 1 };
+        for (let i = 0; i < args.length; i += 3) {
+          const id = args[i] as string;
+          if (!_rowStore.has(id)) _rowStore.set(id, []);
+          _rowStore.get(id)![args[i + 1] as number] = args[i + 2] as string;
+        }
+        return { rows: [], rowsAffected: args.length / 3 };
       }
       if (
         /INSERT INTO staged_datasets/i.test(sql) &&
@@ -614,6 +616,63 @@ describe("upsertStagedDataset eviction", () => {
 
     expect(_metaStore.has("ds_peer")).toBe(true);
     expect(_metaStore.has("ds_many")).toBe(false);
+  });
+});
+
+describe("upsertStagedDataset row inserts", () => {
+  beforeEach(() => {
+    _metaStore.clear();
+    _rowStore.clear();
+    _log.length = 0;
+    _txCounter = 0;
+    _resetInitPromiseForTests();
+  });
+
+  const stage = (rows: Record<string, unknown>[]) =>
+    upsertStagedDataset({
+      id: "ds_batch",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "ds_batch",
+      rows,
+      columns: [],
+    });
+  const rowInserts = () =>
+    _log.filter((e) => /INSERT INTO staged_dataset_rows/i.test(e.sql));
+
+  it("writes rows in multi-row statements inside the locked transaction", async () => {
+    await stage(Array.from({ length: 1_200 }, (_, i) => ({ i })));
+
+    const inserts = rowInserts();
+    expect(inserts).toHaveLength(3);
+    expect(inserts.map((e) => e.args.length / 3)).toEqual([500, 500, 200]);
+    const lock = _log.findIndex((e) => /pg_advisory_xact_lock/i.test(e.sql));
+    expect(_log.indexOf(inserts[0]!)).toBeGreaterThan(lock);
+    expect(new Set(inserts.map((e) => e.tx)).size).toBe(1);
+    const stored = _rowStore.get("ds_batch")!;
+    expect(stored).toHaveLength(1_200);
+    expect(JSON.parse(stored[0]!)).toEqual({ i: 0 });
+    expect(JSON.parse(stored[1_199]!)).toEqual({ i: 1_199 });
+  });
+
+  it("starts a new statement before a batch outgrows the byte budget", async () => {
+    const rows = Array.from({ length: 6 }, (_, i) => ({
+      i,
+      blob: "x".repeat(400 * 1024),
+    }));
+
+    await stage(rows);
+
+    const sizes = rowInserts().map((e) => e.args.length / 3);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(6);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(2);
+    expect(_rowStore.get("ds_batch")).toHaveLength(6);
+  });
+
+  it("keeps an oversized row in a statement of its own", async () => {
+    await stage([{ a: 1 }, { blob: "x".repeat(1_500_000) }, { a: 3 }]);
+
+    expect(rowInserts().map((e) => e.args.length / 3)).toEqual([1, 1, 1]);
   });
 });
 
