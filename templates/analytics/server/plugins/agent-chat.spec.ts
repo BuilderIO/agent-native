@@ -1269,6 +1269,9 @@ describe("realDataFinalGuard", () => {
     "There are 43 accounts. What is the table size relative to last month?",
     "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
     "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
+    "I need to know what the table shows before I answer, so I re-ran it and it has 43 rows.",
+    "I need to know what the table name is, so I looked it up and it is usage_monthly.",
+    "I need to know which table holds usage, so I searched the catalog and it is usage_monthly.",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1356,6 +1359,10 @@ describe("realDataFinalGuard", () => {
     "I need a table name before I can continue.",
     "I need to know which table holds monthly usage before I can continue.",
     "I need to know the table name before I can continue.",
+    "I need to know what the table name is before I can continue.",
+    "I need to know what table holds monthly usage before I can continue.",
+    "What is the name of the table?",
+    "What is the table name?",
     "Do you know which table holds the monthly credit usage?",
     "I need the schema before I can write this query.",
     "I need the column that holds usage before I can continue.",
