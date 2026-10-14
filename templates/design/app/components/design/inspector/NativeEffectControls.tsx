@@ -144,7 +144,16 @@ export function NativeEffectControls({
   };
   const available = nativeVisibleProperties(definition, values, true);
   const visible = nativeVisibleProperties(definition, values, advancedOpen);
-  const inputPorts = onInputChange ? nativeAuthoredInputPorts(definition) : [];
+  const availableNames = new Set(available.map(([name]) => name));
+  const inputPorts = onInputChange
+    ? nativeAuthoredInputPorts(definition).filter(([name]) => {
+        const textureProperty = Object.entries(definition.properties).find(
+          ([, property]) =>
+            property.type === "texture" && property.input === name,
+        );
+        return !textureProperty || availableNames.has(textureProperty[0]);
+      })
+    : [];
   const inputPortNames = new Set(inputPorts.map(([name]) => name));
   return (
     <div className="grid gap-2">

@@ -1,3 +1,4 @@
+import { ASCII_PRINT_V2_EFFECT } from "@shared/native-effect-owned-ascii-print-v2";
 import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
 // @vitest-environment jsdom
 import { act } from "react";
@@ -125,6 +126,72 @@ describe("native property visibility", () => {
     ).toBe(true);
     expect(nativeEffectValuesEqual([0.12, 0.34], [0.12, 0.35])).toBe(false);
   });
+});
+
+it("shows a conditional atlas input only in atlas mode and retains its binding", () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const onInputChange = vi.fn();
+  const binding = {
+    kind: "authored-node" as const,
+    nodeId: "glyph-atlas",
+    capture: "content" as const,
+  };
+  const render = (glyphMode: "builtin" | "atlas") =>
+    act(() =>
+      root.render(
+        <NativeEffectControls
+          definition={ASCII_PRINT_V2_EFFECT}
+          values={{ glyphMode }}
+          bindings={{ glyphAtlas: binding }}
+          layerOptions={[
+            {
+              key: "node:glyph-atlas",
+              nodeId: "glyph-atlas",
+              selector: "#glyph-atlas",
+              name: "Glyph sheet",
+            },
+          ]}
+          disabled={false}
+          onValueChange={vi.fn()}
+          onInputChange={onInputChange}
+        />,
+      ),
+    );
+  const atlasInput = () =>
+    host.querySelector(
+      '[aria-label="editPanel.shaders.nativeCatalog.properties.glyphAtlas"]',
+    );
+  try {
+    render("builtin");
+    expect(atlasInput()).toBeNull();
+    expect(
+      host.querySelector('[aria-label="designEditor.patchProof.source"]'),
+    ).not.toBeNull();
+
+    render("atlas");
+    expect(atlasInput()?.textContent).toContain("Glyph sheet");
+
+    render("builtin");
+    expect(atlasInput()).toBeNull();
+    render("atlas");
+    expect(atlasInput()?.textContent).toContain("Glyph sheet");
+    expect(onInputChange).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
 });
 
 it("marks a differing selected property without claiming the first value is shared", () => {

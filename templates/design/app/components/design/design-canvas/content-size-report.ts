@@ -254,11 +254,27 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
     }
     return true;
   }
-  function isNativeProgressAttribute(record) {
-    return record.type === "attributes" && (
-      record.attributeName === "data-an-native-frames" ||
-      record.attributeName === "data-an-native-captures"
-    );
+  var nativeTelemetryAttributes = new Set([
+    "data-an-native-frames",
+    "data-an-native-captures",
+    "data-an-native-sources",
+    "data-an-native-image-rasters",
+    "data-an-native-source-downsamples",
+    "data-an-native-passes",
+    "data-an-native-render-wall-ms",
+    "data-an-native-render-wall-average-ms",
+    "data-an-native-source-wall-ms",
+    "data-an-native-compose-wall-ms",
+    "data-an-native-other-wall-ms",
+    "data-an-native-texture-bytes",
+    "data-an-native-simulation-step",
+    "data-an-native-simulation-target-step",
+    "data-an-native-particle-count",
+    "data-an-native-source-idle-diagnostic",
+  ]);
+  function isNativeTelemetryAttribute(record) {
+    return record.type === "attributes" &&
+      nativeTelemetryAttributes.has(record.attributeName);
   }
   // The editor rescales its chrome through custom properties on <html> on
   // every zoom step; those never change content size.
@@ -279,7 +295,7 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
       var record = records[i];
       if (isChromeNode(record.target)) continue;
       if (isNativePresentationNode(record.target)) continue;
-      if (isNativeProgressAttribute(record)) continue;
+      if (isNativeTelemetryAttribute(record)) continue;
       if (isEditorVarWrite(record)) continue;
       if (
         record.type === "childList" &&

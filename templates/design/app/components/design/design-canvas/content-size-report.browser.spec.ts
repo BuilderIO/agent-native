@@ -48,7 +48,7 @@ function styleReadsAfter(page: Page, mutate: () => void): Promise<number> {
 }
 
 describe("content size reporter cost", () => {
-  it("does not remeasure native frame progress on authored elements", async () => {
+  it("ignores native telemetry while measuring presentation and authored changes", async () => {
     const { page, close } = await settledPage();
     try {
       await page.evaluate(() => {
@@ -70,10 +70,31 @@ describe("content size reporter cost", () => {
       });
       await page.evaluate(() => {
         const content = document.getElementById("content")!;
+        const telemetry = [
+          "frames",
+          "captures",
+          "sources",
+          "image-rasters",
+          "source-downsamples",
+          "passes",
+          "render-wall-ms",
+          "render-wall-average-ms",
+          "source-wall-ms",
+          "compose-wall-ms",
+          "other-wall-ms",
+          "texture-bytes",
+          "simulation-step",
+          "simulation-target-step",
+          "particle-count",
+        ];
         for (let frame = 1; frame <= 20; frame++) {
-          content.setAttribute("data-an-native-frames", String(frame));
-          content.setAttribute("data-an-native-captures", String(frame));
+          for (const name of telemetry)
+            content.setAttribute(`data-an-native-${name}`, String(frame));
         }
+        document.documentElement.setAttribute(
+          "data-an-native-source-idle-diagnostic",
+          "{}",
+        );
         const presentation = document.createElement("canvas");
         presentation.setAttribute("data-an-native-presentation", "");
         presentation.style.position = "fixed";
@@ -90,6 +111,36 @@ describe("content size reporter cost", () => {
         ),
       ).toBe(0);
       await page.evaluate(() => {
+        document
+          .getElementById("content")!
+          .setAttribute("data-an-native-status", "ready");
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        const counter = window as Window & { __measureReads?: number };
+        counter.__measureReads = 0;
+        document
+          .getElementById("content")!
+          .setAttribute("data-an-native-fill-suppressed", "");
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        const counter = window as Window & { __measureReads?: number };
+        counter.__measureReads = 0;
         document.getElementById("content")!.style.height = "200px";
       });
       await page.waitForTimeout(150);
