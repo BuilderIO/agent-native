@@ -1272,6 +1272,9 @@ describe("realDataFinalGuard", () => {
     "I need to know what the table shows before I answer, so I re-ran it and it has 43 rows.",
     "I need to know what the table name is, so I looked it up and it is usage_monthly.",
     "I need to know which table holds usage, so I searched the catalog and it is usage_monthly.",
+    "I need to know which table this came from. I re-ran the query and it shows 43 rows.",
+    "I need the table name, so I looked it up and it is usage_monthly.",
+    "I need to know which table holds usage. I checked the catalog and it is usage_monthly.",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
@@ -1363,6 +1366,9 @@ describe("realDataFinalGuard", () => {
     "I need to know what table holds monthly usage before I can continue.",
     "What is the name of the table?",
     "What is the table name?",
+    "I need to know which table holds monthly usage so I can write the query.",
+    "I need the table name so I can write the query.",
+    "I need the dataset name so I could build the chart.",
     "Do you know which table holds the monthly credit usage?",
     "I need the schema before I can write this query.",
     "I need the column that holds usage before I can continue.",
