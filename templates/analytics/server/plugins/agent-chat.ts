@@ -358,19 +358,23 @@ const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DE
 // A list lead-in must ask to be given something: "Can you tell me what else is
 // off:" followed by a summary bullet that mentions a table is feedback.
 const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
-// "I need <identifier>" is narration when the same or the next sentence says the
-// agent went and found it ("so I re-ran it", "I looked it up"). Only a closed
-// list of discovery verbs counts: "so I can write the query" and "so I cannot
-// continue" are still asks, and a later unrelated "so I sent the summary" must
-// not clear an earlier ask. An attempt that reports it failed ("I searched the
-// catalog, but nothing matched") resolved nothing, so it does not count either.
+// "I need <identifier>" is narration when the agent goes on to say it found it
+// ("so I re-ran it", "I looked it up"). The narration has to be tied to the
+// need: in the same sentence, or opening the very next one ("I need the table
+// name. I checked the catalog and it is usage_monthly."), so an unrelated
+// "Separately, I ran the revenue query" does not clear an earlier ask. Only a
+// closed list of discovery verbs counts: "so I can write the query" and "so I
+// cannot continue" are still asks. An attempt that reports it failed ("I
+// searched the catalog, but nothing matched") resolved nothing either.
 const SCHEMA_DETAILS_SENTENCE = "(?:[^.?!\\n]|[.?!](?=\\S))*";
 const SCHEMA_DETAILS_RESOLUTION =
-  "\\bi\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
+  "\\bi(?:['’]ve|\\s+have)?\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|run(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
 const SCHEMA_DETAILS_FAILED =
-  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|no|none)|no\\s+(?:match(?:es)?|results?|luck|such|hits?|table|dataset|column)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
+  "(?:\\b(?:but\\s+(?:nothing|none|no)|nothing\\s+(?:matched|came|turned|was|found|there)|found\\s+(?:nothing|no|none)|no\\s+(?:match(?:es|ing)?|results?|luck|such|hits?)|not\\s+found|cannot|could\\s+not|unable|did\\s+not|failed|came\\s+up\\s+empty|returned\\s+(?:nothing|no|zero|0)|(?:was|were|is|are)\\s+empty)|n['’]t\\s+(?:able|find|found|match|see|exist|return|show|work|locate|surface|turn|there))\\b";
+const SCHEMA_DETAILS_FOLLOW_ON =
+  "(?:(?:so|then|and|but|luckily|fortunately|however|instead|first|now)\\b,?\\s+)?";
 const SCHEMA_DETAILS_DISCOVERED = `${SCHEMA_DETAILS_RESOLUTION}(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_FAILED})`;
-const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED})`;
+const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_DISCOVERED}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_FOLLOW_ON}${SCHEMA_DETAILS_DISCOVERED})`;
 // Up to three descriptive words may sit between the interrogative and the noun
 // ("which source table", "which warehouse table"); prepositions and articles
 // may not, so "which row in the table is wrong?" is not an identifier ask.
