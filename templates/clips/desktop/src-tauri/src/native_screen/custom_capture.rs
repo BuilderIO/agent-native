@@ -3809,8 +3809,11 @@ fn spawn_capture_watchdog(
                 });
                 let _ = guard.stop_capture();
             }
-            if shutdown.load(Ordering::SeqCst) || writer.appends_closed.load(Ordering::SeqCst) {
+            if shutdown.load(Ordering::SeqCst) {
                 return;
+            }
+            if writer.appends_closed.load(Ordering::SeqCst) {
+                continue;
             }
 
             let alignment_result = if params.include_camera_overlay {
