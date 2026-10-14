@@ -29,11 +29,13 @@ export function normalizeSlidePadding(html: string): string {
       const nextStyle = `padding: 64px 80px;${
         style.startsWith(" ") ? "" : " "
       }${style}`;
-      const nextStyleAttribute = styleMatch[0].replace(style, nextStyle);
-      const nextOpeningTag = openingTag.replace(
-        styleMatch[0],
-        nextStyleAttribute,
-      );
+      // Splice by index: String.replace misplaces an empty value and expands `$` patterns.
+      const valueStart =
+        styleMatch.index + styleMatch[0].indexOf(styleMatch[1]) + 1;
+      const nextOpeningTag =
+        openingTag.slice(0, valueStart) +
+        nextStyle +
+        openingTag.slice(valueStart + style.length);
 
       return (
         html.slice(0, match.index) +
