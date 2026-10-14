@@ -127,12 +127,20 @@ function makeExec(tx: number | null) {
         return { rows, rowsAffected: 0 };
       }
       if (
-        /SELECT app_id, owner_email FROM staged_datasets WHERE id/i.test(sql)
+        /SELECT app_id, owner_email, updated_at FROM staged_datasets WHERE id/i.test(
+          sql,
+        )
       ) {
         const entry = _metaStore.get(args[0] as string);
         return {
           rows: entry
-            ? [{ app_id: entry.app_id, owner_email: entry.owner_email }]
+            ? [
+                {
+                  app_id: entry.app_id,
+                  owner_email: entry.owner_email,
+                  updated_at: entry.updated_at,
+                },
+              ]
             : [],
           rowsAffected: 0,
         };
@@ -515,6 +523,42 @@ describe("upsertStagedDataset eviction", () => {
     );
     expect(_metaStore.get("ds_shared")?.owner_email).toBe("ada@example.com");
     expect(_rowStore.get("ds_shared")).toEqual(['{"seed":true}']);
+  });
+
+  it("moves updated_at on every replacement, even inside one millisecond", async () => {
+    const stage = () =>
+      upsertStagedDataset({
+        id: "ds_same",
+        appId: "analytics",
+        ownerEmail: "ada@example.com",
+        name: "ds_same",
+        rows: [{ a: 1 }],
+        columns: [],
+      });
+
+    const first = await stage();
+    const second = await stage();
+    const third = await stage();
+
+    expect(first.updatedAt).toBe(NOW);
+    expect(second.updatedAt).toBe(NOW + 1);
+    expect(third.updatedAt).toBe(NOW + 2);
+    expect(_metaStore.get("ds_same")?.updated_at).toBe(NOW + 2);
+  });
+
+  it("stays ahead of a previous writer whose clock was later", async () => {
+    seed("ds_same", { byte_size: 1, updated_at: NOW + 5_000 });
+
+    const replaced = await upsertStagedDataset({
+      id: "ds_same",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "ds_same",
+      rows: [{ a: 1 }],
+      columns: [],
+    });
+
+    expect(replaced.updatedAt).toBe(NOW + 5_001);
   });
 
   it("takes the app lock before reading totals, in the write's own transaction", async () => {

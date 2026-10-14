@@ -1,6 +1,6 @@
 import { z, type ZodTypeAny } from "zod";
 
-import { defineAction, type ActionHttpConfig } from "../../action.js";
+import { defineAction, fail, type ActionHttpConfig } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
 import { runAggregateQuery } from "../staged-datasets-aggregate.js";
 import {
@@ -236,8 +236,9 @@ export function createQueryStagedDatasetAction<
       // version's rows, and read as a valid result.
       const current = await runtime.getMeta({ id: datasetId, ...scope });
       if (!current || current.updatedAt !== meta.updatedAt) {
-        throw new Error(
+        fail(
           `Dataset ${datasetId} was evicted or replaced while it was being read. Stage it again and rerun the query.`,
+          { errorCode: "staged_dataset_changed", statusCode: 409 },
         );
       }
       const result = runtime.aggregate(rows, {

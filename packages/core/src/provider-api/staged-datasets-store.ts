@@ -217,7 +217,7 @@ export async function upsertStagedDataset(
     : deriveColumns(allRows);
   const columnsJson = JSON.stringify(columns);
 
-  await withDbTransaction(db, async (tx) => {
+  const updatedAt = await withDbTransaction(db, async (tx) => {
     // Totals, eviction and the write all happen under this lock in this
     // transaction: nothing is planned against a stale snapshot, and a failure
     // rolls the evictions back with the write.
@@ -226,7 +226,7 @@ export async function upsertStagedDataset(
     // owner-scoped reads above would count it as absent and the id-keyed write
     // would then replace its rows in place.
     const { rows: idOwner } = await tx.execute({
-      sql: `SELECT app_id, owner_email FROM staged_datasets WHERE id = ?`,
+      sql: `SELECT app_id, owner_email, updated_at FROM staged_datasets WHERE id = ?`,
       args: [id],
     });
     if (
@@ -238,6 +238,10 @@ export async function upsertStagedDataset(
         `Staged dataset id ${id} belongs to another owner. Use a different name.`,
       );
     }
+    // Readers verify a dataset did not change mid-read by comparing this value,
+    // so a replacement has to move it even inside the same millisecond or on a
+    // clock behind the previous writer's.
+    const writtenAt = Math.max(now, Number(idOwner[0]?.updated_at ?? 0) + 1);
     const { rows: others } = await tx.execute({
       sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?`,
       args: [options.appId, id],
@@ -316,9 +320,10 @@ export async function upsertStagedDataset(
         allRows.length,
         byteSize,
         now,
-        now,
+        writtenAt,
       ],
     });
+    return writtenAt;
   });
 
   return {
@@ -330,7 +335,7 @@ export async function upsertStagedDataset(
     rowCount: allRows.length,
     byteSize,
     createdAt: now,
-    updatedAt: now,
+    updatedAt,
   };
 }
 
