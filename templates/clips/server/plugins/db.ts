@@ -1504,7 +1504,6 @@ async function backfillLegacyClipsTables(): Promise<void> {
     "started_at",
     "created_at",
     "updated_at",
-    "cleanup_version",
     "owner_email",
     "org_id",
     "visibility",
