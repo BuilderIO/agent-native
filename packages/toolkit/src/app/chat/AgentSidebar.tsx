@@ -75,6 +75,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-st
 import type { BuilderConnectTransport } from "../settings/index.js";
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -417,6 +418,7 @@ export function AgentSidebar({
   const resolvedBrowserTabId =
     browserTabId ??
     (typeof window === "undefined" ? undefined : getBrowserTabId());
+  useRegisterAgentChatSurface(enabled);
   const staticHostedHarnessEnabled = isHostedHarnessConfigured(
     injectedAgentNativeConfig().harness,
   );
