@@ -4019,6 +4019,23 @@ describe("createProductionAgentHandler", () => {
       });
       expect(completedRun?.status).toBe("completed");
       expect(outerStream).not.toHaveBeenCalled();
+      expect(completedRun?.events).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "text",
+              text: "Tool execution complete.",
+            }),
+          }),
+        ]),
+      );
+      expect(completedRun?.events).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "loop_limit" }),
+          }),
+        ]),
+      );
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {

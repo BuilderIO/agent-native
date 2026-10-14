@@ -4717,6 +4717,9 @@ export async function executeAgentToolCall(
   const events: AgentChatEvent[] = [];
   const send = (event: AgentChatEvent) => {
     events.push(event);
+    if (event.type === "text" && event.text === "Tool execution complete.") {
+      return;
+    }
     options.send?.(event);
   };
   const controller = options.signal ? null : new AbortController();

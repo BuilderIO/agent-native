@@ -27,17 +27,28 @@ function action(
 describe("executeAgentToolCall", () => {
   it("uses the guarded agent loop to execute one action", async () => {
     const run = vi.fn(async ({ value }: { value: string }) => ({ value }));
+    const send = vi.fn();
 
     const result = await executeAgentToolCall({
       actions: { inspect: action(run) },
       name: "inspect",
       input: { value: "ready" },
       callId: "call-1",
+      send,
     });
 
     expect(run).toHaveBeenCalledOnce();
     expect(result.status).toBe("completed");
     expect(JSON.parse(result.output)).toEqual({ value: "ready" });
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "text",
+        text: "Tool execution complete.",
+      }),
+    );
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "loop_limit" }),
+    );
   });
 
   it("keeps approval-gated actions paused", async () => {
