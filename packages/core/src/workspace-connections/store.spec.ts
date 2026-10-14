@@ -1522,6 +1522,24 @@ describe("workspace connection store", () => {
         ownerEmail: "alice@example.com",
       },
     });
+
+    const otherOwnerConnection = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          connectionId: "bigquery-bob",
+          connectionOwnerEmail: "alice@example.com",
+          requireConnected: true,
+        }),
+    );
+
+    expect(otherOwnerConnection).toMatchObject({
+      available: false,
+      connection: null,
+    });
+    expect(otherOwnerConnection.reason).toMatch(/not found/i);
   });
 
   it("blocks connected OAuth grants that no longer meet provider scopes", async () => {

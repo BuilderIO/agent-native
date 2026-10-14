@@ -352,6 +352,42 @@ describe("analytics provider credentials", () => {
     expect(mocks.coreResolverCalls).toEqual([]);
   });
 
+  it("keeps explicitly selected BigQuery OAuth connections owner-scoped", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-selected-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = {
+      accessToken: "bigquery-user-token",
+      accountId: "analyst@example.test",
+      connectionId: "bigquery-selected-connection",
+      connectionLabel: "Analyst Google",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        connectionId: "bigquery-selected-connection",
+        ctx: { userEmail: "analyst@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "bigquery-user-token",
+      connectionId: "bigquery-selected-connection",
+    });
+    expect(mocks.workspaceConnectionCalls[0]).toMatchObject({
+      connectionId: "bigquery-selected-connection",
+      connectionOwnerEmail: "analyst@example.test",
+    });
+  });
+
   it("allows service-account fallback when BigQuery OAuth needs reauthorization", async () => {
     mocks.workspaceConnectionResult = {
       available: true,

@@ -193,7 +193,7 @@ async function resolveWorkspaceOAuthProviderCredential(
     appId: ANALYTICS_APP_ID,
     provider,
     connectionId: requestedConnectionId,
-    ...(provider === "bigquery" && !requestedConnectionId
+    ...(provider === "bigquery"
       ? { connectionOwnerEmail: options.ctx.userEmail }
       : {}),
     requireConnected: true,

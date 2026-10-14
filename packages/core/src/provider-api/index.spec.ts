@@ -2866,6 +2866,13 @@ describe("provider API runtime", () => {
       accountId: "google-account-1",
       connectionId: "bigquery-connection-1",
     });
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "bigquery",
+        connectionId: "bigquery-connection-1",
+        connectionOwnerEmail: "ada@example.com",
+      }),
+    );
   });
 
   it("uses the service account for org-only BigQuery provider requests", async () => {

@@ -61,6 +61,21 @@ function summarizeWorkspaceConnections(
   });
 }
 
+function workspaceConnectionsForProviderStatus(
+  providerId: string,
+  connections: SerializedWorkspaceConnection[],
+  userEmail: string,
+): SerializedWorkspaceConnection[] {
+  if (providerId !== "bigquery") return connections;
+  const ownerEmail = userEmail.trim().toLowerCase();
+  return connections.filter(
+    (connection) =>
+      connection.provider !== "bigquery" ||
+      connection.config.credentialMode !== "oauth" ||
+      connection.ownerEmail.trim().toLowerCase() === ownerEmail,
+  );
+}
+
 async function listWorkspaceConnectionsForStatus(): Promise<{
   connections: SerializedWorkspaceConnection[];
   grants: SerializedWorkspaceConnectionGrant[];
@@ -139,7 +154,11 @@ export default defineAction({
           catalogProvider?.recommendedTemplateUses.includes(APP_ID) ?? false,
         ...summarizeWorkspaceConnections(
           providerId,
-          workspace.connections,
+          workspaceConnectionsForProviderStatus(
+            providerId,
+            workspace.connections,
+            ctx.userEmail,
+          ),
           workspace.grants,
         ),
       };
@@ -189,7 +208,11 @@ export default defineAction({
           workspaceProviderStatusById.get(provider.provider) ??
           summarizeWorkspaceConnections(
             provider.provider,
-            workspace.connections,
+            workspaceConnectionsForProviderStatus(
+              provider.provider,
+              workspace.connections,
+              ctx.userEmail,
+            ),
             workspace.grants,
           );
         const hasRequiredCredentials =

@@ -4822,7 +4822,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       appId: options.runtime.appId,
       provider: options.workspaceProvider,
       connectionId: requestedConnectionId,
-      ...(options.workspaceProvider === "bigquery" && !requestedConnectionId
+      ...(options.workspaceProvider === "bigquery"
         ? { connectionOwnerEmail: options.ctx.userEmail }
         : {}),
       requireConnected: true,
