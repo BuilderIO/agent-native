@@ -100,6 +100,32 @@ describe("update-dictation cleanup restore", () => {
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
+  it("advances the cleanup version when replacing cleaned text", async () => {
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      cleanedText: "replacement text",
+    });
+
+    const result = await updateDictation.run(args);
+
+    expect(mockWhere).toHaveBeenCalledWith({
+      kind: "eq",
+      column: "dictations.id",
+      value: "dictation_1",
+    });
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cleanedText: "replacement text",
+        cleanupVersion: {
+          kind: "sql",
+          strings: ["", " + 1"],
+          values: ["dictations.cleanupVersion"],
+        },
+      }),
+    );
+    expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
+  });
+
   it("only accepts an expected version for a cleanup restore", async () => {
     const args = updateDictation.schema.parse({
       id: "dictation_1",

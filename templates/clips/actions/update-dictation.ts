@@ -61,9 +61,7 @@ export default defineAction({
     if (args.fullText !== undefined) patch.fullText = args.fullText;
     if (args.cleanedText !== undefined) {
       patch.cleanedText = args.cleanedText;
-      if (args.cleanedText === null) {
-        patch.cleanupVersion = sql`${schema.dictations.cleanupVersion} + 1`;
-      }
+      patch.cleanupVersion = sql`${schema.dictations.cleanupVersion} + 1`;
     }
     if (args.source !== undefined) patch.source = args.source;
     if (args.targetApp !== undefined) patch.targetApp = args.targetApp;
