@@ -44,6 +44,8 @@ pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 const CAPTURE_FINALIZE_INCOMPLETE_PREFIX: &str = "capture finalize incomplete: ";
 const CAPTURE_STOP_PENDING_PREFIX: &str = "capture stop pending: ";
+#[cfg(target_os = "macos")]
+const CAMERA_WINDOW_TRACKER_INTERVAL: Duration = Duration::from_millis(750);
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -308,8 +310,10 @@ mod pending_recording_file_name_tests {
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
     warm_generation: AtomicU64,
+    camera_geometry_operation: Mutex<()>,
     camera_bubble_alignment: Mutex<Option<CameraBubbleAlignment>>,
     camera_bubble_capture_override: Mutex<Option<u64>>,
+    camera_capture_restore_retry_generation: Mutex<Option<u64>>,
 }
 
 #[derive(Clone, Copy)]
@@ -381,6 +385,7 @@ pub(crate) enum NativeFullscreenBackend {
         finish: Arc<RecordingFinish>,
         mic_ready: Option<Arc<AtomicBool>>,
         mic_sample_count: Option<Arc<AtomicU64>>,
+        camera_tracker_shutdown: Option<Arc<AtomicBool>>,
     },
     #[cfg(target_os = "macos")]
     CustomScreenCaptureKit {
@@ -677,6 +682,7 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
         include_audio,
         capture_system_audio,
         false,
+        0,
         mic_device_id,
         mic_device_label,
         target_display_id,
@@ -707,7 +713,14 @@ impl Drop for NativeFullscreenBackend {
                 watchdog_shutdown.store(true, Ordering::SeqCst);
             }
             #[cfg(target_os = "macos")]
-            NativeFullscreenBackend::ScreenCaptureKit { .. } => {}
+            NativeFullscreenBackend::ScreenCaptureKit {
+                camera_tracker_shutdown,
+                ..
+            } => {
+                if let Some(shutdown) = camera_tracker_shutdown {
+                    shutdown.store(true, Ordering::SeqCst);
+                }
+            }
         }
     }
 }
@@ -1763,6 +1776,24 @@ fn window_capture_rect(window_frame: CGRect, display_frame: CGRect) -> Result<CG
     Ok(capture_rect)
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+struct SelectedWindowCaptureGeometry {
+    display_id: u32,
+    window_frame: CGRect,
+    source_rect: CGRect,
+}
+
+#[cfg(target_os = "macos")]
+fn selected_window_geometry_matches(
+    left: SelectedWindowCaptureGeometry,
+    right: SelectedWindowCaptureGeometry,
+) -> bool {
+    left.display_id == right.display_id
+        && capture_rects_match(left.window_frame, right.window_frame)
+        && capture_rects_match(left.source_rect, right.source_rect)
+}
+
 #[cfg(all(test, target_os = "macos"))]
 mod camera_overlay_capture_rect_tests {
     use super::*;
@@ -1784,6 +1815,38 @@ mod camera_overlay_capture_rect_tests {
 
         assert!(window_capture_rect(window, display).is_err());
     }
+
+    #[test]
+    fn capture_rect_comparison_detects_window_movement() {
+        let original = CGRect::new(120.0, 80.0, 600.0, 400.0);
+        let moved = CGRect::new(121.0, 80.0, 600.0, 400.0);
+
+        assert!(!capture_rects_match(original, moved));
+    }
+
+    #[test]
+    fn capture_rect_comparison_ignores_subpixel_jitter() {
+        let original = CGRect::new(120.0, 80.0, 600.0, 400.0);
+        let jittered = CGRect::new(120.25, 79.75, 600.0, 400.0);
+
+        assert!(capture_rects_match(original, jittered));
+    }
+
+    #[test]
+    fn geometry_comparison_detects_display_change_with_same_local_crop() {
+        let source_rect = CGRect::new(120.0, 80.0, 600.0, 400.0);
+        let first = SelectedWindowCaptureGeometry {
+            display_id: 1,
+            window_frame: source_rect,
+            source_rect,
+        };
+        let second = SelectedWindowCaptureGeometry {
+            display_id: 2,
+            ..first
+        };
+
+        assert!(!selected_window_geometry_matches(first, second));
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1803,7 +1866,7 @@ fn selected_window_capture_filter(
     content: &SCShareableContent,
     window: &SCWindow,
     include_camera_overlay: bool,
-) -> Result<(SCContentFilter, Option<CGRect>), String> {
+) -> Result<(SCContentFilter, Option<SelectedWindowCaptureGeometry>), String> {
     if !include_camera_overlay {
         return Ok((SCContentFilter::create().with_window(window).build(), None));
     }
@@ -1829,7 +1892,182 @@ fn selected_window_capture_filter(
         .with_including_windows(&[window, &bubble])
         .with_content_rect(source_rect)
         .build();
-    Ok((filter, Some(source_rect)))
+    Ok((
+        filter,
+        Some(SelectedWindowCaptureGeometry {
+            display_id: display.display_id(),
+            window_frame,
+            source_rect,
+        }),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn capture_rects_match(left: CGRect, right: CGRect) -> bool {
+    const TOLERANCE: f64 = 0.5;
+    (left.x - right.x).abs() < TOLERANCE
+        && (left.y - right.y).abs() < TOLERANCE
+        && (left.width - right.width).abs() < TOLERANCE
+        && (left.height - right.height).abs() < TOLERANCE
+}
+
+#[cfg(target_os = "macos")]
+fn refresh_selected_window_camera_capture(
+    app: &AppHandle,
+    stream: &Arc<Mutex<SCStream>>,
+    configuration: &Arc<Mutex<SCStreamConfiguration>>,
+    target_window_id: u32,
+    generation: u64,
+    can_refresh: impl Fn() -> bool,
+    last_geometry: &mut Option<SelectedWindowCaptureGeometry>,
+) -> Result<bool, String> {
+    let state = app.state::<NativeFullscreenRecordingState>();
+    let _geometry_operation = state
+        .camera_geometry_operation
+        .lock()
+        .map_err(|error| format!("camera geometry lock failed: {error}"))?;
+    if !can_refresh() {
+        return Ok(false);
+    }
+    if state.warm_generation.load(Ordering::SeqCst) != generation {
+        return Err("Recording cancelled while positioning the Clips camera.".to_string());
+    }
+    let content = match align_camera_bubble_to_selected_window_inner(
+        app,
+        &state,
+        target_window_id,
+        generation,
+        &can_refresh,
+    ) {
+        Ok(content) => content,
+        Err(error) => {
+            if !can_refresh() {
+                return Ok(false);
+            }
+            return Err(error);
+        }
+    };
+    if !can_refresh() {
+        return Ok(false);
+    }
+
+    let target = content
+        .windows()
+        .into_iter()
+        .find(|window| window.window_id() == target_window_id)
+        .ok_or_else(|| "The selected window is no longer available.".to_string())?;
+    let (filter, geometry) = selected_window_capture_filter(&content, &target, true)?;
+    let geometry =
+        geometry.ok_or_else(|| "The selected-window camera crop is unavailable.".to_string())?;
+
+    let stream = stream
+        .lock()
+        .map_err(|error| format!("capture stream lock failed: {error}"))?;
+    let mut configuration = configuration
+        .lock()
+        .map_err(|error| format!("capture configuration lock failed: {error}"))?;
+    let previous_rect = configuration.source_rect();
+    if last_geometry.is_some_and(|previous| selected_window_geometry_matches(previous, geometry))
+        && capture_rects_match(previous_rect, geometry.source_rect)
+    {
+        return Ok(true);
+    }
+
+    if !can_refresh() {
+        return Ok(false);
+    }
+    configuration.set_source_rect(geometry.source_rect);
+    if let Err(error) = stream.update_configuration(&configuration) {
+        configuration.set_source_rect(previous_rect);
+        *last_geometry = None;
+        let rollback = stream.update_configuration(&configuration);
+        let rollback_detail = rollback
+            .err()
+            .map(|rollback_error| {
+                format!("; restoring the previous crop also failed: {rollback_error:?}")
+            })
+            .unwrap_or_default();
+        return Err(format!(
+            "update selected-window camera crop failed: {error:?}{rollback_detail}"
+        ));
+    }
+    if let Err(error) = stream.update_content_filter(&filter) {
+        configuration.set_source_rect(previous_rect);
+        *last_geometry = None;
+        let rollback = stream.update_configuration(&configuration);
+        let rollback_detail = rollback
+            .err()
+            .map(|rollback_error| {
+                format!("; restoring the previous crop also failed: {rollback_error:?}")
+            })
+            .unwrap_or_default();
+        return Err(format!(
+            "update selected-window camera filter failed: {error:?}{rollback_detail}"
+        ));
+    }
+    *last_geometry = Some(geometry);
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_selected_window_camera_capture_tracker(
+    app: AppHandle,
+    stream: Arc<Mutex<SCStream>>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
+    target_window_id: u32,
+    generation: u64,
+    shutdown: Arc<AtomicBool>,
+    initial_geometry: Option<SelectedWindowCaptureGeometry>,
+) {
+    std::thread::spawn(move || {
+        let mut last_error: Option<String> = None;
+        let mut consecutive_geometry_errors = 0;
+        let mut last_geometry = initial_geometry;
+        while !shutdown.load(Ordering::SeqCst) {
+            std::thread::sleep(CAMERA_WINDOW_TRACKER_INTERVAL);
+            if shutdown.load(Ordering::SeqCst) {
+                return;
+            }
+            let state = app.state::<NativeFullscreenRecordingState>();
+            if state.warm_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            match refresh_selected_window_camera_capture(
+                &app,
+                &stream,
+                &configuration,
+                target_window_id,
+                generation,
+                || {
+                    !shutdown.load(Ordering::SeqCst)
+                        && state.warm_generation.load(Ordering::SeqCst) == generation
+                },
+                &mut last_geometry,
+            ) {
+                Ok(true) => {
+                    last_error = None;
+                    consecutive_geometry_errors = 0;
+                }
+                Ok(false) => return,
+                Err(error) if last_error.as_ref() != Some(&error) => {
+                    eprintln!(
+                        "[clips-tray] selected-window camera geometry refresh failed: {error}"
+                    );
+                    last_error = Some(error);
+                    consecutive_geometry_errors += 1;
+                }
+                Err(_) => consecutive_geometry_errors += 1,
+            }
+            if consecutive_geometry_errors >= 5 {
+                eprintln!(
+                    "[clips-tray] selected-window camera geometry did not recover after {consecutive_geometry_errors} attempts; stopping the recording"
+                );
+                shutdown.store(true, Ordering::SeqCst);
+                let _ = app.emit("clips:recorder-stop", ());
+                return;
+            }
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -1860,6 +2098,45 @@ fn align_camera_bubble_to_selected_window(
     target_window_id: u32,
     generation: u64,
 ) -> Result<(), String> {
+    align_camera_bubble_to_selected_window_while(app, state, target_window_id, generation, || true)
+}
+
+#[cfg(target_os = "macos")]
+fn align_camera_bubble_to_selected_window_while(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+    target_window_id: u32,
+    generation: u64,
+    can_align: impl Fn() -> bool,
+) -> Result<(), String> {
+    let _geometry_operation = state
+        .camera_geometry_operation
+        .lock()
+        .map_err(|error| format!("camera geometry lock failed: {error}"))?;
+    if !can_align() {
+        return Err("Recording stopped while positioning the Clips camera.".into());
+    }
+    align_camera_bubble_to_selected_window_inner(
+        app,
+        state,
+        target_window_id,
+        generation,
+        &can_align,
+    )
+    .map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn align_camera_bubble_to_selected_window_inner(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+    target_window_id: u32,
+    generation: u64,
+    can_align: &impl Fn() -> bool,
+) -> Result<SCShareableContent, String> {
+    if !can_align() {
+        return Err("Recording stopped while positioning the Clips camera.".into());
+    }
     let bubble = app
         .get_webview_window("bubble")
         .ok_or_else(|| "The Clips camera preview is unavailable for this recording.".to_string())?;
@@ -1871,8 +2148,13 @@ fn align_camera_bubble_to_selected_window(
         if state.warm_generation.load(Ordering::SeqCst) != generation {
             return Err("Recording cancelled while positioning the Clips camera.".to_string());
         }
-        *capture_override = Some(generation);
-        crate::util::set_window_capture_excluded_and_wait(&bubble, false)?;
+        if !can_align() {
+            return Err("Recording stopped while positioning the Clips camera.".into());
+        }
+        if *capture_override != Some(generation) {
+            *capture_override = Some(generation);
+            crate::util::set_window_capture_excluded_and_wait(&bubble, false)?;
+        }
     }
     let content = SCShareableContent::get()
         .map_err(|error| format!("shareable content lookup failed: {error:?}"))?;
@@ -1881,6 +2163,9 @@ fn align_camera_bubble_to_selected_window(
         .into_iter()
         .find(|window| window.window_id() == target_window_id)
         .ok_or_else(|| "The selected window is no longer available.".to_string())?;
+    if !can_align() {
+        return Err("Recording stopped while positioning the Clips camera.".into());
+    }
     let displays = content.displays();
     let display = display_for_window(&displays, target.frame())
         .ok_or_else(|| "The selected window is no longer visible on a display.".to_string())?;
@@ -1919,6 +2204,9 @@ fn align_camera_bubble_to_selected_window(
     if state.warm_generation.load(Ordering::SeqCst) != generation {
         return Err("Recording cancelled while positioning the Clips camera.".to_string());
     }
+    if !can_align() {
+        return Err("Recording stopped while positioning the Clips camera.".into());
+    }
     if already_inside {
         if let Some(previous) = *alignment {
             if (current_position.x, current_position.y) == previous.aligned_position {
@@ -1930,7 +2218,7 @@ fn align_camera_bubble_to_selected_window(
                 *alignment = None;
             }
         }
-        return Ok(());
+        return Ok(content);
     }
 
     let aligned_position = (min_x, max_y);
@@ -1951,11 +2239,23 @@ fn align_camera_bubble_to_selected_window(
         aligned_position,
         generation,
     });
-    Ok(())
+    Ok(content)
 }
 
 #[cfg(target_os = "macos")]
 fn restore_camera_bubble_alignment(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+    generation: Option<u64>,
+) {
+    let Ok(_geometry_operation) = state.camera_geometry_operation.lock() else {
+        return;
+    };
+    restore_camera_bubble_alignment_inner(app, state, generation);
+}
+
+#[cfg(target_os = "macos")]
+fn restore_camera_bubble_alignment_inner(
     app: &AppHandle,
     state: &NativeFullscreenRecordingState,
     generation: Option<u64>,
@@ -1996,12 +2296,82 @@ fn restore_camera_bubble_alignment(
         return;
     };
     let excluded = !crate::config::show_in_screen_capture(app);
-    match crate::util::set_window_capture_excluded_and_wait(&bubble, excluded) {
-        Ok(()) => *capture_override = None,
-        Err(error) => {
-            eprintln!("[clips-tray] could not restore Clips camera capture preference: {error}")
+    let mut restore_error = None;
+    for attempt in 0..2 {
+        match crate::util::set_window_capture_excluded_and_wait(&bubble, excluded) {
+            Ok(()) => {
+                *capture_override = None;
+                return;
+            }
+            Err(error) => {
+                restore_error = Some(error);
+                if attempt == 0 {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
         }
     }
+    if let Some(error) = restore_error {
+        eprintln!("[clips-tray] could not restore Clips camera capture preference: {error}");
+        drop(capture_override);
+        schedule_camera_capture_restore_retry(app, state, override_generation);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn schedule_camera_capture_restore_retry(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+    generation: u64,
+) {
+    let Ok(mut active_retry) = state.camera_capture_restore_retry_generation.lock() else {
+        return;
+    };
+    if *active_retry == Some(generation) {
+        return;
+    }
+    *active_retry = Some(generation);
+    drop(active_retry);
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut retry_delay = Duration::from_secs(1);
+        loop {
+            std::thread::sleep(retry_delay);
+            let state = app.state::<NativeFullscreenRecordingState>();
+            let current_override = match state.camera_bubble_capture_override.lock() {
+                Ok(override_generation) => *override_generation,
+                Err(error) => {
+                    eprintln!("[clips-tray] camera privacy retry state lock failed: {error}");
+                    retry_delay = Duration::from_secs((retry_delay.as_secs() * 2).min(30));
+                    continue;
+                }
+            };
+            if current_override != Some(generation) {
+                if let Ok(mut active_retry) = state.camera_capture_restore_retry_generation.lock() {
+                    if *active_retry == Some(generation) {
+                        *active_retry = None;
+                    }
+                }
+                return;
+            }
+
+            if let Err(error) =
+                ensure_camera_bubble_capture_preference_restored(&app, &state, Some(generation))
+            {
+                eprintln!("[clips-tray] camera privacy retry failed: {error}");
+                retry_delay = Duration::from_secs((retry_delay.as_secs() * 2).min(30));
+                continue;
+            }
+
+            if let Ok(mut active_retry) = state.camera_capture_restore_retry_generation.lock() {
+                if *active_retry == Some(generation) {
+                    *active_retry = None;
+                }
+            }
+            return;
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -2010,7 +2380,11 @@ fn ensure_camera_bubble_capture_preference_restored(
     state: &NativeFullscreenRecordingState,
     generation: Option<u64>,
 ) -> Result<(), String> {
-    restore_camera_bubble_alignment(app, state, generation);
+    let _geometry_operation = state
+        .camera_geometry_operation
+        .lock()
+        .map_err(|error| format!("camera geometry lock failed: {error}"))?;
+    restore_camera_bubble_alignment_inner(app, state, generation);
     let capture_override = state
         .camera_bubble_capture_override
         .lock()
@@ -2082,6 +2456,7 @@ fn start_native_session_locked(
         include_audio,
         capture_system_audio,
         include_camera_overlay,
+        alignment_generation,
         mic_device_id.as_deref(),
         mic_device_label.as_deref(),
         target_window_id,
@@ -3336,6 +3711,7 @@ pub async fn native_fullscreen_recording_resume(
         restart.include_audio,
         restart.capture_system_audio,
         restart.include_camera_overlay,
+        restart.alignment_generation,
         restart.mic_device_id.as_deref(),
         restart.mic_device_label.as_deref(),
         &segment_path,
@@ -3452,6 +3828,7 @@ fn rotate_screencapturekit_segment(
             restart.include_audio,
             restart.capture_system_audio,
             restart.include_camera_overlay,
+            restart.alignment_generation,
             restart.mic_device_id.as_deref(),
             restart.mic_device_label.as_deref(),
             restart.target_display_id,
@@ -3790,6 +4167,7 @@ fn start_segment_backend(
     include_audio: bool,
     capture_system_audio: bool,
     include_camera_overlay: bool,
+    alignment_generation: u64,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     segment_path: &Path,
@@ -3809,6 +4187,7 @@ fn start_segment_backend(
                     include_audio,
                     capture_system_audio,
                     include_camera_overlay,
+                    alignment_generation,
                     mic_device_id,
                     mic_device_label,
                     target_display_id,
@@ -3828,6 +4207,7 @@ fn start_segment_backend(
                     include_audio,
                     capture_system_audio,
                     include_camera_overlay,
+                    alignment_generation,
                     mic_device_id,
                     mic_device_label,
                     target_display_id,
@@ -3991,6 +4371,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     include_audio: bool,
     capture_system_audio: bool,
     include_camera_overlay: bool,
+    alignment_generation: u64,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
@@ -4080,7 +4461,10 @@ pub(crate) fn start_screencapturekit_backend_at(
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
-    if let Some(rect) = window_source_rect.or_else(|| region_rect.map(|(rect, _, _)| rect)) {
+    if let Some(rect) = window_source_rect
+        .map(|geometry| geometry.source_rect)
+        .or_else(|| region_rect.map(|(rect, _, _)| rect))
+    {
         config.set_source_rect(rect);
     }
     if let Some(device) = selected_mic.as_ref() {
@@ -4160,13 +4544,32 @@ pub(crate) fn start_screencapturekit_backend_at(
         "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (source {source_width}x{source_height}, window={}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}",
         target_window_id.is_some()
     );
+    let stream = Arc::new(Mutex::new(stream));
+    let camera_tracker_shutdown = if include_camera_overlay {
+        target_window_id.map(|target_window_id| {
+            let shutdown = Arc::new(AtomicBool::new(false));
+            spawn_selected_window_camera_capture_tracker(
+                app.clone(),
+                Arc::clone(&stream),
+                Arc::new(Mutex::new(config)),
+                target_window_id,
+                alignment_generation,
+                Arc::clone(&shutdown),
+                window_source_rect,
+            );
+            shutdown
+        })
+    } else {
+        None
+    };
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
-            stream: Arc::new(Mutex::new(stream)),
+            stream,
             recording,
             finish,
             mic_ready,
             mic_sample_count,
+            camera_tracker_shutdown,
         },
         Some(width),
         Some(height),
@@ -5931,6 +6334,7 @@ fn start_screencapturekit_recording(
     include_audio: bool,
     capture_system_audio: bool,
     include_camera_overlay: bool,
+    alignment_generation: u64,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_window_id: Option<u32>,
@@ -5971,6 +6375,7 @@ fn start_screencapturekit_recording(
             include_audio,
             capture_system_audio,
             include_camera_overlay,
+            alignment_generation,
             mic_device_id,
             mic_device_label,
             target_display_id,
@@ -5990,6 +6395,7 @@ fn start_screencapturekit_recording(
             include_audio,
             capture_system_audio,
             include_camera_overlay,
+            alignment_generation,
             mic_device_id,
             mic_device_label,
             target_display_id,
@@ -6467,7 +6873,15 @@ pub(crate) fn stop_native_recording(
             }
         }
         #[cfg(target_os = "macos")]
-        NativeFullscreenBackend::ScreenCaptureKit { stream, finish, .. } => {
+        NativeFullscreenBackend::ScreenCaptureKit {
+            stream,
+            finish,
+            camera_tracker_shutdown,
+            ..
+        } => {
+            if let Some(shutdown) = camera_tracker_shutdown {
+                shutdown.store(true, Ordering::SeqCst);
+            }
             let stream_for_stop = Arc::clone(stream);
             let stop_result = run_bounded_capture_stop(
                 move || {

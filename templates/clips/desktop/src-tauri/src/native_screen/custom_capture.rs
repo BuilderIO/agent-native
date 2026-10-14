@@ -3288,6 +3288,7 @@ struct RestartParams {
     target_display_id: Option<u32>,
     target_window_id: Option<u32>,
     target_window_dimensions: Option<(u32, u32)>,
+    alignment_generation: u64,
     capture_region: Option<NativeCaptureRegion>,
     width: u32,
     height: u32,
@@ -3295,6 +3296,7 @@ struct RestartParams {
 
 pub(crate) struct CustomCaptureResume {
     stream: Arc<Mutex<SCStream>>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
     handler: CustomScreenCaptureOutputHandler,
     watch: Arc<CaptureWatch>,
     params: RestartParams,
@@ -3302,15 +3304,19 @@ pub(crate) struct CustomCaptureResume {
 
 impl CustomCaptureResume {
     pub(crate) fn pause(&self) -> Result<(), String> {
-        let guard = self
-            .stream
-            .lock()
-            .map_err(|error| format!("capture pause stream lock failed: {error}"))?;
-        guard
-            .stop_capture()
-            .map_err(|error| format!("capture pause stop_capture failed: {error:?}"))?;
-        drop(guard);
         self.watch.set_paused(true);
+        let guard = match self.stream.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                self.watch.set_paused(false);
+                return Err(format!("capture pause stream lock failed: {error}"));
+            }
+        };
+        if let Err(error) = guard.stop_capture() {
+            self.watch.set_paused(false);
+            return Err(format!("capture pause stop_capture failed: {error:?}"));
+        }
+        drop(guard);
         self.handler.invalidate_stream();
         eprintln!("[mixer] capture paused; source stream stopped, writer/file kept open");
         Ok(())
@@ -3321,7 +3327,7 @@ impl CustomCaptureResume {
         let prev_offset = writer.pause_offset();
 
         let replacement_handler = self.handler.replacement_stream();
-        let new_stream =
+        let (new_stream, new_configuration) =
             build_custom_scstream(&self.params, &replacement_handler, &self.watch, None)?;
 
         writer.set_pause_offset(prev_offset + paused_for.as_secs_f64());
@@ -3330,12 +3336,25 @@ impl CustomCaptureResume {
             return Err(format!("resume start_capture failed: {err:?}"));
         }
 
-        if let Ok(guard) = self.stream.lock() {
-            let _ = guard.stop_capture();
-        }
-        if let Ok(mut guard) = self.stream.lock() {
-            *guard = new_stream;
-        }
+        let mut stream = match self.stream.lock() {
+            Ok(stream) => stream,
+            Err(error) => {
+                let _ = new_stream.stop_capture();
+                writer.set_pause_offset(prev_offset);
+                return Err(format!("capture resume stream lock failed: {error}"));
+            }
+        };
+        let mut configuration = match self.configuration.lock() {
+            Ok(configuration) => configuration,
+            Err(error) => {
+                let _ = new_stream.stop_capture();
+                writer.set_pause_offset(prev_offset);
+                return Err(format!("capture resume configuration lock failed: {error}"));
+            }
+        };
+        let _ = stream.stop_capture();
+        *stream = new_stream;
+        *configuration = new_configuration;
         let _ = self.watch.take_stream_stopped();
         self.watch.note_activity();
         self.watch.set_paused(false);
@@ -3378,7 +3397,7 @@ fn build_custom_scstream(
     handler: &CustomScreenCaptureOutputHandler,
     watch: &Arc<CaptureWatch>,
     prefetched_content: Option<SCShareableContent>,
-) -> Result<SCStream, String> {
+) -> Result<(SCStream, SCStreamConfiguration), String> {
     let content = match prefetched_content {
         Some(content) => content,
         None => SCShareableContent::get()
@@ -3459,7 +3478,10 @@ fn build_custom_scstream(
         .with_sample_rate(48000)
         .with_channel_count(2);
     config.set_pixel_format(screencapturekit::stream::configuration::PixelFormat::YCbCr_420v);
-    if let Some(rect) = window_source_rect.or_else(|| region_rect.map(|(rect, _, _)| rect)) {
+    if let Some(rect) = window_source_rect
+        .map(|geometry| geometry.source_rect)
+        .or_else(|| region_rect.map(|(rect, _, _)| rect))
+    {
         config.set_source_rect(rect);
     }
     if let Some(device) = selected_mic.as_ref() {
@@ -3482,7 +3504,7 @@ fn build_custom_scstream(
     if params.include_audio {
         stream.add_output_handler(handler.clone(), SCStreamOutputType::Microphone);
     }
-    Ok(stream)
+    Ok((stream, config))
 }
 
 fn await_segmented_capture_readiness(
@@ -3562,15 +3584,28 @@ fn spawn_capture_watchdog(
     watch: Arc<CaptureWatch>,
     recording_enabled: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
+    configuration: Arc<Mutex<SCStreamConfiguration>>,
     params: RestartParams,
 ) {
     std::thread::spawn(move || {
         let mut restart_streak: u32 = 0;
         let mut cooldown_until: Option<Instant> = None;
+        let mut geometry_error: Option<String> = None;
+        let mut consecutive_geometry_errors = 0;
+        let mut last_geometry = None;
 
         loop {
             std::thread::sleep(CAPTURE_WATCHDOG_POLL);
             if shutdown.load(Ordering::SeqCst) {
+                return;
+            }
+            if params.include_camera_overlay
+                && app
+                    .state::<super::NativeFullscreenRecordingState>()
+                    .warm_generation
+                    .load(Ordering::SeqCst)
+                    != params.alignment_generation
+            {
                 return;
             }
             if writer.appends_closed.load(Ordering::SeqCst) {
@@ -3602,12 +3637,6 @@ fn spawn_capture_watchdog(
                 continue;
             }
 
-            if watch.is_paused() {
-                restart_streak = 0;
-                cooldown_until = None;
-                continue;
-            }
-
             if watch.user_stopped() {
                 if params.emit_recorder_stop {
                     eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
@@ -3616,6 +3645,70 @@ fn spawn_capture_watchdog(
                     eprintln!("[mixer] user stopped Screen Memory capture via macOS");
                 }
                 return;
+            }
+
+            if watch.is_paused() {
+                restart_streak = 0;
+                cooldown_until = None;
+                continue;
+            }
+
+            if params.include_camera_overlay {
+                if let Some(target_window_id) = params.target_window_id {
+                    match super::refresh_selected_window_camera_capture(
+                        &app,
+                        &stream,
+                        &configuration,
+                        target_window_id,
+                        params.alignment_generation,
+                        || {
+                            !shutdown.load(Ordering::SeqCst)
+                                && !watch.is_paused()
+                                && !watch.user_stopped()
+                                && (!params.include_camera_overlay
+                                    || app
+                                        .state::<super::NativeFullscreenRecordingState>()
+                                        .warm_generation
+                                        .load(Ordering::SeqCst)
+                                        == params.alignment_generation)
+                        },
+                        &mut last_geometry,
+                    ) {
+                        Ok(true) => {
+                            geometry_error = None;
+                            consecutive_geometry_errors = 0;
+                        }
+                        Ok(false) => continue,
+                        Err(error) => {
+                            if shutdown.load(Ordering::SeqCst)
+                                || watch.is_paused()
+                                || watch.user_stopped()
+                                || (params.include_camera_overlay
+                                    && app
+                                        .state::<super::NativeFullscreenRecordingState>()
+                                        .warm_generation
+                                        .load(Ordering::SeqCst)
+                                        != params.alignment_generation)
+                            {
+                                return;
+                            }
+                            if geometry_error.as_ref() != Some(&error) {
+                                eprintln!(
+                                    "[mixer] selected-window camera geometry refresh failed: {error}"
+                                );
+                                geometry_error = Some(error);
+                            }
+                            consecutive_geometry_errors += 1;
+                            if consecutive_geometry_errors >= 5 {
+                                eprintln!(
+                                    "[mixer] selected-window camera geometry did not recover after {consecutive_geometry_errors} attempts; finalizing the partial recording"
+                                );
+                                writer.appends_closed.store(true, Ordering::SeqCst);
+                                continue;
+                            }
+                        }
+                    }
+                }
             }
 
             if let Some(until) = cooldown_until {
@@ -3669,17 +3762,74 @@ fn spawn_capture_watchdog(
                 return;
             }
 
-            match build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(|s| {
-                s.start_capture()
-                    .map(|()| s)
-                    .map_err(|e| format!("start_capture failed: {e:?}"))
+            let alignment_result = if params.include_camera_overlay {
+                params.target_window_id.map_or(Ok(()), |target_window_id| {
+                    let state = app.state::<super::NativeFullscreenRecordingState>();
+                    super::align_camera_bubble_to_selected_window_while(
+                        &app,
+                        &state,
+                        target_window_id,
+                        params.alignment_generation,
+                        || {
+                            !shutdown.load(Ordering::SeqCst)
+                                && !watch.is_paused()
+                                && !watch.user_stopped()
+                                && (!params.include_camera_overlay
+                                    || app
+                                        .state::<super::NativeFullscreenRecordingState>()
+                                        .warm_generation
+                                        .load(Ordering::SeqCst)
+                                        == params.alignment_generation)
+                        },
+                    )
+                })
+            } else {
+                Ok(())
+            };
+            match alignment_result.and_then(|()| {
+                if shutdown.load(Ordering::SeqCst)
+                    || watch.is_paused()
+                    || watch.user_stopped()
+                    || (params.include_camera_overlay
+                        && app
+                            .state::<super::NativeFullscreenRecordingState>()
+                            .warm_generation
+                            .load(Ordering::SeqCst)
+                            != params.alignment_generation)
+                {
+                    return Err("Recording stopped while rebuilding the capture stream.".into());
+                }
+                build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(
+                    |(stream, configuration)| {
+                        stream
+                            .start_capture()
+                            .map(|()| (stream, configuration))
+                            .map_err(|e| format!("start_capture failed: {e:?}"))
+                    },
+                )
             }) {
-                Ok(new_stream) => {
+                Ok((new_stream, new_configuration)) => {
                     let mut pending_stream = Some(new_stream);
                     let install = if let Ok(mut guard) = stream.lock() {
+                        let mut configuration = match configuration.lock() {
+                            Ok(configuration) => configuration,
+                            Err(_) => {
+                                if let Some(stream) = pending_stream {
+                                    let _ = stream.stop_capture();
+                                }
+                                continue;
+                            }
+                        };
                         if shutdown.load(Ordering::SeqCst)
                             || writer.appends_closed.load(Ordering::SeqCst)
                             || watch.is_paused()
+                            || watch.user_stopped()
+                            || (params.include_camera_overlay
+                                && app
+                                    .state::<super::NativeFullscreenRecordingState>()
+                                    .warm_generation
+                                    .load(Ordering::SeqCst)
+                                    != params.alignment_generation)
                             || !replacement_handler.is_current()
                         {
                             false
@@ -3687,6 +3837,7 @@ fn spawn_capture_watchdog(
                             *guard = pending_stream
                                 .take()
                                 .expect("pending watchdog stream is available");
+                            *configuration = new_configuration;
                             true
                         }
                     } else {
@@ -3717,6 +3868,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     include_audio: bool,
     capture_system_audio: bool,
     include_camera_overlay: bool,
+    alignment_generation: u64,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
@@ -3790,6 +3942,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         target_display_id,
         target_window_id,
         target_window_dimensions,
+        alignment_generation,
         capture_region,
         width,
         height,
@@ -3838,7 +3991,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         watch: Arc::clone(&watch),
     };
 
-    let stream = build_custom_scstream(&params, &handler, &watch, Some(content))?;
+    let (stream, configuration) = build_custom_scstream(&params, &handler, &watch, Some(content))?;
     if let Err(err) = stream.start_capture() {
         let _ = std::fs::remove_file(output_path);
         return Err(format!("custom capture start failed: {err:?}"));
@@ -3868,9 +4021,11 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     );
 
     let stream = Arc::new(Mutex::new(stream));
+    let configuration = Arc::new(Mutex::new(configuration));
     let watchdog_shutdown = Arc::new(AtomicBool::new(false));
     let resume = CustomCaptureResume {
         stream: Arc::clone(&stream),
+        configuration: Arc::clone(&configuration),
         handler: handler.clone(),
         watch: Arc::clone(&watch),
         params: params.clone(),
@@ -3883,6 +4038,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         Arc::clone(&watch),
         Arc::clone(&recording_enabled),
         Arc::clone(&watchdog_shutdown),
+        Arc::clone(&configuration),
         params,
     );
 
