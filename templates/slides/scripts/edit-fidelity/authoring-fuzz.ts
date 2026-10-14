@@ -4646,6 +4646,45 @@ export async function runAuthoringFuzz(
     tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
+    const initialOptionId = await editor.getAttribute("aria-activedescendant");
+    const initialCommand = initialOptionId
+      ? await page
+          .locator(`[id=${JSON.stringify(initialOptionId)}]`)
+          .getAttribute("data-value")
+      : null;
+    await options.nth(1).hover();
+    const hoverState = await editor.evaluate((root: HTMLElement) => {
+      const activeId = root.getAttribute("aria-activedescendant");
+      const activeOption = activeId ? document.getElementById(activeId) : null;
+      const hoveredOption = document.querySelector<HTMLElement>(
+        '[role="option"]:hover',
+      );
+      return {
+        focused: document.activeElement === root,
+        activeCommand: activeOption?.getAttribute("data-value") ?? null,
+        hoveredCommand: hoveredOption?.getAttribute("data-value") ?? null,
+        activeBackground: activeOption
+          ? getComputedStyle(activeOption).backgroundColor
+          : null,
+        hoveredBackground: hoveredOption
+          ? getComputedStyle(hoveredOption).backgroundColor
+          : null,
+      };
+    });
+    if (
+      !initialCommand ||
+      !hoverState.focused ||
+      hoverState.activeCommand !== initialCommand ||
+      !hoverState.hoveredCommand ||
+      hoverState.hoveredCommand === initialCommand ||
+      !hoverState.activeBackground ||
+      !hoverState.hoveredBackground ||
+      hoverState.activeBackground === hoverState.hoveredBackground
+    ) {
+      throw new Error(
+        `slash menu hover changed or obscured keyboard selection (${JSON.stringify({ initialCommand, hoverState })})`,
+      );
+    }
     const focused = await editor.evaluate(
       (root: HTMLElement) => document.activeElement === root,
     );
@@ -4930,7 +4969,7 @@ export async function runAuthoringFuzz(
           activeBefore: activeValue(),
         };
         trace.push(entry);
-        queueMicrotask(() => {
+        requestAnimationFrame(() => {
           entry.defaultPreventedAfter = event.defaultPrevented;
           entry.activeAfter = activeValue();
         });
