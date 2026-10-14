@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
+import {
+  APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
+} from "../../shared/tokens/app-series-colors";
 
 const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(
@@ -829,5 +833,173 @@ describe("reportPanelVariables", () => {
     } as unknown as Parameters<typeof reportPanelVariables>[0]);
 
     expect(vars.plan).toBe("");
+  });
+});
+
+describe("report chart parity with the dashboard", () => {
+  it("keeps the first 400 bars of a category chart and says so", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "pages",
+          chartType: "bar",
+          config: { xKey: "page", yKey: "views" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "pages",
+          {
+            status: "rows" as const,
+            rows: Array.from({ length: 450 }, (_, index) => ({
+              page: `/page-${index}`,
+              views: 450 - index,
+            })),
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      labels: string[];
+    };
+    expect(chartInput.labels).toHaveLength(400);
+    expect(chartInput.labels[0]).toBe("/page-0");
+    expect(rendered.html).toContain("showing the first 400 of 450 points");
+  });
+
+  it("stacks pivoted series largest first with Other last, like the dashboard", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "stacked",
+            chartType: "area",
+            config: {
+              stacked: true,
+              pivot: { xKey: "day", seriesKey: "template", valueKey: "n" },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "stacked",
+          {
+            status: "rows" as const,
+            rows: [
+              { day: "2026-07-01", template: "other", n: 500 },
+              { day: "2026-07-01", template: "mail", n: 3 },
+              { day: "2026-07-01", template: "slides", n: 30 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string }>;
+    };
+    expect(chartInput.series.map((entry) => entry.label)).toEqual([
+      "slides",
+      "mail",
+      "other",
+    ]);
+  });
+
+  it("keeps each stacked series' configured color after ranking", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "feedback",
+            chartType: "bar",
+            config: {
+              stacked: true,
+              colors: ["#10b981", "#ef4444"],
+              pivot: {
+                xKey: "model",
+                seriesKey: "sentiment",
+                valueKey: "responses",
+              },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "feedback",
+          {
+            status: "rows" as const,
+            rows: [
+              { model: "a", sentiment: "positive", responses: 5 },
+              { model: "a", sentiment: "negative", responses: 20 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; color: string }>;
+    };
+    expect(
+      chartInput.series.map((entry) => [entry.label, entry.color]),
+    ).toEqual([
+      ["negative", "#ef4444"],
+      ["positive", "#10b981"],
+    ]);
+  });
+
+  it("draws each app in the same fixed color as the dashboard", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "daily",
+            chartType: "area",
+            config: {
+              stacked: true,
+              pivot: {
+                xKey: "date",
+                seriesKey: "template",
+                valueKey: "visitors",
+              },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "daily",
+          {
+            status: "rows" as const,
+            rows: [
+              { date: "2026-10-01", template: "slides", visitors: 2 },
+              { date: "2026-10-01", template: "mail", visitors: 9 },
+              { date: "2026-10-01", template: "unknown", visitors: 1 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; color: string }>;
+    };
+    expect(
+      chartInput.series.map((entry) => [entry.label, entry.color]),
+    ).toEqual([
+      ["mail", APP_SERIES_COLORS.mail],
+      ["slides", APP_SERIES_COLORS.slides],
+      ["unknown", UNKNOWN_APP_COLOR],
+    ]);
   });
 });

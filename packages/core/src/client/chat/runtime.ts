@@ -11,6 +11,7 @@ import type {
   AgentChatStructuredMessage,
 } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
   agentEngineStatusUrlForChatApi,
@@ -140,6 +141,7 @@ export interface AgentChatRuntimeMessage<
   readonly role: AgentChatRuntimeRole;
   readonly content: readonly TContentPart[];
   readonly createdAt?: string;
+  readonly status?: "streaming" | "complete" | "error";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
@@ -1830,6 +1832,40 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function isUnstartedNativeHistoryMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  if (message.role === "user" && message.status === "error") return true;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+}
+
+function nativeHistorySourceMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+): AgentChatRuntimeMessage[] {
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
+    }
+    break;
+  }
+  return source.filter(
+    (message, index) =>
+      index === currentPromptMessageIndex ||
+      !isUnstartedNativeHistoryMessage(message),
+  );
+}
+
 function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
   let remaining = 4096;
   const leftAncestors = new WeakSet<object>();
@@ -1882,7 +1918,7 @@ function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const source = messages ?? [];
+  const source = nativeHistorySourceMessages(messages, currentPrompt);
   let currentPromptMessageIndex: number | undefined;
   for (let index = source.length - 1; index >= 0; index--) {
     const message = source[index]!;
@@ -3288,6 +3324,7 @@ function nativeStructuredHistoryFromMessages(
   approvedToolCallAskIds: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
   const approvedToolCallSet = new Set(approvedToolCalls);
   const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -3299,7 +3336,7 @@ function nativeStructuredHistoryFromMessages(
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
   const sources = boundedStructuredHistorySources(
-    messages,
+    historyMessages,
     currentPrompt,
     supplementalMessages,
     currentAttachmentUrls,
@@ -3310,7 +3347,7 @@ function nativeStructuredHistoryFromMessages(
     approvedToolCallAskIds,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
-    messages,
+    historyMessages,
     supplementalMessages,
     sources,
     supplementalToolHistoryOmitted,

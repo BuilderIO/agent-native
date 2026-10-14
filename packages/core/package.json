@@ -672,6 +672,7 @@
     "@agent-native/recap-cli": "workspace:^",
     "@anthropic-ai/sdk": "^0.90.0",
     "@babel/parser": "8.0.7",
+    "@better-auth/core": "1.7.6",
     "@clack/prompts": "^1.7.0",
     "@mcp-b/webmcp-polyfill": "^5.1.0",
     "@modelcontextprotocol/client": "2.0.0",

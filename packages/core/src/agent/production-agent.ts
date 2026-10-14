@@ -365,6 +365,7 @@ import {
   claimSetupResume,
   setupResumeRefusedRunId,
 } from "./setup-resume-claim.js";
+import { getStrictToolInputValidator } from "./strict-tool-input.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -1385,6 +1386,50 @@ export function readPersistedActionSurface(
   } catch {
     return { orgId: null, allowedActionNames: [] };
   }
+}
+
+function readPersistedAdditionalActionNames(
+  body: AgentChatRequest,
+): string[] | undefined {
+  const names = body.__resolvedAdditionalActionNames;
+  if (names === undefined) return undefined;
+  if (!Array.isArray(names) || names.some((name) => typeof name !== "string")) {
+    throw new Error("Persisted additional action names are malformed");
+  }
+  return names;
+}
+
+/**
+ * A durable continuation re-resolves the caller's additional actions, which
+ * may have changed since the turn started. Keep the turn's names: drop entries
+ * that appeared since, and keep a vanished name as an entry that fails loudly
+ * when called, so a persisted action allowlist that names it still resolves.
+ * A name that has since become a registered action is left to that action.
+ */
+export function pinAdditionalActionsToTurn(
+  resolved: Record<string, ActionEntry>,
+  turnNames: readonly string[],
+  registered: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const pinned: Record<string, ActionEntry> = {};
+  for (const name of turnNames) {
+    if (Object.hasOwn(registered, name)) continue;
+    pinned[name] = Object.hasOwn(resolved, name)
+      ? resolved[name]
+      : {
+          tool: {
+            description: `${name} is no longer available to this caller.`,
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: true,
+          run: () => {
+            throw new Error(
+              `${name} is no longer available to this caller; it was removed after this turn started.`,
+            );
+          },
+        };
+  }
+  return pinned;
 }
 
 export function filterActionsByAllowedNames(
@@ -5879,6 +5924,8 @@ function validateRawToolInput(
   entry: ActionEntry,
   input: unknown,
 ): string | null {
+  const strict = getStrictToolInputValidator(entry);
+  if (strict) return strict(input);
   if (!shouldValidateRawToolParameters(entry)) return null;
   const parameters = entry.tool.parameters;
   if (!parameters) return null;
@@ -7446,21 +7493,24 @@ export async function runAgentLoop(opts: {
     ): Promise<EngineContentPart> => {
       noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
-      const placeholderNormalization = actionEntry
-        ? normalizeOptionalToolPlaceholders(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const strictToolInput = getStrictToolInputValidator(actionEntry);
+      const placeholderNormalization =
+        actionEntry && !strictToolInput
+          ? normalizeOptionalToolPlaceholders(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (placeholderNormalization.changed) {
         toolCall = { ...toolCall, input: placeholderNormalization.input };
       }
-      const jsonStringCoercion = actionEntry
-        ? coerceStringifiedJsonToolValues(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const jsonStringCoercion =
+        actionEntry && !strictToolInput
+          ? coerceStringifiedJsonToolValues(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }
@@ -10771,6 +10821,7 @@ export function createProductionAgentHandler(
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
+      delete body.__resolvedAdditionalActionNames;
     }
     let requestedActionScope: AgentActionScope | undefined;
     if (hasOwn(body, "actionScope")) {
@@ -11305,11 +11356,24 @@ export function createProductionAgentHandler(
       ownerEmail &&
       getRequestContext()?.agentRunAnonymous !== true
     ) {
-      const additionalActions = await options.resolveAdditionalActions({
+      const resolvedAdditionalActions = await options.resolveAdditionalActions({
         event,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,
       });
+      const turnAdditionalActionNames = isBackgroundWorker
+        ? readPersistedAdditionalActionNames(body)
+        : undefined;
+      const additionalActions = turnAdditionalActionNames
+        ? pinAdditionalActionsToTurn(
+            resolvedAdditionalActions,
+            turnAdditionalActionNames,
+            resolvedActions,
+          )
+        : resolvedAdditionalActions;
+      if (!isBackgroundWorker) {
+        body.__resolvedAdditionalActionNames = Object.keys(additionalActions);
+      }
       const requestActions = { ...resolvedActions, ...additionalActions };
       if (requestActions[TOOL_SEARCH_ACTION_NAME]) {
         requestActions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() =>

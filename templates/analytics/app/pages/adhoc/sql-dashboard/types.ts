@@ -68,6 +68,8 @@ export interface PivotConfig {
   xKey: string;
   seriesKey: string;
   valueKey: string;
+  /** Series values drawn first, in this order; unlisted series follow. */
+  seriesOrder?: string[];
 }
 
 export type DashboardTimeScope =

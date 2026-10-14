@@ -222,9 +222,29 @@ export function HomeImportButton() {
                   throw new Error(
                     t("designEditor.import.errors.figmaImportFailed"),
                   );
+                const fidelityWarnings: string[] = [];
+                const imageFallbackCount =
+                  result.fidelityReport?.imageFallbacks.length;
+                if (imageFallbackCount) {
+                  fidelityWarnings.push(
+                    t("designEditor.import.figmaImageFallbackWarning", {
+                      count: formatters.formatNumber(imageFallbackCount),
+                    }),
+                  );
+                }
+                const approximatedCount =
+                  result.fidelityReport?.approximated.length;
+                if (approximatedCount) {
+                  fidelityWarnings.push(
+                    t("designEditor.import.figmaApproximationWarning", {
+                      count: formatters.formatNumber(approximatedCount),
+                    }),
+                  );
+                }
                 const notification = importResultNotification(
                   result,
                   t("designEditor.import.figmaUrlSuccess"),
+                  { fidelityWarnings },
                 );
                 toast[notification.variant](notification.title, {
                   description: notification.description,

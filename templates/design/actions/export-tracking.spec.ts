@@ -243,7 +243,22 @@ describe("export png", () => {
       export_format: "png",
       status: "failed",
       error_type: "chromium_unavailable",
+      output_id: "design-1",
     });
+
+    mocks.track.mockClear();
+    await exportPng.run({ fileId: "file-1", filename: "index.html" }, ctx);
+    expect(exportEvents()).toHaveLength(1);
+    expect(exportEvents()[0]![1]).not.toHaveProperty("output_id");
+
+    // With a fileId the screenshot looks the file up by that id alone, so
+    // the passed design id was never checked against it.
+    mocks.track.mockClear();
+    await exportPng.run(
+      { designId: "design-other", fileId: "file-1", filename: "index.html" },
+      ctx,
+    );
+    expect(exportEvents()).toHaveLength(1);
     expect(exportEvents()[0]![1]).not.toHaveProperty("output_id");
   });
 

@@ -206,6 +206,79 @@ Oberfläche. Vertrauenswürdige Shell-Tools werden automatisch auf die
 anfragegefilterte Sandbox reduziert, da eine unbeschränkte Shell keine harte
 Action-Grenze durchsetzen kann.
 
+### Request-bezogene zusätzliche Actions
+
+Verwende `resolveAdditionalActions`, wenn die Actions, die ein Aufrufer nutzen
+kann, erst zur Anfragezeit bekannt sind, etwa Tools, die ein Benutzer
+registriert, während der Server läuft. Der Callback läuft einmal pro
+authentifiziertem interaktivem Chat-Lauf (Produktion und Entwicklung), vor
+`tool-search` und `resolveActionSurface`, sodass beide die zurückgegebenen
+Einträge sehen. Sie gehören nur für diesen Lauf zur Registry dieses Aufrufers.
+A2A-Aufgaben und MCP-Aufrufe von `ask_app` erhalten sie nur, wenn du diese
+Oberflächen in `additionalActionSurfaces` auflistest; `surface` teilt dem
+Callback mit, welche Oberfläche gerade anfragt.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+Behandle zurückgegebene Einträge als nicht vertrauenswürdige Eingabe. Das
+Framework ignoriert einen Eintrag und protokolliert einmal eine Warnung, wenn
+sein Name nicht aus 1–64 Buchstaben, Ziffern, `_` oder `-` besteht; wenn der
+Name zu einer beliebigen Template-, Framework-, Dev- oder MCP-Action gehört,
+einschließlich vor dem Agenten verborgener Actions; wenn es ein `mcp__`-Name
+ist, den der Aufrufer nicht sehen kann; oder wenn seine Tool-Definition
+unbrauchbar ist. Aus Beschreibungen werden verborgene Steuerzeichen entfernt,
+und sie werden in der Länge begrenzt. `parameters` muss ein begrenztes
+Schema aus reinen JSON-Daten mit einem `object`-Wurzelelement sein, das nur
+gängige Validierungs- und Annotations-Schlüsselwörter verwendet. Unbekannte
+Schlüsselwörter, `pattern`, `patternProperties`, `uniqueItems`, `$async`, `$id`,
+Anker und jedes `$ref`, das rekursiv ist oder außerhalb des Schemas verweist,
+werden abgelehnt. Das Modell sieht die geprüfte Kopie des Schemas, und ein
+Aufruf, dessen Argumente zu groß sind, um dagegen validiert zu werden, wird
+abgelehnt. Flags wie `readOnly` und `access` sind die
+eigenen Deklarationen deiner App, denen das Framework so vertraut wie `run`:
+Setze sie anhand dessen, was dein Code tut, niemals anhand von Metadaten, die
+ein Benutzer registriert hat.
+
+Jeder Eintrag ist an den Aufrufer gebunden, für den er aufgelöst wurde. Jeder
+Aufruf, egal welcher Dispatcher ihn ausführt, weigert sich, für einen anderen
+Benutzer oder eine andere Organisation zu laufen, erzwingt die
+`access`-Richtlinie des Eintrags und validiert die Argumente ohne Typumwandlung
+gegen sein Schema.
+
+Namen werden nur festgeschrieben, wenn sich ein gehosteter Chat-Turn als
+dauerhafter Hintergrundlauf fortsetzt. Der Callback läuft erneut, und der Turn
+behält seine ursprünglichen Namen für diese Einträge ebenso wie für die
+MCP-Tools des Aufrufers: Neue Einträge bleiben draußen, ein Name, der
+verschwunden ist, liefert beim Aufruf einen Fehler, und ein Name, der
+geblieben ist, führt seine aktuelle Definition aus. Jede andere Anfrage wird
+neu aufgelöst, auch jede Fortsetzung auf einem lokalen Sidecar, und ein
+abgebrochener Stream, der sich wieder mit seinem Lauf verbindet, löst nichts
+auf.
+
+Nimm die Identität der Bindung in den Namen auf, etwa eine Fenster-ID oder
+einen Scope (`notes_window_42_insert`), damit ein erneutes Binden als ein Tool
+erscheint, das geht, und ein anderes, das hinzukommt. „Immer erlauben“-Freigaben
+folgen dem Tool-Namen und gelten deshalb weiter, wenn derselbe Name später
+etwas Neues bedeutet.
+
+Diese Einträge sind native Tools ausschließlich für die Agent-Schleife. Wie die
+MCP-Tools des Aufrufers sind sie aus `run-code` oder `tool-orchestration` nicht
+erreichbar.
+
+`event` ist für `chat` und `a2a` gesetzt; `ask_app`-Aufrufe haben keines. Der
+Callback wird weder für anonyme Anfragen noch für geplante Jobs, Automationen
+oder Sub-Agenten von Agent-Teams aufgerufen. Ein Fehler, den der Callback wirft,
+lässt die Anfrage fehlschlagen.
+
 ## Native Inline-UI {#native-inline-ui}
 
 Verwenden Sie diese, wenn Ihre Aktionen strukturierte Daten zurückgeben — eine Liste von Einträgen, einen Diagramm-Datensatz, eine Statuszusammenfassung — die als echte UI-Komponente im Chat-Thread gerendert werden sollen, anstatt als reine Textbeschreibung. Sie definieren einen `chatUI`-Renderer auf der Aktion, und Agent-Native rendert ihn als First-Party-React-Komponente: keine iFrames, kein separater Rendering-Pfad.

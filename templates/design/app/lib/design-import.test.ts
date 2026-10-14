@@ -100,7 +100,7 @@ describe("import result notifications", () => {
     });
   });
 
-  it("keeps fidelity warnings bounded with existing import warnings", () => {
+  it("reserves notification slots for fidelity warnings", () => {
     const notification = importResultNotification(
       {
         warnings: ["Storage warning", "Font warning", "Another warning"],
@@ -124,8 +124,11 @@ describe("import result notifications", () => {
     );
 
     expect(notification.variant).toBe("warning");
-    expect(notification.description?.split("\n")).toHaveLength(3);
-    expect(notification.description).not.toContain("image fallback");
+    expect(notification.description?.split("\n")).toEqual([
+      "Storage warning",
+      "Image fallbacks: 1. Appearance is preserved, but these layers are not fully editable.",
+      "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+    ]);
   });
 });
 

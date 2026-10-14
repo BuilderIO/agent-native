@@ -202,6 +202,67 @@ framework guidance and spawned sub-agents inherit the same surface. Trusted
 shell tools are automatically reduced to the request-filtered sandbox because
 an unrestricted shell cannot enforce a hard action boundary.
 
+### Request-scoped additional actions
+
+Use `resolveAdditionalActions` when the actions a caller can use are only known
+at request time, such as tools a user registers while the server runs. The
+callback runs once per authenticated interactive chat run (production and dev),
+before `tool-search` and `resolveActionSurface`, so both see the returned
+entries. They join that caller's registry for that run only. A2A tasks and MCP
+`ask_app` calls receive them only when you list those surfaces in
+`additionalActionSurfaces`; `surface` tells the callback which one is asking.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+Treat returned entries as untrusted input. The framework ignores an entry, and
+logs a warning once, when its name is not 1–64 letters, digits, `_`, or `-`;
+when the name belongs to any template, framework, dev, or MCP action, including
+actions hidden from the agent; when it is an `mcp__` name the caller cannot
+see; or when its tool definition is unusable. Descriptions lose hidden control
+characters and are capped. `parameters` must be a bounded schema of plain JSON
+data with an `object` root, using only common validation and annotation
+keywords. Unknown keywords, `pattern`, `patternProperties`, `uniqueItems`,
+`$async`, `$id`, anchors, and any `$ref` that is recursive or points outside
+the schema are refused. The model sees the checked copy of the schema, and a
+call whose arguments are too large to validate against it is refused. Flags such as
+`readOnly` and `access` are your app's own declarations, which the framework
+trusts as it trusts `run`: set them from what your code does, never from
+metadata a user registered.
+
+Each entry is bound to the caller it was resolved for. Every call, whichever
+dispatcher makes it, refuses to run for a different user or organization,
+enforces the entry's `access` policy, and validates the arguments against its
+schema without type coercion.
+
+Names are pinned only when a hosted chat turn continues as a durable background
+run. The callback runs again, and the turn keeps its original names for these
+entries and the caller's MCP tools alike: new entries stay out, a name that
+disappeared returns an error when called, and a name that remains runs its
+current definition. Every other request resolves fresh, including each
+continuation on a local sidecar, and a dropped stream that reattaches to its run
+resolves nothing.
+
+Put the binding's identity in the name, such as a window id or scope
+(`notes_window_42_insert`), so a rebind reads as one tool leaving and another
+appearing. "Always allow" approvals follow the tool name, so they carry over
+when the same name later means something new.
+
+These entries are native tools for the agent loop only. Like the caller's MCP
+tools, they aren't reachable from `run-code` or `tool-orchestration`.
+
+`event` is set for `chat` and `a2a`; `ask_app` calls have none. The callback
+is not called for anonymous requests, scheduled jobs, automations, or agent-team
+sub-agents. An error the callback throws fails the request.
+
 ## Native inline UI {#native-inline-ui}
 
 Use this when your actions return structured data — a list of records, a chart dataset, a status summary — that should render as a real UI component inside the chat thread rather than a plain text description. You define a `chatUI` renderer on the action, and Agent-Native renders it as a first-party React component: no iframes, no separate rendering path.

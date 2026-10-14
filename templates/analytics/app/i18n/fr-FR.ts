@@ -1238,6 +1238,12 @@ export default {
     copyTable: "Copier le tableau",
     multiColumnSortHelp:
       "Cliquez pour trier. Maj-cliquez pour ajouter un autre tri.",
+    chartPointLimitNewest:
+      "Affichage des {{shown}} points les plus récents sur {{total}}",
+    chartPointLimitFirst:
+      "Affichage des {{shown}} premiers points sur {{total}}",
+    chartPointLimitLast:
+      "Affichage des {{shown}} derniers points sur {{total}}",
     exportToGoogleSheets: "Exporter vers Google Sheets",
     exportingToGoogleSheets: "Exportation vers Google Sheets...",
     googleSheetsExported: "Exporté vers Google Sheets",

@@ -358,13 +358,7 @@ describe("open-visual-edit", () => {
     },
   );
 
-  it("passes the caller's context to create-design so design_created keeps its join keys", async () => {
-    const ctx = {
-      caller: "tool",
-      userEmail: "owner@example.test",
-      runId: "run-1",
-    };
-
+  it("creates the design without the parent's context, so the action is not recorded twice", async () => {
     await action.run(
       {
         newDesign: true,
@@ -373,14 +367,18 @@ describe("open-visual-edit", () => {
         paths: ["/"],
         navigate: false,
       },
-      ctx as never,
+      {
+        caller: "tool",
+        actionName: "open-visual-edit",
+        userEmail: "owner@example.test",
+      } as never,
     );
 
     expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.createDesignRun.mock.calls[0]).toHaveLength(1);
     expect(mocks.createDesignRun.mock.calls[0]?.[0]).toMatchObject({
       creationMethod: "import_url",
     });
-    expect(mocks.createDesignRun.mock.calls[0]?.[1]).toBe(ctx);
   });
 
   it("creates a separate project when newDesign is explicit", async () => {

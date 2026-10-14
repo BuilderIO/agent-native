@@ -342,6 +342,12 @@ export interface AgentChatRequest {
         orgId: string | null;
         mode: "default";
       };
+  /**
+   * Names of the request-scoped additional actions the turn started with,
+   * carried across authenticated durable background dispatches so a
+   * continuation keeps the same tool set. Deleted from client requests.
+   */
+  __resolvedAdditionalActionNames?: string[];
   turnId?: string;
   /** Turn metadata the client forwards; read only for the keys it names. */
   metadata?: Record<string, unknown>;

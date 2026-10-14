@@ -70,6 +70,7 @@ import {
   buildUserContentWithAttachments,
   isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
+  pinAdditionalActionsToTurn,
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
@@ -6774,6 +6775,100 @@ describe("createProductionAgentHandler", () => {
     expect(resolver).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "real-org" }),
     );
+  });
+
+  describe("request-scoped additional actions across a turn", () => {
+    async function runWithAdditionalActions(request: {
+      body: Record<string, unknown>;
+      additional: Record<string, ActionEntry>;
+    }) {
+      const seenAvailable: string[][] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const resolveAdditionalActions = vi.fn(async () => request.additional);
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: { builtin: actionEntry({}) },
+        resolveAdditionalActions,
+        resolveActionSurface: async (details) => {
+          seenAvailable.push([...details.availableActionNames].sort());
+          return { allowedActionNames: details.availableActionNames };
+        },
+      });
+      const body = { message: "Run", ...request.body };
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      return { seenAvailable, resolveAdditionalActions };
+    }
+
+    it("resolves the caller's actions once and ignores client-forged turn names", async () => {
+      const { seenAvailable, resolveAdditionalActions } =
+        await runWithAdditionalActions({
+          body: { __resolvedAdditionalActionNames: ["forged-tool"] },
+          additional: { "app-tool": actionEntry({}) },
+        });
+
+      expect(resolveAdditionalActions).toHaveBeenCalledTimes(1);
+      expect(seenAvailable).toEqual([
+        expect.arrayContaining(["app-tool", "builtin"]),
+      ]);
+      expect(seenAvailable[0]).not.toContain("forged-tool");
+    });
+
+    it("turns a vanished name into an entry that fails loudly", async () => {
+      const kept = actionEntry({});
+      const pinned = pinAdditionalActionsToTurn(
+        { "kept-tool": kept, "new-tool": actionEntry({}) },
+        ["kept-tool", "gone-tool"],
+        {},
+      );
+
+      expect(Object.keys(pinned)).toEqual(["kept-tool", "gone-tool"]);
+      expect(pinned["kept-tool"]).toBe(kept);
+      expect(() => pinned["gone-tool"]!.run({})).toThrow(
+        /gone-tool is no longer available/,
+      );
+    });
+
+    it("leaves a vanished name that is now a registered action to that action", () => {
+      const pinned = pinAdditionalActionsToTurn({}, ["now-registered"], {
+        "now-registered": actionEntry({}),
+      });
+
+      expect(pinned).toEqual({});
+    });
   });
 
   it("passes queued message identity to onRunPrepared", async () => {

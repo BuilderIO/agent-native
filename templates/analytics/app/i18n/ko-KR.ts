@@ -1194,6 +1194,9 @@ export default {
     copyTable: "표 복사",
     multiColumnSortHelp:
       "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
+    chartPointLimitNewest: "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
+    chartPointLimitFirst: "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
+    chartPointLimitLast: "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
     exportToGoogleSheets: "Google Sheets로 내보내기",
     exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
     googleSheetsExported: "Google Sheets로 내보냈습니다",

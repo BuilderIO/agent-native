@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { GUIDED_QUESTIONS_SUBMITTED_EVENT } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import { BOARD_FILENAME } from "@shared/board-file";
 import { promptLengthBucket } from "@shared/prompt-length-bucket";
 import { act } from "react";
@@ -8,14 +9,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   designPromptReferenceTypes,
-  GUIDED_QUESTIONS_SUBMITTED_EVENT,
+  trackDesignPromptSubmitted,
   resetDesignReadyViewsForTest,
   useDesignReadyViewTracking,
   useDesignVariantPickTracking,
   variantPickFromGuidedSubmit,
 } from "./design-funnel-tracking";
 
-const mocks = vi.hoisted(() => ({ trackDesignRelay: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  trackDesignRelay: vi.fn(),
+  readAgentRunStatus: vi.fn(),
+}));
+
+vi.mock("@/lib/agent-run-status", () => ({
+  readAgentRunStatus: (...args: unknown[]) => mocks.readAgentRunStatus(...args),
+}));
 
 vi.mock("@/lib/design-relay-tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./design-relay-tracking")>()),
@@ -60,13 +68,39 @@ async function renderReady(props: Partial<ReadyProps> = {}) {
     designId: "design-1",
     isOwner: true,
     designLoaded: true,
-    generationActive: false,
     files: [],
-    stopCountRef: { current: 0 },
     ...props,
   };
-  await act(async () => root.render(<ReadyHarness {...full} />));
+  await act(async () => {
+    root.render(<ReadyHarness {...full} />);
+  });
   return full;
+}
+
+async function flushRunStatus() {
+  await act(async () => {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  });
+}
+
+// The run the status mock reports, so a confirmation always concerns the run
+// that just ended unless a test says otherwise.
+let lastRunId = "run-1";
+
+async function agentRun(detail: {
+  isRunning: boolean;
+  runId?: string;
+  threadId?: string;
+}) {
+  if (detail.runId !== "") lastRunId = detail.runId ?? "run-1";
+  await act(async () => {
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { threadId: "thread-1", runId: "run-1", ...detail },
+      }),
+    );
+  });
+  await flushRunStatus();
 }
 
 function setUrl(search: string) {
@@ -78,6 +112,15 @@ beforeEach(() => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.trackDesignRelay.mockReset();
+  mocks.readAgentRunStatus.mockReset();
+  lastRunId = "run-1";
+  mocks.readAgentRunStatus.mockImplementation(async () => ({
+    ok: true,
+    status: "completed",
+    active: false,
+    runId: lastRunId,
+    terminalReason: "done",
+  }));
   resetDesignReadyViewsForTest();
   visibility = "visible";
   Object.defineProperty(document, "visibilityState", {
@@ -96,6 +139,19 @@ afterEach(async () => {
 });
 
 describe("design_prompt_submitted helpers", () => {
+  it("never sends a `source` property, which the browser relay overwrites", () => {
+    trackDesignPromptSubmitted({
+      outputId: "design-1",
+      source: "suggestion_chip",
+      prompt: "A landing page",
+      referenceTypes: [],
+      startMode: "design",
+    });
+    const [, properties] = mocks.trackDesignRelay.mock.calls[0]!;
+    expect(properties).not.toHaveProperty("source");
+    expect(properties).toMatchObject({ prompt_source: "suggestion_chip" });
+  });
+
   it("buckets prompt length without carrying text", () => {
     expect(promptLengthBucket("   ")).toBe("0");
     expect(promptLengthBucket("a".repeat(50))).toBe("1-50");
@@ -138,27 +194,17 @@ describe("design_prompt_submitted helpers", () => {
 });
 
 describe("design_ready_viewed", () => {
-  it("fires once when an owner's generation ends having written a screen", async () => {
-    const stopCountRef = { current: 0 };
-    await renderReady({ generationActive: true, files: [], stopCountRef });
+  it("fires once, with the run id, when an agent run completes having changed the screens", async () => {
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: true });
+    await renderReady({ files: [screen("a", "t2"), screen("b")] });
     expect(readyEvents()).toHaveLength(0);
-    // Files land while the run is still active: not ready yet.
-    await renderReady({
-      generationActive: true,
-      files: [screen("a")],
-      stopCountRef,
-    });
-    expect(readyEvents()).toHaveLength(0);
-    await renderReady({
-      generationActive: false,
-      files: [screen("a"), screen("b")],
-      stopCountRef,
-    });
-    await renderReady({
-      generationActive: false,
-      files: [screen("a"), screen("b")],
-      stopCountRef,
-    });
+    await agentRun({ isRunning: false });
+    await agentRun({ isRunning: false });
+    await renderReady({ files: [screen("a", "t2"), screen("b")] });
+
+    expect(mocks.readAgentRunStatus).toHaveBeenCalledWith("thread-1");
     expect(readyEvents()).toEqual([
       [
         "design_ready_viewed",
@@ -167,94 +213,222 @@ describe("design_ready_viewed", () => {
           output_type: "design",
           screen_count: 2,
           is_owner: true,
+          run_id: "run-1",
         },
       ],
     ]);
   });
 
-  it("does not fire for a non-owner", async () => {
-    await renderReady({ generationActive: true, isOwner: false });
-    await renderReady({
-      generationActive: false,
-      isOwner: false,
-      files: [screen("a")],
-    });
-    expect(readyEvents()).toHaveLength(0);
-  });
-
-  it("does not fire when the run wrote nothing, or only a board file", async () => {
-    const existing = [screen("a")];
-    await renderReady({ generationActive: true, files: existing });
-    await renderReady({ generationActive: false, files: existing });
-    expect(readyEvents()).toHaveLength(0);
-
-    await renderReady({ generationActive: true, files: [] });
-    await renderReady({
-      generationActive: false,
-      files: [
-        {
-          id: "board",
-          filename: BOARD_FILENAME,
-          fileType: "html",
-          content: "<main/>",
-          updatedAt: "t1",
-        },
-      ],
-    });
-    expect(readyEvents()).toHaveLength(0);
-  });
-
-  it("does not fire before the design has loaded or without a generation", async () => {
-    await renderReady({ designLoaded: false, files: [screen("a")] });
+  it("fires for a completed run even when the editor's file list has not caught up", async () => {
     await renderReady({ files: [screen("a")] });
-    expect(readyEvents()).toHaveLength(0);
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+    expect(readyEvents()).toHaveLength(1);
+    expect(readyEvents()[0]![1]).toMatchObject({
+      run_id: "run-1",
+      screen_count: 1,
+    });
   });
 
-  it("takes the baseline from loaded files, not the empty pre-load list", async () => {
-    await renderReady({ designLoaded: false, generationActive: true });
-    await renderReady({ generationActive: true, files: [screen("a")] });
+  it("sends nothing when the editor closes while a run is being confirmed", async () => {
+    let resolveStatus: (value: unknown) => void = () => {};
+    mocks.readAgentRunStatus.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveStatus = resolve)),
+    );
     await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      resolveStatus({
+        ok: true,
+        status: "completed",
+        active: false,
+        runId: "run-1",
+      });
+    });
+    await flushRunStatus();
     expect(readyEvents()).toHaveLength(0);
   });
 
-  it("does not report a link's attempt when the design has no screen", async () => {
-    setUrl("?generation_attempt_id=attempt_1234567890abcdef");
-    await renderReady({ files: [] });
+  it("never fires for a run the server reports errored, aborted, truncated, or cannot read", async () => {
+    for (const [index, run] of [
+      { ok: true, status: "errored", active: false, runId: "run-0" },
+      { ok: true, status: "aborted", active: false, runId: "run-1" },
+      { ok: true, status: "truncated", active: false, runId: "run-2" },
+      { ok: false },
+    ].entries()) {
+      mocks.readAgentRunStatus.mockResolvedValueOnce(run);
+      const runId = `run-${index}`;
+      await renderReady({ files: [screen("a", `before-${index}`)] });
+      await agentRun({ isRunning: true, runId });
+      await renderReady({ files: [screen("a", `after-${index}`)] });
+      await agentRun({ isRunning: false, runId });
+    }
+    expect(mocks.readAgentRunStatus).toHaveBeenCalledTimes(4);
     expect(readyEvents()).toHaveLength(0);
   });
 
-  it("counts an edited screen but not a stopped generation", async () => {
-    const stopCountRef = { current: 0 };
-    await renderReady({
-      generationActive: true,
-      files: [screen("a", "t1")],
-      stopCountRef,
-    });
-    stopCountRef.current += 1;
-    await renderReady({
-      generationActive: false,
-      files: [screen("a", "t2")],
-      stopCountRef,
-    });
+  it("never fires for a truncated run the route reports as completed", async () => {
+    for (const terminalReason of [
+      "no_progress",
+      "run_timeout",
+      "stream_ended",
+    ]) {
+      const runId = `run-${terminalReason}`;
+      mocks.readAgentRunStatus.mockResolvedValueOnce({
+        ok: true,
+        status: "completed",
+        active: false,
+        runId,
+        terminalReason,
+      });
+      await renderReady({ files: [screen("a")] });
+      await agentRun({ isRunning: true, runId });
+      await agentRun({ isRunning: false, runId });
+    }
     expect(readyEvents()).toHaveLength(0);
+  });
 
-    await renderReady({
-      generationActive: true,
-      files: [screen("a", "t2")],
-      stopCountRef,
+  it("reads again when the terminal reason is not written yet", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.readAgentRunStatus.mockResolvedValueOnce({
+        ok: true,
+        status: "completed",
+        active: false,
+        runId: "run-1",
+      });
+      await renderReady({ files: [screen("a")] });
+      await agentRun({ isRunning: true });
+      await agentRun({ isRunning: false });
+      expect(readyEvents()).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(mocks.readAgentRunStatus).toHaveBeenCalledTimes(2);
+      expect(readyEvents()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not credit a run with the status of a newer run in the same thread", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "completed",
+      active: false,
+      runId: "run-newer",
     });
-    await renderReady({
-      generationActive: false,
-      files: [screen("a", "t3")],
-      stopCountRef,
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await renderReady({ files: [screen("a", "t2")] });
+    await agentRun({ isRunning: false });
+    expect(readyEvents()).toHaveLength(0);
+  });
+
+  it("waits for a run the server still reports active, then gives up", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.readAgentRunStatus.mockResolvedValue({
+        ok: true,
+        status: "running",
+        active: true,
+        runId: "run-1",
+      });
+      await renderReady({ files: [screen("a")] });
+      await agentRun({ isRunning: true });
+      await renderReady({ files: [screen("a", "t2")] });
+      await agentRun({ isRunning: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mocks.readAgentRunStatus).toHaveBeenCalledTimes(3);
+      expect(readyEvents()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not fire for a non-owner, for a design with no screens, or for runs seen before the design loaded", async () => {
+    await renderReady({ files: [screen("a")], isOwner: false });
+    await agentRun({ isRunning: true, runId: "run-a" });
+    await agentRun({ isRunning: false, runId: "run-a" });
+
+    const board = {
+      id: "board",
+      filename: BOARD_FILENAME,
+      fileType: "html",
+      content: "<b/>",
+      updatedAt: "t1",
+    };
+    await renderReady({ files: [board] });
+    await agentRun({ isRunning: true, runId: "run-b" });
+    await agentRun({ isRunning: false, runId: "run-b" });
+
+    await renderReady({ files: [], designLoaded: false });
+    await agentRun({ isRunning: true, runId: "run-c" });
+    await renderReady({ files: [screen("c")] });
+    await agentRun({ isRunning: false, runId: "run-c" });
+
+    expect(readyEvents()).toHaveLength(0);
+  });
+
+  it("confirms a run once even when its end is signalled twice in a row", async () => {
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await renderReady({ files: [screen("a", "t2")] });
+    await act(async () => {
+      for (let i = 0; i < 2; i += 1) {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { threadId: "thread-1", runId: "run-1", isRunning: false },
+          }),
+        );
+      }
     });
+    await flushRunStatus();
+    expect(mocks.readAgentRunStatus).toHaveBeenCalledTimes(1);
     expect(readyEvents()).toHaveLength(1);
   });
 
-  it("waits for the tab to be visible and drops it if the page leaves", async () => {
-    visibility = "hidden";
-    await renderReady({ generationActive: true });
+  it("reports a run once even when the editor mounts the tracker twice", async () => {
+    function TwoTrackers(props: ReadyProps) {
+      useDesignReadyViewTracking(props);
+      useDesignReadyViewTracking(props);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <TwoTrackers
+          designId="design-1"
+          isOwner
+          designLoaded
+          files={[screen("a")]}
+        />,
+      );
+    });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+    expect(readyEvents()).toHaveLength(1);
+  });
+
+  it("ignores run signals without a run id or thread", async () => {
     await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true, runId: "" });
+    await renderReady({ files: [screen("a", "t2")] });
+    await agentRun({ isRunning: false, runId: "" });
+    expect(mocks.readAgentRunStatus).not.toHaveBeenCalled();
+    expect(readyEvents()).toHaveLength(0);
+  });
+
+  it("waits for the tab to be visible and drops the send if the page leaves", async () => {
+    visibility = "hidden";
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await renderReady({ files: [screen("a", "t2")] });
+    await agentRun({ isRunning: false });
     expect(readyEvents()).toHaveLength(0);
     visibility = "visible";
     await act(async () => {
@@ -263,8 +437,9 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(1);
 
     visibility = "hidden";
-    await renderReady({ generationActive: true, files: [screen("a")] });
-    await renderReady({ files: [screen("a", "t9")] });
+    await agentRun({ isRunning: true, runId: "run-2" });
+    await renderReady({ files: [screen("a", "t3")] });
+    await agentRun({ isRunning: false, runId: "run-2" });
     await act(async () => root.unmount());
     root = createRoot(container);
     visibility = "visible";
@@ -277,7 +452,7 @@ describe("design_ready_viewed", () => {
   it("reports a generate-design link's attempt once per page", async () => {
     setUrl("?generation_attempt_id=attempt_1234567890abcdef");
     await renderReady({ files: [screen("a")] });
-    await renderReady({ files: [screen("a")] });
+    await renderReady({ files: [screen("a", "t2")] });
     await act(async () => root.unmount());
     root = createRoot(container);
     await renderReady({ files: [screen("a")] });
@@ -290,21 +465,14 @@ describe("design_ready_viewed", () => {
         }),
       ],
     ]);
-
-    // A later in-page generation is not attributed to the link's attempt.
-    await renderReady({ generationActive: true, files: [screen("a")] });
-    await renderReady({ files: [screen("a"), screen("b")] });
-    expect(readyEvents()).toHaveLength(2);
-    expect(readyEvents()[1][1]).not.toHaveProperty("generation_attempt_id");
   });
 
-  it("ignores an invalid attempt id and a non-owner link open", async () => {
+  it("ignores an invalid link attempt, a non-owner link open, and a link with no screens", async () => {
     setUrl("?generation_attempt_id=short");
     await renderReady({ files: [screen("a")] });
-    await act(async () => root.unmount());
-    root = createRoot(container);
     setUrl("?generation_attempt_id=attempt_1234567890abcdef");
     await renderReady({ files: [screen("a")], isOwner: false });
+    await renderReady({ files: [] });
     expect(readyEvents()).toHaveLength(0);
   });
 
@@ -316,12 +484,27 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(0);
   });
 
-  it("keeps rendering when tracking throws", async () => {
+  it("reports a newer link's attempt on the same design", async () => {
+    setUrl("?generation_attempt_id=attempt_aaaaaaaaaaaaaaaa");
+    await renderReady({ files: [screen("a")] });
+    setUrl("?generation_attempt_id=attempt_bbbbbbbbbbbbbbbb");
+    await renderReady({ files: [screen("a")] });
+    expect(
+      readyEvents().map(([, properties]) => properties.generation_attempt_id),
+    ).toEqual(["attempt_aaaaaaaaaaaaaaaa", "attempt_bbbbbbbbbbbbbbbb"]);
+  });
+
+  it("keeps the editor working when tracking throws", async () => {
     mocks.trackDesignRelay.mockImplementation(() => {
       throw new Error("analytics down");
     });
-    await renderReady({ generationActive: true });
-    await expect(renderReady({ files: [screen("a")] })).resolves.toBeTruthy();
+    mocks.readAgentRunStatus.mockRejectedValue(new Error("network"));
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await expect(
+      renderReady({ files: [screen("a", "t2")] }),
+    ).resolves.toBeTruthy();
+    await agentRun({ isRunning: false });
   });
 });
 

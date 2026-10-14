@@ -521,6 +521,23 @@ in the same `set({...})` call.
 - `config.pivot` (`{ xKey, seriesKey, valueKey }`) reshapes long-format rows into
   one series per `seriesKey` value and drops every other column. If the query now
   returns wide-format rows, remove `pivot` or the panel shows "No data".
+- A stacked bar or area chart draws its largest series at the bottom and an
+  "Other"/"unknown" bucket on top; the legend and tooltip use the same order.
+  To fix the order, list series values in `config.pivot.seriesOrder` (they go
+  first, the rest follow by size) or list `config.yKeys` for wide rows.
+- `config.colors` is matched to series in `config.pivot.seriesOrder` order, then
+  result order, never by stack position. When colors carry meaning (green for
+  positive), list those series in `seriesOrder` so row order cannot swap them.
+- To split a chart by Agent-Native app, pivot by a column named `template` or
+  `app` that holds the lowercase app key. Then each app (`mail`, `slides`, ...)
+  takes its fixed color from `shared/tokens/app-series-colors.ts`, on every
+  dashboard and in emailed reports, and the chart's other series (`unknown`,
+  `docs`) are muted. Leave `config.colors` off such panels, or it replaces
+  those colors.
+- A chart draws at most 400 points and says so under the chart. Line, area,
+  combo and heatmap charts keep their last rows, and bar charts their first;
+  over dates in date order (`YYYY-MM-DD`, `YYYYMMDD`, `Sep 30, 2026`, weeks, quarters) both
+  keep the newest. Aggregate or limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.

@@ -1212,6 +1212,12 @@ export default {
     copyTable: "テーブルをコピー",
     multiColumnSortHelp:
       "クリックして並べ替え。Shiftキーを押しながらクリックすると別の並べ替えを追加できます。",
+    chartPointLimitNewest:
+      "{{total}} 件中、最新の {{shown}} 件のポイントを表示しています",
+    chartPointLimitFirst:
+      "{{total}} 件中、最初の {{shown}} 件のポイントを表示しています",
+    chartPointLimitLast:
+      "{{total}} 件中、最後の {{shown}} 件のポイントを表示しています",
     exportToGoogleSheets: "Google スプレッドシートにエクスポート",
     exportingToGoogleSheets: "Google スプレッドシートにエクスポート中...",
     googleSheetsExported: "Google スプレッドシートにエクスポートしました",
