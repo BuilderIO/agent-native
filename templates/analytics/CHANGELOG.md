@@ -3,6 +3,26 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-13
+
+### Added
+
+- Dashboard tiles have a Copy link option that opens the dashboard scrolled to and highlighting that tile.
+- Scheduled dashboard reports can now post the summary and link to a Slack channel through an incoming webhook, instead of or as well as email.
+- Table tiles can be edited directly: right-click a column header to format, rename, or hide it, and drag to resize or reorder columns.
+
+### Improved
+
+- Ask answers now lead with the matching dashboard and show SQL only when you ask for it.
+- BigQuery connections can use each analyst's Google account so query access follows their Google Cloud permissions.
+- Dashboards now appear grouped by folder in the sidebar.
+
+### Fixed
+
+- Analytics shows connection status only for sources shared with the app
+- Negative currency values now show as -$7,505 instead of $-7,505 in tables, charts, and scheduled reports.
+- SQL dashboards preserve typed filters when formatting queries.
+
 ## 2026-10-12
 
 ### Improved
@@ -19,10 +39,13 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Bar charts now label every category, angling the labels when they don't fit; stacked charts order series by size with Other last, long table text truncates with the full value on hover, and charts say when only part of the data is drawn.
+- In charts split by app, each Agent-Native app now keeps one color on every dashboard and in emailed reports, so reordering a stack moves an app without changing its color.
 - Analytics finds data definitions faster and identifies user-organization relationships more clearly.
 
 ### Fixed
 
+- Sessions by Agent-Native App counts sessions under their app even when the event's app field is empty, instead of as unknown
 - Create private Design storyboards for session replay screenshot exports.
 - Replay screenshots wait for the fonts used in the captured frame
 

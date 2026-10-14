@@ -3,6 +3,26 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-14
+
+### Fixed
+
+- Prompting the agent no longer occasionally strips all styling from a slide
+
+## 2026-10-13
+
+### Improved
+
+- Choosing a single direction now continues slide generation automatically.
+- The agent now fixes colors and other small style issues across several slides with targeted edits instead of rewriting each slide, so those fixes finish much faster.
+
+### Fixed
+
+- Color and style fixes across slides no longer fail partway through and stop the agent.
+- Deck creation errors disappear after the slides are edited to fix them.
+- Failed deck generations keep your original prompt so you can try again.
+- If slide creation stops after making some slides, the editor shows your original request and keeps the slides already created.
+
 ## 2026-10-12
 
 ### Fixed
