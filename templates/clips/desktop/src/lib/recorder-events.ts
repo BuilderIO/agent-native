@@ -33,7 +33,16 @@ export function recorderStopTargetsRecording(
   payload: unknown,
   recordingId: string | null | undefined,
 ): boolean {
-  const parsed = parseRecorderStopPayload(payload);
+  return recorderStopPayloadTargetsRecording(
+    parseRecorderStopPayload(payload),
+    recordingId,
+  );
+}
+
+export function recorderStopPayloadTargetsRecording(
+  parsed: RecorderStopPayload,
+  recordingId: string | null | undefined,
+): boolean {
   return (
     parsed.kind === "untagged" ||
     (parsed.kind === "tagged" && parsed.recordingId === recordingId)

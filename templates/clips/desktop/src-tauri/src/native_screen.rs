@@ -4602,9 +4602,7 @@ pub(crate) fn start_screencapturekit_backend_at(
         None
     };
 
-    let mut config = SCStreamConfiguration::new()
-        .with_width(width)
-        .with_height(height)
+    let mut config = fixed_output_stream_configuration(width, height)
         .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)
@@ -6734,6 +6732,27 @@ fn native_capture_dimensions(width: u32, height: u32) -> (u32, u32) {
         even_dimension((width as f64 * scale).floor() as u32),
         even_dimension((height as f64 * scale).floor() as u32),
     )
+}
+
+#[cfg(target_os = "macos")]
+fn fixed_output_stream_configuration(width: u32, height: u32) -> SCStreamConfiguration {
+    // The writer keeps its initial track dimensions for the full recording.
+    SCStreamConfiguration::new()
+        .with_width(width)
+        .with_height(height)
+        .with_preserves_aspect_ratio(true)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod fixed_output_stream_configuration_tests {
+    use super::fixed_output_stream_configuration;
+
+    #[test]
+    fn fixed_writer_dimensions_preserve_capture_aspect_ratio() {
+        let config = fixed_output_stream_configuration(1280, 720);
+
+        assert!(config.preserves_aspect_ratio());
+    }
 }
 
 #[cfg(target_os = "macos")]

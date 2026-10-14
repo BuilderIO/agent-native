@@ -839,9 +839,23 @@ describe("native recording startup", () => {
 
   it("runs the countdown while native warm completes, then begins capture", async () => {
     const warm = deferred<void>();
-    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
-    const pending = startRecording(params);
+    const startupEvents: string[] = [];
+    const onCaptureIdentityAvailable = vi.fn((recordingId: string) => {
+      startupEvents.push(`identity:${recordingId}`);
+    });
+    nativeCommands.set("native_fullscreen_recording_warm", (args) => {
+      const recordingId = (args as { recordingId: string }).recordingId;
+      startupEvents.push(`warm:${recordingId}`);
+      return warm.promise;
+    });
+    const pending = startRecording({ ...params, onCaptureIdentityAvailable });
     await flush();
+    const recordingId = createdRecordingId();
+    expect(onCaptureIdentityAvailable).toHaveBeenCalledWith(recordingId);
+    expect(startupEvents).toEqual([
+      `identity:${recordingId}`,
+      `warm:${recordingId}`,
+    ]);
     expect(calls("show_countdown")).toHaveLength(1);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     expect(mocks.transcribe).not.toHaveBeenCalled();

@@ -188,6 +188,7 @@ import {
 import {
   RECORDER_DISCARD_EVENT,
   parseRecorderStopPayload,
+  recorderStopPayloadTargetsRecording,
 } from "./lib/recorder-events";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
@@ -2748,8 +2749,10 @@ export function App({
           const sourceRecordingId =
             stopPayload.kind === "tagged" ? stopPayload.recordingId : null;
           if (
-            sourceRecordingId !== null &&
-            sourceRecordingId !== sessionCaptureIdentityRef.current
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
           )
             return;
           if (restartInFlightRef.current) {
@@ -3814,8 +3817,10 @@ export function App({
           const sourceRecordingId =
             stopPayload.kind === "tagged" ? stopPayload.recordingId : null;
           if (
-            sourceRecordingId !== null &&
-            sourceRecordingId !== sessionCaptureIdentityRef.current
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
           )
             return;
           stopRequestedDuringStart = true;
@@ -3876,6 +3881,9 @@ export function App({
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
+          onCaptureIdentityAvailable: (captureIdentity) => {
+            sessionCaptureIdentityRef.current = captureIdentity;
+          },
           onCaptureStartRequested: (recordingId, captureIdentity) => {
             console.log(
               `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,

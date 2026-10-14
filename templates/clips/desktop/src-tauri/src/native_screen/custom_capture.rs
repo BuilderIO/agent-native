@@ -3506,9 +3506,7 @@ fn build_custom_scstream(
         None
     };
 
-    let mut config = SCStreamConfiguration::new()
-        .with_width(params.width)
-        .with_height(params.height)
+    let mut config = fixed_output_stream_configuration(params.width, params.height)
         .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)

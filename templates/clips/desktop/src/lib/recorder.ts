@@ -243,6 +243,7 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
+  onCaptureIdentityAvailable?: (captureIdentity: string) => void;
   onCaptureStartRequested?: (
     recordingId: string | null,
     captureIdentity?: string | null,
@@ -3568,6 +3569,7 @@ async function startNativeFullscreenRecording(
     };
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
+      params.onCaptureIdentityAvailable?.(recordingId);
       // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
