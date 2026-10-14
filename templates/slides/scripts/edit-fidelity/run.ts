@@ -945,6 +945,7 @@ async function settle(page: Page) {
     >();
     const failedFonts: string[] = [];
     let stylesheetSignature = "";
+    let stylesheetEpoch = 0;
     const currentStylesheetSignature = () =>
       Array.from(
         document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
@@ -961,7 +962,9 @@ async function settle(page: Page) {
         fontRequests.clear();
         failedFonts.length = 0;
         stylesheetSignature = signature;
+        stylesheetEpoch += 1;
       }
+      const requestEpoch = stylesheetEpoch;
       for (const spec of usedFontSpecs()) {
         if (fontRequests.has(spec.key)) continue;
         const request: {
@@ -976,7 +979,9 @@ async function settle(page: Page) {
           },
           (error: unknown) => {
             request.status = "failed";
-            failedFonts.push(`${spec.font}: ${String(error)}`);
+            if (requestEpoch === stylesheetEpoch) {
+              failedFonts.push(`${spec.font}: ${String(error)}`);
+            }
           },
         );
         fontRequests.set(spec.key, request);
