@@ -73,7 +73,6 @@ describe("executeAgentToolCall", () => {
       name: "publish",
       input: { value: "public" },
       callId: "call-terminal-stop",
-      continueWithModelResponse: true,
       send,
     });
 

@@ -4654,7 +4654,6 @@ export interface ExecuteAgentToolCallOptions {
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
-  continueWithModelResponse?: boolean;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -4718,13 +4717,6 @@ export async function executeAgentToolCall(
   const events: AgentChatEvent[] = [];
   const send = (event: AgentChatEvent) => {
     events.push(event);
-    if (
-      options.continueWithModelResponse &&
-      (event.type === "done" ||
-        (event.type === "text" && event.text === "Tool execution complete."))
-    ) {
-      return;
-    }
     options.send?.(event);
   };
   const controller = options.signal ? null : new AbortController();
@@ -5114,80 +5106,6 @@ export function findApprovedStructuredToolCall(
   if (matches.length > 1) return { status: "ambiguous" };
   const toolCall = matches[0];
   return toolCall ? { status: "found", toolCall } : { status: "missing" };
-}
-
-export function findApprovedToolResultLocation(
-  messages: EngineMessage[],
-  toolCall: {
-    name: string;
-    input: unknown;
-    callId: string;
-    approvalAskId?: string;
-  },
-): { messageIndex: number; contentIndex: number } | undefined {
-  let match: { messageIndex: number; contentIndex: number } | undefined;
-  const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
-
-  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
-    const message = messages[messageIndex]!;
-    if (message.role !== "user") continue;
-    for (
-      let contentIndex = 0;
-      contentIndex < message.content.length;
-      contentIndex++
-    ) {
-      const part = message.content[contentIndex]!;
-      if (
-        part.type !== "tool-result" ||
-        (toolCall.approvalAskId === undefined &&
-          part.toolCallId !== toolCall.callId) ||
-        part.toolName !== toolCall.name ||
-        part.approvalPause !== true ||
-        (toolCall.approvalAskId !== undefined &&
-          part.approvalAskId !== toolCall.approvalAskId)
-      ) {
-        continue;
-      }
-      let resultInput: unknown;
-      try {
-        resultInput = JSON.parse(part.toolInput);
-      } catch {
-        continue;
-      }
-      if (toolCallCacheKey(toolCall.name, resultInput) !== approvalKey) {
-        continue;
-      }
-      match = { messageIndex, contentIndex };
-    }
-  }
-
-  return match;
-}
-
-export function replaceApprovedToolResult(
-  messages: EngineMessage[],
-  location: { messageIndex: number; contentIndex: number },
-  execution: Exclude<
-    AgentToolCallExecutionResult,
-    { status: "approval_required" }
-  >,
-): EngineMessage[] {
-  const message = messages[location.messageIndex];
-  const part =
-    message?.role === "user" ? message.content[location.contentIndex] : null;
-  if (part?.type !== "tool-result") {
-    throw new Error("Approved tool result location is no longer valid");
-  }
-  const content = [...message.content];
-  content[location.contentIndex] = {
-    ...part,
-    content: execution.output,
-    isError: execution.status === "failed",
-    approvalPause: false,
-  };
-  const updatedMessages = [...messages];
-  updatedMessages[location.messageIndex] = { ...message, content };
-  return updatedMessages;
 }
 
 const INTERRUPTED_TOOL_LEDGER_POLL_MS =
@@ -13554,21 +13472,12 @@ export function createProductionAgentHandler(
             approvedToolCallsForExecution &&
             requestActions[exactApprovedToolCall.name]
           ) {
-            const approvedToolResultLocation = findApprovedToolResultLocation(
-              agentLoopOpts.messages,
-              exactApprovedToolCall,
-            );
-            if (!approvedToolResultLocation) {
-              throw new Error(
-                `Could not locate the pending result for approved tool call ${exactApprovedToolCall.callId}`,
-              );
-            }
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,
               tool: exactApprovedToolCall.name,
             });
-            const execution = await executeAgentToolCall({
+            await executeAgentToolCall({
               actions: requestActions,
               name: exactApprovedToolCall.name,
               input: exactApprovedToolCall.input,
@@ -13588,20 +13497,9 @@ export function createProductionAgentHandler(
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
-              continueWithModelResponse: true,
               send,
             });
-            if (execution.status === "approval_required") return;
-            if (execution.status === "failed" && execution.terminalError) {
-              return;
-            }
-            agentLoopOpts.messages = replaceApprovedToolResult(
-              agentLoopOpts.messages,
-              approvedToolResultLocation,
-              execution,
-            );
-            agentLoopOpts.approvedToolCalls = undefined;
-            agentLoopOpts.approvedToolCallAskId = undefined;
+            return;
           }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =

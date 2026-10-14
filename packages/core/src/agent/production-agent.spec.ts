@@ -125,8 +125,6 @@ import {
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
-  findApprovedToolResultLocation,
-  replaceApprovedToolResult,
   hydrateStructuredHistoryImageReferences,
   trimOldToolResults,
   type ActionEntry,
@@ -2697,14 +2695,6 @@ describe("buildUserContentWithAttachments", () => {
       approvalPause: true,
       approvalAskId,
     });
-    expect(
-      findApprovedToolResultLocation(messages ?? [], {
-        name: "send-email",
-        input,
-        callId: "call-1",
-        approvalAskId,
-      }),
-    ).toEqual({ messageIndex: 1, contentIndex: 0 });
   });
 
   it("preserves explicit false approval-pause markers through structured history and backfill", () => {
@@ -2733,68 +2723,6 @@ describe("buildUserContentWithAttachments", () => {
       toolCallId: "call-1",
       approvalPause: false,
     });
-  });
-
-  it("does not select a completed result that mentions approval in its output", () => {
-    expect(
-      findApprovedToolResultLocation(
-        [
-          {
-            role: "user",
-            content: [
-              {
-                type: "tool-result",
-                toolCallId: "call-1",
-                toolName: "send-email",
-                toolInput: '{"to":"a@b.com"}',
-                content:
-                  "The audit text says ‘awaiting human approval’ and ‘did not execute’.",
-                approvalPause: false,
-              },
-            ],
-          },
-        ],
-        { name: "send-email", input: { to: "a@b.com" }, callId: "call-1" },
-      ),
-    ).toBeUndefined();
-  });
-
-  it("locates the approved result by ask id when a call id was reused", () => {
-    const input = { to: "a@b.com" };
-    const messages: EngineMessage[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "reused-call-id",
-            toolName: "send-email",
-            toolInput: JSON.stringify(input),
-            content: "Awaiting human approval.",
-            approvalPause: true,
-            approvalAskId: "ask-old",
-          },
-          {
-            type: "tool-result",
-            toolCallId: "reused-call-id",
-            toolName: "send-email",
-            toolInput: JSON.stringify(input),
-            content: "Awaiting human approval.",
-            approvalPause: true,
-            approvalAskId: "ask-new",
-          },
-        ],
-      },
-    ];
-
-    expect(
-      findApprovedToolResultLocation(messages, {
-        name: "send-email",
-        input,
-        callId: "reused-call-id",
-        approvalAskId: "ask-old",
-      }),
-    ).toEqual({ messageIndex: 0, contentIndex: 0 });
   });
 
   it("keeps approval identity when rebuilding paused results from thread data", () => {
@@ -2831,134 +2759,6 @@ describe("buildUserContentWithAttachments", () => {
       approvalPause: true,
       approvalAskId: "ask-old",
     });
-    expect(
-      findApprovedToolResultLocation(messages, {
-        name: "send-email",
-        input,
-        callId: "reused-call-id",
-        approvalAskId: "ask-old",
-      }),
-    ).toEqual({ messageIndex: 1, contentIndex: 0 });
-  });
-
-  it("replaces the latest matching pending result when history reuses a call id", () => {
-    const input = { release: "1.2.3" };
-    const messages: EngineMessage[] = [
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "tool-call",
-            id: "tc_1",
-            name: "publish-release",
-            input: { release: "0.9.0" },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "tc_1",
-            toolName: "publish-release",
-            toolInput: '{"release":"0.9.0"}',
-            content: "",
-          },
-        ],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "tool-call",
-            id: "tc_1",
-            name: "publish-release",
-            input: { release: "1.0.0" },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "tc_1",
-            toolName: "publish-release",
-            toolInput: '{"release":"1.0.0"}',
-            content: "Awaiting human approval. This action did NOT execute.",
-            approvalPause: false,
-          },
-        ],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "tool-call",
-            id: "tc_1",
-            name: "publish-release",
-            input,
-          },
-          {
-            type: "tool-call",
-            id: "call-sibling",
-            name: "publish-release",
-            input: { release: "2.0.0" },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "tc_1",
-            toolName: "publish-release",
-            toolInput: '{"release":"1.2.3"}',
-            content: "Awaiting human approval. This action did NOT execute.",
-            approvalPause: true,
-          },
-          {
-            type: "tool-result",
-            toolCallId: "call-sibling",
-            toolName: "publish-release",
-            toolInput: '{"release":"2.0.0"}',
-            content: "Sibling result stays intact.",
-          },
-        ],
-      },
-    ];
-
-    const location = findApprovedToolResultLocation(messages, {
-      name: "publish-release",
-      input,
-      callId: "tc_1",
-    });
-    expect(location).toEqual({ messageIndex: 5, contentIndex: 0 });
-    if (!location) throw new Error("Expected approved tool result location");
-
-    const updated = replaceApprovedToolResult(messages, location, {
-      status: "completed",
-      output: "Release accepted",
-    });
-    expect(
-      updated[5]?.role === "user" ? updated[5].content[0] : undefined,
-    ).toMatchObject({
-      type: "tool-result",
-      toolCallId: "tc_1",
-      toolName: "publish-release",
-      content: "Release accepted",
-      isError: false,
-      approvalPause: false,
-    });
-    expect(updated[3]).toEqual(messages[3]);
-    expect(updated[1]).toEqual(messages[1]);
-    expect(
-      updated[5]?.role === "user" ? updated[5].content[1] : undefined,
-    ).toEqual(
-      messages[5]?.role === "user" ? messages[5].content[1] : undefined,
-    );
   });
 
   it("appends a text note when a sibling tool-result is orphaned", () => {
@@ -4102,7 +3902,7 @@ describe("createProductionAgentHandler", () => {
     },
   );
 
-  it("resolves and executes an approved call in a durable background worker", async () => {
+  it("executes an approved call in a durable background worker without continuing the outer model", async () => {
     const approvalId = "ask-background-approval";
     const input = { to: "a@b.com" };
     const approvalKey = toolCallCacheKey("send-email", input);
@@ -4218,7 +4018,7 @@ describe("createProductionAgentHandler", () => {
         approvalId,
       });
       expect(completedRun?.status).toBe("completed");
-      expect(outerStream).toHaveBeenCalled();
+      expect(outerStream).not.toHaveBeenCalled();
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {
