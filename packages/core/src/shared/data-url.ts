@@ -101,3 +101,8 @@ export function parseBase64DataUrl(value: string): ParsedBase64DataUrl | null {
     ? { mediaType: parsed.mediaType, data: parsed.data }
     : null;
 }
+
+export function base64ByteLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
