@@ -4,15 +4,11 @@ import { mseVideoSourceIdentity } from "./use-mse-video-source";
 
 describe("mseVideoSourceIdentity", () => {
   it("ignores rotating access passes while preserving the media version", () => {
-    expect(
-      mseVideoSourceIdentity("/api/video/rec_1?t=old&password=old&media=7"),
-    ).toBe(
-      mseVideoSourceIdentity("/api/video/rec_1?t=new&password=new&media=7"),
+    expect(mseVideoSourceIdentity("/api/video/rec_1?t=old&media=7")).toBe(
+      mseVideoSourceIdentity("/api/video/rec_1?t=new&media=7"),
     );
-    expect(
-      mseVideoSourceIdentity("/api/video/rec_1?t=new&password=new&media=8"),
-    ).not.toBe(
-      mseVideoSourceIdentity("/api/video/rec_1?t=new&password=new&media=7"),
+    expect(mseVideoSourceIdentity("/api/video/rec_1?t=new&media=8")).not.toBe(
+      mseVideoSourceIdentity("/api/video/rec_1?t=new&media=7"),
     );
   });
 

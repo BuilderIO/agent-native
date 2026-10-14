@@ -59,9 +59,9 @@ describe("useMseVideoSource", () => {
   });
 
   it("keeps playback loaded as access passes rotate and reloads on media changes", async () => {
-    const oldPass = "/api/video/rec_1?t=old&password=old&media=7";
-    const renewedPass = "/api/video/rec_1?t=new&password=new&media=7";
-    const updatedMedia = "/api/video/rec_1?t=new&password=new&media=8";
+    const oldPass = "/api/video/rec_1?t=old&media=7";
+    const renewedPass = "/api/video/rec_1?t=new&media=7";
+    const updatedMedia = "/api/video/rec_1?t=new&media=8";
 
     await act(async () => {
       root.render(<Harness sourceUrl={oldPass} />);
@@ -89,8 +89,8 @@ describe("useMseVideoSource", () => {
   });
 
   it("constructs the loader with a renewed URL when it rotates during sniffing", async () => {
-    const oldPass = "/api/video/rec_1?t=old&password=old&media=7";
-    const renewedPass = "/api/video/rec_1?t=new&password=new&media=7";
+    const oldPass = "/api/video/rec_1?t=old&media=7";
+    const renewedPass = "/api/video/rec_1?t=new&media=7";
     let resolveSniff!: (isFragmented: boolean) => void;
     const sniffPromise = new Promise<boolean>((resolve) => {
       resolveSniff = resolve;
