@@ -2002,6 +2002,66 @@ describe("AgentSidebar panel", () => {
     }
   });
 
+  it("keeps a manual close after consumed open intent cannot be cleared", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const renderDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+    await act(async () => {
+      renderDispatchSidebar();
+    });
+    expect(window.location.search).toBe("?keep=1");
+    expect(
+      container?.querySelector('[data-agent-sidebar-main-state="open"]'),
+    ).toBeTruthy();
+    const deniedClear = vi
+      .spyOn(window.sessionStorage, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("session storage write denied");
+      });
+    const deniedPreference = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+      expect(window.location.hash).toBe("#section");
+      await unmountSidebar();
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeNull();
+    } finally {
+      deniedClear.mockRestore();
+      deniedPreference.mockRestore();
+      await unmountSidebar();
+    }
+  });
+
   it("lets a user reopen after a denied close leaves a closed URL hint", async () => {
     await act(async () => {
       mockPanel.resolveImport();

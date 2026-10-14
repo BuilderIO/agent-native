@@ -177,7 +177,7 @@ export function setAgentSidebarOpenPreference(
       : true;
   const preferenceSaved = writeAgentSidebarOpenPreference(open, storageKey);
   const storageSaved = sessionIntentSaved && preferenceSaved;
-  if (urlOverride !== null) {
+  if (urlOverride !== null || !storageSaved) {
     let urlOverrideSaved = replaceAgentSidebarUrlOpenOverride(
       storageSaved ? null : open,
     );
