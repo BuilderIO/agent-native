@@ -305,7 +305,7 @@ describe("campaign CTA and SEO", () => {
     expect(url.hash).toBe("#open");
   });
 
-  it("defaults utm_content without replacing an explicit empty incoming or existing value", () => {
+  it("overrides destination utm_content unless the visitor supplies it, preserving empty and duplicate values", () => {
     expect(
       new URL(
         buildCampaignCtaUrl("https://example.com/", "job", ""),
@@ -315,7 +315,7 @@ describe("campaign CTA and SEO", () => {
       new URL(
         buildCampaignCtaUrl("https://example.com/?utm_content=dest", "job", ""),
       ).searchParams.get("utm_content"),
-    ).toBe("dest");
+    ).toBe("job");
     expect(
       new URL(
         buildCampaignCtaUrl(
@@ -335,6 +335,12 @@ describe("campaign CTA and SEO", () => {
       "/articles/sample/",
       "article",
     );
+    expect(meta).toContainEqual({ title: "Sample | Agent-Native" });
+    expect(meta).toContainEqual({ property: "og:title", content: "Sample" });
+    expect(meta).toContainEqual({
+      property: "og:description",
+      content: "Description",
+    });
     expect(meta).toContainEqual({
       tagName: "link",
       rel: "canonical",

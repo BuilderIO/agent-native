@@ -24,7 +24,7 @@ export function buildCampaignCtaUrl(
       url.searchParams.append(key, value);
   }
   url.searchParams.set("job", jobId);
-  if (!incoming.has("utm_content") && !url.searchParams.has("utm_content")) {
+  if (!incoming.has("utm_content")) {
     url.searchParams.set("utm_content", jobId);
   }
   return url.toString();

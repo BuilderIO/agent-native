@@ -16,7 +16,8 @@ export function campaignMeta(
   const canonical = new URL(path, "https://www.agent-native.com").toString();
   return withDefaultSocialImage(
     [
-      { title },
+      { title: `${title} | Agent-Native` },
+      { property: "og:title", content: title },
       { name: "description", content: description },
       { name: "robots", content: "index, max-image-preview:large" },
       { tagName: "link", rel: "canonical", href: canonical },
