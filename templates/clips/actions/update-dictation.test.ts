@@ -8,6 +8,9 @@ const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({

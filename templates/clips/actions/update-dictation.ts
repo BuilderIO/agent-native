@@ -1,10 +1,20 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+
+const INVALID_INPUT = {
+  errorCode: "dictation_invalid_input",
+  statusCode: 400,
+} as const;
+
+const DICTATION_NOT_FOUND = {
+  errorCode: "dictation_not_found",
+  statusCode: 404,
+} as const;
 
 export default defineAction({
   description:
@@ -39,16 +49,18 @@ export default defineAction({
       args.cleanedText === null &&
       args.expectedCleanupVersion === undefined
     ) {
-      throw new Error(
+      fail(
         "expectedCleanupVersion is required when restoring cleaned text",
+        INVALID_INPUT,
       );
     }
     if (
       args.expectedCleanupVersion !== undefined &&
       args.cleanedText !== null
     ) {
-      throw new Error(
+      fail(
         "expectedCleanupVersion is only supported when restoring cleaned text",
+        INVALID_INPUT,
       );
     }
 
@@ -67,7 +79,10 @@ export default defineAction({
     if (args.targetApp !== undefined) patch.targetApp = args.targetApp;
 
     if (Object.keys(patch).length === 1) {
-      throw new Error("update-dictation requires at least one field to change");
+      fail(
+        "update-dictation requires at least one field to change",
+        INVALID_INPUT,
+      );
     }
 
     const [updated] = await db
@@ -86,7 +101,7 @@ export default defineAction({
     if (!updated && args.expectedCleanupVersion !== undefined) {
       return { id: args.id, ok: true, updated: false };
     }
-    if (!updated) throw new Error(`Dictation not found: ${args.id}`);
+    if (!updated) fail(`Dictation not found: ${args.id}`, DICTATION_NOT_FOUND);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
