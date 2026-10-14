@@ -11,7 +11,6 @@ const messages = {
     view: "Ver",
     preferences: "Preferencias",
     help: "Ayuda",
-    newDeck: "Nueva presentación",
     importFile: "Importar archivo…",
     export: "Exportar…",
     saveLocalCopy: "Guardar copia local…",

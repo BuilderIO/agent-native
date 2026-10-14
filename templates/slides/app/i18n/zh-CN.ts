@@ -11,7 +11,6 @@ const messages = {
     view: "视图",
     preferences: "偏好设置",
     help: "帮助",
-    newDeck: "新建演示文稿",
     importFile: "导入文件…",
     export: "导出…",
     saveLocalCopy: "保存本地副本…",

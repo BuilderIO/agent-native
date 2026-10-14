@@ -156,9 +156,6 @@ export function AppMenu({
                 {t("appMenu.file")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-56">
-                <DropdownMenuItem asChild className={itemClass}>
-                  <Link to="/home">{t("appMenu.newDeck")}</Link>
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   className={itemClass}
                   disabled={!onDuplicateDeck}

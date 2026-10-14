@@ -11,7 +11,6 @@ const messages = {
     view: "表示",
     preferences: "環境設定",
     help: "ヘルプ",
-    newDeck: "新しいプレゼンテーション",
     importFile: "ファイルをインポート…",
     export: "エクスポート…",
     saveLocalCopy: "ローカルコピーを保存…",
