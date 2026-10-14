@@ -111,7 +111,12 @@ function makeExec(tx: number | null) {
         /SELECT id FROM staged_datasets WHERE id = \? AND app_id/i.test(sql)
       ) {
         const entry = _metaStore.get(args[0] as string);
-        if (entry?.app_id === args[1] && entry.owner_email === args[2]) {
+        const sameName = args[3] === undefined || entry?.name === args[3];
+        if (
+          entry?.app_id === args[1] &&
+          entry.owner_email === args[2] &&
+          sameName
+        ) {
           return { rows: [{ id: entry.id }], rowsAffected: 0 };
         }
         return { rows: [], rowsAffected: 0 };
@@ -202,6 +207,7 @@ const {
   MAX_ROWS_PER_APP,
   STAGED_DATASET_MAX_AGE_MS,
   deleteStagedDataset,
+  legacyStagedDatasetId,
   selectStagedDatasetsToEvict,
   stagedDatasetId,
   upsertStagedDataset,
@@ -608,6 +614,110 @@ describe("upsertStagedDataset eviction", () => {
 
     expect(_metaStore.has("ds_peer")).toBe(true);
     expect(_metaStore.has("ds_many")).toBe(false);
+  });
+});
+
+describe("upsertStagedDataset superseded ids", () => {
+  beforeEach(() => {
+    _metaStore.clear();
+    _rowStore.clear();
+    _log.length = 0;
+    _txCounter = 0;
+    _resetInitPromiseForTests();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const restage = (name: string, ownerEmail = "ada@example.com") =>
+    upsertStagedDataset({
+      id: "ds_new_hashed",
+      supersedes: "ds_legacy",
+      appId: "analytics",
+      ownerEmail,
+      name,
+      rows: [{ a: 1 }],
+      columns: [],
+    });
+
+  it("removes the legacy copy of the same owner and name in the write's transaction", async () => {
+    seed("ds_legacy", {
+      name: "gong_calls",
+      byte_size: 5 * MB,
+      updated_at: NOW - 3 * DAY,
+    });
+
+    await restage("gong_calls");
+
+    expect(_metaStore.has("ds_legacy")).toBe(false);
+    expect(_rowStore.has("ds_legacy")).toBe(false);
+    expect(_metaStore.has("ds_new_hashed")).toBe(true);
+    const writeTx = _log.find((e) =>
+      /INSERT INTO staged_datasets/i.test(e.sql),
+    )?.tx;
+    const retireTx = _log.find(
+      (e) =>
+        /DELETE FROM staged_datasets WHERE id/i.test(e.sql) &&
+        e.args[0] === "ds_legacy",
+    )?.tx;
+    expect(retireTx).toBe(writeTx);
+  });
+
+  it("frees the legacy copy's share of the cap before planning evictions", async () => {
+    seed("ds_legacy", {
+      name: "gong_calls",
+      byte_size: 45 * MB,
+      updated_at: NOW - DAY,
+    });
+    seed("ds_peer", { byte_size: 3 * MB, updated_at: NOW - 5 * DAY });
+
+    await upsertStagedDataset({
+      id: "ds_new_hashed",
+      supersedes: "ds_legacy",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "gong_calls",
+      rows: [{ blob: "x".repeat(40 * MB) }],
+      columns: [],
+    });
+
+    expect(_metaStore.has("ds_legacy")).toBe(false);
+    expect(_metaStore.has("ds_peer")).toBe(true);
+  });
+
+  it("leaves a dataset under that id that has another name or owner", async () => {
+    seed("ds_legacy", {
+      name: "other_name",
+      byte_size: 1 * MB,
+      updated_at: NOW - DAY,
+    });
+    await restage("gong_calls");
+    expect(_metaStore.has("ds_legacy")).toBe(true);
+
+    _metaStore.clear();
+    _rowStore.clear();
+    seed("ds_legacy", {
+      owner_email: "linus@example.com",
+      name: "gong_calls",
+      byte_size: 1 * MB,
+      updated_at: NOW - DAY,
+    });
+    await restage("gong_calls");
+    expect(_metaStore.has("ds_legacy")).toBe(true);
+    expect(_rowStore.get("ds_legacy")).toEqual(['{"seed":true}']);
+  });
+
+  it("derives the legacy id the way stageAs used to", () => {
+    expect(
+      legacyStagedDatasetId({
+        appId: "analytics",
+        ownerEmail: "ada@example.com",
+        name: "gong calls",
+      }),
+    ).toBe("ds_analytics_ada_example_com_gong_calls");
   });
 });
 

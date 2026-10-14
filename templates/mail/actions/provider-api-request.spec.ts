@@ -194,6 +194,69 @@ describe("provider-api-request approval gate", () => {
     ).resolves.toBe(false);
   });
 
+  describe("with automation sends enabled", () => {
+    beforeEach(() => {
+      mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: true });
+    });
+
+    it.each([
+      ["POST", "/users/me/messages/send"],
+      ["POST", "/gmail/v1/users/me/messages/send"],
+      ["POST", "/users/me/drafts/send"],
+      ["POST", "/users/me/drafts"],
+      ["PUT", "/users/me/drafts/draft-1"],
+      ["POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"],
+      [
+        "POST",
+        "https://www.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=multipart",
+      ],
+    ])("lets an automation %s %s", async (method, path) => {
+      await expect(
+        gate({ provider: "gmail", method, path }, "automation"),
+      ).resolves.toBe(false);
+    });
+
+    it.each([
+      ["DELETE", "/users/me/messages/abc123"],
+      ["POST", "/users/me/messages/batchDelete"],
+      ["DELETE", "/users/me/threads/thread-1"],
+      ["DELETE", "/users/me/drafts/draft-1"],
+      ["PUT", "/users/me/settings/autoForwarding"],
+      ["PUT", "/users/me/settings/vacation"],
+      ["POST", "/users/me/settings/filters"],
+      ["POST", "/users/me/settings/delegates"],
+      ["POST", "/users/me/settings/forwardingAddresses"],
+      ["PATCH", "/users/me/settings/sendAs/alias@example.com"],
+      ["POST", "/users/me/messages"],
+      ["POST", "/users/me/messages/import"],
+      ["POST", "/users/me/labels"],
+      ["PUT", "/users/me/messages/send"],
+      ["POST", "/users/me/messages/abc123/send"],
+      [
+        "POST",
+        "https://www.googleapis.com/upload/gmail/v1/users/me/messages/import",
+      ],
+      ["POST", "https://evil.example/gmail/v1/users/me/messages/send"],
+    ])("still gates %s %s for an automation", async (method, path) => {
+      await expect(
+        gate({ provider: "gmail", method, path }, "automation"),
+      ).resolves.toBe(true);
+    });
+
+    it("does not extend the opt-in to an interactive caller", async () => {
+      await expect(
+        gate(
+          {
+            provider: "gmail",
+            method: "POST",
+            path: "/users/me/messages/send",
+          },
+          "tool",
+        ),
+      ).resolves.toBe(true);
+    });
+  });
+
   it("gates an unknown write path by default", async () => {
     await expect(
       gate(

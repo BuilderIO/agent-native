@@ -30,6 +30,7 @@ import { rejectFailedProviderResult } from "./result-outcome.js";
 import {
   upsertStagedDataset,
   deriveColumns,
+  legacyStagedDatasetId,
   stagedDatasetId,
   MAX_ROWS_PER_APP,
 } from "./staged-datasets-store.js";
@@ -362,6 +363,11 @@ export async function stagingExecuteRequest(
   const columns = deriveColumns(allRows);
   const meta = await upsertStagedDataset({
     id: datasetId,
+    supersedes: legacyStagedDatasetId({
+      appId: ctx.appId,
+      ownerEmail: ctx.ownerEmail,
+      name: datasetName,
+    }),
     appId: ctx.appId,
     ownerEmail: ctx.ownerEmail,
     name: datasetName,

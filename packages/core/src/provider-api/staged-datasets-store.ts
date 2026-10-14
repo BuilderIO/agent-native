@@ -96,6 +96,12 @@ export interface UpsertDatasetOptions {
   rows: Record<string, unknown>[];
   columns: string[];
   append?: boolean;
+  /**
+   * An older id for the same app, owner, and name. A dataset still stored
+   * under it is removed in the same transaction, so a re-stage replaces it
+   * instead of leaving a second copy that counts against the app's cap.
+   */
+  supersedes?: string;
 }
 
 function generateId(): string {
@@ -119,6 +125,17 @@ export function stagedDatasetId(scope: {
     .slice(0, 16);
   const label = scope.name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 48);
   return `ds_${label}_${digest}`;
+}
+
+/** The id `stageAs` requests used before ids carried a hash. */
+export function legacyStagedDatasetId(scope: {
+  appId: string;
+  ownerEmail: string;
+  name: string;
+}): string {
+  return `ds_${scope.appId}_${scope.ownerEmail}_${scope.name}`
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .slice(0, 80);
 }
 
 // The caps are app-wide, so one writer per app plans, evicts, and writes at a
@@ -242,6 +259,29 @@ export async function upsertStagedDataset(
     // so a replacement has to move it even inside the same millisecond or on a
     // clock behind the previous writer's.
     const writtenAt = Math.max(now, Number(idOwner[0]?.updated_at ?? 0) + 1);
+    // Matched on owner and name so a legacy id that truncation shared with
+    // another dataset is never removed on this writer's behalf.
+    if (options.supersedes && options.supersedes !== id) {
+      const { rows: legacy } = await tx.execute({
+        sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ? AND name = ?`,
+        args: [
+          options.supersedes,
+          options.appId,
+          options.ownerEmail,
+          options.name,
+        ],
+      });
+      if (legacy.length > 0) {
+        await tx.execute({
+          sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+          args: [options.supersedes],
+        });
+        await tx.execute({
+          sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
+          args: [options.supersedes, options.appId],
+        });
+      }
+    }
     const { rows: others } = await tx.execute({
       sql: `SELECT COALESCE(SUM(row_count), 0) AS total_rows, COALESCE(SUM(byte_size), 0) AS total_bytes FROM staged_datasets WHERE app_id = ? AND id <> ?`,
       args: [options.appId, id],
