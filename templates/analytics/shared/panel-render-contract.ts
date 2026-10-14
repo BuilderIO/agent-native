@@ -10,6 +10,7 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelEvent } from "./panel-events";
 
 export { PANEL_CHART_TYPES };
 
@@ -44,6 +45,7 @@ interface PanelConfigKeyInfo {
 // SqlPanelConfig gains a key the renderer contract has not registered.
 export const PANEL_CONFIG_KEYS = {
   timeScope: {},
+  events: { onlyFor: ["line", "area", "bar", "combo"] },
   xKey: {},
   yKey: {},
   yKeys: {},
@@ -249,6 +251,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   yKeys: STRING_ARRAY_SHAPE,
   rightYKeys: STRING_ARRAY_SHAPE,
   barKeys: STRING_ARRAY_SHAPE,
+  events: {
+    valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),
+    expected:
+      'an array of { date: "YYYY-MM-DD", label: non-empty string, color?: string }',
+  },
   pivot: {
     valid: (value) =>
       isRecord(value) &&
