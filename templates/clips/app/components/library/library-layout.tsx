@@ -910,13 +910,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               ]
             : hasKnownEmptyList
               ? []
-              : [
-                  t("navigation.agentSuggestionSummary"),
-                  t("navigation.agentSuggestionPricing"),
-                  t("navigation.agentSuggestionFiller"),
-                ]
+              : location.pathname === "/screenshots"
+                ? [
+                    t("navigation.agentScreenshotSuggestionSummary"),
+                    t("navigation.agentScreenshotSuggestionText"),
+                    t("navigation.agentScreenshotSuggestionCompare"),
+                  ]
+                : [
+                    t("navigation.agentSuggestionSummary"),
+                    t("navigation.agentSuggestionPricing"),
+                    t("navigation.agentSuggestionFiller"),
+                  ]
         }
-        dynamicSuggestions={!hasKnownEmptyList}
+        dynamicSuggestions={false}
         agentPageHref="/settings/agent"
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
