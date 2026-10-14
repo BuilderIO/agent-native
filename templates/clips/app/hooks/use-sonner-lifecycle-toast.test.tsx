@@ -29,6 +29,9 @@ function Probe() {
       <button type="button" onClick={() => lifecycle.success("Ready")}>
         finish
       </button>
+      <button type="button" onClick={() => lifecycle.error("Unavailable")}>
+        error
+      </button>
     </div>
   );
 }
@@ -65,6 +68,22 @@ describe("useSonnerLifecycleToast", () => {
       id: "lifecycle-toast",
     });
     expect(toast.success).toHaveBeenCalledWith("Ready", {
+      duration: 6_000,
+      id: "lifecycle-toast",
+    });
+  });
+
+  it("auto-dismisses terminal errors after the default duration", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<Probe />));
+
+    const buttons = container.querySelectorAll("button");
+    act(() => (buttons[0] as HTMLButtonElement).click());
+    act(() => (buttons[3] as HTMLButtonElement).click());
+
+    expect(toast.error).toHaveBeenCalledWith("Unavailable", {
       duration: 6_000,
       id: "lifecycle-toast",
     });
