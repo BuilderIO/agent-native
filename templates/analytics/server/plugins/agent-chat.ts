@@ -358,11 +358,15 @@ const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DE
 // A list lead-in must ask to be given something: "Can you tell me what else is
 // off:" followed by a summary bullet that mentions a table is feedback.
 const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
-// "I need <identifier>" is narration when the draft goes on to say it resolved
-// the need itself ("so I re-ran it", "I looked it up"), in this sentence or a
-// later one. A purpose clause ("so I can write the query") is still an ask.
-const SCHEMA_DETAILS_RESOLVED =
-  "(?![\\s\\S]*\\b(?:so\\s+i\\s+(?!(?:can|could|will|would|may|might|should|know|understand|get|have|am|need|want|don'?t|do not)\\b)|i\\s+(?:just\\s+)?(?:re-?ran|ran|re-?queried|queried|re-?checked|checked|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected)\\b))";
+// "I need <identifier>" is narration when the same or the next sentence says the
+// agent went and found it ("so I re-ran it", "I looked it up"). Only a closed
+// list of discovery verbs counts: "so I can write the query" and "so I cannot
+// continue" are still asks, and a later unrelated "so I sent the summary" must
+// not clear an earlier ask.
+const SCHEMA_DETAILS_SENTENCE = "(?:[^.?!\\n]|[.?!](?=\\S))*";
+const SCHEMA_DETAILS_RESOLUTION =
+  "\\bi\\s+(?:(?:just|then|already)\\s+)?(?:(?:re-?)?(?:ran(?!\\s+into)|queried|checked)|looked|searched|found|pulled|fetched|verified|confirmed|opened|inspected|used|listed|read|identified|discovered|resolved)\\b";
+const SCHEMA_DETAILS_RESOLVED = `(?!${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_RESOLUTION}|${SCHEMA_DETAILS_SENTENCE}[.?!]+\\s+${SCHEMA_DETAILS_SENTENCE}${SCHEMA_DETAILS_RESOLUTION})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
   `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|what\\s+(?:is|are)\\s+the\\s+(?:${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)|(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT})\\b|what\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\s+(?:is|are)\\b|what\\s+${SCHEMA_DETAILS_OBJECT}\\s+${SCHEMA_DETAILS_HOLDS}\\b))${SCHEMA_DETAILS_RESOLVED}`,
   "i",
@@ -374,11 +378,12 @@ const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
 // The interrogative must open the sentence or a framing clause ("For this
 // metric, which table ...?"): "Want me to show which table this came from?" is
 // an offer, not a request for an identifier. It must also ask for the
-// identifier itself: "which table holds usage?" and "what is the table name?"
-// do, "which table rows were excluded?" and "what is the table size?" are
-// answer-shaped questions that only mention a table.
+// identifier itself: "which table holds usage?", "which table for monthly
+// usage?" and "what is the table name?" do, "which table rows were excluded?"
+// and "what is the table size?" are answer-shaped questions that only mention a
+// table.
 const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
-  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+(?:bigquery\\s+)?(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name)\\b)[^.?!\\n]*\\?`,
+  `(?:^|[.?!:,]\\s+|\\n\\s*)(?:what\\s+(?:is|are)\\s+the\\s+${SCHEMA_DETAILS_OBJECT}\\s+(?:names?|identifiers?)\\b|what\\s+(?:is|are)\\s+the\\s+(?:names?|identifiers?)\\s+(?:of|for)\\s+(?:the\\s+)?${SCHEMA_DETAILS_OBJECT}\\b|(?:which|what)\\s+(?:bigquery\\s+)?(?:dataset|table|column|field|schema)s?\\s+(?:${SCHEMA_DETAILS_HOLDS}|is|are|does|do|should|would|can|name|for|to)\\b)[^.?!\\n]*\\?`,
   "i",
 );
 
