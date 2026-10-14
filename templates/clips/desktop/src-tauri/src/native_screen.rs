@@ -309,6 +309,7 @@ pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
     warm_generation: AtomicU64,
     camera_bubble_alignment: Mutex<Option<CameraBubbleAlignment>>,
+    camera_bubble_capture_override: Mutex<Option<u64>>,
 }
 
 #[derive(Clone, Copy)]
@@ -1859,6 +1860,20 @@ fn align_camera_bubble_to_selected_window(
     target_window_id: u32,
     generation: u64,
 ) -> Result<(), String> {
+    let bubble = app
+        .get_webview_window("bubble")
+        .ok_or_else(|| "The Clips camera preview is unavailable for this recording.".to_string())?;
+    {
+        let mut capture_override = state
+            .camera_bubble_capture_override
+            .lock()
+            .map_err(|error| format!("camera capture state lock failed: {error}"))?;
+        if state.warm_generation.load(Ordering::SeqCst) != generation {
+            return Err("Recording cancelled while positioning the Clips camera.".to_string());
+        }
+        *capture_override = Some(generation);
+        crate::util::set_window_capture_excluded_and_wait(&bubble, false)?;
+    }
     let content = SCShareableContent::get()
         .map_err(|error| format!("shareable content lookup failed: {error:?}"))?;
     let target = content
@@ -1874,9 +1889,6 @@ fn align_camera_bubble_to_selected_window(
     let display_id = display.display_id();
     let (monitor_x, monitor_y, scale) = monitor_origin_and_scale_for_display_id(app, display_id)
         .ok_or_else(|| "The selected window's display is unavailable.".to_string())?;
-    let Some(bubble) = app.get_webview_window("bubble") else {
-        return Err("The Clips camera preview is unavailable for this recording.".to_string());
-    };
     let current_position = bubble
         .outer_position()
         .map_err(|error| format!("read Clips camera position: {error}"))?;
@@ -1948,31 +1960,59 @@ fn restore_camera_bubble_alignment(
     state: &NativeFullscreenRecordingState,
     generation: Option<u64>,
 ) {
-    let Ok(mut guard) = state.camera_bubble_alignment.lock() else {
+    if let Ok(mut guard) = state.camera_bubble_alignment.lock() {
+        if let Some(alignment) = *guard {
+            if generation.is_none_or(|generation| alignment.generation == generation) {
+                if let Some(bubble) = app.get_webview_window("bubble") {
+                    if bubble.outer_position().is_ok_and(|position| {
+                        (position.x, position.y) == alignment.aligned_position
+                    }) {
+                        if let Err(error) = bubble.set_position(PhysicalPosition::new(
+                            alignment.original_position.0,
+                            alignment.original_position.1,
+                        )) {
+                            eprintln!(
+                                "[clips-tray] could not restore Clips camera position: {error}"
+                            );
+                        }
+                    }
+                }
+                *guard = None;
+            }
+        }
+    }
+
+    let Ok(mut capture_override) = state.camera_bubble_capture_override.lock() else {
         return;
     };
-    let Some(alignment) = *guard else {
+    let Some(override_generation) = *capture_override else {
         return;
     };
-    if generation.is_some_and(|generation| alignment.generation != generation) {
+    if generation.is_some_and(|generation| generation != override_generation) {
         return;
     }
     let Some(bubble) = app.get_webview_window("bubble") else {
-        *guard = None;
+        *capture_override = None;
         return;
     };
-    if bubble
-        .outer_position()
-        .is_ok_and(|position| (position.x, position.y) == alignment.aligned_position)
-    {
-        if let Err(error) = bubble.set_position(PhysicalPosition::new(
-            alignment.original_position.0,
-            alignment.original_position.1,
-        )) {
-            eprintln!("[clips-tray] could not restore Clips camera position: {error}");
+    let excluded = !crate::config::show_in_screen_capture(app);
+    match crate::util::set_window_capture_excluded_and_wait(&bubble, excluded) {
+        Ok(()) => *capture_override = None,
+        Err(error) => {
+            eprintln!("[clips-tray] could not restore Clips camera capture preference: {error}")
         }
     }
-    *guard = None;
+}
+
+#[cfg(target_os = "macos")]
+fn restore_camera_bubble_after_restart_failure(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+    restart: &RestartInfo,
+) {
+    if restart.include_camera_overlay {
+        restore_camera_bubble_alignment(app, state, Some(restart.alignment_generation));
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1999,12 +2039,15 @@ fn start_native_session_locked(
         expected_generation.unwrap_or_else(|| state.warm_generation.load(Ordering::SeqCst));
     if include_camera_overlay {
         if let Some(target_window_id) = target_window_id {
-            align_camera_bubble_to_selected_window(
+            if let Err(error) = align_camera_bubble_to_selected_window(
                 app,
                 state,
                 target_window_id,
                 alignment_generation,
-            )?;
+            ) {
+                restore_camera_bubble_alignment(app, state, Some(alignment_generation));
+                return Err(error);
+            }
         }
     }
     let has_specific_mic = mic_device_id
@@ -2954,6 +2997,7 @@ pub async fn native_fullscreen_recording_cancel(
 
 #[tauri::command]
 pub async fn native_fullscreen_recording_pause(
+    app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -3010,12 +3054,16 @@ pub async fn native_fullscreen_recording_pause(
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
     if session.backend.is_none() {
+        #[cfg(target_os = "macos")]
+        restore_camera_bubble_after_restart_failure(&app, &state, &session.restart);
         return Err(mark_pause_failure(
             session,
             "Unable to pause recording safely: the capture backend is unavailable; the local recording was retained for recovery.",
         ));
     }
     let stop_outcome = finalize_active_backend(session, true);
+    #[cfg(target_os = "macos")]
+    restore_camera_bubble_after_restart_failure(&app, &state, &session.restart);
     if let Err(err) = &stop_outcome {
         eprintln!("[clips-tray] pause finalize reported an error: {err}");
         return Err(mark_pause_failure(
@@ -3083,7 +3131,10 @@ pub async fn native_fullscreen_recording_resume(
             }) = session.backend.as_ref()
             {
                 if writer.segmented() && writer.is_started() {
-                    resume.resume(paused_for)?;
+                    if let Err(error) = resume.resume(paused_for) {
+                        restore_camera_bubble_after_restart_failure(&app, &state, &session.restart);
+                        return Err(error);
+                    }
                     true
                 } else {
                     false
@@ -3132,16 +3183,19 @@ pub async fn native_fullscreen_recording_resume(
     #[cfg(target_os = "macos")]
     if restart.include_camera_overlay {
         if let Some(target_window_id) = restart.target_window_id {
-            align_camera_bubble_to_selected_window(
+            if let Err(error) = align_camera_bubble_to_selected_window(
                 &app,
                 &state,
                 target_window_id,
                 restart.alignment_generation,
-            )?;
+            ) {
+                restore_camera_bubble_after_restart_failure(&app, &state, &restart);
+                return Err(error);
+            }
         }
     }
 
-    let (backend, _w, _h) = start_segment_backend(
+    let backend_result = start_segment_backend(
         &app,
         session.custom_pipeline,
         restart.live_upload_enabled,
@@ -3156,7 +3210,15 @@ pub async fn native_fullscreen_recording_resume(
         restart.target_window_id,
         restart.target_window_dimensions,
         restart.capture_region,
-    )?;
+    );
+    let (backend, _w, _h) = match backend_result {
+        Ok(backend) => backend,
+        Err(error) => {
+            #[cfg(target_os = "macos")]
+            restore_camera_bubble_after_restart_failure(&app, &state, &restart);
+            return Err(error);
+        }
+    };
     session.backend = Some(backend);
     session.segments.push(segment_path);
     session.restart.segment_counter = next_counter;
@@ -3272,6 +3334,7 @@ fn rotate_screencapturekit_segment(
         Ok(result) => result,
         Err(err) => {
             session.paused_at = Some(rotation_started);
+            restore_camera_bubble_after_restart_failure(app, state, &restart);
             return Err(format!(
                 "ScreenCaptureKit segment rotation paused recording after a finalized checkpoint, but the next segment could not start: {err}"
             ));
