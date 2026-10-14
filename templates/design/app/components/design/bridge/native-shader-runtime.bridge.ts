@@ -230,6 +230,7 @@ import {
   type NativeFillBackgroundPaint,
   type NativeSceneProvider,
   type NativeSourceClip,
+  type NativeSourceCaptureInsets,
   type NativeSourceRecord,
   type NativeSourceReadSceneMetrics,
 } from "./native-source-provider";
@@ -456,6 +457,7 @@ type NestedBackdropTransaction = {
       texture: GPUTexture;
       resources?: NativeFrameResourceScratch<GPUTexture>;
       statefulFrame?: NativeStatefulEncodedFrame;
+      feedbackFrame?: NativeFeedbackEncodedFrame;
       sourceEpoch: number | null;
       instancePayload: string;
       definitionHash: string;
@@ -622,6 +624,7 @@ type Mount = {
     sourceHeight: number;
     retirements: Set<Promise<void>>;
   } | null;
+  feedbackCandidate: Mount["feedback"];
   feedbackFrame: NativeFeedbackEncodedFrame | null;
   stateful: {
     executor: NativeStatefulResourceSession;
@@ -666,6 +669,7 @@ type DraftPreview = {
   statefulFrame: NativeStatefulEncodedFrame | null;
   statefulResources: Map<string, GPUTexture>;
   feedback: Mount["feedback"];
+  feedbackCandidate: Mount["feedback"];
   feedbackFrame: NativeFeedbackEncodedFrame | null;
   resources: Map<string, GPUTexture>;
   publishedResources: Map<string, GPUTexture>;
@@ -4170,24 +4174,99 @@ class NativeShaderRuntime {
     );
   }
 
+  private promoteFeedbackFrame(
+    mount: Mount,
+    frame: NativeFeedbackEncodedFrame,
+    draft?: DraftPreview | null,
+  ): void {
+    frame.promote();
+    const current = draft ? draft.feedback : mount.feedback;
+    const candidate = draft ? draft.feedbackCandidate : mount.feedbackCandidate;
+    if (candidate) {
+      if (draft) {
+        draft.feedback = candidate;
+        draft.feedbackCandidate = null;
+      } else {
+        mount.feedback = candidate;
+        mount.feedbackCandidate = null;
+      }
+      if (current && current !== candidate)
+        void this.disposeFeedback(current).catch((error) =>
+          this.issue(
+            "feedback-cleanup-failed",
+            String(error),
+            mount.instance.id,
+          ),
+        );
+    }
+    const feedback = (draft ? draft.feedback : mount.feedback)!;
+    feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
+    feedback.pendingSourceRevision = null;
+    feedback.pointerPosition = feedback.pendingPointerPosition;
+    feedback.pendingPointerPosition = null;
+    if (draft) {
+      draft.feedbackFrame = null;
+      draft.caughtUp = true;
+    } else {
+      mount.feedbackFrame = null;
+      mount.simulationCaughtUp = true;
+      this.reflectCommittedFeedbackTelemetry(mount);
+    }
+  }
+
   private releaseFeedback(mount: Mount): void {
-    if (mount.feedback) mount.pointerHistory?.invalidate();
-    mount.feedbackFrame?.abandon();
+    if (mount.feedback || mount.feedbackCandidate)
+      mount.pointerHistory?.invalidate();
+    const frameRetirement = mount.feedbackFrame?.abandon();
     mount.feedbackFrame = null;
     this.clearFeedbackTelemetry(mount);
     const feedback = mount.feedback;
-    if (!feedback) return;
+    const candidate = mount.feedbackCandidate;
+    const owner = candidate ?? feedback;
+    if (frameRetirement && owner) {
+      owner.retirements.add(frameRetirement);
+      void frameRetirement.then(
+        () => owner.retirements.delete(frameRetirement),
+        (error) => {
+          owner.retirements.delete(frameRetirement);
+          this.issue("feedback-device-lost", String(error), mount.instance.id);
+        },
+      );
+    }
     mount.feedback = null;
-    void this.disposeFeedback(feedback).catch((error) =>
-      this.issue("feedback-cleanup-failed", String(error), mount.instance.id),
-    );
+    mount.feedbackCandidate = null;
+    if (candidate)
+      void this.disposeFeedback(candidate).catch((error) =>
+        this.issue("feedback-cleanup-failed", String(error), mount.instance.id),
+      );
+    if (feedback)
+      void this.disposeFeedback(feedback).catch((error) =>
+        this.issue("feedback-cleanup-failed", String(error), mount.instance.id),
+      );
   }
 
   private releaseDraftFeedback(draft: DraftPreview): void {
-    draft.feedbackFrame?.abandon();
+    const frameRetirement = draft.feedbackFrame?.abandon();
     draft.feedbackFrame = null;
     const feedback = draft.feedback;
+    const candidate = draft.feedbackCandidate;
+    const owner = candidate ?? feedback;
+    if (frameRetirement && owner) {
+      owner.retirements.add(frameRetirement);
+      void frameRetirement.then(
+        () => owner.retirements.delete(frameRetirement),
+        (error) => {
+          owner.retirements.delete(frameRetirement);
+          this.issue("feedback-device-lost", String(error), draft.instanceId);
+        },
+      );
+    }
     draft.feedback = null;
+    draft.feedbackCandidate = null;
+    if (candidate)
+      void this.disposeFeedback(candidate).catch((error) =>
+        this.issue("feedback-cleanup-failed", String(error), draft.instanceId),
+      );
     if (feedback)
       void this.disposeFeedback(feedback).catch((error) =>
         this.issue("feedback-cleanup-failed", String(error), draft.instanceId),
@@ -5040,6 +5119,7 @@ class NativeShaderRuntime {
           : null,
       simulationCaughtUp: true,
       feedback: null,
+      feedbackCandidate: null,
       feedbackFrame: null,
       stateful: null,
       statefulCandidate: null,
@@ -5556,7 +5636,10 @@ class NativeShaderRuntime {
     this.sentStatus.delete(mount.instance.id);
   }
 
-  private layout(mount: Mount): void {
+  private layout(
+    mount: Mount,
+    visibleCaptureInsets?: NativeSourceCaptureInsets,
+  ): void {
     this.updatePreviewAttributes();
     const dpr =
       this.compositionPixelRatio ?? this.previewStatus().effectivePixelRatio;
@@ -5568,10 +5651,12 @@ class NativeShaderRuntime {
         "effect-layer-dependency-unavailable",
         "The previous processor has no current output geometry.",
       );
-    const captureInsets = nativeTargetOverflowInsets(
-      mount.target,
-      mount.instance.placement === "layer",
-    );
+    const captureInsets =
+      visibleCaptureInsets ??
+      nativeTargetOverflowInsets(
+        mount.target,
+        mount.instance.placement === "layer",
+      );
     const planned = planNativeChainedEffectExtent({
       extent: mount.definition.extent,
       captureInsets: previous ? undefined : captureInsets,
@@ -8576,12 +8661,15 @@ class NativeShaderRuntime {
       this.draft?.showDraft && this.draft.instanceId === mount.instance.id
         ? this.draft
         : null;
+    const previousFeedback = draft
+      ? (draft.feedbackCandidate ?? draft.feedback)
+      : (mount.feedbackCandidate ?? mount.feedback);
     const adapted =
-      (draft ? draft.feedback : mount.feedback)?.definitionHash ===
+      previousFeedback?.definitionHash ===
       (draft ? draft.executionHash : mount.definitionHash)
         ? {
             ok: true as const,
-            definition: (draft ? draft.feedback : mount.feedback)!.definition,
+            definition: previousFeedback!.definition,
           }
         : adaptNativeFeedbackDefinition(definition);
     if (!adapted.ok)
@@ -8615,7 +8703,7 @@ class NativeShaderRuntime {
       (name) => [name, read(name)] as const,
     );
     const revision = instance.timing.seekRevision ?? 0;
-    const prior = draft ? draft.feedback : mount.feedback;
+    const prior = previousFeedback;
     if (
       prior &&
       (prior.definitionHash !==
@@ -8630,14 +8718,45 @@ class NativeShaderRuntime {
         prior.sourceWidth !== source.width ||
         prior.sourceHeight !== source.height)
     ) {
-      if (draft) this.releaseDraftFeedback(draft);
-      else this.releaseFeedback(mount);
+      const candidate = draft
+        ? draft.feedbackCandidate
+        : mount.feedbackCandidate;
+      if (candidate) {
+        if (draft) draft.feedbackCandidate = null;
+        else mount.feedbackCandidate = null;
+        void this.disposeFeedback(candidate).catch((error) =>
+          this.issue(
+            "feedback-cleanup-failed",
+            String(error),
+            mount.instance.id,
+          ),
+        );
+      }
     }
-    if (!(draft ? draft.feedback : mount.feedback)) {
+    const matches = (feedback: NonNullable<Mount["feedback"]> | null) =>
+      !!feedback &&
+      feedback.definitionHash ===
+        (draft ? draft.executionHash : mount.definitionHash) &&
+      feedback.sourceIdentity === sourceIdentity &&
+      feedback.seed === params.seed &&
+      !nativeFeedbackResetValuesChanged(
+        feedback.resetPropertyValues,
+        resetPropertyValues,
+      ) &&
+      feedback.seekRevision === revision &&
+      feedback.sourceWidth === source.width &&
+      feedback.sourceHeight === source.height;
+    if (
+      !matches(
+        draft
+          ? (draft.feedbackCandidate ?? draft.feedback)
+          : (mount.feedbackCandidate ?? mount.feedback),
+      )
+    ) {
       const grid = adapted.definition.grid;
       this.ensureCompositionBudget(
         mount,
-        grid.width * grid.height * 24 + mount.width * mount.height * 24,
+        grid.width * grid.height * 40 + mount.width * mount.height * 24,
       );
       const textures = new Set<GPUTexture>();
       const executor = await NativeTextureFeedbackExecutor.create(
@@ -8672,10 +8791,14 @@ class NativeShaderRuntime {
         sourceHeight: source.height,
         retirements: new Set(),
       };
-      if (draft) draft.feedback = feedback;
-      else mount.feedback = feedback;
+      if (draft) draft.feedbackCandidate = feedback;
+      else mount.feedbackCandidate = feedback;
     }
-    const feedback = (draft ? draft.feedback : mount.feedback)!;
+    const feedback = (
+      draft
+        ? (draft.feedbackCandidate ?? draft.feedback)
+        : (mount.feedbackCandidate ?? mount.feedback)
+    )!;
     const outputName = definition.output;
     const outputSpec = definition.resources?.find(
       (resource) => resource.name === outputName,
@@ -11704,7 +11827,6 @@ class NativeShaderRuntime {
     if (
       child.instance.placement !== "backdrop" ||
       child.definition.simulation ||
-      child.definition.feedback ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -11831,6 +11953,7 @@ class NativeShaderRuntime {
         texture: finished,
         resources,
         statefulFrame: child.statefulFrame ?? undefined,
+        feedbackFrame: child.feedbackFrame ?? undefined,
         sourceEpoch: child.provider?.sourceEpoch?.() ?? null,
         instancePayload: JSON.stringify(child.instance),
         definitionHash: child.definitionHash,
@@ -11838,6 +11961,7 @@ class NativeShaderRuntime {
         inputEpochs: new Map(child.pendingGraphInputEpochs ?? []),
       });
       child.statefulFrame = null;
+      child.feedbackFrame = null;
       staged = true;
       return finished;
     } finally {
@@ -11845,6 +11969,11 @@ class NativeShaderRuntime {
       if (!staged) {
         child.statefulFrame?.abandon();
         child.statefulFrame = null;
+        child.feedbackFrame?.abandon();
+        child.feedbackFrame = null;
+        const feedbackCandidate = child.feedbackCandidate;
+        child.feedbackCandidate = null;
+        if (feedbackCandidate) await this.disposeFeedback(feedbackCandidate);
         child.statefulCandidate?.executor.dispose();
         child.statefulCandidate = null;
         for (const texture of resources.rollback())
@@ -11873,7 +12002,6 @@ class NativeShaderRuntime {
       this.nestedBackdropOwner(child.target) !== parent ||
       child.instance.placement !== "backdrop" ||
       child.definition.simulation ||
-      child.definition.feedback ||
       child.previousLayerId ||
       child.previousFillId ||
       this.draft?.instanceId === child.instance.id ||
@@ -12029,6 +12157,7 @@ class NativeShaderRuntime {
         texture: finished,
         resources,
         statefulFrame: child.statefulFrame ?? undefined,
+        feedbackFrame: child.feedbackFrame ?? undefined,
         sourceEpoch: child.provider.sourceEpoch?.() ?? null,
         instancePayload: JSON.stringify(child.instance),
         definitionHash: child.definitionHash,
@@ -12036,6 +12165,7 @@ class NativeShaderRuntime {
         inputEpochs: new Map(child.pendingGraphInputEpochs ?? []),
       });
       child.statefulFrame = null;
+      child.feedbackFrame = null;
       staged = true;
       return finished;
     } finally {
@@ -12043,6 +12173,11 @@ class NativeShaderRuntime {
       if (!staged) {
         child.statefulFrame?.abandon();
         child.statefulFrame = null;
+        child.feedbackFrame?.abandon();
+        child.feedbackFrame = null;
+        const feedbackCandidate = child.feedbackCandidate;
+        child.feedbackCandidate = null;
+        if (feedbackCandidate) await this.disposeFeedback(feedbackCandidate);
         child.statefulCandidate?.executor.dispose();
         child.statefulCandidate = null;
         for (const texture of resources.rollback())
@@ -12237,37 +12372,13 @@ class NativeShaderRuntime {
     const visibleHeightBeforeLayout = mount.canvas.height;
     const mountWidthBeforeLayout = mount.width;
     const mountHeightBeforeLayout = mount.height;
-    this.layout(mount);
-    const assertCaptureOriginCurrent = (): void => {
-      const current = nativeTargetOverflowInsets(
-        mount.target,
-        mount.instance.placement === "layer",
-      );
-      if (
-        current.top !== mount.captureInsets.top ||
-        current.right !== mount.captureInsets.right ||
-        current.bottom !== mount.captureInsets.bottom ||
-        current.left !== mount.captureInsets.left
-      )
-        throw new NativeSourceError(
-          "source-capture-geometry-stale",
-          "The target clip changed during native rendering.",
-        );
-    };
-    const visibleLayoutUnchanged =
-      mount.canvas.style.cssText === visibleStyleBeforeLayout &&
-      mount.canvas.width === visibleWidthBeforeLayout &&
-      mount.canvas.height === visibleHeightBeforeLayout &&
-      mount.width === mountWidthBeforeLayout &&
-      mount.height === mountHeightBeforeLayout;
-    if (hostWallPhases)
-      hostWallPhases.layoutCallWallMs += performance.now() - layoutStarted;
-    this.activeMounts.add(mount);
     if (!mount.provider)
       throw new NativeSourceError(
         "source-provider-unavailable",
         "The native source provider is unavailable.",
       );
+    this.layout(mount);
+    this.activeMounts.add(mount);
     mount.provider?.setDensity(mount.pixelRatio);
     const nestedChildren =
       mount.instance.placement === "layer" ||
@@ -12304,11 +12415,13 @@ class NativeShaderRuntime {
         "source-group-local-chain-unsupported",
         "source-group-local-chain-unsupported",
       );
-    const nestedStatefulChild = nestedChildren.some((child) =>
-      isStatefulResourceGraph(child.definition.resourceGraph),
+    const nestedRetainedChild = nestedChildren.some(
+      (child) =>
+        isStatefulResourceGraph(child.definition.resourceGraph) ||
+        !!child.definition.feedback,
     );
     if (
-      nestedStatefulChild &&
+      nestedRetainedChild &&
       mount.instance.placement === "layer" &&
       (!mount.isTopLayer || draft)
     )
@@ -12323,6 +12436,42 @@ class NativeShaderRuntime {
       }
     }
     mount.provider.setGroupLocalBackdropSource(nestedChildren.length > 0);
+    let layerScene: NativeSourceRecord[] | null = null;
+    if (mount.instance.placement === "layer" && !mount.previousLayerId) {
+      const sourceStarted = performance.now();
+      const visible = await mount.provider.readLayerVisibleScene();
+      sourceWallMs += performance.now() - sourceStarted;
+      layerScene = visible.records;
+      this.layout(mount, visible.captureInsets);
+      mount.provider.setDensity(mount.pixelRatio);
+      mount.provider.layerVisiblePaintInsets(layerScene);
+    }
+    const assertCaptureOriginCurrent = (): void => {
+      const current = layerScene
+        ? mount.provider!.layerVisiblePaintInsets(layerScene)
+        : nativeTargetOverflowInsets(
+            mount.target,
+            mount.instance.placement === "layer",
+          );
+      if (
+        current.top !== mount.captureInsets.top ||
+        current.right !== mount.captureInsets.right ||
+        current.bottom !== mount.captureInsets.bottom ||
+        current.left !== mount.captureInsets.left
+      )
+        throw new NativeSourceError(
+          "source-capture-geometry-stale",
+          "The target clip changed during native rendering.",
+        );
+    };
+    const visibleLayoutUnchanged =
+      mount.canvas.style.cssText === visibleStyleBeforeLayout &&
+      mount.canvas.width === visibleWidthBeforeLayout &&
+      mount.canvas.height === visibleHeightBeforeLayout &&
+      mount.width === mountWidthBeforeLayout &&
+      mount.height === mountHeightBeforeLayout;
+    if (hostWallPhases)
+      hostWallPhases.layoutCallWallMs += performance.now() - layoutStarted;
     const device = this.device!;
     const deviceEpoch = this.deviceEpoch;
     const renderEpoch = this.renderEpoch;
@@ -12636,10 +12785,12 @@ class NativeShaderRuntime {
         }
       } else if (mount.provider) {
         const sourceStarted = performance.now();
-        scene = await mount.provider.readScene(
-          this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
-          "mount-source",
-        );
+        scene =
+          layerScene ??
+          (await mount.provider.readScene(
+            this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+            "mount-source",
+          ));
         sourceWallMs += performance.now() - sourceStarted;
         let renderedDependency = false;
         for (const record of scene) {
@@ -12672,6 +12823,10 @@ class NativeShaderRuntime {
             this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
             "dependency-refresh",
           );
+          if (layerScene) {
+            layerScene = scene;
+            assertCaptureOriginCurrent();
+          }
           sourceWallMs += performance.now() - sourceStarted;
         }
         if (nestedTransaction) {
@@ -12814,7 +12969,7 @@ class NativeShaderRuntime {
       const retainedLayerPublication =
         mount.instance.placement === "layer" &&
         mount.isTopLayer &&
-        (nestedStatefulChild ||
+        (nestedRetainedChild ||
           !!activeDefinition.simulation ||
           !!activeDefinition.feedback ||
           isStatefulResourceGraph(activeDefinition.resourceGraph));
@@ -13372,8 +13527,11 @@ class NativeShaderRuntime {
         draft?.simulationFrame ?? mount.simulationFrame
       )?.transaction.markSubmitted();
       (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
+      (draft?.feedbackFrame ?? mount.feedbackFrame)?.markSubmitted();
       for (const staged of nestedTransaction?.staged.values() ?? [])
         staged.statefulFrame?.markSubmitted();
+      for (const staged of nestedTransaction?.staged.values() ?? [])
+        staged.feedbackFrame?.markSubmitted();
       if (gpuSample) {
         this.gpuProfiler?.afterSubmit(gpuSample);
         profileSubmitted = true;
@@ -13481,6 +13639,21 @@ class NativeShaderRuntime {
                 "stateful-frame-invalid",
               );
           });
+      const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
+      if (feedbackFrame)
+        await feedbackFrame.settle(() => {
+          assertCaptureOriginCurrent();
+          assertStatelessCurrent();
+          assertTwoSurfacePublishable();
+        });
+      for (const staged of nestedTransaction?.staged.values() ?? [])
+        if (staged.feedbackFrame)
+          await staged.feedbackFrame.settle(() => {
+            assertNestedChildren();
+            assertCaptureOriginCurrent();
+            assertStatelessCurrent();
+            assertTwoSurfacePublishable();
+          });
       for (const staged of nestedTransaction?.staged.values() ?? [])
         this.refreshAuthoredPaint(staged.mount);
       assertCaptureOriginCurrent();
@@ -13540,32 +13713,8 @@ class NativeShaderRuntime {
           if (!this.textureRetirement.includes(texture))
             this.textureRetirement.push(texture);
       }
-      const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
       if (feedbackFrame) {
-        const frame = feedbackFrame;
-        const feedback = (draft ? draft.feedback : mount.feedback)!;
-        if (draft) draft.feedbackFrame = null;
-        else mount.feedbackFrame = null;
-        const retirement = frame.commit();
-        if (draft) draft.caughtUp = true;
-        else mount.simulationCaughtUp = true;
-        if (!draft) this.reflectCommittedFeedbackTelemetry(mount);
-        feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
-        feedback.pendingSourceRevision = null;
-        feedback.pointerPosition = feedback.pendingPointerPosition;
-        feedback.pendingPointerPosition = null;
-        feedback.retirements.add(retirement);
-        void retirement.then(
-          () => feedback.retirements.delete(retirement),
-          (error) => {
-            feedback.retirements.delete(retirement);
-            this.issue(
-              "feedback-device-lost",
-              String(error),
-              mount.instance.id,
-            );
-          },
-        );
+        this.promoteFeedbackFrame(mount, feedbackFrame, draft);
       }
       if (statefulFrame) {
         this.promoteStatefulFrame(mount, statefulFrame, draft);
@@ -13826,6 +13975,7 @@ class NativeShaderRuntime {
           texture,
           resources,
           statefulFrame: childStatefulFrame,
+          feedbackFrame: childFeedbackFrame,
         } = staged;
         const previous = child.outputTexture;
         const previousOwnedByStateful =
@@ -13836,7 +13986,10 @@ class NativeShaderRuntime {
           [...resources.committed.values()].includes(previous);
         if (childStatefulFrame)
           this.promoteStatefulFrame(child, childStatefulFrame);
+        if (childFeedbackFrame)
+          this.promoteFeedbackFrame(child, childFeedbackFrame);
         staged.statefulFrame = undefined;
+        staged.feedbackFrame = undefined;
         if (resources) {
           const staleResources = resources.retiredOnCommit();
           resources.commit();
@@ -13961,6 +14114,14 @@ class NativeShaderRuntime {
         }
         staged.mount.statefulCandidate?.executor.dispose();
         staged.mount.statefulCandidate = null;
+        if (staged.feedbackFrame) {
+          if (submitted) await staged.feedbackFrame.rejectSubmitted(error);
+          else staged.feedbackFrame.abandon();
+          staged.feedbackFrame = undefined;
+        }
+        const feedbackCandidate = staged.mount.feedbackCandidate;
+        staged.mount.feedbackCandidate = null;
+        if (feedbackCandidate) await this.disposeFeedback(feedbackCandidate);
         staged.mount.pendingGraphInputEpochs = null;
         if (staged.resources) {
           for (const texture of staged.resources.rollback())
@@ -14073,7 +14234,9 @@ class NativeShaderRuntime {
       const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
       if (draft) draft.feedbackFrame = null;
       else mount.feedbackFrame = null;
-      const feedback = draft ? draft.feedback : mount.feedback;
+      const feedback = draft
+        ? (draft.feedbackCandidate ?? draft.feedback)
+        : (mount.feedbackCandidate ?? mount.feedback);
       if (feedback) {
         feedback.pendingSourceRevision = null;
         feedback.pendingPointerPosition = null;
@@ -14083,13 +14246,20 @@ class NativeShaderRuntime {
         try {
           if (submitted) {
             await feedbackFrame.rejectSubmitted(error);
-            if (draft) this.releaseDraftFeedback(draft);
-            else this.releaseFeedback(mount);
           } else feedbackFrame.abandon();
         } catch (cleanupError) {
           feedbackFailure = cleanupError;
-          if (draft) this.releaseDraftFeedback(draft);
-          else this.releaseFeedback(mount);
+        }
+      const feedbackCandidate = draft
+        ? draft.feedbackCandidate
+        : mount.feedbackCandidate;
+      if (draft) draft.feedbackCandidate = null;
+      else mount.feedbackCandidate = null;
+      if (feedbackCandidate)
+        try {
+          await this.disposeFeedback(feedbackCandidate);
+        } catch (cleanupError) {
+          feedbackFailure ??= cleanupError;
         }
       if (scopeOpen) {
         const scopeError = await device.popErrorScope();
@@ -15499,6 +15669,7 @@ class NativeShaderRuntime {
       statefulFrame: null,
       statefulResources: new Map(),
       feedback: null,
+      feedbackCandidate: null,
       feedbackFrame: null,
       resources: new Map(),
       publishedResources: mount.resourceTextures,

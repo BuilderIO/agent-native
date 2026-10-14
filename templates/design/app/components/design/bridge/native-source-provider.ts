@@ -198,6 +198,13 @@ export interface NativeSceneProvider {
     callSite?: NativeSourceReadSceneCallSite,
     fillPrefix?: NativeAncestorFillPrefix,
   ): Promise<NativeSourceRecord[]>;
+  readLayerVisibleScene(): Promise<{
+    records: NativeSourceRecord[];
+    captureInsets: NativeSourceCaptureInsets;
+  }>;
+  layerVisiblePaintInsets(
+    records: readonly NativeSourceRecord[],
+  ): NativeSourceCaptureInsets;
   replaySafety(
     records: readonly NativeSourceRecord[],
     nativeMode?: "committed-native",
@@ -226,6 +233,13 @@ export interface NativeSceneProvider {
   authoredSourceEpoch?(): number;
   diagnosticSnapshot(): NativeSourceProviderDiagnostic;
   dispose(): void;
+}
+
+export interface NativeSourceCaptureInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
 export type NativeSourceInvalidationReason =
@@ -5582,7 +5596,7 @@ class SceneProvider implements NativeSceneProvider {
     if (this.placement === "layer") {
       if (this.targetCapture === "appearance")
         this.recordTargetBackdropPresentations(out, metrics, memo);
-      yield* this.walkSteps(this.target, out, metrics, memo);
+      yield* this.walkSteps(this.target, out, metrics, memo, true);
       return;
     }
     for (let index = 0; index < path.length - 1; index += 1) {
@@ -6123,6 +6137,78 @@ class SceneProvider implements NativeSceneProvider {
       memo.clear();
       if (metrics) metrics.wallMs += performance.now() - readStarted;
     }
+  }
+
+  layerVisiblePaintInsets(
+    records: readonly NativeSourceRecord[],
+  ): NativeSourceCaptureInsets {
+    if (this.disposed || this.placement !== "layer")
+      throw new NativeSourceError(
+        "source-layer-extent-unavailable",
+        "A Layer source is required for visible paint bounds.",
+      );
+    const read = this.replayReads.get(records);
+    if (
+      !read ||
+      read.sourceEpoch !== this.sourceGeneration ||
+      read.authoredEpoch !== this.authoredSourceGeneration
+    )
+      throw new NativeSourceError(
+        "source-capture-geometry-stale",
+        "The Layer records no longer match the current source epoch.",
+      );
+    const width = this.target.offsetWidth;
+    const height = this.target.offsetHeight;
+    if (![width, height].every((value) => Number.isFinite(value) && value > 0))
+      throw new NativeSourceError(
+        "source-capture-geometry-invalid",
+        "The Layer target has invalid capture geometry.",
+      );
+    const insets = nativeTargetOverflowInsets(this.target, true);
+    for (const record of records) {
+      if (
+        record.coordinateSpace !== "target-local" ||
+        ![...Object.values(record.rect), ...Object.values(record.clip)].every(
+          Number.isFinite,
+        ) ||
+        record.rect.width < 0 ||
+        record.rect.height < 0 ||
+        record.clip.width < 0 ||
+        record.clip.height < 0
+      )
+        throw new NativeSourceError(
+          "source-capture-geometry-invalid",
+          "A Layer source has invalid painted geometry.",
+        );
+      const visible = intersect(record.rect, record.clip);
+      if (visible.width <= 0 || visible.height <= 0) continue;
+      insets.top = Math.max(insets.top, -visible.y);
+      insets.right = Math.max(insets.right, visible.x + visible.width - width);
+      insets.bottom = Math.max(
+        insets.bottom,
+        visible.y + visible.height - height,
+      );
+      insets.left = Math.max(insets.left, -visible.x);
+    }
+    if (!Object.values(insets).every((value) => value >= 0 && value <= 4096))
+      throw new NativeSourceError(
+        "source-capture-geometry-invalid",
+        "Visible Layer paint exceeds the bounded capture extent.",
+      );
+    return insets;
+  }
+
+  async readLayerVisibleScene(): Promise<{
+    records: NativeSourceRecord[];
+    captureInsets: NativeSourceCaptureInsets;
+  }> {
+    if (this.placement !== "layer")
+      throw new NativeSourceError(
+        "source-layer-extent-unavailable",
+        "A Layer source is required for visible paint bounds.",
+      );
+    const records = await this.readScene();
+    return { records, captureInsets: this.layerVisiblePaintInsets(records) };
   }
 
   async replaySafety(

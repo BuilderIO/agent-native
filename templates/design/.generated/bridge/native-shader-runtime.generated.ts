@@ -5542,7 +5542,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     if (width > MAX_GRID_SIDE || height > MAX_GRID_SIDE || width * height > MAX_GRID_PIXELS || width > deviceLimits.maxTextureDimension2D || height > deviceLimits.maxTextureDimension2D || workgroupsX > deviceLimits.maxComputeWorkgroupsPerDimension || workgroupsY > deviceLimits.maxComputeWorkgroupsPerDimension)
       return { ok: false, code: "feedback-grid-limit" };
     const stateBytes = width * height * BYTES_PER_RGBA16FLOAT_TEXEL;
-    const totalTextureBytes = stateBytes * 3;
+    const totalTextureBytes = stateBytes * 5;
     if (totalTextureBytes + existingResourceBytes > MAX_INSTANCE_BYTES)
       return { ok: false, code: "feedback-resource-budget" };
     return {
@@ -11949,7 +11949,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (this.placement === "layer") {
         if (this.targetCapture === "appearance")
           this.recordTargetBackdropPresentations(out, metrics, memo);
-        yield* this.walkSteps(this.target, out, metrics, memo);
+        yield* this.walkSteps(this.target, out, metrics, memo, true);
         return;
       }
       for (let index = 0; index < path.length - 1; index += 1) {
@@ -12378,6 +12378,60 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         memo.clear();
         if (metrics) metrics.wallMs += performance.now() - readStarted;
       }
+    }
+    layerVisiblePaintInsets(records) {
+      if (this.disposed || this.placement !== "layer")
+        throw new NativeSourceError(
+          "source-layer-extent-unavailable",
+          "A Layer source is required for visible paint bounds."
+        );
+      const read = this.replayReads.get(records);
+      if (!read || read.sourceEpoch !== this.sourceGeneration || read.authoredEpoch !== this.authoredSourceGeneration)
+        throw new NativeSourceError(
+          "source-capture-geometry-stale",
+          "The Layer records no longer match the current source epoch."
+        );
+      const width = this.target.offsetWidth;
+      const height = this.target.offsetHeight;
+      if (![width, height].every((value) => Number.isFinite(value) && value > 0))
+        throw new NativeSourceError(
+          "source-capture-geometry-invalid",
+          "The Layer target has invalid capture geometry."
+        );
+      const insets = nativeTargetOverflowInsets(this.target, true);
+      for (const record5 of records) {
+        if (record5.coordinateSpace !== "target-local" || ![...Object.values(record5.rect), ...Object.values(record5.clip)].every(
+          Number.isFinite
+        ) || record5.rect.width < 0 || record5.rect.height < 0 || record5.clip.width < 0 || record5.clip.height < 0)
+          throw new NativeSourceError(
+            "source-capture-geometry-invalid",
+            "A Layer source has invalid painted geometry."
+          );
+        const visible = intersect(record5.rect, record5.clip);
+        if (visible.width <= 0 || visible.height <= 0) continue;
+        insets.top = Math.max(insets.top, -visible.y);
+        insets.right = Math.max(insets.right, visible.x + visible.width - width);
+        insets.bottom = Math.max(
+          insets.bottom,
+          visible.y + visible.height - height
+        );
+        insets.left = Math.max(insets.left, -visible.x);
+      }
+      if (!Object.values(insets).every((value) => value >= 0 && value <= 4096))
+        throw new NativeSourceError(
+          "source-capture-geometry-invalid",
+          "Visible Layer paint exceeds the bounded capture extent."
+        );
+      return insets;
+    }
+    async readLayerVisibleScene() {
+      if (this.placement !== "layer")
+        throw new NativeSourceError(
+          "source-layer-extent-unavailable",
+          "A Layer source is required for visible paint bounds."
+        );
+      const records = await this.readScene();
+      return { records, captureInsets: this.layerVisiblePaintInsets(records) };
     }
     async replaySafety(records, nativeMode) {
       const read = this.replayReads.get(records);
@@ -16937,8 +16991,9 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.sourceSize = null;
       this.committedComputeParams = null;
       this.committedSourcePixelRatio = null;
-      this.state = [textures[0], textures[1]];
-      this.displayTexture = textures[2];
+      this.state = [textures[0], textures[1], textures[2]];
+      this.displayTexture = textures[3];
+      this.scratchDisplayTexture = textures[4];
     }
     static async create(device, allocator, definition, signal) {
       assertAvailable(signal);
@@ -17013,14 +17068,14 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       const displayUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
       const textures = [];
       try {
-        for (let index = 0; index < 3; index += 1) {
+        for (let index = 0; index < 5; index += 1) {
           assertAvailable(signal);
           textures.push(
             allocator.allocate(
               planned.plan.width,
               planned.plan.height,
               "rgba16float",
-              index < 2 ? stateUsage : displayUsage
+              index < 3 ? stateUsage : displayUsage
             )
           );
         }
@@ -17149,13 +17204,13 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       const displayUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
       const next = [];
       try {
-        for (let index = 0; index < 3; index += 1)
+        for (let index = 0; index < 5; index += 1)
           next.push(
             this.allocator.allocate(
               this.plan.width,
               this.plan.height,
               "rgba16float",
-              index < 2 ? stateUsage : displayUsage
+              index < 3 ? stateUsage : displayUsage
             )
           );
       } catch (error) {
@@ -17165,9 +17220,14 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
           cleanupFailures2.length ? { primary: error, cleanupFailures: cleanupFailures2 } : error
         );
       }
-      const old = [...this.state, this.displayTexture];
-      this.state = [next[0], next[1]];
-      this.displayTexture = next[2];
+      const old = [
+        ...this.state,
+        this.displayTexture,
+        this.scratchDisplayTexture
+      ];
+      this.state = [next[0], next[1], next[2]];
+      this.displayTexture = next[3];
+      this.scratchDisplayTexture = next[4];
       this.readIndex = 0;
       this.completedStep = 0;
       this.initializedState = false;
@@ -17186,7 +17246,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.ensureUsable();
       assertAvailable(options.signal);
       const sourceSize = [options.source.width, options.source.height];
-      if (options.target === options.source || options.target === this.state[0] || options.target === this.state[1] || options.target === this.displayTexture || options.target.width !== sourceSize[0] || options.target.height !== sourceSize[1] || options.target.format !== "rgba16float")
+      if (options.target === options.source || options.target === this.state[0] || options.target === this.state[1] || options.target === this.state[2] || options.target === this.displayTexture || options.target === this.scratchDisplayTexture || options.target.width !== sourceSize[0] || options.target.height !== sourceSize[1] || options.target.format !== "rgba16float")
         throw new NativeFeedbackFailure("feedback-target-invalid");
       if (this.sourceSize && (this.sourceSize[0] !== sourceSize[0] || this.sourceSize[1] !== sourceSize[1]))
         throw new NativeFeedbackFailure("feedback-source-resized");
@@ -17250,12 +17310,15 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         throw new NativeFeedbackFailure("feedback-resource-budget");
       const uniforms = [];
       let writeIndex = this.readIndex;
+      const scratchIndices = [0, 1, 2].filter(
+        (index) => index !== this.readIndex
+      );
       this.openTransaction = true;
       try {
         for (const stepIndex of steps) {
           assertAvailable(options.signal);
           const inputIndex = writeIndex;
-          writeIndex = 1 - inputIndex;
+          writeIndex = inputIndex === scratchIndices[0] ? scratchIndices[1] : scratchIndices[0];
           const uniform = this.device.createBuffer({
             size: UNIFORM_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -17309,7 +17372,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               { binding: 0, resource: options.source.createView() },
               { binding: 1, resource: this.state[inputIndex].createView() },
               { binding: 2, resource: this.state[writeIndex].createView() },
-              { binding: 3, resource: this.displayTexture.createView() },
+              { binding: 3, resource: this.scratchDisplayTexture.createView() },
               { binding: 4, resource: { buffer: uniform } },
               ...pointerUniform ? [{ binding: 5, resource: { buffer: pointerUniform } }] : []
             ]
@@ -17346,7 +17409,10 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
           layout: this.resolvePipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: options.source.createView() },
-            { binding: 1, resource: this.displayTexture.createView() },
+            {
+              binding: 1,
+              resource: (steps.length ? this.scratchDisplayTexture : this.displayTexture).createView()
+            },
             { binding: 2, resource: this.linearClamp },
             { binding: 3, resource: { buffer: resolveUniform } }
           ]
@@ -17381,57 +17447,98 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         throw new NativeFeedbackFailure("feedback-resource-unavailable", error);
       }
       let closed = false;
+      let submitted = false;
+      let settled = false;
+      let retiring = null;
       const abandon = () => {
         if (closed) return;
+        if (submitted)
+          return rejectSubmitted(new NativeFeedbackFailure("feedback-aborted"));
         closed = true;
-        for (const uniform of uniforms) uniform.destroy();
         this.openTransaction = false;
+        for (const uniform of uniforms) uniform.destroy();
       };
       const retireSubmitted = async () => {
-        for (const uniform of uniforms) this.pending.add(uniform);
-        try {
-          await this.device.queue.onSubmittedWorkDone();
-        } catch (error) {
-          this.faulted = true;
-          throw new NativeFeedbackFailure("feedback-device-lost", error);
-        } finally {
-          for (const uniform of uniforms) {
-            this.pending.delete(uniform);
-            uniform.destroy();
+        if (retiring) return retiring;
+        retiring = (async () => {
+          for (const uniform of uniforms) this.pending.add(uniform);
+          try {
+            await this.device.queue.onSubmittedWorkDone();
+          } catch (error) {
+            this.faulted = true;
+            throw new NativeFeedbackFailure("feedback-device-lost", error);
+          } finally {
+            for (const uniform of uniforms) {
+              this.pending.delete(uniform);
+              uniform.destroy();
+            }
           }
+        })();
+        return retiring;
+      };
+      const applyPromotion = () => {
+        if (steps.length) this.readIndex = writeIndex;
+        if (steps.length) {
+          const previousDisplay = this.displayTexture;
+          this.displayTexture = this.scratchDisplayTexture;
+          this.scratchDisplayTexture = previousDisplay;
+        }
+        if (initializeState) this.initializedState = true;
+        this.completedStep = advance.targetStep;
+        this.interactiveClock = resume?.ok ? resume.nextClock : null;
+        this.sourceSize = sourceSize;
+        this.committedComputeParams = computeParams;
+        this.committedSourcePixelRatio = sourcePixelRatio;
+        this.openTransaction = false;
+        closed = true;
+      };
+      const settle = async (validateBeforeCommit) => {
+        if (closed || settled) throw new NativeFeedbackFailure("feedback-busy");
+        submitted = true;
+        try {
+          await retireSubmitted();
+          assertAvailable(options.signal);
+          validateBeforeCommit?.();
+          settled = true;
+        } catch (error) {
+          closed = true;
+          this.openTransaction = false;
+          throw error;
+        }
+      };
+      const rejectSubmitted = async (reason) => {
+        if (closed) return;
+        closed = true;
+        this.openTransaction = false;
+        try {
+          await retireSubmitted();
+        } catch (error) {
+          throw new NativeFeedbackFailure("feedback-device-lost", {
+            validation: reason,
+            retirement: error
+          });
         }
       };
       return {
-        display: this.displayTexture,
+        display: steps.length ? this.scratchDisplayTexture : this.displayTexture,
         steps: steps.length,
+        markSubmitted: () => {
+          if (closed || submitted)
+            throw new NativeFeedbackFailure("feedback-busy");
+          submitted = true;
+        },
         abandon,
-        rejectSubmitted: async (reason) => {
-          if (closed) throw new NativeFeedbackFailure("feedback-busy");
-          closed = true;
-          this.faulted = true;
-          this.openTransaction = false;
-          try {
-            await retireSubmitted();
-          } catch (error) {
-            throw new NativeFeedbackFailure("feedback-device-lost", {
-              validation: reason,
-              retirement: error
-            });
-          }
+        rejectSubmitted,
+        settle,
+        promote: () => {
+          if (closed || !settled)
+            throw new NativeFeedbackFailure("feedback-busy");
+          applyPromotion();
         },
         commit: async () => {
           if (closed) throw new NativeFeedbackFailure("feedback-busy");
-          closed = true;
-          if (advance.steps.length || initializeState)
-            this.readIndex = writeIndex;
-          if (initializeState) this.initializedState = true;
-          this.completedStep = advance.targetStep;
-          this.interactiveClock = resume?.ok ? resume.nextClock : null;
-          this.sourceSize = sourceSize;
-          this.committedComputeParams = computeParams;
-          this.committedSourcePixelRatio = sourcePixelRatio;
-          this.openTransaction = false;
-          await retireSubmitted();
+          await settle();
+          applyPromotion();
         }
       };
     }
@@ -17442,7 +17549,8 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.disposed = true;
       const cleanupFailures = releaseTextures(this.allocator, [
         ...this.state,
-        this.displayTexture
+        this.displayTexture,
+        this.scratchDisplayTexture
       ]);
       if (cleanupFailures.length)
         throw new NativeFeedbackFailure(
@@ -22498,23 +22606,93 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.epoch
       );
     }
+    promoteFeedbackFrame(mount, frame, draft) {
+      frame.promote();
+      const current = draft ? draft.feedback : mount.feedback;
+      const candidate = draft ? draft.feedbackCandidate : mount.feedbackCandidate;
+      if (candidate) {
+        if (draft) {
+          draft.feedback = candidate;
+          draft.feedbackCandidate = null;
+        } else {
+          mount.feedback = candidate;
+          mount.feedbackCandidate = null;
+        }
+        if (current && current !== candidate)
+          void this.disposeFeedback(current).catch(
+            (error) => this.issue(
+              "feedback-cleanup-failed",
+              String(error),
+              mount.instance.id
+            )
+          );
+      }
+      const feedback = draft ? draft.feedback : mount.feedback;
+      feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
+      feedback.pendingSourceRevision = null;
+      feedback.pointerPosition = feedback.pendingPointerPosition;
+      feedback.pendingPointerPosition = null;
+      if (draft) {
+        draft.feedbackFrame = null;
+        draft.caughtUp = true;
+      } else {
+        mount.feedbackFrame = null;
+        mount.simulationCaughtUp = true;
+        this.reflectCommittedFeedbackTelemetry(mount);
+      }
+    }
     releaseFeedback(mount) {
-      if (mount.feedback) mount.pointerHistory?.invalidate();
-      mount.feedbackFrame?.abandon();
+      if (mount.feedback || mount.feedbackCandidate)
+        mount.pointerHistory?.invalidate();
+      const frameRetirement = mount.feedbackFrame?.abandon();
       mount.feedbackFrame = null;
       this.clearFeedbackTelemetry(mount);
       const feedback = mount.feedback;
-      if (!feedback) return;
+      const candidate = mount.feedbackCandidate;
+      const owner = candidate ?? feedback;
+      if (frameRetirement && owner) {
+        owner.retirements.add(frameRetirement);
+        void frameRetirement.then(
+          () => owner.retirements.delete(frameRetirement),
+          (error) => {
+            owner.retirements.delete(frameRetirement);
+            this.issue("feedback-device-lost", String(error), mount.instance.id);
+          }
+        );
+      }
       mount.feedback = null;
-      void this.disposeFeedback(feedback).catch(
-        (error) => this.issue("feedback-cleanup-failed", String(error), mount.instance.id)
-      );
+      mount.feedbackCandidate = null;
+      if (candidate)
+        void this.disposeFeedback(candidate).catch(
+          (error) => this.issue("feedback-cleanup-failed", String(error), mount.instance.id)
+        );
+      if (feedback)
+        void this.disposeFeedback(feedback).catch(
+          (error) => this.issue("feedback-cleanup-failed", String(error), mount.instance.id)
+        );
     }
     releaseDraftFeedback(draft) {
-      draft.feedbackFrame?.abandon();
+      const frameRetirement = draft.feedbackFrame?.abandon();
       draft.feedbackFrame = null;
       const feedback = draft.feedback;
+      const candidate = draft.feedbackCandidate;
+      const owner = candidate ?? feedback;
+      if (frameRetirement && owner) {
+        owner.retirements.add(frameRetirement);
+        void frameRetirement.then(
+          () => owner.retirements.delete(frameRetirement),
+          (error) => {
+            owner.retirements.delete(frameRetirement);
+            this.issue("feedback-device-lost", String(error), draft.instanceId);
+          }
+        );
+      }
       draft.feedback = null;
+      draft.feedbackCandidate = null;
+      if (candidate)
+        void this.disposeFeedback(candidate).catch(
+          (error) => this.issue("feedback-cleanup-failed", String(error), draft.instanceId)
+        );
       if (feedback)
         void this.disposeFeedback(feedback).catch(
           (error) => this.issue("feedback-cleanup-failed", String(error), draft.instanceId)
@@ -22768,6 +22946,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         pointerHistory: definition.simulation || definition.interaction ? new NativePointerHistory(instance.timing.time) : null,
         simulationCaughtUp: true,
         feedback: null,
+        feedbackCandidate: null,
         feedbackFrame: null,
         stateful: null,
         statefulCandidate: null,
@@ -23176,7 +23355,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       });
       this.sentStatus.delete(mount.instance.id);
     }
-    layout(mount) {
+    layout(mount, visibleCaptureInsets) {
       this.updatePreviewAttributes();
       const dpr = this.compositionPixelRatio ?? this.previewStatus().effectivePixelRatio;
       const previous = mount.previousLayerId ? this.mounts.get(mount.previousLayerId) : void 0;
@@ -23185,7 +23364,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-layer-dependency-unavailable",
           "The previous processor has no current output geometry."
         );
-      const captureInsets = nativeTargetOverflowInsets(
+      const captureInsets = visibleCaptureInsets ?? nativeTargetOverflowInsets(
         mount.target,
         mount.instance.placement === "layer"
       );
@@ -25682,9 +25861,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     async feedbackPasses(mount, source, time, encoder, definition, instance, sourceRevision, deterministic, sourceIdentity) {
       const draft = this.draft?.showDraft && this.draft.instanceId === mount.instance.id ? this.draft : null;
-      const adapted = (draft ? draft.feedback : mount.feedback)?.definitionHash === (draft ? draft.executionHash : mount.definitionHash) ? {
+      const previousFeedback = draft ? draft.feedbackCandidate ?? draft.feedback : mount.feedbackCandidate ?? mount.feedback;
+      const adapted = previousFeedback?.definitionHash === (draft ? draft.executionHash : mount.definitionHash) ? {
         ok: true,
-        definition: (draft ? draft.feedback : mount.feedback).definition
+        definition: previousFeedback.definition
       } : adaptNativeFeedbackDefinition(definition);
       if (!adapted.ok)
         throw new NativeSourceError(
@@ -25713,19 +25893,35 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (name) => [name, read(name)]
       );
       const revision = instance.timing.seekRevision ?? 0;
-      const prior2 = draft ? draft.feedback : mount.feedback;
+      const prior2 = previousFeedback;
       if (prior2 && (prior2.definitionHash !== (draft ? draft.executionHash : mount.definitionHash) || prior2.sourceIdentity !== sourceIdentity || prior2.seed !== params.seed || nativeFeedbackResetValuesChanged(
         prior2.resetPropertyValues,
         resetPropertyValues
       ) || prior2.seekRevision !== revision || prior2.sourceWidth !== source.width || prior2.sourceHeight !== source.height)) {
-        if (draft) this.releaseDraftFeedback(draft);
-        else this.releaseFeedback(mount);
+        const candidate = draft ? draft.feedbackCandidate : mount.feedbackCandidate;
+        if (candidate) {
+          if (draft) draft.feedbackCandidate = null;
+          else mount.feedbackCandidate = null;
+          void this.disposeFeedback(candidate).catch(
+            (error) => this.issue(
+              "feedback-cleanup-failed",
+              String(error),
+              mount.instance.id
+            )
+          );
+        }
       }
-      if (!(draft ? draft.feedback : mount.feedback)) {
+      const matches = (feedback2) => !!feedback2 && feedback2.definitionHash === (draft ? draft.executionHash : mount.definitionHash) && feedback2.sourceIdentity === sourceIdentity && feedback2.seed === params.seed && !nativeFeedbackResetValuesChanged(
+        feedback2.resetPropertyValues,
+        resetPropertyValues
+      ) && feedback2.seekRevision === revision && feedback2.sourceWidth === source.width && feedback2.sourceHeight === source.height;
+      if (!matches(
+        draft ? draft.feedbackCandidate ?? draft.feedback : mount.feedbackCandidate ?? mount.feedback
+      )) {
         const grid = adapted.definition.grid;
         this.ensureCompositionBudget(
           mount,
-          grid.width * grid.height * 24 + mount.width * mount.height * 24
+          grid.width * grid.height * 40 + mount.width * mount.height * 24
         );
         const textures = /* @__PURE__ */ new Set();
         const executor = await NativeTextureFeedbackExecutor.create(
@@ -25760,10 +25956,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceHeight: source.height,
           retirements: /* @__PURE__ */ new Set()
         };
-        if (draft) draft.feedback = feedback2;
-        else mount.feedback = feedback2;
+        if (draft) draft.feedbackCandidate = feedback2;
+        else mount.feedbackCandidate = feedback2;
       }
-      const feedback = draft ? draft.feedback : mount.feedback;
+      const feedback = draft ? draft.feedbackCandidate ?? draft.feedback : mount.feedbackCandidate ?? mount.feedback;
       const outputName = definition.output;
       const outputSpec = definition.resources?.find(
         (resource) => resource.name === outputName
@@ -28124,7 +28320,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "effect-dependency-cycle",
           "effect-dependency-cycle"
         );
-      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (child.instance.placement !== "backdrop" || child.definition.simulation || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -28223,6 +28419,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           texture: finished,
           resources,
           statefulFrame: child.statefulFrame ?? void 0,
+          feedbackFrame: child.feedbackFrame ?? void 0,
           sourceEpoch: child.provider?.sourceEpoch?.() ?? null,
           instancePayload: JSON.stringify(child.instance),
           definitionHash: child.definitionHash,
@@ -28230,6 +28427,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           inputEpochs: new Map(child.pendingGraphInputEpochs ?? [])
         });
         child.statefulFrame = null;
+        child.feedbackFrame = null;
         staged = true;
         return finished;
       } finally {
@@ -28237,6 +28435,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (!staged) {
           child.statefulFrame?.abandon();
           child.statefulFrame = null;
+          child.feedbackFrame?.abandon();
+          child.feedbackFrame = null;
+          const feedbackCandidate = child.feedbackCandidate;
+          child.feedbackCandidate = null;
+          if (feedbackCandidate) await this.disposeFeedback(feedbackCandidate);
           child.statefulCandidate?.executor.dispose();
           child.statefulCandidate = null;
           for (const texture of resources.rollback())
@@ -28248,7 +28451,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
     }
     async stageFillLocalBackdrop(parent, child, prefix, prefixExtent, encoder, transaction, authoredSourceEpoch) {
-      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.definition.simulation || child.definition.feedback || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
+      if (this.mounts.get(child.instance.id) !== child || this.mounts.get(parent.instance.id) !== parent || !parent.isTopLayer || !transaction.active.has(parent.instance.id) || this.nestedBackdropOwner(child.target) !== parent || child.instance.placement !== "backdrop" || child.definition.simulation || child.previousLayerId || child.previousFillId || this.draft?.instanceId === child.instance.id || this.instancePreview?.instanceId === child.instance.id)
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -28368,6 +28571,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           texture: finished,
           resources,
           statefulFrame: child.statefulFrame ?? void 0,
+          feedbackFrame: child.feedbackFrame ?? void 0,
           sourceEpoch: child.provider.sourceEpoch?.() ?? null,
           instancePayload: JSON.stringify(child.instance),
           definitionHash: child.definitionHash,
@@ -28375,6 +28579,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           inputEpochs: new Map(child.pendingGraphInputEpochs ?? [])
         });
         child.statefulFrame = null;
+        child.feedbackFrame = null;
         staged = true;
         return finished;
       } finally {
@@ -28382,6 +28587,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (!staged) {
           child.statefulFrame?.abandon();
           child.statefulFrame = null;
+          child.feedbackFrame?.abandon();
+          child.feedbackFrame = null;
+          const feedbackCandidate = child.feedbackCandidate;
+          child.feedbackCandidate = null;
+          if (feedbackCandidate) await this.disposeFeedback(feedbackCandidate);
           child.statefulCandidate?.executor.dispose();
           child.statefulCandidate = null;
           for (const texture of resources.rollback())
@@ -28546,27 +28756,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const visibleHeightBeforeLayout = mount.canvas.height;
       const mountWidthBeforeLayout = mount.width;
       const mountHeightBeforeLayout = mount.height;
-      this.layout(mount);
-      const assertCaptureOriginCurrent = () => {
-        const current = nativeTargetOverflowInsets(
-          mount.target,
-          mount.instance.placement === "layer"
-        );
-        if (current.top !== mount.captureInsets.top || current.right !== mount.captureInsets.right || current.bottom !== mount.captureInsets.bottom || current.left !== mount.captureInsets.left)
-          throw new NativeSourceError(
-            "source-capture-geometry-stale",
-            "The target clip changed during native rendering."
-          );
-      };
-      const visibleLayoutUnchanged = mount.canvas.style.cssText === visibleStyleBeforeLayout && mount.canvas.width === visibleWidthBeforeLayout && mount.canvas.height === visibleHeightBeforeLayout && mount.width === mountWidthBeforeLayout && mount.height === mountHeightBeforeLayout;
-      if (hostWallPhases)
-        hostWallPhases.layoutCallWallMs += performance.now() - layoutStarted;
-      this.activeMounts.add(mount);
       if (!mount.provider)
         throw new NativeSourceError(
           "source-provider-unavailable",
           "The native source provider is unavailable."
         );
+      this.layout(mount);
+      this.activeMounts.add(mount);
       mount.provider?.setDensity(mount.pixelRatio);
       const nestedChildren = mount.instance.placement === "layer" || mount.instance.placement === "fill" && mount.isTopLayer ? [...this.mounts.values()].filter(
         (candidate) => candidate.instance.placement === "backdrop" && candidate.target !== mount.target && mount.target.contains(candidate.target) && this.nestedBackdropOwner(candidate.target) === mount
@@ -28588,10 +28784,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "source-group-local-chain-unsupported",
           "source-group-local-chain-unsupported"
         );
-      const nestedStatefulChild = nestedChildren.some(
-        (child) => isStatefulResourceGraph(child.definition.resourceGraph)
+      const nestedRetainedChild = nestedChildren.some(
+        (child) => isStatefulResourceGraph(child.definition.resourceGraph) || !!child.definition.feedback
       );
-      if (nestedStatefulChild && mount.instance.placement === "layer" && (!mount.isTopLayer || draft))
+      if (nestedRetainedChild && mount.instance.placement === "layer" && (!mount.isTopLayer || draft))
         throw new NativeSourceError(
           "source-group-local-effect-unsupported",
           "source-group-local-effect-unsupported"
@@ -28603,6 +28799,30 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       }
       mount.provider.setGroupLocalBackdropSource(nestedChildren.length > 0);
+      let layerScene = null;
+      if (mount.instance.placement === "layer" && !mount.previousLayerId) {
+        const sourceStarted = performance.now();
+        const visible = await mount.provider.readLayerVisibleScene();
+        sourceWallMs += performance.now() - sourceStarted;
+        layerScene = visible.records;
+        this.layout(mount, visible.captureInsets);
+        mount.provider.setDensity(mount.pixelRatio);
+        mount.provider.layerVisiblePaintInsets(layerScene);
+      }
+      const assertCaptureOriginCurrent = () => {
+        const current = layerScene ? mount.provider.layerVisiblePaintInsets(layerScene) : nativeTargetOverflowInsets(
+          mount.target,
+          mount.instance.placement === "layer"
+        );
+        if (current.top !== mount.captureInsets.top || current.right !== mount.captureInsets.right || current.bottom !== mount.captureInsets.bottom || current.left !== mount.captureInsets.left)
+          throw new NativeSourceError(
+            "source-capture-geometry-stale",
+            "The target clip changed during native rendering."
+          );
+      };
+      const visibleLayoutUnchanged = mount.canvas.style.cssText === visibleStyleBeforeLayout && mount.canvas.width === visibleWidthBeforeLayout && mount.canvas.height === visibleHeightBeforeLayout && mount.width === mountWidthBeforeLayout && mount.height === mountHeightBeforeLayout;
+      if (hostWallPhases)
+        hostWallPhases.layoutCallWallMs += performance.now() - layoutStarted;
       const device = this.device;
       const deviceEpoch = this.deviceEpoch;
       const renderEpoch = this.renderEpoch;
@@ -28830,7 +29050,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
         } else if (mount.provider) {
           const sourceStarted = performance.now();
-          scene = await mount.provider.readScene(
+          scene = layerScene ?? await mount.provider.readScene(
             this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
             "mount-source"
           );
@@ -28861,6 +29081,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
               "dependency-refresh"
             );
+            if (layerScene) {
+              layerScene = scene;
+              assertCaptureOriginCurrent();
+            }
             sourceWallMs += performance.now() - sourceStarted2;
           }
           if (nestedTransaction) {
@@ -28939,7 +29163,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
         };
         const detachedCandidate = sourceEpoch !== void 0 && !nativeMountNeedsContinuousSourceFrames(mount) && mount.isTopLayer && visibleLayoutUnchanged && mount.instance.placement === "layer" && mount.suppressed && mount.canvas.isConnected && mount.canvas.style.visibility === "visible" && !this.compositionAbort && !this.compositionPixelBusy && !mount.previousLayerId && !mount.previousFillId && !mount.definition.simulation && !mount.definition.feedback && !mount.definition.resourceGraph && !draft && !!mount.outputTexture && mount.outputTexture.width === mount.width && mount.outputTexture.height === mount.height && canDetachPresentationFromSources(scene);
-        const retainedLayerPublication = mount.instance.placement === "layer" && mount.isTopLayer && (nestedStatefulChild || !!activeDefinition.simulation || !!activeDefinition.feedback || isStatefulResourceGraph(activeDefinition.resourceGraph));
+        const retainedLayerPublication = mount.instance.placement === "layer" && mount.isTopLayer && (nestedRetainedChild || !!activeDefinition.simulation || !!activeDefinition.feedback || isStatefulResourceGraph(activeDefinition.resourceGraph));
         if (detachedCandidate || retainedLayerPublication) {
           unpublishedLayerState = {
             outputTexture: mount.outputTexture,
@@ -29403,8 +29627,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.retainedPresentationWitness = false;
         (draft?.simulationFrame ?? mount.simulationFrame)?.transaction.markSubmitted();
         (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
+        (draft?.feedbackFrame ?? mount.feedbackFrame)?.markSubmitted();
         for (const staged of nestedTransaction?.staged.values() ?? [])
           staged.statefulFrame?.markSubmitted();
+        for (const staged of nestedTransaction?.staged.values() ?? [])
+          staged.feedbackFrame?.markSubmitted();
         if (gpuSample) {
           this.gpuProfiler?.afterSubmit(gpuSample);
           profileSubmitted = true;
@@ -29500,6 +29727,21 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                   "stateful-frame-invalid"
                 );
             });
+        const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
+        if (feedbackFrame)
+          await feedbackFrame.settle(() => {
+            assertCaptureOriginCurrent();
+            assertStatelessCurrent();
+            assertTwoSurfacePublishable();
+          });
+        for (const staged of nestedTransaction?.staged.values() ?? [])
+          if (staged.feedbackFrame)
+            await staged.feedbackFrame.settle(() => {
+              assertNestedChildren();
+              assertCaptureOriginCurrent();
+              assertStatelessCurrent();
+              assertTwoSurfacePublishable();
+            });
         for (const staged of nestedTransaction?.staged.values() ?? [])
           this.refreshAuthoredPaint(staged.mount);
         assertCaptureOriginCurrent();
@@ -29556,32 +29798,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             if (!this.textureRetirement.includes(texture))
               this.textureRetirement.push(texture);
         }
-        const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
         if (feedbackFrame) {
-          const frame = feedbackFrame;
-          const feedback = draft ? draft.feedback : mount.feedback;
-          if (draft) draft.feedbackFrame = null;
-          else mount.feedbackFrame = null;
-          const retirement = frame.commit();
-          if (draft) draft.caughtUp = true;
-          else mount.simulationCaughtUp = true;
-          if (!draft) this.reflectCommittedFeedbackTelemetry(mount);
-          feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
-          feedback.pendingSourceRevision = null;
-          feedback.pointerPosition = feedback.pendingPointerPosition;
-          feedback.pendingPointerPosition = null;
-          feedback.retirements.add(retirement);
-          void retirement.then(
-            () => feedback.retirements.delete(retirement),
-            (error) => {
-              feedback.retirements.delete(retirement);
-              this.issue(
-                "feedback-device-lost",
-                String(error),
-                mount.instance.id
-              );
-            }
-          );
+          this.promoteFeedbackFrame(mount, feedbackFrame, draft);
         }
         if (statefulFrame) {
           this.promoteStatefulFrame(mount, statefulFrame, draft);
@@ -29792,14 +30010,18 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount: child,
             texture,
             resources,
-            statefulFrame: childStatefulFrame
+            statefulFrame: childStatefulFrame,
+            feedbackFrame: childFeedbackFrame
           } = staged;
           const previous = child.outputTexture;
           const previousOwnedByStateful = !!previous && !!child.stateful?.textures.has(previous);
           const previousOwnedByResources = !!previous && !!resources && [...resources.committed.values()].includes(previous);
           if (childStatefulFrame)
             this.promoteStatefulFrame(child, childStatefulFrame);
+          if (childFeedbackFrame)
+            this.promoteFeedbackFrame(child, childFeedbackFrame);
           staged.statefulFrame = void 0;
+          staged.feedbackFrame = void 0;
           if (resources) {
             const staleResources = resources.retiredOnCommit();
             resources.commit();
@@ -29912,6 +30134,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           staged.mount.statefulCandidate?.executor.dispose();
           staged.mount.statefulCandidate = null;
+          if (staged.feedbackFrame) {
+            if (submitted) await staged.feedbackFrame.rejectSubmitted(error);
+            else staged.feedbackFrame.abandon();
+            staged.feedbackFrame = void 0;
+          }
+          const feedbackCandidate2 = staged.mount.feedbackCandidate;
+          staged.mount.feedbackCandidate = null;
+          if (feedbackCandidate2) await this.disposeFeedback(feedbackCandidate2);
           staged.mount.pendingGraphInputEpochs = null;
           if (staged.resources) {
             for (const texture of staged.resources.rollback())
@@ -29996,7 +30226,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const feedbackFrame = draft?.feedbackFrame ?? mount.feedbackFrame;
         if (draft) draft.feedbackFrame = null;
         else mount.feedbackFrame = null;
-        const feedback = draft ? draft.feedback : mount.feedback;
+        const feedback = draft ? draft.feedbackCandidate ?? draft.feedback : mount.feedbackCandidate ?? mount.feedback;
         if (feedback) {
           feedback.pendingSourceRevision = null;
           feedback.pendingPointerPosition = null;
@@ -30006,13 +30236,18 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           try {
             if (submitted) {
               await feedbackFrame.rejectSubmitted(error);
-              if (draft) this.releaseDraftFeedback(draft);
-              else this.releaseFeedback(mount);
             } else feedbackFrame.abandon();
           } catch (cleanupError) {
             feedbackFailure = cleanupError;
-            if (draft) this.releaseDraftFeedback(draft);
-            else this.releaseFeedback(mount);
+          }
+        const feedbackCandidate = draft ? draft.feedbackCandidate : mount.feedbackCandidate;
+        if (draft) draft.feedbackCandidate = null;
+        else mount.feedbackCandidate = null;
+        if (feedbackCandidate)
+          try {
+            await this.disposeFeedback(feedbackCandidate);
+          } catch (cleanupError) {
+            feedbackFailure ?? (feedbackFailure = cleanupError);
           }
         if (scopeOpen) {
           const scopeError = await device.popErrorScope();
@@ -30537,6 +30772,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         statefulFrame: null,
         statefulResources: /* @__PURE__ */ new Map(),
         feedback: null,
+        feedbackCandidate: null,
         feedbackFrame: null,
         resources: /* @__PURE__ */ new Map(),
         publishedResources: mount.resourceTextures

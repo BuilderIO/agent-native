@@ -118,9 +118,12 @@ export interface NativeFeedbackEncodeOptions {
 export interface NativeFeedbackEncodedFrame {
   readonly display: GPUTexture;
   readonly steps: number;
+  markSubmitted(): void;
+  settle(validateBeforeCommit?: () => void): Promise<void>;
+  promote(): void;
   commit(): Promise<void>;
   rejectSubmitted(reason: unknown): Promise<void>;
-  abandon(): void;
+  abandon(): void | Promise<void>;
 }
 
 const UNIFORM_BYTES = 32;
@@ -198,9 +201,10 @@ function validPointer(value: NativeFeedbackPointerInput): boolean {
 }
 
 export class NativeTextureFeedbackExecutor {
-  private state: [GPUTexture, GPUTexture];
+  private state: [GPUTexture, GPUTexture, GPUTexture];
   private displayTexture: GPUTexture;
-  private readIndex: 0 | 1 = 0;
+  private scratchDisplayTexture: GPUTexture;
+  private readIndex: 0 | 1 | 2 = 0;
   private completedStep = 0;
   private initializedState = false;
   private interactiveClock: NativeFeedbackResumeClock | null = null;
@@ -222,10 +226,11 @@ export class NativeTextureFeedbackExecutor {
     private readonly pipeline: GPUComputePipeline,
     private readonly resolvePipeline: GPURenderPipeline,
     private readonly linearClamp: GPUSampler,
-    textures: [GPUTexture, GPUTexture, GPUTexture],
+    textures: [GPUTexture, GPUTexture, GPUTexture, GPUTexture, GPUTexture],
   ) {
-    this.state = [textures[0], textures[1]];
-    this.displayTexture = textures[2];
+    this.state = [textures[0], textures[1], textures[2]];
+    this.displayTexture = textures[3];
+    this.scratchDisplayTexture = textures[4];
   }
 
   static async create(
@@ -315,14 +320,14 @@ export class NativeTextureFeedbackExecutor {
       GPUTextureUsage.COPY_DST;
     const textures: GPUTexture[] = [];
     try {
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < 5; index += 1) {
         assertAvailable(signal);
         textures.push(
           allocator.allocate(
             planned.plan.width,
             planned.plan.height,
             "rgba16float",
-            index < 2 ? stateUsage : displayUsage,
+            index < 3 ? stateUsage : displayUsage,
           ),
         );
       }
@@ -334,7 +339,13 @@ export class NativeTextureFeedbackExecutor {
         pipeline,
         resolvePipeline,
         linearClamp,
-        textures as [GPUTexture, GPUTexture, GPUTexture],
+        textures as [
+          GPUTexture,
+          GPUTexture,
+          GPUTexture,
+          GPUTexture,
+          GPUTexture,
+        ],
       );
     } catch (error) {
       const cleanupFailures = releaseTextures(allocator, textures);
@@ -482,13 +493,13 @@ export class NativeTextureFeedbackExecutor {
       GPUTextureUsage.COPY_DST;
     const next: GPUTexture[] = [];
     try {
-      for (let index = 0; index < 3; index += 1)
+      for (let index = 0; index < 5; index += 1)
         next.push(
           this.allocator.allocate(
             this.plan.width,
             this.plan.height,
             "rgba16float",
-            index < 2 ? stateUsage : displayUsage,
+            index < 3 ? stateUsage : displayUsage,
           ),
         );
     } catch (error) {
@@ -498,9 +509,14 @@ export class NativeTextureFeedbackExecutor {
         cleanupFailures.length ? { primary: error, cleanupFailures } : error,
       );
     }
-    const old = [...this.state, this.displayTexture];
-    this.state = [next[0], next[1]];
-    this.displayTexture = next[2];
+    const old = [
+      ...this.state,
+      this.displayTexture,
+      this.scratchDisplayTexture,
+    ];
+    this.state = [next[0], next[1], next[2]];
+    this.displayTexture = next[3];
+    this.scratchDisplayTexture = next[4];
     this.readIndex = 0;
     this.completedStep = 0;
     this.initializedState = false;
@@ -524,7 +540,9 @@ export class NativeTextureFeedbackExecutor {
       options.target === options.source ||
       options.target === this.state[0] ||
       options.target === this.state[1] ||
+      options.target === this.state[2] ||
       options.target === this.displayTexture ||
+      options.target === this.scratchDisplayTexture ||
       options.target.width !== sourceSize[0] ||
       options.target.height !== sourceSize[1] ||
       options.target.format !== "rgba16float"
@@ -628,12 +646,18 @@ export class NativeTextureFeedbackExecutor {
       throw new NativeFeedbackFailure("feedback-resource-budget");
     const uniforms: GPUBuffer[] = [];
     let writeIndex = this.readIndex;
+    const scratchIndices = ([0, 1, 2] as const).filter(
+      (index) => index !== this.readIndex,
+    );
     this.openTransaction = true;
     try {
       for (const stepIndex of steps) {
         assertAvailable(options.signal);
         const inputIndex = writeIndex;
-        writeIndex = (1 - inputIndex) as 0 | 1;
+        writeIndex =
+          inputIndex === scratchIndices[0]
+            ? scratchIndices[1]
+            : scratchIndices[0];
         const uniform = this.device.createBuffer({
           size: UNIFORM_BYTES,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -696,7 +720,7 @@ export class NativeTextureFeedbackExecutor {
             { binding: 0, resource: options.source.createView() },
             { binding: 1, resource: this.state[inputIndex].createView() },
             { binding: 2, resource: this.state[writeIndex].createView() },
-            { binding: 3, resource: this.displayTexture.createView() },
+            { binding: 3, resource: this.scratchDisplayTexture.createView() },
             { binding: 4, resource: { buffer: uniform } },
             ...(pointerUniform
               ? [{ binding: 5, resource: { buffer: pointerUniform } }]
@@ -736,7 +760,13 @@ export class NativeTextureFeedbackExecutor {
         layout: this.resolvePipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: options.source.createView() },
-          { binding: 1, resource: this.displayTexture.createView() },
+          {
+            binding: 1,
+            resource: (steps.length
+              ? this.scratchDisplayTexture
+              : this.displayTexture
+            ).createView(),
+          },
           { binding: 2, resource: this.linearClamp },
           { binding: 3, resource: { buffer: resolveUniform } },
         ],
@@ -771,57 +801,98 @@ export class NativeTextureFeedbackExecutor {
       throw new NativeFeedbackFailure("feedback-resource-unavailable", error);
     }
     let closed = false;
-    const abandon = () => {
+    let submitted = false;
+    let settled = false;
+    let retiring: Promise<void> | null = null;
+    const abandon = (): void | Promise<void> => {
       if (closed) return;
+      if (submitted)
+        return rejectSubmitted(new NativeFeedbackFailure("feedback-aborted"));
       closed = true;
-      for (const uniform of uniforms) uniform.destroy();
       this.openTransaction = false;
+      for (const uniform of uniforms) uniform.destroy();
     };
     const retireSubmitted = async (): Promise<void> => {
-      for (const uniform of uniforms) this.pending.add(uniform);
-      try {
-        await this.device.queue.onSubmittedWorkDone();
-      } catch (error) {
-        this.faulted = true;
-        throw new NativeFeedbackFailure("feedback-device-lost", error);
-      } finally {
-        for (const uniform of uniforms) {
-          this.pending.delete(uniform);
-          uniform.destroy();
+      if (retiring) return retiring;
+      retiring = (async () => {
+        for (const uniform of uniforms) this.pending.add(uniform);
+        try {
+          await this.device.queue.onSubmittedWorkDone();
+        } catch (error) {
+          this.faulted = true;
+          throw new NativeFeedbackFailure("feedback-device-lost", error);
+        } finally {
+          for (const uniform of uniforms) {
+            this.pending.delete(uniform);
+            uniform.destroy();
+          }
         }
+      })();
+      return retiring;
+    };
+    const applyPromotion = (): void => {
+      if (steps.length) this.readIndex = writeIndex;
+      if (steps.length) {
+        const previousDisplay = this.displayTexture;
+        this.displayTexture = this.scratchDisplayTexture;
+        this.scratchDisplayTexture = previousDisplay;
+      }
+      if (initializeState) this.initializedState = true;
+      this.completedStep = advance.targetStep;
+      this.interactiveClock = resume?.ok ? resume.nextClock : null;
+      this.sourceSize = sourceSize;
+      this.committedComputeParams = computeParams;
+      this.committedSourcePixelRatio = sourcePixelRatio;
+      this.openTransaction = false;
+      closed = true;
+    };
+    const settle = async (validateBeforeCommit?: () => void): Promise<void> => {
+      if (closed || settled) throw new NativeFeedbackFailure("feedback-busy");
+      submitted = true;
+      try {
+        await retireSubmitted();
+        assertAvailable(options.signal);
+        validateBeforeCommit?.();
+        settled = true;
+      } catch (error) {
+        closed = true;
+        this.openTransaction = false;
+        throw error;
+      }
+    };
+    const rejectSubmitted = async (reason: unknown): Promise<void> => {
+      if (closed) return;
+      closed = true;
+      this.openTransaction = false;
+      try {
+        await retireSubmitted();
+      } catch (error) {
+        throw new NativeFeedbackFailure("feedback-device-lost", {
+          validation: reason,
+          retirement: error,
+        });
       }
     };
     return {
-      display: this.displayTexture,
+      display: steps.length ? this.scratchDisplayTexture : this.displayTexture,
       steps: steps.length,
+      markSubmitted: () => {
+        if (closed || submitted)
+          throw new NativeFeedbackFailure("feedback-busy");
+        submitted = true;
+      },
       abandon,
-      rejectSubmitted: async (reason) => {
-        if (closed) throw new NativeFeedbackFailure("feedback-busy");
-        closed = true;
-        this.faulted = true;
-        this.openTransaction = false;
-        try {
-          await retireSubmitted();
-        } catch (error) {
-          throw new NativeFeedbackFailure("feedback-device-lost", {
-            validation: reason,
-            retirement: error,
-          });
-        }
+      rejectSubmitted,
+      settle,
+      promote: () => {
+        if (closed || !settled)
+          throw new NativeFeedbackFailure("feedback-busy");
+        applyPromotion();
       },
       commit: async () => {
         if (closed) throw new NativeFeedbackFailure("feedback-busy");
-        closed = true;
-        if (advance.steps.length || initializeState)
-          this.readIndex = writeIndex;
-        if (initializeState) this.initializedState = true;
-        this.completedStep = advance.targetStep;
-        this.interactiveClock = resume?.ok ? resume.nextClock : null;
-        this.sourceSize = sourceSize;
-        this.committedComputeParams = computeParams;
-        this.committedSourcePixelRatio = sourcePixelRatio;
-        this.openTransaction = false;
-        await retireSubmitted();
+        await settle();
+        applyPromotion();
       },
     };
   }
@@ -834,6 +905,7 @@ export class NativeTextureFeedbackExecutor {
     const cleanupFailures = releaseTextures(this.allocator, [
       ...this.state,
       this.displayTexture,
+      this.scratchDisplayTexture,
     ]);
     if (cleanupFailures.length)
       throw new NativeFeedbackFailure(

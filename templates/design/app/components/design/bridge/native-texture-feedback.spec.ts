@@ -669,7 +669,7 @@ describe("bounded texture feedback executor", () => {
     await disposal;
     expect(disposed).toBe(true);
     expect(retirements.size).toBe(0);
-    expect(gpu.released).toHaveLength(3);
+    expect(gpu.released).toHaveLength(5);
   });
 
   it("distinguishes uninitialized state from a readback budget refusal", async () => {
@@ -749,14 +749,14 @@ describe("bounded texture feedback executor", () => {
     executor.dispose();
   });
 
-  it("allocates two persistent state sides and a separate display, then dispatches each seek step in order", async () => {
+  it("keeps a committed state bank outside both scratch banks during catch-up", async () => {
     const gpu = mockGpu();
     const executor = await NativeTextureFeedbackExecutor.create(
       gpu.device,
       gpu.allocator,
       OWNED_FEEDBACK_TEST_KERNEL,
     );
-    expect(gpu.allocated).toHaveLength(3);
+    expect(gpu.allocated).toHaveLength(5);
     const frame = executor.encode({
       encoder: gpu.encoder,
       source: gpu.source(),
@@ -784,19 +784,29 @@ describe("bounded texture feedback executor", () => {
             (group.entries[1].resource as unknown as { textureId: number })
               .textureId,
         ),
-    ).toEqual([1, 2, 1]);
+    ).toEqual([1, 2, 3]);
+    expect(
+      gpu.groups
+        .slice(0, 3)
+        .map(
+          (group) =>
+            (group.entries[2].resource as unknown as { textureId: number })
+              .textureId,
+        ),
+    ).toEqual([2, 3, 2]);
     const settled = frame.commit();
-    expect(executor.lastCompletedStep).toBe(2);
+    expect(executor.lastCompletedStep).toBe(0);
     expect(() => executor.reset()).toThrowError(
       new NativeFeedbackFailure("feedback-busy"),
     );
     gpu.settle();
     await settled;
+    expect(executor.lastCompletedStep).toBe(2);
     executor.reset();
-    expect(gpu.released).toEqual([1, 2, 3]);
+    expect(gpu.released).toHaveLength(5);
     expect(executor.lastCompletedStep).toBe(0);
     executor.dispose();
-    expect(gpu.released).toHaveLength(6);
+    expect(gpu.released).toHaveLength(10);
   });
 
   it("does not advance or leak uniforms when a frame is abandoned", async () => {
@@ -955,6 +965,9 @@ describe("bounded texture feedback executor", () => {
       (gpu.groups[3].entries[1].resource as unknown as { textureId: number })
         .textureId,
     ).toBe(2);
+    const refreshedStateOutput = (
+      gpu.groups[3].entries[2].resource as unknown as { textureId: number }
+    ).textureId;
     const refreshed = sourceRefresh.commit();
     gpu.settle();
     await refreshed;
@@ -974,7 +987,7 @@ describe("bounded texture feedback executor", () => {
     expect(
       (gpu.groups[5].entries[1].resource as unknown as { textureId: number })
         .textureId,
-    ).toBe(2);
+    ).toBe(refreshedStateOutput);
     const settled = first.commit();
     gpu.settle();
     await settled;
@@ -1099,7 +1112,7 @@ describe("bounded texture feedback executor", () => {
     gpu.settle();
     await firstSettled;
     executor.reset();
-    expect(gpu.released).toEqual([1, 2, 3]);
+    expect(gpu.released).toHaveLength(5);
     const restarted = executor.encode({
       encoder: gpu.encoder,
       source: gpu.source(320, 200),
@@ -1111,7 +1124,7 @@ describe("bounded texture feedback executor", () => {
     expect(
       (gpu.groups[2].entries[1].resource as unknown as { textureId: number })
         .textureId,
-    ).toBe(4);
+    ).toBe(6);
     const restartedSettled = restarted.commit();
     gpu.settle();
     await restartedSettled;
@@ -1125,10 +1138,12 @@ describe("bounded texture feedback executor", () => {
     expect(
       (gpu.groups[4].entries[1].resource as unknown as { textureId: number })
         .textureId,
-    ).toBe(5);
+    ).toBe(7);
     next.abandon();
     executor.dispose();
-    expect(gpu.released).toEqual([1, 2, 3, 4, 5, 6]);
+    expect([...gpu.released].sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
   });
 
   it("refreshes paused compute controls without stepping, but a blend-only edit only resolves", async () => {
@@ -1171,6 +1186,9 @@ describe("bounded texture feedback executor", () => {
     const editedStateInput = (
       gpu.groups[3].entries[1].resource as unknown as { textureId: number }
     ).textureId;
+    const editedStateOutput = (
+      gpu.groups[3].entries[2].resource as unknown as { textureId: number }
+    ).textureId;
     expect(editedStateInput).not.toBe(lastFixedStepInput);
     const editedSettled = edited.commit();
     gpu.settle();
@@ -1196,7 +1214,7 @@ describe("bounded texture feedback executor", () => {
     expect(
       (gpu.groups[6].entries[1].resource as unknown as { textureId: number })
         .textureId,
-    ).toBe(editedStateInput);
+    ).toBe(editedStateOutput);
     nextStep.abandon();
     executor.dispose();
   });
@@ -1286,7 +1304,7 @@ describe("bounded texture feedback executor", () => {
       }),
     ).toThrowError("feedback-device-lost");
     executor.dispose();
-    expect(gpu.released).toEqual([1, 2, 3]);
+    expect(gpu.released).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("does not advance state when GPU validation rejects submitted commands", async () => {
@@ -1309,17 +1327,106 @@ describe("bounded texture feedback executor", () => {
     gpu.settle();
     await retired;
     expect(gpu.uniforms.every((uniform) => uniform.destroyed)).toBe(true);
-    expect(() =>
-      executor.encode({
-        encoder: gpu.encoder,
-        source: gpu.source(),
-        target: gpu.target(),
-        timeSeconds: 1 / 60,
-        params,
-      }),
-    ).toThrowError("feedback-device-lost");
+    const retry = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 1 / 60,
+      params,
+    });
+    retry.abandon();
     executor.dispose();
-    expect(gpu.released).toEqual([1, 2, 3]);
+    expect(gpu.released).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("keeps committed state and display after a submitted multi-step frame is rejected", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      OWNED_FEEDBACK_TEST_KERNEL,
+    );
+    const source = gpu.source();
+    const target = gpu.target();
+    const initial = executor.encode({
+      encoder: gpu.encoder,
+      source,
+      target,
+      timeSeconds: 0,
+      params,
+    });
+    const initialCommit = initial.commit();
+    gpu.settle();
+    await initialCommit;
+    const committedState = (
+      gpu.groups[0].entries[2].resource as unknown as { textureId: number }
+    ).textureId;
+    const committedDisplay = (
+      gpu.groups[1].entries[1].resource as unknown as { textureId: number }
+    ).textureId;
+    const rejected = executor.encode({
+      encoder: gpu.encoder,
+      source,
+      target,
+      timeSeconds: 2 / 60,
+      params,
+    });
+    expect(rejected.steps).toBe(2);
+    const compute = gpu.groups.slice(2, 4);
+    expect(
+      compute.map(
+        (group) =>
+          (group.entries[2].resource as unknown as { textureId: number })
+            .textureId,
+      ),
+    ).not.toContain(committedState);
+    expect(
+      (compute[0].entries[3].resource as unknown as { textureId: number })
+        .textureId,
+    ).not.toBe(committedDisplay);
+    expect((rejected.display as unknown as { id: number }).id).toBe(
+      (compute[0].entries[3].resource as unknown as { textureId: number })
+        .textureId,
+    );
+    const retirement = rejected.rejectSubmitted(new Error("stale parent"));
+    gpu.settle();
+    await retirement;
+    expect(executor.lastCompletedStep).toBe(0);
+    const paused = executor.encode({
+      encoder: gpu.encoder,
+      source,
+      target,
+      timeSeconds: 0,
+      params,
+    });
+    expect(paused.steps).toBe(0);
+    expect((paused.display as unknown as { id: number }).id).toBe(
+      committedDisplay,
+    );
+    expect(
+      (
+        gpu.groups[gpu.groups.length - 1].entries[1].resource as unknown as {
+          textureId: number;
+        }
+      ).textureId,
+    ).toBe(committedDisplay);
+    paused.abandon();
+    const advance = executor.encode({
+      encoder: gpu.encoder,
+      source,
+      target,
+      timeSeconds: 1 / 60,
+      params,
+    });
+    expect(
+      (
+        gpu.groups[gpu.groups.length - 2].entries[1].resource as unknown as {
+          textureId: number;
+        }
+      ).textureId,
+    ).toBe(committedState);
+    advance.abandon();
+    executor.dispose();
   });
 
   it("accepts bounded fractional source seeds and rejects values outside the original control range", async () => {
@@ -1432,14 +1539,14 @@ describe("bounded texture feedback executor", () => {
     });
     const first = executor.encode(input(0));
     const firstRetirement = first.commit();
+    gpu.settle();
+    await firstRetirement;
     expect(executor.playbackStatus).toMatchObject({
       mode: "interactive",
       disposition: "exact",
       requestedLocalSeconds: 0,
       droppedLocalSeconds: 0,
     });
-    gpu.settle();
-    await firstRetirement;
     const gap = executor.encode(input(20));
     expect(gap.steps).toBe(3);
     expect(executor.playbackStatus?.requestedLocalSeconds).toBe(0);
@@ -1448,6 +1555,9 @@ describe("bounded texture feedback executor", () => {
     const retry = executor.encode(input(20));
     expect(retry.steps).toBe(3);
     const retired = retry.commit();
+    expect(executor.lastCompletedStep).toBe(0);
+    gpu.settle();
+    await retired;
     expect(executor.lastCompletedStep).toBe(3);
     expect(executor.playbackStatus).toMatchObject({
       mode: "interactive",
@@ -1455,8 +1565,6 @@ describe("bounded texture feedback executor", () => {
       requestedLocalSeconds: 20,
     });
     expect(executor.playbackStatus?.droppedLocalSeconds).toBeGreaterThan(19.94);
-    gpu.settle();
-    await retired;
     const following = executor.encode(input(20 + 1 / 60));
     expect(following.steps).toBe(1);
     following.abandon();
@@ -1495,9 +1603,9 @@ describe("bounded texture feedback executor", () => {
       params,
     });
     const retirement = deterministic.commit();
-    expect(executor.playbackStatus).toBeNull();
     gpu.settle();
     await retirement;
+    expect(executor.playbackStatus).toBeNull();
     const resumed = executor.encode({
       encoder: gpu.encoder,
       source: gpu.source(),
@@ -1564,12 +1672,12 @@ describe("bounded texture feedback executor", () => {
       params,
     });
     const nextRetirement = retry.commit();
+    gpu.settle();
+    await nextRetirement;
     expect(replacement.playbackStatus).toMatchObject({
       disposition: "exact",
       droppedLocalSeconds: 0,
     });
-    gpu.settle();
-    await nextRetirement;
     replacement.dispose();
   });
 
@@ -1629,14 +1737,15 @@ describe("bounded texture feedback executor", () => {
     });
     expect(retry.steps).toBe(4);
     const retirement = retry.commit();
+    expect(resized.lastCompletedStep).toBe(0);
+    gpu.settle();
+    await retirement;
     expect(resized.lastCompletedStep).toBe(3);
     expect(resized.playbackStatus).toMatchObject({
       requestedLocalSeconds: 620,
       simulationLocalSeconds: 0.05,
       disposition: "clamped",
     });
-    gpu.settle();
-    await retirement;
     resized.dispose();
   });
 });

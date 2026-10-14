@@ -3229,6 +3229,21 @@ describe("native multipass texture bindings", () => {
         target: Element;
         provider: {
           readScene(): Promise<NativeSourceRecord[]>;
+          readLayerVisibleScene(): Promise<{
+            records: NativeSourceRecord[];
+            captureInsets: {
+              top: number;
+              right: number;
+              bottom: number;
+              left: number;
+            };
+          }>;
+          layerVisiblePaintInsets(records: NativeSourceRecord[]): {
+            top: number;
+            right: number;
+            bottom: number;
+            left: number;
+          };
           setDensity(value: number): void;
           setLayerTargetOpacityDeferred(value: boolean): void;
           setGroupLocalBackdropSource(value: boolean): void;
@@ -3285,6 +3300,12 @@ describe("native multipass texture bindings", () => {
           readScene: async () => {
             throw new Error("density-probe-after-layout");
           },
+          readLayerVisibleScene: async () => {
+            throw new Error("density-probe-after-layout");
+          },
+          layerVisiblePaintInsets: () => {
+            throw new Error("density-probe-after-layout");
+          },
           setDensity: (density: number) => densityCalls.push(density),
           captureCount: () => 0,
           needsContinuousFrames: () => false,
@@ -3330,6 +3351,16 @@ describe("native multipass texture bindings", () => {
           setLayerTargetOpacityDeferred() {},
           setGroupLocalBackdropSource() {},
           readScene: async () => [directRecord],
+          readLayerVisibleScene: async () => ({
+            records: [directRecord],
+            captureInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+          }),
+          layerVisiblePaintInsets: () => ({
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+          }),
           setDensity() {},
           captureCount: () => 1,
           needsContinuousFrames: () => false,
@@ -3403,6 +3434,16 @@ describe("native multipass texture bindings", () => {
           setLayerTargetOpacityDeferred() {},
           setGroupLocalBackdropSource() {},
           readScene: async () => [directRecord],
+          readLayerVisibleScene: async () => ({
+            records: [directRecord],
+            captureInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+          }),
+          layerVisiblePaintInsets: () => ({
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+          }),
           setDensity() {},
           captureCount: () => 1,
           needsContinuousFrames: () => false,
@@ -3438,7 +3479,7 @@ describe("native multipass texture bindings", () => {
           new Set(),
         );
         expect(feedbackMount.feedback?.executor.lastCompletedStep).toBe(2);
-        expect(feedbackMount.feedback?.textures.size).toBe(3);
+        expect(feedbackMount.feedback?.textures.size).toBe(5);
         expect(feedbackMount.outputTexture?.format).toBe("rgba16float");
         expect(
           writtenUniforms.some(
@@ -3475,7 +3516,7 @@ describe("native multipass texture bindings", () => {
         ).toBe(false);
         await vi.waitFor(() =>
           expect(destroyed.filter((id) => priorStateIds.has(id))).toHaveLength(
-            3,
+            5,
           ),
         );
         feedbackMount.clock = {
@@ -3662,6 +3703,17 @@ describe("native multipass texture bindings", () => {
           ),
         ).toBe(committedRequested);
         const lastGoodOutput = feedbackMount.outputTexture;
+        const lastGoodFeedback = feedbackMount.feedback;
+        const lastGoodTelemetry = new Map(
+          [
+            "data-an-native-feedback-playback",
+            "data-an-native-feedback-dropped-seconds",
+            "data-an-native-feedback-requested-seconds",
+            "data-an-native-feedback-simulated-seconds",
+            "data-an-native-feedback-completed-step",
+            "data-an-native-feedback-runtime-epoch",
+          ].map((name) => [name, feedbackMount.target.getAttribute(name)]),
+        );
         vi.spyOn(
           device as unknown as GPUDevice,
           "popErrorScope",
@@ -3678,16 +3730,9 @@ describe("native multipass texture bindings", () => {
           ),
         ).rejects.toMatchObject({ code: "gpu-validation" });
         expect(feedbackMount.outputTexture).toBe(lastGoodOutput);
-        expect(feedbackMount.feedback).toBeNull();
-        for (const name of [
-          "data-an-native-feedback-playback",
-          "data-an-native-feedback-dropped-seconds",
-          "data-an-native-feedback-requested-seconds",
-          "data-an-native-feedback-simulated-seconds",
-          "data-an-native-feedback-completed-step",
-          "data-an-native-feedback-runtime-epoch",
-        ])
-          expect(feedbackMount.target.hasAttribute(name)).toBe(false);
+        expect(feedbackMount.feedback).toBe(lastGoodFeedback);
+        for (const [name, value] of lastGoodTelemetry)
+          expect(feedbackMount.target.getAttribute(name)).toBe(value);
         const owned = DESIGN_OWNED_STATEFUL_DEFINITIONS[0];
         feedbackMount.definition = owned;
         feedbackMount.definitionHash = await hashEffectDefinition(owned);
@@ -4794,19 +4839,17 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       expect(
         computedBufferLayouts[1].entries.find((e) => e.binding === 4),
       ).toMatchObject({ visibility: 3, buffer: { type: "read-only-storage" } });
-      const originalReadScene = pairMount.provider!.readScene.bind(
-        pairMount.provider,
-      );
+      const originalComposeScene = internal.composeScene.bind(internal);
       let authoredEpoch = 300;
       const authoredEpochSpy = vi
         .spyOn(pairMount.provider! as any, "authoredSourceEpoch")
         .mockImplementation(() => authoredEpoch);
       const acquisitionMutation = vi
-        .spyOn(pairMount.provider!, "readScene")
-        .mockImplementationOnce(async () => {
-          const records = await originalReadScene();
+        .spyOn(internal, "composeScene")
+        .mockImplementationOnce(async (...args) => {
+          const scene = await originalComposeScene(...args);
           authoredEpoch++;
-          return records;
+          return scene;
         });
       const beforeStaleAcquisition = submitCalls;
       try {

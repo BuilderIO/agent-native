@@ -356,6 +356,16 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       setDensity() {},
       setGroupLocalBackdropSource() {},
       readScene: async () => [],
+      readLayerVisibleScene: async () => ({
+        records: [],
+        captureInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+      }),
+      layerVisiblePaintInsets: () => ({
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      }),
       sourceEpoch: () => sourceEpoch,
     },
     animationCapability: "animated" as const,
@@ -1658,6 +1668,19 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       ];
     },
   };
+  type FeedbackFixture = {
+    executor: {
+      dispose(): void;
+      playbackStatus: null;
+      lastCompletedStep: number;
+    };
+    textures: Set<object>;
+    retirements: Set<Promise<void>>;
+    sourceRevision: string;
+    pendingSourceRevision: string | null;
+    pointerPosition: null;
+    pendingPointerPosition: null;
+  };
   const liveFrost = {
     ...frostMount,
     definition: staticFillDefinition,
@@ -1700,6 +1723,15 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       rejectSubmitted(error: unknown): Promise<void>;
       abandon(): void;
     } | null,
+    feedback: null as FeedbackFixture | null,
+    feedbackCandidate: null as FeedbackFixture | null,
+    feedbackFrame: null as {
+      markSubmitted(): void;
+      settle(): Promise<void>;
+      promote(): void;
+      rejectSubmitted(error: unknown): Promise<void>;
+      abandon(): void;
+    } | null,
     frameCount: 0,
   };
   let secondFrost: typeof liveFrost | null = null;
@@ -1722,6 +1754,12 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   let failChildBeforeRegistration = false;
   let stageStatefulChild = false;
   let partialChildFrame = false;
+  let stageFeedbackChild = false;
+  const feedbackSubmitted = vi.fn();
+  const feedbackSettled = vi.fn(async () => {});
+  const feedbackPromoted = vi.fn();
+  const feedbackRejected = vi.fn(async () => {});
+  const feedbackAbandoned = vi.fn();
   let childInputEpoch = 0;
   const childInputCapture = {
     nodeId: "guide-node",
@@ -1743,6 +1781,28 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   const nestedEffectPasses = vi
     .spyOn(nestedRuntime, "effectPasses")
     .mockImplementation(async (candidate: unknown, ...args: unknown[]) => {
+      if (candidate === liveFrost && stageFeedbackChild) {
+        liveFrost.feedbackCandidate = {
+          executor: {
+            dispose: vi.fn(),
+            playbackStatus: null,
+            lastCompletedStep: 1,
+          },
+          textures: new Set(),
+          retirements: new Set(),
+          sourceRevision: "",
+          pendingSourceRevision: "next-source",
+          pointerPosition: null,
+          pendingPointerPosition: null,
+        };
+        liveFrost.feedbackFrame = {
+          markSubmitted: feedbackSubmitted,
+          settle: feedbackSettled,
+          promote: feedbackPromoted,
+          rejectSubmitted: feedbackRejected,
+          abandon: feedbackAbandoned,
+        };
+      }
       if (candidate === liveFrost && failChildBeforeRegistration) {
         liveFrost.statefulCandidate = {
           executor: { dispose: disposedChildCandidate },
@@ -2030,6 +2090,69 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   expect(fillTarget.getAttribute("data-an-native-error")).toBe(
     "simulation-catching-up",
   );
+  stageStatefulChild = false;
+  partialChildFrame = false;
+  liveFrost.simulationCaughtUp = true;
+  liveFrost.stateful = null;
+  liveFrost.definition = {
+    ...staticFillDefinition,
+    feedback: {} as NonNullable<typeof staticFillDefinition.feedback>,
+  };
+  const publishedFeedback: FeedbackFixture = {
+    executor: {
+      dispose: vi.fn(),
+      playbackStatus: null,
+      lastCompletedStep: 0,
+    },
+    textures: new Set(),
+    retirements: new Set(),
+    sourceRevision: "published-source",
+    pendingSourceRevision: null,
+    pointerPosition: null,
+    pendingPointerPosition: null,
+  };
+  liveFrost.feedback = publishedFeedback;
+  stageFeedbackChild = true;
+  let releaseFeedbackValidation!: () => void;
+  const feedbackValidation = new Promise<void>((resolve) => {
+    releaseFeedbackValidation = resolve;
+  });
+  const beforeFeedbackSubmission = submittedFrames;
+  device.popErrorScope = async () => {
+    await feedbackValidation;
+    return null;
+  };
+  const staleFeedback = runtime.renderMount(
+    staticFillMount,
+    10,
+    false,
+    new Set(),
+    new Set(),
+  );
+  await vi.waitFor(() =>
+    expect(submittedFrames).toBe(beforeFeedbackSubmission + 1),
+  );
+  fillEpoch = 1;
+  releaseFeedbackValidation();
+  await expect(staleFeedback).rejects.toMatchObject({
+    code: "source-epoch-stale",
+  });
+  expect(feedbackSubmitted).toHaveBeenCalledOnce();
+  expect(feedbackSettled).not.toHaveBeenCalled();
+  expect(feedbackPromoted).not.toHaveBeenCalled();
+  expect(feedbackRejected).toHaveBeenCalledOnce();
+  expect(liveFrost.feedback).toBe(publishedFeedback);
+  expect(liveFrost.feedbackCandidate).toBeNull();
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  fillEpoch = 0;
+  device.popErrorScope = popNestedValidation;
+  await runtime.renderMount(staticFillMount, 10, false, new Set(), new Set());
+  expect(feedbackSettled).toHaveBeenCalledOnce();
+  expect(feedbackPromoted).toHaveBeenCalledOnce();
+  expect(liveFrost.feedback).not.toBe(publishedFeedback);
+  expect(liveFrost.feedback?.sourceRevision).toBe("next-source");
+  expect(liveFrost.outputTexture).toBe(frostSource);
+  stageFeedbackChild = false;
   childCanvasPresent.mockRestore();
   nestedCompose.mockRestore();
   nestedFinish.mockRestore();

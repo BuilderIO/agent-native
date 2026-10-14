@@ -89,7 +89,7 @@ describe("fixed-grid feedback planning", () => {
         workgroupsY: 96,
         stateBytes: 768 * 768 * 8,
         displayBytes: 768 * 768 * 8,
-        totalTextureBytes: 768 * 768 * 8 * 3,
+        totalTextureBytes: 768 * 768 * 8 * 5,
       },
     });
   });

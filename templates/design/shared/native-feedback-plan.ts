@@ -235,7 +235,7 @@ export function planNativeFeedback(
   )
     return { ok: false, code: "feedback-grid-limit" };
   const stateBytes = width * height * BYTES_PER_RGBA16FLOAT_TEXEL;
-  const totalTextureBytes = stateBytes * 3;
+  const totalTextureBytes = stateBytes * 5;
   if (totalTextureBytes + existingResourceBytes > MAX_INSTANCE_BYTES)
     return { ok: false, code: "feedback-resource-budget" };
   return {

@@ -3160,6 +3160,114 @@ describe("processed native layer source geometry", () => {
     ).toMatchObject({ x: 0, width: 256 });
   });
 
+  it("sizes a Layer capture from its visible descendant records and retains the target clip", async () => {
+    const target = document.createElement("div");
+    const child = document.createElement("canvas");
+    child.width = 40;
+    child.height = 30;
+    target.append(child);
+    document.body.append(target);
+    Object.defineProperties(target, {
+      offsetWidth: { value: 100 },
+      offsetHeight: { value: 80 },
+    });
+    Object.defineProperties(child, {
+      offsetLeft: { value: 80 },
+      offsetTop: { value: 15 },
+      offsetWidth: { value: 40 },
+      offsetHeight: { value: 30 },
+      offsetParent: { value: target },
+    });
+    let targetOverflow = "visible";
+    let targetTransform = "none";
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        ({
+          imageRendering: "auto",
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          position: "absolute",
+          transform: element === target ? targetTransform : "none",
+          transformOrigin: "0px 0px",
+          translate: "none",
+          rotate: "none",
+          scale: "none",
+          perspective: "none",
+          transformStyle: "flat",
+          isolation: "auto",
+          zIndex: "auto",
+          mixBlendMode: "normal",
+          filter: "none",
+          backdropFilter: "none",
+          backgroundImage: "none",
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          objectFit: "fill",
+          objectPosition: "50% 50%",
+          boxShadow: "none",
+          outlineStyle: "none",
+          clipPath: "none",
+          maskImage: "none",
+          overflowX: element === target ? targetOverflow : "visible",
+          overflowY: element === target ? targetOverflow : "visible",
+          borderTopWidth: "0px",
+          borderRightWidth: "0px",
+          borderBottomWidth: "0px",
+          borderLeftWidth: "0px",
+          borderTopLeftRadius: "0px",
+          borderTopRightRadius: "0px",
+          borderBottomRightRadius: "0px",
+          borderBottomLeftRadius: "0px",
+          paddingTop: "0px",
+          paddingRight: "0px",
+          paddingBottom: "0px",
+          paddingLeft: "0px",
+          getPropertyValue: () => "0px",
+        }) as unknown as CSSStyleDeclaration,
+    );
+    const provider = createNativeSceneProvider(target, "layer");
+    try {
+      const visible = await provider!.readLayerVisibleScene();
+      expect(
+        visible.records.find((record) => record.node === child),
+      ).toMatchObject({
+        rect: { x: 80, y: 15, width: 40, height: 30 },
+        clip: { x: 80, y: 15, width: 40, height: 30 },
+      });
+      expect(visible.captureInsets).toEqual({
+        top: 0,
+        right: 20,
+        bottom: 0,
+        left: 0,
+      });
+      targetTransform = "matrix(0, 1, -1, 0, 0, 0)";
+      const transformed = await provider!.readLayerVisibleScene();
+      expect(transformed.captureInsets).toEqual(visible.captureInsets);
+      targetOverflow = "hidden";
+      const clipped = await provider!.readLayerVisibleScene();
+      expect(
+        clipped.records.find((record) => record.node === child)?.clip,
+      ).toMatchObject({
+        x: 80,
+        width: 20,
+      });
+      expect(clipped.captureInsets).toEqual({
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      });
+      provider!.invalidate();
+      expect(() =>
+        provider!.layerVisiblePaintInsets(clipped.records),
+      ).toThrowError(
+        expect.objectContaining({ code: "source-capture-geometry-stale" }),
+      );
+    } finally {
+      provider?.dispose();
+    }
+  });
+
   it("removes all target affine channels from an own-paint capture clone", () => {
     const target = document.createElement("div");
     target.textContent = "Editable text";
