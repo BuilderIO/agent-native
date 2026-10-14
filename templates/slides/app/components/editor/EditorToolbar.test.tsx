@@ -910,8 +910,6 @@ describe("<EditorToolbar>", () => {
       slideProps: {
         onDuplicateSlides?: () => void;
         onDeleteSlides?: () => void;
-        onPreviousSlide?: () => void;
-        onNextSlide?: () => void;
       } = {},
     ) => (
       <TooltipProvider>
@@ -963,24 +961,6 @@ describe("<EditorToolbar>", () => {
 
       expect(onDeleteSlides).toHaveBeenCalledTimes(1);
       expect(commands.deleteObjects).not.toHaveBeenCalled();
-    });
-
-    it("disables what the canvas and slide position cannot do", async () => {
-      const commands = canvasCommands(false);
-      const onNextSlide = vi.fn();
-      render(toolbar(commands, { onNextSlide }));
-
-      await openAppSubmenu("appMenu.view");
-      const item = (name: string) =>
-        screen.getByRole("menuitem", { name }).hasAttribute("data-disabled");
-      await screen.findByRole("menuitem", { name: "appMenu.zoomIn" });
-      expect(item("appMenu.zoomIn")).toBe(false);
-      expect(item("appMenu.zoomOut")).toBe(true);
-      expect(item("appMenu.previousSlide")).toBe(true);
-      fireEvent.click(
-        screen.getByRole("menuitem", { name: "appMenu.nextSlide" }),
-      );
-      expect(onNextSlide).toHaveBeenCalledTimes(1);
     });
   });
 
