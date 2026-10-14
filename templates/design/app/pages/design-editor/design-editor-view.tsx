@@ -1430,7 +1430,8 @@ export function renderDesignEditorView({
     motionInspector:
       editorLiveEditsAndPresence.motionLabEnabled &&
       motionDockOpen &&
-      Boolean(activeFile?.id),
+      Boolean(activeFile?.id) &&
+      selectedInspectorElements.length > 0,
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
