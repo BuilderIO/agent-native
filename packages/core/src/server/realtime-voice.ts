@@ -612,14 +612,6 @@ function createSessionHandler(
           readSafeHeader(event, "accept-language"),
         );
         const protocol = readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER);
-        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
-          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
-          protocol === "realtime" ? "realtime" : "live",
-        );
-        const voice = resolveRealtimeVoicePreference(
-          readSafeHeader(event, "x-agent-native-realtime-voice"),
-          configuredIdentifier(options.voice, DEFAULT_VOICE),
-        );
         const configuredModel = configuredIdentifier(
           options.model,
           DEFAULT_MODEL,
@@ -628,6 +620,14 @@ function createSessionHandler(
           protocol === "realtime" && configuredModel === DEFAULT_MODEL
             ? LEGACY_MODEL
             : configuredModel;
+        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
+          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
+          model === DEFAULT_MODEL ? "live" : "realtime",
+        );
+        const voice = resolveRealtimeVoicePreference(
+          readSafeHeader(event, "x-agent-native-realtime-voice"),
+          configuredIdentifier(options.voice, DEFAULT_VOICE),
+        );
         const sessionBase =
           model === DEFAULT_MODEL
             ? {
