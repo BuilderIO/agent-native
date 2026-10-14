@@ -39,17 +39,18 @@ export default defineAction({
       context: agentsContext,
     });
     const cleanedText = result.cleanedText ?? raw;
+    const updatedAt = new Date().toISOString();
 
     await db
       .update(schema.dictations)
       .set({
         cleanedText,
-        updatedAt: new Date().toISOString(),
+        updatedAt,
       })
       .where(eq(schema.dictations.id, args.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id: args.id, cleanedText, provider: result.provider };
+    return { id: args.id, cleanedText, updatedAt, provider: result.provider };
   },
 });

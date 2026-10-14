@@ -78,12 +78,12 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain('t("dictateRoute.cleanupFailed")');
     expect(routeSource).toContain('"update-dictation"');
     expect(routeSource).toContain("cleanedText: null");
+    expect(routeSource).toContain('>("update-dictation", {');
+    expect(routeSource).toContain("expectedUpdatedAt,");
     expect(routeSource).toContain(
-      'const restoreCleanup = useActionMutation("update-dictation", {',
+      "onClick: () => handleRestoreCleanup(result.updatedAt)",
     );
-    expect(routeSource).toContain(
-      "restoreCleanup.mutate({ id: dictation.id, cleanedText: null });",
-    );
+    expect(routeSource).toContain('t("dictateRoute.cleanupRestoreFailed")');
     expect(routeSource).toContain('t("dictateRoute.undoCleanup")');
     expect(routeSource).toContain('t("dictateRoute.restoreOriginal")');
     expect(routeSource).toContain('t("dictateRoute.cleanupRestored")');

@@ -1,0 +1,112 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockReturning = vi.hoisted(() => vi.fn());
+const mockWhere = vi.hoisted(() => vi.fn(() => ({ returning: mockReturning })));
+const mockSet = vi.hoisted(() => vi.fn(() => ({ where: mockWhere })));
+const mockUpdate = vi.hoisted(() => vi.fn(() => ({ set: mockSet })));
+const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (options: unknown) => options,
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(async () => undefined),
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
+  eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => ({ update: mockUpdate }),
+  schema: {
+    dictations: {
+      id: "dictations.id",
+      cleanedText: "dictations.cleanedText",
+      fullText: "dictations.fullText",
+      source: "dictations.source",
+      targetApp: "dictations.targetApp",
+      updatedAt: "dictations.updatedAt",
+    },
+  },
+}));
+
+import updateDictation from "./update-dictation";
+
+describe("update-dictation cleanup restore", () => {
+  const expectedUpdatedAt = "2026-10-14T17:00:00.000Z";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReturning.mockResolvedValue([{ id: "dictation_1" }]);
+  });
+
+  it("only restores the cleanup version named by the caller", async () => {
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      cleanedText: null,
+      expectedUpdatedAt,
+    });
+
+    const result = await updateDictation.run(args);
+
+    expect(mockWhere).toHaveBeenCalledWith({
+      kind: "and",
+      conditions: [
+        { kind: "eq", column: "dictations.id", value: "dictation_1" },
+        {
+          kind: "eq",
+          column: "dictations.updatedAt",
+          value: expectedUpdatedAt,
+        },
+      ],
+    });
+    expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
+    expect(mockWriteAppState).toHaveBeenCalledOnce();
+  });
+
+  it("does not change the row when the cleanup version is stale", async () => {
+    mockReturning.mockResolvedValueOnce([]);
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      cleanedText: null,
+      expectedUpdatedAt,
+    });
+
+    const result = await updateDictation.run(args);
+
+    expect(result).toEqual({ id: "dictation_1", ok: true, updated: false });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("only accepts an expected version for a cleanup restore", async () => {
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      cleanedText: "replacement text",
+      expectedUpdatedAt,
+    });
+
+    await expect(updateDictation.run(args)).rejects.toThrow(
+      "expectedUpdatedAt is only supported when restoring cleaned text",
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("requires a version when clearing cleaned text", async () => {
+    const args = updateDictation.schema.parse({
+      id: "dictation_1",
+      cleanedText: null,
+    });
+
+    await expect(updateDictation.run(args)).rejects.toThrow(
+      "expectedUpdatedAt is required when restoring cleaned text",
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
