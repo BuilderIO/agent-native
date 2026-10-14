@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { recorder } from "@agent-native/core/client/recorder";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { type CodeLayerNode } from "@shared/code-layer";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -1713,6 +1714,7 @@ export function runUndo({
             throw new Error(`Failed to restore "${file.filename}"`);
           }
           recreatedIds.push(result.id);
+          recorder.log("screen.restored", { from: file.id, to: result.id });
         }
 
         const restoreEntry = {
