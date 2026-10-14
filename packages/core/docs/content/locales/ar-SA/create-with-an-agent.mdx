@@ -26,7 +26,8 @@ description: "سلّم موجّهًا واحدًا إلى Claude أو ChatGPT أ
 وشغّله. استخدم هذا الاسم أينما تقول خطوة أدناه APP_NAME.
 
 1. تحقق من أن إصدار Node.js هو 22.22 أو أحدث وأن pnpm متاح.
-   إذا كان pnpm غير موجود، شغّل `corepack enable`. وإذا كان
+   إذا كان pnpm غير موجود، شغّل `corepack enable`. وإذا لم يكن
+   corepack متاحًا أيضًا، شغّل `npm install -g pnpm`. وإذا كان
    Node.js قديمًا جدًا، فتوقف وأخبرني بدلًا من تثبيته.
 2. شغّل:
    npx --yes @agent-native/core@latest create APP_NAME \

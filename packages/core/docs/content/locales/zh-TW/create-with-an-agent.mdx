@@ -27,8 +27,9 @@ description: "把一則提示詞交給 Claude、ChatGPT、Codex、Cursor 或其�
 名稱。
 
 1. 檢查 Node.js 版本是否為 22.22 或更新，以及 pnpm 是否可用。
-   如果缺少 pnpm，請執行 `corepack enable`。如果 Node.js 版本
-   過舊，請停止並告訴我，不要自行安裝。
+   如果缺少 pnpm，請執行 `corepack enable`。如果 corepack 也無法使用，
+   請執行 `npm install -g pnpm`。如果 Node.js 版本過舊，請停止並告訴我，
+   不要自行安裝。
 2. 執行：
    npx --yes @agent-native/core@latest create APP_NAME \
     --standalone --template chat

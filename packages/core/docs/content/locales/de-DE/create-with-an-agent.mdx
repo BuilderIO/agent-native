@@ -28,8 +28,9 @@ unten APP_NAME steht.
 
 1. Prüfe, ob Node.js in Version 22.22 oder höher vorliegt und pnpm
    verfügbar ist. Falls pnpm fehlt, führe `corepack enable` aus. Falls
-   Node.js zu alt ist, halte an und sag mir Bescheid, anstatt es zu
-   installieren.
+   corepack ebenfalls nicht verfügbar ist, führe `npm install -g pnpm`
+   aus. Falls Node.js zu alt ist, halte an und sag mir Bescheid,
+   anstatt es zu installieren.
 2. Führe diesen Befehl aus:
    npx --yes @agent-native/core@latest create APP_NAME \
     --standalone --template chat

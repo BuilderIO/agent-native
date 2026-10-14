@@ -27,8 +27,9 @@ inicie-o. Use esse nome onde um passo abaixo disser APP_NAME.
 
 1. Verifique se o Node.js está na versão 22.22 ou posterior e se o
    pnpm está disponível. Se o pnpm estiver faltando, execute
-   `corepack enable`. Se o Node.js for muito antigo, pare e me avise
-   em vez de instalá-lo.
+   `corepack enable`. Se o corepack
+   também não estiver disponível, execute `npm install -g pnpm`. Se
+   o Node.js for muito antigo, pare e me avise em vez de instalá-lo.
 2. Execute este comando:
    npx --yes @agent-native/core@latest create APP_NAME \
     --standalone --template chat

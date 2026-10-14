@@ -26,7 +26,8 @@ Create a new Agent-Native app in a new folder named my-app, and start
 it. Use that name wherever a step below says APP_NAME.
 
 1. Check that Node.js is version 22.22 or later and that pnpm is
-   available. If pnpm is missing, run `corepack enable`. If Node.js is
+   available. If pnpm is missing, run `corepack enable`. If corepack
+   is not available either, run `npm install -g pnpm`. If Node.js is
    too old, stop and tell me instead of installing it.
 2. Run this command:
    npx --yes @agent-native/core@latest create APP_NAME \

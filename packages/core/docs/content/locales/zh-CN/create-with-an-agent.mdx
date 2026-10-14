@@ -26,8 +26,9 @@ description: "把一条提示词交给 Claude、ChatGPT、Codex、Cursor 或其�
 并启动它。下面步骤中写着 APP_NAME 的地方都使用这个名称。
 
 1. 检查 Node.js 版本是否为 22.22 或更高，以及 pnpm 是否可用。
-   如果缺少 pnpm，运行 `corepack enable`。如果 Node.js 版本
-   过旧，请停止并告诉我，不要自行安装。
+   如果缺少 pnpm，运行 `corepack enable`。如果 corepack 也不可用，
+   运行 `npm install -g pnpm`。如果 Node.js 版本过旧，请停止并告诉我，
+   不要自行安装。
 2. 运行：
    npx --yes @agent-native/core@latest create APP_NAME \
     --standalone --template chat

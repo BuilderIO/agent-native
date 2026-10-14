@@ -28,8 +28,9 @@ my-app という名前の新しいフォルダに、新しい Agent-Native ア�
 
 1. Node.js がバージョン 22.22 以降であること、pnpm が使えることを
    確認してください。pnpm がない場合は `corepack enable` を実行
-   してください。Node.js が古い場合は、インストールせずに作業を
-   止めて私に知らせてください。
+   してください。corepack も使えない場合は `npm install -g pnpm`
+   を実行してください。Node.js が古い場合は、インストールせずに
+   作業を止めて私に知らせてください。
 2. 次のコマンドを実行してください:
    npx --yes @agent-native/core@latest create APP_NAME \
     --standalone --template chat
