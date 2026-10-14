@@ -130,6 +130,7 @@ export default defineAction({
     const inspection = await inspectSigmaWorkbook({
       connectionId: selection.selected.id,
       workbookId: args.workbookId,
+      includeSqlQueries: false,
     });
     if (
       inspection.diagnostics.some(

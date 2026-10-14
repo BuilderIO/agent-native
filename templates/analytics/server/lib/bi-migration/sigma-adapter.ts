@@ -37,6 +37,7 @@ export interface ListSigmaWorkbooksArgs {
 export interface InspectSigmaWorkbookArgs {
   connectionId: string;
   workbookId: string;
+  includeSqlQueries: boolean;
 }
 
 export interface SigmaPortablePage {
@@ -1277,11 +1278,9 @@ export async function inspectSigmaWorkbook(
     }
   }
 
-  const sqlQueries = await loadAllSqlQueries({
-    connectionId,
-    workbookId,
-    diagnostics,
-  });
+  const sqlQueries = args.includeSqlQueries
+    ? await loadAllSqlQueries({ connectionId, workbookId, diagnostics })
+    : [];
   for (const query of sqlQueries) {
     if (
       query.elementId &&

@@ -88,6 +88,11 @@ describe("inspect-sigma-workbook action", () => {
       sourceMappingRequiredCount: 1,
       elements: [{ importable: false, reason: "source_mapping_required" }],
     });
+    expect(mocks.inspectWorkbook).toHaveBeenCalledWith({
+      connectionId: "connection_1",
+      workbookId: "workbook_1",
+      includeSqlQueries: false,
+    });
   });
 
   it("fails preview when Sigma source connection metadata cannot be read", async () => {

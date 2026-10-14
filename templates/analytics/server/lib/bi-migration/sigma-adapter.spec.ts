@@ -161,6 +161,7 @@ describe("Sigma read-only migration adapter", () => {
     const inspection = await inspectSigmaWorkbook({
       connectionId: CONNECTION_ID,
       workbookId: WORKBOOK_ID,
+      includeSqlQueries: true,
     });
     const table = inspection.elements.find(
       (element) => element.id === "table-1",
@@ -245,6 +246,27 @@ describe("Sigma read-only migration adapter", () => {
     expect(safeSummary).not.toHaveProperty("sqlQueries");
   });
 
+  it("skips SQL query listing when the caller only needs a preview", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(async (args) => {
+      if (args.path === `/v2/workbooks/${WORKBOOK_ID}`) {
+        return apiResponse(representation());
+      }
+      if (args.path === "/v2/connections/warehouse-1") {
+        return apiResponse({ connectionId: "warehouse-1", type: "bigQuery" });
+      }
+      throw new Error(`Unexpected synthetic path: ${args.path}`);
+    });
+
+    const inspection = await inspectSigmaWorkbook({
+      connectionId: CONNECTION_ID,
+      workbookId: WORKBOOK_ID,
+      includeSqlQueries: false,
+    });
+
+    expect(inspection.sqlQueries).toEqual([]);
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("preserves malformed elements as unsupported review items", async () => {
     mocks.executeProviderApiRequest.mockImplementation(async (args) => {
       if (args.path === `/v2/workbooks/${WORKBOOK_ID}`) {
@@ -273,6 +295,7 @@ describe("Sigma read-only migration adapter", () => {
     const inspection = await inspectSigmaWorkbook({
       connectionId: CONNECTION_ID,
       workbookId: WORKBOOK_ID,
+      includeSqlQueries: false,
     });
 
     expect(inspection.elements).toHaveLength(7);
@@ -335,6 +358,7 @@ describe("Sigma read-only migration adapter", () => {
     const inspection = await inspectSigmaWorkbook({
       connectionId: CONNECTION_ID,
       workbookId: WORKBOOK_ID,
+      includeSqlQueries: false,
     });
 
     expect(inspection.sourceConnections[0]).toEqual({
@@ -423,6 +447,7 @@ describe("Sigma read-only migration adapter", () => {
     const inspection = await inspectSigmaWorkbook({
       connectionId: CONNECTION_ID,
       workbookId: WORKBOOK_ID,
+      includeSqlQueries: false,
     });
 
     expect(
@@ -465,6 +490,7 @@ describe("Sigma read-only migration adapter", () => {
     const inspection = await inspectSigmaWorkbook({
       connectionId: CONNECTION_ID,
       workbookId: WORKBOOK_ID,
+      includeSqlQueries: false,
     });
 
     expect(inspection.sourceConnections[0]).toEqual({
@@ -544,6 +570,7 @@ describe("Sigma read-only migration adapter", () => {
     const inspection = await inspectSigmaWorkbook({
       connectionId: CONNECTION_ID,
       workbookId: WORKBOOK_ID,
+      includeSqlQueries: true,
     });
     expect(inspection.sqlQueries[0]).toMatchObject({
       sqlOmittedReason: "query-too-large",

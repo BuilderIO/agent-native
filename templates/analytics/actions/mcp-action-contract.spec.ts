@@ -20,6 +20,7 @@ const { default: actionsRegistry } = await import(
 );
 
 type ActionDefinition = {
+  agentTool?: boolean;
   mcpTool?: boolean;
   readOnly?: boolean;
   needsApproval?: unknown;
@@ -193,6 +194,7 @@ describe("Analytics direct MCP tools", () => {
     expect(actions["migrate-sigma-workbook"].readOnly).not.toBe(true);
     expect(actions["migrate-sigma-workbook"].needsApproval).toBe(true);
     expect(actions["migrate-sigma-workbook"].publicAgent?.expose).toBe(false);
+    expect(actions["migrate-sigma-workbook"].agentTool).toBe(false);
   });
 
   it("classifies every direct read as read-only so mcp:read tokens can call it", () => {

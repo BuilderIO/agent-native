@@ -302,6 +302,7 @@ export default defineAction({
     "Reserved for Sigma workbook imports after Analytics can verify the Sigma BigQuery source-project mapping. The current Sigma API does not expose that mapping, so this action remains fail-closed and is not available to the agent; use list-sigma-workbooks and inspect-sigma-workbook for the read-only preview.",
   schema: migrateSchema,
   http: { method: "POST" },
+  agentTool: false,
   needsApproval: true,
   mcpTool: false,
   publicAgent: { expose: false, readOnly: false, requiresAuth: true },
@@ -337,6 +338,7 @@ export default defineAction({
     const preliminaryInspection = await inspectSigmaWorkbook({
       connectionId: selection.selected.id,
       workbookId: args.workbookId,
+      includeSqlQueries: true,
     });
     const preliminaryReview = summarizeSigmaElementReview({
       inspection: preliminaryInspection,
