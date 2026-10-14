@@ -3295,6 +3295,34 @@ struct RestartParams {
     height: u32,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WatchdogInstallDecision {
+    Install,
+    Retry,
+    Finalize,
+    Exit,
+}
+
+#[cfg(target_os = "macos")]
+fn watchdog_install_decision(
+    shutting_down: bool,
+    appends_closed: bool,
+    paused: bool,
+    user_stopped: bool,
+    handler_is_current: bool,
+) -> WatchdogInstallDecision {
+    if shutting_down {
+        WatchdogInstallDecision::Exit
+    } else if appends_closed {
+        WatchdogInstallDecision::Finalize
+    } else if paused || user_stopped || !handler_is_current {
+        WatchdogInstallDecision::Retry
+    } else {
+        WatchdogInstallDecision::Install
+    }
+}
+
 fn emit_capture_recorder_stop(app: &AppHandle, recording_id: Option<&str>) {
     if let Some(recording_id) = recording_id {
         let _ = app.emit(
@@ -3605,6 +3633,7 @@ fn spawn_capture_watchdog(
         let mut geometry_error: Option<String> = None;
         let mut consecutive_geometry_errors = 0;
         let mut last_geometry = None;
+        let mut watchdog_fatal_error: Option<String> = None;
 
         loop {
             std::thread::sleep(CAPTURE_WATCHDOG_POLL);
@@ -3615,20 +3644,30 @@ fn spawn_capture_watchdog(
                 if shutdown.load(Ordering::SeqCst) {
                     return;
                 }
-                eprintln!(
-                    "[mixer] appends closed without a stop request; treating as fatal capture failure and finalizing partial recording"
-                );
                 let writer_error = writer
                     .failure()
                     .unwrap_or_else(|| "unknown writer failure".to_string());
+                let failure = watchdog_fatal_error
+                    .take()
+                    .map(|error| format!("{error}; writer: {writer_error}"))
+                    .unwrap_or(writer_error);
+                eprintln!(
+                    "[mixer] capture failed without a stop request ({failure}); finalizing partial recording"
+                );
                 crate::logfile::diagnostic(&format!(
-                    "[capture-health] writer closed unexpectedly; finalizing partial recording: {writer_error}"
+                    "[capture-health] capture closed unexpectedly; finalizing partial recording: {failure}"
                 ));
                 crate::logfile::diagnostic(&format!(
                     "[capture-health] append stats at failure — {}",
                     writer.append_stats_summary()
                 ));
-                if let Ok(guard) = stream.lock() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed during finalization: {error}"
+                        );
+                        error.into_inner()
+                    });
                     let _ = guard.stop_capture();
                 }
                 if params.emit_recorder_stop {
@@ -3641,6 +3680,15 @@ fn spawn_capture_watchdog(
             }
 
             if watch.user_stopped() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed after user stop: {error}"
+                        );
+                        error.into_inner()
+                    });
+                    let _ = guard.stop_capture();
+                }
                 if params.emit_recorder_stop {
                     eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
                     emit_capture_recorder_stop(&app, params.recording_id.as_deref());
@@ -3732,7 +3780,13 @@ fn spawn_capture_watchdog(
                     "[mixer] capture interrupted ({reason}) and did not recover after {CAPTURE_MAX_RESTARTS} restarts; finalizing partial recording"
                 );
                 writer.appends_closed.store(true, Ordering::SeqCst);
-                if let Ok(guard) = stream.lock() {
+                {
+                    let guard = stream.lock().unwrap_or_else(|error| {
+                        eprintln!(
+                            "[mixer] capture watchdog stream lock failed after restart limit: {error}"
+                        );
+                        error.into_inner()
+                    });
                     let _ = guard.stop_capture();
                 }
                 if params.emit_recorder_stop {
@@ -3746,7 +3800,13 @@ fn spawn_capture_watchdog(
             );
 
             let replacement_handler = handler.replacement_stream();
-            if let Ok(guard) = stream.lock() {
+            {
+                let guard = stream.lock().unwrap_or_else(|error| {
+                    eprintln!(
+                        "[mixer] capture watchdog stream lock failed before rebuild: {error}"
+                    );
+                    error.into_inner()
+                });
                 let _ = guard.stop_capture();
             }
             if shutdown.load(Ordering::SeqCst) || writer.appends_closed.load(Ordering::SeqCst) {
@@ -3786,41 +3846,50 @@ fn spawn_capture_watchdog(
             }) {
                 Ok((new_stream, new_configuration)) => {
                     let mut pending_stream = Some(new_stream);
-                    let install = if let Ok(mut guard) = stream.lock() {
-                        let mut configuration = match configuration.lock() {
-                            Ok(configuration) => configuration,
-                            Err(_) => {
-                                if let Some(stream) = pending_stream {
-                                    let _ = stream.stop_capture();
+                    let decision = match stream.lock() {
+                        Ok(mut guard) => match configuration.lock() {
+                            Ok(mut configuration_guard) => {
+                                let decision = watchdog_install_decision(
+                                    shutdown.load(Ordering::SeqCst),
+                                    writer.appends_closed.load(Ordering::SeqCst),
+                                    watch.is_paused(),
+                                    watch.user_stopped(),
+                                    replacement_handler.is_current(),
+                                );
+                                if decision == WatchdogInstallDecision::Install {
+                                    *guard = pending_stream
+                                        .take()
+                                        .expect("pending watchdog stream is available");
+                                    *configuration_guard = new_configuration;
                                 }
-                                continue;
+                                decision
                             }
-                        };
-                        if shutdown.load(Ordering::SeqCst)
-                            || writer.appends_closed.load(Ordering::SeqCst)
-                            || watch.is_paused()
-                            || watch.user_stopped()
-                            || !replacement_handler.is_current()
-                        {
-                            false
-                        } else {
-                            *guard = pending_stream
-                                .take()
-                                .expect("pending watchdog stream is available");
-                            *configuration = new_configuration;
-                            true
+                            Err(error) => {
+                                watchdog_fatal_error = Some(format!(
+                                    "capture watchdog configuration lock failed: {error}"
+                                ));
+                                WatchdogInstallDecision::Finalize
+                            }
+                        },
+                        Err(error) => {
+                            watchdog_fatal_error =
+                                Some(format!("capture watchdog stream lock failed: {error}"));
+                            WatchdogInstallDecision::Finalize
                         }
-                    } else {
-                        false
                     };
-                    if !install {
+                    if decision != WatchdogInstallDecision::Install {
                         if let Some(stream) = pending_stream {
                             let _ = stream.stop_capture();
                         }
-                        if watch.is_paused() || watch.user_stopped() {
-                            continue;
+                        match decision {
+                            WatchdogInstallDecision::Retry => continue,
+                            WatchdogInstallDecision::Finalize => {
+                                writer.appends_closed.store(true, Ordering::SeqCst);
+                                continue;
+                            }
+                            WatchdogInstallDecision::Exit => return,
+                            WatchdogInstallDecision::Install => unreachable!(),
                         }
-                        return;
                     }
                     let _ = watch.take_stream_stopped();
                     cooldown_until = Some(Instant::now() + CAPTURE_STALL_TIMEOUT);
@@ -4050,6 +4119,36 @@ mod fragment_fence_tests {
         for path in paths {
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn watchdog_retries_transient_install_rejections() {
+        assert_eq!(
+            watchdog_install_decision(false, false, false, false, false),
+            WatchdogInstallDecision::Retry,
+            "a stale replacement handler must leave the watchdog alive"
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, true, false, true),
+            WatchdogInstallDecision::Retry
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, false, true, true),
+            WatchdogInstallDecision::Retry
+        );
+        assert_eq!(
+            watchdog_install_decision(true, false, false, false, true),
+            WatchdogInstallDecision::Exit
+        );
+        assert_eq!(
+            watchdog_install_decision(false, true, false, false, true),
+            WatchdogInstallDecision::Finalize
+        );
+        assert_eq!(
+            watchdog_install_decision(false, false, false, false, true),
+            WatchdogInstallDecision::Install
+        );
     }
 
     #[test]
