@@ -4900,7 +4900,7 @@ export async function runAuthoringFuzz(
     let selectedIndex = SLASH_COMMANDS.findIndex(
       ([value]) => value === activeCommand,
     );
-    await page.evaluate((selector) => {
+    await page.evaluate((selector: string) => {
       const trace: Array<{
         keyCode: number;
         isComposing: boolean;
@@ -4918,7 +4918,13 @@ export async function runAuthoringFuzz(
             ? (document.getElementById(id)?.getAttribute("data-value") ?? null)
             : null;
         };
-        const entry = {
+        const entry: {
+          keyCode: number;
+          isComposing: boolean;
+          activeBefore: string | null;
+          defaultPreventedAfter?: boolean;
+          activeAfter?: string | null;
+        } = {
           keyCode: event.keyCode,
           isComposing: event.isComposing,
           activeBefore: activeValue(),
@@ -4958,7 +4964,7 @@ export async function runAuthoringFuzz(
             { timeout: 5000 },
           );
         } catch (error) {
-          const navigationState = await page.evaluate((selector) => {
+          const navigationState = await page.evaluate((selector: string) => {
             const editingEl = document.querySelector<HTMLElement>(selector);
             const activeId = editingEl?.getAttribute("aria-activedescendant");
             const activeOption = activeId
