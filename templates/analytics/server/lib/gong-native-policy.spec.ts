@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getOrgSetting = vi.hoisted(() => vi.fn());
+const putOrgSetting = vi.hoisted(() => vi.fn());
+const resolveOrgRole = vi.hoisted(() => vi.fn());
 
 const requestOrgId = vi.hoisted(() => ({ value: "org_1" as string | null }));
 const requestEmail = vi.hoisted(() => ({
@@ -14,17 +16,35 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("@agent-native/core/settings", () => ({
   getOrgSetting,
   getUserSetting: vi.fn(),
-  putOrgSetting: vi.fn(),
+  putOrgSetting,
   putUserSetting: vi.fn(),
 }));
 
-const { readGongNativeInsightsPolicy } = await import("./gong-native-policy");
+vi.mock("./db-admin-connections", () => ({ resolveOrgRole }));
+
+const { readGongNativeInsightsPolicy, writeGongNativeInsightsPolicy } =
+  await import("./gong-native-policy");
 
 describe("readGongNativeInsightsPolicy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requestOrgId.value = "org_1";
     requestEmail.value = "owner@example.test";
+  });
+
+  it("lets only owners and admins change the workspace policy", async () => {
+    resolveOrgRole.mockResolvedValue("member");
+    await expect(writeGongNativeInsightsPolicy(false)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(putOrgSetting).not.toHaveBeenCalled();
+
+    resolveOrgRole.mockResolvedValue("admin");
+    await expect(writeGongNativeInsightsPolicy(false)).resolves.toMatchObject({
+      enabled: false,
+      scope: "workspace",
+    });
+    expect(putOrgSetting).toHaveBeenCalledOnce();
   });
 
   it("fails closed when there is no workspace or user to read a policy from", async () => {
