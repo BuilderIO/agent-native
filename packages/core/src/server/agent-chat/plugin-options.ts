@@ -89,6 +89,12 @@ export interface AgentChatPluginOptions {
   clientCompatibilityVersion?: string;
   connectApps?: boolean;
   backgroundMcpTools?: "requested" | "all";
+  /**
+   * Resolve approval and per-call authorization for connected MCP tools.
+   * Authorization runs at the shared MCP invocation boundary for agent and
+   * app calls; use `resolveActionSurface` separately to hide unavailable tools
+   * from an interactive request.
+   */
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
   mcp?: AgentChatMcpOptions;
 

@@ -12,55 +12,92 @@ function keydown(init: KeyboardEventInit) {
 }
 
 function shouldForwardShowShortcutsChord(e: KeyboardEvent) {
-  if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
+  if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return false;
   return e.key === "?" || e.key === "/";
+}
+
+function withNavigatorPlatform(platform: string, run: () => void) {
+  const ownDescriptor = Object.getOwnPropertyDescriptor(navigator, "platform");
+  Object.defineProperty(navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+  try {
+    run();
+  } finally {
+    if (ownDescriptor) {
+      Object.defineProperty(navigator, "platform", ownDescriptor);
+    } else {
+      Reflect.deleteProperty(navigator, "platform");
+    }
+  }
 }
 
 describe("show-keyboard-shortcuts hotkey", () => {
   it("matches the macOS chord, which arrives as '/' not '?'", () => {
-    expect(
-      isShowKeyboardShortcutsHotkey(
-        keydown({ key: "/", code: "Slash", ctrlKey: true, shiftKey: true }),
-      ),
-    ).toBe(true);
+    withNavigatorPlatform("MacIntel", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({ key: "/", code: "Slash", metaKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("matches the Windows chord, which arrives as '?'", () => {
-    expect(
-      isShowKeyboardShortcutsHotkey(
-        keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
-      ),
-    ).toBe(true);
+    withNavigatorPlatform("Win32", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("matches the macOS Control chord, which arrives as '?'", () => {
+    withNavigatorPlatform("MacIntel", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("matches the Command variant so a host-level ⌘⇧? still resolves", () => {
-    expect(
-      isShowKeyboardShortcutsHotkey(
-        keydown({ key: "/", code: "Slash", metaKey: true, shiftKey: true }),
-      ),
-    ).toBe(true);
+    withNavigatorPlatform("MacIntel", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({ key: "/", code: "Slash", metaKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("ignores the chord without Shift", () => {
-    expect(
-      isShowKeyboardShortcutsHotkey(
-        keydown({ key: "/", code: "Slash", ctrlKey: true }),
-      ),
-    ).toBe(false);
+    withNavigatorPlatform("Win32", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({ key: "/", code: "Slash", ctrlKey: true }),
+        ),
+      ).toBe(false);
+    });
   });
 
   it("ignores the chord with Alt held", () => {
-    expect(
-      isShowKeyboardShortcutsHotkey(
-        keydown({
-          key: "/",
-          code: "Slash",
-          ctrlKey: true,
-          shiftKey: true,
-          altKey: true,
-        }),
-      ),
-    ).toBe(false);
+    withNavigatorPlatform("Win32", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({
+            key: "/",
+            code: "Slash",
+            ctrlKey: true,
+            shiftKey: true,
+            altKey: true,
+          }),
+        ),
+      ).toBe(false);
+    });
   });
 
   it("ignores a bare slash so typing '/' never opens the panel", () => {
@@ -70,35 +107,41 @@ describe("show-keyboard-shortcuts hotkey", () => {
   });
 
   it("still matches auto-repeat, leaving repeat filtering to the caller", () => {
-    expect(
-      isShowKeyboardShortcutsHotkey(
-        keydown({
-          key: "/",
-          code: "Slash",
-          ctrlKey: true,
-          shiftKey: true,
-          repeat: true,
-        }),
-      ),
-    ).toBe(true);
+    withNavigatorPlatform("Win32", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({
+            key: "/",
+            code: "Slash",
+            ctrlKey: true,
+            shiftKey: true,
+            repeat: true,
+          }),
+        ),
+      ).toBe(true);
+    });
   });
 });
 
 describe("canvas iframe forwarding", () => {
   it("forwards the macOS chord out of the iframe", () => {
-    expect(
-      shouldForwardShowShortcutsChord(
-        keydown({ key: "/", code: "Slash", ctrlKey: true, shiftKey: true }),
-      ),
-    ).toBe(true);
+    withNavigatorPlatform("MacIntel", () => {
+      expect(
+        shouldForwardShowShortcutsChord(
+          keydown({ key: "/", code: "Slash", metaKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("forwards the Windows chord out of the iframe", () => {
-    expect(
-      shouldForwardShowShortcutsChord(
-        keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
-      ),
-    ).toBe(true);
+    withNavigatorPlatform("Win32", () => {
+      expect(
+        shouldForwardShowShortcutsChord(
+          keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("does not forward a bare slash typed inside the canvas", () => {
@@ -108,20 +151,23 @@ describe("canvas iframe forwarding", () => {
   });
 
   it("agrees with the host matcher on every case", () => {
-    const cases: KeyboardEventInit[] = [
-      { key: "/", ctrlKey: true, shiftKey: true },
-      { key: "?", ctrlKey: true, shiftKey: true },
-      { key: "/", metaKey: true, shiftKey: true },
-      { key: "/", ctrlKey: true },
-      { key: "/", ctrlKey: true, shiftKey: true, altKey: true },
-      { key: "/" },
-      { key: "a", ctrlKey: true, shiftKey: true },
+    const cases: Array<[string, KeyboardEventInit]> = [
+      ["Win32", { key: "/", ctrlKey: true, shiftKey: true }],
+      ["Win32", { key: "?", ctrlKey: true, shiftKey: true }],
+      ["MacIntel", { key: "/", metaKey: true, shiftKey: true }],
+      ["MacIntel", { key: "?", ctrlKey: true, shiftKey: true }],
+      ["Win32", { key: "/", ctrlKey: true }],
+      ["Win32", { key: "/", ctrlKey: true, shiftKey: true, altKey: true }],
+      ["Win32", { key: "/" }],
+      ["Win32", { key: "a", ctrlKey: true, shiftKey: true }],
     ];
-    for (const init of cases) {
-      const event = keydown({ code: "Slash", ...init });
-      expect(shouldForwardShowShortcutsChord(event)).toBe(
-        isShowKeyboardShortcutsHotkey(event),
-      );
+    for (const [platform, init] of cases) {
+      withNavigatorPlatform(platform, () => {
+        const event = keydown({ code: "Slash", ...init });
+        expect(shouldForwardShowShortcutsChord(event)).toBe(
+          isShowKeyboardShortcutsHotkey(event),
+        );
+      });
     }
   });
 

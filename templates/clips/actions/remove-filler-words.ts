@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import {
   queueBackgroundAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
+import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
   description:
@@ -19,6 +20,19 @@ export default defineAction({
     await assertAccess("recording", args.recordingId, "editor");
 
     const db = getDb();
+    const [recording] = await db
+      .select()
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    assertNativeRecordingMedia(recording);
+
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)

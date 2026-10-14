@@ -1,5 +1,5 @@
 /**
- * Lightweight hit-test bridge — injected into every inline canvas iframe so the
+ * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
  * parent editor can resolve drop-anchor positions via postMessage without a full
  * editor-chrome bridge in non-edit views (e.g. multi-screen overview).
  *
@@ -56,10 +56,13 @@
  * comments there).
  *
  * Rules:
- *   • No import/require of any module (DOM globals only).
+ *   • Imports only from BRIDGE_SAFE_IMPORTS in bridge.guard.spec.ts, which
+ *     codegen inlines; no runtime module lookup survives code generation.
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.
  */
+import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
+
 (function () {
   type HitTestRect = {
     left: number;
@@ -181,7 +184,7 @@
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        !INLINE_TEXT_TAGS.has(childTag) &&
         BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
       ) {
         return false;
@@ -251,6 +254,113 @@
     return size.width >= sourceWidth && size.height >= sourceHeight;
   }
 
+  function dropCanGrowContentSizedAutoLayout(
+    container: Element,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): boolean {
+    var html = container as HTMLElement;
+    var elementStyle = html.style;
+    var computedStyle = window.getComputedStyle(container);
+    if (
+      computedStyle.display !== "flex" &&
+      computedStyle.display !== "inline-flex"
+    ) {
+      return false;
+    }
+    var currentSize = dropContentSize(container);
+    var rect = container.getBoundingClientRect();
+    function computedPixels(value: string | undefined): number | undefined {
+      var match = /^\s*(\d+(?:\.\d+)?)px\s*$/i.exec(String(value || ""));
+      var parsed = match?.[1] ? Number(match[1]) : Number.NaN;
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    function contentCapacity(cssPixels: number, axis: "width" | "height") {
+      var scale =
+        axis === "width"
+          ? html.offsetWidth
+            ? rect.width / html.offsetWidth
+            : 1
+          : html.offsetHeight
+            ? rect.height / html.offsetHeight
+            : 1;
+      var insets = 0;
+      if (computedStyle.boxSizing === "border-box") {
+        var paddingBefore = computedPixels(
+          axis === "width"
+            ? computedStyle.paddingLeft
+            : computedStyle.paddingTop,
+        );
+        var paddingAfter = computedPixels(
+          axis === "width"
+            ? computedStyle.paddingRight
+            : computedStyle.paddingBottom,
+        );
+        var borderBefore = computedPixels(
+          axis === "width"
+            ? computedStyle.borderLeftWidth
+            : computedStyle.borderTopWidth,
+        );
+        var borderAfter = computedPixels(
+          axis === "width"
+            ? computedStyle.borderRightWidth
+            : computedStyle.borderBottomWidth,
+        );
+        if (
+          paddingBefore === undefined ||
+          paddingAfter === undefined ||
+          borderBefore === undefined ||
+          borderAfter === undefined
+        ) {
+          return -1;
+        }
+        insets = paddingBefore + paddingAfter + borderBefore + borderAfter;
+      }
+      return Math.max(0, cssPixels - insets) * scale;
+    }
+    function axisCanGrow(
+      axis: "width" | "height",
+      required: number,
+      current: number,
+    ): boolean {
+      if (current >= required) return true;
+      var authored = String(elementStyle[axis] || "")
+        .trim()
+        .toLowerCase();
+      var fitContentArgument = /^fit-content\((.+)\)$/.exec(authored);
+      if (
+        authored !== "fit-content" &&
+        authored !== "max-content" &&
+        !fitContentArgument
+      ) {
+        return false;
+      }
+      if (fitContentArgument) {
+        var fitLimit = computedPixels(fitContentArgument[1]);
+        if (
+          fitLimit === undefined ||
+          contentCapacity(fitLimit, axis) < required
+        ) {
+          return false;
+        }
+      }
+      var maxProperty: "maxWidth" | "maxHeight" =
+        axis === "width" ? "maxWidth" : "maxHeight";
+      var maximum = String(computedStyle[maxProperty] || "none")
+        .trim()
+        .toLowerCase();
+      if (!maximum || maximum === "none") return true;
+      var maxPixels = computedPixels(maximum);
+      return Boolean(
+        maxPixels !== undefined && contentCapacity(maxPixels, axis) >= required,
+      );
+    }
+    return (
+      axisCanGrow("width", sourceWidth, currentSize.width) &&
+      axisCanGrow("height", sourceHeight, currentSize.height)
+    );
+  }
+
   function dropFitsAutoLayoutFallback(
     container: Element,
     sourceWidth: number,
@@ -258,7 +368,12 @@
   ): boolean {
     // Direct targets fit both axes; only ancestor fallback may use flex's main
     // axis.
-    if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
+    if (
+      dropFitsContainer(container, sourceWidth, sourceHeight) ||
+      dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight)
+    ) {
+      return true;
+    }
     var style = window.getComputedStyle(container);
     var singleLineFlex =
       (style.display === "flex" || style.display === "inline-flex") &&
@@ -1458,6 +1573,11 @@
     }
     if (
       dropFitsContainer(
+        container,
+        sourceElementSize.width,
+        sourceElementSize.height,
+      ) ||
+      dropCanGrowContentSizedAutoLayout(
         container,
         sourceElementSize.width,
         sourceElementSize.height,

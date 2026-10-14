@@ -25,6 +25,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
+import { readMotionTextDocument } from "../shared/motion-text-code.js";
+
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -310,6 +313,7 @@ import {
 
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import action from "./apply-motion-edit.js";
+import getMotionTimeline from "./get-motion-timeline.js";
 
 function currentFileRef(): FileRow {
   const row = designFilesStore.rows.get(FILE_ID);
@@ -354,7 +358,342 @@ beforeEach(() => {
   seedFile(baseDoc());
 });
 
+const captionTextDocument = {
+  version: 1 as const,
+  animations: [
+    {
+      targetNodeId: "node-caption",
+      unit: "word" as const,
+      direction: "forward" as const,
+      staggerMs: 40,
+      property: "opacity" as const,
+      durationMs: 320,
+      keyframes: [
+        { t: 0, value: "0", ease: "ease-out" },
+        { t: 1, value: "1" },
+      ],
+    },
+  ],
+};
+
+const animationStyles = [
+  {
+    id: "fade-in",
+    name: "Fade In",
+    category: "enter" as const,
+    tracks: [
+      {
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  },
+];
+
 describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
+  it("saves the filter Text property and hidden style tracks through the action schema", async () => {
+    const textDocument = {
+      ...captionTextDocument,
+      animations: [
+        {
+          ...captionTextDocument.animations[0],
+          property: "filter" as const,
+          keyframes: [
+            { t: 0, value: "blur(4px)", ease: "ease-out" },
+            { t: 1, value: "blur(0px)" },
+          ],
+        },
+      ],
+    };
+    const hiddenStyles = [
+      {
+        ...animationStyles[0],
+        id: "hidden-fade",
+        tracks: [
+          {
+            ...animationStyles[0].tracks[0],
+            enabled: false,
+          },
+        ],
+      },
+    ];
+    const input = action.schema.parse({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      animationStyles: hiddenStyles,
+      durationMs: 600,
+    });
+
+    const saved = await action.run(input);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({
+      textAnimationCount: 1,
+      animationStyleCount: 1,
+    });
+    expect(readback.timelines[0]).toMatchObject({
+      textDocument,
+      animationStyles: hiddenStyles,
+    });
+  });
+
+  it("persists and reads a text-only timeline from managed inline HTML source", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument: captionTextDocument,
+      durationMs: 600,
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved.trackCount).toBe(0);
+    expect(saved.textAnimationCount).toBe(1);
+    expect(readback.timelines).toHaveLength(1);
+    expect(readback.timelines[0]).toMatchObject({
+      tracks: [],
+      textDocument: captionTextDocument,
+      durationMs: 600,
+      compiledHash: saved.compiledHash,
+      cssHash: saved.compiledHash,
+    });
+    expect(currentFileRef().content).toContain(
+      'data-agent-native-motion-text-source="v1"',
+    );
+    expect(currentFileRef().content).toContain(
+      'data-agent-native-motion-text-runtime="v1"',
+    );
+  });
+
+  it("renders native TextStagger while reading authored text tracks separately", async () => {
+    const baseStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    const nativeStyle = {
+      ...baseStyle,
+      props: {
+        ...baseStyle.props,
+        textDelayGrouping: "WORD",
+        presetStaggerOverlap: 92,
+        blurEnabled: true,
+      },
+    };
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument: captionTextDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+    const sourceText = readMotionTextDocument(currentFileRef().content);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({
+      textAnimationCount: 1,
+      sourcePatched: false,
+      persisted: true,
+    });
+    expect(sourceText.status).toBe("valid");
+    if (sourceText.status === "valid") {
+      expect(sourceText.document.animations).toHaveLength(3);
+      expect(
+        sourceText.document.animations.map(({ property }) => property),
+      ).toEqual(["opacity", "filter", "translate"]);
+    }
+    expect(readback.timelines[0]).toMatchObject({
+      textDocument: captionTextDocument,
+      nativeStyles: [nativeStyle],
+    });
+  });
+
+  it("source-backs audio clips, preserves them when omitted, and clears them explicitly", async () => {
+    const audioClips = [
+      {
+        id: "ambient-track",
+        name: "ambient.mp3",
+        sourceUrl: "/_agent-native/file-upload/audio/ambient.mp3",
+        timelineStartMs: 900,
+        sourceTrimStartMs: 120,
+        durationMs: 600,
+        volume: 0.65,
+        muted: false,
+      },
+    ];
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      audioClips,
+      durationMs: 500,
+    } as never);
+    const firstRead = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({ audioClipCount: 1, audioClips });
+    expect(firstRead.timelines[0]).toMatchObject({
+      audioClips,
+      durationMs: 1500,
+    });
+    expect(currentFileRef().content).toContain(
+      encodeURIComponent(audioClips[0].sourceUrl),
+    );
+    expect(currentFileRef().content).not.toContain("ID3");
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 500,
+    } as never);
+    const preserved = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(preserved.timelines[0].audioClips).toEqual(audioClips);
+
+    const clearedSave = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      audioClips: [],
+      durationMs: 500,
+    } as never);
+    const cleared = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(clearedSave.audioClipCount).toBe(0);
+    expect(cleared.timelines[0].audioClips).toEqual([]);
+  });
+
+  it("preserves a source style library in an empty-tracks inline timeline", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      animationStyles,
+      durationMs: 500,
+    } as never);
+
+    const cleared = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      durationMs: 500,
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved.animationStyleCount).toBe(1);
+    expect(cleared).toMatchObject({ trackCount: 0, animationStyleCount: 1 });
+    expect(motionTimelineStore.rows.size).toBe(1);
+    expect(readback.timelines[0]).toMatchObject({
+      tracks: [],
+      animationStyles,
+      source: "stored",
+    });
+  });
+
+  it("preserves or removes text source explicitly without dropping CSS tracks", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      textDocument: captionTextDocument,
+      durationMs: 600,
+    } as never);
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 800,
+    } as never);
+    const preserved = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(preserved.timelines[0]).toMatchObject({
+      tracks: oneTrack(),
+      textDocument: captionTextDocument,
+    });
+
+    const cleared = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      textDocument: null,
+      durationMs: 800,
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved.trackCount).toBe(1);
+    expect(cleared.trackCount).toBe(1);
+    expect(cleared.textAnimationCount).toBe(0);
+    expect(readback.timelines[0]).toMatchObject({
+      tracks: oneTrack(),
+      textDocument: null,
+    });
+    expect(currentFileRef().content).not.toContain(
+      "data-agent-native-motion-text-",
+    );
+    expect(currentFileRef().content).toContain("data-agent-native-motion");
+  });
+
+  it("rejects an empty CSS-only timeline rather than persisting a no-op", async () => {
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: [],
+      } as never),
+    ).rejects.toThrow(
+      /must contain a Text animation, a saved Motion style, or a native Figma style/,
+    );
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(currentFileRef().content).not.toContain("data-agent-native-motion");
+  });
+
+  it("keeps React/JSX source writes unavailable", async () => {
+    const file = designFilesStore.rows.get(FILE_ID);
+    if (!file) throw new Error("file not seeded");
+    file.filename = "src/App.tsx";
+    file.fileType = "tsx";
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+      } as never),
+    ).rejects.toThrow(/React and JSX source writes are unavailable/);
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(currentFileRef().content).not.toContain("data-agent-native-motion");
+  });
+
   it("persists the managed motion <style> block through writeInlineSourceFile (collab doc updated, not just SQL)", async () => {
     const result = await action.run({
       designId: DESIGN_ID,
@@ -374,6 +713,94 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
 
     const sqlRow = currentFileRef();
     expect(sqlRow.content).toBe(collabContent);
+  });
+
+  it("reads the exact timeline back from source after saving it", async () => {
+    const tracks = [
+      {
+        targetNodeId: "node-hero",
+        property: "opacity",
+        delayMs: 125,
+        durationMs: 750,
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 0.5, value: "0.65", ease: "linear" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks,
+      durationMs: 2400,
+      playbackMode: "ping-pong",
+      defaultEase: "ease-in-out",
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(readback.count).toBe(1);
+    expect(readback.timelines[0]).toMatchObject({
+      id: saved.timelineId,
+      sourceRef: FILE_ID,
+      tracks: [
+        {
+          targetNodeId: "node-hero",
+          property: "opacity",
+          delayMs: 125,
+          durationMs: 750,
+          timelinePlaybackMode: "ping-pong",
+          keyframes: tracks[0].keyframes,
+        },
+      ],
+      durationMs: 2400,
+      playbackMode: "ping-pong",
+      defaultEase: "ease-in-out",
+      compiledHash: saved.compiledHash,
+      cssHash: saved.compiledHash,
+      source: "stored",
+    });
+  });
+
+  it("prefers newer collaboration source metadata over a stale SQL snapshot", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 500,
+    } as never);
+
+    const savedSqlContent = currentFileRef().content;
+    const newerLiveContent = savedSqlContent.replace(
+      "%22durationMs%22%3A500",
+      "%22durationMs%22%3A750",
+    );
+    expect(newerLiveContent).not.toBe(savedSqlContent);
+    await applyText(FILE_ID, newerLiveContent, "content", "agent");
+
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(readback.timelines[0]).toMatchObject({
+      durationMs: 750,
+      source: "stored-css-drift",
+    });
+
+    const readbackById = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      timelineId: saved.timelineId,
+    } as never);
+    expect(readbackById.timeline).toMatchObject({
+      durationMs: 750,
+      source: "stored-css-drift",
+    });
+    expect(currentFileRef().content).toBe(savedSqlContent);
   });
 
   it("a concurrent sibling collab write landing between the base read and the persist is NOT silently dropped — both changes survive", async () => {
@@ -454,17 +881,21 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(finalLive.content).toContain("Caption text (edited concurrently)");
   });
 
-  it("does not write HTML content when the motion_timeline row already reflects the same tracks and contentPatched is false (no managed style seam present)", async () => {
-    seedFile("just some opaque non-HTML content blob");
+  it("rejects unsupported source content before persisting a timeline row", async () => {
+    const original = "just some opaque non-HTML content blob";
+    seedFile(original);
 
-    const result = await action.run({
-      designId: DESIGN_ID,
-      fileId: FILE_ID,
-      tracks: oneTrack(),
-      durationMs: 500,
-    } as never);
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 500,
+      } as never),
+    ).rejects.toThrow(/^motion_source_write_unavailable:/);
 
-    expect(result.contentPatched).toBe(false);
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(currentFileRef().content).toBe(original);
     expect(await hasCollabState(FILE_ID)).toBe(false);
     expect(agentEnterDocument).not.toHaveBeenCalled();
   });

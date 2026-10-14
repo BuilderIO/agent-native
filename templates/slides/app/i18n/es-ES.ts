@@ -281,10 +281,21 @@ const messages = {
     convertMermaidFailed: "No se pudo convertir el diagrama",
     removeExcalidrawCanvas: "Eliminar lienzo de Excalidraw",
     transition: "Transición",
-    transition_instant: "Instantánea",
+    transition_none: "Ninguna",
+    transition_dissolve: "Disolver",
     transition_fade: "Fundido",
-    transition_slide: "Deslizar",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Deslizar desde la derecha",
+    transition_slide_from_left: "Deslizar desde la izquierda",
+    transition_flip: "Giro",
+    transition_cube: "Cubo",
+    transition_gallery: "Galería",
+    transition_panel: "Transición de diapositiva",
+    transition_speed: "Velocidad",
+    transition_slow: "Lenta",
+    transition_fast: "Rápida",
+    transition_seconds: "{{seconds}} seg",
+    transition_apply_all: "Aplicar a todas las diapositivas",
+    transition_play: "Reproducir transición",
     aspectRatio: "Relación de aspecto",
     setAspectRatio: "Cambiar deck a {{ratio}}",
     slideTools: "Herramientas de diapositiva",
@@ -604,7 +615,6 @@ const messages = {
     selectObject: "Selecciona un objeto para animarlo",
     addTransition: "Añadir transición",
     effect: "Efecto",
-    trigger: "Activador",
     onClick: "Al hacer clic",
     byParagraph: "Por párrafo",
     expand: "Expandir transición",
@@ -615,6 +625,12 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Este objeto ya no está en la diapositiva.",
+    issueMissingElement: "No se pudo encontrar este objeto en la diapositiva.",
+    issueDuplicate: "Esta animación se superpone con otra de la diapositiva.",
+    blocked:
+      "Quita o corrige la animación sin resolver para guardar o reproducir.",
+    changeNotApplied: "Este cambio no se aplicó.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -800,7 +816,12 @@ const messages = {
     generationFailed:
       "No se crearon diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
     generationOutcomeUnresolved:
-      "No pudimos confirmar si se crearon las diapositivas. Revisa la presentación o el chat y vuelve a intentarlo.",
+      "No pudimos confirmar si se crearon las diapositivas. Revisa la presentación antes de volver a intentarlo.",
+    partialGenerationFailed:
+      "No pudimos terminar de crear las diapositivas. Revisa las que ya están aquí y tu solicitud original antes de continuar.",
+    originalPrompt: "Lo que pediste",
+    backToHome: "Volver al inicio",
+    checkedDeckTryAgain: "He revisado la presentación. Reintentar",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -837,7 +858,7 @@ const messages = {
     sourceMixed: "Varias fuentes",
     sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
     sourceIndexingDescription:
-      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+      "Aún se está preparando el estilo de tu marca. Espera a que esté listo y vuelve a intentarlo.",
     sourceIndexedDescription:
       "{{docs}} documentos · {{tokens}} tokens indexados",
     sourceIndexedDocsOnly: "{{docs}} documentos indexados",
@@ -1050,6 +1071,8 @@ const messages = {
     generationStartFailed: "No se pudo iniciar la generación del deck",
     generationStartFailedDescription:
       "El nuevo deck no terminó de guardarse, así que el agente no se inició sobre un deck faltante. Tu prompt se guardó para que puedas intentarlo de nuevo.",
+    generationContextUnavailableDescription:
+      "No pudimos cargar el estilo de tu marca o la presentación de referencia que elegiste. Comprueba que puedes abrirlo y que tu conexión a internet funciona; después, vuelve a intentarlo.",
     showAllDecks: "Mostrar todos los decks",
     all: "Todos",
     showMineDecks: "Mostrar decks creados por mí",

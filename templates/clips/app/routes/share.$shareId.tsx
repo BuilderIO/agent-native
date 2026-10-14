@@ -122,10 +122,10 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -851,8 +851,15 @@ export default function ShareRoute() {
     const hasMedia = isImageRecording(recording)
       ? Boolean(recording.imageUrl || recording.thumbnailUrl)
       : Boolean(recording.videoUrl);
-    const phase =
-      recording.status === "ready"
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
+    const phase = storageSetupFailure
+      ? "waiting-storage"
+      : recording.status === "ready"
         ? hasMedia
           ? "ready"
           : "processing"
@@ -863,7 +870,9 @@ export default function ShareRoute() {
       dismissProcessingToast();
     }
     const transition = recordingProcessingTransition(previous, current);
-    if (transition === "processing") {
+    if (transition === "dismissed") {
+      dismissProcessingToast();
+    } else if (transition === "processing") {
       startProcessingToast(
         phase === "uploading"
           ? t("sharePage.uploadingAssembling")
@@ -880,6 +889,8 @@ export default function ShareRoute() {
     dismissProcessingToast,
     failProcessingToast,
     recording?.id,
+    recording?.failureReason,
+    recording?.sourceAppName,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,
@@ -1421,7 +1432,10 @@ export default function ShareRoute() {
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure =
@@ -1491,6 +1505,7 @@ export default function ShareRoute() {
           {storageSetupFailure && canManageStorage ? (
             <div className="mb-4 w-full">
               <StorageSetupCard
+                connectSource="clips_share_page_storage_setup_card"
                 title={t("sharePage.connectStorageFinishSaving")}
                 description={t("sharePage.chooseStorageCheck")}
                 connectedDescription={t("sharePage.storageConnectedChecking")}

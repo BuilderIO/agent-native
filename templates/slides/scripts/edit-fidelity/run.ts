@@ -22,6 +22,8 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  authoringFuzzBrowserSessionCorsHeaders,
+  authoringFuzzBrowserSessionResponse,
   authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
@@ -31,6 +33,7 @@ import {
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
+  recordCleanupRequestOutcome,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -5403,30 +5406,78 @@ async function runAuthoringFuzzQa(
       any,
       { page: Page; startedAt: number }
     >();
+    const cleanupRequestFinishedAt = new WeakMap<any, number>();
+    let cleanupNavigationStarted = false;
+    let cleanupNavigationCompetingClaimStarted = false;
+    let cleanupNavigationCompetingRegistrationStarted = false;
+    const cleanupNavigationCompetingRequestUrls = new Set<string>();
+    const isBrowserSessionRequest = (request: any) =>
+      /^\/_agent-native\/browser-sessions(?:\/|$)/.test(
+        new URL(request.url()).pathname,
+      );
+    const isBrowserSessionClaimRequest = (request: any) =>
+      request.method() === "POST" &&
+      /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+        new URL(request.url()).pathname,
+      );
+    const isBrowserSessionRegistrationRequest = (request: any) =>
+      request.method() === "POST" &&
+      (/^\/_agent-native\/browser-sessions$/.test(
+        new URL(request.url()).pathname,
+      ) ||
+        /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/.test(
+          new URL(request.url()).pathname,
+        ));
     const cleanupRequestTrackingPages = new Map<
       Page,
       {
         onRequest: (request: any) => void;
-        onRequestSettled: (request: any) => void;
+        onRequestFinished: (request: any) => void;
+        onRequestFailed: (request: any) => void;
       }
     >();
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
+        if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
+          cleanupNavigationCompetingRequestUrls.add(request.url());
+          if (isBrowserSessionClaimRequest(request)) {
+            cleanupNavigationCompetingClaimStarted = true;
+          }
+          if (isBrowserSessionRegistrationRequest(request)) {
+            cleanupNavigationCompetingRegistrationStarted = true;
+          }
+        }
         cleanupRequestStartTimes.set(request, {
           page: target,
           startedAt: Date.now(),
         });
       };
-      const onRequestSettled = (request: any) => {
+      const onRequestFinished = (request: any) => {
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "finished",
+          Date.now(),
+        );
+        cleanupRequestStartTimes.delete(request);
+      };
+      const onRequestFailed = (request: any) => {
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "failed",
+          Date.now(),
+        );
         cleanupRequestStartTimes.delete(request);
       };
       target.on("request", onRequest);
-      target.on("requestfinished", onRequestSettled);
-      target.on("requestfailed", onRequestSettled);
+      target.on("requestfinished", onRequestFinished);
+      target.on("requestfailed", onRequestFailed);
       cleanupRequestTrackingPages.set(target, {
         onRequest,
-        onRequestSettled,
+        onRequestFinished,
+        onRequestFailed,
       });
     };
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
@@ -5601,13 +5652,14 @@ async function runAuthoringFuzzQa(
       const monitoredPages = new Set<Page>();
       const recoveryPages = new Set<Page>();
       let cleanupNavigationCandidates: Array<{
+        request: any;
         url: string;
         pathname: string;
         method: string;
         startedAt: number;
+        sameOrigin: boolean;
         requestWasPendingAtNavigation: true;
       }> = [];
-      let cleanupNavigationPending = false;
       let recoveryPage: Page | null = stableCleanupPage;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
@@ -5632,21 +5684,36 @@ async function runAuthoringFuzzQa(
       const getCleanupNavigationCandidates = () => {
         const now = Date.now();
         return cleanupNavigationCandidates.map(
-          ({ startedAt, ...candidate }) => ({
-            ...candidate,
-            ageMs: now - startedAt,
-          }),
+          ({ request, startedAt, ...candidate }) => {
+            const finishedAt = cleanupRequestFinishedAt.get(request);
+            return {
+              ...candidate,
+              ageMs: now - startedAt,
+              ...(finishedAt === undefined
+                ? {}
+                : {
+                    requestFinishedSuccessfully: true,
+                    settledAgeMs: now - finishedAt,
+                  }),
+              competingRequestStartedAfterNavigation:
+                cleanupNavigationCompetingRequestUrls.has(candidate.url),
+              competingClaimStartedAfterNavigation:
+                cleanupNavigationCompetingClaimStarted,
+              competingRegistrationStartedAfterNavigation:
+                cleanupNavigationCompetingRegistrationStarted,
+            };
+          },
         );
       };
       const isExpectedCleanupNavigationError = (
         message: string,
         candidates = getCleanupNavigationCandidates(),
-        navigationPending = cleanupNavigationPending,
+        navigationStarted = cleanupNavigationStarted,
       ) => {
         return isExpectedCleanupNavigationRequestError(
           message,
           candidates,
-          navigationPending,
+          navigationStarted,
         );
       };
       if (authoringSucceeded && page && !page.isClosed()) {
@@ -5665,23 +5732,23 @@ async function runAuthoringFuzzQa(
         if (message.type() === "error") {
           const text = message.text();
           if (
-            !cleanupNavigationPending ||
+            !cleanupNavigationStarted ||
             !isFirefoxBrowserSessionConsoleError(text)
           ) {
             if (isExpectedCleanupNavigationError(text)) return;
             cleanupErrors.push(`console: ${text}`);
             return;
           }
-          const candidates = getCleanupNavigationCandidates();
-          const navigationPending = cleanupNavigationPending;
+          const candidatesAtEvent = getCleanupNavigationCandidates();
+          const navigationStartedAtEvent = cleanupNavigationStarted;
           let inspection: Promise<void>;
           inspection = normalizeFirefoxBrowserSessionConsoleError(message)
             .then((normalized) => {
               if (
                 isExpectedCleanupNavigationError(
                   normalized,
-                  candidates,
-                  navigationPending,
+                  candidatesAtEvent,
+                  navigationStartedAtEvent,
                 )
               ) {
                 return;
@@ -5846,36 +5913,34 @@ async function runAuthoringFuzzQa(
           }
           try {
             const cleanupPage = await getCleanupPage();
+            const cleanupUrl = new URL(cleanupPage.url());
             cleanupNavigationCandidates = [
               ...cleanupRequestStartTimes.entries(),
             ]
               .filter(([, request]) => request.page === cleanupPage)
               .map(([request, { startedAt }]) => {
                 const url = request.url();
+                const requestUrl = new URL(url);
                 return {
+                  request,
                   url,
-                  pathname: new URL(url).pathname,
+                  pathname: requestUrl.pathname,
                   method: request.method(),
                   startedAt,
+                  sameOrigin: requestUrl.origin === cleanupUrl.origin,
                   requestWasPendingAtNavigation: true as const,
                 };
               });
-            const cleanupUrl = new URL(cleanupPage.url());
             const homeUrl = new URL(`${base}/home`);
             if (
               cleanupUrl.origin !== homeUrl.origin ||
               cleanupUrl.pathname !== homeUrl.pathname
             ) {
-              cleanupNavigationPending = true;
-              try {
-                await cleanupPage.goto(`${base}/home`, {
-                  waitUntil: "domcontentloaded",
-                  timeout: 120_000,
-                });
-              } finally {
-                cleanupNavigationPending = false;
-                cleanupNavigationCandidates = [];
-              }
+              cleanupNavigationStarted = true;
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
             }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
@@ -5897,8 +5962,8 @@ async function runAuthoringFuzzQa(
         for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
           if (trackedPage.isClosed()) continue;
           trackedPage.off("request", listeners.onRequest);
-          trackedPage.off("requestfinished", listeners.onRequestSettled);
-          trackedPage.off("requestfailed", listeners.onRequestSettled);
+          trackedPage.off("requestfinished", listeners.onRequestFinished);
+          trackedPage.off("requestfailed", listeners.onRequestFailed);
         }
       }
       const closePage = async (target: Page, label: string) => {
@@ -5912,6 +5977,7 @@ async function runAuthoringFuzzQa(
       while (pendingCleanupConsoleInspections.size) {
         await Promise.all([...pendingCleanupConsoleInspections]);
       }
+      cleanupNavigationCandidates = [];
       if (page) await closePage(page, "could not close authoring page");
       for (const cleanupPage of recoveryPages) {
         await closePage(cleanupPage, "could not close recovery page");
@@ -7267,6 +7333,42 @@ async function main() {
       viewport: { width: 1600, height: 1000 },
       deviceScaleFactor: 1,
     });
+    if (authoringFuzzOnly) {
+      // Fuzz covers slide authoring, not an idle host session's long poll.
+      await context.route(
+        "**/_agent-native/browser-sessions**",
+        async (route: any) => {
+          const request = route.request();
+          const corsHeaders = authoringFuzzBrowserSessionCorsHeaders(
+            request.headers().origin,
+          );
+          if (request.method() === "OPTIONS") {
+            await route.fulfill({ status: 204, headers: corsHeaders });
+            return;
+          }
+          const requestBody =
+            request.method() === "POST" && request.postData()
+              ? request.postDataJSON()
+              : undefined;
+          const response = authoringFuzzBrowserSessionResponse(
+            request.method(),
+            new URL(request.url()).pathname,
+            requestBody,
+          );
+          await route.fulfill({
+            status: response ? (response.ok ? 200 : 400) : 501,
+            contentType: "application/json",
+            headers: corsHeaders,
+            body: JSON.stringify(
+              response ?? {
+                ok: false,
+                error: "Unexpected browser-session request in authoring fuzz",
+              },
+            ),
+          });
+        },
+      );
+    }
     // The local app can still be compiling when a new page first opens /home.
     context.setDefaultNavigationTimeout(120_000);
     // Observe link failures before the app starts injecting slide stylesheets.

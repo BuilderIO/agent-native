@@ -82,6 +82,42 @@ describe("PresentationView keyboard shortcuts", () => {
     expect(screen.getByText("2 / 2")).toBeTruthy();
   });
 
+  it("steps once for a held key, ignoring its auto-repeat keydowns", () => {
+    // Three slides: a double step must be visible, not clamped at the last one.
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        repeat: true,
+        bubbles: true,
+      }),
+    );
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        repeat: true,
+        bubbles: true,
+      }),
+    );
+
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+  });
+
   it("keeps fullscreen, presenter, and exit shortcuts available to focused video", () => {
     render(
       <MemoryRouter>
@@ -180,71 +216,38 @@ describe("PresentationView paragraph animations", () => {
       "First",
       "Second",
     ]);
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="0"] { opacity: 0; pointer-events: none; }',
-    );
-
+    const revealed = () =>
+      Array.from(rendered.querySelectorAll("[data-pstep]")).map(
+        (step) => step.getAttribute("data-pstep-state") !== "hidden",
+      );
     const previous = screen.getByRole("button", {
       name: "presentation.previousSlide",
-    });
-    const clickNext = () =>
-      fireEvent.click(
-        screen.getByRole("button", { name: "presentation.nextSlide" }),
-      );
-    expect((previous as HTMLButtonElement).disabled).toBe(true);
+    }) as HTMLButtonElement;
+    const next = () =>
+      screen.getByRole("button", {
+        name: "presentation.nextSlide",
+      }) as HTMLButtonElement;
+    expect(revealed()).toEqual([false, false, false, false]);
+    expect(previous.disabled).toBe(true);
 
-    clickNext();
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, false, false, false]);
 
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="0"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
-    );
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="1"] { opacity: 0; pointer-events: none; }',
-    );
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, true, false, false]);
+    expect(next().disabled).toBe(false);
 
-    clickNext();
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="1"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
-    );
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="2"] { opacity: 0; pointer-events: none; }',
-    );
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, true, true, false]);
+    expect(previous.disabled).toBe(false);
 
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "presentation.nextSlide",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
-    clickNext();
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="2"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
-    );
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="3"] { opacity: 0; pointer-events: none; }',
-    );
-    expect((previous as HTMLButtonElement).disabled).toBe(false);
-
-    clickNext();
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="3"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
-    );
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, true, true, true]);
 
     fireEvent.click(previous);
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="3"] { opacity: 0; pointer-events: none; }',
-    );
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="2"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
-    );
+    expect(revealed()).toEqual([true, true, true, false]);
 
     fireEvent.click(previous);
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="2"] { opacity: 0; pointer-events: none; }',
-    );
-    expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="1"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
-    );
+    expect(revealed()).toEqual([true, true, false, false]);
   });
 });

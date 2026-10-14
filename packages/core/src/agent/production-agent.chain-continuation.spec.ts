@@ -335,6 +335,36 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(dispatch.body.history).toBeUndefined();
   });
 
+  it("does not resend consumed approval selectors with a chained continuation", async () => {
+    const h = makeHarness();
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "send-email",
+        id: "call-send-email",
+        input: {},
+        result: "sent",
+        completedSideEffect: true,
+      },
+      { type: "auto_continue", reason: "run_timeout" },
+    ]);
+
+    await runChain(h, {
+      run,
+      requestBody: {
+        message: "Approved. Continue.",
+        approvedToolCalls: ["send-email:{}"],
+        approvedToolCallAskIds: ["ask-send-email"],
+      },
+    });
+
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(payload.approvedToolCalls).toBeUndefined();
+    expect(payload.approvedToolCallAskIds).toBeUndefined();
+    expect(payload.internalContinuation).toBe(true);
+  });
+
   it("carries the no-progress streak to the successor so the breaker survives the chunk boundary", async () => {
     const h = makeHarness();
     await runChain(h, {

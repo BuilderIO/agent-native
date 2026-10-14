@@ -475,6 +475,8 @@ export async function loadPublicAgentAccess(
   if (!viewerIsOwner) {
     await recordAgentView(event, recording.id, {
       agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
+      ownerEmail: recording.ownerEmail,
+      viaScopedLink: tokenAccess?.ok === true,
     });
   }
 

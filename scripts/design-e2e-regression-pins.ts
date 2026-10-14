@@ -39,17 +39,14 @@ export const DESIGN_E2E_REGRESSION_PINS = [
   {
     shard: "inspector-1a",
     file: "canvas-invariants.spec.ts",
-    title: "a child of an auto-layout parent still reports real geometry",
+    title:
+      "a stretched child of an auto-layout column shows its laid-out width and height",
   },
   {
     shard: "inspector-1a",
     file: "canvas-invariants.spec.ts",
-    title: "deleting a layer removes it from the document",
-  },
-  {
-    shard: "inspector-1a",
-    file: "inspector-styles.spec.ts",
-    title: "text fills hide and restore without losing the original color",
+    title:
+      "Delete on a canvas-selected layer removes exactly that node from the saved document",
   },
   {
     shard: "inspector-1b",
@@ -65,12 +62,14 @@ export const DESIGN_E2E_REGRESSION_PINS = [
   {
     shard: "inspector-2",
     file: "canvas-invariants.spec.ts",
-    title: "X/Y match the element's real position, not 0,0",
+    title:
+      "an in-flow element inside nested auto layout with no frame ancestor shows its screen position, not 0,0",
   },
   {
     shard: "inspector-2",
     file: "canvas-invariants.spec.ts",
-    title: "setting X moves the element by exactly that amount",
+    title:
+      "typing X then Y moves Plain Box to exactly that position and changes nothing else",
   },
   {
     shard: "inspector-2",
@@ -91,40 +90,14 @@ export const DESIGN_E2E_REGRESSION_PINS = [
   },
   {
     shard: "inspector-3a",
-    file: "canvas-invariants.spec.ts",
-    title:
-      "Escape on a rect drawn inside a frame clears, and never lands on the screen",
-  },
-  {
-    shard: "inspector-3a",
     file: "inspector-styles.spec.ts",
     title: "resizing a selected element emits a visual-style-change payload",
-  },
-  {
-    shard: "inspector-3a",
-    file: "inspector-styles.spec.ts",
-    title: "can capture a screenshot of inspector coverage via CDP",
-  },
-  {
-    shard: "inspector-3b",
-    file: "canvas-invariants.spec.ts",
-    title: "basic authoring raises no uncaught page errors",
   },
   {
     shard: "inspector-3b",
     file: "inspector-styles.spec.ts",
     title:
       "pointercancel restores a scrubbed value without adding a history step",
-  },
-  {
-    shard: "inspector-4a",
-    file: "canvas-invariants.spec.ts",
-    title: "setting Y moves the element by exactly that amount",
-  },
-  {
-    shard: "inspector-4a",
-    file: "inspector-styles.spec.ts",
-    title: "search selects Lato Medium and keeps custom font names offline",
   },
   {
     shard: "inspector-4a",
@@ -197,11 +170,6 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "pasted-svg-image-inspector.spec.ts",
     title:
       "clipboard SVG File paste in the parent editor stays editable after reload",
-  },
-  {
-    shard: "position-1a",
-    file: "pasted-svg-image-inspector.spec.ts",
-    title: "rejected SVG HTML is consumed instead of inserted as native markup",
   },
   {
     shard: "position-1a",

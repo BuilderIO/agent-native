@@ -261,6 +261,8 @@ const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
 const AUTOFIT_MIN_ZOOM = DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM;
 const MAX_WHEEL_PAN_DELTA = 240;
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
+const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
+  "--an-breakpoint-label-gesture-visibility";
 const LIVE_EDITOR_ADMIT_IDLE_MS = 250;
 // Each costs a document on the main thread; this many skip a reboot on zoom-in.
 const WARM_LIVE_EDITORS = 3;
@@ -656,6 +658,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   interactMode = false,
   interactScreenId = null,
   focusedInteractViewport = null,
+  focusedInteractCornerClass = null,
   readOnly = false,
   editableScreenIds,
   previewDeviceFrame = "none",
@@ -770,6 +773,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const panHitTestShieldRef = useRef<HTMLDivElement | null>(null);
   const panGestureActiveRef = useRef(false);
+  // Interact hands the focused screen to the page: the camera takes no wheel,
+  // drag or key then, and cancels none of them.
+  const focusedInteractRef = useRef(false);
   const panPreviousCursorRef = useRef<string | null>(null);
   const initialCanvasFocusPendingRef = useRef(true);
   const initialCanvasFocusAttemptedRef = useRef(false);
@@ -5390,7 +5396,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const candidates = result.candidates;
           const target =
             mode === "pick"
-              ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
+              ? resolvePickTargetAtPoint({
+                  candidates,
+                  screenId: id,
+                  point,
+                  deep: Boolean(modifierKeys?.metaKey || modifierKeys?.ctrlKey),
+                })
               : resolveDrillInTarget({
                   candidates,
                   screenId: id,
@@ -9553,6 +9564,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (focusedInteractRef.current) return;
       if (isCanvasOverlayInteractionTarget(e.target)) return;
       claimKeyboardFocus();
       suppressNextPick.current = false;
@@ -9921,6 +9933,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       wheelGestureChromeConsumersRef.current = null;
       if (world) {
         world.style.willChange = "";
+        world.style.removeProperty(BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR);
         world.style.setProperty(
           CHROME_SCALE_CSS_VAR,
           String(zoomRef.current > 0 ? 100 / zoomRef.current : 1),
@@ -10046,8 +10059,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               )
             : (cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX),
           canvasPadding: SURFACE_PADDING,
-          minZoom: MIN_ZOOM,
-          maxZoom: MAX_ZOOM,
+          minZoom: cameraCommand.canvasZoom ?? MIN_ZOOM,
+          maxZoom: cameraCommand.canvasZoom ?? MAX_ZOOM,
           fallbackZoom: zoomRef.current,
         },
       );
@@ -10103,6 +10116,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const markWheelGestureActive = useCallback(
     (zoomChangesChrome: boolean) => {
       const world = worldRef.current;
+      if (zoomChangesChrome) {
+        world?.style.setProperty(
+          BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+          "hidden",
+        );
+      }
       const collectChromeConsumers = () => {
         if (!world) return;
         const consumersByFrameId = new Map<string, HTMLElement[]>();
@@ -10287,7 +10306,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleWheelEvent = useCallback(
     (event: WheelEvent) => {
-      if (!event.isTrusted) return;
+      if (focusedInteractRef.current || !event.isTrusted) return;
       invalidateSnapGesture();
       if (event.cancelable) event.preventDefault();
       event.stopPropagation();
@@ -10322,6 +10341,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const handleEmbeddedWheelMessage = (event: MessageEvent) => {
       if (!event.data || event.data.type !== "embedded-canvas-wheel") return;
+      if (focusedInteractRef.current) return;
       const surface = surfaceRef.current;
       if (!surface) return;
       const sourceIframe = Array.from(
@@ -10359,7 +10379,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (activePenPathRef.current) return;
+      if (activePenPathRef.current || focusedInteractRef.current) return;
       if (readOnly) return;
       if (!isArrowNudgeKey(event.key) || isEditableHotkeyTarget(event.target)) {
         return;
@@ -10422,7 +10442,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const snap = computeMoveSnap(movingEntries, stationaryEntries, {
         thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
         zoom: zoomRef.current,
-        bypass: nudge.snap.bypass,
+        bypass: true,
       });
 
       if (targetIds.length > 0) {
@@ -10472,7 +10492,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (activePenPathRef.current) return;
+      if (activePenPathRef.current || focusedInteractRef.current) return;
       if (readOnly) return;
       if (
         (event.key !== "Delete" && event.key !== "Backspace") ||
@@ -10568,7 +10588,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     if (!onDuplicate) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (readOnly) return;
+      if (readOnly || focusedInteractRef.current) return;
       if (activePenPathRef.current) return;
       if (
         !(event.metaKey || event.ctrlKey) ||
@@ -11038,6 +11058,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ? canvasFrames.find(({ screen }) => screen.id === interactScreenId)
       : undefined;
   const focusedInteract = Boolean(focusedInteractFrame);
+  focusedInteractRef.current = focusedInteract;
   useLayoutEffect(() => {
     renderedFrameGeometryRef.current = Object.fromEntries(
       canvasFrames.map(({ screen, geometry }) => [screen.id, geometry]),
@@ -11739,7 +11760,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         contain: "layout paint",
         isolation: "isolate",
         overscrollBehavior: "none",
-        touchAction: "none",
+        // A touch scrolls the page in Interact; `none` would hand it to nobody.
+        touchAction: focusedInteract ? undefined : "none",
         visibility: focusedInteract ? "hidden" : undefined,
       }}
     >
@@ -12071,6 +12093,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               measuredIframeHeights={measuredIframeHeights}
               focusedInteract={
                 screen.id === interactScreenId && focusedInteract
+              }
+              interactCornerClass={
+                screen.id === interactScreenId && focusedInteract
+                  ? focusedInteractCornerClass
+                  : null
               }
               locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
@@ -13531,6 +13558,7 @@ interface ScreenProps {
   isActive: boolean;
   interactMode: boolean;
   focusedInteract: boolean;
+  interactCornerClass: string | null;
   isSelected: boolean;
   elementSelectedInScreen: boolean;
   isTopScreen: boolean;
@@ -13608,6 +13636,7 @@ const Screen = memo(function Screen({
   isActive,
   interactMode,
   focusedInteract,
+  interactCornerClass,
   isSelected,
   elementSelectedInScreen,
   isTopScreen,
@@ -14007,6 +14036,7 @@ const Screen = memo(function Screen({
             e.stopPropagation();
             return;
           }
+          if (focusedInteract) return;
           if (creationToolActive) return;
           if (e.detail > 1) {
             e.stopPropagation();
@@ -14037,6 +14067,10 @@ const Screen = memo(function Screen({
         className={cn(
           "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          // A device preview, not an artboard: rounded, and lifted off the canvas.
+          focusedInteract && interactCornerClass
+            ? cn(interactCornerClass, "shadow-md")
+            : null,
           emphasized
             ? "text-foreground"
             : cn(
@@ -14053,7 +14087,7 @@ const Screen = memo(function Screen({
             ? "transparent"
             : undefined,
           cursor: penActive || creationToolActive ? "crosshair" : "pointer",
-          touchAction: "none",
+          touchAction: focusedInteract ? undefined : "none",
         }}
       >
         <span
@@ -14073,14 +14107,21 @@ const Screen = memo(function Screen({
             )
               ? "transparent"
               : undefined,
-            borderRadius: screenRootComputedStyles?.borderRadius,
-            borderTopLeftRadius: screenRootComputedStyles?.borderTopLeftRadius,
-            borderTopRightRadius:
-              screenRootComputedStyles?.borderTopRightRadius,
-            borderBottomRightRadius:
-              screenRootComputedStyles?.borderBottomRightRadius,
-            borderBottomLeftRadius:
-              screenRootComputedStyles?.borderBottomLeftRadius,
+            // The device frame owns the corner in Interact; the page's own
+            // root radius would square it off or round it twice.
+            ...(focusedInteract
+              ? null
+              : {
+                  borderRadius: screenRootComputedStyles?.borderRadius,
+                  borderTopLeftRadius:
+                    screenRootComputedStyles?.borderTopLeftRadius,
+                  borderTopRightRadius:
+                    screenRootComputedStyles?.borderTopRightRadius,
+                  borderBottomRightRadius:
+                    screenRootComputedStyles?.borderBottomRightRadius,
+                  borderBottomLeftRadius:
+                    screenRootComputedStyles?.borderBottomLeftRadius,
+                }),
           }}
         >
           {!showStaticPreview ? (
@@ -14335,6 +14376,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
     prev.focusedInteract === next.focusedInteract &&
+    prev.interactCornerClass === next.interactCornerClass &&
     prev.isSelected === next.isSelected &&
     prev.elementSelectedInScreen === next.elementSelectedInScreen &&
     prev.isTopScreen === next.isTopScreen &&
@@ -14383,7 +14425,9 @@ function sameScreenRootComputedStylesById(
   );
 }
 
-const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
+const BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH = 128;
+const BREAKPOINT_LABEL_MIN_SCREEN_WIDTH = 80;
+const BREAKPOINT_LABEL_END_RESERVE = 28;
 
 function BreakpointPreviewRow({
   screen,
@@ -14519,8 +14563,12 @@ function BreakpointPreviewRow({
             });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
+        const frameScreenWidth = frameWidth / Math.max(chromeScale, 0.001);
         const showBreakpointWidth =
-          frameWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH;
+          frameScreenWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH;
+        const frameLabelMaxWidth = `max(0px, calc(100% / var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}) - ${BREAKPOINT_LABEL_END_RESERVE}px))`;
+        const frameLabelHidden =
+          frameScreenWidth < BREAKPOINT_LABEL_MIN_SCREEN_WIDTH;
         const activateThisFrame = (e: React.MouseEvent<HTMLElement>) => {
           onPick?.(screen.id, e);
           onActiveBreakpointChange?.(widthPx);
@@ -14552,11 +14600,9 @@ function BreakpointPreviewRow({
               zIndex: primaryGeometry.z,
             }}
           >
-            {/* Frame label row — same height/typography/chromeScale
-                transform as the primary frame's own label row (Screen, see
-                the `data-frame-label` block above) so breakpoint chrome
-                doesn't visibly shrink relative to regular screens at
-                zoom-out (BP-DEEP item 3c). */}
+            {/* Keep breakpoint labels screen-sized, but bound them to the
+                frame's rendered width so responsive previews cannot overlap
+                neighboring screens at low canvas zoom. */}
             <div
               className="relative flex w-full cursor-pointer select-none items-center"
               style={{ height: FRAME_LABEL_HEIGHT * chromeScale }}
@@ -14576,13 +14622,19 @@ function BreakpointPreviewRow({
             >
               <div
                 data-frame-label
-                className="absolute left-1 top-1/2 flex min-w-0 max-w-[calc(100%-28px)] items-center gap-1.5"
+                className="absolute left-1 top-1/2 flex min-w-0 w-[var(--an-breakpoint-label-max-width)] max-w-[var(--an-breakpoint-label-max-width)] items-center gap-1.5"
                 data-an-chrome-scale
-                style={{
-                  transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-                  transformOrigin: "left center",
-                  transition: getChromeLabelTransition(chromeSettling),
-                }}
+                style={
+                  {
+                    "--an-breakpoint-label-max-width": frameLabelMaxWidth,
+                    visibility: frameLabelHidden
+                      ? "hidden"
+                      : `var(${BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR}, visible)`,
+                    transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+                    transformOrigin: "left center",
+                    transition: getChromeLabelTransition(chromeSettling),
+                  } as CSSProperties
+                }
               >
                 <span
                   className={cn(

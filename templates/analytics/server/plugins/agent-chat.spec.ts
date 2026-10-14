@@ -1012,6 +1012,65 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("tries first-party Analytics when the only external source has an unhealthy grant", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "how many Builder signups did we get last week",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                  queryAction: "query-agent-native-analytics",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "workspace-grant",
+                  setupLink: "/data-sources?source=hubspot",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: false,
+                  configuredKeys: [],
+                  missingRequiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+                  optionalKeys: [],
+                  workspaceConnection: {
+                    provider: "hubspot",
+                    grantState: "granted",
+                    connectionCount: 1,
+                    grantedConnectionCount: 1,
+                    activeConnectionCount: 0,
+                    hasWorkspaceConnection: true,
+                    hasGrantedWorkspaceConnection: true,
+                    hasActiveWorkspaceConnection: false,
+                    statuses: ["needs_reauth"],
+                  },
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("query-agent-native-analytics"),
+      maxRetries: 2,
+      expandToolSurface: true,
+    });
+  });
+
   it("does not demand a connect-sources link when data-source-status never ran", () => {
     const result = realDataFinalGuard(
       guardContext({
@@ -1181,6 +1240,239 @@ describe("realDataFinalGuard", () => {
     });
     expect((result as { retryMessage: string }).retryMessage).not.toContain(
       `[Connect data sources](${genericSetupLink})`,
+    );
+  });
+
+  it("reviews an inactive granted source instead of asking to connect it again", () => {
+    const hubspotSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot pipeline",
+        draftText: "HubSpot is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "credentials-and-workspace-grant",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: false,
+                  configuredKeys: [],
+                  setupLink: hubspotSetupLink,
+                  workspaceConnection: {
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                  },
+                },
+              ],
+              dataSourcesSetupLink:
+                "/_agent-native/open?app=analytics&view=data-sources",
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [
+                  {
+                    id: "hubspot",
+                    label: "HubSpot",
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                    statuses: ["needs_reauth"],
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Review HubSpot connection](${hubspotSetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Review HubSpot connection](${hubspotSetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "already has an Analytics workspace grant, but no healthy connection is active",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      `[Connect HubSpot](${hubspotSetupLink})`,
+    );
+    expect(
+      (result as { fallbackMessage: string }).fallbackMessage,
+    ).not.toContain(`[Connect HubSpot](${hubspotSetupLink})`);
+  });
+
+  it("reviews an inactive BigQuery grant in an older optional-key-only status", () => {
+    const bigquerySetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dbigquery%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our BigQuery usage",
+        draftText: "BigQuery is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "bigquery",
+                  label: "BigQuery",
+                  via: "credentials-and-workspace-grant",
+                },
+              ],
+              providers: [
+                {
+                  provider: "bigquery",
+                  label: "BigQuery",
+                  configured: true,
+                  configuredKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+                  optionalKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+                  setupLink: bigquerySetupLink,
+                  workspaceConnection: {
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                  },
+                },
+              ],
+              dataSourcesSetupLink:
+                "/_agent-native/open?app=analytics&view=data-sources",
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [
+                  {
+                    id: "bigquery",
+                    label: "BigQuery",
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                    statuses: ["error"],
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Review BigQuery connection](${bigquerySetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Review BigQuery connection](${bigquerySetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "already has an Analytics workspace grant, but no healthy connection is active",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      `[Connect BigQuery](${bigquerySetupLink})`,
+    );
+    expect(
+      (result as { fallbackMessage: string }).fallbackMessage,
+    ).not.toContain(`[Connect BigQuery](${bigquerySetupLink})`);
+  });
+
+  it("offers Connect when a legacy needs-grant provider is missing required credentials", () => {
+    const hubspotSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot pipeline",
+        draftText: "HubSpot is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "credentials-and-workspace-grant",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: false,
+                  configuredKeys: [],
+                  missingRequiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+                  optionalKeys: [],
+                  setupLink: hubspotSetupLink,
+                  workspaceConnection: {
+                    grantState: "needs_grant",
+                    activeConnectionCount: 0,
+                  },
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [
+                  {
+                    id: "hubspot",
+                    label: "HubSpot",
+                    grantState: "needs_grant",
+                    activeConnectionCount: 0,
+                    statuses: ["error"],
+                  },
+                ],
+              },
+              dataSourcesSetupLink:
+                "/_agent-native/open?app=analytics&view=data-sources",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Connect HubSpot](${hubspotSetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Connect HubSpot](${hubspotSetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "configured sources without a healthy workspace connection: HubSpot",
     );
   });
 
@@ -1508,6 +1800,158 @@ describe("realDataFinalGuard", () => {
       expandToolSurface: true,
       exhaustedDraftPrefix: expect.stringContaining("Unverified"),
     });
+  });
+
+  it("distinguishes configured credentials from healthy workspace connections in guard copy", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the HubSpot pipeline amount last week?",
+        draftText: "HubSpot pipeline was $25,000 last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "credentials-and-workspace-grant",
+                },
+                { provider: "github", label: "GitHub", via: "workspace" },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: true,
+                  configuredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+                  workspaceConnection: { grantState: "granted" },
+                },
+                {
+                  provider: "github",
+                  label: "GitHub",
+                  configured: true,
+                  configuredKeys: [],
+                  workspaceConnection: { grantState: "connected" },
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "hubspot",
+                    provider: "hubspot",
+                    label: "HubSpot",
+                    grantState: "granted",
+                  },
+                  {
+                    id: "github",
+                    provider: "github",
+                    label: "GitHub",
+                    grantState: "connected",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: HubSpot",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: HubSpot",
+      ),
+      exhaustedDraftPrefix: expect.stringContaining(
+        "healthy workspace connections: GitHub",
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "healthy workspace connections: GitHub",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "connected sources: HubSpot",
+    );
+  });
+
+  it("treats granted-but-not-connected workspace sources as configured and unverified", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our GitHub issue volume last week?",
+        draftText: "GitHub had 42 issues last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              providers: [
+                {
+                  provider: "github",
+                  label: "GitHub",
+                  configured: false,
+                  setupLink: "/data-sources?source=github",
+                  workspaceConnection: { grantState: "granted" },
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  workspaceConnection: { grantState: "connected" },
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "github",
+                    provider: "github",
+                    label: "GitHub",
+                    grantState: "granted",
+                  },
+                  {
+                    id: "hubspot",
+                    provider: "hubspot",
+                    label: "HubSpot",
+                    grantState: "connected",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: GitHub",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: GitHub",
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "healthy workspace connections: HubSpot",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "requested external source is not connected",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "Connect GitHub",
+    );
   });
 
   it("drops an unscoped absence claim after corpus retries are exhausted", () => {

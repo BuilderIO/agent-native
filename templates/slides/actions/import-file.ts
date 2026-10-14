@@ -1,6 +1,6 @@
 import path from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
@@ -42,6 +42,14 @@ import {
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
+import {
+  normalizeSlideTransition,
+  type SlideTransitionType,
+} from "../shared/slide-transitions.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -229,7 +237,18 @@ export default defineAction({
     if (detectedFormat === "pptx") {
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
-      const presentation = await parsePptx(fileBuffer);
+      let presentation: Awaited<ReturnType<typeof parsePptx>>;
+      try {
+        presentation = await parsePptx(fileBuffer);
+      } catch (error) {
+        if (importIntoDeck && error instanceof InvalidPptxSourceError) {
+          fail(
+            "Slides could not read this PowerPoint file. No slides were written to the deck.",
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+          );
+        }
+        throw error;
+      }
       const fallbackTitle = titleFromPath(filename);
       const title = presentation.title || "";
 
@@ -270,8 +289,9 @@ export default defineAction({
           tablesDegraded,
         });
         if (imagesSkipped > 0) {
-          throw new Error(
+          fail(
             `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );
         }
         const aspectRatio =
@@ -799,7 +819,7 @@ async function buildPptxSlide(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
     splitByParagraph?: boolean;
   };
   imageSkippedCount: number;
@@ -820,7 +840,9 @@ async function buildPptxSlide(
       content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
-      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.transition
+        ? { transition: normalizeSlideTransition(slide.transition) }
+        : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     imageSkippedCount: uploadedImages.imageSkippedCount,
@@ -912,7 +934,8 @@ async function appendDeckSlides(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
+    transitionSpeed?: number;
     splitByParagraph?: boolean;
   }>,
   source: string,

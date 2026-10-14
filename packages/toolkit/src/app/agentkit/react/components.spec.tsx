@@ -358,6 +358,15 @@ describe("AgentKitChat", () => {
     expect(styles).toContain("margin: 0 auto;");
     expect(styles).not.toContain("margin: 0 auto -1rem;");
     expect(styles).toContain('[data-agent-native-composer-popover="true"]');
+    const feedbackPopoverRule = styles.match(
+      /\.agentkit-feedback-popover \{([^}]*)\}/,
+    )?.[1];
+    expect(feedbackPopoverRule).toMatch(
+      /background:\s*var\(\s*--agent-kit-popover-surface,\s*var\(--agent-kit-raised-surface,\s*Canvas\)\s*\);/,
+    );
+    expect(feedbackPopoverRule).toMatch(
+      /color:\s*var\(--agent-kit-popover-text,\s*var\(--agent-kit-text,\s*CanvasText\)\);/,
+    );
     expect(styles).toContain('[data-agent-suggestion-bar="true"]');
     expect(styles).not.toContain("@source");
     expect(styles).not.toContain('@import "@agent-native/toolkit/styles.css"');

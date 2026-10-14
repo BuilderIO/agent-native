@@ -1,7 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -9,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
@@ -474,11 +474,9 @@ export default defineAction({
           Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]),
       });
 
-      track(
+      trackDesign(
         "design_output_created",
         {
-          app_name: "design",
-          template_name: "design",
           output_id: designId,
           output_type: "design",
           file_type: resolvedFileType,

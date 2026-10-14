@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Rewindをオンにする",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "Rewindは画面のローカル履歴を保持するため、録画前の直近数分間を含めることができます。映像は、含めることを選んだか承認した場合にのみアップロードされます。",
+      "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:
@@ -207,9 +207,12 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
     agentEmptyState: "録画についてどのようにお手伝いしましょうか？",
-    agentSuggestionSummary: "最新の録画を要約して",
-    agentSuggestionPricing: "価格について話した箇所を探して",
-    agentSuggestionFiller: "このクリップからフィラー語を削除して",
+    agentSuggestionSummary: "録画を要約して",
+    agentSuggestionPricing: "価格の言及を探して",
+    agentSuggestionFiller: "フィラー語を削除して",
+    agentScreenshotSuggestionSummary: "スクリーンショットを要約して",
+    agentScreenshotSuggestionText: "スクリーンショット内の文字を探して",
+    agentScreenshotSuggestionCompare: "スクリーンショットを比較して",
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
@@ -305,6 +308,10 @@ const messages = {
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
+    silenceTranscriptUnavailableTitle:
+      "この文字起こしは無音部分の削除に使用できません",
+    silenceTranscriptUnavailableDescription:
+      "新しい文字起こしを生成してから、もう一度無音部分を削除してください。",
     titleGenerationQueued: "タイトルを生成中…",
     descriptionQueued: "説明を生成中…",
     chapterQueued: "チャプターを生成中…",

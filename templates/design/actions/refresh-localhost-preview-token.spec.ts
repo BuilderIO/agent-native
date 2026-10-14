@@ -26,6 +26,7 @@ vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
   inArray: vi.fn(),
   isNull: vi.fn(),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/lib/localhost-connection.js", () => ({

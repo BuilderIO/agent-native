@@ -3171,7 +3171,7 @@ Respond to the event.`,
       model: "test-model",
       label: "automation:usage-alert",
       app: "calendar",
-      refId: "event-1",
+      refId: expect.stringMatching(/^event-1:.+$/),
     });
   });
 

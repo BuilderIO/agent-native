@@ -1017,6 +1017,15 @@ export default defineAction({
           connectionId: localSource.connectionId,
           path: localSource.path,
         });
+        if (typeof live.content !== "string") {
+          fail(
+            "The localhost bridge did not return source content; no component prop edit was applied.",
+            {
+              errorCode: "localhost_source_content_unavailable",
+              statusCode: 502,
+            },
+          );
+        }
         if (
           localSource.expectedVersionHash &&
           live.versionHash !== localSource.expectedVersionHash

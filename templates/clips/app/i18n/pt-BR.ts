@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Ativar o Rewind",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "O Rewind mantém um histórico local da sua tela para que você possa incluir os últimos minutos antes de uma gravação. As imagens só são enviadas quando você as inclui ou aprova.",
+      "Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:
@@ -210,9 +210,12 @@ const messages = {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Recolher barra lateral",
     agentEmptyState: "Como posso ajudar com suas gravações?",
-    agentSuggestionSummary: "Resuma minha última gravação",
-    agentSuggestionPricing: "Encontre onde mencionei preços",
-    agentSuggestionFiller: "Remova vícios de linguagem deste clipe",
+    agentSuggestionSummary: "Resuma uma gravação",
+    agentSuggestionPricing: "Encontre menções a preços",
+    agentSuggestionFiller: "Remova vícios de linguagem",
+    agentScreenshotSuggestionSummary: "Resuma capturas",
+    agentScreenshotSuggestionText: "Encontre texto nas capturas",
+    agentScreenshotSuggestionCompare: "Compare capturas",
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
@@ -308,6 +311,10 @@ const messages = {
     transcriptionCompleted: "Transcrição concluída",
     transcriptNotReady: "A transcrição ainda não está pronta",
     tryAfterTranscription: "Tente novamente após o término da transcrição.",
+    silenceTranscriptUnavailableTitle:
+      "Não é possível usar esta transcrição para remover silêncios",
+    silenceTranscriptUnavailableDescription:
+      "Tente gerar uma nova transcrição e depois remover os silêncios novamente.",
     titleGenerationQueued: "Gerando título…",
     descriptionQueued: "Gerando descrição…",
     chapterQueued: "Gerando capítulos…",

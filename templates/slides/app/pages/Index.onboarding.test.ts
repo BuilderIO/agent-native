@@ -13,6 +13,8 @@ describe("Slides first-run prompt gate", () => {
   it("uses the shared server decision instead of a signup-cookie heuristic", () => {
     expect(source).toContain("fetchFirstRunOnboardingStatus");
     expect(source).toContain("FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT");
+    expect(source).toContain("window.setTimeout(() => resolveStatus(2), 500)");
+    expect(source).toContain("if (cancelled) return;");
     expect(source).not.toContain("agent-native-first-run=");
     expect(source).not.toContain("fallbackTimer");
   });

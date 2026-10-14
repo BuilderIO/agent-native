@@ -65,6 +65,20 @@ describe("get-brain-overview", () => {
           missingRequiredKeys: [],
           optionalKeys: [],
         },
+        {
+          provider: "bigquery",
+          configured: true,
+          configuredKeys: ["BIGQUERY_PROJECT_ID"],
+          missingRequiredKeys: [],
+          optionalKeys: [],
+        },
+        {
+          provider: "amplitude",
+          configured: true,
+          configuredKeys: ["AMPLITUDE_API_KEY"],
+          missingRequiredKeys: [],
+          optionalKeys: [],
+        },
       ],
       workspaceConnections: {
         appId: "analytics",
@@ -88,12 +102,12 @@ describe("get-brain-overview", () => {
     });
     expect(overview.dictionary).toEqual({ entryCount: 2 });
     expect(overview.schedule).toEqual(SCHEDULE);
-    // dbt and Sigma have no server-side check, so they report not-connected.
+    // Credential presence is distinct from a verified workspace connection.
     expect(overview.sources.map((s) => [s.id, s.status])).toEqual([
-      ["github", "connected"],
+      ["github", "configured"],
       ["dbt", "not-connected"],
-      ["bigquery", "not-connected"],
-      ["amplitude", "not-connected"],
+      ["bigquery", "configured"],
+      ["amplitude", "configured"],
       ["sigma", "not-connected"],
     ]);
   });

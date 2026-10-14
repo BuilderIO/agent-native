@@ -1118,8 +1118,11 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   padding: 0.75rem;
   border: 1px solid var(--agentkit-border);
   border-radius: var(--agentkit-radius-inner);
-  color: var(--agentkit-text);
-  background: var(--agentkit-surface);
+  color: var(--agent-kit-popover-text, var(--agent-kit-text, CanvasText));
+  background: var(
+    --agent-kit-popover-surface,
+    var(--agent-kit-raised-surface, Canvas)
+  );
   box-shadow: 0 8px 24px
     color-mix(in srgb, var(--agentkit-text) 16%, transparent);
 }

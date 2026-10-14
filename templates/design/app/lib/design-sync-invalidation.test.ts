@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldInvalidateDesignQueryForSync } from "./design-sync-invalidation";
+import {
+  isContentIndependentDesignQuery,
+  shouldInvalidateDesignQueryForSync,
+} from "./design-sync-invalidation";
 
 const query = (name: string, args: unknown = { designId: "d1" }) => ({
   queryKey: ["action", name, args] as const,
@@ -18,6 +21,13 @@ const yjsUpdate = {
   requestSource: "tab-b",
   resourceType: "design",
   resourceId: "d1",
+};
+const agentUpdate = {
+  source: "action",
+  key: "update-file",
+  resourceType: "design",
+  resourceId: "d1",
+  requestSource: "agent",
 };
 
 const DEPENDS_ON_CONTENT = [
@@ -50,6 +60,15 @@ describe("design sync invalidation", () => {
         true,
       );
     }
+  });
+
+  it("keeps an open source buffer refetching on agent and same-tab source writes", () => {
+    expect(isContentIndependentDesignQuery("read-source-file")).toBe(false);
+    expect(
+      shouldInvalidateDesignQueryForSync(query("read-source-file"), [
+        agentUpdate,
+      ]),
+    ).toBe(true);
   });
 
   it("leaves unrelated reads alone for a batch of design content only", () => {

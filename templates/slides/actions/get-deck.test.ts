@@ -533,6 +533,56 @@ describe("get-deck", () => {
     ).rejects.toThrow("Slide 1 must be an object.");
   });
 
+  it("returns canonical transitions and transitionSpeed on every read branch", async () => {
+    currentResource!.data = JSON.stringify({
+      slides: [
+        {
+          id: "s1",
+          content: "<h1>One</h1>",
+          transition: "none",
+          transitionSpeed: 12,
+        },
+        { id: "s2", content: "<h1>Two</h1>", transition: "slide" },
+        {
+          id: "s3",
+          content: "<h1>Three</h1>",
+          transition: "zoom",
+          transitionSpeed: 30,
+        },
+        { id: "s4", content: "<h1>Four</h1>" },
+      ],
+    });
+    const pick = (result: any) =>
+      result.slides.map(({ id, transition, transitionSpeed }: any) => ({
+        id,
+        transition,
+        transitionSpeed,
+      }));
+    const expected = [
+      { id: "s1", transition: "none", transitionSpeed: 12 },
+      { id: "s2", transition: "slide-from-right", transitionSpeed: null },
+      { id: "s3", transition: "dissolve", transitionSpeed: 30 },
+      { id: "s4", transition: null, transitionSpeed: null },
+    ];
+
+    const full = (await action.run(
+      { id: "deck-1", compact: "false" },
+      { caller: "frontend" },
+    )) as any;
+    const compact = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "frontend" },
+    )) as any;
+    const targeted = (await action.run(
+      { id: "deck-1", slideId: "s3" },
+      { caller: "frontend" },
+    )) as any;
+
+    expect(pick(full)).toEqual(expected);
+    expect(pick(compact)).toEqual(expected);
+    expect(pick(targeted)).toEqual([expected[2]]);
+  });
+
   it("defaults agent calls to compact output so full slide HTML is not retransmitted", async () => {
     const result = (await action.run(
       { id: "deck-1" },

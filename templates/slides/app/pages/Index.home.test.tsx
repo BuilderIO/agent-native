@@ -537,6 +537,10 @@ function HistoryControls() {
   return (
     <>
       <div data-testid="history-path">{location.pathname}</div>
+      <div data-testid="history-url">
+        {location.pathname}
+        {location.search}
+      </div>
       <div data-testid="history-state">{JSON.stringify(location.state)}</div>
       <button type="button" onClick={() => navigate(-1)}>
         Browser back
@@ -594,6 +598,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(deckIdFromPathname).mockReset();
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
+  callAction.mockReset().mockImplementation(async (action: string) => {
+    if (action === "get-deck-reference-context") {
+      return {
+        agentContext: "Loaded reference deck context",
+        designSystemId: null,
+        linkedDesignSystemStatus: "none",
+      };
+    }
+    if (action === "get-design-system") {
+      return { agentContext: "Loaded design system context" };
+    }
+    return undefined;
+  });
   contextSelection.value = { designSystemId: null, references: [] };
   automaticReferenceDeck.value = null;
   systemFlag.enabled = true;
@@ -881,6 +898,12 @@ describe("Slides prompt-led home", () => {
         "/deck/new-deck",
       ),
     );
+    expect(
+      JSON.parse(screen.getByTestId("history-state").textContent!),
+    ).toEqual({ generationOriginalPrompt: submittedPrompt });
+    expect(screen.getByTestId("history-url").textContent).not.toContain(
+      submittedPrompt,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
     await waitFor(() =>
       expect(screen.getByTestId("history-path").textContent).toBe("/home"),
@@ -1082,38 +1105,146 @@ describe("Slides prompt-led home", () => {
 
   it("does not infer reference styling when the reference deck failed to load", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
     callAction.mockImplementation(async (action: string) => {
       if (action === "get-deck-reference-context") {
         throw new Error("temporary reference read failure");
       }
       return undefined;
     });
+    const deleteDeck = vi.fn();
     renderHome({
       decks: [ownDeck],
       ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
-      deleteDeck: vi.fn(),
+      deleteDeck,
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`;
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(prompt, [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationContextUnavailableDescription",
+    });
+  });
+
+  it("restores the prompt when the selected design system returns no context", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    callAction.mockImplementation(async (action: string) => {
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted,
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation using my selected design system";
 
     await act(async () => {
       await promptProps.mock.lastCall![0].onSubmit(
-        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
-        [],
+        prompt,
+        [uploadedSource],
         { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-a", references: [] },
+          contextItems: [],
+        },
       );
     });
 
-    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
-    const generationContext = agentSubmit.mock.calls[0][1] as string;
-    expect(generationContext).toContain(
-      "The selected reference deck could not be read, so its linked-system status and measured visual language are unknown",
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
     );
-    expect(generationContext).toContain(
-      "stop instead of generating with an assumed style",
+    expect(callAction).toHaveBeenCalledWith(
+      "get-design-system",
+      { id: "system-a" },
+      { method: "GET" },
     );
-    expect(generationContext).not.toContain(
-      "Because the reference deck was read successfully, use its measured visual language",
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationContextUnavailableDescription",
+    });
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
     );
+  });
+
+  it("asks users to wait when their selected Builder design system is indexing", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-design-system") {
+        return {
+          agentContext: "Selected design system context",
+          builder: { docCount: 0, tokenValues: {} },
+        };
+      }
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Create a deck with my selected design system";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-a", references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "designSystemSetup.sourceIndexingDescription",
+    });
   });
 
   it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
@@ -1323,6 +1454,394 @@ describe("Slides prompt-led home", () => {
         }),
       }),
     );
+  });
+
+  it("restores the prompt when saving a source deck rejects", async () => {
+    const uploadedFile = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    const ensureDeckPersisted = vi
+      .fn()
+      .mockRejectedValue(new Error("Storage unavailable"));
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Improve this presentation",
+        [uploadedFile],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: "Improve this presentation",
+      }),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationStartFailedDescription",
+    });
+  });
+
+  it("preserves a partial source deck when PDF import reports skipped images", async () => {
+    const uploadedFile = {
+      path: "/uploads/source.pdf",
+      originalName: "source.pdf",
+      filename: "source.pdf",
+      type: "application/pdf",
+      size: 32,
+    };
+    callAction.mockResolvedValue({
+      imported: true,
+      deckId: "new-deck",
+      slideCount: 3,
+      imagesSkipped: 1,
+    });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedFile],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "import-file",
+      {
+        filePath: uploadedFile.path,
+        format: "pdf",
+        deckId: "new-deck",
+        importIntoDeck: true,
+      },
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+    expect(deleteDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes an empty source deck when import reports no slides", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return { imported: true, deckId: "new-deck", slideCount: 0 };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: "Loaded reference deck context",
+          designSystemId: null,
+          linkedDesignSystemStatus: "none",
+        };
+      }
+      if (action === "get-design-system") {
+        return { agentContext: "Loaded design system context" };
+      }
+      return undefined;
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes an imported source deck if the agent cannot accept the prompt", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return { imported: true, deckId: "new-deck", slideCount: 3 };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: "Loaded reference deck context",
+          designSystemId: null,
+          linkedDesignSystemStatus: "none",
+        };
+      }
+      if (action === "get-design-system") {
+        return { agentContext: "Loaded design system context" };
+      }
+      return undefined;
+    });
+    agentSubmit.mockResolvedValueOnce({
+      delivered: false,
+      reason: "agent_unavailable",
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+  });
+
+  it("checks attached references before importing source slides", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    const unreadableReference = {
+      path: "/uploads/notes.docx",
+      originalName: "notes.docx",
+      filename: "notes.docx",
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return {
+          imported: true,
+          deckId: "new-deck",
+          slideCount: 3,
+          imagesSkipped: 0,
+        };
+      }
+      if (action === "import-file") {
+        throw new Error("could not read the attached notes");
+      }
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource, unreadableReference],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({ filePath: unreadableReference.path }),
+      expect.anything(),
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes the empty deck when source upload validation fails", async () => {
+    const sourceDecks = [
+      {
+        path: "/uploads/source.pptx",
+        originalName: "source.pptx",
+        filename: "source.pptx",
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        size: 32,
+      },
+      {
+        path: "/uploads/another-source.pdf",
+        originalName: "another-source.pdf",
+        filename: "another-source.pdf",
+        type: "application/pdf",
+        size: 32,
+      },
+    ];
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        sourceDecks,
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a source deck when the import action fails after it starts", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        throw new Error("The import stopped before returning a result.");
+      }
+      return undefined;
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(ensureDeckPersisted).toHaveBeenCalledWith("new-deck");
+    expect(callAction).toHaveBeenCalledWith(
+      "import-pptx",
+      { filePath: uploadedSource.path, deckId: "new-deck" },
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+    expect(deleteDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
   });
 
   it("starts from a prompt deck link and keeps other composer references", async () => {
@@ -2909,7 +3428,7 @@ describe("Slides prompt-led home", () => {
     expect(savedSelection).not.toHaveProperty("referenceDeckId");
   });
 
-  it("restores the generation-failure draft and model on the inline home", async () => {
+  it("restores a failed deck's prompt on Home without automatically generating", async () => {
     const modelSelection = {
       model: "test-model",
       engine: "builder",
@@ -2935,6 +3454,7 @@ describe("Slides prompt-led home", () => {
     );
     expect(promptProps.mock.lastCall![0].open).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
   });
 
   it("restores the saved sign-in draft and model without automatically generating", async () => {

@@ -837,6 +837,7 @@ describe("create-file: canvas placement and landing URL", () => {
           output_type: "design",
           file_type: fileType,
           source: "create_file_action",
+          caller: "tool",
         },
         context,
       );
@@ -1035,6 +1036,10 @@ describe("create-file: canvas placement and landing URL", () => {
     });
 
     expect(result.renderable).toBe(false);
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      result.id,
+      "opaque asset bytes",
+    );
     expect(mocks.track).not.toHaveBeenCalled();
   });
 

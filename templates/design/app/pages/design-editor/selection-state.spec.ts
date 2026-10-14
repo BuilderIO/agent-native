@@ -21,9 +21,39 @@ import {
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
+  shouldDisableExportsUntilCanvasFramesExist,
   shouldEscapeToOverview,
   updateExplicitOverviewScreenSelection,
 } from "./selection-state";
+
+describe("shouldDisableExportsUntilCanvasFramesExist", () => {
+  it("disables exports during generation until a canvas frame exists", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 1,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows exports when generation is not pending", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: false,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("overview screen export geometry", () => {
   it("uses the live natural height only for explicit Hug screens", () => {
@@ -179,6 +209,19 @@ describe("explicit overview screen selection provenance", () => {
         additive: true,
       }),
     ).toEqual(["picked-screen"]);
+  });
+
+  it("keeps a Shift-marquee Screen explicit after its owner layer is reported", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["home-screen", "hit-screen"],
+        selectedScreenIds: ["home-screen", "hit-screen"],
+        currentExplicitScreenIds: ["home-screen"],
+        ownerDerivedScreenIds: new Set(["home-screen", "hit-screen"]),
+        additive: true,
+        marqueeSelectedScreenIds: ["hit-screen"],
+      }),
+    ).toEqual(["home-screen", "hit-screen"]);
   });
 
   it("treats a replacement selection as explicit even for the prior layer owner", () => {

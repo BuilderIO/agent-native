@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
+  "block.loading": "블록을 불러오는 중입니다.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
   "composer.contextAttach": "첨부",
@@ -154,9 +156,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "새 계정 생성이 가능한지 확인하는 중입니다.",
   "onboarding.builderActivationUnavailable":
-    "이 앱에서는 새 계정 생성이 활성화되어 있지 않습니다. 기존 계정은 연결할 수 있습니다.",
+    "Builder.io에 연결하려면 계정을 만들거나 로그인하세요.",
   "onboarding.builderActivationUnavailableInMode":
-    "이 모드에서는 새 계정을 활성화할 수 없습니다. 기존 계정은 계속 연결할 수 있습니다.",
+    "Builder.io에 연결하려면 계정을 만들거나 로그인하세요.",
   "onboarding.builderActivationCheckFailed":
     "이 앱에서 새 계정을 만들 수 있는지 확인하지 못했습니다.",
 
@@ -170,6 +172,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
+  "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
@@ -1168,6 +1171,12 @@ const messages: ToolkitAgentChatTranslation = {
     "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "errorMessages.invalidAttachmentNamed":
     "모델 제공업체가 지원되지 않는 형식 또는 크기 때문에 {{name}}을(를) 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 형식을 사용하거나 관련 텍스트를 붙여 넣은 뒤 다시 시도하세요.",
+  "recovery.resendVerificationEmail": "인증 이메일 다시 보내기",
+  "recovery.sendingVerificationEmail": "보내는 중...",
+  "recovery.verificationEmailRequested":
+    "인증 이메일을 요청했습니다. 받은편지함과 스팸 폴더를 확인하세요.",
+  "recovery.verificationEmailFailed":
+    "인증 이메일을 요청하지 못했습니다. 다시 시도하세요.",
   "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
@@ -1212,6 +1221,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "그 외 {{count}}개는 '새로 만들기' 아래에 있거나 사용자 지정 키를 추가하세요",
   "secrets.emptyTitle": "아직 키가 없습니다.",
+  "secrets.figmaTokenMustBeToken":
+    "Figma 파일 URL이 아닌 Figma 액세스 토큰을 붙여넣으세요.",
   "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",

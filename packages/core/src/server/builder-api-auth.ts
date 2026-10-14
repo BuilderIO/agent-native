@@ -26,7 +26,25 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
 } from "./credential-provider.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestBuilderStorageCredentialOrgId,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
+
+function getBuilderCredentialScope(): {
+  orgId: string | null;
+  storageOnly: boolean;
+} {
+  const requestOrgId = getRequestOrgId();
+  if (requestOrgId !== undefined) {
+    return { orgId: requestOrgId, storageOnly: false };
+  }
+  const storageOrgId = getRequestBuilderStorageCredentialOrgId();
+  return storageOrgId === undefined
+    ? { orgId: null, storageOnly: false }
+    : { orgId: storageOrgId, storageOnly: true };
+}
 
 async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
   try {
@@ -42,8 +60,13 @@ async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
 async function readOAuthCustody(
   ownerEmail: string,
   orgId?: string | null,
+  orgOnly = false,
 ): Promise<boolean> {
-  return readCredentialStore(() => hasBuilderOAuthSession(ownerEmail, orgId));
+  return readCredentialStore(() =>
+    orgOnly
+      ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
+      : hasBuilderOAuthSession(ownerEmail, orgId),
+  );
 }
 
 export type BuilderLegacyCredentialKey =
@@ -188,14 +211,17 @@ export async function resolveBuilderRequestAuthorization(
   } = {},
 ): Promise<BuilderRequestAuthorization | null> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+  const { orgId, storageOnly } = getBuilderCredentialScope();
 
   if (input.oauthResource === "publish") {
     const publishAuthorization = await readCredentialStore(() =>
       resolveBuilderPublishAuthorization(ownerEmail, orgId),
     );
     if (publishAuthorization) return publishAuthorization;
-    if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
+    if (
+      ownerEmail &&
+      (await readOAuthCustody(ownerEmail, orgId, storageOnly))
+    ) {
       throw new ActionContractError(
         "Builder.io Publish access is not connected for this workspace. Sign in to Builder.io Publish in Settings to grant mcp:publish:read.",
         {
@@ -209,13 +235,14 @@ export async function resolveBuilderRequestAuthorization(
   if (
     input.oauthResource !== "publish" &&
     ownerEmail &&
-    (await readOAuthCustody(ownerEmail, orgId))
+    (await readOAuthCustody(ownerEmail, orgId, storageOnly))
   ) {
     let session: Awaited<ReturnType<typeof getBuilderOAuthSession>>;
     try {
       session = await readCredentialStore(() =>
         getBuilderOAuthSession(ownerEmail, orgId, input.requiredScope, {
           forceRefresh: input.forceRefresh,
+          ...(storageOnly ? { orgOnly: true } : {}),
         }),
       );
     } catch (err) {
@@ -339,8 +366,8 @@ export async function resolveBuilderApiAuthorization(
 
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
-  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
+  const { orgId, storageOnly } = getBuilderCredentialScope();
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId, storageOnly))) {
     return true;
   }
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
@@ -350,15 +377,15 @@ export async function canAuthorizeBuilderApiRequest(
   requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+  const { orgId, storageOnly } = getBuilderCredentialScope();
 
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId, storageOnly))) {
     try {
-      const session = await getBuilderOAuthSession(
-        ownerEmail,
-        orgId,
-        requiredScope,
-      );
+      const session = storageOnly
+        ? await getBuilderOAuthSession(ownerEmail, orgId, requiredScope, {
+            orgOnly: true,
+          })
+        : await getBuilderOAuthSession(ownerEmail, orgId, requiredScope);
       return (
         !!session && (!requiredScope || session.scopes.includes(requiredScope))
       );

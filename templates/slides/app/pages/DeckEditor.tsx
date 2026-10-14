@@ -47,6 +47,7 @@ import {
   useState,
   useCallback,
   useRef,
+  useMemo,
   useEffect,
   useLayoutEffect,
   type FormEvent,
@@ -54,6 +55,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   useBlocker,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -89,6 +91,10 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import {
+  SlideTransitionPreview,
+  transitionPreviewPair,
+} from "@/components/presentation/SlideTransitionStage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -171,10 +177,13 @@ import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   getNewDeckGenerationRecoveryState,
+  shouldClearPartialGenerationFailure,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  partialGenerationFailureSlidesFingerprint,
+  shouldShowPartialGenerationFailure,
   slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
@@ -524,14 +533,30 @@ function clearEmptyGenerationRecovery(
   }
 }
 
+function retryPromptFromLocationState(state: unknown): string | null {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return null;
+  const prompt = (state as Record<string, unknown>).retryPrompt;
+  return typeof prompt === "string" && prompt.trim() ? prompt : null;
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const routeGenerationSubmitId = searchParams.get("generationSubmitId");
   const isNewDeckGenerationRouteFromUrl =
     searchParams.get("generating") === "1" || Boolean(routeGenerationSubmitId);
+  const routeGenerationRetryPrompt = (
+    location.state as { generationOriginalPrompt?: unknown } | null
+  )?.generationOriginalPrompt;
+  const generationRetryPrompt =
+    isNewDeckGenerationRouteFromUrl &&
+    typeof routeGenerationRetryPrompt === "string" &&
+    routeGenerationRetryPrompt.trim()
+      ? routeGenerationRetryPrompt
+      : null;
   const {
     generating: newDeckGenerationGenerating,
     submitMessageId: restoredGenerationSubmitId,
@@ -551,6 +576,7 @@ export default function DeckEditor() {
   const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
+    getDeckLatest,
     reloadDecks,
     reloadDecksWithStatus,
     refreshOpenDeck,
@@ -634,6 +660,13 @@ export default function DeckEditor() {
     isNewDeckGenerationRoute &&
     (deck?.slides.length ?? 0) === 0 &&
     pendingDeckNavigationBlocker.location.pathname === "/home";
+  const blockedHomeRetryPrompt =
+    pendingDeckNavigationBlocker.state === "blocked"
+      ? retryPromptFromLocationState(
+          pendingDeckNavigationBlocker.location.state,
+        )
+      : null;
+  const retryPromptForHome = blockedHomeRetryPrompt ?? generationRetryPrompt;
   const pendingDeckNavigationWarningOpen =
     pendingDeckNavigationBlocker.state === "blocked" &&
     !isRestoringPromptBeforeLeavingGeneration;
@@ -768,6 +801,7 @@ export default function DeckEditor() {
   const [animationTarget, setAnimationTarget] =
     useState<SelectedAnimationTarget | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [transitionPreviewOpen, setTransitionPreviewOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
@@ -1054,7 +1088,12 @@ export default function DeckEditor() {
         generationHomeNavigationRef.current = true;
         generationHomeExitInFlightRef.current = false;
         pendingDeckNavigationBlocker.reset();
-        void navigate("/home", { replace: true });
+        void navigate("/home", {
+          replace: true,
+          ...(retryPromptForHome
+            ? { state: { retryPrompt: retryPromptForHome } }
+            : {}),
+        });
       },
       () => {
         generationHomeExitInFlightRef.current = false;
@@ -1069,6 +1108,7 @@ export default function DeckEditor() {
     isRestoringPromptBeforeLeavingGeneration,
     navigate,
     pendingDeckNavigationBlocker,
+    retryPromptForHome,
     t,
   ]);
   useEffect(() => {
@@ -1158,6 +1198,7 @@ export default function DeckEditor() {
             ...generationContext,
             generationFailureCode: null,
             generationFailureAttemptId: null,
+            generationFailureSlidesFingerprint: null,
           },
         });
       }
@@ -1228,6 +1269,7 @@ export default function DeckEditor() {
     attempt: {
       observedRun: attemptObservedRun,
       runError: attemptRunError,
+      runErrorCode: attemptRunErrorCode,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
       canContinueAfterStall: attemptCanContinueAfterStall,
@@ -1623,6 +1665,7 @@ export default function DeckEditor() {
           ...retryContext,
           generationFailureCode: null,
           generationFailureAttemptId: null,
+          generationFailureSlidesFingerprint: null,
         },
       });
       try {
@@ -1739,6 +1782,13 @@ export default function DeckEditor() {
       };
       queueMicrotask(() => {
         if (generationLifecycleAttemptKeyRef.current === attemptKey) return;
+        if (
+          state.settling &&
+          generationSettlingAttemptRef.current === generationAttemptId &&
+          generationTerminalAttemptRef.current !== generationAttemptId
+        ) {
+          return;
+        }
         recordExit("route_exit", state);
       });
     };
@@ -1903,6 +1953,10 @@ export default function DeckEditor() {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= generationStartedAt;
     }
+    if (attemptRunError) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+    }
     if (newDeckGenerationSignal) {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= generationStartedAt;
@@ -2060,6 +2114,8 @@ export default function DeckEditor() {
                 ...generationContext,
                 generationFailureCode: failureCode,
                 generationFailureAttemptId: generationAttemptId,
+                generationFailureSlidesFingerprint:
+                  partialGenerationFailureSlidesFingerprint([]),
               },
             });
             const recovery: EmptyGenerationRecovery = {
@@ -2100,49 +2156,63 @@ export default function DeckEditor() {
         }
         const settledSlideCount = outcomeRefreshResult.deck.slides.length;
         const failureCode =
-          attemptStopReason === "stopped"
-            ? "cancelled"
-            : attemptTimedOut
-              ? "timeout"
-              : attemptRunError
-                ? "agent_error"
-                : settledSlideCount === 0
-                  ? "no_output"
-                  : targetSlideCount !== null &&
-                      settledSlideCount < targetSlideCount
-                    ? "incomplete_output"
-                    : null;
-        if (failureCode && settledSlideCount === 0 && generationContext) {
+          attemptRunErrorCode === "write_tool_outcome_unknown"
+            ? "outcome_unresolved"
+            : attemptStopReason === "stopped"
+              ? "cancelled"
+              : attemptTimedOut
+                ? "timeout"
+                : attemptRunError
+                  ? "agent_error"
+                  : settledSlideCount === 0
+                    ? "no_output"
+                    : targetSlideCount !== null &&
+                        settledSlideCount < targetSlideCount
+                      ? "incomplete_output"
+                      : null;
+        if (
+          failureCode &&
+          failureCode !== "incomplete_output" &&
+          generationContext
+        ) {
           updateDeck(id, {
             generationContext: {
               ...generationContext,
               generationFailureCode: failureCode,
               generationFailureAttemptId: generationAttemptId,
+              generationFailureSlidesFingerprint:
+                partialGenerationFailureSlidesFingerprint(
+                  outcomeRefreshResult.deck.slides,
+                ),
             },
           });
-          const recovery: EmptyGenerationRecovery = {
-            kind: "generation_failure",
-            attemptId: generationAttemptId,
-            failureCode,
-          };
-          const serializedRecovery = JSON.stringify(recovery);
-          if (retryRecoveryStorageKey) {
-            try {
-              window.localStorage.setItem(
-                retryRecoveryStorageKey,
-                serializedRecovery,
-              );
-              emptyGenerationRecoveryRef.current = serializedRecovery;
-            } catch (error) {
-              console.error(
-                "Failed to store Slides generation recovery data.",
-                error,
-              );
+          let serializedRecovery: string | null = null;
+          if (settledSlideCount === 0) {
+            const recovery: EmptyGenerationRecovery = {
+              kind: "generation_failure",
+              attemptId: generationAttemptId,
+              failureCode,
+            };
+            serializedRecovery = JSON.stringify(recovery);
+            if (retryRecoveryStorageKey) {
+              try {
+                window.localStorage.setItem(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                );
+                emptyGenerationRecoveryRef.current = serializedRecovery;
+              } catch (error) {
+                console.error(
+                  "Failed to store Slides generation recovery data.",
+                  error,
+                );
+              }
             }
           }
           try {
             await flushDeckSave(id);
             if (
+              serializedRecovery &&
               clearEmptyGenerationRecovery(
                 retryRecoveryStorageKey,
                 serializedRecovery,
@@ -2259,6 +2329,110 @@ export default function DeckEditor() {
   const generationRecoveryState =
     getNewDeckGenerationRecoveryState(generationState);
   const showGenerationRecovery = generationRecoveryState !== null;
+  const currentSlidesFingerprint = useMemo(
+    () =>
+      deck &&
+      typeof generationContext?.generationFailureCode === "string" &&
+      generationContext.generationFailureCode !== "incomplete_output" &&
+      typeof generationContext?.generationFailureSlidesFingerprint ===
+        "string" &&
+      generationContext.generationFailureAttemptId === generationAttemptId
+        ? partialGenerationFailureSlidesFingerprint(deck.slides)
+        : null,
+    [
+      deck?.slides,
+      generationAttemptId,
+      generationContext?.generationFailureCode,
+      generationContext?.generationFailureAttemptId,
+      generationContext?.generationFailureSlidesFingerprint,
+    ],
+  );
+  const partialGenerationFailureState = {
+    slideCount,
+    failureCode: generationContext?.generationFailureCode,
+    failureAttemptId: generationContext?.generationFailureAttemptId,
+    attemptId: generationAttemptId,
+    failureSlidesFingerprint:
+      generationContext?.generationFailureSlidesFingerprint,
+    currentSlidesFingerprint,
+    generating: newDeckGenerationSignal,
+    waitingOnQuestions: waitingOnNewDeckQuestions,
+    retryPending:
+      retryEmptyGenerationPending || retryEmptyGenerationInFlightRef.current,
+  };
+  const showPartialGenerationFailure = shouldShowPartialGenerationFailure(
+    partialGenerationFailureState,
+  );
+  const clearPartialGenerationFailure = shouldClearPartialGenerationFailure(
+    partialGenerationFailureState,
+  );
+  useEffect(() => {
+    if (!id || !clearPartialGenerationFailure) return;
+    const latestDeck = getDeckLatest(id);
+    const latestContext = latestDeck?.generationContext;
+    if (
+      !latestDeck ||
+      !latestContext ||
+      typeof latestContext !== "object" ||
+      Array.isArray(latestContext)
+    ) {
+      return;
+    }
+    const latestAttemptId =
+      typeof latestContext.generationAttemptId === "string"
+        ? latestContext.generationAttemptId
+        : generationAttemptId;
+    const latestFailureSlidesFingerprint =
+      typeof latestContext.generationFailureSlidesFingerprint === "string"
+        ? latestContext.generationFailureSlidesFingerprint
+        : null;
+    const latestCurrentSlidesFingerprint =
+      typeof latestContext.generationFailureCode === "string" &&
+      latestContext.generationFailureCode !== "incomplete_output" &&
+      latestFailureSlidesFingerprint !== null &&
+      latestContext.generationFailureAttemptId === latestAttemptId
+        ? partialGenerationFailureSlidesFingerprint(latestDeck.slides)
+        : null;
+    const lifecyclePause = generationLifecyclePauseRef.current;
+    const clearLatestFailure = shouldClearPartialGenerationFailure({
+      slideCount: latestDeck.slides.length,
+      failureCode: latestContext.generationFailureCode,
+      failureAttemptId: latestContext.generationFailureAttemptId,
+      attemptId: latestAttemptId,
+      failureSlidesFingerprint: latestFailureSlidesFingerprint,
+      currentSlidesFingerprint: latestCurrentSlidesFingerprint,
+      generating: lifecyclePause.generating || newDeckGenerationSignal,
+      waitingOnQuestions:
+        lifecyclePause.waitingOnQuestions || waitingOnNewDeckQuestions,
+      retryPending:
+        retryEmptyGenerationPending || retryEmptyGenerationInFlightRef.current,
+    });
+    if (!clearLatestFailure) return;
+    updateDeck(id, {
+      generationContext: {
+        ...latestContext,
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+        generationFailureSlidesFingerprint: null,
+      },
+    });
+    void flushDeckSave(id).catch((error) => {
+      console.error(
+        "Failed to clear a stale Slides generation failure.",
+        error,
+      );
+    });
+  }, [
+    clearPartialGenerationFailure,
+    flushDeckSave,
+    generationAttemptId,
+    getDeckLatest,
+    id,
+    newDeckGenerationSignal,
+    retryEmptyGenerationPending,
+    updateDeck,
+    waitingOnNewDeckQuestions,
+  ]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -4068,6 +4242,7 @@ export default function DeckEditor() {
         requestAccessDialogOpen={requestAccessDialogOpen}
         requesterEmail={requesterEmail}
         requestAccessDialogError={requestAccessDialogError}
+        originalPrompt={generationRetryPrompt}
         signedIn={Boolean(session) && !sessionLoading}
         signInHref={buildSignInReturnHref({
           returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
@@ -4083,7 +4258,14 @@ export default function DeckEditor() {
         onSubmitGuestAccessRequest={submitGuestAccessRequest}
         onSignIn={openSignIn}
         onRetry={() => void retryOpenDeck()}
-        onBack={() => navigate("/home")}
+        onBack={() =>
+          navigate(
+            "/home",
+            generationRetryPrompt
+              ? { state: { retryPrompt: generationRetryPrompt } }
+              : undefined,
+          )
+        }
       />
     );
   }
@@ -4139,6 +4321,8 @@ export default function DeckEditor() {
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  const canPreviewTransition =
+    transitionPreviewPair(deck.slides, currentIndex) !== null;
   currentSlideRef.current = currentSlide;
   syncSlideContentSnapshots(
     deck.slides,
@@ -4347,7 +4531,24 @@ export default function DeckEditor() {
         onSelectShape={selectShape}
         onChangeSlideTransition={
           canEdit && currentSlide
-            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            ? (patch) => updateSlide(id, currentSlide.id, patch)
+            : undefined
+        }
+        onPlaySlideTransition={
+          canPreviewTransition
+            ? () => setTransitionPreviewOpen(true)
+            : undefined
+        }
+        onApplySlideTransitionToAll={
+          canEdit && deck.slides.length > 0
+            ? (patch) =>
+                updateSlides(
+                  id,
+                  deck.slides.map((slide) => ({
+                    slideId: slide.id,
+                    updates: patch,
+                  })),
+                )
             : undefined
         }
         onDuplicateDeck={async () => {
@@ -4439,6 +4640,25 @@ export default function DeckEditor() {
         data-context-toolbar-host="narrow"
         className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
       />
+
+      {showPartialGenerationFailure ? (
+        <div className="shrink-0 border-b bg-muted/50 px-4 py-3" role="alert">
+          <div className="mx-auto max-w-6xl text-start">
+            <p>{t("deckEditor.partialGenerationFailed")}</p>
+            {typeof generationContext?.originalPrompt === "string" &&
+            generationContext.originalPrompt.trim() ? (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t("deckEditor.originalPrompt")}
+                </p>
+                <p className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-sm">
+                  {generationContext.originalPrompt}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
         {sidebarOpen && (
@@ -4553,6 +4773,16 @@ export default function DeckEditor() {
           </div>
         )}
 
+        {transitionPreviewOpen && canPreviewTransition && (
+          <SlideTransitionPreview
+            slides={deck.slides}
+            index={currentIndex}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+            onClose={() => setTransitionPreviewOpen(false)}
+          />
+        )}
+
         {showQuestionFlow && (
           <QuestionFlow
             questions={questionFlowQuestions ?? []}
@@ -4585,11 +4815,24 @@ export default function DeckEditor() {
                       ? t("deckEditor.generationOutcomeUnresolved")
                       : t("deckEditor.generationFailed")}
                 </p>
+                {typeof generationContext?.originalPrompt === "string" &&
+                generationContext.originalPrompt.trim() ? (
+                  <div className="w-full text-left">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("deckEditor.originalPrompt")}
+                    </p>
+                    <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
+                      {generationContext.originalPrompt}
+                    </p>
+                  </div>
+                ) : null}
                 <Button
                   disabled={!canEdit || generationRetryPending}
                   onClick={() => void retryEmptyGeneration()}
                 >
-                  {t("deckEditor.tryAgain")}
+                  {generationRecoveryState === "outcome_unresolved"
+                    ? t("deckEditor.checkedDeckTryAgain")
+                    : t("deckEditor.tryAgain")}
                 </Button>
               </div>
             </div>

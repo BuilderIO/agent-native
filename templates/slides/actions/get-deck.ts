@@ -30,6 +30,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { normalizeSlideTransition } from "../shared/slide-transitions.js";
 import { getDeckUrl } from "./_app-url.js";
 import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
@@ -151,6 +152,23 @@ async function loadDeckWithUniqueSlideIds(
   }
 
   throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
+}
+
+// Rows can hold legacy transition strings (slide, zoom, instant) and slides
+// saved before transitionSpeed existed. Unset transition reads as null.
+function canonicalReadSlide(slide: {
+  id?: unknown;
+  transition?: unknown;
+  transitionSpeed?: unknown;
+}) {
+  return {
+    ...slide,
+    transition:
+      slide.transition === undefined || slide.transition === null
+        ? null
+        : normalizeSlideTransition(slide.transition),
+    transitionSpeed: slide.transitionSpeed ?? null,
+  };
 }
 
 function compactAnimationSummary(value: unknown, content: string) {
@@ -302,14 +320,20 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides, accessRole } =
-      ctx?.caller === "mcp-widget"
-        ? await readDeck(deckId)
-        : await loadDeckWithUniqueSlideIds(
-            deckId,
-            args.reviewPreview,
-            args.reviewOrgId,
-          );
+    const {
+      row,
+      data,
+      slides: storedSlides,
+      accessRole,
+    } = ctx?.caller === "mcp-widget"
+      ? await readDeck(deckId)
+      : await loadDeckWithUniqueSlideIds(
+          deckId,
+          args.reviewPreview,
+          args.reviewOrgId,
+        );
+    // Both the compact and full branches read these; normalize once, here.
+    const slides = storedSlides.map(canonicalReadSlide);
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -410,7 +434,8 @@ export default defineAction({
           zeroBasedIndex: i,
           id: s.id,
           layout: s.layout ?? null,
-          transition: s.transition ?? null,
+          transition: s.transition,
+          transitionSpeed: s.transitionSpeed,
           isBlank: !isRealSlide(s),
           animations: compactAnimationSummary(
             s.animations,

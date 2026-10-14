@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 import { parse } from "parse5";
 
 import {
@@ -8,6 +8,7 @@ import {
   gotoEditor,
   pickFrameMode,
 } from "./helpers";
+import { expect, test } from "./rails";
 
 const EMPTY_SCREEN = `<!doctype html>
 <html lang="en">
@@ -33,41 +34,6 @@ type NodeSummary = {
   style: string | null;
   parent: ParentIdentity | null;
 };
-
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await page.request.post(
-    appPath(`/_agent-native/actions/${name}`),
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
-async function createBlankDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: `Frame live identity ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
-  if (typeof designId !== "string") {
-    throw new Error(`create-design returned no id: ${JSON.stringify(created)}`);
-  }
-  await postAction(page, "create-file", {
-    designId,
-    filename: "index.html",
-    content: EMPTY_SCREEN,
-    fileType: "html",
-  });
-  return designId;
-}
 
 async function readDesign(page: Page, designId: string) {
   const response = await page.request.get(
@@ -223,6 +189,7 @@ function layerButton(page: Page, name: string) {
 }
 
 test("Frame rename, flow conversion, and auto layout preserve its live identity", async ({
+  app,
   page,
 }) => {
   test.setTimeout(120_000);
@@ -303,7 +270,7 @@ test("Frame rename, flow conversion, and auto layout preserve its live identity"
       true,
     );
   });
-  const designId = await createBlankDesign(page);
+  const designId = await app.seed(EMPTY_SCREEN);
   await gotoEditor(page, designId);
   await expandAllLayers(page);
 

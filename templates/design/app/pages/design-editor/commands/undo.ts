@@ -407,6 +407,7 @@ export interface UndoArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      allowPreviewNodeSwap?: boolean;
       immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
@@ -483,7 +484,12 @@ export interface UndoArgs {
   pendingLocalFileContentsRef: RefObject<
     Map<
       string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+      {
+        content: string;
+        startedAt: number;
+        baseUpdatedAt?: string | null;
+        deferCollabReconcile?: boolean;
+      }
     >
   >;
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
@@ -523,7 +529,7 @@ export interface UndoArgs {
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
-    options?: { forceFullDocument?: boolean },
+    options?: { forceFullDocument?: boolean; allowSourceNodeSwap?: boolean },
   ) => PreviewContentReplaceResult;
   requestPendingLiveNonStyleRevert: (
     edits: readonly PendingLiveNonStyleEdit[],
@@ -847,44 +853,61 @@ export function runUndo({
         clipboardPasteUndoStackRef.current.length - 1
       ];
     if (!clipboardPasteUndo) return false;
+    const pendingPasteContent = pendingLocalFileContentsRef.current.get(
+      clipboardPasteUndo.fileId,
+    );
     const currentContent =
-      pendingLocalFileContentsRef.current.get(clipboardPasteUndo.fileId)
-        ?.content ??
+      (pendingPasteContent?.deferCollabReconcile
+        ? undefined
+        : pendingPasteContent?.content) ??
       (clipboardPasteUndo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));
-    if (currentContent !== clipboardPasteUndo.after) return false;
-    if (isShaderWriteInFlight(clipboardPasteUndo.fileId)) {
-      toast.error(t("designEditor.toasts.saveConflict"), {
-        id: `design-source-shader-conflict:${clipboardPasteUndo.fileId}`,
-      });
+    const preparedReplay = prepareContentHistoryReplay({
+      activeFile,
+      changes: [clipboardPasteUndo],
+      direction: "undo",
+      files,
+      getFreshActiveContent: () => currentContent,
+      getScreenContent: () => currentContent,
+      liveScreenSnapshotsById: {},
+      t,
+    });
+    if (preparedReplay === STALE_CONTENT_HISTORY_REPLAY) {
+      clipboardPasteUndoStackRef.current =
+        clipboardPasteUndoStackRef.current.slice(0, -1);
+      historyOrderRef.current = historyOrderRef.current.slice(0, -1);
+      prunedUndoHistory += 1;
+      toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
       return false;
     }
+    if (!preparedReplay) return false;
+    const nextContent =
+      preparedReplay.get(clipboardPasteUndo.fileId)?.nextContent ??
+      clipboardPasteUndo.before;
+    if (isShaderWriteInFlight(clipboardPasteUndo.fileId)) return false;
     const clipboardMutation = publishAuthoritativeClipboardMutation({
       fileId: clipboardPasteUndo.fileId,
-      baseContent: clipboardPasteUndo.after,
-      nextContent: clipboardPasteUndo.before,
+      baseContent: currentContent,
+      nextContent,
       origin: "clipboard-undo",
       baseSource: "document",
     });
     if (!clipboardMutation) return false;
     const writeResult =
       clipboardPasteUndo.fileId === activeFile?.id
-        ? applyLocalContentUpdate(clipboardPasteUndo.before, {
+        ? applyLocalContentUpdate(nextContent, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            allowPreviewNodeSwap: true,
             immediateSave: true,
             clipboardMutation,
           })
-        : applyFileContentUpdate(
-            clipboardPasteUndo.fileId,
-            clipboardPasteUndo.before,
-            {
-              recordHistory: false,
-              forcePreviewFullDocument: true,
-              clipboardMutation,
-            },
-          );
+        : applyFileContentUpdate(clipboardPasteUndo.fileId, nextContent, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            clipboardMutation,
+          });
     if (writeResult.status !== "accepted") return false;
     clipboardPasteUndoStackRef.current =
       clipboardPasteUndoStackRef.current.slice(0, -1);
@@ -902,7 +925,7 @@ export function runUndo({
         ? resolveLocalHistorySelection(
             clipboardPasteUndo.selectionBefore,
             clipboardPasteUndo.fileId,
-            clipboardPasteUndo.before,
+            nextContent,
           )
         : undefined;
       const source = {
@@ -913,21 +936,13 @@ export function runUndo({
         selection
           ? selection.selectedElement
           : previous
-            ? refreshElementInfoFromContent(
-                clipboardPasteUndo.before,
-                previous,
-                source,
-              )
+            ? refreshElementInfoFromContent(nextContent, previous, source)
             : previous,
       );
       setSelectedLayerIdsState((previous) =>
         selection
           ? selection.selectedLayerIds
-          : refreshSelectedLayerIdsFromContent(
-              clipboardPasteUndo.before,
-              previous,
-              source,
-            ),
+          : refreshSelectedLayerIdsFromContent(nextContent, previous, source),
       );
     }
     return true;
@@ -967,6 +982,7 @@ export function runUndo({
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
               forceFullDocument: true,
+              allowSourceNodeSwap: true,
             }),
           )
         ) {
@@ -1049,6 +1065,7 @@ export function runUndo({
             applyLocalContentUpdate(entry.before, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
+              allowPreviewNodeSwap: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -1157,6 +1174,7 @@ export function runUndo({
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
+                  allowPreviewNodeSwap: true,
                   immediateSave: true,
                   recordHistory: false,
                 })
@@ -1952,8 +1970,15 @@ export function runUndo({
       const preferred =
         historyOrderRef.current[historyOrderRef.current.length - 1];
       if (preferred === "clipboard-paste") {
+        const prunedBefore = prunedUndoHistory;
         didUndo = undoClipboardPaste();
-        break;
+        if (
+          didUndo ||
+          prunedUndoHistory === prunedBefore ||
+          contentReplayRefused
+        )
+          break;
+        continue;
       }
       historyOrderRef.current.pop();
       didUndo = undoByOrder(preferred);
@@ -1974,6 +1999,27 @@ export function runUndo({
       linkedEntry.linkedComponent === true;
     if (preferred === "clipboard-paste") {
       didUndo = undoClipboardPaste();
+      while (!didUndo && prunedUndoHistory > 0 && !contentReplayRefused) {
+        const nextPreferred =
+          historyOrderRef.current[historyOrderRef.current.length - 1];
+        if (
+          nextPreferred === undefined ||
+          nextPreferred === "clipboard-paste"
+        ) {
+          break;
+        }
+        historyOrderRef.current = historyOrderRef.current.slice(0, -1);
+        const prunedBeforeReplay = prunedUndoHistory;
+        didUndo = undoByOrder(nextPreferred);
+        if (contentReplayRefused) {
+          historyOrderRef.current.push(nextPreferred);
+          break;
+        }
+        if (!didUndo && prunedUndoHistory === prunedBeforeReplay) {
+          historyOrderRef.current.push(nextPreferred);
+          break;
+        }
+      }
     } else if (preferred === "file-content" && canUndoLinkedEntry) {
       historyOrderRef.current.pop();
       didUndo = undoContent("global");

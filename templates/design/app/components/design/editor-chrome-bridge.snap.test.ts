@@ -1383,10 +1383,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "layerNameForElement",
   );
+  const generatedGroupWrapper = extractFunction(
+    editorChromeBridgeScript,
+    "isGeneratedGroupWrapper",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${generatedGroupWrapper}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }

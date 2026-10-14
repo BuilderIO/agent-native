@@ -85,7 +85,7 @@ export default function SettingsRoute() {
 應用程式頁面通常從 `extraTabs` 項目開始，並在應用程式群組中成為獨立頁面。若需要更多控制，可在模組範圍呼叫 `registerSettingsPages`，註冊 `SettingsPageDefinition`（`id`、`group`、`order`、`label`、`icon`、`component`，以及選填的 `visible`、`subpages` 和 `searchEntries`）。如果定義的 id 與現有頁面相同，就會取代該頁面。應用程式可以用這種方式替換核心頁面。Dispatch 就是用此方式在「成員」頁面上加入應用程式角色欄：
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind aktivieren",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Rewind speichert lokal einen Verlauf deines Bildschirms, damit du die letzten Minuten vor einer Aufnahme einbeziehen kannst. Filmmaterial wird nur hochgeladen, wenn du es einbeziehst oder freigibst.",
+      "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:
@@ -212,9 +212,12 @@ const messages = {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
     agentEmptyState: "Wie kann ich dir mit deinen Aufnahmen helfen?",
-    agentSuggestionSummary: "Fasse meine letzte Aufnahme zusammen",
-    agentSuggestionPricing: "Finde, wo ich Preise erwähnt habe",
-    agentSuggestionFiller: "Entferne Füllwörter aus diesem Clip",
+    agentSuggestionSummary: "Aufnahme zusammenfassen",
+    agentSuggestionPricing: "Preiserwähnungen finden",
+    agentSuggestionFiller: "Füllwörter entfernen",
+    agentScreenshotSuggestionSummary: "Screenshots zusammenfassen",
+    agentScreenshotSuggestionText: "Text in Screenshots finden",
+    agentScreenshotSuggestionCompare: "Screenshots vergleichen",
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
@@ -312,6 +315,10 @@ const messages = {
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
       "Versuchen Sie es erneut, nachdem die Transkription abgeschlossen ist.",
+    silenceTranscriptUnavailableTitle:
+      "Dieses Transkript kann nicht zum Entfernen von Stille verwendet werden",
+    silenceTranscriptUnavailableDescription:
+      "Versuchen Sie, ein neues Transkript zu erstellen, und entfernen Sie danach erneut die Stille.",
     titleGenerationQueued: "Titel wird erstellt…",
     descriptionQueued: "Beschreibung wird erstellt…",
     chapterQueued: "Kapitel werden erstellt…",

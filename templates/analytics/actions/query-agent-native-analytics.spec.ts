@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   queryFirstPartyAnalytics: vi.fn(),
+  track: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -14,6 +15,7 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 vi.mock("../server/lib/first-party-analytics.js", () => ({
   queryFirstPartyAnalytics: mocks.queryFirstPartyAnalytics,
 }));
@@ -24,6 +26,7 @@ beforeEach(() => {
   mocks.getRequestOrgId.mockReset();
   mocks.getRequestUserEmail.mockReset();
   mocks.queryFirstPartyAnalytics.mockReset();
+  mocks.track.mockReset();
   mocks.getRequestOrgId.mockReturnValue("org_123");
   mocks.getRequestUserEmail.mockReturnValue("alice@example.com");
   mocks.queryFirstPartyAnalytics.mockResolvedValue({
@@ -33,6 +36,97 @@ beforeEach(() => {
 });
 
 describe("query-agent-native-analytics", () => {
+  it("records successful first-party query lifecycle events", async () => {
+    await action.run({
+      sql: "SELECT events FROM analytics_event_daily_rollups",
+    });
+
+    expect(mocks.track.mock.calls.map(([name]) => name)).toEqual([
+      "query_asked",
+      "query_executed",
+    ]);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_executed",
+      expect.objectContaining({
+        query_mode: "first_party",
+        surface: "agent",
+        row_count: 1,
+        column_count: 1,
+      }),
+      undefined,
+    );
+  });
+
+  it("records a safe failure event and rethrows the original query error", async () => {
+    const sql = "SELECT 'sensitive query text' FROM analytics_events";
+    const error = new Error("backend details with sensitive query text");
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+    await expect(action.run({ sql })).rejects.toBe(error);
+
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_failed",
+      {
+        app_name: "analytics",
+        template_name: "analytics",
+        query_mode: "first_party",
+        surface: "agent",
+        failure_class: "query_error",
+      },
+      undefined,
+    );
+    const telemetry = JSON.stringify(mocks.track.mock.calls);
+    expect(telemetry).not.toContain(sql);
+    expect(telemetry).not.toContain(error.message);
+  });
+
+  it("records caller cancellation separately from query failures", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const error = new DOMException("sensitive abort details", "AbortError");
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+    await expect(
+      action.run(
+        { sql: "SELECT events FROM analytics_events" },
+        { caller: "tool", signal: controller.signal },
+      ),
+    ).rejects.toBe(error);
+
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_cancelled",
+      {
+        app_name: "analytics",
+        template_name: "analytics",
+        query_mode: "first_party",
+        surface: "agent",
+        cancellation_class: "caller_abort",
+      },
+      { caller: "tool", signal: controller.signal },
+    );
+    expect(mocks.track.mock.calls.map(([name]) => name)).not.toContain(
+      "query_failed",
+    );
+    expect(JSON.stringify(mocks.track.mock.calls)).not.toContain(error.message);
+  });
+
+  it("passes the action cancellation signal to the analytics query", async () => {
+    const controller = new AbortController();
+    const sql = "SELECT events FROM analytics_event_daily_rollups";
+
+    await action.run({ sql }, { caller: "tool", signal: controller.signal });
+
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
+      sql,
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      {
+        cache: true,
+        includeTestIdentities: false,
+        signal: controller.signal,
+      },
+    );
+  });
+
   it("enables the tenant-scoped result cache for agent queries", async () => {
     const sql =
       "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name";

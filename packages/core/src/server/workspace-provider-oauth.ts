@@ -55,6 +55,7 @@ export type GenericWorkspaceOAuthProvider =
   | "google_calendar"
   | "google_docs"
   | "google_drive"
+  | "bigquery"
   | "google_sheets"
   | "google_slides"
   | "github"
@@ -70,6 +71,7 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "google_calendar",
   "google_docs",
   "google_drive",
+  "bigquery",
   "google_sheets",
   "google_slides",
   "github",
@@ -103,6 +105,7 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
     provider === "google_calendar" ||
     provider === "google_docs" ||
     provider === "google_drive" ||
+    provider === "bigquery" ||
     provider === "google_sheets" ||
     provider === "google_slides"
   );
@@ -345,7 +348,8 @@ export async function handleWorkspaceProviderOAuthStart(
         state,
         challenge,
         loginHint: session.email,
-        includeGrantedScopes: providerId !== "google_calendar",
+        includeGrantedScopes:
+          providerId !== "google_calendar" && providerId !== "google_sheets",
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -513,8 +517,8 @@ export async function handleWorkspaceProviderOAuthCallback(
                   )),
         );
         const scopes = mergeWorkspaceOAuthValues(
-          existing?.scopes ?? [],
-          identity.scopes ?? tokenScopes(tokens, provider.oauth!.scopes),
+          identity.scopes ?? [],
+          tokenScopes(tokens, provider.oauth!.scopes),
         );
         const connectionConfig = {
           credentialMode: "oauth",

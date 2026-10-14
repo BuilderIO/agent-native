@@ -513,6 +513,7 @@ export function useEditorScreenChangeHandlers({
         preserveSelection?: boolean;
         routePath?: string;
         runtimeApplied?: boolean;
+        requirePersistedSourceAcceptance?: boolean;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
@@ -644,21 +645,23 @@ export function useEditorScreenChangeHandlers({
         );
         return;
       }
-      for (const [property, value] of Object.entries(styles)) {
-        sendLinkedScreenPreviewStyleChange(
-          screenId,
-          selector,
-          property,
-          value,
-          {
-            selectorCandidates,
-            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
-            relativeOperation: relativeOperationsForStyles(
-              { [property]: value },
-              metadata,
-            )?.[property],
-          },
-        );
+      if (!metadata?.requirePersistedSourceAcceptance) {
+        for (const [property, value] of Object.entries(styles)) {
+          sendLinkedScreenPreviewStyleChange(
+            screenId,
+            selector,
+            property,
+            value,
+            {
+              selectorCandidates,
+              nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
+              relativeOperation: relativeOperationsForStyles(
+                { [property]: value },
+                metadata,
+              )?.[property],
+            },
+          );
+        }
       }
       if (
         metadata?.phase === "preview" ||
@@ -669,7 +672,9 @@ export function useEditorScreenChangeHandlers({
       const relativeOperations = relativeOperationsForStyles(styles, metadata);
       handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
         phase: metadata?.phase === "commit" ? "commit" : undefined,
-        runtimeApplied: true,
+        runtimeApplied: !metadata?.requirePersistedSourceAcceptance,
+        requirePersistedSourceAcceptance:
+          metadata?.requirePersistedSourceAcceptance,
         ...(relativeOperations ? { relativeOperations } : {}),
         routePath:
           metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
@@ -965,7 +970,7 @@ export function useEditorScreenChangeHandlers({
   >(
     (selector, value, info, details) => {
       if (!boardFileId) return;
-      handleScreenTextContentChange(
+      return handleScreenTextContentChange(
         boardFileId,
         selector,
         value,

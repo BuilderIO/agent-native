@@ -1,4 +1,4 @@
-import { trackEvent } from "@agent-native/core/client/analytics";
+import { captureError, trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronLeft,
@@ -9,30 +9,52 @@ import {
   IconNotes,
   IconX,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
-import type {
-  Slide,
-  SlideAnimation,
-  AnimationType,
-} from "@/context/DeckContext";
+import type { Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
-import {
-  expandByParagraphAnimations,
-  findLegacyAnimationContainer,
-  getElementAnimationValue,
-  getPersistedElementPath,
-  resolveSlideAnimationTargets,
-} from "@/lib/slide-animation-elements";
 import { isMediaKeyboardEvent } from "@/lib/slide-video";
 import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
+import { normalizeSlideTransition } from "../../../shared/slide-transitions";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  annotateBuildSteps,
+  findBuildStepElements,
+  getBuildSteps,
+  hasBuildSteps,
+  setBuildState,
+  type BuildSteps,
+} from "./slide-build-steps";
+import {
+  boundarySlideIndex,
+  boundaryTransition,
+  canCommand,
+  createSlideNavigation,
+  reduceSlideNavigation,
+  targetBuildStep,
+  type SlideNavigationAction,
+  type SlideNavigationLayout,
+} from "./slide-navigation";
+import {
+  prefersReducedMotion,
+  resolveSlideTransitionMotion,
+} from "./slide-transition-motion";
+import { SlideTransitionStage } from "./SlideTransitionStage";
+
+const NO_BUILD_STEPS: BuildSteps = { steps: [], unresolved: [] };
 
 interface PresentationViewProps {
   slides: Slide[];
@@ -72,124 +94,6 @@ function PdfExportStage({
       ))}
     </div>
   );
-}
-
-function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
-  if (slide.animations && slide.animations.length > 0) {
-    const doc = new DOMParser().parseFromString(slide.content, "text/html");
-    const root = doc.querySelector(".fmd-slide");
-    return root ? expandByParagraphAnimations(root, slide.animations) : null;
-  }
-  if (slide.splitByParagraph) {
-    const doc = new DOMParser().parseFromString(slide.content, "text/html");
-    const root = doc.querySelector(".fmd-slide");
-    if (!root) return null;
-
-    const paragraphs = Array.from(
-      root.querySelectorAll(".fmd-pptx-text p[data-pptx-paragraph]"),
-    ).filter((paragraph) => {
-      const textBox = paragraph.closest(".fmd-pptx-text");
-      return (
-        (textBox?.querySelectorAll("p[data-pptx-paragraph]").length ?? 0) > 1
-      );
-    });
-    if (paragraphs.length > 1) {
-      return paragraphs.flatMap((paragraph, index) => {
-        const elementPath = getPersistedElementPath(root, paragraph);
-        return elementPath
-          ? [
-              {
-                id: `auto-paragraph-${index}`,
-                elementIndex: index,
-                elementPath,
-                type: "slide-up" as AnimationType,
-              },
-            ]
-          : [];
-      });
-    }
-
-    const container = findLegacyAnimationContainer(root);
-    if (!container) return null;
-    return Array.from(container.children).map((_, i) => ({
-      id: `auto-${i}`,
-      elementIndex: i,
-      type: "slide-up" as AnimationType,
-    }));
-  }
-  return null;
-}
-
-function annotateStepsForPresentation(
-  html: string,
-  steps: SlideAnimation[],
-  currentStep: number,
-): string {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const root = doc.querySelector(".fmd-slide");
-  if (!root) return html;
-
-  const resolvedSteps = resolveSlideAnimationTargets(root, steps);
-  if (!resolvedSteps) return html;
-
-  resolvedSteps.forEach(({ element }, stepIdx) => {
-    element.setAttribute("data-pstep", String(stepIdx));
-  });
-
-  const styleLines = resolvedSteps
-    .map(({ target }, stepIdx) => {
-      if (stepIdx >= currentStep) {
-        return `[data-pstep="${stepIdx}"] { opacity: 0; pointer-events: none; }`;
-      } else if (stepIdx < currentStep - 1) {
-        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
-      } else {
-        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: ${getElementAnimationValue(target.type)}; }`;
-      }
-    })
-    .join("\n");
-
-  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; visibility: visible !important; }\n${styleLines}</style>`;
-  return styleTag + doc.body.innerHTML;
-}
-
-function isInstant(t: Slide["transition"]): boolean {
-  return !t || t === "instant" || t === "none";
-}
-
-function getEnterClass(
-  transition: Slide["transition"],
-  direction: "next" | "prev",
-): string {
-  switch (transition) {
-    case "fade":
-      return "slide-anim-fade-enter";
-    case "slide":
-      return direction === "next"
-        ? "slide-anim-slide-enter-right"
-        : "slide-anim-slide-enter-left";
-    case "zoom":
-      return "slide-anim-zoom-enter";
-    default:
-      return "";
-  }
-}
-
-function getExitClass(
-  transition: Slide["transition"],
-  direction: "next" | "prev",
-): string {
-  switch (transition) {
-    case "fade":
-      return "slide-anim-fade-exit";
-    case "slide":
-      return direction === "next"
-        ? "slide-anim-slide-exit-left"
-        : "slide-anim-slide-exit-right";
-    case "zoom":
-      return "slide-anim-zoom-exit";
-    default:
-      return "";
-  }
 }
 
 export default function PresentationView({
@@ -239,13 +143,63 @@ export default function PresentationView({
     },
     [safeSlides.length],
   );
-  const [currentIndex, setCurrentIndex] = useState(() =>
-    clampIndex(initialIndex),
+
+  // Build steps parse the slide HTML with DOMParser, which the server lacks. The
+  // server render and the first client render both use no steps, so their markup
+  // matches. The flag flips in a layout effect, before the first paint.
+  const [buildStepsReady, setBuildStepsReady] = useState(false);
+  useLayoutEffect(() => {
+    setBuildStepsReady(true);
+  }, []);
+  const allBuildSteps = useMemo(
+    () =>
+      safeSlides.map((slide) =>
+        buildStepsReady ? getBuildSteps(slide) : NO_BUILD_STEPS,
+      ),
+    [buildStepsReady, safeSlides],
   );
-  const [prevIndex, setPrevIndex] = useState<number | null>(null);
-  const [direction, setDirection] = useState<"next" | "prev">("next");
-  const [animating, setAnimating] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
+  // Unresolved reveals stay visible (see getBuildSteps). Each is recorded here.
+  useEffect(() => {
+    allBuildSteps.forEach((build, index) => {
+      for (const issue of build.unresolved) {
+        captureError(
+          new Error(
+            `[slides] reveal ${issue.reason} on slide ${safeSlides[index]?.id ?? "unknown"} (animation ${issue.animationIndex})`,
+          ),
+          { tags: { area: "slides-animation-issue" } },
+        );
+      }
+    });
+  }, [allBuildSteps, safeSlides]);
+  const layout = useMemo<SlideNavigationLayout>(
+    () => ({
+      stepCounts: allBuildSteps.map((build) => build.steps.length),
+      transitions: safeSlides.map((slide) =>
+        normalizeSlideTransition(slide.transition),
+      ),
+    }),
+    [allBuildSteps, safeSlides],
+  );
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+
+  // Commands never read render-time state: they reduce against navRef, so
+  // presses and presenter messages that arrive mid-transition are all kept.
+  const [nav, setNav] = useState(() =>
+    createSlideNavigation(clampIndex(initialIndex)),
+  );
+  const navRef = useRef(nav);
+  const apply = useCallback((action: SlideNavigationAction) => {
+    const next = reduceSlideNavigation(
+      navRef.current,
+      action,
+      layoutRef.current,
+    );
+    if (next === navRef.current) return;
+    navRef.current = next;
+    setNav(next);
+  }, []);
+
   const [showControls, setShowControls] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
@@ -258,10 +212,6 @@ export default function PresentationView({
   } | null>(null);
   const pdfExporting = pdfExportRequest !== null;
   const enteredFullscreenRef = useRef(false);
-  const transitionTimerRef = useRef<number | null>(null);
-  const queuedNavigationRef = useRef<"next" | "prev" | null>(null);
-  const goNextRef = useRef<() => void>(() => {});
-  const goPrevRef = useRef<() => void>(() => {});
   const navigate = useNavigate();
 
   const isShared = deckId.startsWith("__shared__/");
@@ -294,9 +244,6 @@ export default function PresentationView({
     [visibleRawIndices],
   );
 
-  const currentIndexRef = useRef(currentIndex);
-  currentIndexRef.current = currentIndex;
-
   const presentationStatsRef = useRef<{
     lastIndex: number;
     slidesAdvanced: number;
@@ -307,9 +254,9 @@ export default function PresentationView({
     if (isShared) return;
     const startedAt = Date.now();
     const stats = {
-      lastIndex: currentIndexRef.current,
+      lastIndex: navRef.current.displayedIndex,
       slidesAdvanced: 0,
-      maxSlideIndex: currentIndexRef.current,
+      maxSlideIndex: navRef.current.displayedIndex,
       fullscreen: Boolean(document.fullscreenElement),
     };
     presentationStatsRef.current = stats;
@@ -349,26 +296,18 @@ export default function PresentationView({
   }, [deckId, isShared]);
   useEffect(() => {
     const stats = presentationStatsRef.current;
-    if (!stats || stats.lastIndex === currentIndex) return;
-    if (currentIndex > stats.lastIndex) stats.slidesAdvanced += 1;
-    stats.lastIndex = currentIndex;
-    stats.maxSlideIndex = Math.max(stats.maxSlideIndex, currentIndex);
-  }, [currentIndex]);
+    const index = nav.displayedIndex;
+    if (!stats || stats.lastIndex === index) return;
+    if (index > stats.lastIndex) stats.slidesAdvanced += 1;
+    stats.lastIndex = index;
+    stats.maxSlideIndex = Math.max(stats.maxSlideIndex, index);
+  }, [nav.displayedIndex]);
   const visibleRawIndicesRef = useRef(visibleRawIndices);
   visibleRawIndicesRef.current = visibleRawIndices;
   const deckIdRef = useRef(deckId);
   deckIdRef.current = deckId;
   const isSharedRef = useRef(isShared);
   isSharedRef.current = isShared;
-
-  const clearTransitionTimer = useCallback(() => {
-    if (transitionTimerRef.current !== null) {
-      window.clearTimeout(transitionTimerRef.current);
-      transitionTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => clearTransitionTimer, [clearTransitionTimer]);
 
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
@@ -386,115 +325,103 @@ export default function PresentationView({
     const isDeepLinkChange =
       prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
     prevDeepLinkKeyRef.current = { startIndex, deckId };
+    const newIds = safeSlides.map((s) => s.id);
+    const prevIds = prevSafeSlideIdsRef.current;
+    prevSafeSlideIdsRef.current = newIds;
 
     if (isDeepLinkChange) {
-      prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
-      clearTransitionTimer();
-      queuedNavigationRef.current = null;
-      setCurrentIndex(clampIndex(initialIndex));
-      setCurrentStep(0);
-      setPrevIndex(null);
-      setAnimating(false);
+      // A seeded slide was not reached by a press, so its builds never animate,
+      // whatever DOM was shown before. Forgetting that DOM is what guarantees it.
+      liveBuildRef.current = null;
+      const index = clampIndex(initialIndex);
+      apply({ type: "seed", index, targetIndex: index, buildStep: 0 });
       return;
     }
 
-    const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
-    const newIds = safeSlides.map((s) => s.id);
-    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
-    prevSafeSlideIdsRef.current = newIds;
-    setCurrentIndex(
-      followedIndex >= 0 ? followedIndex : clampIndex(currentIndexRef.current),
-    );
-    setPrevIndex((prev) =>
-      prev !== null && prev >= safeSlides.length ? null : prev,
-    );
+    const followIndex = (oldIndex: number) => {
+      const id = prevIds[oldIndex];
+      return id ? newIds.indexOf(id) : -1;
+    };
+    const current = navRef.current;
+    const followedIndex = followIndex(current.displayedIndex);
     if (followedIndex < 0) {
-      clearTransitionTimer();
-      queuedNavigationRef.current = null;
-      setCurrentStep(0);
-      setPrevIndex(null);
-      setAnimating(false);
+      apply({
+        type: "seed",
+        index: clampIndex(current.displayedIndex),
+        targetIndex: clampIndex(current.targetIndex),
+        buildStep: 0,
+      });
+      return;
     }
+    const followedTarget = followIndex(current.targetIndex);
+    apply({
+      type: "seed",
+      index: followedIndex,
+      targetIndex:
+        followedTarget >= 0 ? followedTarget : clampIndex(current.targetIndex),
+      buildStep: current.buildStep,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeSlides, startIndex, deckId]);
 
-  const currentSlide = safeSlides[currentIndex];
-  const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
-  const maxSteps = animSteps ? animSteps.length : 0;
-
-  const startTransition = useCallback(
-    (newIndex: number, dir: "next" | "prev") => {
-      const incoming = safeSlides[newIndex];
-      const t = incoming?.transition;
-      const incomingSteps = incoming ? getAnimationSteps(incoming) : null;
-      const initialStep =
-        dir === "prev" ? (incomingSteps ? incomingSteps.length : 0) : 0;
-
-      clearTransitionTimer();
-      queuedNavigationRef.current = null;
-      if (isInstant(t)) {
-        setPrevIndex(null);
-        setAnimating(false);
-        setCurrentIndex(newIndex);
-        setCurrentStep(initialStep);
-        return;
-      }
-
-      setPrevIndex(currentIndex);
-      setDirection(dir);
-      setAnimating(true);
-      setCurrentIndex(newIndex);
-      setCurrentStep(initialStep);
-
-      transitionTimerRef.current = window.setTimeout(() => {
-        transitionTimerRef.current = null;
-        setPrevIndex(null);
-        setAnimating(false);
-        const queued = queuedNavigationRef.current;
-        queuedNavigationRef.current = null;
-        if (queued) {
-          window.setTimeout(() => {
-            if (queued === "next") goNextRef.current();
-            else goPrevRef.current();
-          }, 0);
-        }
-      }, 400);
-    },
-    [clearTransitionTimer, currentIndex, safeSlides],
+  const currentSlide = safeSlides[nav.displayedIndex];
+  const currentSteps = allBuildSteps[nav.displayedIndex]?.steps;
+  // The live slide's HTML is built once per slide. Presses move build state on
+  // the mounted DOM (see the layout effect below), so the HTML does not change
+  // and the slide is not re-rendered on each press.
+  const displaySlide = useMemo(
+    () => annotateBuildSteps(currentSlide, currentSteps, 0),
+    [currentSlide, currentSteps],
+  );
+  // The outgoing layer of a transition shows the slide fully built.
+  const outgoingSlide = useMemo(
+    () =>
+      annotateBuildSteps(currentSlide, currentSteps, currentSteps?.length ?? 0),
+    [currentSlide, currentSteps],
   );
 
-  const goNext = useCallback(() => {
-    if (animating) {
-      queuedNavigationRef.current = "next";
-      return;
-    }
-    if (maxSteps > 0 && currentStep < maxSteps /* i18n-ignore */) {
-      setCurrentStep((prev) => prev + 1);
-      return;
-    }
-    if (currentIndex >= safeSlides.length - 1) return;
-    startTransition(currentIndex + 1, "next");
-  }, [
-    animating,
-    maxSteps,
-    currentStep,
-    currentIndex,
-    safeSlides.length,
-    startTransition,
-  ]);
+  const liveSlideRef = useRef<HTMLDivElement>(null);
+  const liveBuildRef = useRef<{
+    root: Element;
+    displayedIndex: number;
+    buildStep: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const root = liveSlideRef.current;
+    if (!root) return;
+    const steps = currentSteps ?? [];
+    const last = liveBuildRef.current;
+    // Same DOM: a press moves build state, so only the step it entered animates.
+    // A new DOM for a slide entered forward: its builds start hidden, so any
+    // reveal the press produced animates. Backward entry lands fully built.
+    const previous =
+      last?.root === root
+        ? last.buildStep
+        : last && nav.displayedIndex > last.displayedIndex
+          ? 0
+          : null;
+    setBuildState(
+      findBuildStepElements(root, steps.length),
+      steps,
+      nav.buildStep,
+      previous,
+      prefersReducedMotion(),
+    );
+    liveBuildRef.current = {
+      root,
+      displayedIndex: nav.displayedIndex,
+      buildStep: nav.buildStep,
+    };
+  }, [currentSteps, nav.buildStep, nav.displayedIndex]);
 
-  const goPrev = useCallback(() => {
-    if (animating) {
-      queuedNavigationRef.current = "prev";
-      return;
-    }
-    if (currentStep > 0) {
-      setCurrentStep((prev) => prev - 1);
-      return;
-    }
-    if (currentIndex <= 0) return;
-    startTransition(currentIndex - 1, "prev");
-  }, [animating, currentStep, currentIndex, startTransition]);
+  const goNext = useCallback(
+    () => apply({ type: "command", command: "next" }),
+    [apply],
+  );
+  const goPrev = useCallback(
+    () => apply({ type: "command", command: "prev" }),
+    [apply],
+  );
 
   const exit = useCallback(() => {
     if (document.fullscreenElement) {
@@ -504,25 +431,20 @@ export default function PresentationView({
       const token = deckId.replace("__shared__/", "");
       void navigate(`/share/${token}`);
     } else {
-      const rawIndex =
-        visibleRawIndicesRef.current[currentIndexRef.current] ??
-        currentIndexRef.current;
+      const target = navRef.current.targetIndex;
+      const rawIndex = visibleRawIndicesRef.current[target] ?? target;
       void navigate(`/deck/${deckId}?slide=${rawIndex + 1}`);
     }
   }, [navigate, deckId, isShared]);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
-  goNextRef.current = goNext;
-  goPrevRef.current = goPrev;
-
-  const broadcastState = useCallback(() => {
+  const postState = useCallback((index: number, buildStep: number) => {
     channelRef.current?.postMessage({
       type: "state",
-      index: currentIndex,
+      index,
+      buildStep,
     } satisfies PresentMessage);
-  }, [currentIndex]);
-  const broadcastStateRef = useRef(broadcastState);
-  broadcastStateRef.current = broadcastState;
+  }, []);
 
   useEffect(() => {
     const channel = openPresentChannel(deckId);
@@ -531,36 +453,54 @@ export default function PresentationView({
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
       const message = event.data;
       if (message?.type === "hello") {
-        broadcastStateRef.current();
+        postState(
+          navRef.current.targetIndex,
+          targetBuildStep(navRef.current, layoutRef.current),
+        );
       } else if (message?.type === "command") {
-        if (message.command === "next") goNextRef.current();
-        else goPrevRef.current();
+        apply({ type: "command", command: message.command });
       }
     };
+    // BroadcastChannel has no close event, so the presenter learns the audience
+    // left only from this message: on window close (pagehide) and on unmount
+    // (exit to the editor, or a deck switch).
+    const sayBye = () =>
+      channel.postMessage({ type: "bye" } satisfies PresentMessage);
+    window.addEventListener("pagehide", sayBye);
     return () => {
+      window.removeEventListener("pagehide", sayBye);
+      sayBye();
       channel.close();
       channelRef.current = null;
     };
-  }, [deckId]);
+  }, [deckId, apply, postState]);
 
+  // The presenter follows the target, so it updates on every press rather than
+  // when each transition lands. A build press changes only the build step.
   useEffect(() => {
-    broadcastState();
-  }, [broadcastState]);
+    postState(nav.targetIndex, targetBuildStep(nav, layout));
+  }, [nav, layout, postState]);
 
   const openPresenterWindow = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
-    url.searchParams.set("slide", String(toRawIndex(currentIndex) + 1));
+    url.searchParams.set(
+      "slide",
+      String(toRawIndex(navRef.current.targetIndex) + 1),
+    );
     window.open(
       url.toString(),
       `slides-presenter-${deckId}`,
       "width=1200,height=760",
     );
-  }, [currentIndex, deckId, toRawIndex]);
+  }, [deckId, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (isMediaKeyboardEvent(e)) return;
+      // A held key auto-repeats keydown with repeat=true. Each one would step
+      // again, so one physical press could advance two or more slides.
+      if (e.repeat) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -619,9 +559,8 @@ export default function PresentationView({
           const token = deckIdRef.current.replace("__shared__/", "");
           void navigate(`/share/${token}`);
         } else {
-          const rawIndex =
-            visibleRawIndicesRef.current[currentIndexRef.current] ??
-            currentIndexRef.current;
+          const target = navRef.current.targetIndex;
+          const rawIndex = visibleRawIndicesRef.current[target] ?? target;
           void navigate(`/deck/${deckIdRef.current}?slide=${rawIndex + 1}`);
         }
       }
@@ -728,19 +667,6 @@ export default function PresentationView({
     };
   }, [deckId, isShared, pdfExportRequest, t]);
 
-  const displaySlide = useMemo(() => {
-    if (!currentSlide || !animSteps || animSteps.length === 0)
-      return currentSlide;
-    return {
-      ...currentSlide,
-      content: annotateStepsForPresentation(
-        currentSlide.content,
-        animSteps,
-        currentStep,
-      ),
-    };
-  }, [currentSlide, animSteps, currentStep]);
-
   if (!currentSlide) {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black text-white">
@@ -755,13 +681,24 @@ export default function PresentationView({
     );
   }
 
-  const enterClass = animating
-    ? getEnterClass(currentSlide.transition, direction)
-    : "";
-  const exitClass =
-    animating && prevIndex !== null
-      ? getExitClass(currentSlide.transition, direction)
-      : "";
+  const flight = nav.flight;
+  const flightSlide = flight ? safeSlides[flight.to] : undefined;
+  // While a flight plays, displayedIndex is still the outgoing slide. The
+  // boundary's slide supplies the speed, as it supplies the type.
+  const boundarySlide = flight
+    ? safeSlides[boundarySlideIndex(nav.displayedIndex, flight.to)]
+    : undefined;
+  const flightMotion =
+    flight && flightSlide && boundarySlide
+      ? resolveSlideTransitionMotion(
+          boundaryTransition(layout.transitions, nav.displayedIndex, flight.to),
+          flight.direction,
+          {
+            speed: boundarySlide.transitionSpeed,
+            reducedMotion: prefersReducedMotion(),
+          },
+        )
+      : null;
 
   return (
     <div
@@ -784,40 +721,52 @@ export default function PresentationView({
         goNext();
       }}
     >
-      {/* Exiting slide — rendered only during transition */}
-      {animating && prevIndex !== null && safeSlides[prevIndex] && (
+      {flight && flightSlide && flightMotion ? (
+        <SlideTransitionStage
+          key={flight.id}
+          outgoing={outgoingSlide}
+          incoming={annotateBuildSteps(
+            flightSlide,
+            allBuildSteps[flight.to]?.steps,
+            flight.direction === "backward" ? layout.stepCounts[flight.to] : 0,
+          )}
+          outgoingPosition={{
+            number: nav.displayedIndex + 1,
+            count: safeSlides.length,
+          }}
+          incomingPosition={{ number: flight.to + 1, count: safeSlides.length }}
+          motion={flightMotion}
+          aspectRatio={aspectRatio}
+          designSystem={designSystem}
+          onFinished={() =>
+            apply({ type: "flightFinished", flightId: flight.id })
+          }
+        />
+      ) : (
         <div
-          key={safeSlides[prevIndex].id + "-exit"}
-          className={`absolute inset-0 z-10 ${exitClass}`}
-          style={{ willChange: "transform, opacity" }}
+          key={currentSlide.id}
+          ref={liveSlideRef}
+          className="absolute inset-0 z-20"
+          // Before the builds are annotated, a reveal slide would show every
+          // reveal in the server HTML. Hold the slide until the flag flips.
+          style={
+            !buildStepsReady && hasBuildSteps(currentSlide)
+              ? { visibility: "hidden" }
+              : undefined
+          }
         >
           <SlideRenderer
-            slide={safeSlides[prevIndex]}
-            slidePosition={{ number: prevIndex + 1, count: safeSlides.length }}
+            slide={displaySlide}
+            slidePosition={{
+              number: nav.displayedIndex + 1,
+              count: safeSlides.length,
+            }}
             thumbnail={false}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
           />
         </div>
       )}
-
-      {/* Entering / current slide */}
-      <div
-        key={currentSlide.id + "-enter"}
-        className={`absolute inset-0 z-20 ${enterClass}`}
-        style={animating ? { willChange: "transform, opacity" } : undefined}
-      >
-        <SlideRenderer
-          slide={displaySlide}
-          slidePosition={{
-            number: currentIndex + 1,
-            count: safeSlides.length,
-          }}
-          thumbnail={false}
-          aspectRatio={aspectRatio}
-          designSystem={designSystem}
-        />
-      </div>
 
       {/* Controls overlay */}
       <div
@@ -829,13 +778,13 @@ export default function PresentationView({
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-4 bg-gradient-to-t from-black/80 to-transparent">
           <span className="text-sm text-white/50 font-mono">
-            {currentIndex + 1} / {safeSlides.length}
+            {nav.displayedIndex + 1} / {safeSlides.length}
           </span>
 
           <div className="flex items-center gap-2">
             <button
               onClick={goPrev}
-              disabled={currentIndex === 0 && currentStep === 0}
+              disabled={!canCommand(nav, layout, "prev")}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               aria-label={t("presentation.previousSlide")}
             >
@@ -843,11 +792,7 @@ export default function PresentationView({
             </button>
             <button
               onClick={goNext}
-              disabled={
-                currentIndex === safeSlides.length - 1 &&
-                (maxSteps === 0 || // i18n-ignore: boolean expression, not visible copy.
-                  currentStep >= maxSteps)
-              }
+              disabled={!canCommand(nav, layout, "next")}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               aria-label={t("presentation.nextSlide")}
             >
@@ -909,7 +854,7 @@ export default function PresentationView({
           <div
             className="h-full bg-[#609FF8]"
             style={{
-              transform: `scaleX(${(currentIndex + 1) / safeSlides.length})`,
+              transform: `scaleX(${(nav.displayedIndex + 1) / safeSlides.length})`,
               transformOrigin: "left",
               transition: "transform 0.3s cubic-bezier(0.2, 0, 0, 1)",
               width: "100%",

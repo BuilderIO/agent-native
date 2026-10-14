@@ -9,6 +9,7 @@ import {
   getCurrentTurnRunEventsForThread,
   insertRun,
   insertRunEvent,
+  insertRunEvents,
   reapIfStale,
 } from "./run-store.js";
 import { classifyToolCallJournal } from "./tool-call-journal.js";
@@ -189,6 +190,47 @@ describe.skipIf(!databaseUrl)(
         await observer`DELETE FROM agent_run_events WHERE run_id = ${runId}`;
         await observer`DELETE FROM agent_runs WHERE id = ${runId}`;
         await Promise.all(connections.map((sql) => sql.end()));
+      }
+    });
+
+    it("batch-inserts events once each and stops once the run is terminal", async () => {
+      const sql = postgres(databaseUrl!, { max: 1 });
+      const runId = `event-batch-${randomUUID()}`;
+      const events = Array.from({ length: 1_203 }, (_, seq) => ({
+        seq,
+        eventAt: 1_000 + seq,
+        eventData: JSON.stringify({ type: "text", text: `chunk ${seq}` }),
+      }));
+      try {
+        await withDbExec(executor(sql), async () => {
+          await insertRun(runId, runId, runId);
+          await insertRunEvents(runId, events);
+          await insertRunEvents(runId, events.slice(0, 10));
+        });
+        const rows =
+          await sql`SELECT seq, event_at, event_data FROM agent_run_events WHERE run_id = ${runId} ORDER BY seq`;
+        expect(rows).toHaveLength(events.length);
+        expect(Number(rows[1_202].seq)).toBe(1_202);
+        expect(Number(rows[1_202].event_at)).toBe(2_202);
+        expect(rows[1_202].event_data).toBe(events[1_202].eventData);
+
+        await sql`UPDATE agent_runs SET status = 'completed' WHERE id = ${runId}`;
+        await withDbExec(executor(sql), () =>
+          insertRunEvents(runId, [
+            {
+              seq: 5_000,
+              eventAt: 1,
+              eventData: '{"type":"text","text":"late"}',
+            },
+          ]),
+        );
+        const late =
+          await sql`SELECT seq FROM agent_run_events WHERE run_id = ${runId} AND seq = 5000`;
+        expect(late).toHaveLength(0);
+      } finally {
+        await sql`DELETE FROM agent_run_events WHERE run_id = ${runId}`;
+        await sql`DELETE FROM agent_runs WHERE id = ${runId}`;
+        await sql.end();
       }
     });
   },

@@ -4,12 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { createServer, resolveConfig } from "vite";
+import { build, createServer, resolveConfig } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
@@ -3634,6 +3635,490 @@ describe("Vite SSR stubs", () => {
     );
     expect(plugin.resolveId("@better-auth/core")).toBeNull();
     vi.unstubAllEnvs();
+  });
+});
+
+describe("Vite SSR optional dependencies", () => {
+  it("externalizes missing optional Core peers but keeps app runtime peers", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-ssr-peers-"));
+    const coreRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    const otelRoot = path.join(appRoot, "node_modules/@agent-native/otel");
+    const apiRoot = path.join(otelRoot, "node_modules/@opentelemetry/api");
+    fs.mkdirSync(apiRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "ssr-peers-app",
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@agent-native/otel": "workspace:*",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(otelRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/otel",
+        peerDependencies: { "@opentelemetry/api": "^1.9.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(apiRoot, "package.json"),
+      JSON.stringify({ name: "@opentelemetry/api", version: "1.9.1" }),
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin.name === "agent-native-config",
+      ) as any;
+      const config = await configPlugin.config(
+        { root: appRoot, plugins: [] },
+        { command: "build", mode: "production", isSsrBuild: true },
+      );
+
+      expect(config.ssr.external).toContain("prettier");
+      expect(config.ssr.external).toContain("xlsx");
+      expect(config.ssr.external).toContain("@sentry/node");
+      expect(config.ssr.external).not.toContain("@opentelemetry/api");
+      expect(config.build.rolldownOptions.external).toContain("prettier");
+      const entryPath = path.join(appRoot, "entry.ts");
+      fs.writeFileSync(
+        entryPath,
+        'import { format } from "prettier"; export const result = format("x");\n',
+      );
+      await build({
+        configFile: false,
+        logLevel: "silent",
+        root: appRoot,
+        ssr: { external: config.ssr.external as string[] },
+        build: {
+          emptyOutDir: true,
+          outDir: path.join(appRoot, "dist"),
+          rolldownOptions: config.build.rolldownOptions,
+          ssr: entryPath,
+        },
+      });
+      const distPath = path.join(appRoot, "dist");
+      const collectOutputFiles = (directory: string): string[] =>
+        fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+          const entryPath = path.join(directory, entry.name);
+          return entry.isDirectory()
+            ? collectOutputFiles(entryPath)
+            : /\.(?:mjs|js)$/u.test(entry.name)
+              ? [entryPath]
+              : [];
+        });
+      const outputFiles = collectOutputFiles(distPath);
+      expect(outputFiles).toHaveLength(1);
+      expect(fs.readFileSync(outputFiles[0]!, "utf8")).toMatch(
+        /from ["']prettier["']/u,
+      );
+      const missingPeers = getMissingCoreOptionalPeers(appRoot);
+      expect(missingPeers).toContain("prettier");
+      expect(missingPeers).toContain("xlsx");
+      expect(missingPeers).toContain("@sentry/node");
+      expect(missingPeers).not.toContain("@opentelemetry/api");
+      for (const peer of [
+        "fast-xml-parser",
+        "jszip",
+        "officeparser",
+        "pdf-parse",
+        "pdfjs-dist",
+      ]) {
+        expect(missingPeers).not.toContain(peer);
+      }
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads optional peers from a published Core package without source files", () => {
+    const appRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-published-core-"),
+    );
+    const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");
+    fs.mkdirSync(coreRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "published-core-app",
+        dependencies: { "@agent-native/core": "0.208.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependenciesMeta: { prettier: { optional: true } },
+      }),
+    );
+
+    try {
+      expect(fs.existsSync(path.join(coreRoot, "src/index.ts"))).toBe(false);
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain("prettier");
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves relative file Core dependencies from the application", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-file-core-"),
+    );
+    const appRoot = path.join(workspaceRoot, "apps/demo");
+    const coreRoot = path.join(workspaceRoot, "packages/core");
+    fs.mkdirSync(appRoot, { recursive: true });
+    fs.mkdirSync(coreRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "relative-file-core-app",
+        dependencies: { "@agent-native/core": "file:../../packages/core" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependenciesMeta: { prettier: { optional: true } },
+      }),
+    );
+
+    try {
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain("prettier");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not treat workspace Core dev peers as application runtime dependencies", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-workspace-core-peers-"),
+    );
+    const appRoot = path.join(workspaceRoot, "apps/demo");
+    const coreRoot = path.join(workspaceRoot, "packages/core");
+    const linkedCoreRoot = path.join(
+      appRoot,
+      "node_modules/@agent-native/core",
+    );
+    fs.mkdirSync(path.dirname(linkedCoreRoot), { recursive: true });
+    fs.mkdirSync(path.join(coreRoot, "node_modules/prettier"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "workspace-core-peer-app",
+        dependencies: { "@agent-native/core": "workspace:*" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependencies: { prettier: "^3" },
+        peerDependenciesMeta: { prettier: { optional: true } },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "node_modules/prettier/package.json"),
+      JSON.stringify({ name: "prettier", version: "3.8.3" }),
+    );
+    fs.symlinkSync(coreRoot, linkedCoreRoot, "dir");
+
+    try {
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain("prettier");
+
+      fs.mkdirSync(path.join(appRoot, "node_modules/prettier"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(appRoot, "node_modules/prettier/package.json"),
+        JSON.stringify({ name: "prettier", version: "3.8.3" }),
+      );
+      const appPackage = JSON.parse(
+        fs.readFileSync(path.join(appRoot, "package.json"), "utf8"),
+      );
+      appPackage.dependencies.prettier = "^3";
+      fs.writeFileSync(
+        path.join(appRoot, "package.json"),
+        JSON.stringify(appPackage),
+      );
+
+      expect(getMissingCoreOptionalPeers(appRoot)).not.toContain("prettier");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores nested peers that Core cannot resolve", () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-nested-peer-"));
+    const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");
+    const otelRoot = path.join(appRoot, "node_modules/@agent-native/otel");
+    const nestedApiRoot = path.join(
+      otelRoot,
+      "node_modules/@opentelemetry/api",
+    );
+    fs.mkdirSync(coreRoot, { recursive: true });
+    fs.mkdirSync(nestedApiRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "nested-peer-app",
+        dependencies: {
+          "@agent-native/core": "0.208.0",
+          "@agent-native/otel": "0.1.0",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependenciesMeta: {
+          "@opentelemetry/api": { optional: true },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(otelRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/otel",
+        peerDependencies: { "@opentelemetry/api": "^1.9.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(nestedApiRoot, "package.json"),
+      JSON.stringify({ name: "@opentelemetry/api", version: "1.9.1" }),
+    );
+
+    try {
+      expect(getMissingCoreOptionalPeers(appRoot)).toContain(
+        "@opentelemetry/api",
+      );
+
+      const hoistedApiRoot = path.join(
+        appRoot,
+        "node_modules/@opentelemetry/api",
+      );
+      fs.mkdirSync(hoistedApiRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(hoistedApiRoot, "package.json"),
+        JSON.stringify({ name: "@opentelemetry/api", version: "1.9.1" }),
+      );
+      expect(getMissingCoreOptionalPeers(appRoot)).not.toContain(
+        "@opentelemetry/api",
+      );
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps missing optional peers out of browser externals and applies client stubs", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-client-peers-"));
+    const coreRoot = path.join(appRoot, "node_modules/@agent-native/core");
+    const optionalPeerPath = path.join(
+      coreRoot,
+      "dist/shared/optional-peer.js",
+    );
+    fs.mkdirSync(path.dirname(optionalPeerPath), { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "client-peers-app",
+        dependencies: { "@agent-native/core": "0.208.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        main: "./dist/index.js",
+        exports: {
+          ".": "./dist/index.js",
+          "./shared/optional-peer": "./dist/shared/optional-peer.js",
+        },
+        peerDependenciesMeta: { "@sentry/browser": { optional: true } },
+      }),
+    );
+    fs.writeFileSync(path.join(coreRoot, "dist/index.js"), "export {};\n");
+    fs.writeFileSync(
+      optionalPeerPath,
+      "export class OptionalPeerDependencyError extends Error {}\n",
+    );
+    const entryPath = path.join(appRoot, "entry.ts");
+    fs.writeFileSync(
+      entryPath,
+      'import { captureException } from "@sentry/browser"; captureException(new Error("expected"));\n',
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugins = flatPlugins(agentNative()) as any[];
+      const configPlugin = plugins.find(
+        (plugin) => plugin.name === "agent-native-config",
+      );
+      const clientStubPlugin = plugins.find(
+        (plugin) => plugin.name === "agent-native-client-optional-peer-stub",
+      );
+      const clientConfig = await configPlugin.config(
+        { root: appRoot, plugins: [] },
+        { command: "build", mode: "development", isSsrBuild: false },
+      );
+      const ssrConfig = await configPlugin.config(
+        { root: appRoot, plugins: [] },
+        { command: "build", mode: "development", isSsrBuild: true },
+      );
+
+      expect(ssrConfig.build.rolldownOptions.external).toContain(
+        "@sentry/browser",
+      );
+      expect(clientConfig.build.rolldownOptions.external).not.toContain(
+        "@sentry/browser",
+      );
+      expect(clientStubPlugin.resolveId("@sentry/browser")).toBe(
+        "\0agent-native-client-optional-peer-stub:@sentry/browser",
+      );
+      const buildResult: any = await build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [clientStubPlugin],
+        root: appRoot,
+        build: {
+          emptyOutDir: true,
+          minify: false,
+          outDir: path.join(appRoot, "dist"),
+          rolldownOptions: {
+            ...clientConfig.build.rolldownOptions,
+            input: entryPath,
+          },
+        },
+      });
+      const output = (Array.isArray(buildResult) ? buildResult : [buildResult])
+        .flatMap(({ output }) => output)
+        .filter((chunk: any) => chunk.type === "chunk")
+        .map((chunk: any) => chunk.code)
+        .join("\n");
+      expect(output).toContain(
+        'new OptionalPeerDependencyError("@sentry/browser")',
+      );
+      expect(output).not.toMatch(/from ["']@sentry\/browser["']/u);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the browser-only Tabler icon loader out of SSR chunks", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-tabler-ssr-"));
+    const coreRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({
+        name: "tabler-ssr-app",
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+        },
+      }),
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (entry) =>
+          entry.name === "agent-native-toolkit-tabler-chunk-loaders-ssr",
+      ) as any;
+      const toolkitRoot = path.resolve(coreRoot, "../toolkit");
+      const importer = path.join(toolkitRoot, "src/icons/catalog.ts");
+      const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
+
+      expect(plugin).toBeDefined();
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", importer, {
+          ssr: true,
+        }),
+      ).toBe(stubId);
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", importer, {
+          ssr: false,
+        }),
+      ).toBeNull();
+      const stub = await import(
+        `data:text/javascript,${encodeURIComponent(await plugin.load(stubId))}`
+      );
+      expect(() => stub.default()).toThrow(
+        "Tabler icons are available only in the browser",
+      );
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("stubs the Tabler icon loader in published Toolkit packages", async () => {
+    const appRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-published-toolkit-ssr-"),
+    );
+    const toolkitRoot = path.join(
+      appRoot,
+      "node_modules/@agent-native/toolkit",
+    );
+    const catalogPath = path.join(toolkitRoot, "dist/icons/catalog.js");
+    fs.mkdirSync(path.dirname(catalogPath), { recursive: true });
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({ name: "published-toolkit-app" }),
+    );
+    fs.writeFileSync(
+      path.join(toolkitRoot, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/toolkit",
+        main: "./dist/index.js",
+      }),
+    );
+    fs.writeFileSync(path.join(toolkitRoot, "dist/index.js"), "export {};\n");
+    fs.writeFileSync(
+      catalogPath,
+      'export { default } from "./tabler-chunk-loaders.js";\n',
+    );
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (entry) =>
+          entry.name === "agent-native-toolkit-tabler-chunk-loaders-ssr",
+      ) as any;
+      const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
+
+      expect(plugin).toBeDefined();
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", catalogPath, {
+          ssr: true,
+        }),
+      ).toBe(stubId);
+      expect(
+        await plugin.resolveId("./tabler-chunk-loaders.js", catalogPath, {
+          ssr: false,
+        }),
+      ).toBeNull();
+      const stub = await import(
+        `data:text/javascript,${encodeURIComponent(await plugin.load(stubId))}`
+      );
+      expect(() => stub.default()).toThrow(
+        "Tabler icons are available only in the browser",
+      );
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 });
 

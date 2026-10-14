@@ -200,6 +200,54 @@ describe("runGeometryCommit", () => {
     expect(geometryUndoStackRef.current[1]?.before).toEqual(afterScreenA);
   });
 
+  it("keeps the design snapshot current across consecutive keyboard nudges", () => {
+    const before = {
+      screen: { x: 1, y: 0, width: 400, height: 400 },
+    };
+    const after = {
+      screen: { x: 2, y: 0, width: 400, height: 400 },
+    };
+    const designDataJsonRef = { current: { canvasFrames: before } };
+    const selection: GeometryHistorySelection = {
+      overviewSelectedScreenIds: ["screen"],
+      selectedLayerIds: [],
+      activeFileId: null,
+    };
+
+    runGeometryCommit(
+      {
+        boardFileId: undefined,
+        captureCurrentSelection: () => selection,
+        clearRedoStacks: vi.fn(),
+        designDataJsonRef,
+        geometryUndoStackRef: {
+          current: [
+            {
+              before: { screen: { ...before.screen, x: 0 } },
+              after: before,
+              selectionAfter: selection,
+            },
+          ],
+        },
+        historyOrderRef: { current: ["geometry"] },
+        id: "design",
+        lastGeometryCommitAtRef: { current: Date.now() },
+        lastGeometryCommitSourceRef: { current: "keyboard" },
+        liveFrameGeometryRef: { current: before },
+        locallyPinnedHeightIdsRef: { current: new Set<string>() },
+        queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
+        queueFrameGeometrySave: vi.fn(),
+        syncUndoRedoState: vi.fn(),
+        writeFrameGeometrySnapshot: vi.fn(),
+      },
+      before,
+      after,
+      { source: "keyboard" },
+    );
+
+    expect(designDataJsonRef.current.canvasFrames).toEqual(after);
+  });
+
   it("keeps keyboard nudges separate across content history", () => {
     const before = {
       screen: { x: 0, y: 0, width: 400, height: 400 },

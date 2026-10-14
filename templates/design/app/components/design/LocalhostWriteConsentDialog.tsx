@@ -22,6 +22,7 @@ export interface LocalhostWriteConsentPayload {
     grantedUntil: string;
   }) => void;
   onCancel: () => void;
+  onError?: (error: unknown) => void;
 }
 
 interface LocalhostWriteConsentDialogProps {
@@ -55,7 +56,8 @@ export function LocalhostWriteConsentDialog({
       });
       onOpenChange(false);
       payload.onGranted(result);
-    } catch {
+    } catch (error) {
+      payload.onError?.(error);
       onOpenChange(false);
       payload.onCancel();
     } finally {

@@ -276,10 +276,21 @@ const messages = {
     convertMermaidFailed: "図の変換に失敗しました",
     removeExcalidrawCanvas: "Excalidraw キャンバスを削除",
     transition: "トランジション",
-    transition_instant: "即時",
+    transition_none: "なし",
+    transition_dissolve: "ディゾルブ",
     transition_fade: "フェード",
-    transition_slide: "スライド",
-    transition_zoom: "ズーム",
+    transition_slide_from_right: "右からスライド",
+    transition_slide_from_left: "左からスライド",
+    transition_flip: "フリップ",
+    transition_cube: "キューブ",
+    transition_gallery: "ギャラリー",
+    transition_panel: "スライドの切り替え",
+    transition_speed: "速度",
+    transition_slow: "遅い",
+    transition_fast: "速い",
+    transition_seconds: "{{seconds}} 秒",
+    transition_apply_all: "すべてのスライドに適用",
+    transition_play: "切り替えを再生",
     aspectRatio: "アスペクト比",
     setAspectRatio: "デッキを {{ratio}} に設定",
     slideTools: "スライドツール",
@@ -598,7 +609,6 @@ const messages = {
     selectObject: "アニメーションするオブジェクトを選択",
     addTransition: "トランジションを追加",
     effect: "効果",
-    trigger: "トリガー",
     onClick: "クリック時",
     byParagraph: "段落ごと",
     expand: "トランジションを展開",
@@ -609,6 +619,13 @@ const messages = {
     clearAll: "全部清除",
     elements: "元素",
     autoFill: "自动填充",
+    issueStalePath: "このオブジェクトはスライド上にありません。",
+    issueMissingElement: "このオブジェクトがスライド上に見つかりません。",
+    issueDuplicate:
+      "このアニメーションは、スライド上の別のアニメーションと重なっています。",
+    blocked:
+      "解決できないアニメーションを削除するか修正すると、保存または再生できます。",
+    changeNotApplied: "この変更は適用されませんでした。",
     noAnimatableElements: "此幻灯片未检测到可动画元素。",
   },
   generateSlides: {
@@ -783,7 +800,12 @@ const messages = {
     generationFailed:
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
-      "スライドが作成されたか確認できませんでした。デッキまたはチャットを確認してから、もう一度お試しください。",
+      "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    partialGenerationFailed:
+      "スライドを最後まで作成できませんでした。続ける前に、作成済みのスライドと最初のリクエストを確認してください。",
+    originalPrompt: "入力した内容",
+    backToHome: "ホームに戻る",
+    checkedDeckTryAgain: "デッキを確認しました。再試行",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
@@ -819,7 +841,7 @@ const messages = {
     sourceMixed: "複数のソース",
     sourceBuilder: "Builderデザインシステムインテリジェンス",
     sourceIndexingDescription:
-      "Builderはこのソースを処理中です。準備ができた結果はここに表示されます。",
+      "ブランドのスタイルを準備中です。準備ができるまで待ってから、もう一度お試しください。",
     sourceIndexedDescription:
       "{{docs}}件のドキュメント · {{tokens}}件のトークンをインデックス済み",
     sourceIndexedDocsOnly: "{{docs}}件のドキュメントをインデックス済み",
@@ -1030,6 +1052,8 @@ const messages = {
     generationStartFailed: "デッキ生成を開始できませんでした",
     generationStartFailedDescription:
       "新しいデッキの保存が完了しなかったため、存在しないデッキに対してエージェントを開始しませんでした。プロンプトは保存されたので再試行できます。",
+    generationContextUnavailableDescription:
+      "選択したブランドスタイルまたは参考プレゼンテーションを読み込めませんでした。開けることとインターネット接続を確認して、もう一度お試しください。",
     showAllDecks: "すべてのデッキを表示",
     all: "すべて",
     showMineDecks: "自分が作成したデッキを表示",

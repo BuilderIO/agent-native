@@ -1,7 +1,9 @@
 import type { TabsData } from "@agent-native/core/blocks/server";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { tabsBlock } from "./tabs.js";
+import { TabsBlockEditor, TabsBlockReader, tabsBlock } from "./tabs.js";
 
 const sample: TabsData = {
   tabs: [
@@ -89,5 +91,50 @@ describe("tabs block container contract", () => {
       "tab-before",
     ]);
     expect(reordered?.orientation).toBe("vertical");
+  });
+});
+
+describe("tabs block renderers", () => {
+  it("renders legacy tabs without a tabs field", () => {
+    const data = {} as unknown as TabsData;
+    expect(() =>
+      renderToStaticMarkup(
+        createElement(TabsBlockReader, {
+          data,
+          blockId: "tabs-legacy",
+          ctx: {},
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("opens an empty editor for legacy tabs without a tabs field", () => {
+    const data = {} as unknown as TabsData;
+    expect(() =>
+      renderToStaticMarkup(
+        createElement(TabsBlockEditor, {
+          data,
+          onChange: () => undefined,
+          editable: true,
+          blockId: "tabs-legacy",
+          ctx: {},
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("exposes tab settings for empty legacy vertical tabs", () => {
+    const data = { orientation: "vertical" } as unknown as TabsData;
+    const markup = renderToStaticMarkup(
+      createElement(TabsBlockEditor, {
+        data,
+        onChange: () => undefined,
+        editable: true,
+        blockId: "tabs-legacy-vertical",
+        ctx: {},
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Edit tabs"');
   });
 });

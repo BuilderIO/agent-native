@@ -30,13 +30,11 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 import {
   resolveSourceCapabilities,
   resolveFusionCapabilities,
@@ -105,8 +103,6 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, branchName, purpose }) => {
-    const db = getDb();
-
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
     if (!access)
@@ -146,38 +142,12 @@ export default defineAction({
       };
     }
 
-    const files = await db
-      .select({
-        id: schema.designFiles.id,
-        filename: schema.designFiles.filename,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-
     const now = new Date().toISOString();
-    const versionId = `dv_${nanoid(12)}`;
-
-    const snapshot = JSON.stringify({
+    const version = await createDesignVersionSnapshotWithSourceMutationLock(
       designId,
-      snapshotKind: "pre-branch",
-      branchPurpose: purpose ?? null,
-      files: files.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        content: f.content,
-        bytes: f.content?.length ?? 0,
-      })),
-      capturedAt: now,
-    });
-
-    await db.insert(schema.designVersions).values({
-      id: versionId,
-      designId,
-      label: `Pre-branch snapshot — ${now}`,
-      snapshot,
-      createdAt: now,
-    });
+      { label: `Pre-branch snapshot — ${now}` },
+    );
+    const versionId = version.id;
 
     const projectId = await resolveBuilderBranchProjectId();
     const userEmail = getRequestUserEmail();

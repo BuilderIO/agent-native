@@ -21,8 +21,7 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: (resourceType: string, resourceId: string) =>
-    mockResolveAccess(resourceType, resourceId),
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
 let selectResults: unknown[][] = [];
@@ -124,7 +123,7 @@ describe("resolveLocalhostConnectionScope", () => {
     expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
   });
 
-  it("keeps a signed-in caller in their own scope when a capability is present", async () => {
+  it("uses the granted design scope for a signed-in matching editor capability", async () => {
     mockUserEmail.mockReturnValue("ambient@example.com");
     mockRequestAuthCapability.mockReturnValue(
       "capability:visual-edit:design:design_1",
@@ -137,11 +136,72 @@ describe("resolveLocalhostConnectionScope", () => {
     await expect(
       resolveLocalhostConnectionScope({ designId: "design_1" }),
     ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+  });
+
+  it("keeps a signed-in caller's own scope when there is no capability", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestOrgId.mockReturnValue("ambient-org");
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
       ownerEmail: "ambient@example.com",
-      orgId: null,
+      orgId: "ambient-org",
     });
     expect(mockResolveAccess).not.toHaveBeenCalled();
   });
+
+  it("keeps a signed-in caller's own scope when a capability targets another design", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestOrgId.mockReturnValue("ambient-org");
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_2",
+    );
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "ambient@example.com",
+      orgId: "ambient-org",
+    });
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["revoked", null],
+    [
+      "downgraded to viewer",
+      {
+        role: "viewer",
+        resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+      },
+    ],
+  ])(
+    "denies a signed-in caller when the matching editor grant is %s",
+    async (_state, access) => {
+      mockUserEmail.mockReturnValue("ambient@example.com");
+      mockRequestAuthCapability.mockReturnValue(
+        "capability:visual-edit:design:design_1",
+      );
+      mockResolveAccess.mockResolvedValue(access);
+
+      await expect(
+        resolveLocalhostConnectionScope({ designId: "design_1" }),
+      ).rejects.toMatchObject({
+        errorCode: "visual_edit_capability_invalid",
+        statusCode: 403,
+      });
+      expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+        authCapability: "capability:visual-edit:design:design_1",
+      });
+    },
+  );
 
   it("requires the design-scoped visual-edit capability for anonymous refreshes", async () => {
     mockUserEmail.mockReturnValue(undefined);
@@ -159,7 +219,9 @@ describe("resolveLocalhostConnectionScope", () => {
       ownerEmail: "owner@example.com",
       orgId: "org_1",
     });
-    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+      authCapability: "capability:visual-edit:design:design_1",
+    });
 
     mockRequestAuthCapability.mockReturnValue(undefined);
     mockResolveAccess.mockResolvedValue({

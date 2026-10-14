@@ -276,10 +276,21 @@ const messages = {
     convertMermaidFailed: "Falha ao converter o diagrama",
     removeExcalidrawCanvas: "Remover canvas Excalidraw",
     transition: "Transição",
-    transition_instant: "Instantânea",
+    transition_none: "Nenhuma",
+    transition_dissolve: "Dissolver",
     transition_fade: "Fade",
-    transition_slide: "Deslizar",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Deslizar da direita",
+    transition_slide_from_left: "Deslizar da esquerda",
+    transition_flip: "Virar",
+    transition_cube: "Cubo",
+    transition_gallery: "Galeria",
+    transition_panel: "Transição de slide",
+    transition_speed: "Velocidade",
+    transition_slow: "Lenta",
+    transition_fast: "Rápida",
+    transition_seconds: "{{seconds}} seg",
+    transition_apply_all: "Aplicar a todos os slides",
+    transition_play: "Reproduzir transição",
     aspectRatio: "Proporção",
     setAspectRatio: "Definir deck como {{ratio}}",
     slideTools: "Ferramentas do slide",
@@ -598,7 +609,6 @@ const messages = {
     selectObject: "Selecione um objeto para animar",
     addTransition: "Adicionar transição",
     effect: "Efeito",
-    trigger: "Gatilho",
     onClick: "Ao clicar",
     byParagraph: "Por parágrafo",
     expand: "Expandir transição",
@@ -609,6 +619,12 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Este objeto não está mais no slide.",
+    issueMissingElement: "Não foi possível encontrar este objeto no slide.",
+    issueDuplicate: "Esta animação se sobrepõe a outra no slide.",
+    blocked:
+      "Remova ou corrija a animação não resolvida para salvar ou reproduzir.",
+    changeNotApplied: "Esta alteração não foi aplicada.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -793,7 +809,12 @@ const messages = {
     generationFailed:
       "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
     generationOutcomeUnresolved:
-      "Não foi possível confirmar se os slides foram criados. Confira a apresentação ou o chat e tente novamente.",
+      "Não foi possível confirmar se os slides foram criados. Confira a apresentação antes de tentar novamente.",
+    partialGenerationFailed:
+      "Não foi possível terminar de criar os slides. Confira os slides já criados e seu pedido original antes de continuar.",
+    originalPrompt: "O que você pediu",
+    backToHome: "Voltar para a página inicial",
+    checkedDeckTryAgain: "Verifiquei a apresentação. Tentar novamente",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -830,7 +851,7 @@ const messages = {
     sourceMixed: "Várias fontes",
     sourceBuilder: "Inteligência de sistemas de design do Builder",
     sourceIndexingDescription:
-      "O Builder ainda está processando esta fonte. Os resultados aparecerão aqui quando estiverem prontos.",
+      "O estilo da sua marca ainda está sendo preparado. Aguarde até que fique pronto e tente novamente.",
     sourceIndexedDescription:
       "{{docs}} documentos · {{tokens}} tokens indexados",
     sourceIndexedDocsOnly: "{{docs}} documentos indexados",
@@ -1042,6 +1063,8 @@ const messages = {
     generationStartFailed: "Não foi possível iniciar a geração do deck",
     generationStartFailedDescription:
       "O novo deck não terminou de salvar, então o agente não foi iniciado contra um deck ausente. Seu prompt foi salvo para você tentar novamente.",
+    generationContextUnavailableDescription:
+      "Não foi possível carregar o estilo da sua marca ou a apresentação de referência escolhida. Confira se você consegue abrir o arquivo e se a conexão com a internet está funcionando, depois tente novamente.",
     showAllDecks: "Mostrar todos os decks",
     all: "Todos",
     showMineDecks: "Mostrar decks criados por mim",

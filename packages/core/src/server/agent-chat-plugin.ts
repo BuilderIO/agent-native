@@ -1233,6 +1233,12 @@ export function createAgentChatPlugin(
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
           : {};
+      if (options?.resolveMcpActionEntry) {
+        const resolveMcpActionEntry = options.resolveMcpActionEntry;
+        setMcpToolAuthorizationResolver(
+          (tool) => resolveMcpActionEntry(tool)?.authorize,
+        );
+      }
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -3692,6 +3698,7 @@ export function createAgentChatPlugin(
             thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
+            { trustedRunSequenceResetIds: new Set([run.runId]) },
           );
         });
 
@@ -8814,6 +8821,7 @@ import {
   getMcpManagerForPrincipal,
   invalidateMcpManagersForScope,
   resolveBackgroundMcpToolSelection,
+  setMcpToolAuthorizationResolver,
   stopAllMcpManagers,
   mountMcpHubStatusRoute,
   mountMcpStatusRoute,

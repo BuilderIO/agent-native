@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind 켜기",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
-      "Rewind는 화면의 로컬 기록을 보관하므로 녹화 전 마지막 몇 분을 포함할 수 있습니다. 영상은 포함하거나 승인한 경우에만 업로드됩니다.",
+      "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
     requestFailed:
       "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
     localOnlyUnavailable:
@@ -203,9 +203,12 @@ const messages = {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
     agentEmptyState: "녹화와 관련해 무엇을 도와드릴까요?",
-    agentSuggestionSummary: "마지막 녹화를 요약해 줘",
-    agentSuggestionPricing: "가격을 언급한 위치를 찾아 줘",
-    agentSuggestionFiller: "이 클립에서 군더더기 표현을 제거해 줘",
+    agentSuggestionSummary: "녹화 요약하기",
+    agentSuggestionPricing: "가격 언급 찾기",
+    agentSuggestionFiller: "군더더기 표현 제거",
+    agentScreenshotSuggestionSummary: "스크린샷 요약하기",
+    agentScreenshotSuggestionText: "스크린샷에서 텍스트 찾기",
+    agentScreenshotSuggestionCompare: "스크린샷 비교하기",
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
@@ -301,6 +304,10 @@ const messages = {
     transcriptionCompleted: "전사가 완료되었습니다.",
     transcriptNotReady: "스크립트가 아직 준비되지 않았습니다.",
     tryAfterTranscription: "전사가 완료된 후 다시 시도하세요.",
+    silenceTranscriptUnavailableTitle:
+      "이 스크립트는 무음 구간 제거에 사용할 수 없습니다",
+    silenceTranscriptUnavailableDescription:
+      "새 스크립트를 생성한 후 무음 구간 제거를 다시 시도하세요.",
     titleGenerationQueued: "제목 생성 중…",
     descriptionQueued: "설명 생성 중…",
     chapterQueued: "챕터 생성 중…",

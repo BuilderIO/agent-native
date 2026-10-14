@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
 import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
+import {
   buildStaticForeignObjectSvg,
   stripNonStaticXmlAttributes,
   waitForExportReady,
@@ -18,6 +23,8 @@ import type { DesignData } from "@/pages/design-editor/types";
 export interface DownloadSvgArgs {
   design: DesignData | null;
   activePreviewFrameId?: string | null;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   selectedElement: ElementInfo | null;
   setSvgExporting: Dispatch<SetStateAction<boolean>>;
@@ -44,6 +51,7 @@ export async function runDownloadSvg(
   {
     activePreviewFrameId,
     design,
+    exportTracking,
     fallbackExportName,
     selectedElement,
     setSvgExporting,
@@ -59,11 +67,21 @@ export async function runDownloadSvg(
     activePreviewFrameId,
   );
   if (!iframe) {
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "failed",
+      errorType: "no_preview",
+    });
     toast.error(t("designEditor.toasts.openScreenSvg"));
     return;
   }
   const doc = iframe?.contentDocument;
   if (!doc?.documentElement) {
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "failed",
+      errorType: "no_preview",
+    });
     toast.error(t("designEditor.toasts.svgExportError"));
     return;
   }
@@ -152,7 +170,16 @@ export async function runDownloadSvg(
       fallbackExportName("svg", settings?.suffix),
     );
     toast.success(t("designEditor.toasts.svgDownloaded"));
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     console.error("SVG export failed:", error);
     toast.error(
       error instanceof Error

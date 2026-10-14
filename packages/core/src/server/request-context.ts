@@ -106,6 +106,8 @@ export interface RequestContext {
   userEmail?: string;
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
+  /** Storage-only org selection; null prevents an active-org fallback. */
+  builderStorageCredentialOrgId?: string | null;
   /** Provenance set only after a stored org service token is verified. */
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
@@ -538,6 +540,17 @@ export function getRequestOrgId(): string | undefined {
     return store.orgId;
   }
   return processEnv("AGENT_ORG_ID");
+}
+
+export function getRequestBuilderStorageCredentialOrgId():
+  | string
+  | null
+  | undefined {
+  const store = als.getStore();
+  if (store?.builderStorageCredentialOrgId !== undefined) {
+    markAuthContextAccess(store);
+  }
+  return store?.builderStorageCredentialOrgId;
 }
 
 export function getRequestAuthCapability(): string | undefined {

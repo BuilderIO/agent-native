@@ -31,12 +31,27 @@ const mocks = vi.hoisted(() => {
   fileSelectChain.from.mockReturnValue(fileSelectChain);
   fileSelectChain.innerJoin.mockReturnValue(fileSelectChain);
   fileSelectChain.where.mockImplementation(
-    (predicate?: { left?: unknown; right?: unknown }) => {
-      if (predicate && predicate.left === "designFiles.id") {
-        const match = fileRows.filter((row) => row.id === predicate.right);
-        return makeWhereResult(match);
-      }
-      return makeWhereResult(fileRows);
+    (predicate?: {
+      and?: Array<{ left?: unknown; right?: unknown }>;
+      left?: unknown;
+      right?: unknown;
+    }) => {
+      const clauses = predicate?.and ?? (predicate ? [predicate] : []);
+      const match = fileRows.filter((row) =>
+        clauses.every((clause) => {
+          if (clause.left === "designFiles.id") {
+            return row.id === clause.right;
+          }
+          if (clause.left === "designFiles.designId") {
+            return row.designId === clause.right;
+          }
+          if (clause.left === "designFiles.filename") {
+            return row.filename === clause.right;
+          }
+          return true;
+        }),
+      );
+      return makeWhereResult(match);
     },
   );
 
@@ -186,10 +201,12 @@ vi.mock("../server/db/index.js", () => ({
     motionTimeline: {
       id: "motionTimeline.id",
       designId: "motionTimeline.designId",
+      sourceRef: "motionTimeline.sourceRef",
     },
   },
 }));
 
+import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
 import action from "./remove-motion-timeline.js";
 
 function setFile(
@@ -208,7 +225,7 @@ function setFile(
 }
 
 function setTimeline(timelineId: string) {
-  mocks.setTimelineRows([{ id: timelineId }]);
+  mocks.setTimelineRows([{ id: timelineId, sourceRef: "file-1" }]);
 }
 
 function lastSavedContent(): string {
@@ -247,6 +264,115 @@ describe("remove-motion-timeline", () => {
     expect(mocks.deleteChain.where).toHaveBeenCalled();
   });
 
+  it("removes managed Text source and runtime with the CSS from the linked HTML", async () => {
+    setTimeline("timeline-1");
+    setFile(
+      "<html><body><style data-agent-native-motion>.a{}</style>\n" +
+        '<script data-agent-native-motion-text-source="v1" type="application/json">' +
+        '{"version":1,"animations":[{"targetNodeId":"node-1","unit":"word","direction":"forward","staggerMs":0,"property":"opacity","durationMs":400,"keyframes":[{"t":0,"value":"0"},{"t":1,"value":"1"}]}]}' +
+        "</script>\n" +
+        '<script data-agent-native-motion-text-runtime="v1">(function () {})()</script>\n' +
+        '<h1 data-agent-native-node-id="node-1">Hello</h1></body></html>',
+    );
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(result.htmlPatched).toBe(true);
+    expect(lastSavedContent()).not.toMatch(
+      /data-agent-native-motion(?:-text)?/,
+    );
+    expect(lastSavedContent()).toContain(
+      '<h1 data-agent-native-node-id="node-1">Hello</h1>',
+    );
+    expect(mocks.deleteChain.where).toHaveBeenCalled();
+  });
+
+  it("restores authored pathLength after removing an inline Path trim timeline", async () => {
+    setTimeline("timeline-1");
+    const original =
+      '<svg><path data-agent-native-node-id="trim-target" d="M0 0L10 10" pathLength="24" /></svg>';
+    const pathTrimSource = applyMotionPathTrimSource(
+      original,
+      ["trim-target"],
+      "html",
+    );
+    setFile(
+      `<html><body><style data-agent-native-motion>.a{}</style>\n${pathTrimSource}</body></html>`,
+    );
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(result.htmlPatched).toBe(true);
+    expect(lastSavedContent()).toBe(`<html><body>${original}</body></html>`);
+    expect(lastSavedContent()).not.toContain(
+      "data-agent-native-motion-path-length",
+    );
+  });
+
+  it("cleans only the linked secondary HTML file", async () => {
+    mocks.setTimelineRows([{ id: "timeline-1", sourceRef: "file-2" }]);
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body><main>index</main></body></html>",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "screens/secondary.html",
+        fileType: "html",
+        content:
+          "<html><body><style data-agent-native-motion>.b{}</style></body></html>",
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(result.fileId).toBe("file-2");
+    expect(lastSavedContent()).toBe("<html><body></body></html>");
+  });
+
+  it("uses index.html only for legacy timelines without a sourceRef", async () => {
+    mocks.setTimelineRows([{ id: "timeline-1", sourceRef: null }]);
+    setFile(
+      "<html><body><style data-agent-native-motion>.a{}</style></body></html>",
+    );
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(result.fileId).toBe("file-1");
+    expect(lastSavedContent()).toBe("<html><body></body></html>");
+  });
+
+  it("rejects a caller file id that does not match the timeline's linked file", async () => {
+    setTimeline("timeline-1");
+    setFile("<html><body></body></html>");
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+        fileId: "file-2",
+      }),
+    ).rejects.toThrow(/does not match this motion timeline/);
+    expect(mocks.deleteChain.where).not.toHaveBeenCalled();
+  });
+
   it("is a no-op HTML write when there is no managed motion style block", async () => {
     setTimeline("timeline-1");
     setFile("<html><body><main></main></body></html>");
@@ -270,18 +396,47 @@ describe("remove-motion-timeline", () => {
     ).rejects.toThrow(/motion_timeline not found/);
   });
 
-  it("deletes the timeline row even when the target file is missing", async () => {
+  it("preserves the timeline row when its linked source file is missing", async () => {
     setTimeline("timeline-1");
     mocks.setFileRows([]);
 
-    const result = await action.run({
-      designId: "design-1",
-      timelineId: "timeline-1",
-    });
+    await expect(
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+      }),
+    ).rejects.toThrow(/source file not found/);
+    expect(mocks.deleteChain.where).not.toHaveBeenCalled();
+  });
 
-    expect(result.deleted).toBe(true);
-    expect(result.htmlPatched).toBe(false);
-    expect(mocks.deleteChain.where).toHaveBeenCalled();
+  it("preserves the timeline row when the source write fails", async () => {
+    setTimeline("timeline-1");
+    setFile(
+      "<html><body><style data-agent-native-motion>.a{}</style></body></html>",
+    );
+    mocks.updateChain.where.mockRejectedValueOnce(new Error("write failed"));
+
+    await expect(
+      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+    ).rejects.toThrow("write failed");
+    expect(mocks.deleteChain.where).not.toHaveBeenCalled();
+  });
+
+  it("preserves the timeline row when a successful write is not visible live", async () => {
+    setTimeline("timeline-1");
+    const original =
+      "<html><body><style data-agent-native-motion>.a{}</style></body></html>";
+    setFile(original);
+    mocks.seededCollabText.set("file-1", original);
+    const collab = await import("@agent-native/core/collab");
+    (collab.getText as any)
+      .mockResolvedValueOnce(original)
+      .mockResolvedValueOnce("<html><body>stale live content</body></html>");
+
+    await expect(
+      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+    ).rejects.toThrow(/cleanup could not be confirmed/);
+    expect(mocks.deleteChain.where).not.toHaveBeenCalled();
   });
 
   it("rejects the write when the live content changed since it was read (stale base guard)", async () => {

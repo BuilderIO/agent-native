@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+import { toolInputFingerprint } from "../shared/tool-inputs.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
@@ -122,9 +124,95 @@ describe("foldThreadRunSuggestions for a turn that yielded to a connection reque
 });
 
 describe("foldThreadRunSuggestions protocol sequence", () => {
-  it("preserves the AgentKit cursor instead of advancing from runtime events", () => {
+  it("discards a persisted cursor without protocol evidence", () => {
+    const fold = (repo: any) =>
+      foldThreadRunSuggestions(repo, {
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+        status: "completed",
+        events: [
+          {
+            seq: 80,
+            event: { type: "done" },
+          },
+        ],
+      });
+    const contaminated = fold({
+      agentKit: { runs: [{ id: "run-1", lastSequence: 67 }], events: [] },
+    });
+    expect(contaminated.agentKit.runs[0].lastSequence).toBe(0);
+  });
+
+  it("keeps a trusted cursor reset when run snapshots merge", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        events: [],
+      },
+    };
+    const folded = foldThreadRunSuggestions(existing, {
+      runId: "run-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+      status: "completed",
+      events: [{ seq: 80, event: { type: "done" } }],
+    });
+
+    const merged = mergeThreadDataForClientSave(existing, folded, {
+      trustedRunSequenceResetIds: new Set(["run-1"]),
+    });
+
+    expect(merged.agentKit.runs[0].lastSequence).toBe(0);
+  });
+
+  it("uses persisted protocol sequence metadata instead of runtime sequences", () => {
+    const fold = (agentKit: any) =>
+      foldThreadRunSuggestions(
+        { agentKit },
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+          status: "completed",
+          events: [{ seq: 80, event: { type: "done" } }],
+        },
+      ).agentKit.runs[0].lastSequence;
+
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        _eventRunWatermarks: { "run-1": 2 },
+      }),
+    ).toBe(2);
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        events: [{ runId: "run-1", sequence: 3 }],
+      }),
+    ).toBe(0);
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        _eventRunSnapshotCommits: {
+          "run-1": [{ snapshotId: "snapshot-1", lastSequence: 4 }],
+        },
+      }),
+    ).toBe(4);
+  });
+
+  it("does not advance the protocol cursor from runtime event sequences", () => {
     const repo = foldThreadRunSuggestions(
-      { agentKit: { runs: [{ id: "run-1", lastSequence: 4 }] } },
+      {
+        agentKit: {
+          runs: [{ id: "run-1", lastSequence: 4 }],
+          _eventRunWatermarks: { "run-1": 4 },
+        },
+      },
       {
         runId: "run-1",
         threadId: "thread-1",
@@ -133,7 +221,7 @@ describe("foldThreadRunSuggestions protocol sequence", () => {
         status: "completed",
         events: [
           {
-            seq: 67,
+            seq: 80,
             event: { type: "done" },
           },
         ],
@@ -979,6 +1067,7 @@ describe("buildAssistantMessage", () => {
             result:
               'Awaiting human approval to run "create-builder-branch". ' +
               "This action did NOT execute.",
+            approvalPause: true,
           },
         },
       ],
@@ -989,12 +1078,144 @@ describe("buildAssistantMessage", () => {
       expect.objectContaining({
         type: "tool-call",
         toolName: "create-builder-branch",
+        approvalPause: true,
         result:
           'Awaiting human approval to run "create-builder-branch". ' +
           "This action did NOT execute.",
-        approval: { approvalKey: "create-builder-branch:approval" },
+        approval: {
+          approvalKey: approvalKeyForHistory("create-builder-branch:approval"),
+        },
       }),
     ]);
+  });
+
+  it("reconstructs the approval pause from legacy journals", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: 'send-email:{"to":"first@example.test"}',
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "send-email-call",
+            tool: "send-email",
+            result: "Awaiting human approval.",
+          },
+        },
+      ],
+      "run-legacy-send-email-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        approvalPause: true,
+        approval: {
+          approvalKey: approvalKeyForHistory(
+            'send-email:{"to":"first@example.test"}',
+          ),
+        },
+      }),
+    ]);
+  });
+
+  it("keeps an explicit completion marker authoritative over approval_required", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: 'send-email:{"to":"first@example.test"}',
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "send-email-call",
+            tool: "send-email",
+            result: "The call completed after replay.",
+            approvalPause: false,
+          },
+        },
+      ],
+      "run-replayed-send-email",
+    );
+
+    const [part] = message?.content ?? [];
+    expect(part).toMatchObject({
+      type: "tool-call",
+      toolName: "send-email",
+      result: "The call completed after replay.",
+    });
+    expect(part).not.toHaveProperty("approvalPause");
+    expect(part).not.toHaveProperty("approval");
+  });
+
+  it("does not attach a reader-local approval to a call with different input", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "server-call-1",
+            approvalKey: "send-email:second",
+            input: { to: "second@example.test" },
+          },
+        },
+      ],
+      "run-reader-local-approval",
+    );
+
+    expect(message?.content).toHaveLength(1);
+    expect(message?.content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "run-reader-local-approval:tc_1",
+      toolName: "send-email",
+    });
+    expect(message?.content[0]?.approval).toBeUndefined();
   });
 
   it("persists per-call-only approval policy when rebuilding thread history", () => {
@@ -1028,7 +1249,7 @@ describe("buildAssistantMessage", () => {
         type: "tool-call",
         toolName: "send-email",
         approval: {
-          approvalKey: "send-email:approval",
+          approvalKey: approvalKeyForHistory("send-email:approval"),
           allowPersistentApproval: false,
         },
       }),
@@ -1782,6 +2003,232 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("replaces a paused tool call when its approved replay completes", () => {
+    const toolCallId = "approved-release-call";
+    const turnId = "turn-approved-release";
+    const paused = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "accept-agentkit-release",
+            toolCallId,
+            approvalKey: "accept-agentkit-release:approval",
+            askId: "approval-1",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+        },
+      ],
+      "run-approval-pause",
+      { turnId },
+    );
+    const completed = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Release accepted.",
+            approvalPause: false,
+            completedSideEffect: true,
+          },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-approved-replay",
+      { turnId },
+    );
+
+    expect(paused).not.toBeNull();
+    expect(completed).not.toBeNull();
+    let repo = foldAssistantTurn({ messages: [] }, paused!, {
+      turnId,
+      runId: "run-approval-pause",
+    });
+    repo = foldAssistantTurn(repo, completed!, {
+      turnId,
+      runId: "run-approved-replay",
+    });
+
+    const toolCalls = repo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId,
+      toolName: "accept-agentkit-release",
+      args: { release: "agentkit-acceptance" },
+      result: "Release accepted.",
+      completedSideEffect: true,
+    });
+    expect(toolCalls[0]).not.toHaveProperty("approvalPause");
+    expect(toolCalls[0]).not.toHaveProperty("approval");
+
+    const differentCall = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "different-release" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Different release accepted.",
+            approvalPause: false,
+          },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-different-release",
+      { turnId },
+    );
+    const pausedRepo = foldAssistantTurn({ messages: [] }, paused!, {
+      turnId,
+      runId: "run-approval-pause",
+    });
+    const mismatchRepo = foldAssistantTurn(pausedRepo, differentCall!, {
+      turnId,
+      runId: "run-different-release",
+    });
+    const mismatchCalls = mismatchRepo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(mismatchCalls).toHaveLength(2);
+    expect(mismatchCalls[0]).toMatchObject({
+      toolCallId,
+      args: { release: "agentkit-acceptance" },
+      approvalPause: true,
+    });
+    expect(mismatchCalls[1]).toMatchObject({
+      toolCallId: `${toolCallId}__dedup_2`,
+      args: { release: "different-release" },
+      result: "Different release accepted.",
+    });
+  });
+
+  it("replaces a paused call with its renewed approval pause", () => {
+    const toolCallId = "approved-release-call";
+    const turnId = "turn-approved-release";
+    const input = { release: "agentkit-acceptance" };
+    const makePausedMessage = (
+      runId: string,
+      askId: string,
+      approvalKey: string,
+    ) =>
+      buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: toolCallId,
+              tool: "accept-agentkit-release",
+              input,
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "approval_required",
+              tool: "accept-agentkit-release",
+              toolCallId,
+              approvalKey,
+              askId,
+              input,
+            },
+          },
+          {
+            seq: 2,
+            event: {
+              type: "tool_done",
+              id: toolCallId,
+              tool: "accept-agentkit-release",
+              result: "Awaiting human approval. This action did NOT execute.",
+              approvalPause: true,
+            },
+          },
+        ],
+        runId,
+        { turnId },
+      );
+    const firstPause = makePausedMessage(
+      "run-first-approval",
+      "approval-first",
+      "accept-agentkit-release:first-approval",
+    );
+    const renewedPause = makePausedMessage(
+      "run-renewed-approval",
+      "approval-renewed",
+      "accept-agentkit-release:renewed-approval",
+    );
+
+    expect(firstPause).not.toBeNull();
+    expect(renewedPause).not.toBeNull();
+    const firstRepo = foldAssistantTurn({ messages: [] }, firstPause!, {
+      turnId,
+      runId: "run-first-approval",
+    });
+    const renewedRepo = foldAssistantTurn(firstRepo, renewedPause!, {
+      turnId,
+      runId: "run-renewed-approval",
+    });
+    const toolCalls = renewedRepo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId,
+      approvalPause: true,
+      approval: {
+        askId: "approval-renewed",
+        approvalKey: approvalKeyForHistory(
+          "accept-agentkit-release:renewed-approval",
+        ),
+      },
+    });
+  });
+
   it("keeps an AgentKit approval continuation out of the legacy placeholder", () => {
     const approvedToolCallId = "accept-release-call";
     const releaseMessage = buildAssistantMessage(
@@ -2001,6 +2448,683 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("drops a saved assistant prefix when the same run completes its full reply", () => {
+    const prompt = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Explain this result" }],
+    };
+    const earlierReply = {
+      id: "assistant-earlier",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result" }],
+    };
+    const partial = {
+      id: "assistant-partial",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows" }],
+    };
+    const completed = {
+      id: "assistant-completed",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows a clear increase." }],
+    };
+    const run = (
+      status: "running" | "completed",
+      lastSequence: number,
+      activeMessageId: string,
+    ) => ({
+      id: "run-1",
+      status,
+      lastSequence,
+      activeMessageId,
+    });
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          messages: [prompt, earlierReply, partial],
+          runs: [run("running", 168, partial.id)],
+        },
+      },
+      {
+        agentKit: {
+          messages: [prompt, earlierReply, partial, completed],
+          runs: [run("completed", 856, completed.id)],
+          events: [
+            {
+              id: "run-1:852",
+              runId: "run-1",
+              sequence: 852,
+              type: "message.completed",
+              message: { id: completed.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages).toEqual([prompt, earlierReply, completed]);
+  });
+
+  it("does not restore a superseded prefix from a late running snapshot", () => {
+    const prompt = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Explain this result" }],
+    };
+    const earlierReply = {
+      id: "assistant-earlier",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result" }],
+    };
+    const partial = {
+      id: "assistant-partial",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows" }],
+    };
+    const completed = {
+      id: "assistant-completed",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows a clear increase." }],
+    };
+    const run = (
+      status: "running" | "completed",
+      lastSequence: number,
+      activeMessageId: string,
+    ) => ({
+      id: "run-1",
+      status,
+      lastSequence,
+      activeMessageId,
+    });
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          messages: [prompt, earlierReply, completed],
+          runs: [run("completed", 856, completed.id)],
+          events: [
+            {
+              id: "run-1:852",
+              runId: "run-1",
+              sequence: 852,
+              type: "message.completed",
+              message: { id: completed.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          messages: [prompt, earlierReply, partial],
+          runs: [run("running", 168, partial.id)],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages).toEqual([prompt, earlierReply, completed]);
+    expect(merged.agentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "run-1",
+        status: "completed",
+        lastSequence: 856,
+        activeMessageId: completed.id,
+      }),
+    ]);
+  });
+
+  it("keeps a prefix that has its own completion event", () => {
+    const prompt = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Explain this result" }],
+    };
+    const partial = {
+      id: "assistant-first",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows" }],
+    };
+    const completed = {
+      id: "assistant-second",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows a clear increase." }],
+    };
+
+    const run = (
+      status: "running" | "completed",
+      lastSequence: number,
+      activeMessageId: string,
+    ) => ({
+      id: "run-1",
+      status,
+      lastSequence,
+      activeMessageId,
+    });
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          messages: [prompt, partial],
+          runs: [run("running", 500, partial.id)],
+          events: [
+            {
+              id: "run-1:500",
+              runId: "run-1",
+              sequence: 500,
+              type: "message.completed",
+              message: { id: partial.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          messages: [prompt, partial, completed],
+          runs: [run("completed", 856, completed.id)],
+          events: [
+            {
+              id: "run-1:852",
+              runId: "run-1",
+              sequence: 852,
+              type: "message.completed",
+              message: { id: completed.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages).toEqual([prompt, partial, completed]);
+  });
+
+  it("keeps a completed tool call's later assistant message link", () => {
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "write",
+              input: { path: "skills/example.md" },
+              output: "saved",
+              status: "completed",
+            },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "write",
+              input: { path: "skills/example.md" },
+              output: "saved",
+              status: "completed",
+              messageId: "assistant-1",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({ id: "call-1", messageId: "assistant-1" }),
+    ]);
+  });
+
+  it("replaces a persisted approval pause with its matching replay result", () => {
+    const input = { path: "skills/example.md" };
+    const pausedRun = {
+      id: "run-paused",
+      startedAt: "2026-10-13T10:00:00.000Z",
+      lastSequence: 4,
+    };
+    const replayRun = {
+      id: "run-replay",
+      startedAt: "2026-10-13T10:01:00.000Z",
+      lastSequence: 3,
+    };
+    const existing = {
+      id: "call-1",
+      name: "write",
+      input,
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-paused",
+      messageId: "assistant-paused",
+    };
+    const incoming = {
+      ...existing,
+      output: "saved",
+      runId: "run-replay",
+      messageId: "assistant-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: { runs: [pausedRun], toolCalls: [existing] },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [replayRun],
+          toolCalls: [incoming],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        status: "completed",
+        runId: "run-replay",
+        messageId: "assistant-replay",
+        metadata: { completedSideEffect: true },
+      }),
+    ]);
+  });
+
+  it("matches an oversized persisted approval input by its fingerprint", () => {
+    const input = { payload: "x".repeat(70_000) };
+    const existing = {
+      id: "call-1",
+      name: "write",
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-paused",
+      metadata: {
+        approvalPause: true,
+        agentKitSnapshot: {
+          toolCallResult: "omitted",
+          reason: "size_limit",
+          inputFingerprint: toolInputFingerprint(input),
+        },
+      },
+    };
+    const incoming = {
+      ...existing,
+      input,
+      output: "saved",
+      runId: "run-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [
+            {
+              id: "run-paused",
+              startedAt: "2026-10-13T10:00:00.000Z",
+              lastSequence: 4,
+            },
+          ],
+          toolCalls: [existing],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [
+            {
+              id: "run-replay",
+              startedAt: "2026-10-13T10:01:00.000Z",
+              lastSequence: 3,
+            },
+          ],
+          toolCalls: [incoming],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        runId: "run-replay",
+        metadata: { completedSideEffect: true },
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      label: "a different tool",
+      incomingName: "write-other",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "different input",
+      incomingName: "write",
+      incomingInput: { path: "other.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "no completed-side-effect proof",
+      incomingName: "write",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: undefined,
+      incomingRunStartedAt: "2026-10-13T10:01:00.000Z",
+    },
+    {
+      label: "an older replay run",
+      incomingName: "write",
+      incomingInput: { path: "skills/example.md" },
+      incomingRunId: "run-replay",
+      incomingMetadata: { completedSideEffect: true },
+      incomingRunStartedAt: "2026-10-13T09:59:00.000Z",
+    },
+  ])(
+    "preserves a persisted approval pause when the incoming call has $label",
+    (options) => {
+      const input = { path: "skills/example.md" };
+      const existing = {
+        id: "call-1",
+        name: "write",
+        input,
+        output: "Awaiting human approval. This action did NOT execute.",
+        status: "completed",
+        runId: "run-paused",
+        messageId: "assistant-paused",
+      };
+      const incoming = {
+        ...existing,
+        name: options.incomingName,
+        input: options.incomingInput,
+        output: "saved",
+        runId: options.incomingRunId,
+        messageId: "assistant-replay",
+        ...(options.incomingMetadata
+          ? { metadata: options.incomingMetadata }
+          : {}),
+      };
+      const runs = [
+        {
+          id: "run-replay",
+          startedAt: options.incomingRunStartedAt,
+          lastSequence: 3,
+        },
+      ];
+
+      const merged = mergeThreadDataForClientSave(
+        {
+          agentKit: {
+            runs: [
+              {
+                id: "run-paused",
+                startedAt: "2026-10-13T10:00:00.000Z",
+                lastSequence: 4,
+              },
+            ],
+            toolCalls: [existing],
+          },
+        },
+        {
+          agentKit: {
+            _snapshotDelta: true,
+            runs,
+            toolCalls: [incoming],
+          },
+        },
+      );
+
+      expect(merged.agentKit.toolCalls).toEqual([
+        expect.objectContaining({
+          id: "call-1",
+          output: existing.output,
+          status: "completed",
+          runId: "run-paused",
+          messageId: "assistant-paused",
+        }),
+      ]);
+    },
+  );
+
+  it("keeps a newer approval pause over a stale replay result", () => {
+    const input = { path: "skills/example.md" };
+    const currentPause = {
+      id: "call-1",
+      name: "write",
+      input,
+      output: "Awaiting human approval. This action did NOT execute.",
+      status: "completed",
+      runId: "run-reapproval",
+      messageId: "assistant-reapproval",
+      metadata: { approvalPause: true, approvalAskId: "approval-2" },
+    };
+    const staleReplay = {
+      ...currentPause,
+      output: "saved by the first replay",
+      runId: "run-replay",
+      messageId: "assistant-replay",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [
+            {
+              id: "run-reapproval",
+              startedAt: "2026-10-13T10:02:00.000Z",
+              lastSequence: 4,
+            },
+          ],
+          toolCalls: [currentPause],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [
+            {
+              id: "run-replay",
+              startedAt: "2026-10-13T10:01:00.000Z",
+              lastSequence: 3,
+            },
+          ],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: currentPause.output,
+        status: "completed",
+        runId: "run-reapproval",
+        messageId: "assistant-reapproval",
+        metadata: { approvalPause: true, approvalAskId: "approval-2" },
+      }),
+    ]);
+  });
+
+  it("keeps a newer running tool call over an older completed replay", () => {
+    const currentRun = {
+      id: "run-current",
+      startedAt: "2026-10-13T10:02:00.000Z",
+      lastSequence: 2,
+    };
+    const staleRun = {
+      id: "run-stale",
+      startedAt: "2026-10-13T10:01:00.000Z",
+      lastSequence: 4,
+    };
+    const current = {
+      id: "call-1",
+      name: "write",
+      input: { path: "skills/example.md" },
+      status: "running",
+      runId: "run-current",
+    };
+    const staleReplay = {
+      ...current,
+      output: "saved by old replay",
+      status: "completed",
+      runId: "run-stale",
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: { runs: [currentRun], toolCalls: [current] },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [staleRun],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        status: "running",
+        runId: "run-current",
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      label: "a same-run snapshot with missing sequences",
+      currentRun: { id: "run-current" },
+      staleRun: { id: "run-current" },
+      incomingRunId: "run-current",
+    },
+    {
+      label: "different runs with missing start times",
+      currentRun: { id: "run-current" },
+      staleRun: { id: "run-stale" },
+      incomingRunId: "run-stale",
+    },
+    {
+      label: "an incoming run missing from its snapshot",
+      currentRun: {
+        id: "run-current",
+        startedAt: "2026-10-13T10:02:00.000Z",
+      },
+      staleRun: undefined,
+      incomingRunId: "run-stale",
+    },
+    {
+      label: "an incoming call missing its run ID",
+      currentRun: {
+        id: "run-current",
+        startedAt: "2026-10-13T10:02:00.000Z",
+      },
+      staleRun: {
+        id: "run-stale",
+        startedAt: "2026-10-13T10:01:00.000Z",
+      },
+      incomingRunId: undefined,
+    },
+  ])("preserves a running call with $label", (options) => {
+    const current = {
+      id: "call-1",
+      name: "write",
+      input: { path: "skills/example.md" },
+      status: "running",
+      runId: "run-current",
+    };
+    const staleReplay = {
+      ...current,
+      output: "saved by incomplete replay",
+      status: "completed",
+      ...(options.incomingRunId
+        ? { runId: options.incomingRunId }
+        : { runId: undefined }),
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [options.currentRun],
+          toolCalls: [current],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: options.staleRun ? [options.staleRun] : [],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        status: "running",
+        runId: "run-current",
+      }),
+    ]);
+  });
+
+  it("keeps a running tool call's assistant link when a snapshot completes it", () => {
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "write",
+              input: { path: "skills/example.md" },
+              status: "running",
+              messageId: "assistant-1",
+            },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "write",
+              input: { path: "skills/example.md" },
+              output: "saved",
+              status: "completed",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        status: "completed",
+        messageId: "assistant-1",
+      }),
+    ]);
+  });
+
   it("merges widgets by globally unique ID across message changes", () => {
     const existingWidget = {
       messageId: "assistant-before-continuation",
@@ -2273,9 +3397,15 @@ describe("mergeThreadDataForClientSave", () => {
             type: "run.started",
           },
           {
-            id: "run-1-completed",
+            id: "run-1-new-event",
             runId: "run-1",
             sequence: 2,
+            type: "activity.updated",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2286,7 +3416,7 @@ describe("mergeThreadDataForClientSave", () => {
       merged.agentKit.events
         .filter((event: any) => event.runId === "run-1")
         .map((event: any) => event.id),
-    ).toEqual(["run-1-start", "run-1-completed"]);
+    ).toEqual(["run-1-start", "run-1-new-event", "run-1-completed"]);
     expect(
       merged.agentKit.events
         .filter((event: any) => event.runId === "run-2")
@@ -2294,7 +3424,7 @@ describe("mergeThreadDataForClientSave", () => {
     ).toEqual(["run-2-start", "run-2-completed"]);
   });
 
-  it("keeps later event chunks after replacing a compacted run", () => {
+  it("keeps prior events until a complete legacy replacement arrives", () => {
     const existing = {
       messages: [],
       agentKit: {
@@ -2330,17 +3460,25 @@ describe("mergeThreadDataForClientSave", () => {
         ],
       },
     });
+    expect(firstChunk.agentKit.events).toEqual(existing.agentKit.events);
+    expect(firstChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
     const secondChunk = mergeThreadDataForClientSave(firstChunk, {
       messages: [],
       agentKit: {
         _snapshotDelta: true,
-        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 2 }],
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 2 }],
         events: [
           {
             id: "new-run-completed",
             runId: "run-1",
             sequence: 2,
             type: "run.completed",
+          },
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
           },
         ],
       },
@@ -2351,9 +3489,6 @@ describe("mergeThreadDataForClientSave", () => {
       "new-run-completed",
     ]);
     expect(secondChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
-    expect(secondChunk.agentKit).not.toHaveProperty(
-      "eventRunSnapshotWatermarks",
-    );
   });
 
   it("keeps a run's prior events until all staged snapshot chunks arrive", () => {
@@ -2381,7 +3516,7 @@ describe("mergeThreadDataForClientSave", () => {
       runId: "run-1",
       snapshotId: "snapshot-1",
       lastSequence: 3,
-      expectedEventCount: 2,
+      expectedEventCount: 3,
       complete: false,
     };
     const firstChunk = mergeThreadDataForClientSave(existing, {
@@ -2455,9 +3590,16 @@ describe("mergeThreadDataForClientSave", () => {
         eventRunSnapshotBatches: [{ ...batch, complete: true }],
         events: [
           {
-            id: "new-run-completed",
+            id: "new-run-progress",
             runId: "run-1",
             sequence: 2,
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2466,6 +3608,7 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
       "new-run-start",
+      "new-run-progress",
       "new-run-completed",
     ]);
     expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 3 });
@@ -2481,7 +3624,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "new-run-completed",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2493,6 +3636,195 @@ describe("mergeThreadDataForClientSave", () => {
     expect(retriedFinalChunk.agentKit._eventRunSnapshotCommits).toEqual(
       completed.agentKit._eventRunSnapshotCommits,
     );
+  });
+
+  it("rejects a completed event batch whose cursor exceeds its events", () => {
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            eventRunSnapshotBatches: [
+              {
+                runId: "run-1",
+                snapshotId: "snapshot-1",
+                lastSequence: 100,
+                expectedEventCount: 1,
+                complete: true,
+              },
+            ],
+            events: [
+              {
+                id: "run-1-started",
+                runId: "run-1",
+                sequence: 1,
+                type: "run.started",
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat event snapshot cursor 100 did not match its last event sequence 1.",
+    );
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            eventRunSnapshotBatches: [
+              {
+                runId: "run-1",
+                snapshotId: "forged-sequence",
+                lastSequence: 100,
+                expectedEventCount: 1,
+                complete: true,
+              },
+            ],
+            events: [
+              {
+                id: "forged-event",
+                runId: "run-1",
+                sequence: 100,
+                type: "run.started",
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat event snapshot did not include every sequence through its cursor.",
+    );
+  });
+
+  it("rejects persisted omission ranges that exceed their bounded span", () => {
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            events: [
+              {
+                id: "oversized-omission-range",
+                runId: "run-1",
+                sequence: 1,
+                type: "x-agent-native.persisted-event-omission-range",
+                payload: { lastSequence: 257 },
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat persisted omission ranges must cover at most 256 event sequences.",
+    );
+  });
+
+  it("derives legacy watermarks from event cursors instead of client metadata", () => {
+    const merged = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { events: [] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 100 }],
+          events: [
+            {
+              id: "run-1-started",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+              status: "running",
+            },
+            {
+              id: "run-1-status",
+              runId: "run-1",
+              sequence: 2,
+              type: "run.status",
+              status: "running",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+  });
+
+  it("rejects an unbatched event that forges a high sequence cursor", () => {
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 100 }],
+            events: [
+              {
+                id: "forged-event",
+                runId: "run-1",
+                sequence: 100,
+                type: "run.started",
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat event snapshot did not contain a contiguous sequence range.",
+    );
+  });
+
+  it("counts omission-range spans when validating an unbatched cursor", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 1 },
+        events: [
+          {
+            id: "run-started",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        events: [
+          {
+            id: "omitted-range",
+            runId: "run-1",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 257 },
+          },
+          {
+            id: "run-completed",
+            runId: "run-1",
+            sequence: 258,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(merged.agentKit.events.map((event: any) => event.sequence)).toEqual([
+      1, 2, 258,
+    ]);
+    expect(merged.agentKit.events[1].payload.lastSequence).toBe(257);
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 258 });
   });
 
   it("repairs a legacy event snapshot at the same sequence", () => {
@@ -2614,9 +3946,21 @@ describe("mergeThreadDataForClientSave", () => {
             type: "run.started",
           },
           {
-            id: "newer-event-4",
+            id: "newer-event-2",
             runId: "run-1",
             sequence: 2,
+            type: "run.status",
+          },
+          {
+            id: "newer-event-3",
+            runId: "run-1",
+            sequence: 3,
+            type: "run.status",
+          },
+          {
+            id: "newer-event-4",
+            runId: "run-1",
+            sequence: 4,
             type: "run.completed",
           },
         ],
@@ -2640,7 +3984,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "stale-event-2",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.status",
           },
         ],
@@ -2649,7 +3993,12 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(
       retriedOldBatch.agentKit.events.map((event: any) => event.id),
-    ).toEqual(["newer-event-1", "newer-event-4"]);
+    ).toEqual([
+      "newer-event-1",
+      "newer-event-2",
+      "newer-event-3",
+      "newer-event-4",
+    ]);
     expect(retriedOldBatch.agentKit._eventRunWatermarks).toEqual({
       "run-1": 4,
     });
@@ -2742,7 +4091,7 @@ describe("mergeThreadDataForClientSave", () => {
       runId: "run-1",
       snapshotId: "snapshot-a",
       lastSequence: 3,
-      expectedEventCount: 2,
+      expectedEventCount: 3,
       complete: false,
     };
     const batchB = {
@@ -2786,9 +4135,16 @@ describe("mergeThreadDataForClientSave", () => {
         eventRunSnapshotBatches: [{ ...batchB, complete: true }],
         events: [
           {
-            id: "snapshot-b-completed",
+            id: "snapshot-b-progress",
             runId: "run-1",
             sequence: 2,
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "snapshot-b-completed",
+            runId: "run-1",
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2807,12 +4163,23 @@ describe("mergeThreadDataForClientSave", () => {
             sequence: 1,
             type: "run.started",
           },
+          {
+            id: "legacy-equal-sequence-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+            status: "running",
+          },
         ],
       },
     });
     expect(
       lateLegacyReplacement.agentKit.events.map((event: any) => event.id),
-    ).toEqual(["snapshot-b-start", "snapshot-b-completed"]);
+    ).toEqual([
+      "snapshot-b-start",
+      "snapshot-b-progress",
+      "snapshot-b-completed",
+    ]);
 
     const lateCompleteA = mergeThreadDataForClientSave(lateLegacyReplacement, {
       messages: [],
@@ -2823,7 +4190,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "snapshot-a-completed",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2831,7 +4198,7 @@ describe("mergeThreadDataForClientSave", () => {
     });
 
     expect(lateCompleteA.agentKit.events.map((event: any) => event.id)).toEqual(
-      ["snapshot-b-start", "snapshot-b-completed"],
+      ["snapshot-b-start", "snapshot-b-progress", "snapshot-b-completed"],
     );
     expect(lateCompleteA.agentKit._eventRunWatermarks).toEqual({
       "run-1": 3,
@@ -2867,7 +4234,7 @@ describe("mergeThreadDataForClientSave", () => {
               runId,
               snapshotId: "committed-snapshot",
               lastSequence: 3,
-              expectedEventCount: 2,
+              expectedEventCount: 3,
               complete: true,
             },
           ],
@@ -2879,9 +4246,16 @@ describe("mergeThreadDataForClientSave", () => {
               type: "run.started",
             },
             {
-              id: "committed-event-3",
+              id: "committed-event-2",
               runId,
               sequence: 2,
+              type: "run.status",
+              status: "running",
+            },
+            {
+              id: "committed-event-3",
+              runId,
+              sequence: 3,
               type: "run.completed",
             },
           ],
@@ -2911,7 +4285,7 @@ describe("mergeThreadDataForClientSave", () => {
     });
 
     expect(staleFullSave.agentKit.events.map((event: any) => event.id)).toEqual(
-      ["committed-event-1", "committed-event-3"],
+      ["committed-event-1", "committed-event-2", "committed-event-3"],
     );
     expect(staleFullSave.agentKit._eventRunSnapshotCommits[runId]).toEqual(
       committed.agentKit._eventRunSnapshotCommits[runId],
@@ -2941,7 +4315,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "latest-event-4",
             runId: "run-1",
-            sequence: 2,
+            sequence: 4,
             type: "run.status",
           },
         ],
@@ -2963,7 +4337,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "stale-event-3",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.status",
           },
         ],

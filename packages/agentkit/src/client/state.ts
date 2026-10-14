@@ -26,7 +26,10 @@ import type {
   RunId,
   ThreadId,
 } from "../protocol/index.js";
-import { AgentProtocolValidationError } from "../protocol/index.js";
+import {
+  AgentProtocolValidationError,
+  agentEventSequenceEnd,
+} from "../protocol/index.js";
 
 export type AgentConnectionStatus =
   | "idle"
@@ -579,7 +582,8 @@ export function classifyAgentEvent(
 ): AgentEventAdmission {
   if (event.threadId !== thread.id) return { status: "foreign" };
   const lastSequence = thread.runs[event.runId]?.lastSequence ?? 0;
-  if (lastSequence >= event.sequence) {
+  const sequenceEnd = agentEventSequenceEnd(event);
+  if (lastSequence >= sequenceEnd) {
     return { status: "duplicate", lastSequence };
   }
   const expectedSequence = lastSequence + 1;
@@ -590,7 +594,7 @@ export function classifyAgentEvent(
       receivedSequence: event.sequence,
     };
   }
-  return { status: "accepted", sequence: event.sequence };
+  return { status: "accepted", sequence: sequenceEnd };
 }
 
 export function reduceAgentEvent(
@@ -622,7 +626,7 @@ export function reduceAgentEvent(
   }
 
   let next = updateRun(thread, event.runId, {
-    lastSequence: event.sequence,
+    lastSequence: admission.sequence,
   });
   next = { ...next, events: [...next.events, event] };
   switch (event.type) {

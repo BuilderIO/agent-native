@@ -1,0 +1,88 @@
+{
+ "app": "Slides",
+ "icon": "presentation",
+ "pages": [
+  {
+   "id": "app",
+   "l": "General",
+   "icon": "apps",
+   "sections": [
+    {
+     "h": "Agent",
+     "rows": [
+      {
+       "l": "Default model",
+       "d": "Used for new agent chats in Slides. The default is Claude Sonnet 5.5.",
+       "c": {
+        "sel": "Use the default",
+        "opts": [
+         "Use the default",
+         "Claude Opus 5.5",
+         "Claude Sonnet 5.5",
+         "Claude Haiku 4.5"
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "whats-new",
+   "l": "What's new",
+   "icon": "news",
+   "badge": "Slides",
+   "sections": [
+    {
+     "h": null,
+     "changelog": [
+      [
+       "2026-09-30",
+       "Improved",
+       [
+        "Typing stays responsive while slides fit longer text.",
+        "Add references through compact dropdown menus and find decks with the centered home search.",
+        "Rich text editing preserves imported slide layouts.",
+        "Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling",
+        "Slides remembers your home library tab, so returning users can open straight to Recent."
+       ]
+      ],
+      [
+       "2026-09-30",
+       "Fixed",
+       [
+        "Empty Slides libraries show one clear next step without search and filter controls.",
+        "Slides retries honor deck links in edited prompts",
+        "Start presentation generation immediately after submitting a prompt.",
+        "Slides keeps your selected references when you retry generation or sign in"
+       ]
+      ],
+      [
+       "2026-09-29",
+       "Improved",
+       [
+        "Crop images freely and see the selected slide at a glance",
+        "Pasting a link to an accessible deck preselects it as the visual reference for a new presentation.",
+        "Undo and redo are available in the editor menu",
+        "Settings pages now share the account layout, with dated updates that load in batches."
+       ]
+      ],
+      [
+       "2026-09-29",
+       "Fixed",
+       [
+        "Chat prompts clear immediately while the assistant thinks.",
+        "Chat stays ready for your next draft while a message is being sent.",
+        "Slides reports when saved history cannot load and lets you retry",
+        "Choosing the latest slide version preserves other pending slide edits.",
+        "Generation retries keep the original files and references.",
+        "List commands now change only the selected text rows, leaving other rows untouched.",
+        "Large PDF and PowerPoint imports have more time to finish"
+       ]
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

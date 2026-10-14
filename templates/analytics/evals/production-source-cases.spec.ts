@@ -28,16 +28,23 @@ function outputFor(
   ];
   const expectedText = [
     ...relationClaims.map((claim) => {
-      const meaning = contract.relationMeanings?.find(
+      const meaningClaim = contract.relationMeanings?.find(
         (candidate) => candidate.relation === claim.relation,
-      )?.meanings[0];
-      return `${claim.relation}: ${[meaning, claim.grains[0]].filter(Boolean).join("; ")}`;
+      );
+      const meanings = [
+        meaningClaim?.meanings[0],
+        ...(meaningClaim?.requiredMeaningGroups?.map((group) => group[0]) ??
+          []),
+        claim.grains[0],
+      ];
+      return `${claim.relation}: ${meanings.filter(Boolean).join("; ")}`;
     }),
     ...(contract.relationFields ?? []).map(
       (claim) => `${claim.relation}: fields ${claim.fields.join(", ")}`,
     ),
     ...(contract.fieldMeanings ?? []).map(
-      (claim) => `${claim.relation}.${claim.field}: ${claim.meanings[0]}`,
+      (claim) =>
+        `${claim.relation}.${claim.field}: ${claim.meanings[0]}${claim.requiredDisclaimers?.map((disclaimer) => `; ${disclaimer}`).join("") ?? ""}`,
     ),
     ...contract.concepts,
   ].join("\n");
@@ -133,7 +140,7 @@ describe("Analytics synthetic production source evals", () => {
       runnerFor({
         text: [
           "dbt_mart.organization_user_count: historical month-end; one row per organization per date",
-          "dbt_mart.aggregate_monthly_users_per_org: current daily; one row per organization per month",
+          "dbt_mart.aggregate_monthly_users_per_org: current daily; completed months use month-end; in-progress month is a partial snapshot as of today; one row per organization per month",
           ...contract.concepts,
         ].join("\n"),
         toolCalls: ["search-bigquery-schema"],
@@ -164,7 +171,7 @@ describe("Analytics synthetic production source evals", () => {
                 (scope) =>
                   `${relation}: ${scope}; one row per organization per date`,
               ),
-              `${monthlyRelation}: historical month-end monthly trend; one row per organization per month`,
+              `${monthlyRelation}: historical month-end monthly trend; completed months use month-end; in-progress month is a partial snapshot as of today; one row per organization per month`,
               ...contract.concepts,
             ].join("\n"),
           }),
@@ -229,6 +236,36 @@ describe("Analytics synthetic production source evals", () => {
     );
   });
 
+  it("requires completed-month and in-progress-month cutoff semantics", async () => {
+    const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
+    const valid = outputFor(contract);
+    const monthlyRelation = "dbt_mart.aggregate_monthly_users_per_org";
+    const missingPartialMonth = valid.text.replace(
+      "; in-progress month is a partial snapshot as of today",
+      "",
+    );
+    const reportFor = (text: string) =>
+      runEvals([cases[1]!], runnerFor(outputFor(contract, { text })), {
+        persist: false,
+      });
+
+    const accepted = await reportFor(valid.text);
+    const missing = await reportFor(missingPartialMonth);
+    const wrong = await reportFor(
+      valid.text.replace(
+        "in-progress month is a partial snapshot as of today",
+        "in-progress month is a complete month-end snapshot as of today",
+      ),
+    );
+
+    expect(accepted).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(missing).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(wrong).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(missing.results[0]?.scores[0]?.reason).toContain(
+      `${monthlyRelation} omitted required semantic detail: in-progress month is a partial snapshot as of today`,
+    );
+  });
+
   it("rejects reversed external and internal user-count field meanings", async () => {
     const contract = sourceContracts.builderExternalAndInternalUserCounts;
     const relation = "dbt_mart.aggregate_monthly_users_per_org";
@@ -261,17 +298,20 @@ describe("Analytics synthetic production source evals", () => {
   it("rejects negated and conflicting population fields while accepting clear mappings", async () => {
     const contract = sourceContracts.builderExternalAndInternalUserCounts;
     const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const monthlyMeaning = contract.relationMeanings?.find(
+      (claim) => claim.relation === relation,
+    );
     const reportForAssignments = (userCountAssignments: string[]) =>
       runEvals(
         [cases[2]!],
         runnerFor(
           outputFor(contract, {
             text: [
-              `${relation}: one row per organization per month`,
+              `${relation}: historical; ${monthlyMeaning?.requiredMeaningGroups?.map((group) => group[0]).join("; ")}; one row per organization per month`,
               ...userCountAssignments.map(
                 (meaning) => `${relation}.user_count: ${meaning}`,
               ),
-              `${relation}.internal_user_count: internal Builder.io staff users`,
+              `${relation}.internal_user_count: @builder.io email-address memberships; not an employee/staff roster`,
               ...contract.concepts,
             ].join("\n"),
           }),
@@ -281,19 +321,21 @@ describe("Analytics synthetic production source evals", () => {
     const reportFor = (userCountMeaning: string) =>
       reportForAssignments([userCountMeaning]);
 
-    const affirmative = await reportFor("external Builder.io product users");
+    const affirmative = await reportFor(
+      "members whose email does not end in @builder.io",
+    );
     const withoutExternal = await reportFor(
-      "without external Builder.io product users; internal Builder.io staff users",
+      "without members whose email does not end in @builder.io; members with @builder.io email addresses",
     );
     const negated = await reportFor(
-      "not external Builder.io product users; internal Builder.io staff users",
+      "not members whose email does not end in @builder.io; members with @builder.io email addresses",
     );
     const conflicting = await reportFor(
-      "external Builder.io product users and internal Builder.io staff users",
+      "members whose email does not end in @builder.io and members with @builder.io email addresses",
     );
     const repeatedConflict = await reportForAssignments([
-      "external Builder.io product users",
-      "internal Builder.io staff users",
+      "members whose email does not end in @builder.io",
+      "members with @builder.io email addresses",
     ]);
 
     expect(affirmative).toMatchObject({ total: 1, passed: 1, failed: 0 });
@@ -314,6 +356,34 @@ describe("Analytics synthetic production source evals", () => {
     );
     expect(conflicting.results[0]?.scores[0]?.reason).toContain(
       `${relation}.user_count was not mapped to its expected population`,
+    );
+  });
+
+  it("requires the @builder.io email split to disclaim employee roster meaning", async () => {
+    const contract = sourceContracts.builderExternalAndInternalUserCounts;
+    const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const valid = outputFor(contract);
+    const reportFor = (text: string) =>
+      runEvals([cases[2]!], runnerFor(outputFor(contract, { text })), {
+        persist: false,
+      });
+
+    const accepted = await reportFor(valid.text);
+    const missingDisclaimer = await reportFor(
+      valid.text.replace("; not an employee/staff roster", ""),
+    );
+    const employeeOverclaim = await reportFor(
+      valid.text.replace(
+        `${relation}.internal_user_count: @builder.io email-address memberships; not an employee/staff roster`,
+        `${relation}.internal_user_count: @builder.io email-address memberships; employee count; not an employee/staff roster`,
+      ),
+    );
+
+    expect(accepted).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(missingDisclaimer).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(employeeOverclaim).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(missingDisclaimer.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.internal_user_count was not mapped to its expected population`,
     );
   });
 

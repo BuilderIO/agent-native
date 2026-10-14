@@ -4,7 +4,13 @@ import { useEffect, useRef } from "react";
 import { useWorkbench } from "../store";
 import { providerKindFromKey, workbenchUri } from "../workspace/types";
 
-export function BufferSyncGroup({ designId }: { designId: string }) {
+export function BufferSyncGroup({
+  designId,
+  active,
+}: {
+  designId: string;
+  active: boolean;
+}) {
   const { state } = useWorkbench();
   const inlineTabs = state.tabs.filter(
     (tab) => providerKindFromKey(tab.providerKey) === "inline",
@@ -15,7 +21,12 @@ export function BufferSyncGroup({ designId }: { designId: string }) {
   return (
     <>
       {inlineTabs.map((tab) => (
-        <BufferSyncOne key={tab.uri} designId={designId} path={tab.path} />
+        <BufferSyncOne
+          key={tab.uri}
+          designId={designId}
+          path={tab.path}
+          active={active}
+        />
       ))}
       {localhostTabs.map((tab) => (
         <LocalhostBufferSyncOne
@@ -28,10 +39,22 @@ export function BufferSyncGroup({ designId }: { designId: string }) {
   );
 }
 
-function BufferSyncOne({ designId, path }: { designId: string; path: string }) {
+function BufferSyncOne({
+  designId,
+  path,
+  active,
+}: {
+  designId: string;
+  path: string;
+  active: boolean;
+}) {
   const { state, api } = useWorkbench();
   const uri = workbenchUri(`inline:${designId}`, path);
-  const { data } = useActionQuery("read-source-file", { designId, path });
+  const { data } = useActionQuery(
+    "read-source-file",
+    { designId, path },
+    { enabled: active },
+  );
   const read = data as
     | {
         content: string;
