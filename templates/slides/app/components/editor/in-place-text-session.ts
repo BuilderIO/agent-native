@@ -255,7 +255,7 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
 export const IN_PLACE_TEXT_UNDO_LIMIT = 4096;
-export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 128 * 1024 * 1024;
+export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 192 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
