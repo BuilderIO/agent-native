@@ -368,6 +368,52 @@ function collectDashboardConfigIssues(
           }
         }
       }
+      if (f.presets !== undefined) {
+        // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.
+        if (f.type !== "multi-select" || !Array.isArray(f.presets)) {
+          return dashboardIssue(
+            `config.filters[${i}].presets must be an array, and only multi-select filters take presets`,
+          );
+        }
+        const optionValues = new Set(
+          options.map((option) => (option as { value: string }).value),
+        );
+        const labels = new Set<string>();
+        for (let j = 0; j < f.presets.length; j++) {
+          const preset = f.presets[j] as {
+            label?: unknown;
+            values?: unknown;
+          } | null;
+          if (
+            !preset ||
+            typeof preset !== "object" ||
+            typeof preset.label !== "string" ||
+            preset.label.trim() === "" ||
+            !Array.isArray(preset.values) ||
+            preset.values.length === 0 ||
+            !preset.values.every((value) => typeof value === "string")
+          ) {
+            return dashboardIssue(
+              `config.filters[${i}].presets[${j}] must be an object with a non-empty label and a non-empty values array`,
+            );
+          }
+          if (labels.has(preset.label)) {
+            return dashboardIssue(
+              `config.filters[${i}].presets[${j}].label "${preset.label}" repeats an earlier preset`,
+            );
+          }
+          labels.add(preset.label);
+          // A value with no checkbox would be applied to SQL unseen, as with the default.
+          const unknown = (preset.values as string[]).find(
+            (value) => !optionValues.has(value),
+          );
+          if (unknown !== undefined) {
+            return dashboardIssue(
+              `config.filters[${i}].presets[${j}] names "${unknown}", which is not one of its options`,
+            );
+          }
+        }
+      }
       if (seen.has(id)) continue;
       seen.add(id);
       deduped.push(f);

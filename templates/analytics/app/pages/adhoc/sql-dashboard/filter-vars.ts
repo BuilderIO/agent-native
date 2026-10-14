@@ -52,15 +52,24 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
     return false;
   }
   return (
-    value.options === undefined ||
-    (Array.isArray(value.options) &&
-      value.options.length <= 100 &&
-      value.options.every(
-        (option) =>
-          isRecord(option) &&
-          typeof option.value === "string" &&
-          typeof option.label === "string",
-      ))
+    (value.options === undefined ||
+      (Array.isArray(value.options) &&
+        value.options.length <= 100 &&
+        value.options.every(
+          (option) =>
+            isRecord(option) &&
+            typeof option.value === "string" &&
+            typeof option.label === "string",
+        ))) &&
+    (value.presets === undefined ||
+      (Array.isArray(value.presets) &&
+        value.presets.every(
+          (preset) =>
+            isRecord(preset) &&
+            typeof preset.label === "string" &&
+            Array.isArray(preset.values) &&
+            preset.values.every((v) => typeof v === "string"),
+        )))
   );
 }
 

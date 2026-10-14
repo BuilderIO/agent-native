@@ -290,4 +290,58 @@ describe("multi-select dashboard filter", () => {
     act(() => popoverButton("Select all").click());
     expect(new URLSearchParams(search).has("f_plan")).toBe(false);
   });
+
+  describe("presets", () => {
+    const withPresets: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [{ label: "Paid", values: ["self_serve", "enterprise"] }],
+      },
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "30d",
+        options: [
+          { value: "30d", label: "Last 30 days" },
+          { value: "90d", label: "Last 90 days" },
+        ],
+      },
+    ];
+
+    it("replaces only its own filter's selection and closes the popover", () => {
+      render("/dashboards/test?f_timeRange=90d&f_plan=free", withPresets);
+      act(() => trigger().click());
+      act(() => popoverButton("Paid").click());
+
+      const params = new URLSearchParams(search);
+      expect(params.get("f_plan")).toBe("self_serve,enterprise");
+      expect(params.get("f_timeRange")).toBe("90d");
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("names the trigger and marks the preset only while the selection matches it", () => {
+      render("/dashboards/test?f_plan=enterprise,self_serve", withPresets);
+      expect(trigger().textContent).toContain("Paid");
+
+      act(() => trigger().click());
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("true");
+
+      act(() => optionCheckbox("Enterprise").click());
+      expect(trigger().textContent).toContain("Self-Serve");
+      expect(trigger().textContent).not.toContain("Paid");
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("hides presets while searching values", () => {
+      render("/dashboards/test", withPresets);
+      act(() => trigger().click());
+      expect(popover().querySelector('[role="group"]')?.textContent).toContain(
+        "Presets",
+      );
+
+      setSearchQuery("free");
+      expect(() => popoverButton("Paid")).toThrow("button Paid not rendered");
+    });
+  });
 });

@@ -1149,6 +1149,7 @@ export default {
     selectAll: "Selecionar tudo",
     selectOnly: "Só",
     selectOnlyValue: "Somente {{value}}",
+    presets: "Predefinições",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

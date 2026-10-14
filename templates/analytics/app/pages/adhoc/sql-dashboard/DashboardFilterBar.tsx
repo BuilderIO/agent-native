@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
@@ -47,7 +48,7 @@ import {
   resolveDefault,
   resolveFilterVars,
 } from "./filter-vars";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
@@ -401,6 +402,7 @@ function MultiSelectFilter({
   const labelId = useId();
   const triggerId = useId();
   const optionsListId = useId();
+  const presetsLabelId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const seenOptionValues = new Set<string>();
@@ -422,6 +424,11 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
+  const presets = filter.presets ?? [];
+  const presetSelected = (preset: FilterPreset) =>
+    new Set(preset.values).size === selectedSet.size &&
+    preset.values.every((presetValue) => selectedSet.has(presetValue));
+  const selectedPreset = presets.find(presetSelected);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = normalizedQuery
     ? options.filter(
@@ -448,6 +455,11 @@ function MultiSelectFilter({
         ]),
       ),
     );
+  const applyPreset = (preset: FilterPreset) => {
+    setSelected(Array.from(new Set(preset.values)));
+    setOpen(false);
+    setQuery("");
+  };
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
       checked
@@ -478,9 +490,11 @@ function MultiSelectFilter({
             <span className="min-w-0 truncate">
               {allOptionsSelected
                 ? t("sqlDashboard.allValues")
-                : selectedLabels.length > 0
-                  ? selectedLabels.join(", ")
-                  : t("sqlDashboard.allValues")}
+                : selectedPreset
+                  ? selectedPreset.label
+                  : selectedLabels.length > 0
+                    ? selectedLabels.join(", ")
+                    : t("sqlDashboard.allValues")}
             </span>
           </Button>
         </PopoverTrigger>
@@ -492,6 +506,37 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
+          {presets.length > 0 && !normalizedQuery && (
+            <div
+              role="group"
+              aria-labelledby={presetsLabelId}
+              className="border-b p-1"
+            >
+              <div
+                id={presetsLabelId}
+                className="px-2 py-1 text-xs font-medium text-muted-foreground"
+              >
+                {t("sqlDashboard.presets")}
+              </div>
+              {presets.map((preset) => {
+                const active = presetSelected(preset);
+                return (
+                  <Button
+                    key={preset.label}
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    aria-pressed={active}
+                    className="h-auto w-full justify-start gap-2 rounded-sm px-2 py-1.5 font-normal has-[>svg]:px-2 [&_svg]:size-4"
+                    onClick={() => applyPreset(preset)}
+                  >
+                    <IconCheck className={cn(!active && "invisible")} />
+                    <span className="min-w-0 truncate">{preset.label}</span>
+                  </Button>
+                );
+              })}
+            </div>
+          )}
           <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
             <Button
               type="button"
