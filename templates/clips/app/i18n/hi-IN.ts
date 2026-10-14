@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind चालू करें",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
-      "Rewind आपकी स्क्रीन का स्थानीय इतिहास रखता है, ताकि आप रिकॉर्डिंग से पहले के आख़िरी कुछ मिनट शामिल कर सकें। फ़ुटेज तभी अपलोड होता है जब आप उसे शामिल करें या मंज़ूरी दें।",
+      "डिफ़ॉल्ट रूप से बंद। स्क्रीन इतिहास इसी डिवाइस पर रहता है, जब तक आप उसे रिकॉर्डिंग में शामिल न करें या साझा करने का अनुरोध मंज़ूर न करें।",
     requestFailed:
       "पहले का स्क्रीन समय शामिल नहीं किया जा सका। रिकॉर्डिंग इसके बिना जारी रहती है।",
     localOnlyUnavailable:
@@ -298,6 +298,10 @@ const messages = {
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
+    silenceTranscriptUnavailableTitle:
+      "इस ट्रांसक्रिप्ट का उपयोग खामोशी हटाने के लिए नहीं किया जा सकता",
+    silenceTranscriptUnavailableDescription:
+      "नई ट्रांसक्रिप्ट बनाने की कोशिश करें, फिर खामोशी हटाने के लिए दोबारा प्रयास करें।",
     titleGenerationQueued: "शीर्षक बनाया जा रहा है…",
     descriptionQueued: "विवरण बनाया जा रहा है…",
     chapterQueued: "अध्याय बनाए जा रहे हैं…",

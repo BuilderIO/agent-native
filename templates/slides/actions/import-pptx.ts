@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
@@ -33,6 +33,10 @@ import {
   assertHumanReadableDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
 import {
@@ -125,7 +129,8 @@ export async function importPptxBufferToDeck(args: {
     imageFallbacks,
     parsedPresentation,
   } = args;
-  const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
+  const presentation =
+    parsedPresentation ?? (await parsePptxBeforeDeckWrite(fileBuffer));
   applyImageFallbacks(presentation, imageFallbacks);
   const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
@@ -194,8 +199,9 @@ export async function importPptxBufferToDeck(args: {
     0,
   );
   if (imagesSkipped > 0) {
-    throw new Error(
+    fail(
       `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
   const sourceImport = buildSourceImportMetadata({
@@ -419,4 +425,18 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
     );
   }
   return parsed as Record<string, unknown>;
+}
+
+async function parsePptxBeforeDeckWrite(
+  fileBuffer: Buffer,
+): Promise<ParsedPresentation> {
+  try {
+    return await parsePptx(fileBuffer);
+  } catch (error) {
+    if (!(error instanceof InvalidPptxSourceError)) throw error;
+    fail(
+      "Slides could not read this PowerPoint file. No slides were written to the deck.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
 }

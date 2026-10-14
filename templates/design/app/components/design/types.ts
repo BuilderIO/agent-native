@@ -164,6 +164,7 @@ export interface ElementInfo {
   vectorStrokeCanAlign?: boolean;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
+  styleSnapshotReadOnDemand?: boolean;
   boundingRect: { x: number; y: number; width: number; height: number };
   parentBoundingRect?: {
     x: number;

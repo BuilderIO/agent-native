@@ -3656,6 +3656,7 @@ export function createCoreRoutesPlugin(
         "google_calendar",
         "google_docs",
         "google_drive",
+        "bigquery",
         "google_sheets",
         "google_slides",
         "github",

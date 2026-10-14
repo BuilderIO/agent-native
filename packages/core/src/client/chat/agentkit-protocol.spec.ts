@@ -5,12 +5,14 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
   resumeEntryFromApproval,
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import {
   AUTO_CONTINUE_PROMPT,
   CONTINUE_OF_RUN_METADATA_KEY,
@@ -316,6 +318,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 id: "call-get-document",
                 name: "get_document",
                 input: { documentId: "doc-1" },
+                approvalKey: "get_document:approved",
               },
             },
             {
@@ -325,6 +328,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 id: "call-get-document",
                 name: "get_document",
                 resultText: "Document title: Project Brief",
+                approvalPause: true,
               },
             },
             {
@@ -387,12 +391,18 @@ describe("createAgentKitProtocolAdapter", () => {
               toolCallId: "call-get-document",
               toolName: "get_document",
               input: { documentId: "doc-1" },
+              approval: {
+                approvalKey: "get_document:approved",
+                askId: "agent-tool-approval-doc-1",
+              },
             },
             {
               type: "tool-result",
               toolCallId: "call-get-document",
               toolName: "get_document",
               resultText: "Document title: Project Brief",
+              approvalPause: true,
+              approvalAskId: "agent-tool-approval-doc-1",
             },
             {
               type: "tool-call",
@@ -1192,6 +1202,194 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("serializes approval metadata with structured tool history", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-approval-history",
+              toolName: "send-large-data",
+              input: { payload: "large" },
+              approval: {
+                approvalKey: "send-large-data:approved",
+                askId: "agent-tool-approval-large-1",
+              },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-approval-history",
+              toolName: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+              approvalAskId: "agent-tool-approval-large-1",
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Save approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const created = result.find((event) => event.type === "message.created");
+
+    expect(created).toMatchObject({
+      type: "message.created",
+      message: {
+        parts: [
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+            data: {
+              id: "call-approval-history",
+              name: "send-large-data",
+              input: { payload: "large" },
+              approvalKey: approvalKeyForHistory("send-large-data:approved"),
+              approvalAskId: "agent-tool-approval-large-1",
+            },
+          },
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+            data: {
+              id: "call-approval-history",
+              name: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+              approvalAskId: "agent-tool-approval-large-1",
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it("keeps ask-ID approval history within the protocol event budget", async () => {
+    const input = { payload: "x".repeat(140 * 1024) };
+    const approvalKey = `send-large-data:${JSON.stringify(input)}`;
+    const askId = "agent-tool-approval-large-payload";
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-large-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-large-approval-history",
+              toolName: "send-large-data",
+              input,
+              approval: { approvalKey, askId },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-large-approval-history",
+              toolName: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+              approvalAskId: askId,
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-large-approval-history",
+      messages: [userMessage("Save the approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-large-approval-history",
+        runId,
+      }),
+    );
+    const created = result.find((event) => event.type === "message.created")!;
+    if (created.type !== "message.created") {
+      throw new Error("Approval history message event was not created");
+    }
+    const callPart = created.message.parts.find(
+      (part) =>
+        part.type === "data" &&
+        part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+    );
+    expect(callPart).toMatchObject({
+      type: "data",
+      mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+      data: {
+        id: "call-large-approval-history",
+        name: "send-large-data",
+        input,
+        approvalKey: approvalKeyForHistory(approvalKey),
+        approvalAskId: askId,
+      },
+    });
+    expect(
+      new TextEncoder().encode(JSON.stringify(created) ?? "").byteLength,
+    ).toBeLessThan(256 * 1024);
+  });
+
+  it("preserves raw keys for legacy key-only approval history", async () => {
+    const approvalKey = "send-large-data:approved";
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-legacy-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-legacy-approval-history",
+              toolName: "send-large-data",
+              input: { payload: "small" },
+              approval: { approvalKey },
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-legacy-approval-history",
+      messages: [userMessage("Save legacy approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-legacy-approval-history",
+        runId,
+      }),
+    );
+
+    expect(result).toContainEqual(
+      expect.objectContaining({
+        type: "message.created",
+        message: expect.objectContaining({
+          parts: expect.arrayContaining([
+            expect.objectContaining({
+              type: "data",
+              mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+              data: expect.objectContaining({ approvalKey }),
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
   it("translates Core turn events and supports in-process sequence replay", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -1283,7 +1481,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(result[4]).toMatchObject({
       type: "tool.started",
-      toolCall: { id: "tool-1", messageId: "assistant-1" },
+      toolCall: { id: "tool-1", runId, messageId: "assistant-1" },
     });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
@@ -1382,6 +1580,7 @@ describe("createAgentKitProtocolAdapter", () => {
         toolName: "search",
         status: "completed",
         result: { found: true },
+        completedSideEffect: true,
       };
       yield {
         type: "message-start",
@@ -1414,6 +1613,8 @@ describe("createAgentKitProtocolAdapter", () => {
         input: { query: "agentkit" },
         output: { found: true },
         status: "completed",
+        runId,
+        metadata: { completedSideEffect: true },
         messageId: "assistant-1",
       },
     });
@@ -1421,6 +1622,54 @@ describe("createAgentKitProtocolAdapter", () => {
       (event) => event.type === "message.created",
     )?.sequence;
     expect(toolUpdates[1]!.sequence).toBeGreaterThan(messageCreatedSequence!);
+  });
+
+  it("persists approval pause metadata on a completed tool call", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "call-1",
+          name: "publish-release",
+          input: { releaseId: "release-1" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "call-1",
+        toolName: "publish-release",
+        status: "completed",
+        result: "Awaiting human approval. This action did NOT execute.",
+        approvalPause: true,
+        approvalAskId: "approval-1",
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "tool.updated")).toMatchObject(
+      {
+        type: "tool.updated",
+        toolCall: {
+          id: "call-1",
+          name: "publish-release",
+          status: "completed",
+          runId,
+          metadata: {
+            approvalPause: true,
+            approvalAskId: "approval-1",
+          },
+        },
+      },
+    );
   });
 
   it("keeps an explicit tool-first message association over later assistant messages", async () => {

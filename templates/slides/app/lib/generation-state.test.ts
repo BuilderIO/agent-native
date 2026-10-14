@@ -3,12 +3,99 @@ import { describe, expect, it } from "vitest";
 import {
   getNewDeckGenerationRecoveryState,
   nextNewDeckGenerationPhase,
+  shouldClearPartialGenerationFailure,
+  partialGenerationFailureSlidesFingerprint,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  shouldShowPartialGenerationFailure,
   slideBeingFilledInPlace,
 } from "./generation-state";
+
+describe("partial generation failure state", () => {
+  const slides = [
+    {
+      id: "slide-1",
+      content: "<h1>First</h1>",
+      notes: "Opening",
+      layout: "title",
+    },
+  ];
+  const fingerprint = partialGenerationFailureSlidesFingerprint(slides);
+  const base = {
+    slideCount: 1,
+    failureCode: "agent_error",
+    failureAttemptId: "attempt-1",
+    attemptId: "attempt-1",
+    failureSlidesFingerprint: fingerprint,
+    currentSlidesFingerprint: fingerprint,
+    generating: false,
+    waitingOnQuestions: false,
+    retryPending: false,
+  };
+
+  it("shows the failure only while the saved slide snapshot still matches", () => {
+    expect(shouldShowPartialGenerationFailure(base)).toBe(true);
+    expect(
+      partialGenerationFailureSlidesFingerprint([
+        { ...slides[0], content: "<h1>Repaired</h1>" },
+      ]),
+    ).not.toBe(fingerprint);
+    expect(
+      shouldShowPartialGenerationFailure({
+        ...base,
+        currentSlidesFingerprint: partialGenerationFailureSlidesFingerprint([
+          { ...slides[0], content: "<h1>Repaired</h1>" },
+        ]),
+      }),
+    ).toBe(false);
+  });
+
+  it("hides failures without a snapshot or for a different attempt", () => {
+    expect(
+      shouldShowPartialGenerationFailure({
+        ...base,
+        failureSlidesFingerprint: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPartialGenerationFailure({
+        ...base,
+        failureAttemptId: "attempt-2",
+      }),
+    ).toBe(false);
+  });
+
+  it("clears stale and legacy failure markers but keeps a matching marker", () => {
+    expect(shouldClearPartialGenerationFailure(base)).toBe(false);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureSlidesFingerprint: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        currentSlidesFingerprint: "changed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureAttemptId: "attempt-2",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureAttemptId: "attempt-2",
+        retryPending: true,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("new deck generation state", () => {
   const base = {

@@ -1669,7 +1669,13 @@ export function renderSlack(digest: Digest): string {
     );
   }
   for (const entry of digest.fixed) {
-    addFinding("FIXED", entry.c, entry.k, entry.l, `Passed in run ${entry.r}.`);
+    addFinding(
+      "FIXED",
+      entry.c,
+      entry.k,
+      entry.l,
+      `Passed in run ${digest.input.runId}.`,
+    );
   }
   for (const [index, item] of digest.advisory.entries()) {
     const title =

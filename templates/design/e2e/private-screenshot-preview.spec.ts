@@ -1,7 +1,6 @@
-import { expect, test } from "@playwright/test";
-
 import { e2eBaseURL } from "./base-url";
 import { E2E_MENTION_EMAIL, E2E_PASSWORD } from "./global-setup";
+import { expect, test } from "./rails";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SYNTHETIC_PNG = Buffer.from(
@@ -15,6 +14,7 @@ function actionUrl(name: string): string {
 }
 
 test("renders an authorized private replay image in the opaque presentation frame", async ({
+  app,
   browser,
   page,
 }) => {
@@ -26,6 +26,7 @@ test("renders an authorized private replay image in the opaque presentation fram
   const designId =
     designBody?.id ?? designBody?.data?.id ?? designBody?.design?.id;
   expect(designId).toBeTruthy();
+  app.adopt(designId);
   const nodeKey = "design::synthetic-preview";
   const exampleIndex = 0;
   const unusedScreenshotPath =
@@ -170,6 +171,22 @@ test("renders an authorized private replay image in the opaque presentation fram
     );
     expect(viewerLogin.ok(), await viewerLogin.text()).toBe(true);
     const viewerPage = await viewerContext.newPage();
+    // The app fixture watches only the owner's page; the viewer renders in its own context.
+    const viewerFailures: string[] = [];
+    viewerPage.on("pageerror", (error) =>
+      viewerFailures.push(`pageerror: ${error.message}`),
+    );
+    viewerPage.on("console", (message) => {
+      if (message.type() === "error")
+        viewerFailures.push(`console.error: ${message.text()}`);
+    });
+    viewerPage.on("response", (response) => {
+      if (response.url().startsWith(BASE_URL) && response.status() >= 400) {
+        viewerFailures.push(
+          `http ${response.status()}: ${new URL(response.url()).pathname}`,
+        );
+      }
+    });
 
     const viewerDesign = await viewerContext.request.get(
       actionUrl("get-design"),
@@ -270,15 +287,11 @@ test("renders an authorized private replay image in the opaque presentation fram
       designId,
     );
     expect(screenshotResponsePaths).toEqual([screenshotPath]);
+    expect(
+      viewerFailures,
+      "the viewer's presentation reported failures",
+    ).toEqual([]);
   } finally {
-    const deletion = await page.request.post(actionUrl("delete-design"), {
-      data: { id: designId },
-    });
-    if (!deletion.ok()) {
-      throw new Error(
-        `Could not clean up the synthetic E2E design: ${deletion.status()}`,
-      );
-    }
     await viewerContext.close();
     await deniedContext.close();
   }

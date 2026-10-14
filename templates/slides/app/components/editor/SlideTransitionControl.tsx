@@ -149,21 +149,23 @@ export function SlideTransitionControl({
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="flex-1"
+            className="h-auto min-h-8 w-full whitespace-normal"
             disabled={!editable}
             onClick={() => onApplyToAll({ transition, transitionSpeed: speed })}
           >
-            {t("editorToolbar.transition_apply_all")}
+            <span className="min-w-0 text-center">
+              {t("editorToolbar.transition_apply_all")}
+            </span>
           </Button>
           <Button
             type="button"
             size="sm"
-            className="flex-1"
+            className="h-auto min-h-8 w-full whitespace-normal"
             disabled={!onPlay || currentSlideIndex <= 0}
             onClick={() => {
               setOpen(false);
@@ -171,7 +173,9 @@ export function SlideTransitionControl({
             }}
           >
             <IconPlayerPlay className="size-3.5" />
-            {t("editorToolbar.transition_play")}
+            <span className="min-w-0 text-center">
+              {t("editorToolbar.transition_play")}
+            </span>
           </Button>
         </div>
       </PopoverContent>

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
+  "block.loading": "ब्लॉक लोड हो रहा है।",
   "composer.contextUrlLabel": "यूआरएल",
   "composer.contextInvalidUrl": "मान्य HTTP या HTTPS यूआरएल दर्ज करें।",
   "composer.contextAttach": "अटैच करें",
@@ -152,9 +154,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "जाँचा जा रहा है कि नया खाता बनाना उपलब्ध है या नहीं।",
   "onboarding.builderActivationUnavailable":
-    "इस ऐप में नया खाता बनाना सक्षम नहीं है। आप मौजूदा खाता कनेक्ट कर सकते हैं।",
+    "Builder.io से जुड़ने के लिए खाता बनाएँ या साइन इन करें।",
   "onboarding.builderActivationUnavailableInMode":
-    "इस मोड में नया खाता सक्रिय करना उपलब्ध नहीं है। आप फिर भी मौजूदा खाता कनेक्ट कर सकते हैं।",
+    "Builder.io से जुड़ने के लिए खाता बनाएँ या साइन इन करें।",
   "onboarding.builderActivationCheckFailed":
     "यह जाँचा नहीं जा सका कि यह ऐप नए खाते बना सकता है या नहीं।",
 
@@ -168,6 +170,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.builderConnect": "Builder.io से कनेक्ट करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
@@ -1157,6 +1160,12 @@ const messages: ToolkitAgentChatTranslation = {
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "errorMessages.invalidAttachmentNamed":
     "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
+  "recovery.resendVerificationEmail": "सत्यापन ईमेल फिर से भेजें",
+  "recovery.sendingVerificationEmail": "भेजा जा रहा है...",
+  "recovery.verificationEmailRequested":
+    "सत्यापन ईमेल का अनुरोध किया गया। अपना इनबॉक्स और स्पैम फ़ोल्डर देखें।",
+  "recovery.verificationEmailFailed":
+    "सत्यापन ईमेल का अनुरोध नहीं हो सका। कृपया फिर से कोशिश करें।",
   "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से कोशिश करें",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
@@ -1200,6 +1209,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
   "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
+  "secrets.figmaTokenMustBeToken":
+    "Figma एक्सेस टोकन पेस्ट करें, Figma फ़ाइल URL नहीं।",
   "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
   "secrets.managedInVault":
     "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",

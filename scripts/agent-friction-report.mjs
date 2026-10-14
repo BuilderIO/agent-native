@@ -2863,6 +2863,8 @@ const FEEDBACK_REPLY_DETAIL_PATTERN = {
   lineSensitive: true,
   matches: hasFeedbackReplyDetailCorrection,
 };
+const FEEDBACK_OPEN_WITHOUT_QUESTION_RE =
+  /\b(?:why (?:are you )?(?:saying|replying|marking)[\s\S]{0,80}\b(?:open|in progress)\b|should be asking for what you need(?: for each)?|ask for clarification when needed)\b/i;
 
 function matchesPattern(pattern, text) {
   return pattern.matches
@@ -3217,6 +3219,20 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "CI results and branch details are useful."],
 ];
 
+const FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES = [
+  [
+    true,
+    "why are you saying open and describing. you should be ASKING for what you need for each",
+  ],
+  [true, "ask for clarification when needed"],
+  [
+    true,
+    "Why are you marking this in progress instead of asking for the missing artifact?",
+  ],
+  [false, "This is open while I reproduce the issue."],
+  [false, "I asked which Figma file link to use."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -3231,6 +3247,12 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
       ([expected, message]) =>
         matchesPattern(FEEDBACK_REPLY_DETAIL_PATTERN, message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_OPEN_WITHOUT_QUESTION_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -3522,7 +3544,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3769,6 +3791,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (concise, plain-language replies, 2026-10-09)",
     ...FEEDBACK_REPLY_DETAIL_PATTERN,
+  },
+  {
+    key: "feedback-open-without-question",
+    label: "Had to ask the feedback sweep for a direct question when blocked",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (direct question when reporter-side evidence blocks a fix, 2026-10-12)",
+    re: FEEDBACK_OPEN_WITHOUT_QUESTION_RE,
   },
   {
     key: "pr-review-handoff",

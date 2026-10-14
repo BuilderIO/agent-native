@@ -111,6 +111,10 @@ import {
   type DesignFilter,
 } from "@/lib/design-filter";
 import {
+  designPromptReferenceTypes,
+  trackDesignPromptSubmitted,
+} from "@/lib/design-funnel-tracking";
+import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
@@ -192,6 +196,8 @@ type HomeSuggestionsResult =
         | "agent_engine_settings_unavailable";
       suggestions: [];
     };
+
+const HOME_SUGGESTIONS_UI_TIMEOUT_MS = 12_000;
 
 function isReadyHomeSuggestions(
   result: HomeSuggestionsResult | undefined,
@@ -437,13 +443,58 @@ export default function Index() {
     homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
       : null;
-  const homeSuggestionsUnavailable =
+  const homeSuggestionsQueryUnavailable =
     !homeSuggestionsQuery.isFetching &&
     quickActionsEnabled &&
     (homeSuggestionsQuery.isError ||
       homeSuggestionsQuery.data?.status === "unavailable" ||
       (homeSuggestionsQuery.data?.status === "ready" &&
         homeSuggestionsQuery.data.suggestions.length !== 3));
+  const [homeSuggestionsTimeout, setHomeSuggestionsTimeout] = useState({
+    scope: homeSuggestionsIdentityScope,
+    timedOut: false,
+  });
+  if (homeSuggestionsTimeout.scope !== homeSuggestionsIdentityScope) {
+    setHomeSuggestionsTimeout({
+      scope: homeSuggestionsIdentityScope,
+      timedOut: false,
+    });
+  }
+  const homeSuggestionsTimedOut =
+    quickActionsEnabled &&
+    homeSuggestionsTimeout.scope === homeSuggestionsIdentityScope &&
+    homeSuggestionsTimeout.timedOut;
+  useEffect(() => {
+    if (
+      !quickActionsEnabled ||
+      homeSuggestionsSnapshot !== null ||
+      readyHomeSuggestions !== null ||
+      homeSuggestionsQueryUnavailable
+    ) {
+      setHomeSuggestionsTimeout({
+        scope: homeSuggestionsIdentityScope,
+        timedOut: false,
+      });
+      return;
+    }
+    const timer = window.setTimeout(
+      () =>
+        setHomeSuggestionsTimeout({
+          scope: homeSuggestionsIdentityScope,
+          timedOut: true,
+        }),
+      HOME_SUGGESTIONS_UI_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    quickActionsEnabled,
+    homeSuggestionsSnapshot,
+    readyHomeSuggestions,
+    homeSuggestionsQueryUnavailable,
+    homeSuggestionsIdentityScope,
+  ]);
+  const homeSuggestionsUnavailable =
+    homeSuggestionsQueryUnavailable || homeSuggestionsTimedOut;
   useEffect(() => {
     if (homeSuggestionsSnapshot !== null) return;
     const result = homeSuggestionsQuery.data;
@@ -460,7 +511,7 @@ export default function Index() {
     } else if (
       quickActionsEnabled &&
       homeSuggestionsProfileReady &&
-      homeSuggestionsUnavailable
+      homeSuggestionsQueryUnavailable
     ) {
       setHomeSuggestionsSnapshotState({
         scope: homeSuggestionsIdentityScope,
@@ -474,7 +525,7 @@ export default function Index() {
     homeSuggestionsIdentityScope,
     quickActionsEnabled,
     homeSuggestionsProfileReady,
-    homeSuggestionsUnavailable,
+    homeSuggestionsQueryUnavailable,
     fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
@@ -484,6 +535,7 @@ export default function Index() {
   const homeSuggestionsLoading =
     homeSuggestionsSnapshot === null &&
     readyHomeSuggestions === null &&
+    !homeSuggestionsTimedOut &&
     (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
@@ -735,7 +787,8 @@ export default function Index() {
   const createDesign = useCallback(
     (
       title: string,
-      designSystemId?: string | null,
+      designSystemId: string | null | undefined,
+      creationMethod: "prompt" | "blank",
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -783,6 +836,7 @@ export default function Index() {
           title: finalTitle,
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
+          creationMethod,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -836,8 +890,11 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
-      pendingOptions?: { skipQuestions?: boolean },
+      pendingOptions?: { skipQuestions?: boolean; fromSkip?: boolean },
     ) => {
+      const promptSource = quickStartRef.current
+        ? "suggestion_chip"
+        : "composer";
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -850,6 +907,25 @@ export default function Index() {
         newDesignMode === "app"
           ? await resolveAppDesignSystemId()
           : templateCopyDesignSystemId;
+      const reportPromptSubmitted = (outputId: string) => {
+        if (pendingOptions?.fromSkip) return;
+        try {
+          trackDesignPromptSubmitted({
+            outputId,
+            source: promptSource,
+            prompt,
+            referenceTypes: designPromptReferenceTypes({
+              contextItems: options.contextItems,
+              files,
+              templateSelected: Boolean(selectedTemplate),
+              designSystemId,
+            }),
+            startMode: selectedTemplate ? "template" : newDesignMode,
+          });
+        } catch {
+          // coercion-ok: analytics must never block opening the new design.
+        }
+      };
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -924,6 +1000,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
@@ -939,7 +1016,11 @@ export default function Index() {
 
       const derivedTitle = derivePromptTitle(prompt);
 
-      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
+      const { id, title, ready } = createDesign(
+        derivedTitle,
+        designSystemId,
+        "prompt",
+      );
       handleGenerateDesignTitle(id, prompt, title);
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
@@ -1012,6 +1093,7 @@ export default function Index() {
         }
       }
 
+      reportPromptSubmitted(id);
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -1046,6 +1128,7 @@ export default function Index() {
       const { id, ready } = createDesign(
         t("home.untitledDesign"),
         designSystemId,
+        "blank",
       );
       await ready;
       void navigate(`/design/${id}`);
@@ -1074,11 +1157,16 @@ export default function Index() {
         }
         return false;
       }
-      await handleSubmitPrompt("", [], {
-        contextItems: await homeContext.prepareSubmission(
-          snapshotComposerContextItems(homeContext.contextItems),
-        ),
-      });
+      await handleSubmitPrompt(
+        "",
+        [],
+        {
+          contextItems: await homeContext.prepareSubmission(
+            snapshotComposerContextItems(homeContext.contextItems),
+          ),
+        },
+        { fromSkip: true },
+      );
       return false;
     }
     await startBlankDesign();

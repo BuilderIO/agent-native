@@ -576,6 +576,36 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: default;
 }
 
+.rewind-off-popover-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.rewind-off-popover-reveal[data-state="open"] {
+  animation: rewind-off-popover-expand 180ms ease-out both;
+}
+
+.rewind-off-popover-reveal__content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes rewind-off-popover-expand {
+  from {
+    grid-template-rows: 0fr;
+  }
+
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rewind-off-popover-reveal[data-state="open"] {
+    animation: none;
+  }
+}
+
 .row-flex {
   flex: 1 1 auto;
 }

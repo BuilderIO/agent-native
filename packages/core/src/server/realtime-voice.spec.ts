@@ -390,7 +390,11 @@ describe("realtime voice inline preferences", () => {
     expect(resolveRealtimeVoiceLanguagePreference("invalid", "fr-FR")).toBe(
       "fr",
     );
-    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("minimal");
+    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("instant", "live")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("instant", "realtime")).toBe(
+      "minimal",
+    );
     expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
     expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
     expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
@@ -725,7 +729,9 @@ describe("realtime voice session route", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { handlers } = mount();
-    const event = sessionEvent();
+    const event = sessionEvent(undefined, {
+      "x-agent-native-realtime-intelligence": "instant",
+    });
     await expect(
       handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
     ).resolves.toBe("v=0\r\ns=live\r\n");
@@ -749,6 +755,7 @@ describe("realtime voice session route", () => {
           type: "responses",
           responses: {
             model: "gpt-6-luna",
+            reasoning: { effort: "low" },
             tool_choice: "auto",
             tools: [
               expect.objectContaining({ type: "function", name: "navigate" }),
@@ -771,6 +778,7 @@ describe("realtime voice session route", () => {
     const { handlers } = mount();
     const event = sessionEvent(undefined, {
       [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+      "x-agent-native-realtime-intelligence": "instant",
     });
     await expect(
       handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
@@ -787,6 +795,33 @@ describe("realtime voice session route", () => {
     expect(JSON.parse(form.get("session") as string)).toMatchObject({
       type: "realtime",
       model: "gpt-realtime-2.1",
+      reasoning: { effort: "minimal" },
+    });
+  });
+
+  it("uses Realtime effort for a configured Realtime model without a protocol header", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=configured-realtime\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
+    const event = sessionEvent(undefined, {
+      "x-agent-native-realtime-intelligence": "instant",
+    });
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=configured-realtime\r\n");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/realtime/calls");
+    const form = init.body as FormData;
+    expect(JSON.parse(form.get("session") as string)).toMatchObject({
+      model: "gpt-realtime-2.1",
+      reasoning: { effort: "minimal" },
     });
   });
 

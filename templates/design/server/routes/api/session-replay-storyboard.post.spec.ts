@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(),
   runAction: vi.fn(),
   resolveActiveOrgIdForStorageCredential: vi.fn(),
+  getPrivateStorageReadinessForRequest: vi.fn(),
   select: vi.fn(),
   eq: vi.fn(),
   whereCalls: [] as { table: unknown; conditions: unknown[] }[],
@@ -84,6 +85,11 @@ vi.mock("@agent-native/core/private-blob", () => ({
 vi.mock("@agent-native/core/org", () => ({
   resolveActiveOrgIdForStorageCredential:
     mocks.resolveActiveOrgIdForStorageCredential,
+}));
+
+vi.mock("@agent-native/core/file-upload", () => ({
+  getPrivateStorageReadinessForRequest:
+    mocks.getPrivateStorageReadinessForRequest,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -252,7 +258,11 @@ function makeFormData({
   return form;
 }
 
-function makeEvent(body: BodyInit, token = "test-a2a-token") {
+function makeEvent(
+  body: BodyInit,
+  token = "test-a2a-token",
+  signal?: AbortSignal,
+) {
   return {
     req: new Request(
       "https://design.example.test/api/session-replay-storyboard",
@@ -260,6 +270,7 @@ function makeEvent(body: BodyInit, token = "test-a2a-token") {
         method: "POST",
         headers: token ? { authorization: `Bearer ${token}` } : undefined,
         body,
+        signal,
       },
     ),
   };
@@ -277,6 +288,7 @@ describe("POST /api/session-replay-storyboard", () => {
       mocks.runAction,
       mocks.runWithRequestContext,
       mocks.resolveActiveOrgIdForStorageCredential,
+      mocks.getPrivateStorageReadinessForRequest,
       mocks.select,
       mocks.eq,
       mocks.verifyA2AToken,
@@ -287,6 +299,12 @@ describe("POST /api/session-replay-storyboard", () => {
       email: "ada@example.test",
     });
     mocks.resolveActiveOrgIdForStorageCredential.mockResolvedValue(null);
+    mocks.getPrivateStorageReadinessForRequest.mockResolvedValue({
+      selectedOrg: "none",
+      provider: "builder",
+      readiness: "ready",
+      builderAuthorized: "yes",
+    });
     mocks.runWithRequestContext.mockImplementation(
       async (_context: unknown, callback: () => unknown) => callback(),
     );
@@ -447,7 +465,7 @@ describe("POST /api/session-replay-storyboard", () => {
   it("uses the selected org only for Builder storage while keeping the attachment personal", async () => {
     mocks.resolveActiveOrgIdForStorageCredential.mockResolvedValue("org-1");
 
-    await (handler as any)(makeEvent(makeFormData()));
+    await (handler as any)(makeEvent(makeFormData({ designId: null })));
 
     const storageContext = {
       userEmail: "ada@example.test",
@@ -470,11 +488,19 @@ describe("POST /api/session-replay-storyboard", () => {
       storageContext,
       expect.any(Function),
     );
+    expect(mocks.runWithRequestContext).toHaveBeenNthCalledWith(
+      5,
+      storageContext,
+      expect.any(Function),
+    );
     expect(
-      mocks.runWithRequestContext.mock.invocationCallOrder[2],
+      mocks.getPrivateStorageReadinessForRequest.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.createDesign.mock.invocationCallOrder[0]!);
+    expect(
+      mocks.runWithRequestContext.mock.invocationCallOrder[3],
     ).toBeLessThan(mocks.runAction.mock.invocationCallOrder[0]!);
     expect(mocks.runAction.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.runWithRequestContext.mock.invocationCallOrder[3]!,
+      mocks.runWithRequestContext.mock.invocationCallOrder[4]!,
     );
     expect(mocks.mintAttachmentRef).toHaveBeenCalledWith(
       expect.objectContaining({ ownerEmail: "ada@example.test", orgId: null }),
@@ -503,6 +529,248 @@ describe("POST /api/session-replay-storyboard", () => {
     expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("stops waiting for active-org selection when the request expires", async () => {
+    let resolveLookup: (value: string | null) => void = () => {};
+    mocks.resolveActiveOrgIdForStorageCredential.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveLookup = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        mocks.resolveActiveOrgIdForStorageCredential,
+      ).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    resolveLookup(null);
+    expect(mocks.getPrivateStorageReadinessForRequest).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps a late active-org lookup rejection from replacing request expiry", async () => {
+    let rejectLookup: (reason?: unknown) => void = () => {};
+    mocks.resolveActiveOrgIdForStorageCredential.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((_resolve, reject) => {
+          rejectLookup = reject;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        mocks.resolveActiveOrgIdForStorageCredential,
+      ).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    rejectLookup(new Error("late membership lookup failure"));
+    await Promise.resolve();
+    expect(mocks.getPrivateStorageReadinessForRequest).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("gates on private storage readiness before creating a board", async () => {
+    mocks.getPrivateStorageReadinessForRequest.mockResolvedValueOnce({
+      selectedOrg: "selected",
+      provider: "none",
+      readiness: "unavailable",
+      builderAuthorized: "no",
+    });
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Design private screenshot storage is unavailable",
+      data: { errorCode: "private_storage_unavailable" },
+    });
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("does not create a board when the request expires during storage readiness", async () => {
+    const readiness = {
+      selectedOrg: "none" as const,
+      provider: "builder" as const,
+      readiness: "ready" as const,
+      builderAuthorized: "yes" as const,
+    };
+    let resolveReadiness: (value: typeof readiness) => void = () => {};
+    mocks.getPrivateStorageReadinessForRequest.mockImplementationOnce(
+      () =>
+        new Promise<typeof readiness>((resolve) => {
+          resolveReadiness = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.getPrivateStorageReadinessForRequest).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    resolveReadiness(readiness);
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+  });
+
+  it("captures and cleans a new board when the request expires during creation", async () => {
+    let resolveCreate: (value: { id: string }) => void = () => {};
+    mocks.createDesign.mockImplementationOnce(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.createDesign).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+    resolveCreate({ id: designId });
+
+    const failure = await request.catch(
+      (error: unknown) =>
+        error as {
+          statusCode?: number;
+          statusMessage?: string;
+          data?: Record<string, unknown>;
+        },
+    );
+    expect(failure).toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    expect(failure.data).not.toHaveProperty("saveOutcomeUnknown");
+    expect(mocks.select).toHaveBeenCalledTimes(2);
+    expect(mocks.select.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mocks.createDesign.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: designId,
+        expectedCreatedShell: expect.objectContaining({
+          createdAt: "2026-10-11T12:00:00.000Z",
+          updatedAt: "2026-10-11T12:00:00.000Z",
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.deleteAttachment).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("cleans the minted ref and new board when the request expires during mint", async () => {
+    const controller = new AbortController();
+    const screenshots = [
+      { ...screenshot, replayId: "sr_123" },
+      { ...screenshot, replayId: "sr_456", offsetMs: 2_500 },
+    ];
+    mocks.mintAttachmentRef.mockImplementationOnce(async () => {
+      controller.abort();
+      return { status: "ok", ref: "private-attachment-ref" };
+    });
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null, screenshots }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    const failure = await request.catch(
+      (error: unknown) =>
+        error as {
+          statusCode?: number;
+          statusMessage?: string;
+          data?: Record<string, unknown>;
+        },
+    );
+    expect(failure).toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    expect(failure.data).not.toHaveProperty("saveOutcomeUnknown");
+    expect(mocks.mintAttachmentRef).toHaveBeenCalledOnce();
+    expect(mocks.deleteAttachment).toHaveBeenCalledWith(
+      "private-attachment-ref",
+      { ownerEmail: "ada@example.test", orgId: null },
+    );
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: designId,
+        expectedCreatedShell: expect.objectContaining({
+          createdAt: "2026-10-11T12:00:00.000Z",
+          updatedAt: "2026-10-11T12:00:00.000Z",
+        }),
+      }),
+      expect.any(Object),
+    );
     expect(mocks.runAction).not.toHaveBeenCalled();
   });
 
@@ -538,6 +806,7 @@ describe("POST /api/session-replay-storyboard", () => {
         title: "Session replay storyboard",
         projectType: "prototype",
         designSystemId: null,
+        creationMethod: "import_analytics",
       }),
       expect.objectContaining({
         actionName: "create-design",

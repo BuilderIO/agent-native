@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getAccessToken: vi.fn(),
+  getBigQueryAccessToken: vi.fn(),
   getCredentialContext: vi.fn(),
   resolveCredential: vi.fn(),
   fetch: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("../server/lib/credentials", () => ({
   resolveCredential: mocks.resolveCredential,
 }));
 vi.mock("../server/lib/gcloud", () => ({
-  getAccessToken: mocks.getAccessToken,
+  getBigQueryAccessToken: mocks.getBigQueryAccessToken,
   raceWithAbort: (value: unknown) => Promise.resolve(value),
 }));
 
@@ -35,11 +35,11 @@ function jsonResponse(value: unknown, status = 200) {
 }
 
 beforeEach(() => {
-  mocks.getAccessToken.mockReset();
+  mocks.getBigQueryAccessToken.mockReset();
   mocks.getCredentialContext.mockReset();
   mocks.resolveCredential.mockReset();
   mocks.fetch.mockReset();
-  mocks.getAccessToken.mockResolvedValue("test-token");
+  mocks.getBigQueryAccessToken.mockResolvedValue("test-token");
   mocks.getCredentialContext.mockReturnValue({
     userEmail: "test@example.com",
     orgId: null,

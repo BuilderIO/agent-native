@@ -3,11 +3,28 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-12
+
+### Improved
+
+- Google Sheets exports request only file-level access
+- Index status shows source scan omissions and truncation
+- Workspace member searches distinguish rosters from activity and time-based totals, including when you ask for active members.
+
+### Fixed
+
+- Workspace-member searches now distinguish active members from users the question excludes.
+
 ## 2026-10-11
 
 ### Improved
 
 - Analytics finds data definitions faster and identifies user-organization relationships more clearly.
+
+### Fixed
+
+- Create private Design storyboards for session replay screenshot exports.
+- Replay screenshots wait for the fonts used in the captured frame
 
 ## 2026-10-10
 

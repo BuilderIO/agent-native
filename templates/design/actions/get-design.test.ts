@@ -84,6 +84,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => mocks.getRequestOrgId(),
+  getRequestUserEmail: () => undefined,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -391,21 +392,168 @@ describe("get-design", () => {
     );
   });
 
-  it("tracks one view per signed-in viewer across repeated reads", async () => {
-    mocks.track.mockClear();
-    const ctx = { userEmail: "viewer-a@example.com" } as never;
-    await action.run({ id: "design_views" }, ctx);
-    await action.run({ id: "design_views" }, ctx);
-    await action.run({ id: "design_views" }, {
-      userEmail: "viewer-b@example.com",
-    } as never);
-    await action.run({ id: "design_views" });
-    await action.run({ id: "design_views" });
+  describe("design_viewed", () => {
+    const frontend = (
+      userEmail?: string,
+      cookie?: string,
+    ): Record<string, unknown> => ({
+      caller: "frontend",
+      ...(userEmail ? { userEmail } : {}),
+      requestHeaders: new Headers(cookie ? { cookie } : {}),
+    });
+    const views = () =>
+      mocks.track.mock.calls.filter(([name]) => name === "design_viewed");
 
-    const views = mocks.track.mock.calls.filter(
-      ([name]) => name === "design_viewed",
+    beforeEach(() => {
+      mocks.track.mockReset();
+    });
+
+    it("fires once for an owner opening the design in the UI", async () => {
+      mocks.resolveAccess.mockResolvedValueOnce({
+        role: "owner",
+        resource: {
+          id: "view_owner",
+          title: "Mine",
+          data: null,
+          visibility: "private",
+        },
+      });
+
+      await action.run(
+        { id: "view_owner" },
+        frontend("owner@example.com") as never,
+      );
+
+      expect(views()).toHaveLength(1);
+      const [, properties, source] = views()[0];
+      expect(properties).toMatchObject({
+        caller: "frontend",
+        output_id: "view_owner",
+        output_type: "design",
+        is_owner: true,
+        access_role: "owner",
+        viewer_signed_in: true,
+        visibility: "private",
+        app_name: "design",
+      });
+      expect(source).toMatchObject({ userEmail: "owner@example.com" });
+    });
+
+    it.each(["tool", "mcp", "a2a", "http"])(
+      "does not fire for a %s read",
+      async (caller) => {
+        await action.run({ id: `view_caller_${caller}` }, {
+          caller,
+          userEmail: "agent-user@example.com",
+          requestHeaders: new Headers({ cookie: "an_aid=anon_agent" }),
+        } as never);
+
+        expect(views()).toHaveLength(0);
+      },
     );
-    expect(views).toHaveLength(4);
+
+    it("does not fire without an action context", async () => {
+      await action.run({ id: "view_no_ctx" });
+
+      expect(views()).toHaveLength(0);
+    });
+
+    it("does not fire for a Human Review preview", async () => {
+      mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+
+      await action.run(
+        { id: "design_123", reviewPreview: true },
+        frontend("admin@example.com") as never,
+      );
+
+      expect(views()).toHaveLength(0);
+    });
+
+    it("records a signed-out public view under the visitor's anonymous id", async () => {
+      await action.run(
+        { id: "view_public_anon" },
+        frontend(undefined, "theme=dark; an_aid=anon_visitor-1") as never,
+      );
+
+      expect(views()).toHaveLength(1);
+      const [, properties, source] = views()[0];
+      expect(properties).toMatchObject({
+        caller: "frontend",
+        output_id: "view_public_anon",
+        is_owner: false,
+        access_role: "viewer",
+        viewer_signed_in: false,
+        visibility: "public",
+      });
+      expect(source).toEqual({ anonymousId: "anon_visitor-1" });
+    });
+
+    it("records a signed-out view with no identity when the cookie is absent", async () => {
+      await action.run({ id: "view_public_none" }, frontend() as never);
+
+      expect(views()).toHaveLength(1);
+      expect(views()[0][2]).toBeUndefined();
+      expect(views()[0][1]).toMatchObject({ viewer_signed_in: false });
+    });
+
+    it("fires once per viewer within the window, keyed by email or anonymous id", async () => {
+      for (let i = 0; i < 3; i += 1) {
+        await action.run(
+          { id: "view_repeat" },
+          frontend("viewer-a@example.com") as never,
+        );
+        await action.run(
+          { id: "view_repeat" },
+          frontend(undefined, "an_aid=anon_a") as never,
+        );
+        await action.run({ id: "view_repeat" }, frontend() as never);
+      }
+      await action.run(
+        { id: "view_repeat" },
+        frontend("viewer-b@example.com") as never,
+      );
+      await action.run(
+        { id: "view_repeat" },
+        frontend(undefined, "an_aid=anon_b") as never,
+      );
+
+      const sources = views().map(([, , source]) => source);
+      expect(sources).toHaveLength(5);
+      expect(sources).toEqual([
+        expect.objectContaining({ userEmail: "viewer-a@example.com" }),
+        { anonymousId: "anon_a" },
+        undefined,
+        expect.objectContaining({ userEmail: "viewer-b@example.com" }),
+        { anonymousId: "anon_b" },
+      ]);
+    });
+
+    it("returns the same response when tracking throws", async () => {
+      const expected = await action.run({ id: "view_throws" }, {
+        caller: "tool",
+      } as never);
+      mocks.track.mockImplementation(() => {
+        throw new Error("provider down");
+      });
+
+      const result = await action.run(
+        { id: "view_throws" },
+        frontend("viewer@example.com", "an_aid=anon_x") as never,
+      );
+
+      expect(mocks.track).toHaveBeenCalled();
+      expect(result).toEqual(expected);
+
+      const throwingHeaders = new Headers();
+      throwingHeaders.get = () => {
+        throw new Error("headers unavailable");
+      };
+      const signedOut = await action.run({ id: "view_throws" }, {
+        caller: "frontend",
+        requestHeaders: throwingHeaders,
+      } as never);
+      expect(signedOut).toEqual(expected);
+    });
   });
 
   it("returns an explicit not-found error for a deleted or inaccessible design", async () => {

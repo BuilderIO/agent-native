@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { parseCssColorExtended } from "@shared/color-utils";
 import {
   IconBorderRadius,
   IconBrush,
@@ -23,6 +24,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
+import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,6 +39,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import {
+  DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS,
+  DESIGN_TOKEN_IMPORT_MAX_FILES,
+  DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+} from "../../../shared/design-token-import-limits";
+import {
+  LAYER_ROW_GEOMETRY_CLASS,
+  LayerRowIndentSlots,
+  layerRowIndentCount,
+} from "./LayersPanel";
+import { TokenColorPicker } from "./TokenColorPicker";
 
 interface DesignToken {
   name: string;
@@ -63,7 +77,97 @@ interface ImportDesignTokensResult {
   designId: string;
   importedCount: number;
   filesAnalyzed: string[];
+  rejectedCount?: number;
+  skippedCount?: number;
+  omittedTokenCount?: number;
+  omittedFileCount?: number;
+  readFailureCount?: number;
   resolvedCssVars?: Record<string, string>;
+}
+
+export function createEmptyFilesImportResult(
+  designId: string,
+  omittedFileCount: number,
+  readFailureCount = 0,
+): ImportDesignTokensResult {
+  return {
+    designId,
+    importedCount: 0,
+    filesAnalyzed: [],
+    omittedFileCount,
+    readFailureCount,
+  };
+}
+
+export function getTokenImportStatus(result: {
+  importedCount: number;
+  rejectedCount?: number;
+  skippedCount?: number;
+  omittedTokenCount?: number;
+  omittedFileCount?: number;
+  readFailureCount?: number;
+}): {
+  key:
+    | "designEditor.tokens.importedCount"
+    | "designEditor.tokens.importedWithSkipped"
+    | "designEditor.tokens.importedWithOmissions"
+    | "designEditor.tokens.importedWithReadFailures"
+    | "designEditor.tokens.importedWithReadFailuresAndOmissions"
+    | "designEditor.tokens.noTokensFound";
+  values?: {
+    count: number;
+    skipped?: number;
+    omittedTokens?: number;
+    omittedFiles?: number;
+    readFailures?: number;
+  };
+} {
+  const skippedCount = (result.skippedCount ?? 0) + (result.rejectedCount ?? 0);
+  const readFailureCount = result.readFailureCount ?? 0;
+  const omittedTokenCount = result.omittedTokenCount ?? 0;
+  const omittedFileCount = result.omittedFileCount ?? 0;
+  if (readFailureCount > 0) {
+    if (skippedCount > 0 || omittedTokenCount > 0 || omittedFileCount > 0) {
+      return {
+        key: "designEditor.tokens.importedWithReadFailuresAndOmissions",
+        values: {
+          count: result.importedCount,
+          skipped: skippedCount,
+          omittedTokens: omittedTokenCount,
+          omittedFiles: omittedFileCount,
+          readFailures: readFailureCount,
+        },
+      };
+    }
+    return {
+      key: "designEditor.tokens.importedWithReadFailures",
+      values: { count: result.importedCount, readFailures: readFailureCount },
+    };
+  }
+  if (omittedTokenCount > 0 || omittedFileCount > 0) {
+    return {
+      key: "designEditor.tokens.importedWithOmissions",
+      values: {
+        count: result.importedCount,
+        skipped: skippedCount,
+        omittedTokens: omittedTokenCount,
+        omittedFiles: omittedFileCount,
+      },
+    };
+  }
+  if (skippedCount > 0) {
+    return {
+      key: "designEditor.tokens.importedWithSkipped",
+      values: { count: result.importedCount, skipped: skippedCount },
+    };
+  }
+  if (result.importedCount === 0) {
+    return { key: "designEditor.tokens.noTokensFound" };
+  }
+  return {
+    key: "designEditor.tokens.importedCount",
+    values: { count: result.importedCount },
+  };
 }
 
 interface TokenImportFile {
@@ -125,6 +229,7 @@ interface TokenRowProps {
   onCommit: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
+  onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenRow({
@@ -135,6 +240,7 @@ function TokenRow({
   onCommit,
   onStartEdit,
   onCancelEdit,
+  onColorCommit,
 }: TokenRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const showSwatch = token.type === "color" && isColorValue(token.value);
@@ -149,55 +255,70 @@ function TokenRow({
   return (
     <div
       className={cn(
-        "group flex h-8 items-center gap-2 px-4 transition-colors hover:bg-accent/40",
-        editing && "bg-accent/60",
+        "group rounded-[4px]",
+        LAYER_ROW_GEOMETRY_CLASS,
+        editing
+          ? "bg-[var(--design-editor-selection-color)] text-foreground"
+          : "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
       )}
     >
-      <span className="size-4 shrink-0" aria-hidden />
-      {showSwatch ? (
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          <span
-            className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
-            style={{ backgroundColor: token.value }}
-            aria-hidden
-          />
-        </span>
-      ) : (
-        <TokenTypeIcon type={token.type} />
-      )}
-      <button
-        type="button"
-        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left !text-[11px] leading-4 tracking-[0.055px] text-foreground"
-        onClick={onStartEdit}
-        aria-label={`Edit ${token.name}`}
-        title={`${token.name} (${token.cssVar})`}
-      >
-        {token.name}
-      </button>
-      {editing ? (
-        <Input
-          ref={inputRef}
-          aria-label={`Token value for ${token.name}`}
-          value={editDraft}
-          onChange={(e) => onDraftChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onCommit();
-            if (e.key === "Escape") onCancelEdit();
-          }}
-          onBlur={onCommit}
-          className="h-6 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
-        />
-      ) : (
+      <LayerRowIndentSlots count={layerRowIndentCount(1)} />
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {showSwatch ? (
+          parseCssColorExtended(token.value) ? (
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <TokenColorPicker
+                name={token.name}
+                value={token.value}
+                onCommit={(value) => onColorCommit(token.cssVar, value)}
+              />
+            </span>
+          ) : (
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <span
+                className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
+                style={{ backgroundColor: token.value }}
+                aria-hidden
+              />
+            </span>
+          )
+        ) : (
+          <TokenTypeIcon type={token.type} />
+        )}
         <button
           type="button"
-          className="max-w-[6rem] shrink-0 cursor-pointer truncate bg-transparent p-0 text-right font-mono !text-[11px] leading-4 text-muted-foreground hover:text-foreground"
-          title={token.value}
-          aria-label={`Edit value for ${token.name}`}
+          className="min-w-0 flex-1 cursor-default truncate bg-transparent p-0 text-left font-normal leading-4 text-foreground"
           onClick={onStartEdit}
+          aria-label={`Edit ${token.name}`}
+          title={`${token.name} (${token.cssVar})`}
         >
-          {token.value}
+          {token.name}
         </button>
-      )}
+        {editing ? (
+          <Input
+            ref={inputRef}
+            aria-label={`Token value for ${token.name}`}
+            value={editDraft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onCommit();
+              if (e.key === "Escape") onCancelEdit();
+            }}
+            onBlur={onCommit}
+            className="h-6 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
+          />
+        ) : (
+          <button
+            type="button"
+            className="max-w-[6rem] shrink-0 cursor-default truncate bg-transparent p-0 text-right font-mono leading-4 text-muted-foreground hover:text-foreground"
+            title={token.value}
+            aria-label={`Edit value for ${token.name}`}
+            onClick={onStartEdit}
+          >
+            {token.value}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -210,6 +331,7 @@ interface TokenGroupSectionProps {
   onDraftChange: (v: string) => void;
   onCommit: () => void;
   onCancelEdit: () => void;
+  onColorCommit: (cssVar: string, value: string) => Promise<void>;
 }
 
 function TokenGroupSection({
@@ -220,46 +342,59 @@ function TokenGroupSection({
   onDraftChange,
   onCommit,
   onCancelEdit,
+  onColorCommit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { label } = typeLabel(group.type);
+  const { label, Icon } = typeLabel(group.type);
 
   return (
-    <div className="border-t border-border first:border-t-0">
+    <div>
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
-        className="flex h-10 w-full cursor-pointer items-center pr-3 text-left hover:bg-accent/30"
+        className={cn(
+          "w-full cursor-default rounded-[4px] text-left text-foreground/90 outline-none hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+          LAYER_ROW_GEOMETRY_CLASS,
+        )}
       >
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {collapsed ? (
-            <IconChevronRight className="size-3" />
-          ) : (
-            <IconChevronDown className="size-3" />
-          )}
-        </span>
-        <span className="min-w-0 flex-1 truncate !text-[11px] font-[550] leading-4 tracking-[0.055px] text-foreground">
-          {label}
+        <LayerRowIndentSlots
+          count={layerRowIndentCount(0)}
+          control={
+            <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+              {collapsed ? (
+                <IconChevronRight
+                  className="!size-3 rtl:-scale-x-100"
+                  strokeWidth={1.8}
+                />
+              ) : (
+                <IconChevronDown className="!size-3" strokeWidth={1.8} />
+              )}
+            </span>
+          }
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 flex-1 truncate font-normal leading-4 text-foreground">
+            {label}
+          </span>
         </span>
       </button>
 
-      {!collapsed && (
-        <div>
-          {group.tokens.map((token) => (
-            <TokenRow
-              key={token.cssVar}
-              token={token}
-              editing={editingKey === token.cssVar}
-              editDraft={editDraft}
-              onDraftChange={onDraftChange}
-              onCommit={onCommit}
-              onStartEdit={() => onStartEdit(token.cssVar, token.value)}
-              onCancelEdit={onCancelEdit}
-            />
-          ))}
-        </div>
-      )}
+      {!collapsed &&
+        group.tokens.map((token) => (
+          <TokenRow
+            key={token.cssVar}
+            token={token}
+            editing={editingKey === token.cssVar}
+            editDraft={editDraft}
+            onDraftChange={onDraftChange}
+            onCommit={onCommit}
+            onStartEdit={() => onStartEdit(token.cssVar, token.value)}
+            onCancelEdit={onCancelEdit}
+            onColorCommit={onColorCommit}
+          />
+        ))}
     </div>
   );
 }
@@ -377,6 +512,8 @@ function AddTokenPopover({
 interface ImportTokensPopoverProps {
   onImportFiles: (
     files: TokenImportFile[],
+    omittedFileCount: number,
+    readFailureCount: number,
   ) => Promise<ImportDesignTokensResult>;
   onImportText: (text: string) => Promise<ImportDesignTokensResult>;
   onImportCurrentDesign: () => Promise<ImportDesignTokensResult>;
@@ -400,14 +537,11 @@ function ImportTokensPopover({
   const runImport = async (
     importer: () => Promise<ImportDesignTokensResult>,
   ) => {
-    setStatus(null);
+    setStatus(t("designEditor.tokens.importing"));
     try {
       const result = await importer();
-      setStatus(
-        t("designEditor.tokens.importedCount", {
-          count: result.importedCount,
-        }),
-      );
+      const status = getTokenImportStatus(result);
+      setStatus(status.values ? t(status.key, status.values) : t(status.key));
       if (result.importedCount > 0) {
         setText("");
       }
@@ -417,10 +551,16 @@ function ImportTokensPopover({
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.currentTarget.files;
-    event.currentTarget.value = "";
-    if (!files?.length) return;
-    void runImport(async () => onImportFiles(await readImportFiles(files)));
+    const files = snapshotImportFiles(event.currentTarget);
+    if (files.length === 0) return;
+    void runImport(async () => {
+      const imported = await readImportFiles(files);
+      return onImportFiles(
+        imported.files,
+        imported.omittedFileCount,
+        imported.readFailureCount,
+      );
+    });
   };
 
   return (
@@ -510,7 +650,11 @@ function ImportTokensPopover({
       />
 
       {status && (
-        <p className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground">
+        <p
+          className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
           {status}
         </p>
       )}
@@ -568,8 +712,9 @@ function TokenCreateOption({
 const TOKEN_IMPORT_ACCEPT = [
   ".css",
   ".scss",
-  ".sass",
   ".less",
+  ".html",
+  ".htm",
   ".json",
   ".ts",
   ".tsx",
@@ -580,18 +725,76 @@ const TOKEN_IMPORT_ACCEPT = [
   ".txt",
 ].join(",");
 
-async function readImportFiles(fileList: FileList): Promise<TokenImportFile[]> {
-  const selected = [...fileList].slice(0, 20);
-  const files = await Promise.all(
-    selected.map(async (file) => ({
-      filename:
-        (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
-        file.name,
-      content: await file.text(),
-    })),
-  );
+export function snapshotImportFiles(
+  input: Pick<HTMLInputElement, "files" | "value">,
+): File[] {
+  const files = Array.from(input.files ?? []);
+  input.value = "";
+  return files;
+}
 
-  return files.filter((file) => file.content.trim().length > 0);
+export async function readImportFiles(selectedFiles: File[]): Promise<{
+  files: TokenImportFile[];
+  omittedFileCount: number;
+  readFailureCount: number;
+}> {
+  const selected = selectedFiles.slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES);
+  const files: TokenImportFile[] = [];
+  const encoder = new TextEncoder();
+  let readBytes = 0;
+  let contentBytes = 0;
+  let omittedFileCount = selectedFiles.length - selected.length;
+  let readFailureCount = 0;
+
+  for (const file of selected) {
+    const relativePath =
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+      file.name;
+    let filename = relativePath.trim();
+    if (filename.length > DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS) {
+      filename = file.name.trim();
+    }
+    if (!filename || filename.length > DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS) {
+      omittedFileCount += 1;
+      continue;
+    }
+
+    if (
+      !Number.isSafeInteger(file.size) ||
+      file.size < 0 ||
+      readBytes + file.size > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
+    ) {
+      omittedFileCount += 1;
+      continue;
+    }
+
+    let content: string;
+    try {
+      content = await file.text();
+    } catch {
+      readFailureCount += 1;
+      continue;
+    }
+    const encodedSize = encoder.encode(content).byteLength;
+    if (contentBytes + encodedSize > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
+      omittedFileCount += 1;
+      continue;
+    }
+
+    readBytes += file.size;
+    contentBytes += encodedSize;
+    if (content.length === 0) continue;
+    files.push({
+      filename,
+      content,
+    });
+  }
+
+  return {
+    files,
+    omittedFileCount,
+    readFailureCount,
+  };
 }
 
 export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
@@ -608,7 +811,9 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const designIdRef = useRef(designId);
   designIdRef.current = designId;
 
-  const [search, setSearch] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
@@ -639,6 +844,19 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     );
   };
 
+  const commitTokenColor = async (cssVar: string, value: string) => {
+    const requestDesignId = designId;
+    const result = (await applyMutation.mutateAsync({
+      designId,
+      edits: [{ cssVar, value }],
+    })) as { resolvedCssVars?: Record<string, string> };
+    if (designIdRef.current !== requestDesignId) return;
+    await refetch();
+    if (result?.resolvedCssVars && onTokensApplied) {
+      onTokensApplied(result.resolvedCssVars);
+    }
+  };
+
   const commitEdit = () => {
     if (!editingKey || !editDraft.trim()) {
       cancelEdit();
@@ -666,14 +884,34 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     return result;
   };
 
-  const importFiles = async (files: TokenImportFile[]) => {
+  const importFiles = async (
+    files: TokenImportFile[],
+    clientOmittedFileCount: number,
+    clientReadFailureCount: number,
+  ) => {
+    if (files.length === 0) {
+      return createEmptyFilesImportResult(
+        designId,
+        clientOmittedFileCount,
+        clientReadFailureCount,
+      );
+    }
+
     const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "files",
       files,
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result, requestDesignId);
+    return handleImportSuccess(
+      {
+        ...result,
+        omittedFileCount:
+          (result.omittedFileCount ?? 0) + clientOmittedFileCount,
+        readFailureCount: clientReadFailureCount,
+      },
+      requestDesignId,
+    );
   };
 
   const importText = async (text: string) => {
@@ -696,8 +934,8 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   };
 
   const tokenCount = data?.tokenCount ?? 0;
-  const searchOpen = search !== null;
-  const query = (search ?? "").trim().toLowerCase();
+  const showSearch = searchOpen || Boolean(search.trim());
+  const query = search.trim().toLowerCase();
   const allGroups = data?.groups;
   const groups = useMemo(() => {
     if (!allGroups || !query) return allGroups ?? [];
@@ -713,6 +951,10 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
       .filter((group) => group.tokens.length > 0);
   }, [allGroups, query]);
   const hasTokens = (allGroups?.length ?? 0) > 0;
+  const focusSearch = () => {
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -728,8 +970,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
               size="icon"
               className="size-8 cursor-pointer rounded-md text-foreground"
               aria-label={t("designEditor.tokens.search")}
-              aria-pressed={searchOpen}
-              onClick={() => setSearch(searchOpen ? null : "")}
+              onClick={focusSearch}
             >
               <IconSearch className="size-4" />
             </Button>
@@ -745,32 +986,32 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         <AddTokenPopover onAdd={handleNewToken} />
       </LeftPanelHeader>
 
-      {searchOpen && (
-        <div className="shrink-0 border-b border-border px-2 py-1.5">
-          <Input
-            autoFocus
-            value={search ?? ""}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSearch(null);
-            }}
-            aria-label={t("designEditor.tokens.search")}
-            placeholder={t("designEditor.tokens.search")}
-            className="h-7 !text-xs md:!text-xs"
-          />
-        </div>
+      {showSearch && (
+        <LeftPanelSearchField
+          ref={searchInputRef}
+          value={search}
+          placeholder={t("designEditor.tokens.search")}
+          onValueChange={setSearch}
+          onEscapeWhenEmpty={() => setSearchOpen(false)}
+        />
       )}
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
         {isLoading && (
-          <div className="flex flex-col gap-1.5 px-3 py-4">
+          <div className="px-1.5">
             {[1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
-                className="h-6 animate-pulse rounded bg-muted/40"
-                style={{ width: `${60 + (i % 3) * 15}%` }}
-              />
+                className={cn(LAYER_ROW_GEOMETRY_CLASS, "gap-2")}
+                style={{ paddingInlineStart: i === 1 ? undefined : "58px" }}
+              >
+                <div className="size-4 shrink-0 animate-pulse rounded bg-muted/40" />
+                <div
+                  className="h-3 animate-pulse rounded bg-muted/40"
+                  style={{ width: `${40 + (i % 3) * 15}%` }}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -788,13 +1029,13 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         )}
 
         {!isLoading && hasTokens && groups.length === 0 && (
-          <p className="px-4 py-6 text-center !text-[11px] text-muted-foreground">
+          <p className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
             {t("designEditor.tokens.noMatches")}
           </p>
         )}
 
         {!isLoading && groups.length > 0 && (
-          <div>
+          <div className="px-1.5">
             {groups.map((group) => (
               <TokenGroupSection
                 key={group.type}
@@ -805,6 +1046,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
                 onDraftChange={setEditDraft}
                 onCommit={commitEdit}
                 onCancelEdit={cancelEdit}
+                onColorCommit={commitTokenColor}
               />
             ))}
           </div>

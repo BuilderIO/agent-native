@@ -17,6 +17,7 @@ import type {
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import { formatDollars } from "../../shared/format-dollars";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
@@ -251,7 +252,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -278,7 +279,7 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   if (value == null) return "";
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
-    if (format === "currency") return `$${value.toLocaleString()}`;
+    if (format === "currency") return formatDollars(value);
     if (format === "percent") {
       const pct = value <= 1 && value >= -1 ? value * 100 : value;
       return `${pct.toFixed(2)}%`;

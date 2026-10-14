@@ -35,6 +35,36 @@ import {
 } from "../server/source-workspace.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
+const DESIGN_VERSION_CHECKPOINT_RETRIES = 2;
+
+function isRetryableDesignVersionCheckpointChange(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as Record<string, unknown>;
+  return (
+    candidate.errorCode === "design-version-checkpoint-changed" &&
+    candidate.retryable === true &&
+    candidate.statusCode === 409
+  );
+}
+
+async function withDesignVersionCheckpointRetry<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        !isRetryableDesignVersionCheckpointChange(error) ||
+        attempt >= DESIGN_VERSION_CHECKPOINT_RETRIES
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20 * 2 ** attempt));
+    }
+  }
+}
+
 function drizzleSqlForAccess(statement: DbExecStatement) {
   if (typeof statement === "string") return sql.raw(statement);
   const chunks: string[] = [];
@@ -459,272 +489,274 @@ export default defineAction({
       deletedIds: string[];
       deletedFiles: DeletedFileSnapshot[];
       snapshotBlobHandles: (string | null)[];
-    } = await withDesignVersionLock(file.designId, async () => {
-      const preparedCheckpoint =
-        await prepareDesignVersionBeforeAgentEditInVersionLock(
-          file.designId,
-          context,
-        );
-      const transactionOutcome = {
-        callbackCompleted: false,
-        rollbackConfirmed: false,
-      };
-      try {
-        const result = await withPreparedDesignVersionSourceFiles(
-          file.designId,
-          async (preparedFiles) =>
-            withDesignSourceMutationTransaction(
-              file.designId,
-              async (tx) => {
-                await lockDesignFilesTable(tx);
-                const currentFiles = await tx
-                  .select({
-                    id: schema.designFiles.id,
-                    filename: schema.designFiles.filename,
-                    content: schema.designFiles.content,
-                    fileType: schema.designFiles.fileType,
-                    createdAt: schema.designFiles.createdAt,
-                    updatedAt: schema.designFiles.updatedAt,
-                  })
-                  .from(schema.designFiles)
-                  .where(eq(schema.designFiles.designId, file.designId))
-                  .for("update");
-                const currentTargetFiles = currentFiles.filter((candidate) =>
-                  requestedIds.includes(candidate.id),
-                );
-                if (currentTargetFiles.length !== requestedIds.length) {
-                  if (requestedIds.length === 1) {
+    } = await withDesignVersionCheckpointRetry(() =>
+      withDesignVersionLock(file.designId, async () => {
+        const preparedCheckpoint =
+          await prepareDesignVersionBeforeAgentEditInVersionLock(
+            file.designId,
+            context,
+          );
+        const transactionOutcome = {
+          callbackCompleted: false,
+          rollbackConfirmed: false,
+        };
+        try {
+          const result = await withPreparedDesignVersionSourceFiles(
+            file.designId,
+            async (preparedFiles) =>
+              withDesignSourceMutationTransaction(
+                file.designId,
+                async (tx) => {
+                  await lockDesignFilesTable(tx);
+                  const currentFiles = await tx
+                    .select({
+                      id: schema.designFiles.id,
+                      filename: schema.designFiles.filename,
+                      content: schema.designFiles.content,
+                      fileType: schema.designFiles.fileType,
+                      createdAt: schema.designFiles.createdAt,
+                      updatedAt: schema.designFiles.updatedAt,
+                    })
+                    .from(schema.designFiles)
+                    .where(eq(schema.designFiles.designId, file.designId))
+                    .for("update");
+                  const currentTargetFiles = currentFiles.filter((candidate) =>
+                    requestedIds.includes(candidate.id),
+                  );
+                  if (currentTargetFiles.length !== requestedIds.length) {
+                    if (requestedIds.length === 1) {
+                      return {
+                        deletedIds: [],
+                        deletedFiles: [],
+                        snapshotBlobHandles: [],
+                      };
+                    }
+                    fail(
+                      "A selected screen changed while it was being deleted. Refresh and try again.",
+                      { errorCode: "design_file_changed", statusCode: 409 },
+                    );
+                  }
+                  if (!currentTargetFiles.length) {
                     return {
                       deletedIds: [],
                       deletedFiles: [],
                       snapshotBlobHandles: [],
                     };
                   }
-                  fail(
-                    "A selected screen changed while it was being deleted. Refresh and try again.",
-                    { errorCode: "design_file_changed", statusCode: 409 },
-                  );
-                }
-                if (!currentTargetFiles.length) {
-                  return {
-                    deletedIds: [],
-                    deletedFiles: [],
-                    snapshotBlobHandles: [],
-                  };
-                }
-                const [design] = await tx
-                  .select({
-                    id: schema.designs.id,
-                    data: schema.designs.data,
-                    updatedAt: schema.designs.updatedAt,
-                    ownerEmail: schema.designs.ownerEmail,
-                    orgId: schema.designs.orgId,
-                    visibility: schema.designs.visibility,
-                  })
-                  .from(schema.designs)
-                  .where(eq(schema.designs.id, file.designId))
-                  .for("update");
-                if (!design) {
-                  fail("Design not found.", {
-                    errorCode: "not_found",
-                    statusCode: 404,
-                  });
-                }
-                await tx
-                  .select({ id: schema.designShares.id })
-                  .from(schema.designShares)
-                  .where(eq(schema.designShares.resourceId, file.designId))
-                  .for("update");
-                const access = currentAccess();
-                const memberEmail = access.userEmail?.trim().toLowerCase();
-                const ownerEmail = design.ownerEmail?.trim().toLowerCase();
-                if (
-                  design.visibility === "org" &&
-                  design.orgId &&
-                  memberEmail &&
-                  memberEmail !== ownerEmail
-                ) {
-                  try {
-                    await tx
-                      .select({ id: orgMembers.id })
-                      .from(orgMembers)
-                      .where(
-                        and(
-                          eq(orgMembers.orgId, design.orgId),
-                          sql`lower(${orgMembers.email}) = ${memberEmail}`,
-                        ),
-                      )
-                      .for("update");
-                  } catch (error) {
-                    if (!isMissingOrganizationTableError(error)) throw error;
+                  const [design] = await tx
+                    .select({
+                      id: schema.designs.id,
+                      data: schema.designs.data,
+                      updatedAt: schema.designs.updatedAt,
+                      ownerEmail: schema.designs.ownerEmail,
+                      orgId: schema.designs.orgId,
+                      visibility: schema.designs.visibility,
+                    })
+                    .from(schema.designs)
+                    .where(eq(schema.designs.id, file.designId))
+                    .for("update");
+                  if (!design) {
+                    fail("Design not found.", {
+                      errorCode: "not_found",
+                      statusCode: 404,
+                    });
                   }
-                }
-                const transactionAccess = {
-                  ...access,
-                  transaction: {
-                    async execute(statement: DbExecStatement) {
-                      return normalizeDrizzleExecResult(
-                        await tx.execute(drizzleSqlForAccess(statement)),
-                      );
-                    },
-                  },
-                };
-                await assertAccess(
-                  "design",
-                  file.designId,
-                  "editor",
-                  transactionAccess,
-                );
-                if (preparedCheckpoint) {
-                  await persistPreparedDesignVersionCheckpoint(
-                    preparedCheckpoint,
-                    preparedFiles,
-                    tx,
-                  );
-                }
-                if (!allowLockedLayers) {
-                  for (const candidate of currentTargetFiles) {
-                    if (countLockedLayers(candidate.content) > 0) {
-                      fail(
-                        "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
-                        {
-                          errorCode: "design_file_locked_layers",
-                          statusCode: 409,
-                        },
-                      );
+                  await tx
+                    .select({ id: schema.designShares.id })
+                    .from(schema.designShares)
+                    .where(eq(schema.designShares.resourceId, file.designId))
+                    .for("update");
+                  const access = currentAccess();
+                  const memberEmail = access.userEmail?.trim().toLowerCase();
+                  const ownerEmail = design.ownerEmail?.trim().toLowerCase();
+                  if (
+                    design.visibility === "org" &&
+                    design.orgId &&
+                    memberEmail &&
+                    memberEmail !== ownerEmail
+                  ) {
+                    try {
+                      await tx
+                        .select({ id: orgMembers.id })
+                        .from(orgMembers)
+                        .where(
+                          and(
+                            eq(orgMembers.orgId, design.orgId),
+                            sql`lower(${orgMembers.email}) = ${memberEmail}`,
+                          ),
+                        )
+                        .for("update");
+                    } catch (error) {
+                      if (!isMissingOrganizationTableError(error)) throw error;
                     }
                   }
-                }
-                let data = parseDesignData(file.designId, design.data);
-                const deletedFiles = currentTargetFiles.map((candidate) =>
-                  snapshotDeletedFile(candidate, data),
-                );
-                for (const deletedFile of deletedFiles) {
-                  const trustedSnapshot =
-                    screenRestoreClaimSnapshot(deletedFile);
-                  if (!trustedSnapshot) continue;
-                  const restoreClaimId = nanoid();
-                  await tx.insert(schema.designScreenRestoreClaims).values({
-                    id: restoreClaimId,
-                    designId: file.designId,
-                    sourceFileId: deletedFile.id,
-                    snapshot: JSON.stringify(trustedSnapshot),
-                  });
-                  deletedFile.restoreClaimId = restoreClaimId;
-                  deletedFile.restoreSourceFileId = deletedFile.id;
-                }
-                const targetIds = currentTargetFiles.map(
-                  (candidate) => candidate.id,
-                );
-                const snapshotRows = await tx
-                  .select({
-                    blobHandle: schema.designVisualEditSnapshots.blobHandle,
-                  })
-                  .from(schema.designVisualEditSnapshots)
-                  .where(
-                    and(
-                      eq(
-                        schema.designVisualEditSnapshots.designId,
-                        file.designId,
-                      ),
-                      inArray(
-                        schema.designVisualEditSnapshots.fileId,
-                        targetIds,
-                      ),
-                    ),
-                  )
-                  .for("update");
-                await queueVisualEditSnapshotBlobCleanupInTransaction(
-                  tx,
-                  snapshotRows.map((row) => row.blobHandle),
-                );
-                const deleteResult = await tx
-                  .delete(schema.designFiles)
-                  .where(
-                    and(
-                      targetIds.length === 1
-                        ? eq(schema.designFiles.id, targetIds[0]!)
-                        : inArray(schema.designFiles.id, targetIds),
-                      eq(schema.designFiles.designId, file.designId),
-                    ),
-                  );
-                const affected = affectedRowCount(deleteResult);
-                if (affected === 0) {
-                  if (requestedIds.length === 1) {
-                    return {
-                      deletedIds: [],
-                      deletedFiles: [],
-                      snapshotBlobHandles: [],
-                    };
-                  }
-                  fail(
-                    "A selected screen changed while it was being deleted. Refresh and try again.",
-                    { errorCode: "design_file_changed", statusCode: 409 },
-                  );
-                }
-                if (affected === undefined) {
-                  fail("Could not verify that the design file was deleted.", {
-                    statusCode: 500,
-                  });
-                }
-                if (affected !== targetIds.length) {
-                  fail("Unexpected design file delete result.", {
-                    statusCode: 500,
-                  });
-                }
-
-                const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
-                for (const targetId of targetIds) {
-                  data = pruneDeletedFileMetadata(data, targetId);
-                }
-                data.updatedAt = updatedAt;
-                const designUpdateResult = await tx
-                  .update(schema.designs)
-                  .set({ data: JSON.stringify(data), updatedAt })
-                  .where(eq(schema.designs.id, file.designId));
-                const designAffected = affectedRowCount(designUpdateResult);
-                if (designAffected === undefined) {
-                  fail(
-                    "Could not verify that the design metadata was updated.",
-                    {
-                      statusCode: 500,
+                  const transactionAccess = {
+                    ...access,
+                    transaction: {
+                      async execute(statement: DbExecStatement) {
+                        return normalizeDrizzleExecResult(
+                          await tx.execute(drizzleSqlForAccess(statement)),
+                        );
+                      },
                     },
+                  };
+                  await assertAccess(
+                    "design",
+                    file.designId,
+                    "editor",
+                    transactionAccess,
                   );
-                }
-                if (designAffected !== 1) {
-                  fail("Unexpected design metadata update result.", {
-                    statusCode: 500,
-                  });
-                }
-                return {
-                  deletedIds: targetIds,
-                  deletedFiles,
-                  snapshotBlobHandles: snapshotRows.map(
-                    (row) => row.blobHandle,
-                  ),
-                };
-              },
-              transactionOutcome,
-            ),
-        );
-        if (preparedCheckpoint) {
-          await cleanupPreparedDesignVersionCheckpoint(
-            preparedCheckpoint,
-            true,
+                  if (preparedCheckpoint) {
+                    await persistPreparedDesignVersionCheckpoint(
+                      preparedCheckpoint,
+                      preparedFiles,
+                      tx,
+                    );
+                  }
+                  if (!allowLockedLayers) {
+                    for (const candidate of currentTargetFiles) {
+                      if (countLockedLayers(candidate.content) > 0) {
+                        fail(
+                          "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
+                          {
+                            errorCode: "design_file_locked_layers",
+                            statusCode: 409,
+                          },
+                        );
+                      }
+                    }
+                  }
+                  let data = parseDesignData(file.designId, design.data);
+                  const deletedFiles = currentTargetFiles.map((candidate) =>
+                    snapshotDeletedFile(candidate, data),
+                  );
+                  for (const deletedFile of deletedFiles) {
+                    const trustedSnapshot =
+                      screenRestoreClaimSnapshot(deletedFile);
+                    if (!trustedSnapshot) continue;
+                    const restoreClaimId = nanoid();
+                    await tx.insert(schema.designScreenRestoreClaims).values({
+                      id: restoreClaimId,
+                      designId: file.designId,
+                      sourceFileId: deletedFile.id,
+                      snapshot: JSON.stringify(trustedSnapshot),
+                    });
+                    deletedFile.restoreClaimId = restoreClaimId;
+                    deletedFile.restoreSourceFileId = deletedFile.id;
+                  }
+                  const targetIds = currentTargetFiles.map(
+                    (candidate) => candidate.id,
+                  );
+                  const snapshotRows = await tx
+                    .select({
+                      blobHandle: schema.designVisualEditSnapshots.blobHandle,
+                    })
+                    .from(schema.designVisualEditSnapshots)
+                    .where(
+                      and(
+                        eq(
+                          schema.designVisualEditSnapshots.designId,
+                          file.designId,
+                        ),
+                        inArray(
+                          schema.designVisualEditSnapshots.fileId,
+                          targetIds,
+                        ),
+                      ),
+                    )
+                    .for("update");
+                  await queueVisualEditSnapshotBlobCleanupInTransaction(
+                    tx,
+                    snapshotRows.map((row) => row.blobHandle),
+                  );
+                  const deleteResult = await tx
+                    .delete(schema.designFiles)
+                    .where(
+                      and(
+                        targetIds.length === 1
+                          ? eq(schema.designFiles.id, targetIds[0]!)
+                          : inArray(schema.designFiles.id, targetIds),
+                        eq(schema.designFiles.designId, file.designId),
+                      ),
+                    );
+                  const affected = affectedRowCount(deleteResult);
+                  if (affected === 0) {
+                    if (requestedIds.length === 1) {
+                      return {
+                        deletedIds: [],
+                        deletedFiles: [],
+                        snapshotBlobHandles: [],
+                      };
+                    }
+                    fail(
+                      "A selected screen changed while it was being deleted. Refresh and try again.",
+                      { errorCode: "design_file_changed", statusCode: 409 },
+                    );
+                  }
+                  if (affected === undefined) {
+                    fail("Could not verify that the design file was deleted.", {
+                      statusCode: 500,
+                    });
+                  }
+                  if (affected !== targetIds.length) {
+                    fail("Unexpected design file delete result.", {
+                      statusCode: 500,
+                    });
+                  }
+
+                  const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
+                  for (const targetId of targetIds) {
+                    data = pruneDeletedFileMetadata(data, targetId);
+                  }
+                  data.updatedAt = updatedAt;
+                  const designUpdateResult = await tx
+                    .update(schema.designs)
+                    .set({ data: JSON.stringify(data), updatedAt })
+                    .where(eq(schema.designs.id, file.designId));
+                  const designAffected = affectedRowCount(designUpdateResult);
+                  if (designAffected === undefined) {
+                    fail(
+                      "Could not verify that the design metadata was updated.",
+                      {
+                        statusCode: 500,
+                      },
+                    );
+                  }
+                  if (designAffected !== 1) {
+                    fail("Unexpected design metadata update result.", {
+                      statusCode: 500,
+                    });
+                  }
+                  return {
+                    deletedIds: targetIds,
+                    deletedFiles,
+                    snapshotBlobHandles: snapshotRows.map(
+                      (row) => row.blobHandle,
+                    ),
+                  };
+                },
+                transactionOutcome,
+              ),
           );
+          if (preparedCheckpoint) {
+            await cleanupPreparedDesignVersionCheckpoint(
+              preparedCheckpoint,
+              true,
+            );
+          }
+          return result;
+        } catch (error) {
+          if (preparedCheckpoint) {
+            await cleanupPreparedDesignVersionCheckpoint(
+              preparedCheckpoint,
+              false,
+              transactionOutcome.rollbackConfirmed,
+            );
+          }
+          throw error;
         }
-        return result;
-      } catch (error) {
-        if (preparedCheckpoint) {
-          await cleanupPreparedDesignVersionCheckpoint(
-            preparedCheckpoint,
-            false,
-            transactionOutcome.rollbackConfirmed,
-          );
-        }
-        throw error;
-      }
-    });
+      }),
+    );
 
     if (deletion.deletedIds.length > 0) {
       await deleteVisualEditSnapshotBlobs(deletion.snapshotBlobHandles);

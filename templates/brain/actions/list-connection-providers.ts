@@ -8,6 +8,10 @@ import {
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
 } from "@agent-native/core/server/agent-discovery";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   listWorkspaceConnectionProviderCatalogForApp,
@@ -23,6 +27,7 @@ import {
   inspectSourceCredentialAvailability,
   type SourceCredentialAvailability,
 } from "../server/lib/source-credentials.js";
+import { isBrainAdmin } from "../server/lib/zoom-governance.js";
 
 const APP_ID = "brain";
 
@@ -54,7 +59,7 @@ const BRAIN_LOCAL_PROVIDERS: readonly Omit<
     id: "zoom",
     label: "Zoom",
     description:
-      "Cloud-recording meeting transcripts, plus optional AI Companion summaries, through a Zoom Server-to-Server OAuth app.",
+      "Cloud-recording meeting transcripts through a Zoom Server-to-Server OAuth app.",
     credentialKeys: [
       { key: "ZOOM_ACCOUNT_ID", label: "Zoom Account ID", required: true },
       { key: "ZOOM_CLIENT_ID", label: "Zoom Client ID", required: true },
@@ -358,7 +363,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async () => {
-    const [sourceRows, workspace] = await Promise.all([
+    const [sourceRows, workspace, canManageZoom] = await Promise.all([
       getDb()
         .select({ provider: schema.brainSources.provider })
         .from(schema.brainSources)
@@ -369,6 +374,7 @@ export default defineAction({
           ),
         ),
       listWorkspaceConnectionsForCatalog(),
+      isBrainAdmin(getRequestUserEmail(), getRequestOrgId()),
     ]);
     const sourceCounts = new Map<string, number>();
     for (const row of sourceRows) {
@@ -380,8 +386,11 @@ export default defineAction({
     const catalogProviderIds = new Set<string>(
       catalogProviders.map((provider) => provider.id),
     );
+    const visibleProviders = providersWithBrainLocal(catalogProviders).filter(
+      (provider) => canManageZoom || provider.id !== "zoom",
+    );
     const providers = await Promise.all(
-      providersWithBrainLocal(catalogProviders).map(async (provider) => {
+      visibleProviders.map(async (provider) => {
         const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
         const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
           provider.id,
@@ -453,6 +462,7 @@ export default defineAction({
     return {
       count: providers.length,
       appId: APP_ID,
+      canManageZoom,
       workspaceConnections: {
         appId: APP_ID,
         available: !workspace.error,

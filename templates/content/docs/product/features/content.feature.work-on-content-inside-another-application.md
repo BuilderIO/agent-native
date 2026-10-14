@@ -5,11 +5,11 @@ number: 31
 name: "Work on Content inside another application"
 chapter: "content.chapter.publishing-portability"
 order: 31
-roadmap_status: "planned"
+roadmap_status: "partially_implemented"
 summary: "Mount and edit the same canonical Content object inside an authorized host without forking identity or permissions."
 example_workflow: "A planner mounts the canonical project brief inside another Agent-Native app, edits it through the same Actions, and sees the change, history, and permissions remain identical when opening it later in Content."
-works_today: "Agent-Native toolkits already share Content components across sibling apps, and Content exposes reusable Actions and object identities that hosts can call without duplicating business logic."
-remains: "A canonical embeddable surface needs host grants, viewer-scoped authorization, shared editing and history, stable mounting contracts, responsive presentation, and later MCP App compatibility."
+works_today: "The ChatGPT Content widget opens an editable canonical document with the app's document layout, top bar, formatting toolbar, and Share controls. Artifact-scoped write grants and scoped read tickets support that editor, with load and access fixes across the widget path (#6856, #6909, #6913, #6918, #6923, #6945, #7149, #7257, #7317)."
+remains: "The widget still needs real-host and full lifecycle proof. A general Page or View mount contract, host grants across applications, viewer-scoped authorization, shared history and concurrent-update parity, responsive navigation, and broader MCP App compatibility remain unproven."
 required_capabilities:
   [
     "content.embed.surface",
@@ -20,7 +20,7 @@ enhancing_capabilities: ["content.embed.mcp-app", "content.layout.responsive"]
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Feature 31: Work on Content inside another application

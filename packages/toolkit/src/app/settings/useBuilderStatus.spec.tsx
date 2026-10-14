@@ -2570,7 +2570,7 @@ describe("useBuilderConnectFlow", () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("routes the existing-account choice through the surface callback", async () => {
+  it("routes the single connect action through the surface callback when provisioning is unavailable", async () => {
     const flow = {
       connecting: false,
       statusResolved: true,
@@ -2594,16 +2594,23 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("button")?.click();
     });
 
-    const existingAccountAction = Array.from(
+    const connectAction = Array.from(
       document.querySelectorAll<HTMLButtonElement>(
         "[data-radix-popper-content-wrapper] button",
       ),
-    ).find((button) =>
-      button.textContent?.includes("I have a Builder.io account"),
-    );
-    expect(existingAccountAction).toBeDefined();
+    ).find((button) => button.textContent?.includes("Connect Builder.io"));
+    expect(connectAction).toBeDefined();
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>(
+          "[data-radix-popper-content-wrapper] button",
+        ),
+      ).some((button) =>
+        button.textContent?.includes("I have a Builder.io account"),
+      ),
+    ).toBe(false);
 
-    await act(async () => existingAccountAction?.click());
+    await act(async () => connectAction?.click());
 
     expect(onConnect).toHaveBeenCalledWith(false);
     expect(flow.start).not.toHaveBeenCalled();

@@ -1,5 +1,5 @@
 /**
- * Lightweight hit-test bridge — injected into every inline canvas iframe so the
+ * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
  * parent editor can resolve drop-anchor positions via postMessage without a full
  * editor-chrome bridge in non-edit views (e.g. multi-screen overview).
  *
@@ -56,10 +56,13 @@
  * comments there).
  *
  * Rules:
- *   • No import/require of any module (DOM globals only).
+ *   • Imports only from BRIDGE_SAFE_IMPORTS in bridge.guard.spec.ts, which
+ *     codegen inlines; no runtime module lookup survives code generation.
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.
  */
+import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
+
 (function () {
   type HitTestRect = {
     left: number;
@@ -181,7 +184,7 @@
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        !INLINE_TEXT_TAGS.has(childTag) &&
         BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
       ) {
         return false;

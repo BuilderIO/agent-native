@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "تفعيل Rewind",
     rewindOffTitle: "تفعيل Rewind",
     rewindOffBody:
-      "يحتفظ Rewind بسجل محلي لشاشتك حتى تتمكن من تضمين الدقائق القليلة الأخيرة قبل التسجيل. لا تُرفع اللقطات إلا عندما تضمّنها أو توافق على رفعها.",
+      "متوقف افتراضيًا. يبقى سجل الشاشة على هذا الجهاز حتى تضيفه إلى تسجيل أو توافق على طلب لمشاركته.",
     requestFailed: "تعذّر تضمين وقت الشاشة السابق. يستمر التسجيل بدونه.",
     localOnlyUnavailable: "لا يُحفظ وقت الشاشة السابق للتسجيلات المحلية فقط.",
     saving: "جارٍ حفظ {{window}} قبل…",
@@ -298,6 +298,10 @@ const messages = {
     transcriptionCompleted: "اكتمل النسخ",
     transcriptNotReady: "النص ليس جاهزا بعد",
     tryAfterTranscription: "حاول مرة أخرى بعد انتهاء النسخ.",
+    silenceTranscriptUnavailableTitle:
+      "لا يمكن استخدام هذا النص لإزالة فترات الصمت",
+    silenceTranscriptUnavailableDescription:
+      "جرّب إنشاء نص جديد، ثم حاول إزالة فترات الصمت مرة أخرى.",
     titleGenerationQueued: "جارٍ إنشاء العنوان…",
     descriptionQueued: "جارٍ إنشاء الوصف…",
     chapterQueued: "جارٍ إنشاء الفصول…",

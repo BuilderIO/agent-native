@@ -959,37 +959,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-native-toolkit",
       },
       {
-        id: "toolkit-ui",
-        labelKey: "toolkitUiPrimitives",
-        slug: "toolkit-ui",
-        children: [
-          {
-            id: "toolkit-data-grid",
-            labelKey: "toolkitDataGrid",
-            slug: "toolkit-ui",
-            anchor: "data-grid",
-          },
-        ],
-      },
-      {
-        id: "toolkit-editors-canvases",
-        labelKey: "toolkitEditorsCanvases",
-        slug: "toolkit-editors-canvases",
-        children: [
-          {
-            id: "toolkit-canvas-interactions",
-            labelKey: "toolkitCanvasInteractions",
-            slug: "toolkit-editors-canvases",
-            anchor: "canvas-interactions",
-          },
-        ],
-      },
-      {
-        id: "toolkit-context-knowledge",
-        labelKey: "toolkitContextKnowledge",
-        slug: "toolkit-context-knowledge",
-      },
-      {
         id: "toolkit-feature-kits",
         labelKey: "featureKits",
         children: [
@@ -1097,6 +1066,27 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "versioning-and-stability",
             labelKey: "versioningAndStability",
             slug: "versioning-and-stability",
+          },
+        ],
+      },
+      {
+        id: "toolkit-foundations",
+        labelKey: "toolkitFoundations",
+        children: [
+          {
+            id: "toolkit-ui",
+            labelKey: "toolkitUiPrimitives",
+            slug: "toolkit-ui",
+          },
+          {
+            id: "toolkit-editors-canvases",
+            labelKey: "toolkitEditorsCanvases",
+            slug: "toolkit-editors-canvases",
+          },
+          {
+            id: "toolkit-context-knowledge",
+            labelKey: "toolkitContextKnowledge",
+            slug: "toolkit-context-knowledge",
           },
         ],
       },

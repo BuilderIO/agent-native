@@ -1,16 +1,16 @@
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconAssembly,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconMessages,
   IconStack2,
+  IconTimelineEvent,
 } from "@tabler/icons-react";
 import { useRef, type ReactNode } from "react";
-import { Link } from "react-router";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -24,36 +24,20 @@ export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
   ["file", "tokens"],
 );
 
-export interface DesignWorkspaceRailAccount {
-  email: string;
-  name?: string;
-  image?: string;
-}
-
-function AccountAvatar({ account }: { account: DesignWorkspaceRailAccount }) {
-  const storedAvatarUrl = useAvatarUrl(account.email);
-  const avatarUrl = storedAvatarUrl ?? account.image;
-  const label = account.name?.trim() || account.email;
-  return (
-    <Avatar className="size-6 border border-border">
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-      <AvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground">
-        {label.charAt(0).toUpperCase()}
-      </AvatarFallback>
-    </Avatar>
-  );
-}
-
 export function DesignWorkspaceRail({
-  account,
+  showAccountMenu,
   activePanel,
   disabledPanels,
+  motionOpen,
+  onMotionToggle,
   projectMenu,
   onPanelChange,
 }: {
-  account?: DesignWorkspaceRailAccount | null;
+  showAccountMenu?: boolean;
   activePanel: DesignLeftPanel | null;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  motionOpen?: boolean;
+  onMotionToggle?: () => void;
   projectMenu: ReactNode;
   onPanelChange: (panel: DesignLeftPanel | null) => void;
 }) {
@@ -84,6 +68,11 @@ export function DesignWorkspaceRail({
       panel: "tokens",
       label: t("designEditor.leftRail.tokens"),
       icon: <IconAssembly className="size-5" stroke={1.5} />,
+    },
+    {
+      panel: "threads",
+      label: t("designEditor.leftRail.threads"),
+      icon: <IconMessages className="size-5" stroke={1.5} />,
     },
   ];
 
@@ -143,30 +132,41 @@ export function DesignWorkspaceRail({
             </Tooltip>
           );
         })}
+        {onMotionToggle ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("designEditor.motion.dockLabel")}
+                aria-current={motionOpen ? "page" : undefined}
+                onClick={onMotionToggle}
+                className="design-workspace-rail-item group flex w-full cursor-pointer flex-col items-center gap-0.5 p-1 text-[11px] leading-4 text-foreground outline-none"
+              >
+                <span
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-md transition-colors group-focus-visible:ring-1 group-focus-visible:ring-[var(--design-editor-accent-color)]",
+                    motionOpen
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                      : "group-hover:bg-[var(--design-editor-layer-hover-color)]",
+                  )}
+                >
+                  <IconTimelineEvent className="size-5" stroke={1.5} />
+                </span>
+                <span className="w-full truncate px-0.5 text-center">
+                  {t("designEditor.motion.dockLabel")}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("designEditor.motion.dockLabel")}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
       <div className="flex-1" />
       <div className="flex w-full shrink-0 flex-col items-center gap-1 p-2">
-        {account ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                asChild
-                variant="ghost"
-                size="icon"
-                className="size-8 rounded-md"
-              >
-                <Link
-                  to="/settings"
-                  aria-label={t("designEditor.leftRail.account")}
-                >
-                  <AccountAvatar account={account} />
-                </Link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {account.name?.trim() || account.email}
-            </TooltipContent>
-          </Tooltip>
+        {showAccountMenu ? (
+          <OrgSwitcher compact hideBuilderCreditNotice />
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>

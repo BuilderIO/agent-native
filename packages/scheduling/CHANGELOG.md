@@ -1,5 +1,30 @@
 # @agent-native/scheduling
 
+## 0.2.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9cb95d8]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [4434457]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [cde733c]
+  - @agent-native/toolkit@0.208.0
+
+## 0.2.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+- Updated dependencies [e913bfb]
+- Updated dependencies [1c4a192]
+- Updated dependencies [4452c7f]
+  - @agent-native/toolkit@0.207.1
+
 ## 0.2.25
 
 ### Patch Changes
@@ -1062,18 +1087,4 @@
 
 - 97ca0db: Fix "Cannot read properties of null (reading 'value')" crash in `BookingLinkCreateDialog` when typing into the slug input. React nulls `e.currentTarget` once the synthetic event finishes synchronous propagation; reading it inside the `setForm` updater closure happened after that point. Capture the value before calling `setForm`.
 
-## 0.1.3
-
-### Patch Changes
-
-- Updated dependencies [bcb2069]
-- Updated dependencies [e375642]
-  - @agent-native/core@0.8.0
-
-## 0.1.2
-
-### Patch Changes
-
-- 4e3631b: Add `publishConfig.provenance: true` so `pnpm publish` (called by `changeset publish` from the auto-publish workflow) requests an OIDC token from GitHub Actions and publishes via npm trusted publisher. Without this, `pnpm publish` looked for token-based auth and failed with `ENEEDAUTH`.
-- Updated dependencies [4e3631b]
-  - @agent-native/core@0.7.85
+For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

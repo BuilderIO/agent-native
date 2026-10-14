@@ -133,6 +133,7 @@ export default defineAction({
               title: rootNode.name?.trim() || "Figma import",
               projectType: "prototype",
               designSystemId: null,
+              creationMethod: "import_figma",
             },
             context,
           )

@@ -4,6 +4,7 @@ export type SecretKind = "api-key" | "oauth";
 export interface ValidatorResult {
   ok: boolean;
   error?: string;
+  validationCode?: string;
   /** The check could not run (provider outage, rate limit); the value may be fine. */
   retryable?: boolean;
 }

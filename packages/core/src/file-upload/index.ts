@@ -35,3 +35,8 @@ export {
   type PreUploadedImageAttachment,
   type PreUploadedFileAttachment,
 } from "./pre-upload-attachments.js";
+export {
+  getPrivateStorageReadinessForRequest,
+  getPrivateStorageReadinessForUser,
+  type PrivateStorageReadinessStatus,
+} from "./storage-readiness.js";

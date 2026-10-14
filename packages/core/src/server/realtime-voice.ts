@@ -83,7 +83,6 @@ const REALTIME_VOICE_BUILT_INS = new Set([
   "cedar",
 ]);
 const REALTIME_VOICE_REASONING_EFFORT = {
-  instant: "minimal",
   balanced: "low",
   deep: "medium",
 } as const;
@@ -194,8 +193,12 @@ export function resolveRealtimeVoiceLanguagePreference(
 
 export function resolveRealtimeVoiceReasoningEffort(
   value: string | null | undefined,
+  protocol: "live" | "realtime" = "live",
 ): "minimal" | "low" | "medium" {
   const normalized = value?.trim().toLowerCase();
+  if (normalized === "instant") {
+    return protocol === "realtime" ? "minimal" : "low";
+  }
   return normalized &&
     Object.prototype.hasOwnProperty.call(
       REALTIME_VOICE_REASONING_EFFORT,
@@ -608,22 +611,23 @@ function createSessionHandler(
           readSafeHeader(event, "x-agent-native-realtime-language"),
           readSafeHeader(event, "accept-language"),
         );
-        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
-          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
-        );
-        const voice = resolveRealtimeVoicePreference(
-          readSafeHeader(event, "x-agent-native-realtime-voice"),
-          configuredIdentifier(options.voice, DEFAULT_VOICE),
-        );
+        const protocol = readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER);
         const configuredModel = configuredIdentifier(
           options.model,
           DEFAULT_MODEL,
         );
         const model =
-          readSafeHeader(event, REALTIME_VOICE_PROTOCOL_HEADER) ===
-            "realtime" && configuredModel === DEFAULT_MODEL
+          protocol === "realtime" && configuredModel === DEFAULT_MODEL
             ? LEGACY_MODEL
             : configuredModel;
+        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
+          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
+          model === DEFAULT_MODEL ? "live" : "realtime",
+        );
+        const voice = resolveRealtimeVoicePreference(
+          readSafeHeader(event, "x-agent-native-realtime-voice"),
+          configuredIdentifier(options.voice, DEFAULT_VOICE),
+        );
         const sessionBase =
           model === DEFAULT_MODEL
             ? {

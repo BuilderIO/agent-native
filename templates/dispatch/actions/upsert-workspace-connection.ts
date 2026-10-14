@@ -172,7 +172,7 @@ export default defineAction({
     status: statusSchema.default("connected"),
     scopes: z
       .array(z.string())
-      .default([])
+      .optional()
       .describe("Provider scopes granted to this connection."),
     config: z
       .record(z.string(), z.unknown())

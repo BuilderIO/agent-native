@@ -343,7 +343,11 @@ export function useSetOrgVisualIdentity() {
   });
 }
 
-export function useSwitchOrg() {
+export function useSwitchOrg(
+  options: {
+    onPersisted?: (orgId: string | null) => void;
+  } = {},
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (orgId: string | null) =>
@@ -351,7 +355,12 @@ export function useSwitchOrg() {
         method: "PUT",
         body: JSON.stringify({ orgId }),
       }),
-    onSuccess: async () => {
+    onSuccess: async (_data, orgId) => {
+      try {
+        options.onPersisted?.(orgId);
+      } catch {
+        console.error("The organization persistence callback failed.");
+      }
       // The persisted-results scope follows the session's org; re-read it before
       // refetching, or this org's results are saved under the old one. Loaded here,
       // not at import: use-session pulls in frame.ts, which touches window on load.

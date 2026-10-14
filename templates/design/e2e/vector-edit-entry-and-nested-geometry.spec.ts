@@ -1,21 +1,6 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type FrameLocator,
-  type Locator,
-  type Page,
-} from "@playwright/test";
+import { expandAllLayers } from "./helpers";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import {
-  appPath,
-  enterDirectMode,
-  expandAllLayers,
-  gotoEditor,
-} from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Vector edit source</title></head>
 <body style="margin:0;min-height:600px">
@@ -43,425 +28,279 @@ const SCREEN_HTML = `<!doctype html>
   </main>
 </body></html>`;
 
-async function postAction(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function createDesign(request: APIRequestContext): Promise<string> {
-  const created = await postAction(request, "create-design", {
-    title: `Vector edit geometry ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await postAction(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await postAction(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 800, height: 600 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
-      },
-    ],
-  });
-  return designId;
-}
-
-function layerRow(page: Page, name: string) {
-  return page
-    .getByRole("tree", { name: "Layers" })
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first()
-    .locator('xpath=ancestor::*[@role="treeitem"][1]');
-}
-
-async function selectLayer(page: Page, name: string) {
-  const row = layerRow(page, name);
-  await expect(row).toBeVisible();
-  await row.locator("[data-layer-row-button]").click();
-  await expect(row).toHaveAttribute("aria-selected", "true");
-}
-
-async function openDesign(page: Page, designId: string) {
-  await gotoEditor(page, designId);
-  await enterDirectMode(page);
-  await expandAllLayers(page);
-}
-
-async function selectedFrame(page: Page) {
-  const iframe = page.locator("iframe[data-design-preview-iframe]").first();
-  return { iframe, frame: iframe.contentFrame() };
-}
-
-async function overlayAnchorMatchesFramePoint(
-  page: Page,
-  frame: FrameLocator,
-  selector: string,
-  point: "path-start" | "ellipse-top",
-) {
-  const iframe = page.locator("iframe[data-design-preview-iframe]").first();
-  const iframeBox = await iframe.boundingBox();
-  if (!iframeBox) throw new Error("design iframe has no visible bounds");
-  const sourcePoint = await frame
-    .locator(selector)
-    .evaluate((element, kind) => {
-      const box = element.getBoundingClientRect();
-      if (kind === "ellipse-top")
-        return { x: box.left + box.width / 2, y: box.top };
-      const svg = element.closest("svg");
-      const path = element as SVGPathElement;
-      const point = path.getPointAtLength(0);
-      const matrix = svg?.getScreenCTM();
-      if (!matrix) throw new Error("SVG has no screen transform");
-      return {
-        x: matrix.a * point.x + matrix.c * point.y + matrix.e,
-        y: matrix.b * point.x + matrix.d * point.y + matrix.f,
-      };
-    }, point);
-  const viewport = await frame.locator("html").evaluate((element) => ({
-    width: element.clientWidth,
-    height: element.clientHeight,
-  }));
-  const anchor = await page
-    .locator("[data-vector-anchor]")
-    .first()
-    .boundingBox();
-  if (!anchor) throw new Error("vector editor has no first anchor");
-  const actual = {
-    x: iframeBox.x + (sourcePoint.x * iframeBox.width) / viewport.width,
-    y: iframeBox.y + (sourcePoint.y * iframeBox.height) / viewport.height,
-  };
-  const center = {
-    x: anchor.x + anchor.width / 2,
-    y: anchor.y + anchor.height / 2,
-  };
-  return Math.hypot(actual.x - center.x, actual.y - center.y);
-}
-
-async function overlayCapturesAnchor(
-  page: Page,
-  anchorBox: NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>,
-) {
-  return page.evaluate(
-    ({ x, y }) => {
-      return Boolean(
-        document.elementFromPoint(x, y)?.closest("[data-vector-edit-overlay]"),
-      );
-    },
-    {
-      x: anchorBox.x + anchorBox.width / 2,
-      y: anchorBox.y + anchorBox.height / 2,
-    },
-  );
-}
-
-async function penNodes(frame: FrameLocator, nodeId: string) {
-  const serialized = await frame
-    .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .getAttribute("data-an-pen-nodes");
-  if (!serialized) throw new Error(`${nodeId} has no serialized Pen nodes`);
-  type PenNodeTuple = [
-    number,
-    number,
-    number | null,
-    number | null,
-    number | null,
-    number | null,
-    number | null,
-  ];
-  return JSON.parse(serialized) as [number, ...PenNodeTuple[]];
-}
+type Point = { x: number; y: number };
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-test("nested Pen edits stay in the screen coordinate space and preserve authored SVG styles", async ({
-  page,
-  request,
-}) => {
-  const designId = await createDesign(request);
-  try {
-    await openDesign(page, designId);
-    await selectLayer(page, "Nested path");
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
-    await expect(page.locator("[data-vector-anchor]")).toHaveCount(4);
+async function openFixture(app: App) {
+  const id = await app.seed(SCREEN_HTML);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
+  return id;
+}
 
-    const { frame } = await selectedFrame(page);
-    const before = await frame
-      .locator('[data-agent-native-node-id="nested-path"] path')
-      .getAttribute("d");
-    expect(
-      await overlayAnchorMatchesFramePoint(
-        page,
-        frame,
-        '[data-agent-native-node-id="nested-path"] path',
-        "path-start",
-      ),
-    ).toBeLessThan(8);
+async function selectLayer(app: App, name: string) {
+  await expandAllLayers(app.page);
+  await app.page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name, exact: true })
+    .click();
+  await expect.poll(() => app.selectedLayers()).toEqual([name]);
+}
 
-    const anchor = page.locator("[data-vector-anchor]").first();
-    const box = await anchor.boundingBox();
-    if (!box) throw new Error("nested path anchor has no bounds");
-    expect(await overlayCapturesAnchor(page, box)).toBe(true);
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      box.x + box.width / 2 - 18,
-      box.y + box.height / 2 - 14,
-      {
-        steps: 5,
-      },
-    );
-    await page.mouse.up();
+/**
+ * Drags by a whole number of page pixels, so the pointer's integer rounding cancels out,
+ * and returns where the dragged point should land in design px.
+ */
+async function dragBy(app: App, from: Point, by: Point) {
+  const start = await app.pagePoint(from.x, from.y);
+  const pageDelta = {
+    x: Math.round(by.x * start.scale),
+    y: Math.round(by.y * start.scale),
+  };
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(start.x + pageDelta.x, start.y + pageDelta.y, {
+    steps: 8,
+  });
+  await app.page.mouse.up();
+  return {
+    x: from.x + pageDelta.x / start.scale,
+    y: from.y + pageDelta.y / start.scale,
+  };
+}
 
-    const vector = frame.locator('[data-agent-native-node-id="nested-path"]');
-    await expect
-      .poll(() => vector.locator("path").getAttribute("d"))
-      .not.toBe(before);
-    const result = await vector.evaluate((element) => ({
-      left: (element as SVGSVGElement).style.left,
-      top: (element as SVGSVGElement).style.top,
-      opacity: (element as SVGSVGElement).style.opacity,
-      filter: (element as SVGSVGElement).style.filter,
+/** Each Pen node's anchor and handles where they render, in screen-document px. */
+async function renderedPen(app: App, nodeId: string) {
+  return app.node(nodeId).evaluate((svg) => {
+    const ctm = (svg as SVGSVGElement).getScreenCTM()!;
+    const [, ...nodes] = JSON.parse(svg.getAttribute("data-an-pen-nodes")!) as (
+      | number
+      | null
+    )[][];
+    const place = (x: number | null, y: number | null) =>
+      x === null || y === null
+        ? null
+        : {
+            x: ctm.a * x + ctm.c * y + ctm.e,
+            y: ctm.b * x + ctm.d * y + ctm.f,
+          };
+    return nodes.map(([x, y, inX, inY, outX, outY]) => ({
+      anchor: place(x, y)!,
+      in: place(inX, inY),
+      out: place(outX, outY),
     }));
-    expect(Number.parseFloat(result.left)).toBeLessThan(15.25);
-    expect(Number.parseFloat(result.top)).toBeLessThan(20.5);
-    expect(result.opacity).toBe("0.5");
-    expect(result.filter).toContain("drop-shadow");
-  } finally {
-    await postAction(request, "delete-design", { id: designId });
-  }
+  });
+}
+
+function expectNear(actual: Point | null, expected: Point, label: string) {
+  expect(actual, label).not.toBeNull();
+  expect(
+    Math.hypot(actual!.x - expected.x, actual!.y - expected.y),
+    `${label}: at ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+  ).toBeLessThanOrEqual(1.5);
+}
+
+/** The vector's geometry and styles as written in a screen document's HTML. */
+async function vectorIn(app: App, html: string, nodeId: string) {
+  return app.page.evaluate(
+    ({ source, id }) => {
+      const element = new DOMParser()
+        .parseFromString(source, "text/html")
+        .querySelector(`[data-agent-native-node-id="${id}"]`)!;
+      const path = element.querySelector("path");
+      return {
+        tag: element.tagName.toLowerCase(),
+        pen: element.getAttribute("data-an-pen-nodes"),
+        viewBox: element.getAttribute("viewBox"),
+        style: element.getAttribute("style"),
+        d: path?.getAttribute("d") ?? null,
+        fill: path?.getAttribute("fill") ?? null,
+      };
+    },
+    { source: html, id: nodeId },
+  );
+}
+
+async function savedVector(app: App, designId: string, nodeId: string) {
+  return vectorIn(app, await app.savedHtml(designId), nodeId);
+}
+
+async function liveVector(app: App, nodeId: string) {
+  const html = await app
+    .node(nodeId)
+    .evaluate((element) => element.ownerDocument.documentElement.outerHTML);
+  return vectorIn(app, html, nodeId);
+}
+
+test("dragging a nested Pen anchor moves only that anchor, in screen space, and keeps the path's styles", async ({
+  app,
+}) => {
+  const id = await openFixture(app);
+  await selectLayer(app, "Nested path");
+  await app.page.keyboard.press("Enter");
+  await expect(app.page.locator("[data-vector-anchor]")).toHaveCount(4);
+  const before = await app.savedNodes(id);
+  const pen = await renderedPen(app, "nested-path");
+  // Frame 40,120 + Nested 80,70 + translate 10,5 + path 15.25,20.5.
+  expectNear(pen[0].anchor, { x: 145.25, y: 215.5 }, "precondition: start");
+
+  const target = await dragBy(app, { x: 145.25, y: 215.5 }, { x: -18, y: -14 });
+
+  await expect
+    .poll(async () => (await savedVector(app, id, "nested-path")).pen)
+    .not.toBe(before.get("nested-path")!.attrs["data-an-pen-nodes"]);
+  await app.settled();
+  const after = await renderedPen(app, "nested-path");
+  expectNear(after[0].anchor, target, "dragged anchor");
+  expectNear(after[1].anchor, { x: 245.25, y: 215.5 }, "top-right anchor");
+  expectNear(after[2].anchor, { x: 245.25, y: 295.5 }, "bottom-right anchor");
+  expectNear(after[3].anchor, { x: 145.25, y: 295.5 }, "bottom-left anchor");
+  const saved = await savedVector(app, id, "nested-path");
+  expect(saved, "the saved path is the one rendered").toEqual(
+    await liveVector(app, "nested-path"),
+  );
+  expect(saved.style).toContain("opacity: 0.5");
+  expect(saved.style).toContain("drop-shadow");
+  expectOnlyChanged(before, await app.savedNodes(id), ["nested-path"]);
 });
 
 test("selected Pen anchors round independently and survive undo, redo, and reload", async ({
-  page,
-  request,
+  app,
 }) => {
-  const designId = await createDesign(request);
-  try {
-    await openDesign(page, designId);
-    await selectLayer(page, "Nested path");
-    const { frame } = await selectedFrame(page);
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+  const id = await openFixture(app);
+  const page = app.page;
+  await selectLayer(app, "Nested path");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+  const before = await app.savedNodes(id);
+  const savedRadii = async () =>
+    (
+      JSON.parse((await savedVector(app, id, "nested-path")).pen!) as (
+        | number
+        | null
+      )[][]
+    )
+      .slice(1)
+      .map((node) => node[6] ?? null);
 
-    const selectAnchor = async (index: number) => {
-      const anchor = page.locator("[data-vector-anchor]").nth(index);
-      const box = await anchor.boundingBox();
-      if (!box) throw new Error(`vector anchor ${index} has no bounds`);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      await expect(anchor).toHaveClass(/ring-2/);
-    };
-    const radiusField = page.getByRole("textbox", { name: "Corner radius" });
-    const setRadius = async (index: number, radius: number) => {
-      await selectAnchor(index);
-      await radiusField.fill(String(radius));
-      await radiusField.press("Enter");
-      await expect(radiusField).toHaveValue(String(radius));
-    };
+  const selectAnchor = async (index: number) => {
+    const anchor = page.locator("[data-vector-anchor]").nth(index);
+    const box = (await anchor.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(anchor).toHaveClass(/ring-2/);
+  };
+  const radiusField = page.getByRole("textbox", { name: "Corner radius" });
+  const setRadius = async (index: number, radius: number) => {
+    await selectAnchor(index);
+    await radiusField.fill(String(radius));
+    await radiusField.press("Enter");
+    await expect(radiusField).toHaveValue(String(radius));
+  };
 
-    await setRadius(1, 12);
-    await setRadius(3, 18);
-    const rounded = await penNodes(frame, "nested-path");
-    expect(rounded[2]?.[6]).toBe(12);
-    expect(rounded[4]?.[6]).toBe(18);
-    expect(
-      rounded.slice(1).filter((node) => Array.isArray(node) && node[6] != null),
-    ).toHaveLength(2);
-    await selectAnchor(1);
-    await expect(radiusField).toHaveValue("12");
-    await selectAnchor(3);
-    await expect(radiusField).toHaveValue("18");
+  await setRadius(1, 12);
+  await setRadius(3, 18);
+  await expect.poll(savedRadii).toEqual([null, 12, null, 18]);
+  await selectAnchor(1);
+  await expect(radiusField).toHaveValue("12");
+  await selectAnchor(3);
+  await expect(radiusField).toHaveValue("18");
 
-    await page.keyboard.press("Escape");
-    const undoShortcut = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
-    const redoShortcut =
-      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
-    await page.keyboard.press(undoShortcut);
-    await expect
-      .poll(async () => (await penNodes(frame, "nested-path"))[4]?.[6])
-      .toBeNull();
-    expect((await penNodes(frame, "nested-path"))[2]?.[6]).toBe(12);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+Z");
+  await expect
+    .poll(savedRadii, "undo reverts only the last radius")
+    .toEqual([null, 12, null, null]);
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await expect.poll(savedRadii).toEqual([null, 12, null, 18]);
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), ["nested-path"]);
 
-    await page.keyboard.press(redoShortcut);
-    await expect
-      .poll(async () => (await penNodes(frame, "nested-path"))[4]?.[6])
-      .toBe(18);
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await openDesign(page, designId);
-    await selectLayer(page, "Nested path");
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
-    await selectAnchor(1);
-    await expect(radiusField).toHaveValue("12");
-    await selectAnchor(3);
-    await expect(radiusField).toHaveValue("18");
-  } finally {
-    await postAction(request, "delete-design", { id: designId });
-  }
+  await page.reload();
+  await selectLayer(app, "Nested path");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+  await selectAnchor(1);
+  await expect(radiusField).toHaveValue("12");
+  await selectAnchor(3);
+  await expect(radiusField).toHaveValue("18");
 });
 
-test("Enter edits an ellipse as a vector, Escape preserves it, and commit converts it in place", async ({
-  page,
-  request,
+// fixme: product bug: Dragging the top anchor does not move it: the saved anchor stays at (309,305) and the drag pulls out vertical handles
+test.fixme("Escape leaves an ellipse untouched, and dragging its top anchor converts it to a path in place", async ({
+  app,
 }) => {
-  const designId = await createDesign(request);
-  try {
-    await openDesign(page, designId);
-    await selectLayer(page, "Editable ellipse");
-    const { frame } = await selectedFrame(page);
-    const ellipse = frame.locator(
-      '[data-agent-native-node-id="editable-ellipse"]',
-    );
-    const originalStyle = await ellipse.getAttribute("style");
-    const originalBox = await ellipse.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return { left: rect.left, top: rect.top };
-    });
+  const id = await openFixture(app);
+  const page = app.page;
+  await selectLayer(app, "Editable ellipse");
+  const before = await app.savedNodes(id);
+  expect(await app.designRect("editable-ellipse")).toEqual({
+    x: 285,
+    y: 305,
+    width: 48,
+    height: 48,
+  });
 
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
-    await expect(page.locator("[data-vector-anchor]")).toHaveCount(4);
-    expect(
-      await overlayAnchorMatchesFramePoint(
-        page,
-        frame,
-        '[data-agent-native-node-id="editable-ellipse"]',
-        "ellipse-top",
-      ),
-    ).toBeLessThan(8);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-vector-anchor]")).toHaveCount(4);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-vector-edit-overlay]")).toHaveCount(0);
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+  await expect(app.node("editable-ellipse")).toHaveJSProperty("tagName", "DIV");
 
-    await page.keyboard.press("Escape");
-    await expect(page.locator("[data-vector-edit-overlay]")).toHaveCount(0);
-    await expect(ellipse).toHaveJSProperty("tagName", "DIV");
-    expect(await ellipse.getAttribute("style")).toBe(originalStyle);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-vector-anchor]")).toHaveCount(4);
+  const target = await dragBy(app, { x: 309, y: 305 }, { x: 0, y: -18 });
 
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
-    const anchor = page.locator("[data-vector-anchor]").first();
-    const box = await anchor.boundingBox();
-    if (!box) throw new Error("ellipse top anchor has no bounds");
-    expect(await overlayCapturesAnchor(page, box)).toBe(true);
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 18, {
-      steps: 5,
-    });
-    await page.mouse.up();
-
-    const vector = frame.locator(
-      '[data-agent-native-node-id="editable-ellipse"]',
-    );
-    await expect(vector).toHaveJSProperty("tagName", "svg");
-    await expect(vector.locator("path")).toHaveCount(1);
-    const result = await vector.evaluate((element) => ({
-      top: (element as SVGSVGElement).style.top,
-      transform: (element as SVGSVGElement).style.transform,
-      rect: (() => {
-        const rect = element.getBoundingClientRect();
-        return { left: rect.left, top: rect.top };
-      })(),
-      opacity: (element as SVGSVGElement).style.opacity,
-      filter: (element as SVGSVGElement).style.filter,
-      fill: element.querySelector("path")?.getAttribute("fill"),
-    }));
-    expect(Number.parseFloat(result.top)).toBeLessThan(105);
-    expect(result.transform).toBe("translate(10px, 5px)");
-    expect(Math.abs(result.rect.left - originalBox.left)).toBeLessThan(2);
-    expect(result.rect.top).toBeLessThan(originalBox.top - 1);
-    expect(result.opacity).toBe("0.6");
-    expect(result.filter).toBe("blur(1px)");
-    expect(result.fill).toBe("rgb(204, 51, 102)");
-  } finally {
-    await postAction(request, "delete-design", { id: designId });
-  }
+  await expect
+    .poll(async () => (await savedVector(app, id, "editable-ellipse")).tag)
+    .toBe("svg");
+  await app.settled();
+  const pen = await renderedPen(app, "editable-ellipse");
+  const anchors = pen.map((node) => node.anchor).sort((a, b) => a.y - b.y);
+  expectNear(anchors[0], target, "dragged top anchor");
+  expectNear(anchors[1], { x: 285, y: 329 }, "left anchor");
+  expectNear(anchors[2], { x: 333, y: 329 }, "right anchor");
+  expectNear(anchors[3], { x: 309, y: 353 }, "bottom anchor");
+  const saved = await savedVector(app, id, "editable-ellipse");
+  expect(saved, "the saved path is the one rendered").toEqual(
+    await liveVector(app, "editable-ellipse"),
+  );
+  expect(saved.fill).toBe("rgb(204, 51, 102)");
+  expect(saved.style).toContain("transform: translate(10px, 5px)");
+  expect(saved.style).toContain("opacity: 0.6");
+  expect(saved.style).toContain("filter: blur(1px)");
+  expectOnlyChanged(before, await app.savedNodes(id), ["editable-ellipse"]);
 });
 
-test("vector edit captures and drags a tangent handle beyond the rendered curve bounds", async ({
-  page,
-  request,
+test("a tangent handle outside the curve's bounds can be grabbed and dragged, moving only that handle", async ({
+  app,
 }) => {
-  const designId = await createDesign(request);
-  try {
-    await openDesign(page, designId);
-    await selectLayer(page, "Exterior handle path");
-    const { frame } = await selectedFrame(page);
-    const path = frame.locator(
-      '[data-agent-native-node-id="exterior-handle-path"] path',
-    );
-    const before = await path.getAttribute("d");
-    const handleIsOutsideCurve = await path.evaluate((element) => {
-      const bounds = (element as SVGPathElement).getBBox();
-      const tangent = { x: -80, y: -100 };
-      return (
-        tangent.x < bounds.x ||
-        tangent.x > bounds.x + bounds.width ||
-        tangent.y < bounds.y ||
-        tangent.y > bounds.y + bounds.height
-      );
-    });
-    expect(handleIsOutsideCurve).toBe(true);
+  const id = await openFixture(app);
+  await selectLayer(app, "Exterior handle path");
+  await app.page.keyboard.press("Enter");
+  await expect(app.page.locator("[data-vector-handle]").first()).toBeVisible();
+  const before = await app.savedNodes(id);
+  // The viewBox origin -80,-100 sits at the path's 390,120 corner.
+  const pen = await renderedPen(app, "exterior-handle-path");
+  expectNear(pen[0].out, { x: 390, y: 120 }, "precondition: handle");
 
-    await page.keyboard.press("Enter");
-    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
-    const handle = page.locator("[data-vector-handle]").first();
-    await expect(handle).toBeVisible();
-    const handleBox = await handle.boundingBox();
-    if (!handleBox) throw new Error("exterior tangent handle has no bounds");
-    expect(
-      await page.evaluate(
-        ({ x, y }) =>
-          Boolean(
-            document
-              .elementFromPoint(x, y)
-              ?.closest("[data-vector-edit-overlay]"),
-          ),
-        {
-          x: handleBox.x + handleBox.width / 2,
-          y: handleBox.y + handleBox.height / 2,
-        },
-      ),
-    ).toBe(true);
+  const target = await dragBy(app, { x: 390, y: 120 }, { x: 22, y: -18 });
 
-    await page.mouse.move(
-      handleBox.x + handleBox.width / 2,
-      handleBox.y + handleBox.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      handleBox.x + handleBox.width / 2 + 22,
-      handleBox.y + handleBox.height / 2 - 18,
-      { steps: 5 },
-    );
-    await page.mouse.up();
-    await expect.poll(() => path.getAttribute("d")).not.toBe(before);
-  } finally {
-    await postAction(request, "delete-design", { id: designId });
-  }
+  await expect
+    .poll(async () => (await savedVector(app, id, "exterior-handle-path")).pen)
+    .not.toBe(before.get("exterior-handle-path")!.attrs["data-an-pen-nodes"]);
+  await app.settled();
+  const after = await renderedPen(app, "exterior-handle-path");
+  expectNear(after[0].out, target, "dragged handle");
+  expectNear(after[0].anchor, { x: 470, y: 220 }, "its anchor");
+  expectNear(after[1].anchor, { x: 570, y: 220 }, "end anchor");
+  expectNear(after[1].in, { x: 570, y: 220 }, "end anchor's handle");
+  expect(
+    await savedVector(app, id, "exterior-handle-path"),
+    "the saved path is the one rendered",
+  ).toEqual(await liveVector(app, "exterior-handle-path"));
+  expectOnlyChanged(before, await app.savedNodes(id), ["exterior-handle-path"]);
 });

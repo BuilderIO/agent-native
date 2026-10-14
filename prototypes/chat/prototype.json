@@ -1,0 +1,20 @@
+{
+  "template": "chat",
+  "figma": {
+    "file": "oJQ7t9q4e8oHzLZKuki7k1",
+    "page": "Chat",
+    "pageId": "2827:11219",
+    "related": [
+      {
+        "page": "AgentKit",
+        "pageId": "79:343",
+        "for": "the agent chat surface shared across apps"
+      }
+    ],
+    "sections": {
+      "Chat · Screens": "2841:26627",
+      "Chat · Menus and popovers": "2841:26628",
+      "Chat · Parts": "2841:26629"
+    }
+  }
+}

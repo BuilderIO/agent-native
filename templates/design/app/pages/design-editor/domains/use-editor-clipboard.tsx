@@ -20,6 +20,7 @@ import type {
 import { DESIGN_FILE_STORAGE_REQUIRED_EVENT } from "@/components/design/editor/DesignBottomToolbar";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
+import { readPortableStyleSnapshot } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
   MultiScreenCanvasProps,
   Point,
@@ -65,6 +66,7 @@ import { runPasteSelection } from "../commands/paste-selection";
 import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
 import {
+  clientToOverviewCanvasPoint,
   runPastedImageFiles,
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
@@ -453,12 +455,22 @@ export function useEditorClipboard({
         overviewScreens,
         overviewSelectedScreenIds,
         pasteCascadeRef,
+        readPortableStyleSnapshot: (screenId, target) =>
+          readPortableStyleSnapshot(
+            screenId,
+            target,
+            viewModeRef.current === "overview"
+              ? activeBreakpointWidthStateRef.current
+              : undefined,
+            boardFileId,
+          ),
         runtimeLayerSnapshotsById,
         setHasCanvasClipboard,
         t,
         viewModeRef,
       }),
     [
+      boardFileId,
       canvasFrameGeometryById,
       designSourceType,
       files,
@@ -483,7 +495,9 @@ export function useEditorClipboard({
           canvasFrameGeometryById,
           createFileMutation,
           files,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           id,
+          overviewScreens,
           pasteCascadeRef,
           queryClient,
           queueFrameGeometrySave,
@@ -505,6 +519,7 @@ export function useEditorClipboard({
       createFileMutation,
       files,
       id,
+      overviewScreens,
       queryClient,
       queueFrameGeometrySave,
       t,
@@ -524,6 +539,7 @@ export function useEditorClipboard({
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          canvasFrameGeometryById,
           clearRedoStacks,
           clipboardPasteRedoStackRef,
           clipboardPasteUndoStackRef,
@@ -532,8 +548,11 @@ export function useEditorClipboard({
           getCanvasScreenClipboardEntries,
           getFreshActiveContent,
           getScreenContent,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           historyOrderRef,
           latestClipboardMutationContentRef,
+          overviewScreens,
+          overviewSelectedScreenIds,
           pasteCascadeRef,
           pasteCopiedScreens,
           pendingLocalFileContentsRef,
@@ -562,12 +581,15 @@ export function useEditorClipboard({
       boardFileId,
       canEditDesign,
       canEditLiveScreen,
+      canvasFrameGeometryById,
       getCanvasClipboardEntries,
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
       getScreenContent,
       historyOrderRef,
       files,
+      overviewScreens,
+      overviewSelectedScreenIds,
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
@@ -1152,6 +1174,10 @@ export function useEditorClipboard({
           handlePasteSelection,
           handlePastedImageFiles,
           insertDroppedImageFiles,
+          resolveBoardPoint: (client) =>
+            viewModeRef.current === "overview"
+              ? clientToOverviewCanvasPoint(canvasContainerRef.current, client)
+              : null,
         },
         point,
       ),

@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "開啟 Rewind",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "Rewind 會在本機保存螢幕的歷史紀錄，方便你在錄製前加入最近幾分鐘的畫面。只有在你選擇包含或核准後，畫面才會上傳。",
+      "預設為關閉。螢幕歷程記錄會保留在此裝置上，直到你將它加入錄影或核准分享請求。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",
@@ -291,6 +291,9 @@ const messages = {
     transcriptionCompleted: "轉錄完成",
     transcriptNotReady: "逐字稿尚未準備好",
     tryAfterTranscription: "轉錄完成後重試。",
+    silenceTranscriptUnavailableTitle: "無法使用這份逐字稿移除靜音片段",
+    silenceTranscriptUnavailableDescription:
+      "試著產生新的逐字稿，再次移除靜音片段。",
     titleGenerationQueued: "正在產生標題…",
     descriptionQueued: "正在產生描述…",
     chapterQueued: "正在產生章節…",

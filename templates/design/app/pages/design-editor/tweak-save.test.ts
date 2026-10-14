@@ -64,18 +64,34 @@ describe("tweak save ordering", () => {
   });
 
   it("does not promise a reconnect retry when journaling also failed", () => {
-    expect(classifyTweakSaveFailure(new Error("offline"), true)).toBe(
+    const networkFailure = new Error(
+      "Action apply-tweaks failed: Failed to fetch",
+    );
+    expect(classifyTweakSaveFailure(networkFailure, true, true)).toBe(
       "durable-retry",
     );
-    expect(classifyTweakSaveFailure(new Error("offline"), false)).toBe(
-      "tab-memory-only",
+    expect(classifyTweakSaveFailure(networkFailure, false, true)).toBe(
+      "not-saved",
     );
     expect(
       classifyTweakSaveFailure(
         Object.assign(new Error("stale"), { status: 409 }),
         true,
+        true,
       ),
     ).toBe("conflict");
+  });
+
+  it("does not promise a reconnect retry when the server rejects a journaled save", () => {
+    expect(
+      classifyTweakSaveFailure(
+        Object.assign(new Error("Action apply-tweaks failed: Internal error"), {
+          status: 500,
+        }),
+        true,
+        true,
+      ),
+    ).toBe("not-saved");
   });
 
   it("waits for a durable journal before starting the unload keepalive", async () => {

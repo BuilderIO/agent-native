@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
@@ -30,6 +31,62 @@ const value: AutoLayoutMatrixValue = {
 };
 
 describe("AutoLayoutMatrix Flow interactions", () => {
+  it("exposes gap and padding keyframes through the layout fields", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggleMotionKeyframe = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            messages: {
+              editPanel: {
+                motionKeyframe: {
+                  addTooltip: "Add keyframe",
+                  removeTooltip: "Remove keyframe",
+                },
+              },
+            },
+          }}
+        >
+          <AutoLayoutMatrix
+            value={{ ...value, display: "flex" }}
+            showMotionKeyframes
+            motionKeyframedProperties={["gap", "padding-left"]}
+            onToggleMotionKeyframe={onToggleMotionKeyframe}
+            onDirectionChange={vi.fn()}
+            onWrapChange={vi.fn()}
+            onAlignmentChange={vi.fn()}
+            onGapChange={vi.fn()}
+            onPaddingChange={vi.fn()}
+            onPaddingLinkedChange={vi.fn()}
+            onChildSizingChange={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const gapDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="gap"]',
+    );
+    const horizontalPaddingDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-properties="padding-left padding-right"]',
+    );
+    expect(gapDiamond?.getAttribute("aria-pressed")).toBe("true");
+    expect(horizontalPaddingDiamond?.getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => horizontalPaddingDiamond?.click());
+    expect(onToggleMotionKeyframe.mock.calls).toEqual([
+      ["padding-left"],
+      ["padding-right"],
+    ]);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("uses the atomic Flow callback without emitting three individual changes", async () => {
     const container = document.createElement("div");
     document.body.append(container);

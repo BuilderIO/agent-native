@@ -37,6 +37,7 @@ import {
   assertNoInlineImageBytes,
   stripInlineBytes,
 } from "../../shared/inline-bytes.js";
+import { toolInputFingerprint } from "../../shared/tool-inputs.js";
 import {
   agentEngineStatusUrlForChatApi,
   requireAgentEngineConfiguredForDispatch,
@@ -897,6 +898,62 @@ function reconcileDurableMessages(
     rootAssistantProjection.snapshotRunIdsByMessageId;
   const supersededSnapshotMessageIds =
     rootAssistantProjection.supersededSnapshotMessageIds;
+  const snapshotRunId = (message: AgentMessage) => {
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    return (
+      runByAssistantId.get(message.id) ??
+      snapshotRunIdsByMessageId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined)
+    );
+  };
+  const snapshotAssistantsByRun = new Map<string, AgentMessage[]>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const runId = snapshotRunId(message);
+    if (!runId) continue;
+    const candidates = snapshotAssistantsByRun.get(runId) ?? [];
+    candidates.push(message);
+    snapshotAssistantsByRun.set(runId, candidates);
+  }
+  for (const [runId, candidates] of snapshotAssistantsByRun) {
+    const durableReply = durableByRun.get(runId);
+    const snapshotReply = candidates[0];
+    const eventMessageIds = assistantIdsByRun.get(runId);
+    const terminalRun = runs?.some(
+      (run) =>
+        run.id === runId &&
+        ["completed", "failed", "cancelled"].includes(run.status),
+    );
+    const durableMetadata = asRecord(durableReply?.metadata);
+    const snapshotText = snapshotReply ? textOf(snapshotReply.parts) : "";
+    const durableText =
+      durableReply?.role === "assistant" ? textOf(durableReply.parts) : "";
+    // A single event-associated message ID is the only safe identity when text diverges.
+    if (
+      durableReply?.role === "assistant" &&
+      durableReply.status === "complete" &&
+      durableMetadata?.runId === runId &&
+      durableRunIds(durableReply).length === 1 &&
+      asRecord(durableMetadata.custom)?.continued !== true &&
+      submittedUsersByRun.get(runId)?.role === "user" &&
+      terminalRun &&
+      candidates.length === 1 &&
+      snapshotReply &&
+      snapshotReply.id !== durableReply.id &&
+      eventMessageIds?.size === 1 &&
+      eventMessageIds.has(snapshotReply.id) &&
+      snapshotReply.parts.length > 0 &&
+      snapshotReply.parts.every((part) => part.type === "text") &&
+      durableReply.parts.length > 0 &&
+      durableReply.parts.every((part) => part.type === "text") &&
+      snapshotText.length > 0 &&
+      durableText.length > 0 &&
+      snapshotText !== durableText &&
+      !representedDurableAssistantIds.has(durableReply.id)
+    ) {
+      supersededSnapshotMessageIds.add(snapshotReply.id);
+    }
+  }
   const rootMessageIdsBySnapshotMessageId = new Map(
     [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
       ([rootId, snapshotId]) => [snapshotId, rootId],
@@ -1076,15 +1133,6 @@ function reconcileDurableMessages(
     durableIndexById,
     durableIdBySnapshotId,
   );
-  const snapshotRunId = (message: AgentMessage) => {
-    const metadataRunId = asRecord(message.metadata)?.runId;
-    return (
-      runByAssistantId.get(message.id) ??
-      snapshotRunIdsByMessageId.get(message.id) ??
-      (typeof metadataRunId === "string" ? metadataRunId : undefined)
-    );
-  };
-
   const reconciledMessages = projectedMessages.map((message) => {
     if (message.role === "user") {
       const stored = storedUserBySnapshotId.get(message.id);
@@ -1989,6 +2037,17 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
     ) {
       return [JSON.parse(serialized) as AgentToolCall];
     }
+    const metadata = asRecord(toolCall.metadata);
+    const agentKitSnapshot = asRecord(metadata?.agentKitSnapshot);
+    const inputFingerprint =
+      toolCall.input === undefined
+        ? agentKitSnapshot?.inputFingerprint
+        : toolInputFingerprint(toolCall.input);
+    const approvalAskId =
+      typeof metadata?.approvalAskId === "string" &&
+      metadata.approvalAskId.length <= 512
+        ? metadata.approvalAskId
+        : undefined;
     return [
       {
         id: toolCall.id,
@@ -1997,9 +2056,17 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
         ...(toolCall.runId ? { runId: toolCall.runId } : {}),
         ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
         metadata: {
+          ...(metadata?.approvalPause === true ? { approvalPause: true } : {}),
+          ...(metadata?.completedSideEffect === true
+            ? { completedSideEffect: true }
+            : {}),
+          ...(approvalAskId ? { approvalAskId } : {}),
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: serialized ? "size_limit" : "not_json",
+            ...(typeof inputFingerprint === "string"
+              ? { inputFingerprint }
+              : {}),
           },
         },
       },
