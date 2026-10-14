@@ -101,6 +101,9 @@ export {
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
   isWorkspaceAppAccessAllowed,
+  isWorkspaceAppAccessUnavailable,
+  type WorkspaceAppAccessOutcome,
+  type WorkspaceAppAccessUnavailable,
 } from "./workspace-app-access.js";
 
 export {
