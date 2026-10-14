@@ -111,14 +111,25 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       ? await runWithRequestContext(
           { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
           async () => {
-            const [credentials, projectId, oauthCredential] = await Promise.all(
-              [
-                resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
-                resolveCredential("BIGQUERY_PROJECT_ID", ctx),
-                resolveBigQueryOAuthCredential(ctx),
-              ],
-            );
+            const [credentials, projectId, oauthResult] = await Promise.all([
+              resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+              resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+              resolveBigQueryOAuthCredential(ctx).then(
+                (credential) => ({ status: "resolved" as const, credential }),
+                (error: unknown) => ({ status: "failed" as const, error }),
+              ),
+            ]);
+            if (oauthResult.status === "failed" && !credentials) {
+              throw oauthResult.error;
+            }
+            const oauthCredential =
+              oauthResult.status === "resolved" ? oauthResult.credential : null;
             if ((!credentials && !oauthCredential) || !projectId) return null;
+            if (oauthResult.status === "failed") {
+              console.warn(
+                "BigQuery OAuth lookup failed; event ingestion will use service-account credentials",
+              );
+            }
             const [token, table] = await Promise.all([
               getBigQueryAccessToken({ projectId, oauthCredential }),
               getAppEventsTable(projectId, ctx),

@@ -4061,6 +4061,9 @@ async function resolveAuth(
         ) {
           throw error;
         }
+        if (args.connectionId?.trim() || args.accountId?.trim()) {
+          throw error;
+        }
         oauthCredential = null;
       }
       if (oauthCredential) {

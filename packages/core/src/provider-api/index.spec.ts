@@ -3042,6 +3042,82 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("keeps an explicitly selected BigQuery OAuth identity on reauthorization failure", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "vault-google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "vault-google-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "google-account-1",
+        displayName: "Analyst Google",
+        tokens: {
+          access_token: "expired-google-access-token",
+          refresh_token: "invalid-google-refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "bigquery-connection-1",
+        label: "Analyst Google",
+        accountId: "google-account-1",
+        ownerEmail: "ada@example.com",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics-bigquery-explicit-selection-test",
+      providerIds: ["bigquery"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) =>
+        key === "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+          ? {
+              key,
+              value: "service-account-json",
+              source: "app_local",
+              scope: "org",
+              scopeId: "org-1",
+            }
+          : null,
+    });
+
+    for (const selection of [
+      { connectionId: "bigquery-connection-1" },
+      { accountId: "google-account-1" },
+    ]) {
+      await expect(
+        runtime.executeRequest({
+          provider: "bigquery",
+          method: "GET",
+          path: "/projects/test-project/datasets",
+          ...selection,
+        }),
+      ).rejects.toMatchObject({
+        agentConnectionRequired: true,
+        provider: "bigquery",
+        reason: "reauthorize",
+      });
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
   it("rejects org-only direct BigQuery OAuth token resolution", async () => {
     await expect(
       resolveProviderApiOAuthAccessToken(
