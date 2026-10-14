@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { getCurrentAuthEndpointContext } from "@better-auth/core/context";
 import {
   betterAuth,
   type BetterAuthOptions,
@@ -198,6 +199,8 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -2293,22 +2296,31 @@ async function createBetterAuthInstance(
       // one, hosted deployments keep password signup available.
       requireEmailVerification,
       onExistingUserSignUp: requireEmailVerification
-        ? async ({ user }, request) => {
+        ? async ({ user }) => {
+            // Duplicate signup is unauthenticated, and direct auth.api calls
+            // such as the register route skip Better Auth's IP rate limit.
+            const { rows } = await getDbExec().execute({
+              sql: `SELECT 1 FROM email_log
+                WHERE template_id = ? AND recipient = ? AND status = 'sent' AND created_at > ?
+                LIMIT 1`,
+              args: [
+                CORE_VERIFY_SIGNUP_EMAIL_ID,
+                user.email,
+                Date.now() - EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS,
+              ],
+            });
+            if (rows.length > 0) return;
+            const endpoint = getCurrentAuthEndpointContext();
+            const callbackURL =
+              typeof endpoint.body?.callbackURL === "string"
+                ? endpoint.body.callbackURL
+                : "/";
             const token = await createEmailVerificationToken(
               secret,
               user.email,
             );
-            const body = request
-              ? /^application\/([a-z0-9.+-]*\+)?json/i.test(
-                  request.headers.get("content-type") ?? "",
-                )
-                ? await request.json()
-                : Object.fromEntries(await request.formData())
-              : undefined;
-            const callbackURL =
-              typeof body?.callbackURL === "string" ? body.callbackURL : "/";
-            const url = `${appUrl}${basePath}/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
-            await sendVerificationEmail({ user, url, token }, request);
+            const url = `${endpoint.context.baseURL}/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
+            await sendVerificationEmail({ user, url, token });
           }
         : undefined,
       sendResetPassword: async ({ user, token }) => {

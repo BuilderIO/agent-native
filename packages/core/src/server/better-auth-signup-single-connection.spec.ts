@@ -164,6 +164,8 @@ describe("password sign-up on a one-connection Neon pool", () => {
             name: "delivery",
           },
         });
+      const expireVerificationCooldown = () =>
+        pglite.exec("UPDATE email_log SET created_at = 0");
 
       await expect(signup()).rejects.toThrow();
       expect((await pglite.query('SELECT id FROM "user"')).rows).toHaveLength(
@@ -195,6 +197,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
           body: { email: "delivery+qa@example.test" },
         }),
       ).rejects.toThrow();
+      await expireVerificationCooldown();
       await expect(signup()).rejects.toThrow();
       await pglite.exec('UPDATE "user" SET email_verified = TRUE');
       await expect(signup()).rejects.toThrow();
@@ -210,7 +213,10 @@ describe("password sign-up on a one-connection Neon pool", () => {
           body: { email: "delivery+qa@example.test" },
         }),
       ).resolves.toEqual({ status: true });
+      const sendsBeforeRetry = fetchMock.mock.calls.length;
+      await expireVerificationCooldown();
       await expect(signup()).resolves.toMatchObject({ token: null });
+      expect(fetchMock).toHaveBeenCalledTimes(sendsBeforeRetry + 1);
       // Log schema introspection queues one query before signup's transaction.
       expect(stats.maxWaiting).toBeLessThanOrEqual(1);
     },
@@ -259,11 +265,16 @@ describe("password sign-up on a one-connection Neon pool", () => {
         );
       };
 
+      const expireVerificationCooldown = () =>
+        pglite.exec("UPDATE email_log SET created_at = 0");
+
       expect((await signup()).status).toBe(200);
+      await expireVerificationCooldown();
       expect((await signup()).status).toBe(200);
       await pglite.exec('UPDATE "user" SET email_verified = TRUE');
       const accounts = (await pglite.query("SELECT id, password FROM account"))
         .rows;
+      await expireVerificationCooldown();
       expect((await signup()).status).toBe(200);
       expect(fetchMock).toHaveBeenCalledTimes(3);
       for (const [, init] of fetchMock.mock.calls) {
@@ -284,6 +295,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
             status: 401,
           }),
       );
+      await expireVerificationCooldown();
       const existingFailure = await signup();
       const newFailure = await signup("new-http-signup@example.test");
       expect(existingFailure.status).toBe(500);
@@ -299,6 +311,49 @@ describe("password sign-up on a one-connection Neon pool", () => {
       ).toHaveLength(0);
     },
   );
+
+  it("mails an existing account once per cooldown with a direct caller's callback URL", async () => {
+    const fetchMock = vi.fn(
+      async (_input: unknown, _init?: RequestInit) =>
+        new Response(JSON.stringify({ id: "email_direct" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { auth, pglite } = await bootSignUp({
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      RESEND_API_KEY: "re_test_not_a_real_key",
+      EMAIL_FROM: "Test <test@example.test>",
+      APP_URL: "https://auth.example.test",
+    });
+    const callbackURL = "https://auth.example.test/after-signup";
+    const signup = () =>
+      auth.api.signUpEmail({
+        body: {
+          email: "direct-signup@example.test",
+          password: "correct-horse-battery",
+          name: "direct-signup",
+          callbackURL,
+        },
+      });
+
+    await signup();
+    await signup();
+    await signup();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await pglite.exec("UPDATE email_log SET created_at = 0");
+    await signup();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const payload = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+      html: string;
+    };
+    const href = payload.html.match(
+      /href="([^"]*email-link\/landing[^"]*)"/,
+    )?.[1];
+    expect(href).toBeTruthy();
+    expect(
+      new URL(href!.replaceAll("&amp;", "&")).searchParams.get("callbackURL"),
+    ).toBe(callbackURL);
+  });
 
   it("detects sibling Drizzle queries inside a Better Auth Worker transaction", async () => {
     const { buildDatabaseConfig, pool, poolFacade, stats, url } =
