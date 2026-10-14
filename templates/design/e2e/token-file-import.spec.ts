@@ -97,7 +97,7 @@ test("token file import continues after an oversized selection", async ({
 
   const fileInput = page
     .locator(
-      'input[type="file"][accept=".css,.scss,.less,.json,.ts,.tsx,.js,.jsx,.md,.mdx,.txt"]',
+      'input[type="file"][accept*=".css"]',
     )
     .first();
   const response = await waitForAction(page, "import-design-tokens", () =>
