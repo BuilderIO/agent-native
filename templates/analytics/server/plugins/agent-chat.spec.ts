@@ -1126,6 +1126,62 @@ describe("realDataFinalGuard", () => {
     );
   });
 
+  it("accepts a finished answer that mentions tables and says to tell the agent what else is wrong", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "That cohort table doesn't make any sense",
+        draftText:
+          "I found and fixed two data bugs in the cohort table. I'm guessing at what looked wrong, so tell me if something else is bothering you. Both panels now render (43 rows in the table, 12 months in the line).\n\n**What was wrong**\n- The query summed `current_month_pageviews`, which holds one frozen figure per account. MagMutual is now 0.06% for the year.",
+        toolResults: [
+          { name: "bigquery", isError: false, content: '{"rows":[{"n":43}]}' },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a question asking the user which table to use", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Pull AI credit usage by user for each month",
+        draftText: "Which table holds the monthly credit usage?",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
+  });
+
+  it("does not retry a verified dashboard edit for quoting the rows it rendered", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Add a line chart panel for monthly pageviews",
+        draftText:
+          "Added the line chart. It renders 12 months and the table shows 43 accounts.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              tool: "mutate-dashboard",
+              changed: true,
+              verified: true,
+              summary: "Saved the dashboard.",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("accepts the action's string setup link without overwriting it with the settings path", () => {
     const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
     const result = realDataFinalGuard(

@@ -319,12 +319,25 @@ export function analyticsExtraContext(): string {
   return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
 }
 
-const SCHEMA_DETAILS_REQUEST_PATTERN =
-  /\b(?:could you|can you|would you|please\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need(?: you to)?|what (?:is|are)|which)\b[\s\S]{0,260}\b(?:bigquery\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\b/i;
+// Both patterns stay inside one sentence: a summary of the agent's own work
+// ("tell me if something else is off. ... 43 rows in the table") is not a
+// request, and a cross-sentence match discards a correct answer.
+const SCHEMA_DETAILS_NOUN =
+  "\\b(?:bigquery\\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\\b";
+const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
+  `\\b(?:could you|can you|would you|please\\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need you to)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}`,
+  "i",
+);
+const SCHEMA_DETAILS_QUESTION_PATTERN = new RegExp(
+  `\\b(?:what (?:is|are)|which)\\b[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}[^.?!\\n]*\\?`,
+  "i",
+);
 
 function looksLikeSchemaDetailsRequest(text: string): boolean {
-  return SCHEMA_DETAILS_REQUEST_PATTERN.test(
-    stripInjectedAnalyticsGuardContext(String(text ?? "")),
+  const draft = stripInjectedAnalyticsGuardContext(String(text ?? ""));
+  return (
+    SCHEMA_DETAILS_REQUEST_PATTERN.test(draft) ||
+    SCHEMA_DETAILS_QUESTION_PATTERN.test(draft)
   );
 }
 
@@ -1186,7 +1199,18 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
-  if (dataQueryAttempted) return null;
+  // A verified dashboard save ran the panel SQL, so its receipt is the
+  // live-query evidence for the figures the draft quotes.
+  if (
+    dataQueryAttempted ||
+    hasSuccessfulDashboardSave(
+      (context.toolResults ?? []).filter(
+        (result) => result.receipt?.verified === true,
+      ),
+    )
+  ) {
+    return null;
+  }
   const draftMakesAnalyticsClaim =
     draftClaimsAnalyticsMetrics(context.text) ||
     isGenericNoDataFallback(context.text);
