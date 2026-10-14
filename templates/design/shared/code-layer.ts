@@ -1456,7 +1456,10 @@ function attributeRecord(
 ): Record<string, string | true> {
   const record: Record<string, string | true> = {};
   for (const attr of element.attributes) {
-    record[attr.lowerName] = attr.value;
+    record[attr.lowerName] =
+      typeof attr.value === "string"
+        ? decodeBasicHtmlEntities(attr.value)
+        : attr.value;
   }
   return record;
 }
@@ -1465,7 +1468,7 @@ function dataAttributeRecord(element: ParsedElement): Record<string, string> {
   const record: Record<string, string> = {};
   for (const attr of element.attributes) {
     if (attr.lowerName.startsWith("data-") && typeof attr.value === "string") {
-      record[attr.lowerName] = attr.value;
+      record[attr.lowerName] = decodeBasicHtmlEntities(attr.value);
     }
   }
   return record;

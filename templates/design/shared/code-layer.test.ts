@@ -491,6 +491,20 @@ describe("code-layer projection", () => {
     });
   });
 
+  it("projects attribute values decoded, so an image fill's style holds a real quoted url", () => {
+    const projection = buildCodeLayerProjection(
+      '<body><div data-agent-native-node-id="fill" data-note="A &amp; B" style="background-image: url(&quot;/api/qa-import-assets/a.png&quot;)"></div></body>',
+    );
+    const fill = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "fill",
+    );
+
+    expect(fill?.attributes.style).toBe(
+      'background-image: url("/api/qa-import-assets/a.png")',
+    );
+    expect(fill?.dataAttributes["data-note"]).toBe("A & B");
+  });
+
   it("marks component instance nodes with componentInstance metadata", () => {
     const html = `
       <section class="flex gap-4">
