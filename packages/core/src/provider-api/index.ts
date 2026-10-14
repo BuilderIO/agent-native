@@ -3210,8 +3210,14 @@ async function executeCustomProviderApiRequest(
       ),
     },
     response,
-    guidance:
+    guidance: [
       "This was a raw provider API request to a custom provider. Use provider docs URLs to choose endpoints.",
+      response.truncated
+        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
 }
 

@@ -847,6 +847,11 @@ async function callProvider(
       `Provider request failed (${status}): ${stringifyBrief(detail, 500)}`,
     );
   }
+  if (response.truncated === true) {
+    throw new Error(
+      `Provider response was cut at the response size limit, so this page is incomplete and would be recorded as empty. Lower the page size or fields, or add a filter in the job request.`,
+    );
+  }
   return {
     body:
       response.json ??

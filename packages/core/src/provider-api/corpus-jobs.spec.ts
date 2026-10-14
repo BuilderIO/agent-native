@@ -439,6 +439,34 @@ describe("provider corpus jobs", () => {
     expect(capped.nextAction).not.toContain("Read all stored hits");
   });
 
+  it("fails the job instead of recording a truncated page as an empty one", async () => {
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({
+        executeRequest: async () => ({
+          provider: { id: "fake" },
+          response: {
+            ok: true,
+            status: 200,
+            truncated: true,
+            text: '{"items":[{"id":"m1",',
+          },
+        }),
+      }),
+    });
+
+    const result = (await action.run({
+      operation: "start",
+      mode: "paginated-search",
+      request: { provider: "fake", path: "/messages" },
+      pagination: { itemsPath: "items", maxPages: 2 },
+      search: { query: "Figma MCP", textPaths: ["text"] },
+    })) as any;
+
+    expect(result.job.status).toBe("failed");
+    expect(result.error).toContain("cut at the response size limit");
+  });
+
   it("exposes read-only job status and results for UI surfaces", async () => {
     const action = createProviderCorpusJobAction({
       appId: "analytics",
