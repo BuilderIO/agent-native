@@ -193,10 +193,11 @@ function renderSidebar(
   forceOverlay = false,
   openOnChatRunning = false,
   storageKey?: string,
+  strictMode = false,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
-      root?.render(
+      const sidebar = (
         <MemoryRouter>
           <AgentSidebar
             defaultOpen={defaultOpen}
@@ -210,7 +211,10 @@ function renderSidebar(
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
-        </MemoryRouter>,
+        </MemoryRouter>
+      );
+      root?.render(
+        strictMode ? <React.StrictMode>{sidebar}</React.StrictMode> : sidebar,
       );
     });
   };
@@ -1921,6 +1925,188 @@ describe("AgentSidebar panel", () => {
       ).toBeTruthy();
       expect(container?.querySelector("textarea")).toBeNull();
     } finally {
+      await unmountSidebar();
+    }
+  });
+
+  it("keeps a manual close after a failed explicit-open storage write", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const failedWrite = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    const renderDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+
+    try {
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(failedWrite).toHaveBeenCalled();
+      expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+
+      failedWrite.mockRestore();
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+
+      await act(async () => {
+        window.history.pushState({}, "", window.location.href);
+      });
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+
+      await unmountSidebar();
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      try {
+        await act(async () => {});
+        expect(
+          container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+        ).toBeTruthy();
+        expect(container?.querySelector("textarea")).toBeNull();
+      } finally {
+        await unmountSidebar();
+      }
+    } finally {
+      failedWrite.mockRestore();
+    }
+  });
+
+  it("lets a user reopen after a denied close leaves a closed URL hint", async () => {
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const failedWrite = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    const renderDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+      );
+
+    try {
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+
+      failedWrite.mockRestore();
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:open"));
+      });
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="open"]'),
+      ).toBeTruthy();
+      expect(localStorage.getItem("agent-native.dispatch.sidebar-open")).toBe(
+        "true",
+      );
+
+      await unmountSidebar();
+      await act(async () => {
+        renderDispatchSidebar();
+      });
+      await act(async () => {});
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="open"]'),
+      ).toBeTruthy();
+    } finally {
+      failedWrite.mockRestore();
+      await unmountSidebar();
+    }
+  });
+
+  it("persists consecutive toggles once each under StrictMode", async () => {
+    const renderStrictDispatchSidebar = () =>
+      renderSidebar(
+        false,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        "dispatch",
+        true,
+      );
+    await act(async () => {
+      renderStrictDispatchSidebar();
+    });
+    const writePreference = vi.spyOn(window.localStorage, "setItem");
+
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:toggle"));
+        window.dispatchEvent(new CustomEvent("agent-panel:toggle"));
+      });
+
+      expect(
+        container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+      ).toBeTruthy();
+      expect(localStorage.getItem("agent-native.dispatch.sidebar-open")).toBe(
+        "false",
+      );
+      expect(writePreference).toHaveBeenCalledTimes(2);
+    } finally {
+      writePreference.mockRestore();
       await unmountSidebar();
     }
   });

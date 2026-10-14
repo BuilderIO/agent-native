@@ -129,6 +129,31 @@ function writeAgentSidebarOpenPreference(
   }
 }
 
+function replaceAgentSidebarUrlOpenOverride(open: boolean | null): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const url = new URL(window.location.href);
+    if (open === null) {
+      url.searchParams.delete(AGENT_SIDEBAR_QUERY_PARAM);
+    } else {
+      url.searchParams.set(
+        AGENT_SIDEBAR_QUERY_PARAM,
+        open
+          ? AGENT_SIDEBAR_QUERY_VALUE_OPEN
+          : AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+      );
+    }
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl === currentUrl) return true;
+    window.history.replaceState(window.history.state, "", nextUrl);
+    return true;
+  } catch {
+    // coercion-ok: false tells the caller the URL intent could not be updated.
+    return false;
+  }
+}
+
 export function dispatchAgentSidebarStateChange(
   detail: AgentSidebarStateChangeDetail,
 ): void {
@@ -145,11 +170,23 @@ export function setAgentSidebarOpenPreference(
   storageKey?: string | null,
 ): boolean {
   if (typeof window === "undefined") return false;
-  const sessionIntentCleared = open
-    ? true
-    : setExplicitUrlOpenSessionIntent(false, storageKey);
+  const urlOverride = getAgentSidebarUrlOpenOverride();
+  const sessionIntentSaved =
+    urlOverride !== null || !open
+      ? setExplicitUrlOpenSessionIntent(open, storageKey)
+      : true;
   const preferenceSaved = writeAgentSidebarOpenPreference(open, storageKey);
-  return sessionIntentCleared && preferenceSaved;
+  const storageSaved = sessionIntentSaved && preferenceSaved;
+  if (urlOverride !== null) {
+    let urlOverrideSaved = replaceAgentSidebarUrlOpenOverride(
+      storageSaved ? null : open,
+    );
+    if (storageSaved && !urlOverrideSaved) {
+      urlOverrideSaved = replaceAgentSidebarUrlOpenOverride(open);
+    }
+    return storageSaved && urlOverrideSaved;
+  }
+  return storageSaved;
 }
 
 export function requestAgentSidebarOpen(): void {

@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": patch
+"@agent-native/toolkit": patch
 ---
 
-Keep explicit sidebar URL-open intent across remounts in the current browser session.
+Keep explicit sidebar URL intent reliable across remounts and manual closes.

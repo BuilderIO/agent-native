@@ -344,6 +344,98 @@ describe("getInitialAgentSidebarOpen", () => {
     window.history.replaceState(null, "", "/overview");
     expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
   });
+
+  it("lets a user close an open URL hint whose storage write failed", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+
+    const seenOverrides: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seenOverrides.push(consumeAgentSidebarUrlOpenOverride("dispatch"));
+    });
+    try {
+      expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(true);
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+
+      window.history.pushState(null, "", "/overview?keep=2#section");
+    } finally {
+      unsubscribe();
+    }
+
+    expect(seenOverrides).toEqual([null, null]);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("keeps a closed URL hint when a user close cannot be persisted", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+
+    vi.spyOn(window.sessionStorage, "removeItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("local storage write denied");
+    });
+
+    expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(false);
+    expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+    expect(window.location.hash).toBe("#section");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(false);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("lets a user reopen after a failed close replaced a stale open URL hint", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const localStorageWrite = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    const seenOverrides: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seenOverrides.push(consumeAgentSidebarUrlOpenOverride("dispatch"));
+    });
+    try {
+      expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+      expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+
+      expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(false);
+      expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+      expect(seenOverrides).toEqual([false]);
+
+      localStorageWrite.mockRestore();
+      expect(setAgentSidebarOpenPreference(true, "dispatch")).toBe(true);
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(seenOverrides).toEqual([false, null]);
+      expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+    } finally {
+      unsubscribe();
+      localStorageWrite.mockRestore();
+    }
+  });
 });
 
 describe("dispatchAgentSidebarStateChange", () => {
