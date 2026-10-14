@@ -186,7 +186,7 @@ describe("Analytics direct MCP tools", () => {
       expect(actions[name].mcpTool, name).not.toBe(true);
     }
     for (const [name, action] of Object.entries(actions)) {
-      if (/^(seed|ensure|purge)-/.test(name)) {
+      if (/^(seed|ensure|migrate|purge)-/.test(name)) {
         expect(action.mcpTool, name).not.toBe(true);
       }
     }
