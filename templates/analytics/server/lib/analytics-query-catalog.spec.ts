@@ -1347,6 +1347,17 @@ describe("analytics query catalog", () => {
       dashboards: [],
       dictionaryEntries: [
         {
+          id: "historical-workspace-membership-snapshot",
+          metric: "Historical workspace user membership snapshot",
+          definition:
+            "Monthly snapshots of workspace users and memberships as of each month end.",
+          table: "workspace_membership_monthly_snapshot",
+          columnsUsed: "user_id, workspace_id, role, snapshot_month",
+          grain: "One row per user-workspace membership per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
           id: "approved-monthly-workspace-user-count",
           metric: "Monthly workspace user count",
           definition: "Month-end count of users by workspace.",
@@ -1370,12 +1381,50 @@ describe("analytics query catalog", () => {
     });
 
     expect(results[0]).toMatchObject({
-      id: "workspace-membership-bridge",
-      table: "workspace_member_role_bridge",
+      id: "historical-workspace-membership-snapshot",
+      table: "workspace_membership_monthly_snapshot",
     });
+    expect(results).not.toContainEqual(
+      expect.objectContaining({ id: "workspace-membership-bridge" }),
+    );
     expect(results).not.toContainEqual(
       expect.objectContaining({ id: "approved-monthly-workspace-user-count" }),
     );
+  });
+
+  it("keeps a membership growth query on its monthly aggregate source", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace membership growth over the last 12 months",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "monthly-workspace-membership-growth",
+          metric: "Monthly workspace membership growth",
+          definition: "Month-over-month change in workspace member counts.",
+          table: "monthly_workspace_membership_counts",
+          columnsUsed: "workspace_id, month, member_count, member_growth",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "workspace-membership-bridge",
+          metric: "Workspace membership bridge",
+          definition: "One row per user-workspace membership.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "monthly-workspace-membership-growth",
+      table: "monthly_workspace_membership_counts",
+    });
   });
 
   it("keeps active membership aggregates eligible for unqualified aggregate searches", () => {
@@ -1876,7 +1925,7 @@ describe("analytics query catalog", () => {
               {
                 id: "role-counts",
                 title: "Users by role",
-                sql: "SELECT workspace_id, user_id, role, COUNT(*) AS member_count FROM memberships GROUP BY workspace_id, user_id, role",
+                sql: "SELECT workspace_id, COUNT(DISTINCT user_id) AS member_count FROM memberships GROUP BY workspace_id",
               },
             ],
           },
@@ -1885,6 +1934,36 @@ describe("analytics query catalog", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("keeps grouped dashboard panels whose output remains one row per member", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-role-deduplicated",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-roster",
+                title: "Users by role",
+                sql: "SELECT workspace_id, user_id, role, COUNT(*) AS duplicate_rows FROM workspace_memberships GROUP BY workspace_id, user_id, role",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "workspace-role-deduplicated",
+      panelId: "role-roster",
+    });
   });
 
   it("uses a dashboard panel with normalized membership keys as a role roster", () => {

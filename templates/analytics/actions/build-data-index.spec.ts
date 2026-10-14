@@ -232,11 +232,19 @@ describe("build-data-index", () => {
     await action.run({ trigger: "manual" });
 
     const stored = mocks.putOrgSetting.mock.calls[0]?.[2];
+    expect(stored.sources).toContainEqual({
+      id: "builder-internal",
+      revision: "e".repeat(40),
+    });
+    expect(stored.sources).toContainEqual({
+      id: "analytics-sigma",
+      contentFingerprint: "f".repeat(64),
+    });
     expect(stored).toMatchObject({
       generatedAt: "2026-10-12T00:00:00.000Z",
       sources: [
-        { id: "builder-internal", generatedAt: "2026-10-01T00:00:00.000Z" },
-        { id: "analytics-sigma", generatedAt: "2026-10-01T00:00:00.000Z" },
+        { id: "builder-internal" },
+        { id: "analytics-sigma" },
         { id: "analytics-dbt", revision: SHA, generatedAt: bundle.generatedAt },
       ],
       entries: [

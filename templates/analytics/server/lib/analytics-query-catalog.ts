@@ -314,9 +314,16 @@ function isMembershipRosterRequest(search: string): boolean {
   return inferSemanticScope(search) === "membership_roster";
 }
 
+function requestedTemporalUnit(search: string): string | null {
+  const match = search.match(
+    /\b(?:last|past|previous|prior|this|current|next|since|before|after)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?(day|week|month|quarter|year)s?\b/i,
+  );
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
 function isAggregateRequest(search: string): boolean {
   const asksForAggregation =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by)\b/i.test(
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trends?|rate|percentage|share|distribution|breakdowns?|split\s+by|growth|grow(?:s|n|ing)?|grew|increases?|increased|decreases?|decreased|declines?|declined|changes?|changed|variance|delta)\b|\b(?:month|year)[- ]over[- ](?:month|year)\b|\bover time\b/i.test(
       search,
     );
   const asksForTemporalGrouping =
@@ -325,10 +332,7 @@ function isAggregateRequest(search: string): boolean {
     );
   const recurringCadence =
     /\b(?:daily|weekly|monthly|quarterly|yearly)\b/i.test(search);
-  const explicitTimeConstraint =
-    /\b(?:last|past|previous|prior|this|current|next|since|before|after)\s+(?:day|week|month|quarter|year)\b/i.test(
-      search,
-    );
+  const explicitTimeConstraint = requestedTemporalUnit(search) !== null;
   return (
     asksForAggregation ||
     asksForTemporalGrouping ||
@@ -409,6 +413,15 @@ function hasTemporalMembershipSnapshotShape(
 function hasDeclaredRowLevelMembershipGrain(
   candidate: AnalyticsQueryCatalogCandidate,
 ) {
+  return (
+    hasDeclaredMembershipRowGrain(candidate) &&
+    !hasTemporalMembershipSnapshotShape(candidate)
+  );
+}
+
+function hasDeclaredMembershipRowGrain(
+  candidate: AnalyticsQueryCatalogCandidate,
+) {
   if (candidate.kind !== "data-dictionary" || !candidate.grain?.trim()) {
     return false;
   }
@@ -416,8 +429,54 @@ function hasDeclaredRowLevelMembershipGrain(
   return (
     /\b(?:one|single)\s+row\s+per\b/.test(declaredShape) &&
     /\b(?:users?|people|persons?|members?)\b/.test(declaredShape) &&
-    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(declaredShape) &&
+    /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(declaredShape)
+  );
+}
+
+function hasMatchingHistoricalMembershipSnapshot(
+  candidate: AnalyticsQueryCatalogCandidate,
+  search: string,
+) {
+  const requestedScope = requestedSemanticScope(search);
+  const requestedUnit = requestedTemporalUnit(search);
+  if (
+    candidate.kind !== "data-dictionary" ||
+    !["membership", "membership_roster"].includes(requestedScope) ||
+    !requestedUnit ||
+    !hasDeclaredMembershipRowGrain(candidate) ||
     !hasTemporalMembershipSnapshotShape(candidate)
+  ) {
+    return false;
+  }
+
+  const temporalDescriptor = [
+    candidate.metric,
+    candidate.table,
+    candidate.columnsUsed,
+    candidate.grain,
+    candidate.definition,
+    candidate.primaryEntity,
+    candidate.semanticModel,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  const unitPattern: Record<string, RegExp> = {
+    day: /\b(?:day|daily)\b/,
+    week: /\b(?:week|weekly)\b/,
+    month: /\b(?:month|monthly)\b/,
+    quarter: /\b(?:quarter|quarterly)\b/,
+    year: /\b(?:year|yearly|annual)\b/,
+  };
+  return unitPattern[requestedUnit]?.test(temporalDescriptor) ?? false;
+}
+
+function isHistoricalMembershipRequest(search: string) {
+  return (
+    !isAggregateRequest(search) &&
+    requestedTemporalUnit(search) !== null &&
+    ["membership", "membership_roster"].includes(requestedSemanticScope(search))
   );
 }
 
@@ -586,7 +645,7 @@ function hasMembershipRosterEvidence(
     const hasUserKey = hasMembershipIdentityKey(queryText);
     const hasOrganizationKey = hasOrganizationIdentityKey(queryText);
     return (
-      !hasAggregateShape(candidate) &&
+      hasRowLevelDashboardMembershipOutput(candidate) &&
       hasUserKey &&
       hasOrganizationKey &&
       hasMembershipRelationEvidence(queryText)
@@ -623,6 +682,34 @@ function dashboardQueryText(
     : JSON.stringify(candidate.query ?? "")
         .toLowerCase()
         .replace(/[_-]+/g, " ");
+}
+
+function hasRowLevelDashboardMembershipOutput(
+  candidate: Extract<
+    AnalyticsQueryCatalogCandidate,
+    { kind: "dashboard-panel" }
+  >,
+) {
+  if (typeof candidate.query !== "string") return false;
+  const select = candidate.query.match(/\bselect\b([\s\S]*?)\bfrom\b/i)?.[1];
+  if (!select) return false;
+  const normalizedSelect = select.toLowerCase().replace(/[_-]+/g, " ");
+  if (
+    !hasMembershipIdentityKey(normalizedSelect) ||
+    !hasOrganizationIdentityKey(normalizedSelect)
+  ) {
+    return false;
+  }
+
+  const groupBy = candidate.query.match(
+    /\bgroup\s+by\b([\s\S]*?)(?:\border\s+by\b|\bhaving\b|\bqualify\b|\blimit\b|$)/i,
+  )?.[1];
+  if (!groupBy) return !hasAggregateShape(candidate);
+  const normalizedGroupBy = groupBy.toLowerCase().replace(/[_-]+/g, " ");
+  return (
+    hasMembershipIdentityKey(normalizedGroupBy) &&
+    hasOrganizationIdentityKey(normalizedGroupBy)
+  );
 }
 
 function hasMembershipRelationEvidence(value: string): boolean {
@@ -818,14 +905,14 @@ function rosterCandidateSupportsRequestedDetail(
     return false;
   }
   const requestsRoleDetail = requestsMembershipRoleDetail(search);
+  const hasRosterEvidence =
+    hasMembershipRosterEvidence(candidate) ||
+    hasMatchingHistoricalMembershipSnapshot(candidate, search);
   if (requestsRoleDetail) {
-    return (
-      hasMembershipRosterEvidence(candidate) &&
-      hasMembershipRoleField(candidate)
-    );
+    return hasRosterEvidence && hasMembershipRoleField(candidate);
   }
   if (isRosterDimensionCandidate(candidate)) return true;
-  return hasMembershipRosterEvidence(candidate);
+  return hasRosterEvidence;
 }
 
 export function candidateSemanticScope(
@@ -1271,6 +1358,8 @@ export function candidateQueryPriority(
   const aggregateRequest = isAggregateRequest(rankingIntent);
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
+  const historicalMembershipRequest =
+    isHistoricalMembershipRequest(rankingIntent);
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const requestedActiveMembers =
@@ -1279,11 +1368,14 @@ export function candidateQueryPriority(
     requestsActiveMembers(rankingIntent);
   const requestedTerms = new Set(searchTerms(rankingIntent));
   const staleSourceIndex = isStaleGeneratedSourceIndexEntry(candidate);
+  const hasRosterEvidence =
+    hasMembershipRosterEvidence(candidate) ||
+    hasMatchingHistoricalMembershipSnapshot(candidate, rankingIntent);
 
   return {
     rosterSpecificity:
       !staleSourceIndex && rosterRequest
-        ? hasMembershipRosterEvidence(candidate) &&
+        ? hasRosterEvidence &&
           (!requestsRoleDetail || hasMembershipRoleField(candidate))
           ? 2
           : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
@@ -1292,8 +1384,8 @@ export function candidateQueryPriority(
         : 0,
     membershipRowSpecificity:
       !staleSourceIndex &&
-      plainMembershipRequest &&
-      hasMembershipRosterEvidence(candidate)
+      (plainMembershipRequest || historicalMembershipRequest) &&
+      hasRosterEvidence
         ? 1
         : 0,
     rankingTier: candidateQueryRankingTierForTerms(candidate, requestedTerms),
@@ -1364,7 +1456,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const aggregateRequest = isAggregateRequest(rankingIntent);
   const plainMembershipRequest =
     requestedScope === "membership" && !aggregateRequest;
-  const aggregateMembershipIsNotRelevant = plainMembershipRequest;
+  const historicalMembershipRequest =
+    isHistoricalMembershipRequest(rankingIntent);
+  const aggregateMembershipIsNotRelevant =
+    plainMembershipRequest || historicalMembershipRequest;
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
@@ -1389,13 +1484,22 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const eligibleCandidates = rankedCandidates.filter(
     ({ candidate }) =>
       !(
+        historicalMembershipRequest &&
+        !hasMatchingHistoricalMembershipSnapshot(candidate, rankingIntent)
+      ) &&
+      !(
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
       ) &&
       !(
         aggregateMembershipIsNotRelevant &&
         hasAggregateShape(candidate) &&
-        !hasDeclaredRowLevelMembershipGrain(candidate)
+        !hasDeclaredRowLevelMembershipGrain(candidate) &&
+        !hasMatchingHistoricalMembershipSnapshot(candidate, rankingIntent) &&
+        !(
+          candidate.kind === "dashboard-panel" &&
+          hasRowLevelDashboardMembershipOutput(candidate)
+        )
       ) &&
       !(
         excludesMembershipForActivity &&
