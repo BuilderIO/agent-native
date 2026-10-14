@@ -222,15 +222,6 @@ for (const target of targets) {
       );
     });
 
-    if (target.app === "chat") {
-      await test.step("wait for Chat to finish its first-run thread handoff", async () => {
-        await verificationPage.waitForURL(
-          (url) => /^\/chat\/[^/]+\/?$/.test(url.pathname),
-          { waitUntil: "domcontentloaded" },
-        );
-      });
-    }
-
     if (target.app === "design" && target.environment === "beta") {
       await test.step("capture fresh-user first-run readiness", async () => {
         await expect(

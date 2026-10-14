@@ -2050,6 +2050,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
