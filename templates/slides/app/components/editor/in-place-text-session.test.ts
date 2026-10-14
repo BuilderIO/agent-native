@@ -2218,6 +2218,24 @@ describe("in-place text session: deleting", () => {
     }
   });
 
+  it.each([
+    ["h2", "<h2>Heading</h2>", "Heading"],
+    ["blockquote", "<blockquote><p>Quoted</p></blockquote>", "Quoted"],
+  ])(
+    "demotes a %s at the caret on Backspace when the browser omits beforeinput",
+    (tag, content, text) => {
+      const el = mount(`<div id="t">${content}</div>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, text), 0);
+
+      const event = key(el, { key: "Backspace" });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(el.querySelector(tag)).toBeNull();
+      expect(el.textContent).toBe(text);
+    },
+  );
+
   it("makes a paragraph after a heading when Enter is at its end", () => {
     const el = mount('<div id="t"><h2>Heading</h2></div>');
     session = startInPlaceTextSession(el);

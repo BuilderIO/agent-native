@@ -2697,6 +2697,26 @@ export function startInPlaceTextSession(
     );
   }
 
+  function backwardDemotionBlock(caret: Range) {
+    let blockquote: HTMLElement | null = null;
+    for (
+      let current =
+        caret.startContainer instanceof HTMLElement
+          ? caret.startContainer
+          : caret.startContainer.parentElement;
+      current && current !== el && el.contains(current);
+      current = current.parentElement
+    ) {
+      if (current.tagName === "BLOCKQUOTE") {
+        blockquote = current;
+        break;
+      }
+    }
+    if (el.tagName === "BLOCKQUOTE") blockquote = el;
+    const block = nearestBlock(caret.startContainer, el);
+    return blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
+  }
+
   function previousTextBlock(block: HTMLElement): HTMLElement | null {
     const previous = block.previousElementSibling;
     if (!(previous instanceof HTMLElement)) return null;
@@ -2851,24 +2871,8 @@ export function startInPlaceTextSession(
         caret = selectionRange() ?? caret;
       }
     }
-    let blockquote: HTMLElement | null = null;
-    for (
-      let current =
-        caret.startContainer instanceof HTMLElement
-          ? caret.startContainer
-          : caret.startContainer.parentElement;
-      current && current !== el && el.contains(current);
-      current = current.parentElement
-    ) {
-      if (current.tagName === "BLOCKQUOTE") {
-        blockquote = current;
-        break;
-      }
-    }
-    if (el.tagName === "BLOCKQUOTE") blockquote = el;
     const block = nearestBlock(caret.startContainer, el);
-    const demote =
-      blockquote ?? (/^H[1-6]$/.test(block.tagName) ? block : null);
+    const demote = backwardDemotionBlock(caret);
     if (demote && paragraphBefore(caret, demote)) {
       if (demote.tagName === "BLOCKQUOTE") plainifyQuote(demote);
       else if (demote === el)
@@ -5268,6 +5272,15 @@ export function startInPlaceTextSession(
 
   function onKeyDown(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Backspace") {
+      const range = selectionRange();
+      const demote = range?.collapsed ? backwardDemotionBlock(range) : null;
+      if (range && demote && paragraphBefore(range, demote)) {
+        event.preventDefault();
+        edit("delete", () => deleteAtBlockEdge(range, "backward"));
+        return;
+      }
+    }
     if (
       event.key === "Enter" &&
       event.shiftKey &&
