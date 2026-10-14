@@ -2316,6 +2316,16 @@ export function serializeDurableDispatchPayload(
   return payload;
 }
 
+function approvedInputRequiresForeground(input: unknown): boolean {
+  const originalPayload = JSON.stringify({ input });
+  try {
+    return serializeDurableDispatchPayload({ input }) !== originalPayload;
+  } catch (error) {
+    if (error instanceof DurableAttachmentReferenceRequiredError) return true;
+    throw error;
+  }
+}
+
 function toolInputActivityLabel(toolName?: string): string {
   return toolName ? `Preparing ${toolName} action` : "Preparing action input";
 }
@@ -11051,9 +11061,7 @@ export function createProductionAgentHandler(
       };
     }
     if (dispatchToBackground && exactApprovedToolCall) {
-      const { containsInlineAttachmentPayload } =
-        await import("./thread-data-builder.js");
-      if (containsInlineAttachmentPayload(exactApprovedToolCall.input)) {
+      if (approvedInputRequiresForeground(exactApprovedToolCall.input)) {
         // The dispatch payload must not persist raw bytes; execute while this request still has them.
         dispatchToBackground = false;
       }
