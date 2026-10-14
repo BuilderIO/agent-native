@@ -890,31 +890,48 @@ async function settle(page: Page) {
     };
     const usedFontSpecs = () => {
       const specs = new Map<string, { font: string; text: string }>();
-      for (const element of Array.from(
+      for (const block of Array.from(
         document.querySelectorAll<HTMLElement>(
           '[data-main-slide-canvas="true"] [data-slide-text-block="true"]',
         ),
       )) {
-        const rect = element.getBoundingClientRect();
+        const rect = block.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) continue;
-        const style = getComputedStyle(element);
-        // `FontFaceSet.load` accepts stretch keywords, not computed percentages.
-        const font = [
-          style.fontStyle === "normal" ? "" : style.fontStyle,
-          style.fontVariant === "normal" ? "" : style.fontVariant,
-          style.fontWeight === "400" ? "" : style.fontWeight,
-          fontStretchToken(style.fontStretch),
-          style.fontSize,
-          style.fontFamily,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        const text = element.textContent?.trim() || "Slides";
-        const existing = specs.get(font);
-        specs.set(font, {
-          font,
-          text: existing ? `${existing.text} ${text}` : text,
-        });
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const textNode = node as Text;
+          const text = textNode.data;
+          const element = textNode.parentElement;
+          if (!element || !text.trim()) continue;
+          const style = getComputedStyle(element);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.visibility === "collapse"
+          ) {
+            continue;
+          }
+          const range = document.createRange();
+          range.selectNodeContents(textNode);
+          const textRect = range.getBoundingClientRect();
+          if (textRect.width <= 0 || textRect.height <= 0) continue;
+          // `FontFaceSet.load` accepts stretch keywords, not computed percentages.
+          const font = [
+            style.fontStyle === "normal" ? "" : style.fontStyle,
+            style.fontVariant === "normal" ? "" : style.fontVariant,
+            style.fontWeight === "400" ? "" : style.fontWeight,
+            fontStretchToken(style.fontStretch),
+            style.fontSize,
+            style.fontFamily,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const existing = specs.get(font);
+          specs.set(font, {
+            font,
+            text: existing ? `${existing.text} ${text}` : text,
+          });
+        }
       }
       return Array.from(specs, ([key, spec]) => ({ ...spec, key }));
     };
@@ -927,7 +944,24 @@ async function settle(page: Page) {
       }
     >();
     const failedFonts: string[] = [];
+    let stylesheetSignature = "";
+    const currentStylesheetSignature = () =>
+      Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      )
+        .map(
+          (link) =>
+            `${link.href}:${link.sheet ? "loaded" : "pending"}:${link.dataset.editFidelityLoadError ?? ""}`,
+        )
+        .sort()
+        .join("\n");
     const requestUsedFonts = () => {
+      const signature = currentStylesheetSignature();
+      if (signature !== stylesheetSignature) {
+        fontRequests.clear();
+        failedFonts.length = 0;
+        stylesheetSignature = signature;
+      }
       for (const spec of usedFontSpecs()) {
         if (fontRequests.has(spec.key)) continue;
         const request: {
@@ -948,6 +982,16 @@ async function settle(page: Page) {
         fontRequests.set(spec.key, request);
       }
     };
+    const waitForStylesheet = (link: HTMLLinkElement) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          link.removeEventListener("load", finish);
+          link.removeEventListener("error", finish);
+          resolve();
+        };
+        link.addEventListener("load", finish, { once: true });
+        link.addEventListener("error", finish, { once: true });
+      });
     const currentState = (settled: boolean) => {
       const stylesheets = stylesheetState();
       return {
@@ -975,19 +1019,22 @@ async function settle(page: Page) {
     await frame();
     let ready = false;
     for (let i = 0; i < 20; i++) {
-      requestUsedFonts();
+      let stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) return currentState(false);
+      if (stylesheets.pending.length === 0) requestUsedFonts();
       await Promise.race([
-        Promise.all(
-          [...fontRequests.values()].map((request) => request.promise),
-        ),
+        Promise.all([
+          ...[...fontRequests.values()].map((request) => request.promise),
+          ...stylesheets.pending.map(waitForStylesheet),
+        ]),
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
-      const stylesheets = stylesheetState();
-      if (stylesheets.failed.length > 0 || failedFonts.length > 0) {
-        return currentState(false);
-      }
+      stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) return currentState(false);
+      if (stylesheets.pending.length > 0) continue;
       requestUsedFonts();
+      if (failedFonts.length > 0) return currentState(false);
       const fontsReady = usedFontSpecs().every(
         (spec) => fontRequests.get(spec.key)?.status === "loaded",
       );
