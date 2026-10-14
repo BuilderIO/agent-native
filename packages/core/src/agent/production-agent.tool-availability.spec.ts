@@ -14,7 +14,10 @@ import {
   type ActionEntry,
   type AgentApprovalBinding,
 } from "./production-agent.js";
-import { attachToolSearch } from "./tool-search.js";
+import {
+  attachToolSearch,
+  filterActionsForAgentDiscovery,
+} from "./tool-search.js";
 import type { AgentChatEvent } from "./types.js";
 
 // A run resolves the caller's current tools, so tools the conversation used or
@@ -237,6 +240,22 @@ describe("a durable continuation whose pinned tool was removed", () => {
   it("stops when the approved call's tool is a placeholder", async () => {
     const { seen, events } = await run({
       registry: pinned(),
+      turns: [
+        [callTo("editor-format")],
+        [{ type: "text", text: "improvised" }],
+      ],
+      approvedToolCalls: [toolCallCacheKey("editor-format", {})],
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "error", errorCode: "tool_unavailable" }),
+    );
+    expect(seen).toHaveLength(1);
+  });
+
+  it("still treats the placeholder as gone after discovery filtering copies it", async () => {
+    const { seen, events } = await run({
+      registry: await filterActionsForAgentDiscovery(pinned()),
       turns: [
         [callTo("editor-format")],
         [{ type: "text", text: "improvised" }],

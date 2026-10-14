@@ -10,6 +10,7 @@ import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_POLICY_AWAITING_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
   AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL,
@@ -68,6 +69,11 @@ export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
         "agent_tool_approval_policies",
         "tool_revision",
         AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
+      );
+      await ensureColumnExists(
+        "agent_tool_approval_policies",
+        "awaiting_revision",
+        AGENT_TOOL_APPROVAL_POLICY_AWAITING_COLUMN_SQL,
       );
       await ensureIndexExists(
         "idx_agent_tool_approval_policies_scope",
@@ -132,13 +138,11 @@ function approvalPolicyId(binding: AgentToolApprovalPolicyBinding): string {
 }
 
 /**
- * Saves "always allow" for one tool name. The grant covers the revision the
- * caller was asked to approve under that name, read from the server's own
- * pending approvals rather than from the client, so it never covers a revision
- * the user was not shown. When the caller has pending approvals for different
- * revisions, the client's tool name cannot say which card was clicked, so the
- * grant is refused. With no pending approval it covers only an entry without
- * a revision.
+ * Saves "always allow" for one tool name. The client names only the tool, not
+ * the card that was clicked, so the grant starts out covering only an entry
+ * without a revision. The next approval the server consumes for that tool,
+ * the one the user just approved, binds the grant to that call's revision, so
+ * it never covers a revision the user was not shown.
  */
 export async function setAgentToolApprovalPolicy(input: {
   binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">;
@@ -146,17 +150,16 @@ export async function setAgentToolApprovalPolicy(input: {
 }): Promise<void> {
   const binding = normalizeApprovalPolicyBinding(input.binding);
   await ensureAgentToolApprovalPolicyTable();
-  const toolRevision = input.enabled
-    ? await readPendingApprovalRevision(binding)
-    : null;
   const now = Date.now();
   const id = approvalPolicyId(binding);
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approval_policies
-      (id, owner_email, org_id, tool_name, tool_revision, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (id, owner_email, org_id, tool_name, tool_revision, awaiting_revision,
+       enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        tool_revision = excluded.tool_revision,
+        tool_revision = NULL,
+        awaiting_revision = excluded.awaiting_revision,
         enabled = excluded.enabled,
         updated_at = excluded.updated_at`,
     args: [
@@ -164,51 +167,12 @@ export async function setAgentToolApprovalPolicy(input: {
       binding.ownerEmail,
       binding.orgId,
       binding.toolName,
-      toolRevision,
+      input.enabled,
       input.enabled,
       now,
       now,
     ],
   });
-}
-
-export class AmbiguousToolApprovalRevisionError extends Error {
-  constructor(toolName: string) {
-    super(
-      `Several calls to ${toolName} are waiting for approval for different versions of it. Approve them one at a time instead.`,
-    );
-    this.name = "AmbiguousToolApprovalRevisionError";
-  }
-}
-
-async function readPendingApprovalRevision(
-  binding: AgentToolApprovalPolicyBinding,
-): Promise<string | null> {
-  await ensureAgentToolApprovalTable();
-  // Expired rows count too: the card the user clicked may be past its TTL
-  // while another thread's newer approval for the same name is not.
-  const result = await getDbExec().execute({
-    sql: `SELECT DISTINCT tool_revision FROM agent_tool_approvals
-      WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND tool_name = ?
-        AND status = 'pending'
-        AND created_at > ?
-      LIMIT 2`,
-    args: [
-      binding.ownerEmail,
-      binding.orgId,
-      binding.orgId,
-      binding.toolName,
-      Date.now() - APPROVAL_CLEANUP_AGE_MS,
-    ],
-  });
-  const rows = (result.rows ?? []) as Array<{ tool_revision?: unknown }>;
-  if (rows.length > 1) {
-    throw new AmbiguousToolApprovalRevisionError(binding.toolName);
-  }
-  const value = rows[0]?.tool_revision;
-  return typeof value === "string" ? value : null;
 }
 
 export async function isAgentToolAlwaysAllowed(
@@ -286,7 +250,8 @@ export async function resolveAgentToolApprovalTurnId(binding: {
 /**
  * The tool names of the caller's pending approvals in this thread that match
  * the client's approved keys, for checking that each approved tool still
- * exists before the model is told the approval went through.
+ * exists before the model is told the approval went through. Expired rows are
+ * included: this identifies what was approved and authorizes nothing.
  */
 export async function listPendingAgentToolApprovalToolNames(binding: {
   ownerEmail: string;
@@ -305,15 +270,13 @@ export async function listPendingAgentToolApprovalToolNames(binding: {
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
         AND thread_id = ?
         AND approval_key_hash IN (${placeholders})
-        AND status = 'pending'
-        AND expires_at > ?`,
+        AND status = 'pending'`,
     args: [
       binding.ownerEmail,
       binding.orgId ?? null,
       binding.orgId ?? null,
       binding.threadId,
       ...hashes,
-      Date.now(),
     ],
   });
   return (result.rows ?? []).flatMap((row: unknown) => {
@@ -414,5 +377,31 @@ export async function consumeAgentToolApproval(
       now,
     ],
   });
-  return result.rowsAffected === 1;
+  if (result.rowsAffected !== 1) return false;
+  await bindAwaitingApprovalPolicy(binding, now);
+  return true;
+}
+
+async function bindAwaitingApprovalPolicy(
+  binding: AgentToolApprovalBinding,
+  now: number,
+): Promise<void> {
+  await ensureAgentToolApprovalPolicyTable();
+  await getDbExec().execute({
+    sql: `UPDATE agent_tool_approval_policies
+      SET tool_revision = ?, awaiting_revision = FALSE, updated_at = ?
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND tool_name = ?
+        AND enabled = TRUE
+        AND awaiting_revision = TRUE`,
+    args: [
+      binding.toolRevision ?? null,
+      now,
+      binding.ownerEmail,
+      binding.orgId ?? null,
+      binding.orgId ?? null,
+      binding.toolName,
+    ],
+  });
 }

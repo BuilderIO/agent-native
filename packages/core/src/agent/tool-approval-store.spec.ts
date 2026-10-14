@@ -122,7 +122,8 @@ describe("agent tool approval store", () => {
         await import("./tool-approval-store.js");
 
       await expect(consumeAgentToolApproval(binding)).resolves.toBe(expected);
-      expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect(dbMocks.execute).toHaveBeenNthCalledWith(
+        1,
         expect.objectContaining({
           sql: expect.stringMatching(
             /status = 'pending'[\s\S]*expires_at > \?/,
@@ -134,7 +135,7 @@ describe("agent tool approval store", () => {
           ]),
         }),
       );
-      const consumeQuery = dbMocks.execute.mock.calls.at(-1)?.[0] as {
+      const consumeQuery = dbMocks.execute.mock.calls[0]?.[0] as {
         sql: string;
         args: unknown[];
       };
@@ -157,7 +158,6 @@ describe("agent tool approval store", () => {
 
   it("stores and reads an action-type policy in the owner/org scope", async () => {
     dbMocks.execute
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [{ allowed: 1 }], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
@@ -187,7 +187,7 @@ describe("agent tool approval store", () => {
       }),
     ).resolves.toBe(false);
 
-    const policyRead = dbMocks.execute.mock.calls[2]?.[0] as {
+    const policyRead = dbMocks.execute.mock.calls[1]?.[0] as {
       sql: string;
       args: unknown[];
     };

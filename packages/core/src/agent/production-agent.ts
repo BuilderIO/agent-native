@@ -1403,22 +1403,26 @@ function readPersistedAdditionalActionNames(
   return names;
 }
 
+// Marks the placeholders that keep a removed name in a pinned turn's registry,
+// so the agent loop treats them as absent: same gone-tool error and stop. A
+// symbol key, not object identity, because registries copy entries by spread.
+const UNAVAILABLE_ACTION = Symbol("agent-native.unavailableAction");
+
+export function isUnavailableActionEntry(
+  entry: ActionEntry | undefined,
+): boolean {
+  return (
+    entry !== undefined &&
+    (entry as { [UNAVAILABLE_ACTION]?: true })[UNAVAILABLE_ACTION] === true
+  );
+}
+
 /**
  * A durable continuation re-resolves the caller's additional actions, which
  * may have changed since the turn started. Keep the turn's names: drop entries
  * that appeared since, and keep a vanished name as an entry that fails loudly
  * when called, so a persisted action allowlist that names it still resolves.
  */
-// Placeholders that keep a removed name in a pinned turn's registry. The agent
-// loop treats them as absent, so they get the same gone-tool error and stop.
-const unavailableActionEntries = new WeakSet<ActionEntry>();
-
-export function isUnavailableActionEntry(
-  entry: ActionEntry | undefined,
-): boolean {
-  return entry !== undefined && unavailableActionEntries.has(entry);
-}
-
 export function pinAdditionalActionsToTurn(
   resolved: Record<string, ActionEntry>,
   turnNames: readonly string[],
@@ -1429,7 +1433,8 @@ export function pinAdditionalActionsToTurn(
       pinned[name] = resolved[name];
       continue;
     }
-    const placeholder: ActionEntry = {
+    pinned[name] = {
+      [UNAVAILABLE_ACTION]: true,
       tool: {
         description: `${name} is no longer available to this caller.`,
         parameters: { type: "object", properties: {} },
@@ -1440,9 +1445,7 @@ export function pinAdditionalActionsToTurn(
           `${name} is no longer available to this caller; it was removed after this turn started.`,
         );
       },
-    };
-    unavailableActionEntries.add(placeholder);
-    pinned[name] = placeholder;
+    } as ActionEntry;
   }
   return pinned;
 }

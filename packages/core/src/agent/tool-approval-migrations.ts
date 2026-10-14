@@ -50,6 +50,10 @@ export const AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL = `ALTER TABLE agent_tool_a
 
 export const AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL = `ALTER TABLE agent_tool_approval_policies ADD COLUMN IF NOT EXISTS tool_revision TEXT`;
 
+// TRUE from an "always allow" click until the next consumed approval for that
+// tool binds the grant to the revision the user approved.
+export const AGENT_TOOL_APPROVAL_POLICY_AWAITING_COLUMN_SQL = `ALTER TABLE agent_tool_approval_policies ADD COLUMN IF NOT EXISTS awaiting_revision BOOLEAN`;
+
 export const AGENT_TOOL_APPROVAL_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -86,7 +90,8 @@ ${AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL}`,
     name: "agent-tool-approvals-tool-revision",
     sql: {
       postgres: `${AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL};
-${AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL}`,
+${AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL};
+${AGENT_TOOL_APPROVAL_POLICY_AWAITING_COLUMN_SQL}`,
     },
   },
 ];

@@ -143,144 +143,102 @@ describe("tool approvals bound to a revision", () => {
     ).resolves.toBe(true);
   });
 
-  it("binds always-allow to the revision of the caller's pending approval", async () => {
-    await createAgentToolApproval({ ...call, toolRevision: "r1" });
-    await setAgentToolApprovalPolicy({
+  const allowed = (toolRevision?: string) =>
+    isAgentToolAlwaysAllowed({
+      ...scope,
+      toolName: call.toolName,
+      toolRevision,
+    });
+  const alwaysAllow = (enabled = true) =>
+    setAgentToolApprovalPolicy({
       binding: { ...scope, toolName: call.toolName },
-      enabled: true,
+      enabled,
     });
 
-    await expect(
-      isAgentToolAlwaysAllowed({
-        ...scope,
-        toolName: call.toolName,
-        toolRevision: "r1",
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isAgentToolAlwaysAllowed({
-        ...scope,
-        toolName: call.toolName,
-        toolRevision: "r2",
-      }),
-    ).resolves.toBe(false);
+  it("binds always-allow to the revision of the approval consumed after the click", async () => {
+    await createAgentToolApproval({ ...call, toolRevision: "r1" });
+    await alwaysAllow();
+    await expect(allowed("r1")).resolves.toBe(false);
+
+    await consumeAgentToolApproval({ ...call, toolRevision: "r1" });
+
+    await expect(allowed("r1")).resolves.toBe(true);
+    await expect(allowed("r2")).resolves.toBe(false);
+    await expect(allowed()).resolves.toBe(false);
+  });
+
+  it("covers only a revision-less tool until an approval binds it", async () => {
+    await alwaysAllow();
+
+    await expect(allowed()).resolves.toBe(true);
+    await expect(allowed("r1")).resolves.toBe(false);
   });
 
   it("moves always-allow to the new revision when the user allows it again", async () => {
     await createAgentToolApproval({ ...call, toolRevision: "r1" });
-    await setAgentToolApprovalPolicy({
-      binding: { ...scope, toolName: call.toolName },
-      enabled: true,
-    });
+    await alwaysAllow();
     await consumeAgentToolApproval({ ...call, toolRevision: "r1" });
     await createAgentToolApproval({
       ...call,
       callId: "call-2",
       toolRevision: "r2",
     });
-    await setAgentToolApprovalPolicy({
-      binding: { ...scope, toolName: call.toolName },
-      enabled: true,
-    });
-
-    await expect(
-      isAgentToolAlwaysAllowed({
-        ...scope,
-        toolName: call.toolName,
-        toolRevision: "r2",
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      isAgentToolAlwaysAllowed({
-        ...scope,
-        toolName: call.toolName,
-        toolRevision: "r1",
-      }),
-    ).resolves.toBe(false);
-  });
-
-  it("covers only a revision-less tool when no approval is pending", async () => {
-    await setAgentToolApprovalPolicy({
-      binding: { ...scope, toolName: call.toolName },
-      enabled: true,
-    });
-
-    await expect(
-      isAgentToolAlwaysAllowed({ ...scope, toolName: call.toolName }),
-    ).resolves.toBe(true);
-    await expect(
-      isAgentToolAlwaysAllowed({
-        ...scope,
-        toolName: call.toolName,
-        toolRevision: "r1",
-      }),
-    ).resolves.toBe(false);
-  });
-
-  it("refuses always-allow while another thread waits on a different revision", async () => {
-    await createAgentToolApproval({ ...call, toolRevision: "r1" });
-    await createAgentToolApproval({
+    await alwaysAllow();
+    await consumeAgentToolApproval({
       ...call,
-      threadId: "thread-2",
       callId: "call-2",
       toolRevision: "r2",
     });
 
-    await expect(
-      setAgentToolApprovalPolicy({
-        binding: { ...scope, toolName: call.toolName },
-        enabled: true,
-      }),
-    ).rejects.toThrow("different versions");
-    await expect(
-      isAgentToolAlwaysAllowed({
-        ...scope,
-        toolName: call.toolName,
-        toolRevision: "r2",
-      }),
-    ).resolves.toBe(false);
+    await expect(allowed("r2")).resolves.toBe(true);
+    await expect(allowed("r1")).resolves.toBe(false);
   });
 
-  it("counts an expired card's revision, not only the newest live one", async () => {
+  it("is not blocked by an approval the user denied or abandoned", async () => {
+    await createAgentToolApproval({
+      ...call,
+      threadId: "thread-2",
+      callId: "call-old",
+      toolRevision: "r1",
+    });
+    await createAgentToolApproval({ ...call, toolRevision: "r2" });
+    await alwaysAllow();
+    await consumeAgentToolApproval({ ...call, toolRevision: "r2" });
+
+    await expect(allowed("r2")).resolves.toBe(true);
+    await expect(allowed("r1")).resolves.toBe(false);
+  });
+
+  it("never binds to a card whose approval expired", async () => {
     await createAgentToolApproval({
       ...call,
       toolRevision: "r1",
       expiresAt: Date.now() - 1_000,
     });
-    await createAgentToolApproval({
-      ...call,
-      threadId: "thread-2",
-      callId: "call-2",
-      toolRevision: "r2",
-    });
+    await alwaysAllow();
 
     await expect(
-      setAgentToolApprovalPolicy({
-        binding: { ...scope, toolName: call.toolName },
-        enabled: true,
-      }),
-    ).rejects.toThrow("different versions");
+      consumeAgentToolApproval({ ...call, toolRevision: "r1" }),
+    ).resolves.toBe(false);
+    await expect(allowed("r1")).resolves.toBe(false);
   });
 
-  it("still disables a grant while revisions are ambiguous", async () => {
+  it("leaves a disabled grant disabled when a later approval is consumed", async () => {
     await createAgentToolApproval({ ...call, toolRevision: "r1" });
+    await alwaysAllow();
+    await alwaysAllow(false);
+    await consumeAgentToolApproval({ ...call, toolRevision: "r1" });
+
+    await expect(allowed("r1")).resolves.toBe(false);
+    await expect(allowed()).resolves.toBe(false);
+  });
+
+  it("names the tools of pending approvals in the thread that match approved keys, expired ones included", async () => {
     await createAgentToolApproval({
       ...call,
-      threadId: "thread-2",
-      callId: "call-2",
-      toolRevision: "r2",
+      toolRevision: "r1",
+      expiresAt: Date.now() - 1_000,
     });
-
-    await expect(
-      setAgentToolApprovalPolicy({
-        binding: { ...scope, toolName: call.toolName },
-        enabled: false,
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("names the tools of pending approvals in the thread that match approved keys", async () => {
-    await createAgentToolApproval({ ...call, toolRevision: "r1" });
     await createAgentToolApproval({
       ...call,
       threadId: "thread-2",
