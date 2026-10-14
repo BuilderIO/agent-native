@@ -107,6 +107,8 @@ export default {
       "Este elemento usa uma fonte que não é compatível com a importação.",
     sigmaReasonSourceMappingRequired:
       "O Sigma não fornece um mapeamento de projeto BigQuery que o Analytics possa verificar, então este SQL ainda não pode ser importado.",
+    sigmaReasonSourceUnavailable:
+      "O Sigma não permitiu acesso a esta conexão de origem. Verifique as permissões.",
     sigmaReasonQueryUnavailable:
       "O Sigma não retornou uma consulta importável para este elemento.",
     sigmaReasonUnsafeSql:

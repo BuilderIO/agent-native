@@ -100,6 +100,8 @@ export default {
       "यह एलिमेंट ऐसे स्रोत का उपयोग करता है जो आयात के लिए समर्थित नहीं है।",
     sigmaReasonSourceMappingRequired:
       "Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके, इसलिए यह SQL अभी आयात नहीं हो सकता।",
+    sigmaReasonSourceUnavailable:
+      "Sigma ने इस स्रोत कनेक्शन तक पहुँच की अनुमति नहीं दी। इसकी अनुमतियाँ जाँचें।",
     sigmaReasonQueryUnavailable:
       "Sigma ने इस एलिमेंट के लिए आयात योग्य क्वेरी नहीं दी।",
     sigmaReasonUnsafeSql: "इस क्वेरी पैटर्न को सुरक्षित रूप से आयात नहीं किया जा सकता।",

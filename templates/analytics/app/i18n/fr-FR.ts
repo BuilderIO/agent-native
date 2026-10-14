@@ -105,6 +105,8 @@ export default {
       "Cet élément utilise une source qui n’est pas prise en charge.",
     sigmaReasonSourceMappingRequired:
       "Sigma ne fournit pas de correspondance avec un projet BigQuery qu’Analytics puisse vérifier. Ce SQL ne peut donc pas encore être importé.",
+    sigmaReasonSourceUnavailable:
+      "Sigma n’a pas autorisé l’accès à cette connexion source. Vérifiez ses autorisations.",
     sigmaReasonQueryUnavailable:
       "Sigma n’a pas fourni de requête importable pour cet élément.",
     sigmaReasonUnsafeSql:

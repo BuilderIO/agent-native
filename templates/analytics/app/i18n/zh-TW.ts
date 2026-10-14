@@ -232,6 +232,7 @@ export default {
     sigmaReasonUnsupportedSource: "此元素使用了不支援匯入的資料來源。",
     sigmaReasonSourceMappingRequired:
       "Sigma 未提供 Analytics 可驗證的 BigQuery 專案對應資訊，因此目前無法匯入此 SQL。",
+    sigmaReasonSourceUnavailable: "Sigma 不允許存取此來源連線。請檢查其權限。",
     sigmaReasonQueryUnavailable: "Sigma 未傳回此元素可匯入的查詢。",
     sigmaReasonUnsafeSql: "此查詢模式無法安全匯入。",
     sigmaReasonVisualizationReview: "資料可以匯入，但匯入後請檢查視覺化效果。",

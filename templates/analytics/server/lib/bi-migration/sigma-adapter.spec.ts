@@ -473,13 +473,56 @@ describe("Sigma read-only migration adapter", () => {
     });
   });
 
-  it("retains an unknown source type when connection details cannot be read", async () => {
+  it.each([403, 404])(
+    "marks permanently inaccessible source connections as unavailable (%i)",
+    async (status) => {
+      mocks.executeProviderApiRequest.mockImplementation(async (args) => {
+        if (args.path === `/v2/workbooks/${WORKBOOK_ID}`) {
+          return apiResponse(representation());
+        }
+        if (args.path === "/v2/connections/warehouse-1") {
+          return apiResponse({ entries: [] }, { ok: false, status });
+        }
+        if (args.path === `/v2/workbooks/${WORKBOOK_ID}/queries`) {
+          return apiResponse({ entries: [], nextPage: null, total: 0 });
+        }
+        throw new Error(`Unexpected synthetic path: ${args.path}`);
+      });
+
+      const inspection = await inspectSigmaWorkbook({
+        connectionId: CONNECTION_ID,
+        workbookId: WORKBOOK_ID,
+        includeSqlQueries: false,
+      });
+
+      expect(inspection.sourceConnections[0]).toEqual({
+        connectionId: "warehouse-1",
+        sigmaType: null,
+        targetProviderCandidate: null,
+      });
+      expect(
+        inspection.elements.find((element) => element.id === "chart-1"),
+      ).toMatchObject({
+        source: { sigmaType: null, targetProviderCandidate: null },
+      });
+      expect(inspection.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "sigma_source_connection_unavailable",
+            severity: "warning",
+          }),
+        ]),
+      );
+    },
+  );
+
+  it("keeps transient source connection failures retryable", async () => {
     mocks.executeProviderApiRequest.mockImplementation(async (args) => {
       if (args.path === `/v2/workbooks/${WORKBOOK_ID}`) {
         return apiResponse(representation());
       }
       if (args.path === "/v2/connections/warehouse-1") {
-        return apiResponse({ entries: [] }, { ok: false, status: 403 });
+        return apiResponse({ entries: [] }, { ok: false, status: 503 });
       }
       if (args.path === `/v2/workbooks/${WORKBOOK_ID}/queries`) {
         return apiResponse({ entries: [], nextPage: null, total: 0 });
@@ -493,16 +536,6 @@ describe("Sigma read-only migration adapter", () => {
       includeSqlQueries: false,
     });
 
-    expect(inspection.sourceConnections[0]).toEqual({
-      connectionId: "warehouse-1",
-      sigmaType: null,
-      targetProviderCandidate: null,
-    });
-    expect(
-      inspection.elements.find((element) => element.id === "chart-1"),
-    ).toMatchObject({
-      source: { sigmaType: null, targetProviderCandidate: null },
-    });
     expect(inspection.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

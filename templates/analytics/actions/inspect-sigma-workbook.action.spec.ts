@@ -118,4 +118,47 @@ describe("inspect-sigma-workbook action", () => {
       statusCode: 503,
     });
   });
+
+  it("returns a permanent source permission failure as an element review reason", async () => {
+    mocks.inspectWorkbook.mockResolvedValue({
+      workbook: { workbookId: "workbook_1", name: "Revenue" },
+      pages: [],
+      elements: [
+        {
+          kind: "panel",
+          id: "element_1",
+          title: "Revenue table",
+          chartType: "table",
+          source: { connectionId: "source_1" },
+          columns: [],
+        },
+      ],
+      sourceConnections: [
+        {
+          connectionId: "source_1",
+          sigmaType: null,
+          targetProviderCandidate: null,
+        },
+      ],
+      sqlQueries: [],
+      diagnostics: [
+        {
+          code: "sigma_source_connection_unavailable",
+          severity: "warning",
+          message: "Source connection is unavailable.",
+          connectionId: "source_1",
+        },
+      ],
+    });
+
+    await expect(
+      inspectSigmaWorkbook.run({
+        workbookId: "workbook_1",
+        connectionId: "connection_1",
+      }),
+    ).resolves.toMatchObject({
+      unsupportedCount: 1,
+      elements: [{ importable: false, reason: "source_unavailable" }],
+    });
+  });
 });

@@ -102,6 +102,8 @@ export default {
     sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
     sigmaReasonSourceMappingRequired:
       "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",
+    sigmaReasonSourceUnavailable:
+      "لم تسمح Sigma بالوصول إلى اتصال المصدر هذا. تحقق من أذوناته.",
     sigmaReasonQueryUnavailable:
       "لم تُرجع Sigma استعلامًا قابلًا للاستيراد لهذا العنصر.",
     sigmaReasonUnsafeSql: "لا يمكن استيراد نمط هذا الاستعلام بأمان.",

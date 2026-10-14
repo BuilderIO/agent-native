@@ -271,6 +271,8 @@ export default {
       "This element uses a source that is not supported for import.",
     sigmaReasonSourceMappingRequired:
       "Sigma doesn't expose a BigQuery project mapping Analytics can verify, so this SQL can't be imported yet.",
+    sigmaReasonSourceUnavailable:
+      "Sigma didn't allow access to this source connection. Check its permissions.",
     sigmaReasonQueryUnavailable:
       "Sigma did not return an importable query for this element.",
     sigmaReasonUnsafeSql: "This query pattern cannot be imported safely.",

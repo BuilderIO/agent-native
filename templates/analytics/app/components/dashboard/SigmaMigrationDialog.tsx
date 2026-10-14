@@ -72,6 +72,7 @@ type SigmaWorkbookListResult = {
 type SigmaElementReviewReason =
   | "unsupported_element"
   | "unsupported_source"
+  | "source_unavailable"
   | "source_mapping_required"
   | "query_unavailable"
   | "unsafe_sql"
@@ -146,6 +147,10 @@ export function SigmaMigrationDialog({
     connectionId: string | null;
     pages: LoadedWorkbookPage[];
   }>({ connectionId: null, pages: [] });
+  const [lastSuccessfulList, setLastSuccessfulList] = useState<{
+    connectionId: string | null;
+    result: SigmaWorkbookListResult;
+  } | null>(null);
   const [migrationResult, setMigrationResult] =
     useState<SigmaMigrationResult | null>(null);
   const [migrationError, setMigrationError] = useState<string | null>(null);
@@ -180,7 +185,36 @@ export function SigmaMigrationDialog({
   const isLoadingList =
     workbookList.isPending ||
     (workbookList.isFetching && workbookList.isPlaceholderData);
-  const connections = listData?.connections ?? EMPTY_CONNECTIONS;
+  useEffect(() => {
+    if (
+      !listData ||
+      !listResultIsValid ||
+      workbookList.isError ||
+      workbookList.isPlaceholderData
+    ) {
+      return;
+    }
+    setLastSuccessfulList({
+      connectionId: listData.connectionId ?? null,
+      result: listData,
+    });
+  }, [
+    listData,
+    listResultIsValid,
+    workbookList.isError,
+    workbookList.isPlaceholderData,
+  ]);
+  const listStateForCurrentConnection =
+    listData &&
+    listResultIsValid &&
+    !workbookList.isError &&
+    !workbookList.isPlaceholderData
+      ? listData
+      : lastSuccessfulList?.connectionId === connectionId
+        ? lastSuccessfulList.result
+        : undefined;
+  const connections =
+    listStateForCurrentConnection?.connections ?? EMPTY_CONNECTIONS;
   const connectedConnections = useMemo(
     () => connections.filter((connection) => connection.status === "connected"),
     [connections],
@@ -305,9 +339,9 @@ export function SigmaMigrationDialog({
   >("migrate-sigma-workbook");
 
   const connected = Boolean(
-    listData?.connected &&
+    listStateForCurrentConnection?.connected &&
     connectionId &&
-    listData.connectionId === connectionId &&
+    listStateForCurrentConnection.connectionId === connectionId &&
     connectedConnections.some((item) => item.id === connectionId),
   );
   const showConnectionPicker = connectedConnections.length > 1;
@@ -437,7 +471,11 @@ export function SigmaMigrationDialog({
     const listedWorkbook = listData.workbooks.find(
       (workbook) => workbook.id === selectedWorkbook.id,
     );
-    if (listedWorkbook && listedWorkbook.status !== "migrating") {
+    if (
+      listedWorkbook &&
+      (listedWorkbook.status !== "migrating" ||
+        listedWorkbook.canRetryStaleClaim === true)
+    ) {
       setMigrationInProgress(false);
     }
   }, [
@@ -543,7 +581,7 @@ export function SigmaMigrationDialog({
                 }
               />
             ) : showConnectionPicker ||
-              listData?.requiresConnectionSelection ? (
+              listStateForCurrentConnection?.requiresConnectionSelection ? (
               <div className="space-y-2">
                 <Label htmlFor="sigma-connection">
                   {t("dashboardOverview.sigmaChooseConnection")}
@@ -581,7 +619,7 @@ export function SigmaMigrationDialog({
                     connectedConnections.find(
                       (connection) => connection.id === connectionId,
                     )?.label ??
-                    listData?.connectionLabel ??
+                    listStateForCurrentConnection?.connectionLabel ??
                     t("dashboardOverview.sigmaConnection"),
                 })}
               </div>
@@ -918,6 +956,7 @@ function reasonTranslationKey(reason: SigmaElementReviewReason) {
   return {
     unsupported_element: "dashboardOverview.sigmaReasonUnsupportedElement",
     unsupported_source: "dashboardOverview.sigmaReasonUnsupportedSource",
+    source_unavailable: "dashboardOverview.sigmaReasonSourceUnavailable",
     source_mapping_required:
       "dashboardOverview.sigmaReasonSourceMappingRequired",
     query_unavailable: "dashboardOverview.sigmaReasonQueryUnavailable",
@@ -1071,6 +1110,7 @@ function isWorkbookInspection(
           [
             "unsupported_element",
             "unsupported_source",
+            "source_unavailable",
             "source_mapping_required",
             "query_unavailable",
             "unsafe_sql",

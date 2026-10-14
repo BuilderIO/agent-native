@@ -29,6 +29,7 @@ const inspectSchema = z.object({
 export type SigmaElementReviewReason =
   | "unsupported_element"
   | "unsupported_source"
+  | "source_unavailable"
   | "source_mapping_required"
   | "query_unavailable"
   | "unsafe_sql"
@@ -62,13 +63,18 @@ function reviewElement(
     (source) => source.connectionId === element.source?.connectionId,
   );
   if (!connection || connection.targetProviderCandidate !== "bigquery") {
+    const sourceUnavailable = inspection.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "sigma_source_connection_unavailable" &&
+        diagnostic.connectionId === element.source?.connectionId,
+    );
     return {
       id: element.id,
       name: element.title,
       type: element.chartType,
       importable: false,
       visualizationPreserved: false,
-      reason: "unsupported_source",
+      reason: sourceUnavailable ? "source_unavailable" : "unsupported_source",
     };
   }
 

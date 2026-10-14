@@ -187,6 +187,15 @@ type ProviderApiResponse = {
 
 type ProviderApiResult = { response?: ProviderApiResponse };
 
+class SigmaApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+  ) {
+    super(message);
+  }
+}
+
 type RecordValue = Record<string, unknown>;
 
 function isRecord(value: unknown): value is RecordValue {
@@ -244,9 +253,11 @@ async function sigmaGetJson(args: {
     );
   }
   if (response.ok !== true) {
-    const status =
-      typeof response.status === "number" ? ` (${response.status})` : "";
-    throw new Error(`Sigma API request failed${status}.`);
+    const status = typeof response.status === "number" ? response.status : null;
+    throw new SigmaApiRequestError(
+      `Sigma API request failed${status === null ? "" : ` (${status})`}.`,
+      status,
+    );
   }
   if (response.json === undefined) {
     throw new Error("Sigma API returned no JSON data.");
@@ -959,20 +970,34 @@ async function loadSigmaSourceConnections(args: {
                       connectionId: sourceConnectionId,
                     }) satisfies SigmaAdapterDiagnostic,
             };
-          } catch {
+          } catch (error) {
             return {
               info: {
                 connectionId: sourceConnectionId,
                 sigmaType: null,
                 targetProviderCandidate: null,
               } satisfies SigmaSourceConnectionInfo,
-              diagnostic: {
-                code: "sigma_source_connection_lookup_failed",
-                severity: "error",
-                message:
-                  "Sigma source connection type could not be inspected; its target compatibility is unknown.",
-                connectionId: sourceConnectionId,
-              } satisfies SigmaAdapterDiagnostic,
+              diagnostic:
+                error instanceof SigmaApiRequestError &&
+                error.status !== null &&
+                error.status >= 400 &&
+                error.status < 500 &&
+                error.status !== 408 &&
+                error.status !== 429
+                  ? ({
+                      code: "sigma_source_connection_unavailable",
+                      severity: "warning",
+                      message:
+                        "Sigma did not allow access to this source connection; its target compatibility is unknown.",
+                      connectionId: sourceConnectionId,
+                    } satisfies SigmaAdapterDiagnostic)
+                  : ({
+                      code: "sigma_source_connection_lookup_failed",
+                      severity: "error",
+                      message:
+                        "Sigma source connection type could not be inspected; its target compatibility is unknown.",
+                      connectionId: sourceConnectionId,
+                    } satisfies SigmaAdapterDiagnostic),
             };
           }
         },

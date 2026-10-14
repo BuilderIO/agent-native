@@ -107,6 +107,8 @@ export default {
       "Dieses Element verwendet eine nicht unterstützte Quelle.",
     sigmaReasonSourceMappingRequired:
       "Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics prüfen kann. Daher kann dieses SQL noch nicht importiert werden.",
+    sigmaReasonSourceUnavailable:
+      "Sigma hat den Zugriff auf diese Quellverbindung verweigert. Prüfe ihre Berechtigungen.",
     sigmaReasonQueryUnavailable:
       "Sigma hat für dieses Element keine importierbare Abfrage zurückgegeben.",
     sigmaReasonUnsafeSql:

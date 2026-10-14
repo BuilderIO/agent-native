@@ -105,6 +105,8 @@ export default {
       "この要素のソースはインポートに対応していません。",
     sigmaReasonSourceMappingRequired:
       "Sigma は Analytics が検証できる BigQuery プロジェクトの対応情報を提供していないため、この SQL はまだインポートできません。",
+    sigmaReasonSourceUnavailable:
+      "Sigma がこのソース接続へのアクセスを許可しませんでした。権限を確認してください。",
     sigmaReasonQueryUnavailable:
       "この要素のインポート可能なクエリが Sigma から返されませんでした。",
     sigmaReasonUnsafeSql: "このクエリ形式は安全にインポートできません。",

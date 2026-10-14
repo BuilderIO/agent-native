@@ -98,6 +98,8 @@ export default {
     sigmaReasonUnsupportedSource: "此元素使用了不支持导入的数据源。",
     sigmaReasonSourceMappingRequired:
       "Sigma 未提供 Analytics 可验证的 BigQuery 项目映射，因此暂时无法导入此 SQL。",
+    sigmaReasonSourceUnavailable:
+      "Sigma 不允许访问此数据源连接。请检查其权限。",
     sigmaReasonQueryUnavailable: "Sigma 未返回此元素可导入的查询。",
     sigmaReasonUnsafeSql: "此查询模式无法安全导入。",
     sigmaReasonVisualizationReview:

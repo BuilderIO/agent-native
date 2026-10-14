@@ -101,6 +101,8 @@ export default {
     sigmaReasonUnsupportedSource: "이 요소는 가져올 수 없는 소스를 사용합니다.",
     sigmaReasonSourceMappingRequired:
       "Sigma가 Analytics에서 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않아 이 SQL을 아직 가져올 수 없습니다.",
+    sigmaReasonSourceUnavailable:
+      "Sigma가 이 소스 연결에 대한 액세스를 허용하지 않았습니다. 권한을 확인하세요.",
     sigmaReasonQueryUnavailable:
       "Sigma가 이 요소에 사용할 수 있는 쿼리를 반환하지 않았습니다.",
     sigmaReasonUnsafeSql: "이 쿼리 패턴은 안전하게 가져올 수 없습니다.",
