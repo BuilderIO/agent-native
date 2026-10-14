@@ -346,20 +346,45 @@ function normalizedCandidateText(candidate: AnalyticsQueryCatalogCandidate) {
     .replace(/[_-]+/g, " ");
 }
 
-function hasDeclaredRowLevelMembershipGrain(
+function hasTemporalMembershipSnapshotShape(
   candidate: AnalyticsQueryCatalogCandidate,
 ) {
   if (candidate.kind !== "data-dictionary") return false;
-  const declaredShape = (candidate.grain || candidate.definition || "")
-    .toLowerCase()
-    .replace(/[_-]+/g, " ");
+  const normalize = (value: string | undefined) =>
+    (value ?? "").toLowerCase().replace(/[_-]+/g, " ");
+  const grain = normalize(candidate.grain);
+  const descriptor = [candidate.metric, candidate.table, candidate.definition]
+    .map(normalize)
+    .filter(Boolean)
+    .join(" ");
+  return (
+    /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
+      grain,
+    ) ||
+    /\b(?:historical|history|month end|as of (?:the )?(?:day|week|month|quarter|year))\b/.test(
+      descriptor,
+    ) ||
+    /\b(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b[\s\S]{0,40}\bsnapshots?\b/.test(
+      descriptor,
+    ) ||
+    /\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
+      descriptor,
+    )
+  );
+}
+
+function hasDeclaredRowLevelMembershipGrain(
+  candidate: AnalyticsQueryCatalogCandidate,
+) {
+  if (candidate.kind !== "data-dictionary" || !candidate.grain?.trim()) {
+    return false;
+  }
+  const declaredShape = candidate.grain.toLowerCase().replace(/[_-]+/g, " ");
   return (
     /\b(?:one|single)\s+row\s+per\b/.test(declaredShape) &&
     /\b(?:users?|people|persons?|members?)\b/.test(declaredShape) &&
     /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(declaredShape) &&
-    !/\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
-      declaredShape,
-    )
+    !hasTemporalMembershipSnapshotShape(candidate)
   );
 }
 
@@ -379,27 +404,10 @@ function hasAggregateShape(candidate: AnalyticsQueryCatalogCandidate) {
     .toLowerCase()
     .replace(/[_-]+/g, " ");
   if (candidate.kind === "data-dictionary") {
-    const grain = (candidate.grain ?? "").toLowerCase().replace(/[_-]+/g, " ");
-    const declaredRosterRowGrain =
-      /\b(?:one|single)\s+row\s+per\b/.test(grain) &&
-      /\b(?:users?|people|persons?|members?)\b/.test(grain) &&
-      /\b(?:organizations?|orgs?|workspaces?|teams?)\b/.test(grain);
-    const temporalDefinition = [candidate.definition]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .replace(/[_-]+/g, " ");
-    const temporalMembershipGrain =
-      /\b(?:per\s+)?(?:day|daily|week|weekly|month|monthly|quarter|quarterly|year|yearly)\b/.test(
-        grain,
-      ) ||
-      /\b(?:historical|history|month end|as of (?:the )?(?:day|week|month|quarter|year))\b|\b(?:daily|weekly|monthly|quarterly|yearly)\s+snapshots?\b|\bsnapshots?\s+(?:by|per)\s+(?:date|day|week|month|quarter|year)\b/.test(
-        temporalDefinition,
-      );
-    if (temporalMembershipGrain) return true;
+    if (hasTemporalMembershipSnapshotShape(candidate)) return true;
     // An explicit user-organization row grain is stronger than incidental
     // field names such as member_count. Temporal grains remain snapshots.
-    if (declaredRosterRowGrain) return false;
+    if (hasDeclaredRowLevelMembershipGrain(candidate)) return false;
   }
   if (
     /\b(?:aggregate|aggregated|rollup|summary|snapshot|count|total|average|avg|sum|median)\b/.test(

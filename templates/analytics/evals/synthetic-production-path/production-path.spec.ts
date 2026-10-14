@@ -304,6 +304,14 @@ const storage = vi.hoisted(() => ({
     return {
       ...bundle,
       entries,
+      scanSummary: includeAggregateOnlyMembership
+        ? {
+            unsafeEntriesOmitted: 0,
+            unsafeFieldsOmitted: 0,
+            truncatedFields: 0,
+            unresolvedTrackingCallSites: 0,
+          }
+        : bundle.scanSummary,
     };
   }),
   listOrgSettings: vi.fn(async (orgId: string, prefix: string) => {
@@ -406,7 +414,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v22";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v23";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
@@ -974,14 +982,39 @@ function hasCompleteEmptyDictionarySearch(
   if (findDataCallCount !== 1 || !result || !Array.isArray(result.results)) {
     return false;
   }
+  const coverage = result.sourceIndexScanCoverage;
+  const freshness = result.sourceIndexFreshness;
+  const coverageFields = [
+    "unsafeEntriesOmitted",
+    "unsafeFieldsOmitted",
+    "truncatedFields",
+    "unresolvedTrackingCallSites",
+  ] as const;
+  const completeCoverage =
+    coverage !== null &&
+    typeof coverage === "object" &&
+    !Array.isArray(coverage) &&
+    coverageFields.every((field) => coverage[field] === 0);
+  const freshIndex =
+    freshness !== null &&
+    typeof freshness === "object" &&
+    !Array.isArray(freshness) &&
+    Number.isSafeInteger(freshness.ageDays) &&
+    freshness.ageDays >= 0 &&
+    Number.isSafeInteger(freshness.staleAfterDays) &&
+    freshness.staleAfterDays > freshness.ageDays &&
+    freshness.stale === false;
   return (
     result.results.length === 0 &&
     result.sourceIndexStatus === "available" &&
-    result.searchedDictionaryEntryCount === 1 &&
+    Number.isSafeInteger(result.searchedDictionaryEntryCount) &&
+    Number(result.searchedDictionaryEntryCount) >= 0 &&
     result.truncated === false &&
     result.nextPage === null &&
     result.dictionarySearchTruncated === false &&
-    result.dictionarySearchStatus === "available"
+    result.dictionarySearchStatus === "available" &&
+    completeCoverage &&
+    freshIndex
   );
 }
 
@@ -1297,11 +1330,22 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     const completeEmptyResult = {
       results: [],
       sourceIndexStatus: "available",
-      searchedDictionaryEntryCount: 1,
+      searchedDictionaryEntryCount: 7,
       truncated: false,
       nextPage: null,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexScanCoverage: {
+        unsafeEntriesOmitted: 0,
+        unsafeFieldsOmitted: 0,
+        truncatedFields: 0,
+        unresolvedTrackingCallSites: 0,
+      },
+      sourceIndexFreshness: {
+        ageDays: 2,
+        staleAfterDays: 90,
+        stale: false,
+      },
     };
 
     expect(hasCompleteEmptyDictionarySearch(1, completeEmptyResult)).toBe(true);
@@ -1330,6 +1374,36 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       hasCompleteEmptyDictionarySearch(1, {
         ...completeEmptyResult,
         dictionarySearchStatus: "unavailable",
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexScanCoverage: {
+          ...completeEmptyResult.sourceIndexScanCoverage,
+          unsafeEntriesOmitted: 1,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexScanCoverage: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexFreshness: {
+          ...completeEmptyResult.sourceIndexFreshness,
+          stale: true,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteEmptyDictionarySearch(1, {
+        ...completeEmptyResult,
+        sourceIndexFreshness: null,
       }),
     ).toBe(false);
   });

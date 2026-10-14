@@ -139,6 +139,7 @@ describe("analytics query catalog", () => {
           metric: "model:workspace_user_rollup",
           definition: "One row per workspace user, with the canonical grain.",
           table: "workspace_user_rollup",
+          grain: "One row per user per workspace",
           semanticScope: "session",
           sourceKind: "dbt",
           sourceIndex: true,
@@ -1747,6 +1748,36 @@ describe("analytics query catalog", () => {
       id: "dbt-workspace-member-role-bridge-with-count",
       sourceKind: "dbt",
     });
+  });
+
+  it("does not let prose or snapshot metadata override aggregate membership shape", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "monthly-workspace-member-snapshot",
+          metric: "Workspace User Membership",
+          definition:
+            "Monthly snapshot of one row per user-workspace membership.",
+          table: "workspace_user_membership_snapshot",
+          columnsUsed: "user_id, workspace_id, member_count",
+          grain: "One row per user_id per workspace_id",
+          semanticScope: "membership",
+        },
+        {
+          id: "definition-only-member-count",
+          metric: "Workspace User Membership Count",
+          definition: "One row per user per workspace membership.",
+          table: "workspace_user_membership_counts",
+          columnsUsed: "user_id, workspace_id, member_count",
+          semanticScope: "membership",
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
   });
 
   it("does not mistake a last-access timestamp for a role field", () => {
