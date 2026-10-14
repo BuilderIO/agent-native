@@ -48,6 +48,9 @@ export function nextLocalRecordingState(
   return next;
 }
 
+/** The browser recorders that can save a local-only copy. */
+export type LocalRecorderPlatform = "web" | "mobile";
+
 export interface RecordingBackupMeta {
   recordingId: string;
   mimeType: string;
@@ -68,6 +71,8 @@ export interface RecordingBackupMeta {
   /** Earlier attempts' rows that never became ready; trashed on success. */
   staleServerRecordingIds?: string[];
   ownerEmail?: string | null;
+  /** Absent on copies saved before the recorder stored it. */
+  recordingPlatform?: LocalRecorderPlatform | null;
   title?: string | null;
   createdAt?: string;
   transcript?: string | null;
