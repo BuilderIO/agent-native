@@ -26,7 +26,6 @@ const DEFAULT_SEARCH_LIMIT = 25;
 const MAX_SEARCH_LIMIT = 100;
 const DEFAULT_RUN_LIMIT = 20;
 const DEFAULT_EVENT_LIMIT = 600;
-const LATER_EVENT_SCAN_SEQ_SPAN = 20_000;
 const DEFAULT_TRACE_SPAN_LIMIT = 500;
 
 interface ThreadDebugSourceConfig {
@@ -1082,17 +1081,10 @@ export async function getAgentThreadDebug(input: {
                FROM agent_run_events
               WHERE run_id = ?
                 AND seq > ?
-                AND seq <= ?
                 ${NOISE_EVENT_SQL_FILTER}
               ORDER BY seq ASC
               LIMIT ?`,
-            [
-              run.id,
-              lastSeq,
-              Number(lastSeq) + LATER_EVENT_SCAN_SEQ_SPAN,
-              ...NOISE_EVENT_SQL_PARAMS,
-              maxEvents,
-            ],
+            [run.id, lastSeq, ...NOISE_EVENT_SQL_PARAMS, maxEvents],
           )
         : [];
     // The SQL prefix match is only a fast path; drop any noise event whose

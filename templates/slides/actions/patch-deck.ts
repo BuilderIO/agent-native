@@ -771,7 +771,7 @@ async function resolvePatchSlideEdits(
     const slide = slides.find((entry) => entry?.id === operation.slideId);
     if (!slide) {
       throw new Error(
-        `patch-slide edits target slide "${operation.slideId}", which is not in the deck before this batch; edits cannot follow add-slide in the same call. No slides were changed.`,
+        `patch-slide edits target slide "${operation.slideId}", which does not exist in the current deck. Check the slideId; if this slide is added by add-slide in the same call, edits cannot target it until a later call. No slides were changed.`,
       );
     }
     const originalContent = String(slide.content ?? "");
