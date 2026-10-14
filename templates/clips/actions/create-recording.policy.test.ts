@@ -360,6 +360,58 @@ describe("recording_created", () => {
     ]);
   });
 
+  it("attributes the native mobile app's captures by its app name, on the row and every event", async () => {
+    calls.bufferedFallbackAvailable = false;
+
+    await expect(
+      action.run(
+        {
+          id: "rec-mob",
+          sourceAppName: "Agent-Native Mobile",
+          titleSource: "upload",
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
+
+    expect(calls.insert.mock.calls[0][0]).toMatchObject({
+      recordingPlatform: "mobile",
+    });
+    expect(createdCalls()[0][1]).toMatchObject({
+      recording_platform: "mobile",
+      recording_source: "recorder",
+    });
+    const failed = calls.track.mock.calls.find(
+      ([name]) => name === "recording_failed",
+    );
+    expect(failed?.[1]).toMatchObject({ recording_platform: "mobile" });
+  });
+
+  it("keeps an explicit platform over the app name, and leaves other apps alone", async () => {
+    await action.run(
+      {
+        id: "rec-a",
+        sourceAppName: "Agent-Native Mobile",
+        recordingPlatform: "web",
+      },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      { id: "rec-b", sourceAppName: "Zoom" },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(
+      createdCalls().map(([, props]) => [
+        props.output_id,
+        props.recording_platform,
+      ]),
+    ).toEqual([
+      ["rec-a", "web"],
+      ["rec-b", "unknown"],
+    ]);
+  });
+
   it("reports a recording with no platform as unknown, not a guess", async () => {
     await action.run({ id: "rec-1" }, { userEmail: "owner@example.com" });
 
