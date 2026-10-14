@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,7 +10,7 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 export default defineAction({
   description:
-    "Clean up a dictation's raw text via the low-cost text-model cleanup pass. Stores the result on `dictations.cleanedText`. Editor access required.",
+    "Clean up a dictation's raw text via the low-cost text-model cleanup pass. Stores the result on `dictations.cleanedText` and returns its cleanup version for undo. Editor access required.",
   schema: z.object({
     id: z.string().describe("Dictation id"),
   }),
@@ -39,18 +39,25 @@ export default defineAction({
       context: agentsContext,
     });
     const cleanedText = result.cleanedText ?? raw;
-    const updatedAt = new Date().toISOString();
-
-    await db
+    const [updated] = await db
       .update(schema.dictations)
       .set({
         cleanedText,
-        updatedAt,
+        updatedAt: new Date().toISOString(),
+        cleanupVersion: sql`${schema.dictations.cleanupVersion} + 1`,
       })
-      .where(eq(schema.dictations.id, args.id));
+      .where(eq(schema.dictations.id, args.id))
+      .returning({ cleanupVersion: schema.dictations.cleanupVersion });
+
+    if (!updated) throw new Error(`Dictation not found: ${args.id}`);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id: args.id, cleanedText, updatedAt, provider: result.provider };
+    return {
+      id: args.id,
+      cleanedText,
+      cleanupVersion: updated.cleanupVersion,
+      provider: result.provider,
+    };
   },
 });

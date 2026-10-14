@@ -1,24 +1,25 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Update a dictation row. Patch `fullText`, `cleanedText`, `source`, or `targetApp`. Pass `expectedUpdatedAt` when clearing `cleanedText` to reject a stale undo. Editor access required.",
+    "Update a dictation row. Patch `fullText`, `cleanedText`, `source`, or `targetApp`. Pass `expectedCleanupVersion` when clearing `cleanedText` to reject a stale undo. Editor access required.",
   schema: z.object({
     id: z.string().describe("Dictation id"),
     fullText: z.string().optional(),
     cleanedText: z.string().nullable().optional(),
-    expectedUpdatedAt: z
-      .string()
-      .min(1)
+    expectedCleanupVersion: z
+      .number()
+      .int()
+      .nonnegative()
       .optional()
       .describe(
-        "Required when clearing cleanedText; update only if the dictation still has this updatedAt value.",
+        "Required when clearing cleanedText; update only if the dictation still has this cleanup version.",
       ),
     source: z
       .enum([
@@ -34,14 +35,20 @@ export default defineAction({
     targetApp: z.string().nullable().optional(),
   }),
   run: async (args) => {
-    if (args.cleanedText === null && args.expectedUpdatedAt === undefined) {
+    if (
+      args.cleanedText === null &&
+      args.expectedCleanupVersion === undefined
+    ) {
       throw new Error(
-        "expectedUpdatedAt is required when restoring cleaned text",
+        "expectedCleanupVersion is required when restoring cleaned text",
       );
     }
-    if (args.expectedUpdatedAt !== undefined && args.cleanedText !== null) {
+    if (
+      args.expectedCleanupVersion !== undefined &&
+      args.cleanedText !== null
+    ) {
       throw new Error(
-        "expectedUpdatedAt is only supported when restoring cleaned text",
+        "expectedCleanupVersion is only supported when restoring cleaned text",
       );
     }
 
@@ -52,7 +59,12 @@ export default defineAction({
       updatedAt,
     };
     if (args.fullText !== undefined) patch.fullText = args.fullText;
-    if (args.cleanedText !== undefined) patch.cleanedText = args.cleanedText;
+    if (args.cleanedText !== undefined) {
+      patch.cleanedText = args.cleanedText;
+      if (args.cleanedText === null) {
+        patch.cleanupVersion = sql`${schema.dictations.cleanupVersion} + 1`;
+      }
+    }
     if (args.source !== undefined) patch.source = args.source;
     if (args.targetApp !== undefined) patch.targetApp = args.targetApp;
 
@@ -64,16 +76,16 @@ export default defineAction({
       .update(schema.dictations)
       .set(patch)
       .where(
-        args.expectedUpdatedAt === undefined
+        args.expectedCleanupVersion === undefined
           ? eq(schema.dictations.id, args.id)
           : and(
               eq(schema.dictations.id, args.id),
-              eq(schema.dictations.updatedAt, args.expectedUpdatedAt),
+              eq(schema.dictations.cleanupVersion, args.expectedCleanupVersion),
             ),
       )
       .returning({ id: schema.dictations.id });
 
-    if (!updated && args.expectedUpdatedAt !== undefined) {
+    if (!updated && args.expectedCleanupVersion !== undefined) {
       return { id: args.id, ok: true, updated: false };
     }
     if (!updated) throw new Error(`Dictation not found: ${args.id}`);

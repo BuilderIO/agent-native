@@ -5,7 +5,10 @@ const mockSelectWhere = vi.hoisted(() => vi.fn(() => ({ limit: mockLimit })));
 const mockSelectFrom = vi.hoisted(() =>
   vi.fn(() => ({ where: mockSelectWhere })),
 );
-const mockUpdateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const mockUpdateReturning = vi.hoisted(() => vi.fn());
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockUpdateReturning })),
+);
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
@@ -30,6 +33,11 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    kind: "sql",
+    strings: [...strings],
+    values,
+  }),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -37,7 +45,12 @@ vi.mock("../server/db/index.js", () => ({
     select: () => ({ from: mockSelectFrom }),
     update: mockUpdate,
   }),
-  schema: { dictations: { id: "dictations.id" } },
+  schema: {
+    dictations: {
+      id: "dictations.id",
+      cleanupVersion: "dictations.cleanupVersion",
+    },
+  },
 }));
 
 vi.mock("./cleanup-transcript.js", () => ({
@@ -53,6 +66,7 @@ import cleanupDictation from "./cleanup-dictation";
 describe("cleanup-dictation undo version", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUpdateReturning.mockResolvedValue([{ cleanupVersion: 4 }]);
     mockLimit.mockResolvedValue([
       {
         id: "dictation_1",
@@ -62,20 +76,25 @@ describe("cleanup-dictation undo version", () => {
     ]);
   });
 
-  it("returns the update timestamp used to persist the cleanup", async () => {
+  it("returns the atomically incremented version used to persist cleanup", async () => {
     const args = cleanupDictation.schema.parse({ id: "dictation_1" });
 
     const result = await cleanupDictation.run(args);
 
     const update = mockUpdateSet.mock.calls[0]?.[0] as {
       cleanedText: string;
-      updatedAt: string;
+      cleanupVersion: unknown;
     };
     expect(update.cleanedText).toBe("Cleaned text.");
-    expect(update.updatedAt).toBe(result.updatedAt);
+    expect(update.cleanupVersion).toEqual({
+      kind: "sql",
+      strings: ["", " + 1"],
+      values: ["dictations.cleanupVersion"],
+    });
     expect(result).toMatchObject({
       id: "dictation_1",
       cleanedText: "Cleaned text.",
+      cleanupVersion: 4,
       provider: "test",
     });
     expect(mockWriteAppState).toHaveBeenCalledOnce();

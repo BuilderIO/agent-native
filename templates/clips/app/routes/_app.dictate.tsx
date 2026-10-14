@@ -85,6 +85,7 @@ interface Dictation {
   startedAt?: string;
   createdAt: string;
   updatedAt: string;
+  cleanupVersion: number;
 }
 
 type BrowserDictationSource = "manual" | "cmd-shift-space";
@@ -453,12 +454,12 @@ function DictationCard({
   const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const cleanup = useActionMutation<
-    { cleanedText: string; updatedAt: string },
+    { cleanedText: string; cleanupVersion: number },
     { id: string }
   >("cleanup-dictation");
   const restoreCleanup = useActionMutation<
     { updated: boolean },
-    { id: string; cleanedText: null; expectedUpdatedAt: string }
+    { id: string; cleanedText: null; expectedCleanupVersion: number }
   >("update-dictation", {
     onSuccess: (result) => {
       if (result.updated) {
@@ -504,11 +505,11 @@ function DictationCard({
 
   const displayText = dictation.cleanedText || dictation.fullText;
 
-  const handleRestoreCleanup = (expectedUpdatedAt: string) => {
+  const handleRestoreCleanup = (expectedCleanupVersion: number) => {
     restoreCleanup.mutate({
       id: dictation.id,
       cleanedText: null,
-      expectedUpdatedAt,
+      expectedCleanupVersion,
     });
   };
 
@@ -520,7 +521,7 @@ function DictationCard({
           toast.success(t("dictateRoute.cleanupComplete"), {
             action: {
               label: t("dictateRoute.undoCleanup"),
-              onClick: () => handleRestoreCleanup(result.updatedAt),
+              onClick: () => handleRestoreCleanup(result.cleanupVersion),
             },
             duration: 12_000,
           });
@@ -647,7 +648,7 @@ function DictationCard({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() => handleRestoreCleanup(dictation.updatedAt)}
+                  onClick={() => handleRestoreCleanup(dictation.cleanupVersion)}
                   disabled={restoreCleanup.isPending}
                 >
                   {restoreCleanup.isPending ? (

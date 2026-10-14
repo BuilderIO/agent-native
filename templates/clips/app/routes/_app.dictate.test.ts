@@ -79,9 +79,9 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain('"update-dictation"');
     expect(routeSource).toContain("cleanedText: null");
     expect(routeSource).toContain('>("update-dictation", {');
-    expect(routeSource).toContain("expectedUpdatedAt,");
+    expect(routeSource).toContain("expectedCleanupVersion,");
     expect(routeSource).toContain(
-      "onClick: () => handleRestoreCleanup(result.updatedAt)",
+      "onClick: () => handleRestoreCleanup(result.cleanupVersion)",
     );
     expect(routeSource).toContain('t("dictateRoute.cleanupRestoreFailed")');
     expect(routeSource).toContain('t("dictateRoute.undoCleanup")');

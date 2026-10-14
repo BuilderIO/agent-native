@@ -571,6 +571,7 @@ export const migrations = runMigrations(
       started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      cleanup_version BIGINT NOT NULL DEFAULT 0,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -643,6 +644,7 @@ export const migrations = runMigrations(
       started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      cleanup_version BIGINT NOT NULL DEFAULT 0,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -1232,6 +1234,14 @@ export const migrations = runMigrations(
       // predate device scoping and stay visible to every device's queue.
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
     },
+    {
+      version: 85,
+      name: "clips-dictation-cleanup-version",
+      sql: [
+        `ALTER TABLE IF EXISTS dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
+        `ALTER TABLE IF EXISTS clips_dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1494,6 +1504,7 @@ async function backfillLegacyClipsTables(): Promise<void> {
     "started_at",
     "created_at",
     "updated_at",
+    "cleanup_version",
     "owner_email",
     "org_id",
     "visibility",

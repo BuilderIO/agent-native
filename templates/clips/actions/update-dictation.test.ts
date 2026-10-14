@@ -21,6 +21,11 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    kind: "sql",
+    strings: [...strings],
+    values,
+  }),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -33,6 +38,7 @@ vi.mock("../server/db/index.js", () => ({
       source: "dictations.source",
       targetApp: "dictations.targetApp",
       updatedAt: "dictations.updatedAt",
+      cleanupVersion: "dictations.cleanupVersion",
     },
   },
 }));
@@ -40,7 +46,7 @@ vi.mock("../server/db/index.js", () => ({
 import updateDictation from "./update-dictation";
 
 describe("update-dictation cleanup restore", () => {
-  const expectedUpdatedAt = "2026-10-14T17:00:00.000Z";
+  const expectedCleanupVersion = 7;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -51,7 +57,7 @@ describe("update-dictation cleanup restore", () => {
     const args = updateDictation.schema.parse({
       id: "dictation_1",
       cleanedText: null,
-      expectedUpdatedAt,
+      expectedCleanupVersion,
     });
 
     const result = await updateDictation.run(args);
@@ -62,11 +68,20 @@ describe("update-dictation cleanup restore", () => {
         { kind: "eq", column: "dictations.id", value: "dictation_1" },
         {
           kind: "eq",
-          column: "dictations.updatedAt",
-          value: expectedUpdatedAt,
+          column: "dictations.cleanupVersion",
+          value: expectedCleanupVersion,
         },
       ],
     });
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cleanupVersion: {
+          kind: "sql",
+          strings: ["", " + 1"],
+          values: ["dictations.cleanupVersion"],
+        },
+      }),
+    );
     expect(result).toEqual({ id: "dictation_1", ok: true, updated: true });
     expect(mockWriteAppState).toHaveBeenCalledOnce();
   });
@@ -76,7 +91,7 @@ describe("update-dictation cleanup restore", () => {
     const args = updateDictation.schema.parse({
       id: "dictation_1",
       cleanedText: null,
-      expectedUpdatedAt,
+      expectedCleanupVersion,
     });
 
     const result = await updateDictation.run(args);
@@ -89,11 +104,11 @@ describe("update-dictation cleanup restore", () => {
     const args = updateDictation.schema.parse({
       id: "dictation_1",
       cleanedText: "replacement text",
-      expectedUpdatedAt,
+      expectedCleanupVersion,
     });
 
     await expect(updateDictation.run(args)).rejects.toThrow(
-      "expectedUpdatedAt is only supported when restoring cleaned text",
+      "expectedCleanupVersion is only supported when restoring cleaned text",
     );
     expect(mockUpdate).not.toHaveBeenCalled();
   });
@@ -105,7 +120,7 @@ describe("update-dictation cleanup restore", () => {
     });
 
     await expect(updateDictation.run(args)).rejects.toThrow(
-      "expectedUpdatedAt is required when restoring cleaned text",
+      "expectedCleanupVersion is required when restoring cleaned text",
     );
     expect(mockUpdate).not.toHaveBeenCalled();
   });
