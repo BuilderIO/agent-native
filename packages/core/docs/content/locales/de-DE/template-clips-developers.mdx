@@ -145,6 +145,7 @@ Die Chrome-Erweiterung hängt Konsolen- und Netzwerkdiagnosen an eine Aufnahme a
 | Rückblick     | Bis zu 30 Sekunden vor Beginn der Aufnahme, begrenzt durch den eigenen Konsolenverlauf der Seite und die Resource-Timing-Liste. Diese Einträge haben ein negatives `elapsedMs`.                     |
 | `tabId`       | Auf jedem Konsolen- und Netzwerkeintrag gesetzt.                                                                                                                                                    |
 | `method`      | `"UNKNOWN"` bei Netzwerkeinträgen aus dem Rückblick, die aus Resource Timing stammen und keine HTTP-Methode haben. Live-Anfragen melden die Methode.                                                |
+| App-Aktivität | In Agent-Native-Apps: die [Rekorder](/docs/recorder)-Ereignisse des aufgenommenen Tabs. `save-recording-app-activity` speichert sie als private Datei mit einer Zusammenfassung in der Diagnosezeile, `get-recording-app-activity` liest sie nach Zeitbereich. |
 | Nicht erfasst | Anfrage- und Antwortkörper sowie Header. Konsolen- und Netzwerkeinträge werden vor dem Hochladen geschwärzt.                                                                                        |
 
 ## Datenmodell

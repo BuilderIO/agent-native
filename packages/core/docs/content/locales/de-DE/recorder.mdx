@@ -211,6 +211,16 @@ Ein Zeitfenster oder eine Obergrenze, die keine positive Zahl ist, wirft einen `
 
 ## Ziele {#destinations}
 
+### Problem melden {#report-a-problem}
+
+Jede App mit dem Agent-Panel oder dem Befehlsmenü hat **Problem melden**. Es befindet sich im Optionsmenü des Agent-Panels und im Befehlsmenü (⌘K).
+
+- Es fragt, ob angehängt werden soll, was die App in den letzten zwei Minuten getan hat, und zeigt eine Vorschau der Anzahlen, der Fehler und der ersten Ereignisse. Es fragt jedes Mal.
+- Stimmt der Benutzer zu, wird der vollständige Bericht als private Datei gespeichert, die nur dieser Benutzer lesen kann. Der Agent der App erhält eine kurze Zusammenfassung mit einem Verweis auf die Datei.
+- Der Agent liest mehr vom Bericht mit der Aktion `read-problem-report`, gefiltert nach Ereignistyp oder Zeit.
+- Hat die Seite keinen Agent-Chat, kopiert die Schaltfläche stattdessen die Zusammenfassung und den Verweis.
+- Der Bericht benötigt Dateispeicher. Ohne ihn meldet der Dialog, dass der Bericht nicht angehängt wurde, und es wird nichts gesendet.
+
 ### Sentry {#sentry}
 
 Wenn eine App Sentry im Browser über Agent-Native konfiguriert hat (siehe [Fehlerberichterstattung](/docs/observability#sentry)), erhält jedes Sentry-Fehlerereignis:
@@ -226,7 +236,9 @@ Registrieren Sie einen Listener mit [`recorder.onReport()`](#on-report).
 
 ### Clips und Browser-Erweiterungen {#extensions}
 
-Die Seite stellt `window.__agentNativeRecorder.report()` bereit. Eine Browser-Erweiterung liest es aus der Main World der Seite. So hängt eine Clips-Aufnahme die Ereignisse der App von vor und während der Aufnahme an.
+Die Seite stellt `window.__agentNativeRecorder.report()` bereit. Eine Browser-Erweiterung liest es aus der Main World der Seite.
+
+Sind die Entwicklerprotokolle aktiviert, liest die Clips-Erweiterung es im aufgenommenen Tab, wenn die Aufnahme startet (die letzten 30 Sekunden) und wenn sie endet. Die Ereignisse werden auf derselben Zeitachse mit den Konsolen- und Netzwerkeinträgen der Aufnahme zusammengeführt, und der Agent des Clips erhält eine Zusammenfassung der Fehler. Siehe [Clips-Browserprotokolle](/docs/template-clips-features#chrome-extension-browser-logs).
 
 ## Datenschutz {#privacy}
 

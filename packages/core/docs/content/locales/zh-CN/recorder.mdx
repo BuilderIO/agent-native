@@ -211,6 +211,16 @@ configureRecorder({
 
 ## 报告目标 {#destinations}
 
+### 报告问题 {#report-a-problem}
+
+每个带有智能体面板或命令菜单的应用都有**报告问题**。它位于智能体面板的选项菜单和命令菜单（⌘K）中。
+
+- 它会询问是否附上应用在最近两分钟内做过的事，并预览数量、失败和最初的几个事件。每次都会询问。
+- 用户同意后，完整报告会存为只有该用户能读取的私有文件。应用的智能体会收到一份简短摘要和该文件的引用。
+- 智能体通过 `read-problem-report` action 读取报告的更多内容，可按事件类型或时间筛选。
+- 当页面没有智能体聊天时，按钮会改为复制摘要和引用。
+- 报告需要文件存储。没有文件存储时，对话框会提示报告未附上，且不会发送任何内容。
+
 ### Sentry {#sentry}
 
 当应用通过 Agent-Native 配置了浏览器端 Sentry（参见[错误报告](/docs/observability#sentry)）时，每个 Sentry 错误事件都会获得：
@@ -226,7 +236,9 @@ configureRecorder({
 
 ### Clips 和浏览器扩展 {#extensions}
 
-页面会暴露 `window.__agentNativeRecorder.report()`。浏览器扩展从页面的主世界读取它。Clips 录制就是通过这种方式，附上录制之前和录制期间的应用事件。
+页面会暴露 `window.__agentNativeRecorder.report()`。浏览器扩展从页面的主世界读取它。
+
+开启开发者日志后，Clips 扩展会在录制开始时（最近 30 秒）和停止时，在被录制的标签页中读取它。这些事件与录制的控制台和网络条目按同一时钟合并，片段的智能体会收到失败摘要。参见 [Clips 浏览器日志](/docs/template-clips-features#chrome-extension-browser-logs)。
 
 ## 隐私 {#privacy}
 

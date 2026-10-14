@@ -211,6 +211,16 @@ Una ventana o un límite que no sea un número positivo lanza un `RangeError` en
 
 ## Destinos {#destinations}
 
+### Informar de un problema {#report-a-problem}
+
+Toda app con el panel del agente o el menú de comandos tiene **Informar de un problema**. Está en el menú de opciones del panel del agente y en el menú de comandos (⌘K).
+
+- Pregunta si quieres adjuntar lo que hizo la app en los últimos dos minutos, y muestra una vista previa de los recuentos, los fallos y los primeros eventos. Lo pregunta siempre.
+- Cuando el usuario acepta, el informe completo se guarda como un archivo privado que solo ese usuario puede leer. El agente de la app recibe un resumen breve con una referencia al archivo.
+- El agente lee más del informe con la acción `read-problem-report`, filtrada por tipo de evento o por tiempo.
+- Cuando la página no tiene chat de agente, el botón copia el resumen y la referencia.
+- El informe necesita almacenamiento de archivos. Sin él, el diálogo indica que el informe no se adjuntó y no se envía nada.
+
 ### Sentry {#sentry}
 
 Cuando una app tiene Sentry para navegador configurado mediante Agent-Native (consulta [Informe de errores](/docs/observability#sentry)), cada evento de error de Sentry recibe:
@@ -226,7 +236,9 @@ Registra un listener con [`recorder.onReport()`](#on-report).
 
 ### Clips y extensiones del navegador {#extensions}
 
-La página expone `window.__agentNativeRecorder.report()`. Una extensión del navegador lo lee desde el mundo principal de la página. Así es como una grabación de Clips adjunta los eventos de la app de antes y durante la grabación.
+La página expone `window.__agentNativeRecorder.report()`. Una extensión del navegador lo lee desde el mundo principal de la página.
+
+Cuando los registros de desarrollador están activados, la extensión de Clips lo lee en la pestaña grabada al iniciar la grabación (los últimos 30 segundos) y al detenerla. Los eventos se unen a las entradas de consola y de red de la grabación en el mismo reloj, y el agente del clip recibe un resumen de los fallos. Consulta [Registros del navegador de Clips](/docs/template-clips-features#chrome-extension-browser-logs).
 
 ## Privacidad {#privacy}
 

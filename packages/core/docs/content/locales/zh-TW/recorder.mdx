@@ -211,6 +211,16 @@ configureRecorder({
 
 ## 報告目的地 {#destinations}
 
+### 回報問題 {#report-a-problem}
+
+每個具有代理面板或命令選單的應用程式都有**回報問題**。它位於代理面板的選項選單和命令選單（⌘K）中。
+
+- 它會詢問是否附上應用程式最近兩分鐘內做過的事，並預覽數量、失敗和最初的幾個事件。每次都會詢問。
+- 使用者同意後，完整報告會存成只有該使用者能讀取的私人檔案。應用程式的代理會收到一份簡短摘要和該檔案的參照。
+- 代理透過 `read-problem-report` action 讀取報告的更多內容，可依事件類型或時間篩選。
+- 當頁面沒有代理聊天時，按鈕會改為複製摘要和參照。
+- 報告需要檔案儲存空間。沒有時，對話框會提示報告未附上，且不會傳送任何內容。
+
 ### Sentry {#sentry}
 
 當應用程式透過 Agent-Native 設定了瀏覽器端 Sentry（請參閱[錯誤報告](/docs/observability#sentry)）時，每個 Sentry 錯誤事件都會取得：
@@ -226,7 +236,9 @@ configureRecorder({
 
 ### Clips 與瀏覽器擴充功能 {#extensions}
 
-頁面會公開 `window.__agentNativeRecorder.report()`。瀏覽器擴充功能會從頁面的主世界讀取它。Clips 錄影就是透過這種方式，附上錄影之前和錄影期間的應用程式事件。
+頁面會公開 `window.__agentNativeRecorder.report()`。瀏覽器擴充功能會從頁面的主世界讀取它。
+
+開啟開發者記錄後，Clips 擴充功能會在錄影開始時（最近 30 秒）和停止時，在被錄製的分頁中讀取它。這些事件會與錄影的主控台和網路項目依同一時鐘合併，片段的代理會收到失敗摘要。請參閱 [Clips 瀏覽器記錄](/docs/template-clips-features#chrome-extension-browser-logs)。
 
 ## 隱私 {#privacy}
 

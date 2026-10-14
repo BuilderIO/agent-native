@@ -145,6 +145,7 @@ L'extension Chrome ajoute à un enregistrement les diagnostics de console et de 
 | Rétrospective   | Jusqu'à 30 secondes avant le début de l'enregistrement, limité par l'historique de console de la page et la liste de resource timing. Ces entrées ont un `elapsedMs` négatif.                                                         |
 | `tabId`         | Renseigné sur chaque entrée de console et de réseau.                                                                                                                                                                                  |
 | `method`        | `"UNKNOWN"` sur les entrées réseau de la rétrospective, issues de resource timing, qui n'ont pas de méthode HTTP. Les requêtes en direct indiquent la méthode.                                                                        |
+| Activité de l'app | Sur les apps Agent-Native : les événements de l'[enregistreur](/docs/recorder) de l'onglet enregistré. `save-recording-app-activity` les stocke dans un fichier privé avec un résumé sur la ligne de diagnostic, et `get-recording-app-activity` les lit par plage de temps. |
 | Non collecté    | Corps et en-têtes des requêtes et des réponses. Les entrées de console et de réseau sont expurgées avant l'envoi.                                                                                                                     |
 
 ## Modèle de données

@@ -211,6 +211,16 @@ Une fenêtre ou un plafond qui n'est pas un nombre positif lève une `RangeError
 
 ## Destinations des rapports {#destinations}
 
+### Signaler un problème {#report-a-problem}
+
+Toute app dotée du panneau de l'agent ou du menu de commandes propose **Signaler un problème**. L'option se trouve dans le menu d'options du panneau de l'agent et dans le menu de commandes (⌘K).
+
+- Elle demande s'il faut joindre ce que l'app a fait au cours des deux dernières minutes, et affiche un aperçu des compteurs, des échecs et des premiers événements. Elle le demande à chaque fois.
+- Si l'utilisateur accepte, le rapport complet est stocké dans un fichier privé que seul cet utilisateur peut lire. L'agent de l'app reçoit un court résumé avec une référence au fichier.
+- L'agent lit la suite du rapport avec l'action `read-problem-report`, filtrée par type d'événement ou par période.
+- Quand la page n'a pas de chat d'agent, le bouton copie le résumé et la référence à la place.
+- Le rapport nécessite un stockage de fichiers. Sans lui, la boîte de dialogue indique que le rapport n'a pas été joint, et rien n'est envoyé.
+
 ### Sentry {#sentry}
 
 Quand une app a Sentry côté navigateur configuré via Agent-Native (voir [Rapport d'erreurs](/docs/observability#sentry)), chaque événement d'erreur Sentry reçoit :
@@ -226,7 +236,9 @@ Enregistrez un écouteur avec [`recorder.onReport()`](#on-report).
 
 ### Clips et extensions de navigateur {#extensions}
 
-La page expose `window.__agentNativeRecorder.report()`. Une extension de navigateur le lit depuis le monde principal de la page. C'est ainsi qu'un enregistrement Clips joint les événements de l'app d'avant et pendant l'enregistrement.
+La page expose `window.__agentNativeRecorder.report()`. Une extension de navigateur le lit depuis le monde principal de la page.
+
+Quand les journaux développeur sont activés, l'extension Clips le lit dans l'onglet enregistré au démarrage de l'enregistrement (les 30 dernières secondes) et à son arrêt. Les événements rejoignent les entrées de console et de réseau de l'enregistrement sur la même horloge, et l'agent du clip reçoit un résumé des échecs. Voir [Journaux de navigateur de Clips](/docs/template-clips-features#chrome-extension-browser-logs).
 
 ## Confidentialité {#privacy}
 

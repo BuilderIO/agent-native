@@ -145,6 +145,7 @@ La extensión de Chrome añade diagnósticos de consola y de red a una grabació
 | Retrospectiva  | Hasta 30 segundos antes de que empezara la grabación, limitado por el historial de consola de la propia página y por la lista de tiempos de recursos. Estas entradas tienen un `elapsedMs` negativo.                           |
 | `tabId`        | Presente en cada entrada de consola y de red.                                                                                                                                                                                  |
 | `method`       | `"UNKNOWN"` en las entradas de red de la retrospectiva, que proceden de los tiempos de recursos y no tienen método HTTP. Las solicitudes en vivo indican el método.                                                            |
+| Actividad de la app | En apps de Agent-Native: los eventos del [registrador](/docs/recorder) de la pestaña grabada. `save-recording-app-activity` los guarda como un archivo privado con un resumen en la fila de diagnóstico, y `get-recording-app-activity` los lee por rango de tiempo. |
 | No se recopila | Cuerpos y encabezados de solicitudes y respuestas. Las entradas de consola y de red se redactan antes de subirlas.                                                                                                             |
 
 ## Modelo de datos
