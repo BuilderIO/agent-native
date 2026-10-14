@@ -5281,12 +5281,27 @@ export async function runAuthoringFuzz(
       }
       return null;
     }, token);
-  const paste = async (html: string | null, text: string) =>
+  const slideClipboardType = "application/x-agent-native-slide-text";
+  const paste = async (
+    html: string | null,
+    text: string,
+    slideClipboard?: string,
+  ) =>
     editor.evaluate(
-      (root: HTMLElement, data: { html: string | null; text: string }) => {
+      (
+        root: HTMLElement,
+        data: {
+          html: string | null;
+          text: string;
+          slideClipboard?: string;
+          slideClipboardType: string;
+        },
+      ) => {
         const clipboard = new DataTransfer();
         clipboard.setData("text/plain", data.text);
         if (data.html) clipboard.setData("text/html", data.html);
+        if (data.slideClipboard)
+          clipboard.setData(data.slideClipboardType, data.slideClipboard);
         const event = new Event("paste", {
           bubbles: true,
           cancelable: true,
@@ -5307,10 +5322,15 @@ export async function runAuthoringFuzz(
           selectionCollapsed: selection?.isCollapsed ?? null,
         };
       },
-      { html, text },
+      {
+        html,
+        text,
+        slideClipboardType,
+        ...(slideClipboard ? { slideClipboard } : {}),
+      },
     );
   const copySelection = async () =>
-    editor.evaluate((root: HTMLElement) => {
+    editor.evaluate((root: HTMLElement, type: string) => {
       const clipboard = new DataTransfer();
       const event = new Event("copy", {
         bubbles: true,
@@ -5324,8 +5344,9 @@ export async function runAuthoringFuzz(
       return {
         html: clipboard.getData("text/html"),
         text: clipboard.getData("text/plain"),
+        slideClipboard: clipboard.getData(type),
       };
-    });
+    }, slideClipboardType);
   const assertRichPasteStructure = async (suffix: string) => {
     const state = await editor.evaluate(
       (root: HTMLElement, tokenSuffix: string) => {
@@ -6906,18 +6927,102 @@ export async function runAuthoringFuzz(
           await typeText(token);
           await selectToken(token);
           await page.keyboard.press(`${modifier}+B`);
+          const selectedWeight = await editor.evaluate((root: HTMLElement) => {
+            const selection = window.getSelection();
+            const node = selection?.anchorNode;
+            const element =
+              node instanceof Element ? node : node?.parentElement;
+            return element && root.contains(element)
+              ? getComputedStyle(element).fontWeight
+              : null;
+          });
+          const numericWeight =
+            selectedWeight === "bold" || selectedWeight === "bolder"
+              ? 700
+              : Number.parseInt(selectedWeight ?? "400", 10);
+          if (numericWeight < 600) {
+            await page.keyboard.press(`${modifier}+B`);
+          }
+          const finalSelectedWeight = await editor.evaluate(
+            (root: HTMLElement) => {
+              const selection = window.getSelection();
+              const node = selection?.anchorNode;
+              const element =
+                node instanceof Element ? node : node?.parentElement;
+              return element && root.contains(element)
+                ? getComputedStyle(element).fontWeight
+                : null;
+            },
+          );
           const copied = await copySelection();
-          const copiedBold =
-            /<(?:strong|b)\b|<span\b[^>]*style="[^"]*font-weight\s*:/i.test(
-              copied.html,
-            );
+          const copiedBold = await editor.evaluate(
+            (_root: HTMLElement, html: string) => {
+              const document = new DOMParser().parseFromString(
+                html,
+                "text/html",
+              );
+              return Array.from(
+                document.querySelectorAll<HTMLElement>(
+                  "strong,b,span[style*='font-weight']",
+                ),
+              ).some((mark) => {
+                const weight = mark.style.fontWeight.trim();
+                if (/^(?:normal|400)$/i.test(weight)) return false;
+                return (
+                  mark.matches("strong,b") ||
+                  weight === "bold" ||
+                  Number.parseInt(weight, 10) >= 600
+                );
+              });
+            },
+            copied.html,
+          );
           if (!copiedBold) {
+            const copyState = await editor.evaluate((root: HTMLElement) => {
+              const selection = window.getSelection();
+              const range = selection?.rangeCount
+                ? selection.getRangeAt(0)
+                : null;
+              const holder = document.createElement("div");
+              if (range) holder.append(range.cloneContents());
+              const selectedText = range?.toString() ?? "";
+              const selectedNodes: Array<{
+                text: string;
+                weight: string | null;
+                markup: string | null;
+              }> = [];
+              const walker = document.createTreeWalker(
+                root,
+                NodeFilter.SHOW_TEXT,
+              );
+              for (
+                let node = walker.nextNode();
+                node;
+                node = walker.nextNode()
+              ) {
+                if (!range?.intersectsNode(node)) continue;
+                const element = node.parentElement;
+                selectedNodes.push({
+                  text: node.textContent ?? "",
+                  weight: element ? getComputedStyle(element).fontWeight : null,
+                  markup: element?.outerHTML ?? null,
+                });
+              }
+              return {
+                selectedText,
+                selectedHtml: holder.innerHTML,
+                selectedNodes,
+              };
+            });
             throw new Error(
-              `copy did not preserve the selected bold mark (HTML present: ${Boolean(copied.html)})`,
+              `copy did not preserve the selected bold mark (${JSON.stringify({ selectedWeight, finalSelectedWeight, html: copied.html, copyState })})`,
             );
           }
+          if (!copied.slideClipboard) {
+            throw new Error("copy did not preserve the slide clipboard marker");
+          }
           await newPlainLine();
-          await paste(copied.html, copied.text);
+          await paste(copied.html, copied.text, copied.slideClipboard);
           const pastedMark = await editor.evaluate(
             (root: HTMLElement, value: string) => {
               const mark = Array.from(
@@ -6938,6 +7043,8 @@ export async function runAuthoringFuzz(
                       600),
                 tag: mark?.tagName ?? null,
                 textLength: mark?.textContent?.length ?? 0,
+                fontWeight: mark ? getComputedStyle(mark).fontWeight : null,
+                html: mark?.outerHTML ?? null,
                 tokenIncluded:
                   mark?.textContent
                     ?.replaceAll("\u200b", "")
@@ -6949,7 +7056,7 @@ export async function runAuthoringFuzz(
           );
           if (!pastedMark.preserved) {
             throw new Error(
-              `pasting copied rich text lost its bold mark (${JSON.stringify(pastedMark)})`,
+              `pasting copied rich text lost its bold mark (${JSON.stringify({ pastedMark, copiedHtml: copied.html, slideClipboard: copied.slideClipboard })})`,
             );
           }
           break;

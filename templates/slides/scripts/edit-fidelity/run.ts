@@ -846,10 +846,9 @@ async function settle(page: Page) {
       style.textContent = css;
       document.head.appendChild(style);
     }
-    // The renderer injects a webfont stylesheet per slide font, and a face
-    // starts loading only once text using it lays out, so `fonts.ready` can
-    // resolve before the slide's font was even requested (display=swap then
-    // paints the fallback). A failed font request can also leave it pending.
+    // The renderer injects a webfont stylesheet per slide font. Load only
+    // faces used by visible canvas text; unrelated registered faces may stay
+    // unloaded and keep the global FontFaceSet in `loading` indefinitely.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const stylesheetState = () => {
@@ -864,11 +863,103 @@ async function settle(page: Page) {
       );
       return { failed, pending };
     };
+    const fontStretchKeywords = [
+      { value: 50, keyword: "ultra-condensed" },
+      { value: 62.5, keyword: "extra-condensed" },
+      { value: 75, keyword: "condensed" },
+      { value: 87.5, keyword: "semi-condensed" },
+      { value: 100, keyword: "normal" },
+      { value: 112.5, keyword: "semi-expanded" },
+      { value: 125, keyword: "expanded" },
+      { value: 150, keyword: "extra-expanded" },
+      { value: 200, keyword: "ultra-expanded" },
+    ] as const;
+    const fontStretchToken = (value: string) => {
+      const normalized = value.trim().toLowerCase();
+      if (fontStretchKeywords.some(({ keyword }) => keyword === normalized)) {
+        return normalized === "normal" ? "" : normalized;
+      }
+      const percentage = Number.parseFloat(normalized);
+      if (!normalized.endsWith("%") || !Number.isFinite(percentage)) return "";
+      const nearest = fontStretchKeywords.reduce((best, option) =>
+        Math.abs(option.value - percentage) < Math.abs(best.value - percentage)
+          ? option
+          : best,
+      );
+      return nearest.keyword === "normal" ? "" : nearest.keyword;
+    };
+    const usedFontSpecs = () => {
+      const specs = new Map<string, { font: string; text: string }>();
+      for (const element of Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-main-slide-canvas="true"] [data-slide-text-block="true"]',
+        ),
+      )) {
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const style = getComputedStyle(element);
+        // `FontFaceSet.load` accepts stretch keywords, not computed percentages.
+        const font = [
+          style.fontStyle === "normal" ? "" : style.fontStyle,
+          style.fontVariant === "normal" ? "" : style.fontVariant,
+          style.fontWeight === "400" ? "" : style.fontWeight,
+          fontStretchToken(style.fontStretch),
+          style.fontSize,
+          style.fontFamily,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const text = element.textContent?.trim() || "Slides";
+        const existing = specs.get(font);
+        specs.set(font, {
+          font,
+          text: existing ? `${existing.text} ${text}` : text,
+        });
+      }
+      return Array.from(specs, ([key, spec]) => ({ ...spec, key }));
+    };
+    const fontRequests = new Map<
+      string,
+      {
+        status: "loading" | "loaded" | "failed";
+        promise: Promise<void>;
+        loadedFaces: number;
+      }
+    >();
+    const failedFonts: string[] = [];
+    const requestUsedFonts = () => {
+      for (const spec of usedFontSpecs()) {
+        if (fontRequests.has(spec.key)) continue;
+        const request: {
+          status: "loading" | "loaded" | "failed";
+          promise: Promise<void>;
+          loadedFaces: number;
+        } = { status: "loading", promise: Promise.resolve(), loadedFaces: 0 };
+        request.promise = document.fonts.load(spec.font, spec.text).then(
+          (faces) => {
+            request.status = "loaded";
+            request.loadedFaces = faces.length;
+          },
+          (error: unknown) => {
+            request.status = "failed";
+            failedFonts.push(`${spec.font}: ${String(error)}`);
+          },
+        );
+        fontRequests.set(spec.key, request);
+      }
+    };
     const currentState = (settled: boolean) => {
       const stylesheets = stylesheetState();
       return {
         settled,
         fonts: document.fonts.status,
+        usedFonts: usedFontSpecs().map((spec) => ({
+          font: spec.font,
+          requestStatus: fontRequests.get(spec.key)?.status ?? "not-needed",
+          loadedFaces: fontRequests.get(spec.key)?.loadedFaces ?? 0,
+          textLength: spec.text.length,
+        })),
+        failedFonts,
         pendingFontFaces: Array.from(document.fonts)
           .filter((font) => font.status !== "loaded")
           .slice(0, 10)
@@ -884,19 +975,23 @@ async function settle(page: Page) {
     await frame();
     let ready = false;
     for (let i = 0; i < 20; i++) {
+      requestUsedFonts();
       await Promise.race([
-        document.fonts.ready,
+        Promise.all(
+          [...fontRequests.values()].map((request) => request.promise),
+        ),
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
       const stylesheets = stylesheetState();
-      if (stylesheets.failed.length > 0) {
+      if (stylesheets.failed.length > 0 || failedFonts.length > 0) {
         return currentState(false);
       }
-      if (
-        stylesheets.pending.length === 0 &&
-        document.fonts.status === "loaded"
-      ) {
+      requestUsedFonts();
+      const fontsReady = usedFontSpecs().every(
+        (spec) => fontRequests.get(spec.key)?.status === "loaded",
+      );
+      if (stylesheets.pending.length === 0 && fontsReady) {
         ready = true;
         break;
       }
@@ -931,14 +1026,17 @@ async function settle(page: Page) {
     return {
       ...finalState,
       settled:
-        finalState.fonts === "loaded" &&
         finalState.pendingStylesheets === 0 &&
-        finalState.failedStylesheets.length === 0,
+        finalState.failedStylesheets.length === 0 &&
+        finalState.failedFonts.length === 0 &&
+        usedFontSpecs().every(
+          (spec) => fontRequests.get(spec.key)?.status === "loaded",
+        ),
     };
   }, MASK_CSS);
   if (!settleState.settled) {
     throw new CouldNotRun(
-      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; visible slide font checks: ${JSON.stringify(settleState.usedFonts)}; failed fonts: ${settleState.failedFonts.join(", ") || "none"}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
     );
   }
   // Autofit measures after paint; give it one more beat.
