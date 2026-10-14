@@ -331,14 +331,19 @@ const SCHEMA_DETAILS_NOUN =
 // Bare provide/share/send count only as an imperative opening a sentence or
 // line; mid-sentence they are the agent offering its answer ("I can provide a
 // table of the results").
-const SCHEMA_DETAILS_ASK =
-  "(?:\\b(?:could you|can you|would you|do you know|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b)";
+const SCHEMA_DETAILS_IMPERATIVE =
+  "(?:^|[.?!:]\\s+|\\n\\s*)(?:provide|share|send(?: me)?)\\b";
+// "Would you like me to show ..." is an offer, never a request for details.
+const SCHEMA_DETAILS_ASK = `(?:\\b(?:could you|can you|would you(?! like)|do you know|please\\s+(?:provide|share|send|tell)|tell me|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
+// A list lead-in has no "tell me": "Tell me what else is off:" followed by a
+// summary bullet that mentions a table is feedback, not a schema request.
+const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:could you|can you|would you(?! like)|please\\s+(?:provide|share|send)|i need you to)\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know (?:which|what|the)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN}|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b)`,
+  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
+  `${SCHEMA_DETAILS_LIST_ASK}[^.?!\\n]{0,80}:[ \\t]*\\n(?:[ \\t]*\\n)*((?:[ \\t]*(?:[-*•]|\\d+[.)])[^\\n]*\\n?){1,6})`,
   "i",
 );
 // The interrogative must open the sentence: "Want me to show which table this

@@ -1250,6 +1250,9 @@ describe("realDataFinalGuard", () => {
     "I can provide a table of the results if that helps.",
     "I need the table to reload, so I re-ran the query and it shows 43 accounts.",
     "There are 43 accounts. Want me to show which table this came from?",
+    "There are 43 accounts. Would you like me to show which table this came from?",
+    "There are 43 accounts. I need to know the table is current before I answer, so I re-ran it.",
+    "I fixed both panels, so tell me what else is off:\n- the table now shows 43 rows\n- the column labels are swapped back",
   ])(
     "does not treat the agent's own narration as a schema request: %s",
     (draftText) => {
