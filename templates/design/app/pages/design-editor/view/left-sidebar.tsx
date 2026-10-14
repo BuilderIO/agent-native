@@ -1,6 +1,6 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
-import type { ReactElement } from "react";
+import { memo, type ReactElement } from "react";
 import { Link } from "react-router";
 
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
@@ -17,6 +17,7 @@ import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { LayersPanel } from "@/components/design/LayersPanel";
+import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import { FigmaLinkComposerBubble } from "@/components/editor/FigmaLinkComposerBubble";
@@ -43,6 +44,10 @@ import {
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "../types";
+
+// The editor re-renders on every selection while the chat stays mounted, so
+// its props must stay referentially stable for this memo to hold.
+const MemoAgentChatSurface = memo(AgentChatSurface);
 
 export function renderLeftSidebar({
   editorCore,
@@ -95,12 +100,12 @@ export function renderLeftSidebar({
 }) {
   const {
     searchParams,
+    hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
     viewMode,
     attachHostChatSlot,
     isSignedIn,
-    session,
     t,
     designChatScope,
     designChatHistory,
@@ -112,11 +117,14 @@ export function renderLeftSidebar({
   const {
     activeLeftPanel,
     setActiveLeftPanel,
+    collapseLeftPanel,
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
     codeWorkbenchOpenedRef,
     startSidebarResize,
+    motionDockOpen,
+    setMotionDockOpenAnimated,
   } = editorHistory;
   const { canEditDesign, browserTabId } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
@@ -128,7 +136,7 @@ export function renderLeftSidebar({
     selectedCanvasSelector,
   } = editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
-  const { setActiveCodeFile } = editorToolsAndVectors;
+  const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
   const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
@@ -175,8 +183,17 @@ export function renderLeftSidebar({
           className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
         >
           <DesignWorkspaceRail
-            account={hostEmbeddedEditor ? null : session}
+            showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
+            motionOpen={motionDockOpen}
+            onMotionToggle={
+              !hostOwnsChrome &&
+              SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+              !initialGenerationChromeLimited &&
+              activeFileId
+                ? () => setMotionDockOpenAnimated(!motionDockOpen)
+                : undefined
+            }
             disabledPanels={
               initialGenerationChromeLimited
                 ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
@@ -263,14 +280,14 @@ export function renderLeftSidebar({
               {hostEmbeddedEditor ? (
                 <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
               ) : canApplyPendingVisualEditsWithAgent ? (
-                <AgentChatSurface
+                <MemoAgentChatSurface
                   composerContextProvider={
                     isSignedIn ? DesignComposerContextProvider : undefined
                   }
                   mode="panel"
                   className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                   chatOnly={true}
-                  onCollapse={() => setActiveLeftPanel(null)}
+                  onCollapse={collapseLeftPanel}
                   storageKey={DESIGN_CHAT_STORAGE_KEY}
                   emptyStateText={t("chat.emptyState")}
                   suggestions={designAgentSuggestions}
@@ -297,14 +314,12 @@ export function renderLeftSidebar({
                     ) : null
                   }
                   composerSlot={
-                    <>
-                      {detectedFigmaComposerLink ? (
-                        <FigmaLinkComposerBubble
-                          link={detectedFigmaComposerLink}
-                          designId={id}
-                        />
-                      ) : null}
-                    </>
+                    detectedFigmaComposerLink ? (
+                      <FigmaLinkComposerBubble
+                        link={detectedFigmaComposerLink}
+                        designId={id}
+                      />
+                    ) : null
                   }
                 />
               ) : isVisualEditSurface &&
@@ -380,6 +395,17 @@ export function renderLeftSidebar({
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
+                activeLeftPanel === "threads" ? "flex" : "hidden",
+              )}
+            >
+              {/* Mounted only while open: the panel fetches every thread. */}
+              {activeLeftPanel === "threads" && reviewCommentsPanelProps ? (
+                <ReviewCommentsPanel {...reviewCommentsPanelProps} />
+              ) : null}
+            </div>
+            <div
+              className={cn(
+                "min-h-0 flex-1 flex-col overflow-hidden",
                 activeLeftPanel === "import" ? "flex" : "hidden",
               )}
             >
@@ -417,6 +443,9 @@ export function renderLeftSidebar({
                   {canEditDesign && !shellMode ? (
                     <DesignExtensionsPanel
                       context={designExtensionContext}
+                      motionLabEnabled={
+                        editorLiveEditsAndPresence.motionLabEnabled
+                      }
                       hideAssetLibrary
                       title={t("designEditor.leftRail.tools")}
                     />
@@ -439,6 +468,7 @@ export function renderLeftSidebar({
                     {id && !shellMode && codeWorkbenchOpenedRef.current ? (
                       <CodeWorkbenchLoader
                         designId={id}
+                        active={activeLeftPanel === "code"}
                         activeFileId={routeCodeFileId}
                         activeFilename={routeCodeFilename}
                         selectedNodeId={selectedElementLayerId}

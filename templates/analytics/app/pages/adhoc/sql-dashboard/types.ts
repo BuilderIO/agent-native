@@ -61,6 +61,7 @@ export interface TableColumnConfig {
   format?: ColumnFormat;
   linkKey?: string;
   hidden?: boolean;
+  width?: number;
 }
 
 export interface PivotConfig {

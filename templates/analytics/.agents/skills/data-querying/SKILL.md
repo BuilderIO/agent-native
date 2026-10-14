@@ -247,11 +247,9 @@ future analyses.
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
-- State confidence explicitly instead of refusing. Cite the dashboard or saved query you used when a query ran; say so when you're answering from an existing dashboard, especially a certified one. When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
+- State confidence explicitly instead of refusing. Answer shape and citing the dashboard are owned by AGENTS.md "Data questions". When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
 - Answer questions directly in chat with tables, inline charts, and findings. Never deflect to "check the dashboard" — actually run the query and present the answer.
-- Before finalizing an analytics answer, make the evidence trail explicit enough
-  to audit: source(s), time window, filters, sample size or row count, join or
-  match method, caveats/gaps, and what action to take next when useful.
+- Evidence fields (source, window, filters, sample size, join method, caveats) go in the optional "How it's computed" note defined in AGENTS.md, not the opening line.
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, and `generate-chart` are not data queries. For dashboard artifacts, run at least one provider query action and preserve the result evidence in the final answer or dashboard config/description.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used.
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns.

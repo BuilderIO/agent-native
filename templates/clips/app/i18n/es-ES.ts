@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activar Rewind",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
-      "Rewind guarda un historial local de tu pantalla para que puedas incluir los últimos minutos antes de una grabación. El material solo se sube cuando lo incluyes o lo apruebas.",
+      "Desactivado de forma predeterminada. El historial de pantalla permanece en este dispositivo hasta que lo añades a una grabación o apruebas una solicitud para compartirlo.",
     requestFailed:
       "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
     localOnlyUnavailable:
@@ -309,6 +309,10 @@ const messages = {
     transcriptNotReady: "La transcripción aún no está lista",
     tryAfterTranscription:
       "Inténtelo de nuevo después de que finalice la transcripción.",
+    silenceTranscriptUnavailableTitle:
+      "No se puede usar esta transcripción para quitar silencios",
+    silenceTranscriptUnavailableDescription:
+      "Prueba a generar una nueva transcripción y luego vuelve a quitar los silencios.",
     titleGenerationQueued: "Generando título…",
     descriptionQueued: "Generando descripción…",
     chapterQueued: "Generando capítulos…",

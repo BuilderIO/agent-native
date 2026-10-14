@@ -2209,6 +2209,16 @@ export default function SourcesRoute() {
   const zoomMeetingIdsMissing =
     form.provider === "zoom" &&
     zoomFilterLines(form.zoomMeetingIds).length === 0;
+  // Undefined until the provider list loads; only a confirmed non-admin locks.
+  const canManageZoom = connectionProvidersQuery.data?.canManageZoom;
+  const zoomSettingsLocked =
+    form.provider === "zoom" && canManageZoom === false;
+  const selectableProviders = providers.filter(
+    (provider) =>
+      provider.value !== "zoom" ||
+      canManageZoom === true ||
+      (!!editingSource && form.provider === "zoom"),
+  );
   const formConfigInvalid =
     slackChannelIssues.length > 0 ||
     githubRepoIssues.length > 0 ||
@@ -2325,9 +2335,12 @@ export default function SourcesRoute() {
       await updateSource.mutateAsync({
         id: editingSource.id,
         title: form.title.trim() || defaultTitle(form.provider, t),
-        status:
-          form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
-        config,
+        status: zoomSettingsLocked
+          ? undefined
+          : form.autoSync || sourceEnabled(editingSource)
+            ? "active"
+            : "paused",
+        config: zoomSettingsLocked ? undefined : config,
       });
     } else {
       const result = await createSource.mutateAsync({
@@ -3017,7 +3030,7 @@ export default function SourcesRoute() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers.map((provider) => (
+                  {selectableProviders.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
                       {provider.label}
                     </SelectItem>
@@ -3254,12 +3267,18 @@ export default function SourcesRoute() {
 
             {form.provider === "zoom" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
+                {zoomSettingsLocked ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomAdminOnly")}
+                  </p>
+                ) : null}
                 <div className="grid gap-2">
                   <Label htmlFor="zoom-meeting-ids">
                     {t("sources.zoomMeetingIds")}
                   </Label>
                   <Textarea
                     id="zoom-meeting-ids"
+                    disabled={zoomSettingsLocked}
                     value={form.zoomMeetingIds}
                     onChange={(event) =>
                       updateForm({ zoomMeetingIds: event.target.value })
@@ -3293,6 +3312,7 @@ export default function SourcesRoute() {
                     {t("sources.zoomIncludeSummaries")}
                   </span>
                   <Switch
+                    disabled={zoomSettingsLocked}
                     checked={form.zoomIncludeSummaries}
                     onCheckedChange={(zoomIncludeSummaries) =>
                       updateForm({ zoomIncludeSummaries })
@@ -3306,6 +3326,7 @@ export default function SourcesRoute() {
                     </Label>
                     <Input
                       id="zoom-lookback-days"
+                      disabled={zoomSettingsLocked}
                       type="number"
                       min={1}
                       max={30}
@@ -3321,6 +3342,7 @@ export default function SourcesRoute() {
                     </Label>
                     <Input
                       id="zoom-poll-minutes"
+                      disabled={zoomSettingsLocked}
                       type="number"
                       min={5}
                       max={1440}
@@ -3481,6 +3503,7 @@ export default function SourcesRoute() {
                   </span>
                 </span>
                 <Switch
+                  disabled={zoomSettingsLocked}
                   checked={form.autoSync}
                   onCheckedChange={(autoSync) => updateForm({ autoSync })}
                 />

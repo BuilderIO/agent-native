@@ -41,6 +41,7 @@ import {
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AgentProtocolValidationError,
   AgentKitProtocolError,
+  agentEventSequenceEnd,
   createRequestAbortedError,
   createAgentKitProtocolVersionOffer,
   isInlineDataUrl,
@@ -792,7 +793,7 @@ const MAX_TOOL_HISTORY_SOURCE_EVENT_WORK = 4_096;
 const MAX_TOOL_HISTORY_SOURCE_EVENTS = MAX_TOOL_HISTORY_SOURCE_EVENT_WORK / 2;
 const MAX_TOOL_HISTORY_SOURCE_TOOLS = 4_096;
 const TOOL_HISTORY_OMISSION_TEXT =
-  "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.";
+  "Some tool-call history could not be included in the history supplied for this turn.";
 const TOOL_HISTORY_ORDER_OMISSION_TEXT =
   "Tool-call history was omitted because its position could not be reconstructed safely.";
 
@@ -1943,6 +1944,18 @@ function messagesWithToolCallHistory(
       )
     );
   });
+  const representedToolCallIds = new Set<string>();
+  for (const represented of existingToolHistoryPartsByMessageId.values()) {
+    for (const id of represented.callIds) {
+      if (represented.resultIds.has(id)) representedToolCallIds.add(id);
+    }
+  }
+  const unlinkedCallsOmitted = toolCalls.some(
+    (toolCall) =>
+      toolCall.status !== "running" &&
+      !representedToolCallIds.has(toolCall.id) &&
+      !(toolCall.messageId && assistantMessageIds.has(toolCall.messageId)),
+  );
   const historyPartsByMessageId = new Map<string, OrderedToolHistoryPart[]>();
   const selectedCalls: Array<{
     messageId: string;
@@ -1953,7 +1966,9 @@ function messagesWithToolCallHistory(
   const historySizer = createProjectedToolHistorySizer(assistantMessageCopies);
   const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
   let omittedHistory =
-    sourceOmitted || recentCalls.length < eligibleCalls.length;
+    sourceOmitted ||
+    unlinkedCallsOmitted ||
+    recentCalls.length < eligibleCalls.length;
   let omissionMessageId = sourceTruncated
     ? firstAssistantMessageId
     : selection.omissionMessageId;
@@ -1961,9 +1976,10 @@ function messagesWithToolCallHistory(
     omissionMessageId = undefined;
   }
   if (!omissionMessageId && omittedHistory) {
-    omissionMessageId = sourceOmitted
-      ? firstAssistantMessageId
-      : (eligibleCalls[0]?.messageId ?? firstAssistantMessageId);
+    omissionMessageId =
+      sourceOmitted || unlinkedCallsOmitted
+        ? firstAssistantMessageId
+        : (eligibleCalls[0]?.messageId ?? firstAssistantMessageId);
   }
 
   for (let index = recentCalls.length - 1; index >= 0; index--) {
@@ -2515,7 +2531,7 @@ export class AgentKitClient implements AgentKitController {
           snapshot?.events?.reduce(
             (sequence, event) =>
               event.runId === runId
-                ? Math.max(sequence, event.sequence)
+                ? Math.max(sequence, agentEventSequenceEnd(event))
                 : sequence,
             0,
           ) ?? 0;
@@ -4698,7 +4714,7 @@ export class AgentKitClient implements AgentKitController {
             return;
           }
           if (terminalCatchUpFailed) {
-            this.fail(error, "run_stream_failed");
+            this.restoreConnectionAfterTerminalCatchUp(key);
             return;
           }
           if (terminalEvent && !this.hasTerminalRunCatchUp(threadId, runId)) {
@@ -4728,9 +4744,40 @@ export class AgentKitClient implements AgentKitController {
         return;
       }
       const runError = toError(error, "run_stream_failed");
-      if (this.hasTerminalRunCatchUp(threadId, runId)) {
+      if (
+        this.hasTerminalRunCatchUp(threadId, runId) &&
+        error instanceof AgentProtocolValidationError
+      ) {
         this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
-        this.fail(runError, "run_stream_failed");
+        this.reportIntegrity({
+          code: "run_missing_terminal",
+          threadId,
+          runId,
+        });
+        this.restoreConnectionAfterTerminalCatchUp(key);
+      } else if (this.hasTerminalRunCatchUp(threadId, runId)) {
+        const catchUp = this.terminalRunCatchUps.get(key);
+        if (catchUp) {
+          const terminalThread = this.preserveTerminalRunDuringCatchUp(
+            this.getThread(threadId),
+            catchUp,
+          );
+          const run = terminalThread.runs[runId];
+          this.setThread(
+            threadId,
+            run
+              ? settleRunProjection(
+                  terminalThread,
+                  runId,
+                  "failed",
+                  run.completedAt ?? this.now(),
+                  run.activeMessageId,
+                  catchUp.run.status,
+                )
+              : terminalThread,
+          );
+        }
+        this.fail(error, "run_stream_failed");
       } else {
         this.markRunFailed(threadId, runId, runError);
         this.fail(error, "run_stream_failed");
@@ -5042,7 +5089,9 @@ export class AgentKitClient implements AgentKitController {
       this.getThread(threadId).runs[runId]?.lastSequence ?? 0,
       snapshot?.events?.reduce(
         (sequence, event) =>
-          event.runId === runId ? Math.max(sequence, event.sequence) : sequence,
+          event.runId === runId
+            ? Math.max(sequence, agentEventSequenceEnd(event))
+            : sequence,
         0,
       ) ?? 0,
     );
@@ -6475,6 +6524,13 @@ export class AgentKitClient implements AgentKitController {
 
   private setConnection(connection: AgentKitSnapshot["connection"]): void {
     if (this.snapshot.connection !== connection) this.patch({ connection });
+  }
+
+  private restoreConnectionAfterTerminalCatchUp(key: string): void {
+    const hasOtherConsumers = [...this.consumers.keys()].some(
+      (candidate) => candidate !== key,
+    );
+    if (!hasOtherConsumers) this.setConnection("connected");
   }
 
   private fail(error: unknown, code: string): void {

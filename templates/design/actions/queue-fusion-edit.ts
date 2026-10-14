@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import "../server/db/index.js";
 
 const targetSchema = z.object({
@@ -66,20 +67,23 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    await db.insert(schema.designFusionEdits).values({
-      id,
-      designId,
-      screenFileId: screenFileId ?? null,
-      instruction,
-      target: target ? JSON.stringify(target) : null,
-      status: "pending",
-      batchId: null,
-      error: null,
-      sentAt: null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designFusionEdits).values({
+        id,
+        designId,
+        screenFileId: screenFileId ?? null,
+        instruction,
+        target: target ? JSON.stringify(target) : null,
+        status: "pending",
+        batchId: null,
+        error: null,
+        sentAt: null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     const [row] = await db

@@ -67,37 +67,42 @@ export async function refreshExpiringGoogleTokens(
   } = {},
 ): Promise<void> {
   const bufferMs = opts.bufferMs ?? 15 * 60 * 1000;
-  let accounts: Awaited<ReturnType<typeof listOAuthAccounts>>;
-  try {
-    accounts = await listOAuthAccounts("google");
-  } catch (err) {
-    console.error("[google-refresh] failed to list accounts:", err);
-    return;
-  }
   const now = Date.now();
-  for (const acct of accounts) {
-    const tokens = acct.tokens as GoogleTokens;
-    if (!tokens?.refresh_token) continue;
-    if (tokens.expiry_date && tokens.expiry_date > now + bufferMs) continue;
+  for (const provider of ["google", "google_sheets"]) {
+    let accounts: Awaited<ReturnType<typeof listOAuthAccounts>>;
     try {
-      const refreshed = await refreshOne(tokens.refresh_token);
-      const merged: GoogleTokens = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: now + refreshed.expires_in * 1000,
-        token_type: refreshed.token_type,
-        scope: refreshed.scope ?? tokens.scope,
-      };
-      await saveOAuthTokens(
-        "google",
-        acct.accountId,
-        merged as unknown as Record<string, unknown>,
-      );
+      accounts = await listOAuthAccounts(provider);
     } catch (err) {
-      console.warn(
-        `[google-refresh] refresh failed for ${acct.accountId}:`,
-        (err as Error).message,
+      console.error(
+        `[google-refresh] failed to list ${provider} accounts:`,
+        err,
       );
+      continue;
+    }
+    for (const acct of accounts) {
+      const tokens = acct.tokens as GoogleTokens;
+      if (!tokens?.refresh_token) continue;
+      if (tokens.expiry_date && tokens.expiry_date > now + bufferMs) continue;
+      try {
+        const refreshed = await refreshOne(tokens.refresh_token);
+        const merged: GoogleTokens = {
+          ...tokens,
+          access_token: refreshed.access_token,
+          expiry_date: now + refreshed.expires_in * 1000,
+          token_type: refreshed.token_type,
+          scope: refreshed.scope ?? tokens.scope,
+        };
+        await saveOAuthTokens(
+          provider,
+          acct.accountId,
+          merged as unknown as Record<string, unknown>,
+        );
+      } catch (err) {
+        console.warn(
+          `[google-refresh] refresh failed for ${provider}:${acct.accountId}:`,
+          (err as Error).message,
+        );
+      }
     }
   }
 }

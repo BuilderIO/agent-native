@@ -212,10 +212,21 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) =>
+      values.set(key, value),
+    );
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: {
+        setItem,
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        key: (index: number) => [...values.keys()][index] ?? null,
+        get length() {
+          return values.size;
+        },
+      },
     });
     try {
       let settleRevoke: ((response: Response) => void) | undefined;
@@ -236,7 +247,11 @@ describe("signOut", () => {
       );
       await pending;
 
-      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(
+        setItem.mock.calls.filter(
+          ([key]) => key === "agent-native:session-invalidated",
+        ),
+      ).toHaveLength(1);
     } finally {
       if (originalLocalStorage) {
         Object.defineProperty(window, "localStorage", originalLocalStorage);

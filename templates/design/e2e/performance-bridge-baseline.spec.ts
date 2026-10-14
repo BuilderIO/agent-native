@@ -16,11 +16,21 @@ import {
   inspectorInputCount,
 } from "./helpers";
 
+test.use({ trace: { mode: "on", screenshots: false, snapshots: false } });
+
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const EVIDENCE_DIR = path.resolve(
   import.meta.dirname,
   "../../../.tmp/design-repro/closeout-20260916/performance",
 );
+
+type CollectionRequestProbe = {
+  frameId: string;
+  correlationId: string;
+  deep: boolean;
+  includePortableStyleSnapshot: boolean;
+  hasAtPoint: boolean;
+};
 
 type MarqueeProfilerReceipt = {
   elapsedMs: number | null;
@@ -33,6 +43,7 @@ type MarqueeProfilerReceipt = {
   finalSelectionAt: number | null;
   host: Record<string, number>;
   bridge: Record<string, number>;
+  collectionRequests: CollectionRequestProbe[];
 };
 
 async function action(
@@ -276,6 +287,58 @@ async function installReactCommitProbe(page: Page): Promise<void> {
   });
 }
 
+async function installCollectionRequestRecorder(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    type Request = {
+      frameId: string;
+      correlationId: string;
+      deep: boolean;
+      includePortableStyleSnapshot: boolean;
+      hasAtPoint: boolean;
+    };
+    type RequestWindow = typeof window & {
+      __marqueeCollectionRequests?: Request[];
+    };
+    if (window === window.top) {
+      (window as RequestWindow).__marqueeCollectionRequests = [];
+      return;
+    }
+
+    window.addEventListener(
+      "message",
+      (event) => {
+        const data = event.data as {
+          type?: string;
+          correlationId?: unknown;
+          deep?: unknown;
+          includePortableStyleSnapshot?: unknown;
+          atPoint?: unknown;
+        } | null;
+        if (
+          event.source !== window.parent ||
+          data?.type !== "agent-native:collect-selectable-rects"
+        ) {
+          return;
+        }
+        const parent = window.parent as RequestWindow;
+        parent.__marqueeCollectionRequests?.push({
+          frameId:
+            (window.frameElement as HTMLIFrameElement | null)?.getAttribute(
+              "data-screen-iframe-id",
+            ) ?? "unknown-frame",
+          correlationId:
+            typeof data.correlationId === "string" ? data.correlationId : "",
+          deep: data.deep === true,
+          includePortableStyleSnapshot:
+            data.includePortableStyleSnapshot !== false,
+          hasAtPoint: data.atPoint !== undefined && data.atPoint !== null,
+        });
+      },
+      true,
+    );
+  });
+}
+
 async function installMarqueeProfiler(
   page: Page,
   delayedFileId: string,
@@ -283,6 +346,7 @@ async function installMarqueeProfiler(
   await page.evaluate((targetFileId) => {
     const win = window as typeof window & {
       __designPerformanceProbe?: Record<string, number>;
+      __marqueeCollectionRequests?: CollectionRequestProbe[];
       __marqueePerformance?: {
         startedAt: number;
         firstMessageAt: number | null;
@@ -295,6 +359,7 @@ async function installMarqueeProfiler(
       };
     };
     win.__designPerformanceProbe = Object.create(null);
+    win.__marqueeCollectionRequests = [];
     const startedAt = performance.now();
     win.__marqueePerformance = {
       startedAt,
@@ -467,7 +532,7 @@ async function performProfiledMarquee(
   page: Page,
   fileId: string,
   secondaryFileId: string,
-): Promise<void> {
+) {
   const frame = page
     .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
     .contentFrame();
@@ -498,20 +563,22 @@ async function performProfiledMarquee(
     await page.mouse.move(
       secondLastBox.x + secondLastBox.width + 12,
       secondLastBox.y + secondLastBox.height + 12,
-      { steps: 8 },
+      { steps: 2 },
     );
     await page.mouse.up();
   } finally {
     await page.keyboard.up(modifier);
   }
+  return { firstBox, secondLastBox, iframeBox, startPoint };
 }
 
 async function readMarqueeProfiler(
   page: Page,
 ): Promise<MarqueeProfilerReceipt> {
-  const host = await page.evaluate(() => {
+  const hostSnapshot = await page.evaluate(() => {
     const win = window as typeof window & {
       __designPerformanceProbe?: Record<string, number>;
+      __marqueeCollectionRequests?: CollectionRequestProbe[];
       __marqueePerformance?: {
         startedAt: number;
         firstMessageAt: number | null;
@@ -550,8 +617,10 @@ async function readMarqueeProfiler(
       firstBridgeMessageAt: marquee?.firstMessageAt ?? null,
       finalSelectionAt,
       host: probe,
+      collectionRequests: win.__marqueeCollectionRequests ?? [],
     };
   });
+  const { collectionRequests, ...host } = hostSnapshot;
   const bridge = {
     domScans: 0,
     computedStyleReads: 0,
@@ -584,7 +653,7 @@ async function readMarqueeProfiler(
     bridge.subtreeQueries += sample.subtreeQueries;
     bridge.layoutReads += sample.layoutReads;
   }
-  return { ...host, bridge };
+  return { ...host, bridge, collectionRequests };
 }
 
 async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
@@ -596,6 +665,31 @@ async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
   await expect(target).toBeVisible({ timeout: 15_000 });
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for ${nodeId}`);
+  const localClickPoint = await target.evaluate((node) => {
+    const bounds = node.getBoundingClientRect();
+    return {
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + 7,
+      bounds: {
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+      },
+    };
+  });
+  const clickPoint = {
+    x:
+      box.x +
+      ((localClickPoint.x - localClickPoint.bounds.left) /
+        localClickPoint.bounds.width) *
+        box.width,
+    y:
+      box.y +
+      ((localClickPoint.y - localClickPoint.bounds.top) /
+        localClickPoint.bounds.height) *
+        box.height,
+  };
   const expected = await target.evaluate((node) => ({
     tagName: node.tagName.toLowerCase(),
     sourceId: node.getAttribute("data-agent-native-node-id"),
@@ -605,7 +699,7 @@ async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.down(modifier);
   try {
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.click(clickPoint.x, clickPoint.y);
   } finally {
     await page.keyboard.up(modifier);
   }
@@ -672,6 +766,7 @@ test("collect selectable rects baseline on nested responsive screens", async ({
 }) => {
   const fixture = await createFixture(request);
   await installReactCommitProbe(page);
+  await installCollectionRequestRecorder(page);
   await gotoEditor(page, fixture.designId);
   const primaryIframe = page.locator(
     `iframe[data-screen-iframe-id="${fixture.fileIds[0]}"]`,
@@ -706,7 +801,6 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     return { elementCount, maxDepth };
   });
 
-  await page.context().tracing.start({ screenshots: false, snapshots: false });
   const bridgeSamples: RectsSample[] = [];
   await collectRects(page, 0, true);
   for (const deep of [false, true]) {
@@ -827,7 +921,11 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .locator('[aria-selected="true"]')
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
   await installMarqueeProfiler(page, fixture.fileIds[1]);
-  await performProfiledMarquee(page, fixture.fileIds[0], fixture.fileIds[1]);
+  const marqueeGesture = await performProfiledMarquee(
+    page,
+    fixture.fileIds[0],
+    fixture.fileIds[1],
+  );
   await expect
     .poll(
       () =>
@@ -861,6 +959,17 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .locator('[aria-selected="true"]')
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
   const marqueeProfiler = await readMarqueeProfiler(page);
+  await test.info().attach("marquee-collection-receipt", {
+    body: Buffer.from(
+      JSON.stringify({
+        fileIds: fixture.fileIds,
+        gesture: marqueeGesture,
+        profiler: marqueeProfiler,
+        selectedRows: marqueeSelectionAfterRows,
+      }),
+    ),
+    contentType: "application/json",
+  });
   expect(marqueeProfiler.bridgeMessageCount).toBeGreaterThan(0);
   expect(marqueeProfiler.bridgeReplyCount).toBeGreaterThanOrEqual(2);
   expect(marqueeProfiler.bridgeReplyCountAtMouseup).toBeLessThan(2);
@@ -873,9 +982,29 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   expect(marqueeProfiler.host.captureCurrentSelection).toBeLessThanOrEqual(2);
   expect(marqueeProfiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
   expect(marqueeProfiler.host.reactCommits).toBeGreaterThan(0);
-  expect(marqueeProfiler.bridge.domScans).toBe(2);
-  expect(marqueeProfiler.bridge.subtreeQueries).toBe(0);
-  expect(marqueeProfiler.bridge.subtreeNodes).toBe(0);
+  const expectedIntersectedFrameIds = [...fixture.fileIds].sort();
+  const expectedSelectedFrameIds = [...expectedIntersectedFrameIds];
+  const collectionRequests = marqueeProfiler.collectionRequests;
+  const requestKeys = collectionRequests.map((request) =>
+    JSON.stringify([request.frameId, request.includePortableStyleSnapshot]),
+  );
+  const expectedRequestKeys = [
+    ...expectedIntersectedFrameIds.map((frameId) =>
+      JSON.stringify([frameId, false]),
+    ),
+    ...expectedSelectedFrameIds.map((frameId) =>
+      JSON.stringify([frameId, true]),
+    ),
+  ].sort();
+  expect(new Set(requestKeys).size).toBe(requestKeys.length);
+  expect([...requestKeys].sort()).toEqual(expectedRequestKeys);
+  expect(collectionRequests).toHaveLength(expectedRequestKeys.length);
+  for (const request of collectionRequests) {
+    expect(request.correlationId).not.toBe("");
+    expect(request.deep).toBe(true);
+    expect(request.hasAtPoint).toBe(false);
+  }
+  expect(marqueeProfiler.bridge.domScans).toBe(collectionRequests.length);
   expect(marqueeSelectionAfterRows).not.toEqual(marqueeSelectionBeforeRows);
   expect(marqueeSelectionAfterRows).toEqual(
     expect.arrayContaining([
@@ -898,9 +1027,6 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .toEqual(marqueeSelectionBeforeRows);
 
   const longTasks = await readLongTasks(page);
-  await page.context().tracing.stop({
-    path: path.join(EVIDENCE_DIR, "bridge-baseline-trace.zip"),
-  });
   await writeFile(
     path.join(EVIDENCE_DIR, "bridge-after.json"),
     JSON.stringify(

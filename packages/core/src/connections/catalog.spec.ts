@@ -59,6 +59,17 @@ describe("workspace connection provider catalog", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+    expect(
+      getWorkspaceConnectionProvider("google_sheets")?.oauth?.scopes,
+    ).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
+    expect(
+      getWorkspaceConnectionProvider("google_sheets")?.oauth?.provider,
+    ).toBe("google_sheets");
     expect(getWorkspaceConnectionProvider("gmail")?.oauth?.scopes).toEqual(
       expect.arrayContaining([
         "openid",

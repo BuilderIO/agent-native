@@ -4,8 +4,19 @@ import { fileURLToPath } from "node:url";
 
 const DESIGN_E2E_PREFIX = "templates/design/e2e/";
 const LONG_MUSIC_APP_SPEC = "e2e/interaction-responsive-music-app.spec.ts";
-const LONG_MUSIC_APP_TEST_TITLE =
-  "create a responsive music-app desktop shell under a Screen root";
+const LONG_LANDING_PAGE_SPEC = "e2e/interaction-landing-page-build.spec.ts";
+const LOOPBACK_ONLY_DESIGN_SPECS = new Set([
+  "e2e/home-system-selection.spec.ts",
+]);
+const LONG_LANDING_PAGE_TEST_TITLES = [
+  "step 1: Screen tool draws the root Landing Page frame at 1440x1024 with the default top-level frame fill and clip",
+  "the secondary button is built and both hero buttons are grouped in HeroCTAGroup",
+  "final structure: mobile screen layer tree (names + order + nesting) matches the adapted design",
+] as const;
+const LONG_MUSIC_APP_TEST_TITLES = [
+  "create a responsive music-app desktop shell under a Screen root",
+  "create a responsive music-app tablet Screen from the desktop shell",
+] as const;
 
 type IsFile = (specPath: string) => boolean;
 type ReadFile = (specPath: string) => string;
@@ -13,6 +24,7 @@ type ReadFile = (specPath: string) => string;
 type ResolvedDesignE2ESpecs = {
   existingSpecs: string[];
   removedSpecs: string[];
+  filteredSpecs: string[];
 };
 
 function isRunnableSpec(specPath: string): boolean {
@@ -35,13 +47,25 @@ function isRunnableSpec(specPath: string): boolean {
   }
 }
 
-function declaresLongMusicAppTest(source: string): boolean {
-  const escapedTitle = LONG_MUSIC_APP_TEST_TITLE.replace(
-    /[.*+?^${}()|[\]\\]/gu,
-    "\\$&",
-  );
-  const quotedTitle = `(?:"${escapedTitle}"|'${escapedTitle}'|\`${escapedTitle}\`)`;
-  return new RegExp(`\\btest\\s*\\(\\s*${quotedTitle}\\s*,`, "u").test(source);
+function declaresTestTitles(
+  source: string,
+  titles: readonly string[],
+): string[] {
+  return titles.filter((title) => {
+    const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const quotedTitle = `(?:"${escapedTitle}"|'${escapedTitle}'|\`${escapedTitle}\`)`;
+    return new RegExp(`\\btest\\s*\\(\\s*${quotedTitle}\\s*,`, "u").test(
+      source,
+    );
+  });
+}
+
+function declaresLongMusicAppTests(source: string): string[] {
+  return declaresTestTitles(source, LONG_MUSIC_APP_TEST_TITLES);
+}
+
+function declaresLongLandingPageTests(source: string): string[] {
+  return declaresTestTitles(source, LONG_LANDING_PAGE_TEST_TITLES);
 }
 
 export function resolveDesignE2ESpecs(
@@ -49,7 +73,15 @@ export function resolveDesignE2ESpecs(
   {
     isFile = isRunnableSpec,
     readFile = (specPath) => readFileSync(specPath, "utf8"),
-  }: { isFile?: IsFile; readFile?: ReadFile } = {},
+    includeLoopbackOnlySpecs = process.env.E2E_AI_SIDEBAR_LOOPBACK === "1",
+    includeLandingPageWorkflowSpec = process.env
+      .DESIGN_CANVAS_LANDING_PAGE_WORKFLOW === "1",
+  }: {
+    isFile?: IsFile;
+    readFile?: ReadFile;
+    includeLoopbackOnlySpecs?: boolean;
+    includeLandingPageWorkflowSpec?: boolean;
+  } = {},
 ): ResolvedDesignE2ESpecs {
   let paths;
   try {
@@ -64,6 +96,7 @@ export function resolveDesignE2ESpecs(
 
   const existingSpecs: string[] = [];
   const removedSpecs: string[] = [];
+  const filteredSpecs: string[] = [];
   for (const candidate of paths) {
     if (
       typeof candidate !== "string" ||
@@ -82,26 +115,70 @@ export function resolveDesignE2ESpecs(
           `The selected long music-app workflow spec is missing: ${LONG_MUSIC_APP_SPEC}`,
         );
       }
+      if (specPath === LONG_LANDING_PAGE_SPEC) {
+        throw new Error(
+          "The selected landing-page workflow spec is missing: " +
+            LONG_LANDING_PAGE_SPEC,
+        );
+      }
       removedSpecs.push(specPath);
       continue;
     }
+    const landingPageTests = declaresLongLandingPageTests(readFile(specPath));
+    if (landingPageTests.length > 0 && specPath !== LONG_LANDING_PAGE_SPEC) {
+      throw new Error(
+        "The long landing-page workflow tests must remain in " +
+          LONG_LANDING_PAGE_SPEC,
+      );
+    }
+    if (
+      specPath === LONG_LANDING_PAGE_SPEC &&
+      landingPageTests.length !== LONG_LANDING_PAGE_TEST_TITLES.length
+    ) {
+      const missingTests = LONG_LANDING_PAGE_TEST_TITLES.filter(
+        (title) => !landingPageTests.includes(title),
+      );
+      throw new Error(
+        "The long landing-page workflow tests are missing from " +
+          LONG_LANDING_PAGE_SPEC +
+          ": " +
+          missingTests.join(", "),
+      );
+    }
+    if (
+      specPath === LONG_LANDING_PAGE_SPEC &&
+      !includeLandingPageWorkflowSpec
+    ) {
+      filteredSpecs.push(specPath);
+      continue;
+    }
+    if (LOOPBACK_ONLY_DESIGN_SPECS.has(specPath) && !includeLoopbackOnlySpecs) {
+      filteredSpecs.push(specPath);
+      continue;
+    }
 
-    const declaresLongMusicApp = declaresLongMusicAppTest(readFile(specPath));
-    if (declaresLongMusicApp && specPath !== LONG_MUSIC_APP_SPEC) {
+    const longMusicAppTests = declaresLongMusicAppTests(readFile(specPath));
+    if (longMusicAppTests.length > 0 && specPath !== LONG_MUSIC_APP_SPEC) {
       throw new Error(
         `The long music-app workflow test must remain in ${LONG_MUSIC_APP_SPEC}`,
       );
     }
-    if (specPath === LONG_MUSIC_APP_SPEC && !declaresLongMusicApp) {
+    if (
+      specPath === LONG_MUSIC_APP_SPEC &&
+      longMusicAppTests.length !== LONG_MUSIC_APP_TEST_TITLES.length
+    ) {
+      const missingTests = LONG_MUSIC_APP_TEST_TITLES.filter(
+        (title) => !longMusicAppTests.includes(title),
+      );
       throw new Error(
-        `The long music-app workflow test is missing from ${LONG_MUSIC_APP_SPEC}`,
+        `The long music-app workflow tests are missing from ${LONG_MUSIC_APP_SPEC}: ${missingTests.join(", ")}`,
       );
     }
 
     existingSpecs.push(specPath);
   }
 
-  return { existingSpecs, removedSpecs };
+  return { existingSpecs, removedSpecs, filteredSpecs };
 }
 
 if (
@@ -109,12 +186,16 @@ if (
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   try {
-    const { existingSpecs, removedSpecs } = resolveDesignE2ESpecs(
-      process.env.DESIGN_CANVAS_E2E_SPECS,
-    );
+    const { existingSpecs, removedSpecs, filteredSpecs } =
+      resolveDesignE2ESpecs(process.env.DESIGN_CANVAS_E2E_SPECS);
     for (const spec of removedSpecs) {
       console.error(
         `::warning::Removed Design E2E spec is no longer runnable: ${spec}`,
+      );
+    }
+    for (const spec of filteredSpecs) {
+      console.error(
+        `::notice::Design E2E spec is handled by its dedicated workflow lane and omitted from generic shards: ${spec}`,
       );
     }
     process.stdout.write(existingSpecs.map((spec) => `${spec}\0`).join(""));

@@ -15,3 +15,18 @@ description: "在 Core 相容路徑、範本模式與 Toolkit 原語之間作出
 | 畫布呈現   | Toolkit 或應用程式的組合。                              |
 
 請從 `@agent-native/toolkit/editor` 匯入編輯器。舊 Core 路徑繼續作為相容性重新匯出。結構、命令與持久化仍由應用程式負責。Blocks 仍歸 Core，但 Toolkit 區段是可重用 UI 的統一目錄，因此文件集中在這裡。
+
+Core負責Blocks結構描述與執行期契約；Toolkit提供可重用的用戶端UI。Context X-Ray引擎和actions由Core擁有；Toolkit介面由app/context-xray匯出。.
+
+## 畫布互動與註解
+
+Toolkit提供手勢與快捷鍵的無介面輔助工具，以及用於繪圖和文字指示的DrawOverlay、用於可傳送給代理的錨定意見的CanvasCommentPins。畫布模型、呈現、持久化和代理脈絡由應用程式負責。
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>選取</span><span class='wf-pill'>繪圖</span><span class='wf-pill'>評論</span><div style='flex:1'></div><span class='wf-muted'>畫布控制項</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>活動頁面</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>繪圖註記</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>意見</strong><div class='wf-box'>1 &nbsp; 將此標題移到圖片上方。</div><div class='wf-box'>2 &nbsp; 提高此標籤的對比度。</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> 傳送意見</button></aside></div>"
+    }
+  />
+</WireframeBlock>

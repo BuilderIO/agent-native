@@ -11,6 +11,7 @@ import {
   type CategoryAxisPlan,
 } from "@shared/chart-axis-labels";
 import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
+import { formatDollars } from "@shared/format-dollars";
 import {
   isNumericLikeValue,
   limitChartRows,
@@ -26,13 +27,16 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconAlertTriangle,
+  IconEye,
   IconInfoCircle,
+  IconPencil,
   IconRefresh,
   IconTrendingUp,
   IconTrendingDown,
 } from "@tabler/icons-react";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -40,6 +44,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -66,6 +71,25 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverAnchor,
@@ -203,7 +227,7 @@ function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
@@ -1195,6 +1219,8 @@ interface SqlChartProps {
   onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  /** Passing this makes a table's columns editable; omit it for read-only tables. */
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1211,6 +1237,7 @@ export function SqlChart({
   onRefreshRequested,
   onExportCsvChange,
   onCopyTableChange,
+  onSaveColumns,
   dashboardId,
   extensionContext,
 }: SqlChartProps) {
@@ -1441,6 +1468,7 @@ export function SqlChart({
         panel={panel}
         onExportCsvChange={onExportCsvChange}
         onCopyTableChange={onCopyTableChange}
+        onSaveColumns={onSaveColumns}
       />,
     );
   }
@@ -1695,6 +1723,38 @@ export function sortTableRows(
     .map(({ row }) => row);
 }
 
+/**
+ * Moves `fromKey` to the position `toKey` holds among the visible columns.
+ * Hidden entries keep their slots in the persisted list, so reordering never
+ * shifts a column the user hid.
+ */
+export function reorderColumnConfigs(
+  configs: TableColumnConfig[],
+  visibleKeys: string[],
+  fromKey: string,
+  toKey: string,
+): TableColumnConfig[] {
+  const from = visibleKeys.indexOf(fromKey);
+  const to = visibleKeys.indexOf(toKey);
+  if (from < 0 || to < 0 || from === to) return configs;
+
+  const nextVisible = [...visibleKeys];
+  nextVisible.splice(from, 1);
+  nextVisible.splice(to, 0, fromKey);
+
+  const visibleSet = new Set(visibleKeys);
+  const configByKey = new Map(configs.map((config) => [config.key, config]));
+  const next = [...configs];
+  let visibleIndex = 0;
+  configs.forEach((config, index) => {
+    if (!visibleSet.has(config.key)) return;
+    const entry = configByKey.get(nextVisible[visibleIndex]);
+    if (entry) next[index] = entry;
+    visibleIndex += 1;
+  });
+  return next;
+}
+
 export function formatCell(
   value: unknown,
   format: ColumnFormat | undefined,
@@ -1705,7 +1765,7 @@ export function formatCell(
     return numeric.toLocaleString();
   }
   if (format === "currency" && numeric !== null) {
-    return `$${numeric.toLocaleString()}`;
+    return formatDollars(numeric);
   }
   if (format === "percent" && numeric !== null) {
     const pct = numeric <= 1 && numeric >= -1 ? numeric * 100 : numeric;
@@ -1857,23 +1917,39 @@ export function truncatedTableColumns(
   );
 }
 
+const MIN_TABLE_COLUMN_WIDTH = 48;
+const COLUMN_DRAG_MIME = "application/x-analytics-table-column";
+
+// A set width must also be the cell's max-width: with max-width 0 Chrome
+// resolves the preferred width to 0 and the column collapses to its padding.
+function sizedColumnClass(col: TableColumnConfig): string {
+  return col.width ? " overflow-hidden text-ellipsis" : "";
+}
+
+function sizedColumnStyle(width: number | undefined) {
+  return width ? { width, maxWidth: width } : undefined;
+}
+
 function TableRenderer({
   rows,
   panel,
   onExportCsvChange,
   onCopyTableChange,
+  onSaveColumns,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
 }) {
   const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false;
+  const editable = onSaveColumns !== undefined;
+  const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
 
   const columns = useMemo<TableColumnConfig[]>(() => {
-    const rowKeys = new Set(Object.keys(rows[0] ?? {}));
     if (config?.columns?.length) {
       const configured = config.columns.filter(
         (c) => !c.hidden && rowKeys.has(c.key),
@@ -1881,7 +1957,287 @@ function TableRenderer({
       if (configured.length > 0) return configured;
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
-  }, [config?.columns, rows]);
+  }, [config?.columns, rows, rowKeys]);
+
+  // Edits start from the persisted list, hidden entries included, so a change
+  // never drops a key the agent configured. Visible keys missing from it (the
+  // all-keys fallback above) are appended so every visible column is editable.
+  const editableColumns = useMemo<TableColumnConfig[]>(() => {
+    const base: TableColumnConfig[] = config?.columns?.length
+      ? config.columns
+      : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
+    const listed = new Set(base.map((c) => c.key));
+    return [
+      ...base,
+      ...columns.filter((c) => !listed.has(c.key)).map((c) => ({ key: c.key })),
+    ];
+  }, [config?.columns, rows, columns]);
+
+  const hiddenColumns = editable
+    ? editableColumns.filter((c) => c.hidden && rowKeys.has(c.key))
+    : [];
+
+  const updateColumn = (key: string, patch: Partial<TableColumnConfig>) => {
+    onSaveColumns?.(
+      editableColumns.map((c) => (c.key === key ? { ...c, ...patch } : c)),
+    );
+  };
+
+  const moveColumn = (fromKey: string, toKey: string) => {
+    const next = reorderColumnConfigs(
+      editableColumns,
+      columns.map((c) => c.key),
+      fromKey,
+      toKey,
+    );
+    if (next !== editableColumns) onSaveColumns?.(next);
+  };
+
+  // While dragging, the live width stays local; the save happens on release.
+  const [resize, setResize] = useState<{
+    key: string;
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+
+  const renameKeyRef = useRef<string | null>(null);
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+
+  const startRename = (key: string) => {
+    renameKeyRef.current = key;
+    setRenamingKey(key);
+  };
+
+  // A rename ends on blur or Escape; the ref makes the second call a no-op,
+  // since Escape unmounts the input and some browsers blur it on removal.
+  const finishRename = (key: string, draft: string | null) => {
+    if (renameKeyRef.current !== key) return;
+    renameKeyRef.current = null;
+    setRenamingKey(null);
+    if (draft === null) return;
+    const label = draft.trim();
+    const current = editableColumns.find((c) => c.key === key);
+    if (label === (current?.label ?? key)) return;
+    updateColumn(key, { label: label || undefined });
+  };
+
+  // The last column fills the table's remaining width, so widening it has no
+  // visible effect and its handle is not rendered.
+  const handleResizeStart = (
+    key: string,
+    event: ReactPointerEvent<HTMLSpanElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const header = event.currentTarget.closest("th");
+    if (!header) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startWidth = Math.round(header.getBoundingClientRect().width);
+    setResize({ key, startX: event.clientX, startWidth, width: startWidth });
+  };
+
+  const handleResizeMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const { clientX } = event;
+    setResize(
+      (current) =>
+        current && {
+          ...current,
+          width: Math.max(
+            MIN_TABLE_COLUMN_WIDTH,
+            Math.round(current.startWidth + clientX - current.startX),
+          ),
+        },
+    );
+  };
+
+  // The width is recomputed from the release point rather than read from state,
+  // so a release that lands before React renders the last move still saves it.
+  const handleResizeEnd = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    if (resize === null) return;
+    setResize(null);
+    const width = Math.max(
+      MIN_TABLE_COLUMN_WIDTH,
+      Math.round(resize.startWidth + event.clientX - resize.startX),
+    );
+    if (width !== resize.startWidth) updateColumn(resize.key, { width });
+  };
+
+  const renderHeaderCell = (col: TableColumnConfig) => {
+    const label = col.label ?? col.key;
+    const sort = sortColumns.find((item) => item.key === col.key);
+    const isSorted = sort !== undefined;
+    const isRenaming = renamingKey === col.key;
+    const width = resize?.key === col.key ? resize.width : col.width;
+    const cell = (
+      <th
+        aria-sort={
+          sort
+            ? sort.direction === "asc"
+              ? "ascending"
+              : "descending"
+            : "none"
+        }
+        style={
+          sizedColumnStyle(width) ??
+          (truncatedColumns.has(col.key) ? truncatedHeaderStyle : undefined)
+        }
+        draggable={editable && !isRenaming && resize === null}
+        onDragStart={
+          editable
+            ? (event) => {
+                event.dataTransfer.setData(COLUMN_DRAG_MIME, col.key);
+                event.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
+        onDragOver={
+          editable
+            ? (event) => {
+                if (event.dataTransfer.types.includes(COLUMN_DRAG_MIME)) {
+                  event.preventDefault();
+                }
+              }
+            : undefined
+        }
+        onDrop={
+          editable
+            ? (event) => {
+                const fromKey = event.dataTransfer.getData(COLUMN_DRAG_MIME);
+                if (!fromKey) return;
+                event.preventDefault();
+                moveColumn(fromKey, col.key);
+              }
+            : undefined
+        }
+        className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
+          sortable ? "cursor-pointer select-none hover:text-foreground" : ""
+        } ${editable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
+        onClick={(event) => {
+          // The second click of a double-click renames the column and must not
+          // toggle the sort a second time.
+          if (event.detail > 1) return;
+          handleHeaderClick(col.key, event.shiftKey);
+        }}
+        title={sortable ? t("sqlDashboard.multiColumnSortHelp") : undefined}
+      >
+        <span className="inline-flex items-center gap-1">
+          {isRenaming ? (
+            <Input
+              autoFocus
+              defaultValue={label}
+              aria-label={t("sqlDashboard.columnName")}
+              className="h-6 w-32 px-1.5 py-0 text-sm font-medium"
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") finishRename(col.key, null);
+              }}
+              onBlur={(event) =>
+                finishRename(col.key, event.currentTarget.value)
+              }
+            />
+          ) : (
+            <>
+              <span
+                onDoubleClick={
+                  editable
+                    ? (event) => {
+                        event.stopPropagation();
+                        startRename(col.key);
+                      }
+                    : undefined
+                }
+              >
+                {label}
+              </span>
+              {sortable &&
+                (isSorted ? (
+                  sort?.direction === "asc" ? (
+                    <IconSortAscending className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <IconSortDescending className="h-3 w-3 shrink-0" />
+                  )
+                ) : (
+                  <IconArrowsSort className="h-3 w-3 shrink-0 opacity-30" />
+                ))}
+            </>
+          )}
+        </span>
+        {editable &&
+        !isRenaming &&
+        col.key !== columns[columns.length - 1]?.key ? (
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("sqlDashboard.columnResize")}
+            className="absolute inset-y-0 end-0 w-1.5 cursor-col-resize hover:bg-border"
+            onPointerDown={(event) => handleResizeStart(col.key, event)}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : null}
+      </th>
+    );
+    if (!editable) return <Fragment key={col.key}>{cell}</Fragment>;
+    return (
+      <ContextMenu key={col.key}>
+        <ContextMenuTrigger asChild>{cell}</ContextMenuTrigger>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            // Rename moves focus into the input after the menu closes; letting
+            // the menu return focus to the header would blur the input at once.
+            if (renameKeyRef.current !== null) event.preventDefault();
+          }}
+        >
+          <ContextMenuItem onSelect={() => startRename(col.key)}>
+            <IconPencil className="me-2 h-3.5 w-3.5" />
+            {t("sqlDashboard.columnRename")}
+          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              {t("sqlDashboard.columnFormat")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* Delta and link stay out of this menu: delta needs a sign
+                  convention and link needs a linkKey source. */}
+              <ContextMenuRadioGroup
+                value={col.format ?? "text"}
+                onValueChange={(value) =>
+                  updateColumn(col.key, { format: value as ColumnFormat })
+                }
+              >
+                <ContextMenuRadioItem value="text">
+                  {t("sqlDashboard.columnFormatText")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="number">
+                  {t("sqlDashboard.columnFormatNumber")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="currency">
+                  {t("sqlDashboard.columnFormatCurrency")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="percent">
+                  {t("sqlDashboard.columnFormatPercent")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="date">
+                  {t("sqlDashboard.columnFormatDate")}
+                </ContextMenuRadioItem>
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={columns.length <= 1}
+            onSelect={() => updateColumn(col.key, { hidden: true })}
+          >
+            {t("sqlDashboard.columnHide")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
 
   const limitedRows = useMemo(() => {
     const limit = config?.limit;
@@ -1905,10 +2261,16 @@ function TableRenderer({
   );
   // A max-width of 0 drops a text cell's content from its column's minimum
   // width, so in a narrow panel text gives way and numbers keep their width.
+  // A column the user sized keeps that width instead.
+  const flexibleTextColumns = columns.filter(
+    (col) => !col.width && truncatedColumns.has(col.key),
+  ).length;
   const truncatedHeaderStyle: CSSProperties = {
-    width: `${Math.floor(60 / Math.max(truncatedColumns.size, 1))}%`,
+    width: `${Math.floor(60 / Math.max(flexibleTextColumns, 1))}%`,
   };
-  const truncatedCellStyle: CSSProperties = { maxWidth: 0 };
+  const bodyCellStyle = (col: TableColumnConfig): CSSProperties | undefined =>
+    sizedColumnStyle(col.width) ??
+    (truncatedColumns.has(col.key) ? { maxWidth: 0 } : undefined);
 
   const handleHeaderClick = (key: string, shiftKey: boolean) => {
     if (!sortable) return;
@@ -1981,55 +2343,35 @@ function TableRenderer({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              {columns.map((col) => {
-                const label = col.label ?? col.key;
-                const sort = sortColumns.find((item) => item.key === col.key);
-                const isSorted = sort !== undefined;
-                return (
-                  <th
-                    key={col.key}
-                    aria-sort={
-                      sort
-                        ? sort.direction === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
-                    className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
-                      sortable
-                        ? "cursor-pointer select-none hover:text-foreground"
-                        : ""
-                    }`}
-                    style={
-                      truncatedColumns.has(col.key)
-                        ? truncatedHeaderStyle
-                        : undefined
-                    }
-                    onClick={(event) =>
-                      handleHeaderClick(col.key, event.shiftKey)
-                    }
-                    title={
-                      sortable
-                        ? t("sqlDashboard.multiColumnSortHelp")
-                        : undefined
-                    }
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {label}
-                      {sortable &&
-                        (isSorted ? (
-                          sort?.direction === "asc" ? (
-                            <IconSortAscending className="h-3 w-3 shrink-0" />
-                          ) : (
-                            <IconSortDescending className="h-3 w-3 shrink-0" />
-                          )
-                        ) : (
-                          <IconArrowsSort className="h-3 w-3 shrink-0 opacity-30" />
-                        ))}
-                    </span>
-                  </th>
-                );
-              })}
+              {columns.map((col) => renderHeaderCell(col))}
+              {hiddenColumns.length > 0 ? (
+                <th className="w-8 py-1.5 px-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+                        aria-label={t("sqlDashboard.columnShowHidden")}
+                      >
+                        <IconEye className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {hiddenColumns.map((col) => (
+                        <DropdownMenuItem
+                          key={col.key}
+                          onSelect={() =>
+                            updateColumn(col.key, { hidden: false })
+                          }
+                        >
+                          {t("sqlDashboard.columnShow", {
+                            name: col.label ?? col.key,
+                          })}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -2047,8 +2389,8 @@ function TableRenderer({
                     return (
                       <td
                         key={col.key}
-                        className="py-1.5 px-2 whitespace-nowrap"
-                        style={truncated ? truncatedCellStyle : undefined}
+                        className={`py-1.5 px-2 whitespace-nowrap${sizedColumnClass(col)}`}
+                        style={bodyCellStyle(col)}
                       >
                         {safeHref ? (
                           <a
@@ -2088,8 +2430,8 @@ function TableRenderer({
                       key={col.key}
                       className={`py-1.5 px-2 whitespace-nowrap ${
                         numeric ? "text-right tabular-nums" : ""
-                      }`}
-                      style={truncated ? truncatedCellStyle : undefined}
+                      }${sizedColumnClass(col)}`}
+                      style={bodyCellStyle(col)}
                     >
                       {replayHref ? (
                         <span className="inline-flex max-w-full flex-col gap-0.5">
@@ -2107,6 +2449,7 @@ function TableRenderer({
                     </td>
                   );
                 })}
+                {hiddenColumns.length > 0 ? <td /> : null}
               </tr>
             ))}
           </tbody>

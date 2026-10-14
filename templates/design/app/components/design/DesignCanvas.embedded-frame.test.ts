@@ -313,4 +313,52 @@ describe("DesignCanvas iframe sandbox policy", () => {
       }),
     ).not.toContain("allow-same-origin");
   });
+
+  it("lets Interact give a running loopback app its own origin, and nothing else", () => {
+    const interact = (previewUrl: string, parentOrigin: string) =>
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: false,
+        liveApp: true,
+        parentOrigin,
+        previewUrl,
+      });
+
+    expect(
+      interact("http://localhost:5173/about", "http://localhost:8080"),
+    ).toContain("allow-same-origin");
+    expect(
+      interact(
+        "http://localhost:5173/about",
+        "https://design.agent-native.com",
+      ),
+    ).toContain("allow-same-origin");
+    expect(
+      interact("http://localhost:8080/about", "http://localhost:8080"),
+    ).not.toContain("allow-same-origin");
+    expect(
+      interact("https://evil.example/about", "http://localhost:8080"),
+    ).not.toContain("allow-same-origin");
+    expect(
+      interact("http://127.0.0.1.evil.example/about", "http://localhost:8080"),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: false,
+        parentOrigin: "http://localhost:8080",
+        previewUrl: "http://localhost:5173/about",
+      }),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        snapshotOnly: true,
+        liveApp: true,
+        parentOrigin: "http://localhost:8080",
+        previewUrl: "http://localhost:5173/about",
+      }),
+    ).not.toContain("allow-same-origin");
+  });
 });

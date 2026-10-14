@@ -1,7 +1,10 @@
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 
-import type { PortableStyleSnapshot } from "@/components/design/types";
+import type {
+  ElementInfo,
+  PortableStyleSnapshot,
+} from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 
@@ -78,6 +81,8 @@ export interface CanvasLayerClipboardEntry {
 
 export interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
   node: CodeLayerNode;
+  repeat?: ElementInfo["repeat"];
+  styleSnapshotReadOnDemand?: boolean;
   sourceIndex: number;
   tree: CodeLayerTreeNode[];
 }

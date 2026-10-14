@@ -364,6 +364,36 @@ describe("SqlChart axis labels, series order and point limits", () => {
     expect(widths[1]).toMatch(/^0(px)?$/);
     expect(widths[2]).toBe("");
   });
+
+  it("keeps the width a user set on a text column instead of capping it", async () => {
+    mocks.rows = [
+      {
+        channel: "Paid social / LinkedIn sponsored content",
+        note: "Retargeting audience from the September launch",
+        people: 1234,
+      },
+    ];
+    await render(
+      panel("table", {
+        columns: [
+          { key: "channel", width: 180 },
+          { key: "note" },
+          { key: "people", format: "number" },
+        ],
+      }),
+    );
+
+    const headers = [...container.querySelectorAll("thead th")].map(
+      (cell) => (cell as HTMLElement).style.width,
+    );
+    expect(headers).toEqual(["180px", "60%", ""]);
+    const cells = [...container.querySelectorAll("tbody td")] as HTMLElement[];
+    expect(cells[0].style.maxWidth).toBe("180px");
+    expect(cells[0].querySelector("span.truncate")?.getAttribute("title")).toBe(
+      "Paid social / LinkedIn sponsored content",
+    );
+    expect(cells[1].style.maxWidth).toMatch(/^0(px)?$/);
+  });
 });
 
 describe("truncatedTableColumns", () => {

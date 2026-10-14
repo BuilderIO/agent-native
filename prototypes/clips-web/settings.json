@@ -1,0 +1,289 @@
+{
+ "app": "Clips",
+ "icon": "video",
+ "pages": [
+  {
+   "id": "app",
+   "l": "General",
+   "icon": "apps",
+   "sections": [
+    {
+     "h": "Sharing",
+     "rows": [
+      {
+       "l": "Logo",
+       "d": "Shown in share emails and on public clip pages.",
+       "c": {
+        "btn": "Change"
+       }
+      },
+      {
+       "l": "Brand color",
+       "c": {
+        "btn": "Change"
+       }
+      }
+     ]
+    },
+    {
+     "h": "Active workspace",
+     "rows": [
+      {
+       "l": "Current workspace",
+       "d": "Choose the workspace Clips uses for new recordings, including desktop uploads.",
+       "c": {
+        "sel": "Acme",
+        "opts": [
+         "Acme"
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "recordings",
+   "l": "Recordings",
+   "icon": "video",
+   "sections": [
+    {
+     "h": "Your defaults",
+     "rows": [
+      {
+       "l": "Playback speed",
+       "d": "Applied when you open a recording.",
+       "c": {
+        "sel": "1.2x",
+        "opts": [
+         "0.5x",
+         "0.8x",
+         "1x",
+         "1.2x",
+         "1.5x",
+         "1.7x",
+         "2x",
+         "2.5x"
+        ]
+       }
+      },
+      {
+       "l": "Visibility",
+       "d": "Applied to recordings you create. You can change it on any recording.",
+       "c": {
+        "sel": "Use the Acme default (Organization)",
+        "opts": [
+         "Use the Acme default (Organization)",
+         "Private - only you",
+         "Organization - anyone in your workspace",
+         "Public - anyone with the link"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "h": "Acme default",
+     "rows": [
+      {
+       "l": "Default recording visibility",
+       "d": "Applied to new recordings unless you choose a different visibility.",
+       "c": {
+        "sel": "Organization",
+        "opts": [
+         "Private",
+         "Organization",
+         "Public"
+        ]
+       }
+      },
+      {
+       "l": "Transcript export",
+       "d": "Only owners and admins can change this.",
+       "c": {
+        "sw": false
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "notifications",
+   "l": "Notifications",
+   "icon": "bell",
+   "sections": [
+    {
+     "h": "Email",
+     "rows": [
+      {
+       "l": "Email notifications",
+       "d": "Choose which optional Clips emails you receive.",
+       "c": {
+        "sw": true
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "labs",
+   "l": "Labs",
+   "icon": "flask",
+   "sections": [
+    {
+     "intro": "These are new, unstable features and may have bugs. We value your feedback."
+    },
+    {
+     "h": "Clips",
+     "rows": [
+      {
+       "l": "Video editing",
+       "d": "Try the new video editor.",
+       "c": {
+        "sw": false
+       }
+      },
+      {
+       "l": "Meetings and transcription",
+       "d": "Try automatic meeting capture and transcription.",
+       "c": {
+        "sw": false
+       }
+      },
+      {
+       "l": "Voice dictation",
+       "d": "Show or hide voice dictation in Clips Desktop.",
+       "c": {
+        "sw": true
+       }
+      },
+      {
+       "l": "Resilient recording",
+       "d": "Try faster recording uploads and improved recovery after interruptions.",
+       "c": {
+        "sw": false
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "whats-new",
+   "l": "What's new",
+   "icon": "news",
+   "badge": "Clips",
+   "sections": [
+    {
+     "h": null,
+     "changelog": [
+      [
+       "2026-09-30",
+       "Improved",
+       [
+        "Dark mode gives the sidebars a darker surface than the center",
+        "Sidebars use clearer surface contrast",
+        "Recording saved notifications keep the Copy link action available.",
+        "Clips desktop confirms copied links with a check mark."
+       ]
+      ],
+      [
+       "2026-09-29",
+       "Improved",
+       [
+        "Settings pages now share the account layout, with dated updates that load in batches."
+       ]
+      ],
+      [
+       "2026-09-29",
+       "Fixed",
+       [
+        "Chat prompts clear immediately while the assistant thinks.",
+        "Chat stays ready for your next draft while a message is being sent.",
+        "Clips Desktop shows a brief confirmation after copying a share link",
+        "Chat composers no longer show temporary status rows.",
+        "Fixed library and signup loading flashes and made desktop recording startup cues and countdowns reliable.",
+        "Sent chat prompts clear immediately, while reply progress appears in the conversation.",
+        "Stopping during setup cancels cleanly, while active clips still finish and save.",
+        "The comment sign-in prompt stays visible while a clip is fullscreen."
+       ]
+      ],
+      [
+       "2026-09-28",
+       "Added",
+       [
+        "Clips can capture screenshots, annotate them, redact sensitive details, and share them."
+       ]
+      ],
+      [
+       "2026-09-28",
+       "Improved",
+       [
+        "Choose faster recording uploads and improved recovery together in Settings → Labs, while recordings already in progress keep their original behavior.",
+        "The app canvas now meets the right chat sidebar without a dark seam or rounded corner.",
+        "Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.",
+        "The chat sidebar matches the app navigation color, with tighter composer spacing.",
+        "The recording viewer keeps Agent, comments, and transcripts together, and the app sidebar now moves the full page.",
+        "Viewers can share recordings with agents from shared recording menus"
+       ]
+      ],
+      [
+       "2026-09-28",
+       "Fixed",
+       [
+        "Clip share previews show a branded image while the recording thumbnail is unavailable.",
+        "Meeting and feature-flag polling resumes after your session is accepted again",
+        "Older recording links preserve the selected viewer tab when panel and Agent sidebar state are both present",
+        "Opening Agent from a recording keeps the latest selected text attached to your prompt.",
+        "Stop repeated Clips requests after session expiry",
+        "Agent links stay valid when clip details change"
+       ]
+      ],
+      [
+       "2026-09-28",
+       "Security",
+       [
+        "Password changes immediately invalidate old recording links",
+        "Password-protected recording links stop working when the password changes"
+       ]
+      ],
+      [
+       "2026-09-26",
+       "Improved",
+       [
+        "Ask about a live meeting from the recording pill, with transcript context and AI-generated next-step suggestions.",
+        "Clips asks you to connect storage only when an upload needs it.",
+        "See the desktop app for your platform at a glance.",
+        "The comments signup headline now wraps more evenly.",
+        "The empty comments state now explains how screen recordings help AI agents.",
+        "The empty comments view has a clearer headline and a focused signup action."
+       ]
+      ],
+      [
+       "2026-09-26",
+       "Fixed",
+       [
+        "Removing a member from your organization now completes instead of failing with a pending cleanup error",
+        "Clips asks you to connect storage only when you choose an upload",
+        "Clips can play recordings from public S3-compatible storage in more hosted environments.",
+        "Dismissing storage setup now cancels queued uploads.",
+        "Meeting chat waits for interactive AI access before sending, and its answer panel has a localized resize and dismiss label.",
+        "Stopping a recording with its keyboard shortcut now shows the completion card.",
+        "Video uploads only ask for storage when you choose Upload video, then offer a fresh upload action after storage connects."
+       ]
+      ],
+      [
+       "2026-09-26",
+       "Changed",
+       [
+        "The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page."
+       ]
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

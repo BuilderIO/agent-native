@@ -1047,10 +1047,16 @@ for elements entering, `ease-in` for elements leaving. Animate only
 `transform` and `opacity` for performance; avoid animating `width`/`height`/
 `top`/`left`. Every non-essential animation must respect
 `prefers-reduced-motion` (see the mandatory `<style>` block below). For
-inline/Alpine screens, persist motion as durable timeline metadata: inspect
-the current file's timeline with `get-motion-timeline`, then write changes
-with `apply-motion-edit` using the same `sourceRef`/`fileId` — this is not a
-one-way export, edits stay editable.
+motion edits, keep a versioned keyframe timeline as the editable source
+model, then compile it back into the design code. Inspect the selected screen
+with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
+as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
+`sourceRef` plus the live module path, connection id, and version hash in
+`localSource`. Write through `apply-motion-edit` so edits stay parseable and
+round-trip between timeline and CSS/JSX. The inline output is standard CSS
+`@keyframes`; the React adapter updates verified JSX/source spans and emits the
+same managed CSS contract. Do not keep the only copy of animation state in a
+GSAP runtime timeline or a one-way export.
 
 ## Imagery
 

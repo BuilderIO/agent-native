@@ -27,6 +27,7 @@ export interface DesignSnapshot {
 
 export interface BuildDesignSnapshotOptions {
   preferStoredFileContent?: boolean;
+  preparedFiles?: readonly SnapshotFile[];
 }
 
 type SnapshotDatabase = Pick<ReturnType<typeof getDb>, "select">;
@@ -51,36 +52,40 @@ export async function buildDesignSnapshot(
 ): Promise<DesignSnapshot> {
   const db = database ?? getDb();
 
-  const rows = await db
-    .select()
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
+  const files: SnapshotFile[] = options.preparedFiles
+    ? options.preparedFiles.map((file) => ({ ...file }))
+    : [];
+  if (!options.preparedFiles) {
+    const rows = await db
+      .select()
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.designId, designId));
 
-  const files: SnapshotFile[] = [];
-  for (const f of rows) {
-    let content = f.content;
-    let source: "collab" | "stored" = "stored";
-    if (!options.preferStoredFileContent) {
-      const live = await readLiveSourceFile(f);
-      if (
-        live.source === "collab" &&
-        shouldUseLiveFileContent({
-          liveContent: live.content,
-          storedContent: f.content,
-          fileType: f.fileType,
-        })
-      ) {
-        content = live.content;
-        source = "collab";
+    for (const f of rows) {
+      let content = f.content;
+      let source: "collab" | "stored" = "stored";
+      if (!options.preferStoredFileContent) {
+        const live = await readLiveSourceFile(f);
+        if (
+          live.source === "collab" &&
+          shouldUseLiveFileContent({
+            liveContent: live.content,
+            storedContent: f.content,
+            fileType: f.fileType,
+          })
+        ) {
+          content = live.content;
+          source = "collab";
+        }
       }
+      files.push({
+        id: f.id,
+        filename: f.filename,
+        fileType: f.fileType,
+        content,
+        source,
+      });
     }
-    files.push({
-      id: f.id,
-      filename: f.filename,
-      fileType: f.fileType,
-      content,
-      source,
-    });
   }
 
   files.sort((a, b) => {

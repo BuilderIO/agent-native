@@ -94,6 +94,7 @@ export function useAgentGenerating(options?: {
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [runError, setRunError] = useState(false);
+  const [runErrorCode, setRunErrorCode] = useState<string | null>(null);
   const serverRunState = useRunStuckDetection({
     threadId: hasTabScope ? scopedTabId : null,
     enabled: hasTabScope && timedOut,
@@ -107,6 +108,7 @@ export function useAgentGenerating(options?: {
     outputId: string;
     submitMessageId: string;
   } | null>(null);
+  const terminalRunErrorTabRef = useRef<string | null>(null);
   const scopedTabIdRef = useRef<string | null>(scopedTabId);
   scopedTabIdRef.current = scopedTabId;
   const activeTabRef = useRef<string | null>(scopedTabId);
@@ -170,26 +172,41 @@ export function useAgentGenerating(options?: {
     clearWatchdog();
     setRecentlyGenerating(false);
     setRunError(true);
+    setRunErrorCode(null);
   }, [clearStopDebounce, clearWatchdog, serverConfirmedIdleAfterTimeout]);
 
   useEffect(() => {
     if (!hasTabScope) return;
-    activeTabRef.current = scopedTabId;
-    activeSubmitRef.current = null;
+    const preserveCorrelatedSubmission =
+      scopedTabId !== null &&
+      activeSubmitRef.current !== null &&
+      activeTabRef.current === scopedTabId;
+    const preserveCorrelatedRunError =
+      scopedTabId !== null && terminalRunErrorTabRef.current === scopedTabId;
+    if (!preserveCorrelatedSubmission) {
+      activeTabRef.current = scopedTabId;
+      activeSubmitRef.current = null;
+    }
     clearStopDebounce();
     clearWatchdog();
     setRecentlyGenerating(false);
     setTimedOut(false);
-    setRunError(false);
+    if (!preserveCorrelatedRunError) {
+      terminalRunErrorTabRef.current = null;
+      setRunError(false);
+      setRunErrorCode(null);
+    }
   }, [clearStopDebounce, clearWatchdog, hasTabScope, scopedTabId]);
 
   useEffect(() => {
     if (!providerMissing) return;
+    terminalRunErrorTabRef.current = null;
     clearStopDebounce();
     clearWatchdog();
     setRecentlyGenerating(false);
     setTimedOut(false);
     setRunError(false);
+    setRunErrorCode(null);
   }, [clearStopDebounce, clearWatchdog, providerMissing]);
 
   useEffect(() => {
@@ -218,8 +235,11 @@ export function useAgentGenerating(options?: {
       const detail = (event as CustomEvent).detail;
       const eventTabId =
         typeof detail?.tabId === "string" ? detail.tabId : null;
+      // A confirmed submission can fail before the running-state hook updates.
+      const hasCorrelatedSubmission =
+        activeSubmitRef.current !== null && activeTabRef.current === eventTabId;
       if (
-        !generationActiveRef.current ||
+        (!generationActiveRef.current && !hasCorrelatedSubmission) ||
         !eventTabId ||
         !activeTabRef.current ||
         eventTabId !== activeTabRef.current ||
@@ -227,6 +247,7 @@ export function useAgentGenerating(options?: {
       ) {
         return;
       }
+      terminalRunErrorTabRef.current = eventTabId;
       activeSubmitRef.current = null;
       activeTabRef.current = null;
       clearStopDebounce();
@@ -234,6 +255,9 @@ export function useAgentGenerating(options?: {
       setRecentlyGenerating(false);
       setTimedOut(false);
       setRunError(true);
+      setRunErrorCode(
+        typeof detail.errorCode === "string" ? detail.errorCode : null,
+      );
       toast.error(detail.message, {
         id:
           typeof detail.runId === "string"
@@ -362,7 +386,9 @@ export function useAgentGenerating(options?: {
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
+      setRunErrorCode(null);
       resetWatchdog();
+      terminalRunErrorTabRef.current = null;
       activeSubmitRef.current = submitMessageId;
       activeGenerationAttemptRef.current =
         generationAttemptId && generationOutputId
@@ -414,7 +440,9 @@ export function useAgentGenerating(options?: {
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
+      setRunErrorCode(null);
       resetWatchdog();
+      terminalRunErrorTabRef.current = null;
       activeSubmitRef.current = submitMessageId;
       activeTabRef.current = null;
       const submission = sendToAgentChatAndConfirm(
@@ -437,6 +465,7 @@ export function useAgentGenerating(options?: {
             setRecentlyGenerating(false);
             setTimedOut(false);
             setRunError(false);
+            setRunErrorCode(null);
           }
           return;
         }
@@ -475,6 +504,7 @@ export function useAgentGenerating(options?: {
       (generating || recentlyGenerating) &&
       !runError,
     runError,
+    runErrorCode,
     stopReason,
     observedRun,
     timedOut,

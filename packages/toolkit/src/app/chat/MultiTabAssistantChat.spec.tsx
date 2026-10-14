@@ -92,7 +92,9 @@ function legacyOpenTabsStorageKey(
 }
 
 const chatHandleMocks = vi.hoisted(() => ({
-  sendMessage: vi.fn(async () => ({ status: "submitted" as const })),
+  sendMessage: vi.fn(async (..._args: unknown[]) => ({
+    status: "submitted" as const,
+  })),
   implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
@@ -441,6 +443,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
     ) {
       const props = _props as {
         threadId: string;
+        composerSubmissionDisabled?: boolean;
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
         selectedModel?: string;
@@ -482,7 +485,19 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         assistantChatMockState.deferredHandleThread === props.threadId
           ? null
           : {
-              sendMessage: chatHandleMocks.sendMessage,
+              sendMessage: (
+                message: string,
+                images?: string[],
+                options?: unknown,
+              ) =>
+                props.composerSubmissionDisabled
+                  ? Promise.resolve({
+                      status: "rejected" as const,
+                      reason: "submission-unavailable" as const,
+                    })
+                  : options === undefined
+                    ? chatHandleMocks.sendMessage(message, images)
+                    : chatHandleMocks.sendMessage(message, images, options),
               implementPlan: chatHandleMocks.implementPlan,
               prefillMessage: assistantChatMockState.referenceProbe
                 ? (message: string) => {
@@ -4574,6 +4589,90 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(view.catalogOf()).toBe("builder:true,ai-sdk:openai:true");
     await view.cleanup();
+  });
+
+  it("waits for model discovery before sending a fresh-chat retry", async () => {
+    await act(async () => root.unmount());
+
+    const storageKey = "retry-before-catalog";
+    const engines = [
+      {
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        supportedModels: ["gpt-5.6-luna"],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+      },
+    ];
+    stubCatalog(engines, ["OPENAI_API_KEY"]);
+    const loadCatalog = modelCatalogMocks.load!;
+    let resolveCatalog!: (value: unknown) => void;
+    modelCatalogMocks.load = () =>
+      new Promise((resolve) => {
+        resolveCatalog = resolve;
+      });
+    window.localStorage.setItem(
+      openTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1"]),
+    );
+    threadMocks.isNewThread.mockReturnValue(true);
+    chatHandleMocks.sendMessage.mockClear();
+
+    root = createRoot(container);
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    try {
+      await act(async () => {
+        root.render(<MultiTabAssistantChat storageKey={storageKey} />);
+        await Promise.resolve();
+      });
+      expect(
+        container
+          .querySelector("[data-testid='assistant-chat']")
+          ?.getAttribute("data-composer-submission-disabled"),
+      ).toBe("true");
+
+      await act(async () => {
+        dispatchSubmitChat({
+          message: "Create a presentation",
+          submit: true,
+          newTab: true,
+          reuseEmptyTab: true,
+          submitMessageId: "retry-before-catalog-submit",
+        });
+        await Promise.resolve();
+      });
+
+      expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+      expect(results).toHaveLength(0);
+
+      await act(async () => {
+        resolveCatalog(await loadCatalog());
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(
+        container
+          .querySelector("[data-testid='assistant-chat']")
+          ?.getAttribute("data-composer-submission-disabled"),
+      ).toBe("false");
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      });
+
+      expect(chatHandleMocks.sendMessage).toHaveBeenCalledTimes(1);
+      expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+        "Create a presentation",
+        undefined,
+        { submitMessageId: "retry-before-catalog-submit" },
+      );
+      expect(results).toHaveLength(0);
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    }
   });
 
   it("keeps a fresh chat editable and preserves the host send gate", async () => {

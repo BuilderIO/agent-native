@@ -1,10 +1,49 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { E2E_MENTION_EMAIL } from "./global-setup";
-import { createFixtureDesign, designFrame, gotoEditor } from "./helpers";
+import {
+  appPath,
+  createFixtureDesign,
+  designFrame,
+  gotoEditor,
+} from "./helpers";
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
+/**
+ * Opens the left rail's Threads panel. A reload can restore it already open, and
+ * the rail item toggles, so it is clicked only while the panel is closed.
+ */
+async function openThreadsPanel(page: Page): Promise<void> {
+  const threadsItem = page.getByRole("button", {
+    name: "Threads",
+    exact: true,
+  });
+  if ((await threadsItem.getAttribute("aria-current")) !== "page") {
+    await threadsItem.click();
+  }
+  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+}
+
+// oracle: none — verifies the comment flow, not measured Figma behavior.
+test("the Pin comment tool opens the Threads panel", async ({
+  page,
+}, testInfo) => {
+  const designId = await createFixtureDesign(
+    page,
+    `E2E Pin Opens Threads ${testInfo.workerIndex}-${testInfo.repeatEachIndex}`,
+  );
+  await gotoEditor(page, designId);
+  await expect(page.locator("[data-review-comments-panel]")).toHaveCount(0);
+
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Pin comment"]')
+    .click();
+
+  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+});
+
+// oracle: none — verifies the comment flow, not measured Figma behavior.
 test("comments toolbar opens an anchored composer", async ({
   page,
 }, testInfo) => {
@@ -14,8 +53,7 @@ test("comments toolbar opens an anchored composer", async ({
   );
   await gotoEditor(page, designId);
 
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
-  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+  await openThreadsPanel(page);
   await expect(page.getByRole("button", { name: "Filter" })).toBeVisible();
 
   await page
@@ -151,10 +189,7 @@ test("comments toolbar opens an anchored composer", async ({
   await expect(composer).toBeHidden();
 
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(
-    page.getByRole("tab", { name: "Comments", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openThreadsPanel(page);
   const persistedPin = page.locator("[data-review-pin]").last();
   await expect(persistedPin).toBeVisible();
   await persistedPin.click();
@@ -251,14 +286,22 @@ test("comments toolbar opens an anchored composer", async ({
   await expect(
     reopenedPopover.getByRole("button", { name: "Resolve", exact: true }),
   ).toBeVisible();
-  const reloadedCommentsResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/list-review-comments") &&
-      response.request().method() === "GET" &&
-      response.ok(),
-  );
   await page.reload({ waitUntil: "domcontentloaded" });
-  const reloadedResponse = await reloadedCommentsResponse;
+  // The editor's own comment list rides the batched action endpoint, so read
+  // what was persisted straight from the action.
+  const reloadedResponse = await page.request.get(
+    appPath(
+      `/_agent-native/actions/list-review-comments?${new URLSearchParams({
+        resourceType: "design",
+        resourceId: designId,
+        includeResolved: "true",
+      })}`,
+    ),
+  );
+  expect(
+    reloadedResponse.ok(),
+    `list-review-comments returned ${reloadedResponse.status()}`,
+  ).toBe(true);
   const reloadedComments = (await reloadedResponse.json()) as {
     comments?: Array<{
       id?: string;
@@ -294,10 +337,7 @@ test("comments toolbar opens an anchored composer", async ({
     threadId: createdComment.threadId,
     body: "Browser comment reply",
   });
-  await expect(
-    page.getByRole("tab", { name: "Comments", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openThreadsPanel(page);
   await page.locator("[data-review-pin]").last().click();
   const reloadedPopover = page
     .locator("[data-review-popover]")

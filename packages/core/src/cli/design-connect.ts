@@ -9,10 +9,17 @@ import http, {
   type ServerResponse,
 } from "node:http";
 import https from "node:https";
+import { createRequire } from "node:module";
 import path from "node:path";
 
+import { parse } from "@babel/parser";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
+import {
+  createLocalhostBridgeAudience,
+  LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD,
+  verifyLocalhostBridgeOperationCapability,
+} from "../server/visual-edit-bridge-capability.js";
 import { injectDocumentMarkup } from "../shared/html-document.js";
 
 const DEFAULT_BRIDGE_PORT = 7331;
@@ -22,6 +29,10 @@ const LIVE_EDIT_REVISION_FILE = path.join(
   ".agent-native",
   "live-edit-revisions.json",
 );
+const MAX_BRIDGE_CAPABILITY_REPLAY_ENTRIES = 4096;
+const MAX_BRIDGE_CAPABILITY_REPLAY_SCAN = 8192;
+const BRIDGE_CAPABILITY_REPLAY_ORPHAN_TTL_MS = 120_000;
+const MAX_BRIDGE_OPERATION_BODY_BYTES = 20 * 1024 * 1024;
 const LOCALHOST_CONNECTION_ID = /^localhost_[A-Za-z0-9_-]{16}$/;
 const DEFAULT_DEV_SERVER_CANDIDATES = [
   "http://127.0.0.1:5173",
@@ -505,10 +516,11 @@ export function discoverDesignRoutes(root: string): DesignConnectRoute[] {
   if (routes.size === 0) {
     for (const dir of [absoluteRoot, path.join(absoluteRoot, "public")]) {
       for (const file of walkFiles(dir)) {
-        if (!file.endsWith(".html")) continue;
+        if (!/\.html?$/i.test(file)) continue;
         const rel = normalizeSlash(path.relative(dir, file));
-        const pathName =
-          rel === "index.html" ? "/" : `/${rel.replace(/\.html$/, "")}`;
+        const pathName = /^index\.html?$/i.test(rel)
+          ? "/"
+          : `/${rel.replace(/\.html?$/i, "")}`;
         routes.set(pathName, {
           id: routeId(pathName),
           path: pathName,
@@ -1804,13 +1816,151 @@ function injectLiveEditBridge(
   return injectDocumentMarkup(withBase, script);
 }
 
-async function readRequestBody(req: IncomingMessage): Promise<string> {
+class RequestBodyTooLargeError extends Error {}
+
+async function readRequestBody(
+  req: IncomingMessage,
+  maxBytes?: number,
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    let size = 0;
+    let tooLarge = false;
+    req.on("data", (chunk: Buffer) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (maxBytes !== undefined && size > maxBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (tooLarge) {
+        reject(new RequestBodyTooLargeError("request body exceeds size limit"));
+        return;
+      }
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
     req.on("error", reject);
   });
+}
+
+async function ensurePrivateReplayDirectory(directory: string): Promise<void> {
+  try {
+    await fs.mkdir(directory, { mode: 0o700 });
+  } catch (error) {
+    if (
+      !error ||
+      typeof error !== "object" ||
+      !("code" in error) ||
+      error.code !== "EEXIST"
+    ) {
+      throw error;
+    }
+  }
+
+  const stat = await fs.lstat(directory);
+  const processUid = process.getuid?.();
+  if (
+    !stat.isDirectory() ||
+    stat.isSymbolicLink() ||
+    (processUid !== undefined && stat.uid !== processUid) ||
+    (stat.mode & 0o077) !== 0
+  ) {
+    throw new Error("bridge capability replay directory is not private");
+  }
+}
+
+async function consumeBridgeCapabilityNonce(
+  rootPath: string,
+  nonce: string,
+  expiresAt: number,
+): Promise<boolean> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(nonce)) return false;
+
+  const projectRoot = await fs.realpath(rootPath);
+  const metadataDirectory = path.join(projectRoot, ".agent-native");
+  await fs.mkdir(metadataDirectory, { recursive: true, mode: 0o700 });
+  const canonicalMetadataDirectory = await fs.realpath(metadataDirectory);
+  if (canonicalMetadataDirectory !== metadataDirectory) {
+    throw new Error("bridge metadata directory escapes the project root");
+  }
+  const projectReplayDirectory = path.join(
+    canonicalMetadataDirectory,
+    "bridge-capability-replays",
+  );
+  await ensurePrivateReplayDirectory(projectReplayDirectory);
+
+  const now = Date.now();
+  let activeEntries = 0;
+  let scannedEntries = 0;
+  const directory = await fs.opendir(projectReplayDirectory);
+  for await (const entry of directory) {
+    scannedEntries += 1;
+    if (scannedEntries > MAX_BRIDGE_CAPABILITY_REPLAY_SCAN) {
+      throw new Error("bridge capability replay store is over capacity");
+    }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(entry.name) || !entry.isFile()) {
+      throw new Error(
+        "bridge capability replay store contains an invalid entry",
+      );
+    }
+
+    const entryPath = path.join(projectReplayDirectory, entry.name);
+    const stat = await fs.lstat(entryPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(
+        "bridge capability replay store contains an invalid entry",
+      );
+    }
+    const storedExpiration = Number(await fs.readFile(entryPath, "utf8"));
+    if (Number.isSafeInteger(storedExpiration) && storedExpiration > now) {
+      activeEntries += 1;
+      continue;
+    }
+
+    if (
+      !Number.isSafeInteger(storedExpiration) &&
+      stat.mtimeMs > now - BRIDGE_CAPABILITY_REPLAY_ORPHAN_TTL_MS
+    ) {
+      activeEntries += 1;
+      continue;
+    }
+    await fs.unlink(entryPath);
+  }
+
+  if (activeEntries >= MAX_BRIDGE_CAPABILITY_REPLAY_ENTRIES) {
+    throw new Error("bridge capability replay store is over capacity");
+  }
+
+  const replayMarker = path.join(projectReplayDirectory, nonce);
+  let marker: FileHandle;
+  try {
+    marker = await fs.open(replayMarker, "wx", 0o600);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "EEXIST"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+
+  try {
+    await marker.writeFile(String(expiresAt), "utf8");
+    await marker.sync();
+  } catch (error) {
+    await fs.unlink(replayMarker).catch(() => {});
+    throw error;
+  } finally {
+    await marker.close();
+  }
+  return true;
 }
 
 const MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH = 64 * 1024;
@@ -2168,6 +2318,743 @@ async function resolveSafeBridgeFileTarget(
     throw new Error("Path traversal detected: resolved target is outside root");
   }
   return { absolutePath, canonicalPath };
+}
+
+const SOURCE_MODULE_EXTENSIONS = [
+  ".tsx",
+  ".ts",
+  ".jsx",
+  ".js",
+  ".mts",
+  ".cts",
+  ".mjs",
+  ".cjs",
+];
+const MAX_MOTION_IMPORT_GRAPH_MODULES = 512;
+const MAX_MOTION_IMPORT_GRAPH_BYTES = 12 * 1024 * 1024;
+const MAX_MOTION_IMPORT_READ_CHUNK_BYTES = 64 * 1024;
+const NON_SOURCE_IMPORT_EXTENSIONS = new Set([
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".json",
+  ".wasm",
+]);
+
+const MOTION_BRIDGE_RECEIPT_DOMAIN =
+  "agent-native-design-motion-bridge-receipt-v1\0";
+
+function sha256String(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function failMotionImportGraphByteLimit(): never {
+  throw new Error("Motion import graph exceeds the 12 MiB verification limit.");
+}
+
+function readMotionImportConfig(
+  filePath: string,
+  remainingBytes: number,
+): { source: string; bytesRead: number } {
+  if (fsSync.lstatSync(filePath).isSymbolicLink()) {
+    throw new Error(
+      `Symlinked tsconfig/jsconfig files are unsupported for Motion import verification: ${filePath}`,
+    );
+  }
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  const descriptor = fsSync.openSync(
+    filePath,
+    fsSync.constants.O_RDONLY | noFollow,
+  );
+  try {
+    const stat = fsSync.fstatSync(descriptor);
+    if (!stat.isFile()) {
+      throw new Error(
+        `Motion import config is not a regular file: ${filePath}`,
+      );
+    }
+    if (stat.size > remainingBytes) failMotionImportGraphByteLimit();
+
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    let position = 0;
+    while (true) {
+      const buffer = Buffer.alloc(
+        Math.min(
+          MAX_MOTION_IMPORT_READ_CHUNK_BYTES,
+          remainingBytes - bytesRead + 1,
+        ),
+      );
+      const count = fsSync.readSync(
+        descriptor,
+        buffer,
+        0,
+        buffer.length,
+        position,
+      );
+      if (count === 0) break;
+      bytesRead += count;
+      if (bytesRead > remainingBytes) failMotionImportGraphByteLimit();
+      chunks.push(buffer.subarray(0, count));
+      position += count;
+    }
+    return {
+      source: Buffer.concat(chunks, bytesRead).toString("utf8"),
+      bytesRead,
+    };
+  } finally {
+    fsSync.closeSync(descriptor);
+  }
+}
+
+async function readMotionGraphModule(
+  filePath: string,
+  remainingBytes: number,
+): Promise<{ source: string; bytesRead: number }> {
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  const handle = await fs.open(filePath, fsSync.constants.O_RDONLY | noFollow);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new Error(
+        `Motion source module is not a regular file: ${filePath}`,
+      );
+    }
+    if (stat.size > remainingBytes) failMotionImportGraphByteLimit();
+
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    let position = 0;
+    while (true) {
+      const buffer = Buffer.alloc(
+        Math.min(
+          MAX_MOTION_IMPORT_READ_CHUNK_BYTES,
+          remainingBytes - bytesRead + 1,
+        ),
+      );
+      const { bytesRead: count } = await handle.read(
+        buffer,
+        0,
+        buffer.length,
+        position,
+      );
+      if (count === 0) break;
+      bytesRead += count;
+      if (bytesRead > remainingBytes) failMotionImportGraphByteLimit();
+      chunks.push(buffer.subarray(0, count));
+      position += count;
+    }
+    return {
+      source: Buffer.concat(chunks, bytesRead).toString("utf8"),
+      bytesRead,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+function deriveMotionBridgeReceipt(args: {
+  bridgeToken: string;
+  challenge: string;
+  operation:
+    | "read-file"
+    | "write-file"
+    | "apply-edit"
+    | "verify-module-provenance";
+  relPath: string;
+  routePath?: string;
+  reachable?: boolean;
+  expectedVersionHash?: string;
+  requireExpectedVersionHash: boolean;
+  content?: string;
+  search?: string;
+  replace?: string;
+  versionHash?: string;
+  resultContent?: string;
+}): string {
+  const payloadHash =
+    args.operation === "read-file" ||
+    args.operation === "verify-module-provenance"
+      ? ""
+      : typeof args.content === "string"
+        ? sha256String(`content\0${args.content}`)
+        : typeof args.search === "string" && typeof args.replace === "string"
+          ? sha256String(
+              `patch\0${JSON.stringify([args.search, args.replace])}`,
+            )
+          : "";
+  const resultContentHash =
+    args.operation === "read-file" && typeof args.resultContent === "string"
+      ? sha256String(args.resultContent)
+      : "";
+  return crypto
+    .createHmac("sha256", args.bridgeToken)
+    .update(MOTION_BRIDGE_RECEIPT_DOMAIN)
+    .update(
+      JSON.stringify([
+        args.challenge,
+        args.operation,
+        args.relPath,
+        args.routePath ?? null,
+        typeof args.reachable === "boolean" ? args.reachable : null,
+        args.expectedVersionHash ?? null,
+        args.requireExpectedVersionHash,
+        payloadHash,
+        args.versionHash ?? "",
+        resultContentHash,
+      ]),
+    )
+    .digest("hex");
+}
+
+type MotionImportAlias = {
+  pattern: string;
+  targets: string[];
+  baseUrl: string;
+};
+
+function stripJsonComments(source: string): string {
+  let result = "";
+  let quote = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    const next = source[index + 1];
+    if (quote) {
+      result += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quote = false;
+      continue;
+    }
+    if (char === '"') {
+      quote = true;
+      result += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      result += "  ";
+      index += 1;
+      while (index + 1 < source.length && source[index + 1] !== "\n") {
+        result += " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      result += "  ";
+      index += 1;
+      while (index + 1 < source.length) {
+        if (source[index + 1] === "*" && source[index + 2] === "/") {
+          result += "  ";
+          index += 2;
+          break;
+        }
+        const commentChar = source[index + 1]!;
+        result += commentChar === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      continue;
+    }
+    result += char;
+  }
+
+  let withoutTrailingCommas = "";
+  quote = false;
+  escaped = false;
+  for (let index = 0; index < result.length; index += 1) {
+    const char = result[index]!;
+    if (quote) {
+      withoutTrailingCommas += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quote = false;
+      continue;
+    }
+    if (char === '"') {
+      quote = true;
+      withoutTrailingCommas += char;
+      continue;
+    }
+    if (char === ",") {
+      let next = index + 1;
+      while (/\s/.test(result[next] ?? "")) next += 1;
+      if (result[next] === "}" || result[next] === "]") continue;
+    }
+    withoutTrailingCommas += char;
+  }
+  return withoutTrailingCommas;
+}
+
+function readMotionImportAliases(rootPath: string): {
+  baseUrl: string;
+  aliases: MotionImportAlias[];
+  bytesRead: number;
+} {
+  const rootConfig = ["tsconfig.json", "jsconfig.json"]
+    .map((name) => path.join(rootPath, name))
+    .find((candidate) => fsSync.existsSync(candidate));
+  if (!rootConfig) return { baseUrl: rootPath, aliases: [], bytesRead: 0 };
+
+  const configChain: Array<{
+    path: string;
+    config: {
+      extends?: unknown;
+      compilerOptions?: { baseUrl?: unknown; paths?: unknown };
+    };
+  }> = [];
+  const seen = new Set<string>();
+  let bytesRead = 0;
+  const load = (configPath: string, depth: number): void => {
+    const canonicalPath = path.resolve(configPath);
+    if (seen.has(canonicalPath)) {
+      throw new Error(
+        "Cyclic tsconfig extends chain cannot verify Motion imports.",
+      );
+    }
+    if (depth > 12) {
+      throw new Error(
+        "tsconfig extends chain is too deep to verify Motion imports.",
+      );
+    }
+    seen.add(canonicalPath);
+    const configSource = readMotionImportConfig(
+      canonicalPath,
+      MAX_MOTION_IMPORT_GRAPH_BYTES - bytesRead,
+    );
+    bytesRead += configSource.bytesRead;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stripJsonComments(configSource.source));
+    } catch {
+      throw new Error(
+        `Cannot parse ${path.basename(canonicalPath)} import aliases.`,
+      );
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(
+        `Malformed ${path.basename(canonicalPath)} import aliases.`,
+      );
+    }
+    const config = parsed as {
+      extends?: unknown;
+      compilerOptions?: { baseUrl?: unknown; paths?: unknown };
+    };
+    if (config.extends !== undefined) {
+      if (typeof config.extends !== "string") {
+        throw new Error(
+          "Unsupported tsconfig extends form for Motion import verification.",
+        );
+      }
+      const parent = resolveTsConfigExtends(
+        canonicalPath,
+        config.extends,
+        rootPath,
+      );
+      load(parent, depth + 1);
+    }
+    configChain.push({ path: canonicalPath, config });
+  };
+  load(rootConfig, 0);
+
+  let baseUrl = rootPath;
+  const aliases = new Map<string, MotionImportAlias>();
+  for (const { path: configPath, config } of configChain) {
+    const options = config.compilerOptions ?? {};
+    if (typeof options.baseUrl === "string") {
+      baseUrl = path.resolve(path.dirname(configPath), options.baseUrl);
+    }
+    if (
+      !options.paths ||
+      typeof options.paths !== "object" ||
+      Array.isArray(options.paths)
+    ) {
+      continue;
+    }
+    aliases.clear();
+    for (const [pattern, rawTargets] of Object.entries(options.paths)) {
+      const targets = Array.isArray(rawTargets)
+        ? rawTargets.filter(
+            (target): target is string => typeof target === "string",
+          )
+        : [];
+      if (targets.length > 0)
+        aliases.set(pattern, { pattern, targets, baseUrl });
+    }
+  }
+  const sortedAliases = [...aliases.values()].sort(
+    (left, right) => right.pattern.length - left.pattern.length,
+  );
+  return { baseUrl, aliases: sortedAliases, bytesRead };
+}
+
+function resolveTsConfigExtends(
+  configPath: string,
+  specifier: string,
+  rootPath: string,
+): string {
+  if (path.isAbsolute(specifier)) return resolveTsConfigFile(specifier);
+  if (specifier.startsWith("./") || specifier.startsWith("../")) {
+    return resolveTsConfigFile(
+      path.resolve(path.dirname(configPath), specifier),
+    );
+  }
+  try {
+    return createRequire(import.meta.url).resolve(specifier, {
+      paths: [path.dirname(configPath), rootPath],
+    });
+  } catch {
+    throw new Error(
+      `Cannot resolve tsconfig extends "${specifier}" for Motion imports.`,
+    );
+  }
+}
+
+function resolveTsConfigFile(candidate: string): string {
+  const options = [
+    candidate,
+    `${candidate}.json`,
+    path.join(candidate, "tsconfig.json"),
+  ];
+  const resolved = options.find((option) => fsSync.existsSync(option));
+  if (!resolved)
+    throw new Error(`Cannot resolve inherited tsconfig ${candidate}.`);
+  return resolved;
+}
+
+function aliasTargetsForSpecifier(
+  specifier: string,
+  aliases: MotionImportAlias[],
+): MotionImportAlias | null {
+  for (const alias of aliases) {
+    const starIndex = alias.pattern.indexOf("*");
+    if (starIndex === -1) {
+      if (specifier !== alias.pattern) continue;
+      return alias;
+    }
+    const prefix = alias.pattern.slice(0, starIndex);
+    const suffix = alias.pattern.slice(starIndex + 1);
+    if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) continue;
+    const capture = specifier.slice(
+      prefix.length,
+      specifier.length - suffix.length,
+    );
+    return {
+      ...alias,
+      targets: alias.targets.map((target) => target.replace("*", capture)),
+    };
+  }
+  return null;
+}
+
+function isInsideRoot(rootPath: string, targetPath: string): boolean {
+  const relative = path.relative(rootPath, targetPath);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  );
+}
+
+async function resolveSourceModule(
+  rootPath: string,
+  importerPath: string,
+  specifier: string,
+  aliasConfig: ReturnType<typeof readMotionImportAliases>,
+): Promise<SafeBridgeFileTarget | null> {
+  const alias = aliasTargetsForSpecifier(specifier, aliasConfig.aliases);
+  const isRelative = specifier.startsWith("./") || specifier.startsWith("../");
+  if (!isRelative && !alias) {
+    if (
+      specifier.startsWith("/") ||
+      /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(specifier)
+    ) {
+      throw new Error(`Unsupported source import: ${specifier}`);
+    }
+    return null;
+  }
+  const bases = isRelative
+    ? [path.resolve(path.dirname(importerPath), specifier)]
+    : alias!.targets.map((target) => path.resolve(alias!.baseUrl, target));
+  const explicitExtension = path.extname(specifier).toLowerCase();
+  if (
+    explicitExtension &&
+    !SOURCE_MODULE_EXTENSIONS.includes(explicitExtension)
+  ) {
+    if (NON_SOURCE_IMPORT_EXTENSIONS.has(explicitExtension)) return null;
+    throw new Error(`Unsupported source import extension: ${specifier}`);
+  }
+  const candidates = bases.flatMap((base) =>
+    explicitExtension
+      ? [base]
+      : [
+          base,
+          ...SOURCE_MODULE_EXTENSIONS.map((extension) => `${base}${extension}`),
+          ...SOURCE_MODULE_EXTENSIONS.map((extension) =>
+            path.join(base, `index${extension}`),
+          ),
+        ],
+  );
+  for (const candidate of candidates) {
+    if (!isInsideRoot(rootPath, candidate)) {
+      throw new Error(
+        `Source import escapes the connected project: ${specifier}`,
+      );
+    }
+    try {
+      const resolved = await resolveSafeBridgeFileTarget(
+        rootPath,
+        path.relative(rootPath, candidate),
+      ).then(async (target) => {
+        const stat = await fs.stat(target.absolutePath);
+        return stat.isFile() ? target : null;
+      });
+      if (resolved) return resolved;
+    } catch (error) {
+      if (error instanceof Error && /not found|ENOENT/i.test(error.message))
+        continue;
+      throw error;
+    }
+  }
+  if (alias?.pattern === "*") return null;
+  throw new Error(
+    `Cannot resolve source import "${specifier}" from ${importerPath}`,
+  );
+}
+
+function moduleDependencies(source: string, filePath: string): string[] {
+  const extension = path.extname(filePath).toLowerCase();
+  let ast: unknown;
+  try {
+    ast = parse(source, {
+      sourceType: "unambiguous",
+      plugins:
+        extension === ".tsx" || extension === ".jsx"
+          ? ["jsx", ...(extension === ".tsx" ? ["typescript"] : [])]
+          : ["typescript", "jsx"],
+    });
+  } catch (error) {
+    throw new Error(
+      `Cannot parse source module ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const dependencies = new Set<string>();
+  const addStaticSource = (value: unknown) => {
+    if (
+      value &&
+      typeof value === "object" &&
+      (value as { type?: unknown }).type === "StringLiteral"
+    ) {
+      const literal = (value as { value?: unknown }).value;
+      if (typeof literal === "string") dependencies.add(literal);
+      return;
+    }
+    if (
+      value &&
+      typeof value === "object" &&
+      (value as { type?: unknown }).type === "Literal"
+    ) {
+      const literal = (value as { value?: unknown }).value;
+      if (typeof literal === "string") dependencies.add(literal);
+      return;
+    }
+    throw new Error(`Unresolved dynamic import in ${filePath}`);
+  };
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    const type = record.type;
+    const sourceSpecifiers = Array.isArray(record.specifiers)
+      ? record.specifiers.filter(
+          (specifier): specifier is Record<string, unknown> =>
+            Boolean(specifier && typeof specifier === "object"),
+        )
+      : [];
+    const typeOnlyImport =
+      type === "ImportDeclaration" &&
+      (record.importKind === "type" ||
+        (sourceSpecifiers.length > 0 &&
+          sourceSpecifiers.every(
+            (specifier) => specifier.importKind === "type",
+          )));
+    const typeOnlyExport =
+      (type === "ExportNamedDeclaration" || type === "ExportAllDeclaration") &&
+      (record.exportKind === "type" ||
+        (type === "ExportNamedDeclaration" &&
+          sourceSpecifiers.length > 0 &&
+          sourceSpecifiers.every(
+            (specifier) => specifier.exportKind === "type",
+          )));
+    if (
+      (type === "ImportDeclaration" ||
+        type === "ExportNamedDeclaration" ||
+        type === "ExportAllDeclaration") &&
+      record.source !== null &&
+      record.source !== undefined &&
+      !typeOnlyImport &&
+      !typeOnlyExport
+    ) {
+      addStaticSource(record.source);
+    } else if (type === "TSImportEqualsDeclaration") {
+      const moduleReference = record.moduleReference as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        record.importKind !== "type" &&
+        moduleReference?.type === "TSExternalModuleReference"
+      ) {
+        addStaticSource(moduleReference.expression);
+      }
+    } else if (type === "ImportExpression") {
+      addStaticSource(record.source);
+    } else if (type === "CallExpression") {
+      const callee = record.callee as Record<string, unknown> | undefined;
+      const calleeObject =
+        callee?.type === "MemberExpression"
+          ? (callee.object as Record<string, unknown> | undefined)
+          : undefined;
+      const calleeProperty =
+        callee?.type === "MemberExpression"
+          ? (callee.property as Record<string, unknown> | undefined)
+          : undefined;
+      const memberName = calleeProperty?.name ?? calleeProperty?.value;
+      const isImportMeta =
+        calleeObject?.type === "MetaProperty" &&
+        (calleeObject.meta as Record<string, unknown> | undefined)?.name ===
+          "import" &&
+        (calleeObject.property as Record<string, unknown> | undefined)?.name ===
+          "meta";
+      if (callee?.type === "Import") {
+        const args = Array.isArray(record.arguments) ? record.arguments : [];
+        if (args.length !== 1)
+          throw new Error(`Unresolved dynamic import in ${filePath}`);
+        addStaticSource(args[0]);
+      } else if (callee?.type === "Identifier" && callee.name === "require") {
+        const args = Array.isArray(record.arguments) ? record.arguments : [];
+        if (args.length !== 1)
+          throw new Error(`Unresolved dynamic require in ${filePath}`);
+        addStaticSource(args[0]);
+      } else if (
+        callee?.type === "MemberExpression" &&
+        isImportMeta &&
+        (memberName === "glob" || memberName === "globEager")
+      ) {
+        throw new Error(
+          `Unresolved import.meta.glob dependency in ${filePath}`,
+        );
+      } else if (
+        callee?.type === "MemberExpression" &&
+        calleeObject?.type === "Identifier" &&
+        calleeObject.name === "require" &&
+        memberName === "context"
+      ) {
+        throw new Error(`Unresolved require.context dependency in ${filePath}`);
+      }
+    }
+    for (const [key, child] of Object.entries(record)) {
+      if (
+        key === "loc" ||
+        key === "start" ||
+        key === "end" ||
+        key === "tokens" ||
+        key === "comments"
+      )
+        continue;
+      visit(child);
+    }
+  };
+  visit(ast);
+  return [...dependencies];
+}
+
+/** Static project-rooted import graph used only to authorize a Motion source module. */
+export async function isMotionModuleReachableFromRoute(args: {
+  rootPath: string;
+  routePath: string;
+  modulePath: string;
+}): Promise<boolean> {
+  const rootPath = await fs.realpath(args.rootPath);
+  const isSafeSourcePath = (value: string) =>
+    value.length > 0 &&
+    !path.isAbsolute(value) &&
+    !value.includes("\\") &&
+    !/[\u0000-\u001f?#]/.test(value) &&
+    value
+      .split("/")
+      .every((segment) => segment && segment !== "." && segment !== "..");
+  if (!isSafeSourcePath(args.routePath) || !isSafeSourcePath(args.modulePath)) {
+    throw new Error("Motion source paths must be project-relative files.");
+  }
+  const route = await resolveSafeBridgeFileTarget(rootPath, args.routePath);
+  const target = await resolveSafeBridgeFileTarget(rootPath, args.modulePath);
+  const routeIsHtml = /\.html?$/i.test(args.routePath);
+  if (routeIsHtml) {
+    if (!/\.html?$/i.test(args.modulePath)) {
+      throw new Error(
+        "HTML Motion source writes must target the linked HTML entrypoint.",
+      );
+    }
+    return route.canonicalPath === target.canonicalPath;
+  }
+  if (
+    !/\.(?:tsx|jsx)$/i.test(args.routePath) ||
+    !/\.(?:tsx|jsx)$/i.test(args.modulePath)
+  ) {
+    throw new Error(
+      "React Motion source paths must be project-relative JSX modules.",
+    );
+  }
+  const targetCanonical = target.canonicalPath;
+  const aliases = readMotionImportAliases(rootPath);
+  const visited = new Set<string>();
+  const pending = [route];
+  let reachable = false;
+  let sourceBytes = aliases.bytesRead;
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (visited.has(current.canonicalPath)) continue;
+    if (visited.size >= MAX_MOTION_IMPORT_GRAPH_MODULES) {
+      throw new Error(
+        "Motion import graph exceeds the 512-module verification limit.",
+      );
+    }
+    visited.add(current.canonicalPath);
+    if (current.canonicalPath === targetCanonical) reachable = true;
+    const moduleSource = await readMotionGraphModule(
+      current.absolutePath,
+      MAX_MOTION_IMPORT_GRAPH_BYTES - sourceBytes,
+    );
+    sourceBytes += moduleSource.bytesRead;
+    const { source } = moduleSource;
+    for (const specifier of moduleDependencies(source, current.absolutePath)) {
+      const dependency = await resolveSourceModule(
+        rootPath,
+        current.absolutePath,
+        specifier,
+        aliases,
+      );
+      if (dependency) pending.push(dependency);
+    }
+  }
+  return reachable;
 }
 
 const bridgeWriteLocks = new Map<string, Promise<void>>();
@@ -3454,6 +4341,7 @@ export async function startDesignConnectBridge(
         pathname === "/read-file" ||
         pathname === "/write-file" ||
         pathname === "/apply-edit" ||
+        pathname === "/verify-module-provenance" ||
         pathname === "/list-files"
       ) {
         if (req.method !== "POST") {
@@ -3463,7 +4351,7 @@ export async function startDesignConnectBridge(
 
         const providedToken = readHeader(req, "x-bridge-token");
         const tokenValid = constantTimeTokenMatches(providedToken, bridgeToken);
-        if (!tokenValid) {
+        if (providedToken && !tokenValid) {
           sendJson(res, 401, {
             ok: false,
             error: "invalid or missing bridge token",
@@ -3473,8 +4361,72 @@ export async function startDesignConnectBridge(
 
         void (async () => {
           try {
-            const raw = await readRequestBody(req);
-            const body = JSON.parse(raw) as Record<string, unknown>;
+            const raw = await readRequestBody(
+              req,
+              tokenValid ? undefined : MAX_BRIDGE_OPERATION_BODY_BYTES,
+            );
+            const parsedBody = JSON.parse(raw) as unknown;
+            if (
+              !parsedBody ||
+              typeof parsedBody !== "object" ||
+              Array.isArray(parsedBody)
+            ) {
+              sendJson(res, tokenValid ? 400 : 401, {
+                ok: false,
+                error: tokenValid
+                  ? "request body must be a JSON object"
+                  : "invalid or missing bridge token",
+              });
+              return;
+            }
+            const body = parsedBody as Record<string, unknown>;
+
+            if (!tokenValid) {
+              const capability =
+                body[LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD];
+              const verified =
+                typeof capability === "string"
+                  ? verifyLocalhostBridgeOperationCapability({
+                      bridgeToken,
+                      audience: createLocalhostBridgeAudience(
+                        manifest.rootPath,
+                      ),
+                      operation: `POST ${pathname}`,
+                      body,
+                      capability,
+                    })
+                  : null;
+              if (!verified) {
+                sendJson(res, 401, {
+                  ok: false,
+                  error: "invalid or missing bridge operation capability",
+                });
+                return;
+              }
+
+              let consumed: boolean;
+              try {
+                consumed = await consumeBridgeCapabilityNonce(
+                  manifest.rootPath,
+                  verified.nonce,
+                  verified.expiresAt,
+                );
+              } catch {
+                sendJson(res, 503, {
+                  ok: false,
+                  error: "bridge capability replay protection unavailable",
+                });
+                return;
+              }
+              if (!consumed) {
+                sendJson(res, 401, {
+                  ok: false,
+                  error: "bridge operation capability already used",
+                });
+                return;
+              }
+            }
+            delete body[LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD];
 
             if (pathname === "/list-files") {
               try {
@@ -3490,6 +4442,71 @@ export async function startDesignConnectBridge(
                   error: `list-files failed: ${err instanceof Error ? err.message : String(err)}`,
                 });
               }
+              return;
+            }
+
+            if (pathname === "/verify-module-provenance") {
+              const routePath =
+                typeof body["routePath"] === "string"
+                  ? body["routePath"]
+                  : undefined;
+              const modulePath =
+                typeof body["modulePath"] === "string"
+                  ? body["modulePath"]
+                  : undefined;
+              const challenge =
+                typeof body["motionRelayChallenge"] === "string"
+                  ? body["motionRelayChallenge"]
+                  : undefined;
+              if (
+                !routePath ||
+                !modulePath ||
+                !challenge ||
+                challenge.length > 4096
+              ) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error:
+                    "routePath, modulePath, and a Motion receipt challenge are required",
+                });
+                return;
+              }
+              const normalizedRoutePath = routePath.replace(/\\/g, "/");
+              const routeIsRegistered = manifest.routes.some(
+                (route) =>
+                  typeof route.sourceFile === "string" &&
+                  route.sourceFile.replace(/\\/g, "/") === normalizedRoutePath,
+              );
+              if (!routeIsRegistered) {
+                sendJson(res, 403, {
+                  ok: false,
+                  error:
+                    "routePath is not a saved route in this connected project",
+                });
+                return;
+              }
+              assertNotBlockedSecretPath(routePath);
+              assertNotBlockedSecretPath(modulePath);
+              const reachable = await isMotionModuleReachableFromRoute({
+                rootPath: manifest.rootPath,
+                routePath,
+                modulePath,
+              });
+              sendJson(res, 200, {
+                ok: true,
+                routePath: normalizedRoutePath,
+                modulePath: modulePath.replace(/\\/g, "/"),
+                reachable,
+                operationReceipt: deriveMotionBridgeReceipt({
+                  bridgeToken,
+                  challenge,
+                  operation: "verify-module-provenance",
+                  relPath: modulePath.replace(/\\/g, "/"),
+                  routePath: normalizedRoutePath,
+                  reachable,
+                  requireExpectedVersionHash: false,
+                }),
+              });
               return;
             }
 
@@ -3515,10 +4532,28 @@ export async function startDesignConnectBridge(
                 sendJson(res, 404, { ok: false, error: "file not found" });
                 return;
               }
+              const challenge =
+                typeof body["motionRelayChallenge"] === "string" &&
+                body["motionRelayChallenge"].length <= 4096
+                  ? body["motionRelayChallenge"]
+                  : undefined;
               sendJson(res, 200, {
                 ok: true,
                 content: snapshot.content,
                 versionHash: snapshot.versionHash,
+                ...(challenge
+                  ? {
+                      operationReceipt: deriveMotionBridgeReceipt({
+                        bridgeToken,
+                        challenge,
+                        operation: "read-file",
+                        relPath: relPath.replace(/\\/g, "/"),
+                        requireExpectedVersionHash: false,
+                        versionHash: snapshot.versionHash,
+                        resultContent: snapshot.content,
+                      }),
+                    }
+                  : {}),
               });
               return;
             }
@@ -3529,6 +4564,11 @@ export async function startDesignConnectBridge(
                 : undefined;
             const requireExpectedVersionHash =
               body["requireExpectedVersionHash"] === true;
+            const motionRelayChallenge =
+              typeof body["motionRelayChallenge"] === "string" &&
+              body["motionRelayChallenge"].length <= 4096
+                ? body["motionRelayChallenge"]
+                : undefined;
             await withBridgeWriteLock(initialTarget.canonicalPath, async () => {
               const lockedTarget = await resolveSafeBridgeFileTarget(
                 manifest.rootPath,
@@ -3570,7 +4610,25 @@ export async function startDesignConnectBridge(
                   requireExpectedVersionHash,
                   originalMode: existing?.mode,
                 });
-                sendJson(res, 200, { ok: true, relPath, versionHash });
+                sendJson(res, 200, {
+                  ok: true,
+                  relPath,
+                  versionHash,
+                  ...(motionRelayChallenge
+                    ? {
+                        operationReceipt: deriveMotionBridgeReceipt({
+                          bridgeToken,
+                          challenge: motionRelayChallenge,
+                          operation: "write-file",
+                          relPath: relPath.replace(/\\/g, "/"),
+                          expectedVersionHash,
+                          requireExpectedVersionHash,
+                          content,
+                          versionHash,
+                        }),
+                      }
+                    : {}),
+                });
                 return;
               }
 
@@ -3589,6 +4647,20 @@ export async function startDesignConnectBridge(
                   relPath,
                   method: "replace",
                   versionHash,
+                  ...(motionRelayChallenge
+                    ? {
+                        operationReceipt: deriveMotionBridgeReceipt({
+                          bridgeToken,
+                          challenge: motionRelayChallenge,
+                          operation: "apply-edit",
+                          relPath: relPath.replace(/\\/g, "/"),
+                          expectedVersionHash,
+                          requireExpectedVersionHash,
+                          content: body["content"],
+                          versionHash,
+                        }),
+                      }
+                    : {}),
                 });
                 return;
               }
@@ -3655,9 +4727,38 @@ export async function startDesignConnectBridge(
                 relPath,
                 method: "patch",
                 versionHash,
+                ...(motionRelayChallenge
+                  ? {
+                      operationReceipt: deriveMotionBridgeReceipt({
+                        bridgeToken,
+                        challenge: motionRelayChallenge,
+                        operation: "apply-edit",
+                        relPath: relPath.replace(/\\/g, "/"),
+                        expectedVersionHash,
+                        requireExpectedVersionHash,
+                        search,
+                        replace,
+                        versionHash,
+                      }),
+                    }
+                  : {}),
               });
             });
           } catch (err: unknown) {
+            if (err instanceof RequestBodyTooLargeError) {
+              sendJson(res, 413, {
+                ok: false,
+                error: "bridge operation body exceeds the size limit",
+              });
+              return;
+            }
+            if (!tokenValid) {
+              sendJson(res, 401, {
+                ok: false,
+                error: "invalid or missing bridge operation capability",
+              });
+              return;
+            }
             if (err instanceof BridgePreconditionRequiredError) {
               sendJson(res, 428, {
                 ok: false,

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useHref, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as routeChunkRecovery from "./route-chunk-recovery.js";
 import {
   getSettingsShortcutHint,
   isSettingsRoutePath,
@@ -175,11 +176,16 @@ describe("useSettingsShortcut", () => {
   it("adds the app base path of a workspace mount once", () => {
     window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
     renderAt("/dispatch/overview", 1, "/dispatch");
+    const rememberTarget = vi.spyOn(
+      routeChunkRecovery,
+      "rememberRouteChunkRecoveryNavigation",
+    );
 
     pressSettingsShortcut();
 
     expect(pathname).toBe("/settings/account");
     expect(browserPath).toBe("/dispatch/settings/account");
+    expect(rememberTarget).toHaveBeenCalledWith("/dispatch/settings/account");
   });
 
   it("stays put on a Settings route of a workspace mount", () => {

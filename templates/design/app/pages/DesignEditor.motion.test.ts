@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { MotionDockTrack } from "../components/design/MotionDock";
-import { applyMotionAutoKeyframesForStyles } from "./design-editor/motion-state";
+import {
+  applyMotionAutoKeyframesForStyles,
+  applyMotionStyleKeyframeEdit,
+  upsertMotionStyleKeyframes,
+} from "./design-editor/motion-state";
 
 function track(overrides: Partial<MotionDockTrack> = {}): MotionDockTrack {
   return {
@@ -146,5 +150,138 @@ describe("applyMotionAutoKeyframesForStyles (item 7 — motion auto-key wiring)"
     });
     const updated = next[0]!.keyframes.find((kf) => kf.t === 0.5);
     expect(updated).toMatchObject({ value: "0.9", ease: "ease-in" });
+  });
+});
+
+describe("upsertMotionStyleKeyframes", () => {
+  it("creates a track for a newly edited property when auto-keyframing is on", () => {
+    expect(
+      upsertMotionStyleKeyframes({
+        tracks: [],
+        targetNodeId: "hero",
+        label: "Hero",
+        styles: { opacity: "0.5" },
+        computedStyles: { opacity: "1" },
+        playhead: 0.5,
+        timelineDurationMs: 2000,
+      }),
+    ).toEqual([
+      {
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "1", ease: "ease" },
+          { t: 0.5, value: "0.5", ease: "ease" },
+          { t: 1, value: "1", ease: "ease" },
+        ],
+        label: "Hero",
+      },
+    ]);
+  });
+
+  it("uses track-local time when inserting a keyframe in an existing track", () => {
+    const tracks = [
+      track({
+        delayMs: 250,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0", ease: "linear" },
+          { t: 1, value: "1", ease: "ease-in" },
+        ],
+      }),
+    ];
+    const next = upsertMotionStyleKeyframes({
+      tracks,
+      targetNodeId: "hero",
+      label: "Hero",
+      styles: { opacity: "0.8" },
+      playhead: 0.5,
+      timelineDurationMs: 1000,
+      defaultEase: "ease-out",
+    });
+
+    expect(next[0]?.keyframes).toEqual([
+      { t: 0, value: "0", ease: "linear" },
+      { t: 0.5, value: "0.8", ease: "ease-out" },
+      { t: 1, value: "1", ease: "ease-in" },
+    ]);
+  });
+
+  it("preserves easing when replacing an existing keyframe value", () => {
+    const next = upsertMotionStyleKeyframes({
+      tracks: [
+        track({
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 0.5, value: "0.3", ease: "ease-in" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        }),
+      ],
+      targetNodeId: "hero",
+      label: "Hero",
+      styles: { opacity: "0.8" },
+      playhead: 0.5,
+      timelineDurationMs: 1000,
+      defaultEase: "ease-out",
+    });
+
+    expect(next[0]?.keyframes).toEqual([
+      { t: 0, value: "0", ease: "linear" },
+      { t: 0.5, value: "0.8", ease: "ease-in" },
+      { t: 1, value: "1", ease: "linear" },
+    ]);
+  });
+});
+
+describe("applyMotionStyleKeyframeEdit", () => {
+  it("creates a track for a new property when auto-keyframing is on", () => {
+    const next = applyMotionStyleKeyframeEdit([], {
+      targetNodeId: "hero",
+      label: "Hero",
+      styles: { opacity: "0.5" },
+      computedStyles: { opacity: "1" },
+      playhead: 0.5,
+      timelineDurationMs: 2000,
+      autoKeyframeEnabled: true,
+    });
+
+    expect(next[0]?.keyframes).toEqual([
+      { t: 0, value: "1", ease: "ease" },
+      { t: 0.5, value: "0.5", ease: "ease" },
+      { t: 1, value: "1", ease: "ease" },
+    ]);
+  });
+
+  it("updates an existing track at the playhead when auto-keyframing is off", () => {
+    const next = applyMotionStyleKeyframeEdit([track()], {
+      targetNodeId: "hero",
+      label: "Hero",
+      styles: { opacity: "0.5" },
+      playhead: 0.5,
+      timelineDurationMs: 2000,
+      defaultEase: "ease",
+      autoKeyframeEnabled: false,
+    });
+
+    expect(next[0]?.keyframes).toEqual([
+      { t: 0, value: "0", ease: "linear" },
+      { t: 0.5, value: "0.5", ease: "ease" },
+      { t: 1, value: "1", ease: "linear" },
+    ]);
+  });
+
+  it("does not create a track when auto-keyframing is off", () => {
+    const tracks: MotionDockTrack[] = [];
+    expect(
+      applyMotionStyleKeyframeEdit(tracks, {
+        targetNodeId: "hero",
+        label: "Hero",
+        styles: { opacity: "0.5" },
+        playhead: 0.5,
+        timelineDurationMs: 2000,
+        autoKeyframeEnabled: false,
+      }),
+    ).toBe(tracks);
   });
 });

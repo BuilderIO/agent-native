@@ -205,7 +205,6 @@ test.afterAll(async ({ request }) => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 test("Inspect Code shows copyable selected HTML content", async ({ page }) => {
@@ -278,7 +277,6 @@ test("component boolean and text prop controls persist through reload", async ({
     .toBe("Updated label");
 
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Widget Surface", { screenId: fileId });
   await expect
     .poll(() =>

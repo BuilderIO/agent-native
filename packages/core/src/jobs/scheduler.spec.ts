@@ -692,6 +692,7 @@ Process the feedback.`,
       expect.any(Number),
       expect.any(Object),
       undefined,
+      expect.any(Function),
     );
   });
 

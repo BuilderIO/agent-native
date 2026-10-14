@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activer Rewind",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Rewind conserve un historique local de votre écran afin que vous puissiez inclure les dernières minutes avant un enregistrement. Les séquences vidéo ne sont envoyées que si vous les incluez ou les approuvez.",
+      "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:
@@ -310,6 +310,10 @@ const messages = {
     transcriptionCompleted: "Transcription terminée",
     transcriptNotReady: "La transcription n'est pas encore prête",
     tryAfterTranscription: "Réessayez une fois la transcription terminée.",
+    silenceTranscriptUnavailableTitle:
+      "Cette transcription ne permet pas de supprimer les silences",
+    silenceTranscriptUnavailableDescription:
+      "Essayez de générer une nouvelle transcription, puis de supprimer à nouveau les silences.",
     titleGenerationQueued: "Génération du titre…",
     descriptionQueued: "Génération de la description…",
     chapterQueued: "Génération des chapitres…",

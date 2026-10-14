@@ -1916,6 +1916,7 @@ function maxRetriesForError(err: unknown): number {
   if (err instanceof EngineError) {
     const code = (err.errorCode ?? "").toLowerCase();
     if (code === "builder_gateway_error") {
+      if (isTransientProviderRateLimitError(err)) return MAX_RETRIES;
       return BUILDER_GATEWAY_ERROR_MAX_RETRIES;
     }
   }
@@ -4513,6 +4514,7 @@ function isToolCallTimeoutResult(content: string): boolean {
 
 export interface TerminalActionStop {
   message: string;
+  transcriptMessage?: string;
   errorCode?: string;
   details?: string;
 }
@@ -6321,7 +6323,7 @@ export async function runAgentLoop(opts: {
       stop.errorCode === "needs-approval" ||
       stop.errorCode === "awaiting-user-input"
     ) {
-      send({ type: "text", text: stop.message });
+      send({ type: "text", text: stop.transcriptMessage ?? stop.message });
       return;
     }
     send({
@@ -7257,11 +7259,27 @@ export async function runAgentLoop(opts: {
       | undefined;
     let turnYieldedToUser = false;
 
-    const noteToolCallSucceeded = (actionEntry: ActionEntry) => {
+    const noteToolCallSucceeded = (
+      actionEntry: ActionEntry,
+      toolName: string,
+      toolInput: unknown,
+    ) => {
       if (actionEntry.endsTurn !== true) return;
       turnYieldedToUser = true;
+      const question =
+        toolName === "ask-question" &&
+        typeof toolInput === "object" &&
+        toolInput !== null &&
+        "question" in toolInput &&
+        typeof toolInput.question === "string"
+          ? toolInput.question.trim()
+          : "";
+      const waitingMessage = "Waiting for your answer before continuing";
       requestedActionStop ??= {
-        message: "Waiting for your answer before continuing.",
+        message: question
+          ? `${waitingMessage}: ${question}`
+          : `${waitingMessage}.`,
+        transcriptMessage: `${waitingMessage}.`,
         errorCode: "awaiting-user-input",
       };
     };
@@ -7754,7 +7772,7 @@ export async function runAgentLoop(opts: {
               : {}),
           });
           recordToolResult(result, false, journaled.artifacts);
-          noteToolCallSucceeded(actionEntry);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
             type: "tool-result" as const,
@@ -7839,7 +7857,7 @@ export async function runAgentLoop(opts: {
                 : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
-            noteToolCallSucceeded(actionEntry);
+            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
             return {
               type: "tool-result" as const,
@@ -8523,7 +8541,7 @@ export async function runAgentLoop(opts: {
         });
         recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
-          noteToolCallSucceeded(actionEntry);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {
               content: result,

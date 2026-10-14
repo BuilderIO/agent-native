@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
+  "block.loading": "Chargement du bloc.",
   "composer.contextUrlLabel": "Adresse URL",
   "composer.contextInvalidUrl": "Saisissez une URL HTTP ou HTTPS valide.",
   "composer.contextAttach": "Joindre",
@@ -161,9 +163,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Vérification de la disponibilité de la création de compte.",
   "onboarding.builderActivationUnavailable":
-    "La création de compte n’est pas activée pour cette application. Vous pouvez connecter un compte existant.",
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "L’activation d’un nouveau compte n’est pas disponible dans ce mode. Vous pouvez toujours connecter un compte existant.",
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "Impossible de vérifier si cette application peut créer de nouveaux comptes.",
 
@@ -178,6 +180,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
   "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderConnect": "Connecter Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",
@@ -844,6 +847,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
   "errorMessages.invalidAttachmentNamed":
     "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.resendVerificationEmail": "Renvoyer l’e-mail de vérification",
+  "recovery.sendingVerificationEmail": "Envoi...",
+  "recovery.verificationEmailRequested":
+    "E-mail de vérification demandé. Vérifiez votre boîte de réception et vos courriers indésirables.",
+  "recovery.verificationEmailFailed":
+    "Impossible de demander l’e-mail de vérification. Réessayez.",
   "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
@@ -889,6 +898,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "et {{count}} de plus sous Nouveau, ou ajoutez n'importe quelle clé personnalisée",
   "secrets.emptyTitle": "Aucune clé pour le moment.",
+  "secrets.figmaTokenMustBeToken":
+    "Collez un jeton d’accès Figma, pas une URL de fichier Figma.",
   "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",

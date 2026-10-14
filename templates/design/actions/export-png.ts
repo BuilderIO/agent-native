@@ -1,8 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
-import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import takeDesignScreenshot, {
   getScreenshotPngData,
 } from "./take-design-screenshot.js";
@@ -16,6 +19,14 @@ function suggestedPngFilename(filename: string): string {
     .replace(/[^a-zA-Z0-9_-]/g, "-");
   return `${base || "screen"}.png`;
 }
+
+const trackPngExportFailures = withDesignExportFailureTracking<{
+  designId?: string;
+  fileId?: string;
+  filename: string;
+  width?: number;
+  height?: number;
+}>("png");
 
 export default defineAction({
   description:
@@ -66,7 +77,8 @@ export default defineAction({
     }),
   readOnly: false,
   http: { method: "POST" },
-  run: async ({ designId, fileId, filename, width, height }, ctx) => {
+  run: trackPngExportFailures(async (args, ctx, facts) => {
+    const { designId, fileId, filename, width, height } = args;
     const result = await takeDesignScreenshot.run(
       {
         ...(designId ? { designId } : {}),
@@ -78,7 +90,19 @@ export default defineAction({
       ctx,
     );
 
-    if (result.ok !== true) return result;
+    if (result.ok !== true) {
+      trackDesignExported(
+        {
+          exportFormat: "png",
+          status: "failed",
+          errorType: "chromium_unavailable",
+        },
+        ctx,
+      );
+      return result;
+    }
+    facts.designId = result.designId;
+    facts.fileId = result.fileId;
 
     const screenshot = result.screenshots?.[0];
     if (!screenshot) {
@@ -129,16 +153,8 @@ export default defineAction({
         ? "The PNG exceeds the inline image limit; use its durable URL to view it."
         : undefined;
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: result.designId,
-        output_type: "design",
-        export_format: "png",
-        file_id: result.fileId,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "png", status: "completed" },
       ctx,
     );
 
@@ -157,5 +173,5 @@ export default defineAction({
       diagnostics: screenshot.diagnostics,
       capturedAt: result.capturedAt,
     };
-  },
+  }),
 });

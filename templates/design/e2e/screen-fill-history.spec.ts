@@ -130,6 +130,7 @@ for (const interruptWithUndo of [false, true]) {
         const label = appearance.locator(
           `label[for=${JSON.stringify(inputId)}]`,
         );
+        await label.scrollIntoViewIfNeeded();
         const box = await label.boundingBox();
         if (!box) throw new Error("Screen opacity scrub label is not visible");
         const x = box.x + box.width / 2;
@@ -147,6 +148,19 @@ for (const interruptWithUndo of [false, true]) {
           );
         }
         await page.mouse.up();
+        if (interruptWithUndo) {
+          await expect(opacity).toHaveValue("100%");
+          await expect(designFrame(page).locator("body")).toHaveCSS(
+            "opacity",
+            "1",
+          );
+
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(x - 32, y, { steps: 8 });
+          await expect(opacity).not.toHaveValue("100%");
+          await page.mouse.up();
+        }
         const committed = await opacity.inputValue();
         await expect(designFrame(page).locator("body")).toHaveCSS(
           "opacity",

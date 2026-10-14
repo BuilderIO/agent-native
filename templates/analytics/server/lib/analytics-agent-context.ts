@@ -8,8 +8,7 @@ import {
 import { getActiveEmbeddingSet } from "@agent-native/creative-context/store";
 
 import {
-  candidateScopeCompatibility,
-  candidateTrustTier,
+  candidateQueryPriority,
   relevanceTerms,
   searchAnalyticsDictionaryCatalog,
   searchTerms,
@@ -170,8 +169,17 @@ function jsonText(value: unknown): string {
 }
 
 function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
+  const staleSourceIndex =
+    candidate.kind === "data-dictionary" &&
+    candidate.origin === "source-index" &&
+    candidate.sourceIndexStale === true;
   const lines = [
     "Retrieved Analytics reference. Use it to guide metric definitions and query shape; run a live source query before reporting values.",
+    ...(staleSourceIndex
+      ? [
+          `Stale generated metadata (${candidate.sourceIndexAgeDays ?? "unknown age"} days old; refresh threshold ${candidate.sourceIndexStaleAfterDays ?? "unknown"} days). Treat this entry only as a search lead; it does not establish current source existence, scope, grain, joins, or availability. Verify live schema and owner-approved definitions before querying.`,
+        ]
+      : []),
   ];
   if (candidate.kind === "data-dictionary") {
     lines.push(
@@ -201,10 +209,12 @@ function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
         },
       ]),
       candidate.semanticScope
-        ? `Subject scope: ${candidate.semanticScope}.`
+        ? staleSourceIndex
+          ? `Unverified scope claim from stale source-index metadata: ${candidate.semanticScope}.`
+          : `Subject scope: ${candidate.semanticScope}.`
         : "",
       candidate.origin === "source-index"
-        ? `Generated source index snapshot: ${candidate.sourceIndexGeneratedAt ?? "unknown time"}; source revisions: ${candidate.sourceIndexSources ?? "not recorded"}; source path: ${candidate.sourcePath ?? "not recorded"}; entry revision: ${candidate.sourceRevision ?? "not recorded"}. Static metadata is a search aid, not proof of runtime behavior; verify model grain, lineage, and current live schema before SQL.`
+        ? `Generated source index snapshot: ${candidate.sourceIndexGeneratedAt ?? "unknown time"}; age: ${candidate.sourceIndexAgeDays ?? "unknown"} days; freshness: ${staleSourceIndex ? "stale" : "within refresh window or unreported"}; source revisions: ${candidate.sourceIndexSources ?? "not recorded"}; source path: ${candidate.sourcePath ?? "not recorded"}; entry revision: ${candidate.sourceRevision ?? "not recorded"}. Static metadata is a search aid, not proof of runtime behavior; verify model grain, lineage, and current live schema before SQL.`
         : "",
       candidate.source?.toLowerCase().includes("bigquery")
         ? "Source dialect: BigQuery GoogleSQL; use STRING, not TEXT, and avoid ILIKE."
@@ -275,6 +285,16 @@ function candidateName(candidate: AnalyticsQueryCatalogCandidate): string {
   return candidate.kind === "data-dictionary"
     ? `${candidate.origin === "source-index" ? "Source index" : "Data dictionary"}: ${candidate.metric}`
     : `${candidate.dashboardTitle}: ${candidate.panelTitle}`;
+}
+
+function candidateStableKey(candidate: AnalyticsQueryCatalogCandidate): string {
+  return candidate.kind === "data-dictionary"
+    ? `dict:${candidate.origin}:${candidate.id}`
+    : `panel:${candidate.origin}:${candidate.dashboardId}:${candidate.panelId}`;
+}
+
+function compareStableKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function candidateEmbeddingKey(
@@ -417,20 +437,20 @@ async function rankWithEmbeddings(
       candidate,
       similarity: scores[index]!,
       lexicalScore: candidate.score,
-      scope: candidateScopeCompatibility(candidate, request),
-      trust: candidateTrustTier(candidate),
-      name: candidateName(candidate),
+      ...candidateQueryPriority(candidate, request),
+      stableKey: candidateStableKey(candidate),
     }))
     .sort((left, right) => {
-      const sameKind = left.candidate.kind === right.candidate.kind;
-      const trustDifference = right.trust - left.trust;
       return (
+        right.rosterSpecificity - left.rosterSpecificity ||
+        right.membershipRowSpecificity - left.membershipRowSpecificity ||
+        right.rankingTier - left.rankingTier ||
+        right.trust - left.trust ||
+        right.activeSubsetSpecificity - left.activeSubsetSpecificity ||
         right.scope - left.scope ||
-        (sameKind ? trustDifference : 0) ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
-        trustDifference ||
-        left.name.localeCompare(right.name)
+        compareStableKeys(left.stableKey, right.stableKey)
       );
     });
 }
@@ -474,6 +494,12 @@ type RankedCandidate = {
   candidate: AnalyticsQueryCatalogCandidate;
   similarity?: number;
   lexicalScore?: number;
+  rosterSpecificity?: number;
+  membershipRowSpecificity?: number;
+  rankingTier?: number;
+  trust?: number;
+  activeSubsetSpecificity?: number;
+  scope?: number;
 };
 
 function noPromptReferences(

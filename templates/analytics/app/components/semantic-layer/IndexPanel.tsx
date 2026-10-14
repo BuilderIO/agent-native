@@ -116,7 +116,12 @@ type IndexStatusAvailable = {
   status: "available";
   generatedAt: string;
   entryCount: number;
-  unresolvedTrackingCallSites: number | null;
+  scanCoverage: {
+    unsafeEntriesOmitted: number | null;
+    unsafeFieldsOmitted: number | null;
+    truncatedFields: number | null;
+    unresolvedTrackingCallSites: number | null;
+  };
   sources: Array<{ id: string; revision?: string }>;
   sourceCounts?: Array<{ source: string; entryCount: number }>;
   ageDays: number;
@@ -390,17 +395,33 @@ function StatusSection() {
             </Badge>
           </SettingRow>
         ) : null}
-        {available ? (
-          <SettingRow label={t("indexPanel.unresolvedTrackingCallSites")}>
-            <span className="text-sm tabular-nums text-muted-foreground">
-              {available.unresolvedTrackingCallSites === null
-                ? t("indexPanel.unresolvedTrackingCallSitesUnavailable")
-                : formatters.formatNumber(
-                    available.unresolvedTrackingCallSites,
-                  )}
-            </span>
-          </SettingRow>
-        ) : null}
+        {available
+          ? (
+              [
+                [
+                  "unsafeEntriesOmitted",
+                  available.scanCoverage.unsafeEntriesOmitted,
+                ],
+                [
+                  "unsafeFieldsOmitted",
+                  available.scanCoverage.unsafeFieldsOmitted,
+                ],
+                ["truncatedFields", available.scanCoverage.truncatedFields],
+                [
+                  "unresolvedTrackingCallSites",
+                  available.scanCoverage.unresolvedTrackingCallSites,
+                ],
+              ] as const
+            ).map(([key, count]) => (
+              <SettingRow key={key} label={t(`indexPanel.${key}`)}>
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  {count === null
+                    ? t("indexPanel.unresolvedTrackingCallSitesUnavailable")
+                    : formatters.formatNumber(count)}
+                </span>
+              </SettingRow>
+            ))
+          : null}
         {rows.map((row) =>
           row.id === DBT_SOURCE_ID ? (
             <SourceStatusRowView
@@ -414,6 +435,11 @@ function StatusSection() {
           ),
         )}
       </div>
+      {available ? (
+        <p role="note" className="text-sm text-muted-foreground">
+          {t("indexPanel.sourceIndexCoverageCaveat")}
+        </p>
+      ) : null}
       {available ? (
         <p role="note" className="text-sm text-muted-foreground">
           {t("indexPanel.dynamicTrackingCoverageCaveat")}

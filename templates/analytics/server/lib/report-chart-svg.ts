@@ -7,6 +7,7 @@ import {
   trimToWidth,
 } from "../../shared/chart-axis-labels";
 import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
+import { formatDollars } from "../../shared/format-dollars";
 
 export { estimateTextWidth };
 
@@ -107,7 +108,7 @@ function formatTick(
   value: number,
   formatter?: ReportChartValueFormatter,
 ): string {
-  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const percent = value <= 1 && value >= -1 ? value * 100 : value;
     return `${percent.toFixed(2)}%`;

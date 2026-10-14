@@ -9,8 +9,9 @@ const mocks = vi.hoisted(() => ({
   invokeAgentAction: vi.fn(),
   readMultipartFormData: vi.fn(),
   resolveA2ACallerAuth: vi.fn(),
-  resolveAgentInvocationTarget: vi.fn(),
+  resolveReplayStoryboardDesignTarget: vi.fn(),
   resolveVercelDeploymentProtectionHeaders: vi.fn(),
+  runWithRequestContext: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   workspacePrivateOrigins: vi.fn(),
 }));
@@ -30,7 +31,6 @@ vi.mock("@agent-native/core/a2a", () => ({
   canonicalA2AAudience: mocks.canonicalA2AAudience,
   invokeAgentAction: mocks.invokeAgentAction,
   resolveA2ACallerAuth: mocks.resolveA2ACallerAuth,
-  resolveAgentInvocationTarget: mocks.resolveAgentInvocationTarget,
   workspacePrivateOrigins: mocks.workspacePrivateOrigins,
 }));
 
@@ -41,6 +41,8 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 vi.mock("@agent-native/core/server", () => ({
   resolveVercelDeploymentProtectionHeaders:
     mocks.resolveVercelDeploymentProtectionHeaders,
+  runWithRequestContext: (...args: unknown[]) =>
+    mocks.runWithRequestContext(...args),
 }));
 
 vi.mock("../../../lib/credentials", () => ({
@@ -52,6 +54,11 @@ vi.mock("../../../lib/credentials", () => ({
 
 vi.mock("../../../lib/session-replay", () => ({
   getSessionReplaySummary: mocks.getSessionReplaySummary,
+}));
+
+vi.mock("../../../lib/replay-storyboard-design-target.js", () => ({
+  resolveReplayStoryboardDesignTarget:
+    mocks.resolveReplayStoryboardDesignTarget,
 }));
 
 import handler from "./storyboard.post";
@@ -220,13 +227,20 @@ describe("POST /api/session-replay/storyboard", () => {
     mocks.resolveVercelDeploymentProtectionHeaders.mockReturnValue({
       "x-test-deployment-protection": "enabled",
     });
+    mocks.runWithRequestContext.mockImplementation(
+      async (_context: unknown, callback: () => unknown) => callback(),
+    );
     mocks.getSessionReplaySummary.mockResolvedValue({
       id: screenshot.recordingId,
       app: "clips",
       durationMs: 10_000,
       eventCount: screenshot.eventCount,
     });
-    mocks.resolveAgentInvocationTarget.mockResolvedValue({ url: designUrl });
+    mocks.resolveReplayStoryboardDesignTarget.mockResolvedValue({
+      code: "ready",
+      targetClass: "beta_design",
+      url: designUrl,
+    });
     mocks.resolveA2ACallerAuth.mockResolvedValue({
       apiKey: "test-a2a-token",
       userEmail: "alice@example.test",
@@ -307,6 +321,7 @@ describe("POST /api/session-replay/storyboard", () => {
       ),
     ).toBe("Bearer test-a2a-token");
     expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveReplayStoryboardDesignTarget).toHaveBeenCalledTimes(2);
     expect(mocks.ssrfSafeFetch).toHaveBeenCalledWith(
       `${designUrl}/api/session-replay-storyboard`,
       expect.objectContaining({
@@ -332,6 +347,28 @@ describe("POST /api/session-replay/storyboard", () => {
       expect(options).not.toHaveProperty("orgSecret");
     }
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
+  });
+
+  it("fails closed when the caller-scoped target changes before forwarding", async () => {
+    mocks.resolveReplayStoryboardDesignTarget
+      .mockResolvedValueOnce({
+        code: "ready",
+        targetClass: "beta_design",
+        url: designUrl,
+      })
+      .mockResolvedValueOnce({
+        code: "notready",
+        targetClass: "configured_design",
+      });
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Analytics could not securely resolve the Design target",
+    });
+    expect(mocks.resolveReplayStoryboardDesignTarget).toHaveBeenCalledTimes(2);
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("shares one deadline across existing-board reads, upload, and confirmation", async () => {
@@ -382,8 +419,10 @@ describe("POST /api/session-replay/storyboard", () => {
     }
   });
 
-  it("canonicalizes the Design audience before minting the upload token", async () => {
-    mocks.resolveAgentInvocationTarget.mockResolvedValueOnce({
+  it("uses the checked Design target for audience and forwarding", async () => {
+    mocks.resolveReplayStoryboardDesignTarget.mockResolvedValue({
+      code: "ready",
+      targetClass: "configured_design",
       url: `${designUrl}/`,
     });
 
@@ -394,6 +433,14 @@ describe("POST /api/session-replay/storyboard", () => {
       audience: designUrl,
       userIdentityOnly: true,
     });
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "ada@example.test",
+        orgId: undefined,
+        orgScope: "personal",
+      },
+      expect.any(Function),
+    );
   });
 
   it("rejects a screenshot batch above the decoded pixel limit before replay lookups", async () => {
@@ -411,7 +458,7 @@ describe("POST /api/session-replay/storyboard", () => {
       statusMessage: "Screenshot batch exceeds the decoded pixel limit",
     });
     expect(mocks.getSessionReplaySummary).not.toHaveBeenCalled();
-    expect(mocks.resolveAgentInvocationTarget).not.toHaveBeenCalled();
+    expect(mocks.resolveReplayStoryboardDesignTarget).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -544,7 +591,7 @@ describe("POST /api/session-replay/storyboard", () => {
       await started;
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
-      expect(mocks.resolveAgentInvocationTarget).not.toHaveBeenCalled();
+      expect(mocks.resolveReplayStoryboardDesignTarget).not.toHaveBeenCalled();
       expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

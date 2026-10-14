@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,6 +11,12 @@ import {
   makeLocalhostRouteId,
   titleFromRoutePath,
 } from "../shared/source-mode.js";
+import {
+  containsVisualEditBridgeCredentials,
+  isBrowserVisibleVisualEditRequest,
+  rejectBrowserBridgeCredentials,
+  stripVisualEditBridgeCredentials,
+} from "./visual-edit-browser-request.js";
 
 const routeSchema = z.object({
   id: z.string().optional(),
@@ -217,7 +223,11 @@ export default defineAction({
       .optional()
       .default("connected"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
+    rejectBrowserBridgeCredentials(
+      ctx,
+      containsVisualEditBridgeCredentials(args),
+    );
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
     const now = new Date().toISOString();
@@ -339,6 +349,16 @@ export default defineAction({
       );
     }
 
+    if (isBrowserVisibleVisualEditRequest(ctx) && !existing[0]) {
+      fail(
+        "No saved localhost bridge matches this app. Register the bridge through a trusted CLI or server action first.",
+        {
+          errorCode: "localhost_bridge_registration_required",
+          statusCode: 409,
+        },
+      );
+    }
+
     const bridgeUrl =
       requestedBridgeUrl ??
       (existing[0]?.bridgeUrl
@@ -419,7 +439,7 @@ export default defineAction({
       return { bridgeToken: stored.bridgeToken, previewToken };
     });
 
-    return {
+    const result = {
       id,
       sourceType: "localhost",
       name: baseValues.name,
@@ -434,5 +454,8 @@ export default defineAction({
       previewToken: effectivePreviewToken,
       bridgeToken: effectiveBridgeToken,
     };
+    return isBrowserVisibleVisualEditRequest(ctx)
+      ? stripVisualEditBridgeCredentials(result)
+      : result;
   },
 });

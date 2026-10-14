@@ -21,6 +21,7 @@ import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
 import { redactExportDiagnostic } from "../scripts/design-export-validation/lib/redact-diagnostic";
+import { openAppMenuSubmenu } from "./helpers";
 
 // PNG preparation and rendering can take about 74s. The two PDF pages can each
 // use about 124s of bounded readiness and rendering waits, plus PDF assembly.
@@ -291,7 +292,7 @@ async function downloadAllScreensPdf(
   page: Page,
   trace: ExportTrace,
 ): Promise<Buffer> {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
   await exportMenu.hover();
@@ -331,10 +332,10 @@ async function pdfPagesPng(
 }
 
 async function openPngExport(page: Page): Promise<Locator> {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
-  await exportMenu.press("ArrowRight");
+  await exportMenu.click();
   const pngMenuItem = page.getByRole("menuitem", { name: "Download PNG" });
   await expect(pngMenuItem).toBeVisible();
   return pngMenuItem;

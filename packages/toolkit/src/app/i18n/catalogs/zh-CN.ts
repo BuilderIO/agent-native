@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "此区块暂时不可用。",
+  "block.loading": "正在加载区块。",
   "composer.contextUrlLabel": "网址",
   "composer.contextInvalidUrl": "请输入有效的 HTTP 或 HTTPS 网址。",
   "composer.contextAttach": "附加",
@@ -147,9 +149,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "登录以使用你的账户。",
   "onboarding.builderActivationChecking": "正在检查是否可以创建新账户。",
   "onboarding.builderActivationUnavailable":
-    "此应用未启用新账户创建功能。你仍可连接现有账户。",
+    "创建账户或登录以连接 Builder.io。",
   "onboarding.builderActivationUnavailableInMode":
-    "此模式下无法激活新账户。你仍然可以连接现有账户。",
+    "创建账户或登录以连接 Builder.io。",
   "onboarding.builderActivationCheckFailed":
     "无法确认此应用是否可以创建新账户。",
 
@@ -163,6 +165,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.builderConnect": "连接 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
@@ -1099,6 +1102,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
   "errorMessages.invalidAttachmentNamed":
     "模型提供商拒绝了 {{name}}，因为其格式或大小不受支持。图像请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用支持的格式，或粘贴相关文本后重试。",
+  "recovery.resendVerificationEmail": "重新发送验证邮件",
+  "recovery.sendingVerificationEmail": "正在发送...",
+  "recovery.verificationEmailRequested":
+    "已请求发送验证邮件。请检查收件箱和垃圾邮件文件夹。",
+  "recovery.verificationEmailFailed": "无法请求发送验证邮件。请重试。",
   "recovery.retryWithoutAttachment": "不带附件重试",
   "recovery.retryAttachmentUnavailable":
     "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
@@ -1139,6 +1147,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "添加密钥以使用您自己的账户。",
   "secrets.emptyMore": "另有 {{count}} 个在“新建”下方，或添加任意自定义密钥",
   "secrets.emptyTitle": "暂无密钥。",
+  "secrets.figmaTokenMustBeToken":
+    "请粘贴 Figma 访问令牌，而不是 Figma 文件 URL。",
   "secrets.fromEnvironment": "由部署环境提供。",
   "secrets.managedInVault":
     "在工作区 Vault 中管理。此工作区中的每个应用都使用此值。",

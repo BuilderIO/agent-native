@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Turn on Rewind",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "Rewind keeps a local history of your screen so you can include the last few minutes before a recording. Footage uploads only when you include it or approve it.",
+      "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:
@@ -242,6 +242,10 @@ const messages = {
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
+    silenceTranscriptUnavailableTitle:
+      "This transcript can't be used to remove silences",
+    silenceTranscriptUnavailableDescription:
+      "Try generating a new transcript, then remove silences again.",
     titleGenerationQueued: "Generating title…",
     descriptionQueued: "Generating description…",
     chapterQueued: "Generating chapters…",

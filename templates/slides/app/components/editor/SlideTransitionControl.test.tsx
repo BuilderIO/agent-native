@@ -83,6 +83,25 @@ describe("<SlideTransitionControl>", () => {
     expect(handlers.onChange).not.toHaveBeenCalled();
   });
 
+  it("stacks action buttons so their labels fit inside the popover", () => {
+    renderControl(1);
+
+    const apply = screen.getByRole("button", {
+      name: "editorToolbar.transition_apply_all",
+    });
+    const play = screen.getByRole("button", {
+      name: "editorToolbar.transition_play",
+    });
+
+    expect(apply.parentElement).toBe(play.parentElement);
+    expect(apply.parentElement?.className).toContain("flex-col");
+    for (const button of [apply, play]) {
+      expect(button.className).toContain("w-full");
+      expect(button.className).toContain("whitespace-normal");
+      expect(button.querySelector("span")?.className).toContain("min-w-0");
+    }
+  });
+
   it("writes a changed speed once when the slider commits", () => {
     const { handlers } = renderControl(1);
 

@@ -1,5 +1,7 @@
 import { useParams } from "react-router";
 
+import { useContainHorizontalOverscroll } from "@/hooks/use-contain-horizontal-overscroll";
+
 import { renderDesignEditorView } from "./design-editor/design-editor-view";
 import { useEditorActiveScreenAndGeometry } from "./design-editor/domains/use-editor-active-screen-and-geometry";
 import { useEditorCanvasAndScreens } from "./design-editor/domains/use-editor-canvas-and-screens";
@@ -25,6 +27,7 @@ import { useEditorToolsAndVectors } from "./design-editor/domains/use-editor-too
 
 export default function DesignEditorRoute() {
   const { id } = useParams<{ id: string }>();
+  useContainHorizontalOverscroll();
   return <DesignEditor key={id ?? "missing-design"} />;
 }
 

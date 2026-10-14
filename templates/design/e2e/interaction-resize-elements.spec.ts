@@ -239,7 +239,6 @@ test("the inspector W/H fields update live while dragging a corner handle", asyn
   const id = await newDesign(page);
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const before = await geom(page, id, "box-a");
 
   const wField = page.getByLabel("W size in pixels");
@@ -499,6 +498,35 @@ test.describe("board object resize through an overlapping Screen", () => {
     );
     await seHandle.waitFor({ timeout: 10_000 });
     const handleBox = (await seHandle.boundingBox())!;
+
+    const initialHandleCenter = {
+      x: handleBox.x + handleBox.width / 2,
+      y: handleBox.y + handleBox.height / 2,
+    };
+    if (initialHandleCenter.y < 120) {
+      const surface = page.locator("[data-multi-screen-canvas-surface]");
+      const surfaceBox = await surface.boundingBox();
+      if (!surfaceBox) throw new Error("Canvas surface has no bounds");
+      const panStart = {
+        x: surfaceBox.x + surfaceBox.width / 2,
+        y: surfaceBox.y + surfaceBox.height / 4,
+      };
+      await surface.evaluate((el) => (el as HTMLElement).focus());
+      await page.mouse.move(panStart.x, panStart.y);
+      await page.keyboard.down("Space");
+      await page.mouse.down();
+      await page.mouse.move(panStart.x, panStart.y + 250, { steps: 12 });
+      await page.mouse.up();
+      await page.keyboard.up("Space");
+      await expect
+        .poll(async () => (await seHandle.boundingBox())!.y)
+        .toBeGreaterThan(120);
+      Object.assign(handleBox, (await seHandle.boundingBox())!);
+    }
+    expect(handleBox.y).toBeGreaterThan(120);
+    expect(handleBox.y + handleBox.height).toBeLessThan(
+      page.viewportSize()!.height,
+    );
 
     const topAtHandle = await page.evaluate(
       ({ x, y }) =>

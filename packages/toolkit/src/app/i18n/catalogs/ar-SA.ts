@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
+  "block.loading": "جارٍ تحميل هذه الكتلة.",
   "composer.contextUrlLabel": "عنوان URL",
   "composer.contextInvalidUrl": "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
   "composer.contextAttach": "إرفاق",
@@ -153,9 +155,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "جارٍ التحقق مما إذا كان إنشاء حساب جديد متاحًا.",
   "onboarding.builderActivationUnavailable":
-    "إنشاء حساب جديد غير مفعّل لهذا التطبيق. يمكنك ربط حساب موجود.",
+    "أنشئ حسابًا أو سجّل الدخول للاتصال بـ Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "تفعيل حساب جديد غير متاح في هذا الوضع. لا يزال بإمكانك ربط حساب موجود.",
+    "أنشئ حسابًا أو سجّل الدخول للاتصال بـ Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "تعذّر التحقق مما إذا كان هذا التطبيق يتيح إنشاء حسابات جديدة.",
 
@@ -169,6 +171,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
+  "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
@@ -1182,6 +1185,12 @@ const messages: ToolkitAgentChatTranslation = {
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "errorMessages.invalidAttachmentNamed":
     "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
+  "recovery.resendVerificationEmail": "إعادة إرسال رسالة التحقق",
+  "recovery.sendingVerificationEmail": "جارٍ الإرسال...",
+  "recovery.verificationEmailRequested":
+    "تم طلب رسالة التحقق. تحقق من صندوق الوارد ومجلد الرسائل غير المرغوب فيها.",
+  "recovery.verificationEmailFailed":
+    "تعذر طلب رسالة التحقق. يرجى المحاولة مرة أخرى.",
   "recovery.retryWithoutAttachment": "إعادة المحاولة بدون مرفق",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
@@ -1224,6 +1233,7 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "أضف مفتاحًا لاستخدام حساباتك الخاصة.",
   "secrets.emptyMore": "و{{count}} أخرى ضمن جديد، أو أضف أي مفتاح مخصص",
   "secrets.emptyTitle": "لا توجد مفاتيح بعد.",
+  "secrets.figmaTokenMustBeToken": "الصق رمز وصول Figma، وليس رابط ملف Figma.",
   "secrets.fromEnvironment": "توفّره بيئة النشر.",
   "secrets.managedInVault":
     "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",

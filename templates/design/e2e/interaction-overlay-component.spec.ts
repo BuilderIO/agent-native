@@ -36,7 +36,7 @@ async function action(
 
 async function createDesign(request: APIRequestContext) {
   const created = await action(request, "create-design", {
-    title: `Overlay component workflow ${Date.now()}`,
+    title: `Overlay component creation ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;
@@ -186,6 +186,7 @@ test.beforeAll(async ({}, testInfo) => {
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("draws an overlaid play triangle and converts the grouped layers to a component", async ({
   page,
   request,
@@ -209,7 +210,7 @@ test("draws an overlaid play triangle and converts the grouped layers to a compo
       .boundingBox())!;
 
     const toolbar = page.locator("[data-design-bottom-toolbar]");
-    await toolbar.getByRole("button", { name: "Rectangle options" }).click();
+    await toolbar.getByRole("button", { name: "Shapes options" }).click();
     await page.getByRole("menuitem", { name: "Ellipse" }).click();
     const readDrawnLayers = async () =>
       sourceLayers(page, await indexHtml(request, designId));

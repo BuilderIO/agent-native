@@ -81,6 +81,26 @@ download URLs, so an approved meeting with a finished transcript is looked up
 with `/meetings/{uuid}/recordings`
 (`cloud_recording:read:list_recording_files:admin`) to get the transcript URL.
 
+Only Brain admins (organization owners and admins) can create a Zoom source or
+change a Zoom source's `config` (including `meetingIds`, `includeSummaries`,
+`lookbackDays`, `userIds`, `pollMinutes`, and `autoSync`) or cursor; anyone
+else gets `brain_admin_required` (403). Other editors can still change a Zoom
+source's title, status, or trusted-answer policy. A sync refuses to run when
+the source owner is not a Brain admin, which also covers sources created
+before this rule. When a non-admin asks to set up or change Zoom, tell them an
+organization owner or admin has to do it.
+
+`brain_zoom_audit_events` records: Zoom source creation, and edits that add or
+remove `meetingIds` or change `includeSummaries`, `lookbackDays`, or `userIds`
+(actor, series added/removed, settings changed; an edit to only `pollMinutes`
+or `autoSync` is not recorded); an allow record for each approved meeting whose
+recording details or transcripts a sync fetches, and for each new approved
+summary it requests; a deny record when Zoom's response names an unapproved
+meeting; refused syncs; and sync completion. Meetings the allowlist excludes
+are only counted in run stats (`meetingsSkippedByFilter`), never recorded
+individually. It never stores transcript or summary text, and no action reads
+it yet.
+
 The complete scope set Brain uses is
 `cloud_recording:read:list_account_recordings:admin`,
 `cloud_recording:read:list_recording_files:admin`,

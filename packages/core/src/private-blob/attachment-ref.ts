@@ -257,7 +257,7 @@ function unsealDescriptor(sealed: string): string {
   return inflateRawSync(deflated).toString("utf8");
 }
 
-function encryptionKeyAvailable(): boolean {
+export function isAttachmentEncryptionKeyAvailable(): boolean {
   try {
     getSecretEncryptionKey();
     return true;
@@ -278,7 +278,7 @@ export async function mintAttachmentRef(input: {
   metadata?: PrivateBlobMetadata;
 }): Promise<MintAttachmentResult> {
   const filename = path.basename(input.filename);
-  if (!encryptionKeyAvailable()) {
+  if (!isAttachmentEncryptionKeyAvailable()) {
     const failure = storageUnavailable("encryption_key_unavailable", filename);
     logFailure("mint", failure);
     return failure;
@@ -373,7 +373,7 @@ function openDescriptor(
   ).find((candidate) => ref.startsWith(candidate));
   if (!prefix) return { status: "malformed", reason: "unrecognized_scheme" };
 
-  if (!encryptionKeyAvailable()) {
+  if (!isAttachmentEncryptionKeyAvailable()) {
     return storageUnavailable("encryption_key_unavailable");
   }
 

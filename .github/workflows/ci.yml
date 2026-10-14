@@ -40,7 +40,8 @@ jobs:
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
-      design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      design_canvas_core_regression: ${{ steps.scope.outputs.design_canvas_core_regression }}
+      design_canvas_broad_workflows: ${{ steps.scope.outputs.design_canvas_broad_workflows }}
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
@@ -431,12 +432,12 @@ jobs:
           VITEST_CONCURRENCY: "1"
         run: pnpm run test:perf
 
-  design-canvas-interaction-acceptance:
-    name: Design canvas interaction acceptance (${{ matrix.shard }})
+  design-canvas-core-regression:
+    name: Design core regression (${{ matrix.shard }})
     needs: change-scope
-    if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
+    if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 25 || matrix.shard == 'ai-sidebar-loopback' && 20 || (matrix.shard == 'screen-history-1' || matrix.shard == 'screen-history-2' || matrix.shard == 'screen-history-3') && 13 || 9 }}
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
@@ -461,8 +462,6 @@ jobs:
             screen-history-1,
             screen-history-2,
             screen-history-3,
-            ai-sidebar-loopback,
-            music-app-workflow,
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -489,7 +488,7 @@ jobs:
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 8
+        timeout-minutes: 5
         env:
           E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
@@ -498,7 +497,7 @@ jobs:
               grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
               ;;
             screen-history-2)
-              grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
+              grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
               ;;
             screen-history-3)
               grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
@@ -512,6 +511,93 @@ jobs:
             e2e/interaction-selection-history-delete-screen.spec.ts \
             --grep "$grep" \
             --workers=1
+
+      - name: Run focused Design regression cases
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
+        working-directory: templates/design
+        timeout-minutes: 6
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
+          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
+          mapfile -d '' -t focused_specs < "$focused_specs_file"
+          if (( ${#focused_specs[@]} == 0 )); then
+            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
+            exit 2
+          fi
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() && matrix.shard != 'music-app-workflow' }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          case "$E2E_RUN_ID" in
+            *-screen-history-*) run_id="design-selection-history-${E2E_RUN_ID#design-dnd-}" ;;
+            *-ai-sidebar-loopback) run_id="design-ai-sidebar-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ;;
+            *) run_id="$E2E_RUN_ID" ;;
+          esac
+          found=false
+          if [[ -f "test-results/$run_id/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ always() && matrix.shard != 'music-app-workflow' && (failure() || cancelled() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-canvas-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: |
+            templates/design/test-results/design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}/**
+          retention-days: 7
+          if-no-files-found: warn
+
+  design-canvas-broad-workflows:
+    name: Design broad workflows (${{ matrix.shard }})
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 25 || matrix.shard == 'autolayout-vertical-center-trailing' && 9 || 20 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            ai-sidebar-loopback,
+            music-app-workflow,
+            home-system-selection,
+            autolayout-vertical-center-trailing,
+            landing-page-build,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run AI sidebar loopback image regressions
         if: matrix.shard == 'ai-sidebar-loopback'
@@ -560,30 +646,115 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Run focused Design regression cases
-        if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' && matrix.shard != 'music-app-workflow' }}
+      - name: Run landing-page build workflow regression
+        if: ${{ matrix.shard == 'landing-page-build' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-landing-page-build.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 4
+        timeout-minutes: 23
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          DESIGN_CANVAS_LANDING_PAGE_WORKFLOW: "1"
+        run: |
+          set -euo pipefail
+          landing_page_spec='e2e/interaction-landing-page-build.spec.ts'
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
+          if [[ ! -f "$landing_page_spec" ]]; then
+            echo "::error::The selected landing-page workflow spec is missing."
+            exit 2
+          fi
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "::error::The landing-page workflow was selected but no runnable changed spec resolved."
+            exit 2
+          fi
+          if ! printf '%s\n' "${existing_changed_specs[@]}" | grep -Fqx "$landing_page_spec"; then
+            echo "::error::The landing-page workflow was selected but is absent from the runnable changed specs."
+            exit 2
+          fi
+          pnpm exec playwright test "$landing_page_spec" --workers=1 --retries=0 --trace on
+
+      - name: Run Home design-system selection regressions
+        if: matrix.shard == 'home-system-selection'
+        working-directory: templates/design
+        timeout-minutes: 6
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on
+
+      - name: Run vertical auto-layout held-guide regression
+        if: ${{ matrix.shard == 'autolayout-vertical-center-trailing' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/autolayout-drag-drop-matrix.spec.ts') }}
+        working-directory: templates/design
+        timeout-minutes: 7
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          vertical_spec='e2e/autolayout-drag-drop-matrix.spec.ts'
+          vertical_test='vertical center and trailing insertion keep held guides and exact reload geometry'
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
+          if [[ ! -f "$vertical_spec" ]]; then
+            echo "::error::The selected vertical auto-layout regression spec is missing."
+            exit 2
+          fi
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "::error::The vertical auto-layout regression was selected but no runnable changed spec resolved."
+            exit 2
+          fi
+          if ! printf '%s\n' "${existing_changed_specs[@]}" | grep -Fqx "$vertical_spec"; then
+            echo "::error::The vertical auto-layout regression was selected but is absent from the runnable changed specs."
+            exit 2
+          fi
+          listed_tests_file="$RUNNER_TEMP/design-autolayout-vertical-test-list.txt"
+          pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list --reporter=list > "$listed_tests_file" 2>&1
+          matching_tests=$(grep -F -c "$vertical_test" "$listed_tests_file" || true)
+          if [[ "$matching_tests" != "1" ]]; then
+            echo "::error::Expected exactly one vertical auto-layout test title match, found $matching_tests."
+            cat "$listed_tests_file"
+            exit 2
+          fi
+          pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --workers=1 --trace on
+
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() && matrix.shard != 'music-app-workflow' }}
+        working-directory: templates/design
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
-          set -euo pipefail
-          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
-          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
-          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
-          mapfile -d '' -t focused_specs < "$focused_specs_file"
-          if (( ${#focused_specs[@]} == 0 )); then
-            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
-            exit 2
+          case "$E2E_RUN_ID" in
+            *-screen-history-*) run_id="design-selection-history-${E2E_RUN_ID#design-dnd-}" ;;
+            *-ai-sidebar-loopback) run_id="design-ai-sidebar-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ;;
+            *) run_id="$E2E_RUN_ID" ;;
+          esac
+          found=false
+          if [[ -f "test-results/$run_id/retry-failure.marker" ]]; then
+            found=true
           fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ always() && matrix.shard != 'music-app-workflow' && (failure() || cancelled() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-canvas-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: |
+            templates/design/test-results/design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}/**
+          retention-days: 7
+          if-no-files-found: warn
 
   design-canvas-changed-spec-diagnostics:
     name: Design changed-spec diagnostics (${{ matrix.shard }})
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 16
     strategy:
       fail-fast: false
       matrix:
@@ -662,10 +833,12 @@ jobs:
 
       - name: Run changed Design E2E specs
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 12
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          E2E_LOG_TEST_PROGRESS: "1"
+          PW_TEST_DEBUG_REPORTERS: "1"
         run: |
           set -euo pipefail
           changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
@@ -677,7 +850,29 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
+
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          found=false
+          if [[ -f "test-results/$E2E_RUN_ID/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ always() && (failure() || cancelled() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-changed-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+          retention-days: 7
+          if-no-files-found: warn
 
   pre-auth-session-replay-smoke:
     name: Pre-auth session replay smoke
@@ -712,6 +907,28 @@ jobs:
           E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1
 
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          found=false
+          if [[ -f "test-results/$E2E_RUN_ID/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ !cancelled() && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-pre-auth-replay-${{ github.run_attempt }}
+          path: templates/design/test-results/pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}/**
+          retention-days: 7
+          if-no-files-found: warn
+
   fast-tests:
     name: Fast tests
     needs:
@@ -720,7 +937,8 @@ jobs:
         docs,
         test-rest,
         test-targeted,
-        design-canvas-interaction-acceptance,
+        design-canvas-core-regression,
+        design-canvas-broad-workflows,
         pre-auth-session-replay-smoke,
       ]
     if: always()
@@ -737,8 +955,10 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
-          DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
-          DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
+          DESIGN_CORE_REGRESSION: ${{ needs.change-scope.outputs.design_canvas_core_regression }}
+          DESIGN_CORE_RESULT: ${{ needs.design-canvas-core-regression.result }}
+          DESIGN_BROAD_WORKFLOWS: ${{ needs.change-scope.outputs.design_canvas_broad_workflows }}
+          DESIGN_BROAD_RESULT: ${{ needs.design-canvas-broad-workflows.result }}
           PRE_AUTH_REPLAY_E2E: ${{ needs.change-scope.outputs.pre_auth_session_replay_e2e }}
           PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}
         run: |
@@ -790,17 +1010,21 @@ jobs:
               record_failure "Determine change scope" "pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
             fi
 
-            case "$DESIGN_CANVAS_E2E" in
-              true)
-                require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
-                ;;
-              false)
-                require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"
-                ;;
-              *)
-                record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
-                ;;
-            esac
+            if [[ "$DESIGN_CORE_REGRESSION" == "true" ]]; then
+              require_success "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT"
+            elif [[ "$DESIGN_CORE_REGRESSION" == "false" ]]; then
+              require_skipped "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT" "ran outside its selected paths"
+            else
+              record_failure "Determine change scope" "Design core regression selection was missing or invalid ($DESIGN_CORE_REGRESSION)"
+            fi
+
+            if [[ "$DESIGN_BROAD_WORKFLOWS" == "true" ]]; then
+              require_success "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT"
+            elif [[ "$DESIGN_BROAD_WORKFLOWS" == "false" ]]; then
+              require_skipped "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT" "ran outside its selected paths"
+            else
+              record_failure "Determine change scope" "Design broad workflows selection was missing or invalid ($DESIGN_BROAD_WORKFLOWS)"
+            fi
 
             if [[ "$DOCS_ONLY" == "true" ]]; then
               require_success "Docs checks" "$DOCS_RESULT"

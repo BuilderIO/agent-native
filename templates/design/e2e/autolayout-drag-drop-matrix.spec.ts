@@ -1273,66 +1273,97 @@ test.describe("auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("text, shape, image, and component children all flow-insert into the same container", async ({
+  const assertFlowInsertCell = async (
+    page: Page,
+    request: APIRequestContext,
+    cell: { source: string; tag: string },
+  ) => {
+    test.setTimeout(150_000);
+    const design = await createDesign(request);
+    try {
+      await gotoEditor(page, design.id);
+      const result = await dragHeld(
+        page,
+        design.primaryId,
+        cell.source,
+        "mixed-target",
+      );
+      expect(result.during.display).toBe("block");
+      await expect
+        .poll(() => parentId(page, design.primaryId, cell.source))
+        .toBe("mixed-target");
+      const details = await designFrame(page, design.primaryId)
+        .locator(`[data-agent-native-node-id="${cell.source}"]`)
+        .evaluate((node) => ({
+          tag: node.tagName,
+          position: getComputedStyle(node).position,
+          component: node.getAttribute("data-agent-native-component"),
+          image:
+            node instanceof HTMLImageElement
+              ? {
+                  complete: node.complete,
+                  naturalWidth: node.naturalWidth,
+                  naturalHeight: node.naturalHeight,
+                }
+              : null,
+        }));
+      expect(details.tag).toBe(cell.tag);
+      expect(details.position).not.toBe("absolute");
+      if (cell.source === "free-component")
+        expect(details.component).toBe("Card");
+      if (cell.source === "free-image")
+        expect(details.image).toEqual({
+          complete: true,
+          naturalWidth: 80,
+          naturalHeight: 48,
+        });
+      await settleReload(page, design.primaryId);
+      await expect
+        .poll(() => parentId(page, design.primaryId, cell.source))
+        .toBe("mixed-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  };
+
+  test("free text children flow-insert into the same container", async ({
     page,
     request,
   }) => {
-    test.setTimeout(150_000);
-    const cells = [
-      { source: "free-text", name: "Free text", tag: "P" },
-      { source: "free-shape", name: "Free shape", tag: "DIV" },
-      { source: "free-image", name: "Free image", tag: "IMG" },
-      { source: "free-component", name: "Free component", tag: "BUTTON" },
-    ];
-    for (const cell of cells) {
-      await test.step(cell.name, async () => {
-        const design = await createDesign(request);
-        try {
-          await gotoEditor(page, design.id);
-          const result = await dragHeld(
-            page,
-            design.primaryId,
-            cell.source,
-            "mixed-target",
-          );
-          expect(result.during.display).toBe("block");
-          await expect
-            .poll(() => parentId(page, design.primaryId, cell.source))
-            .toBe("mixed-target");
-          const details = await designFrame(page, design.primaryId)
-            .locator(`[data-agent-native-node-id="${cell.source}"]`)
-            .evaluate((node) => ({
-              tag: node.tagName,
-              position: getComputedStyle(node).position,
-              component: node.getAttribute("data-agent-native-component"),
-              image:
-                node instanceof HTMLImageElement
-                  ? {
-                      complete: node.complete,
-                      naturalWidth: node.naturalWidth,
-                      naturalHeight: node.naturalHeight,
-                    }
-                  : null,
-            }));
-          expect(details.tag).toBe(cell.tag);
-          expect(details.position).not.toBe("absolute");
-          if (cell.source === "free-component")
-            expect(details.component).toBe("Card");
-          if (cell.source === "free-image")
-            expect(details.image).toEqual({
-              complete: true,
-              naturalWidth: 80,
-              naturalHeight: 48,
-            });
-          await settleReload(page, design.primaryId);
-          await expect
-            .poll(() => parentId(page, design.primaryId, cell.source))
-            .toBe("mixed-target");
-        } finally {
-          await deleteDesign(request, design.id);
-        }
-      });
-    }
+    await assertFlowInsertCell(page, request, {
+      source: "free-text",
+      tag: "P",
+    });
+  });
+
+  test("free shape children flow-insert into the same container", async ({
+    page,
+    request,
+  }) => {
+    await assertFlowInsertCell(page, request, {
+      source: "free-shape",
+      tag: "DIV",
+    });
+  });
+
+  test("free image children flow-insert into the same container", async ({
+    page,
+    request,
+  }) => {
+    await assertFlowInsertCell(page, request, {
+      source: "free-image",
+      tag: "IMG",
+    });
+  });
+
+  test("free component children flow-insert into the same container", async ({
+    page,
+    request,
+  }) => {
+    await assertFlowInsertCell(page, request, {
+      source: "free-component",
+      tag: "BUTTON",
+    });
   });
 
   test("cross-container flow preview keeps the source in the held Layers tree", async ({
@@ -2167,218 +2198,216 @@ test.describe("auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("SCREEN-ROOT horizontal, vertical, wrap, and grid cells keep sampled held state", async ({
-    page,
-    request,
-  }) => {
-    test.setTimeout(150_000);
-    const cells: Array<{
-      fixture: RootFixture;
-      source: string;
-      target: string;
-      axis: "horizontal" | "vertical";
-      expected: string[];
-      expectsSiblingReflow: boolean;
-    }> = [
-      {
-        fixture: "horizontal",
-        source: "root-c",
-        target: "root-a",
-        axis: "horizontal",
-        expected: ["root-c", "root-a", "root-b"],
-        expectsSiblingReflow: true,
-      },
-      {
-        fixture: "vertical",
-        source: "root-c",
-        target: "root-a",
-        axis: "vertical",
-        expected: ["root-c", "root-a", "root-b"],
-        expectsSiblingReflow: true,
-      },
-      {
-        fixture: "wrap",
-        source: "root-d",
-        target: "root-a",
-        axis: "horizontal",
-        expected: ["root-d", "root-a", "root-b", "root-c"],
-        expectsSiblingReflow: false,
-      },
-      {
-        fixture: "grid-explicit",
-        source: "root-c",
-        target: "root-a",
-        axis: "horizontal",
-        expected: ["root-c", "root-a", "root-b"],
-        expectsSiblingReflow: false,
-      },
-      {
-        fixture: "grid-implicit",
-        source: "root-e",
-        target: "root-b",
-        axis: "horizontal",
-        expected: ["root-a", "root-e", "root-b", "root-c", "root-d"],
-        expectsSiblingReflow: false,
-      },
-    ];
+  const screenRootCells: Array<{
+    fixture: RootFixture;
+    source: string;
+    target: string;
+    axis: "horizontal" | "vertical";
+    expected: string[];
+    expectsSiblingReflow: boolean;
+  }> = [
+    {
+      fixture: "horizontal",
+      source: "root-c",
+      target: "root-a",
+      axis: "horizontal",
+      expected: ["root-c", "root-a", "root-b"],
+      expectsSiblingReflow: true,
+    },
+    {
+      fixture: "vertical",
+      source: "root-c",
+      target: "root-a",
+      axis: "vertical",
+      expected: ["root-c", "root-a", "root-b"],
+      expectsSiblingReflow: true,
+    },
+    {
+      fixture: "wrap",
+      source: "root-d",
+      target: "root-a",
+      axis: "horizontal",
+      expected: ["root-d", "root-a", "root-b", "root-c"],
+      expectsSiblingReflow: false,
+    },
+    {
+      fixture: "grid-explicit",
+      source: "root-c",
+      target: "root-a",
+      axis: "horizontal",
+      expected: ["root-c", "root-a", "root-b"],
+      expectsSiblingReflow: false,
+    },
+    {
+      fixture: "grid-implicit",
+      source: "root-e",
+      target: "root-b",
+      axis: "horizontal",
+      expected: ["root-a", "root-e", "root-b", "root-c", "root-d"],
+      expectsSiblingReflow: false,
+    },
+  ];
 
-    for (const cell of cells) {
-      await test.step(`SCREEN-ROOT/${cell.fixture}`, async () => {
-        const design = await createDesign(request, {
-          primaryHtml: ROOT_SCREEN_FIXTURES[cell.fixture],
-        });
-        try {
-          await gotoEditor(page, design.id);
-          const evidence = await dragHeldAndSampleState(
-            page,
-            request,
-            design.id,
-            design.primaryId,
-            cell.source,
-            cell.target,
-            "leading",
-            cell.axis,
-          );
-          const belowThreshold = evidence.snapshots.find(
-            (snapshot) => snapshot.stage === "below-threshold",
-          );
-          const lifted = evidence.snapshots.find(
-            (snapshot) => snapshot.source?.lifted,
-          );
-          const targetSnapshots = evidence.snapshots.filter((snapshot) =>
-            snapshot.stage.startsWith("target-"),
-          );
-          expect(belowThreshold?.source?.lifted).toBe(false);
-          expect(lifted?.source?.lifted).toBe(true);
-          expect(lifted?.source?.zIndex).toBe("2147483646");
-          expect(lifted?.source?.pointerEvents).toBe("none");
-          expect(targetSnapshots.length).toBe(cell.fixture === "wrap" ? 11 : 8);
-          const targetGuideSamples = targetSnapshots.filter(
-            (snapshot) =>
-              snapshot.guide?.display === "block" &&
-              (snapshot.guide.overlapsTarget ||
-                cell.fixture === "wrap" ||
-                cell.fixture.startsWith("grid-")),
-          );
-          expect(targetGuideSamples.length).toBeGreaterThan(0);
-          if (cell.fixture === "wrap") {
-            expect(
-              targetSnapshots.map((snapshot) =>
-                snapshot.children.map((child) => child.id).join(","),
-              ),
-            ).toContain(cell.expected.join(","));
-            const expectedOrder = cell.expected.join(",");
-            const firstExpected = targetSnapshots.findIndex(
-              (snapshot) =>
-                snapshot.children.map((child) => child.id).join(",") ===
-                expectedOrder,
-            );
-            expect(firstExpected).toBeGreaterThanOrEqual(0);
-            expect(
-              targetSnapshots
-                .slice(firstExpected)
-                .every(
-                  (snapshot) =>
-                    snapshot.children.map((child) => child.id).join(",") ===
-                    expectedOrder,
-                ),
-            ).toBe(true);
-            expect(
-              targetSnapshots
-                .slice(-3)
-                .every((snapshot) => snapshot.guide?.display === "block"),
-            ).toBe(true);
-            expect(
-              targetSnapshots.some((snapshot) =>
-                childMoved(evidence.before, snapshot.children, cell.source),
-              ),
-            ).toBe(true);
-            const beforeById = new Map(
-              evidence.before.map((child) => [child.id, child]),
-            );
-            const firstRowTop = beforeById.get("root-a")?.top ?? 0;
-            const wrappedRowTop =
-              firstRowTop +
-              Math.max(
-                beforeById.get("root-a")?.height ?? 0,
-                beforeById.get("root-d")?.height ?? 0,
-              ) +
-              16;
-            const expectedWrapGeometry = {
-              "root-a": {
-                left: beforeById.get("root-b")?.left ?? 0,
-                top: firstRowTop,
-              },
-              "root-b": {
-                left: beforeById.get("root-a")?.left ?? 0,
-                top: wrappedRowTop,
-              },
-              "root-c": {
-                left: beforeById.get("root-b")?.left ?? 0,
-                top: wrappedRowTop,
-              },
-            };
-            expect(
-              targetSnapshots.some((snapshot) =>
-                Object.entries(expectedWrapGeometry).every(([id, expected]) => {
-                  const actual = snapshot.children.find(
-                    (child) => child.id === id,
-                  );
-                  return Boolean(
-                    actual &&
-                    expected &&
-                    Math.abs(actual.left - expected.left) < 1 &&
-                    Math.abs(actual.top - expected.top) < 1,
-                  );
-                }),
-              ),
-            ).toBe(true);
-            expect(
-              targetSnapshots.some(
-                (snapshot) =>
-                  snapshot.guide?.display === "block" &&
-                  snapshot.guide.height > snapshot.guide.width,
-              ),
-            ).toBe(true);
-          }
-          if (cell.expectsSiblingReflow) {
-            expect(
-              targetSnapshots.some((snapshot) =>
-                childMoved(evidence.before, snapshot.children, cell.source),
-              ),
-            ).toBe(true);
-          }
-          expect(evidence.beforeReleaseHtml).toBe(evidence.initialHtml);
-          expect(evidence.after.source?.lifted).toBe(false);
-          expect(evidence.after.source?.zIndex).not.toBe("2147483646");
-          await expect
-            .poll(() => rootChildIds(page, design.primaryId))
-            .toEqual(cell.expected);
-          const droppedGeometry = await rootChildren(page, design.primaryId);
-          await settleReload(page, design.primaryId);
-          await expect
-            .poll(() => rootChildIds(page, design.primaryId))
-            .toEqual(cell.expected);
-          const reloadedGeometry = await rootChildren(page, design.primaryId);
-          expect(reloadedGeometry).toHaveLength(droppedGeometry.length);
-          for (const [index, child] of droppedGeometry.entries()) {
-            expect(reloadedGeometry[index]).toMatchObject({
-              id: child.id,
-              width: child.width,
-              height: child.height,
-              transform: child.transform,
-            });
-            expect(reloadedGeometry[index]?.left).toBeCloseTo(child.left, 0);
-            expect(reloadedGeometry[index]?.top).toBeCloseTo(child.top, 0);
-          }
-          const html = await fileHtml(request, design.id, design.primaryId);
-          expect(html).toContain(`data-agent-native-node-id="${cell.source}"`);
-        } finally {
-          await deleteDesign(request, design.id);
-        }
+  for (const cell of screenRootCells) {
+    test(`SCREEN-ROOT ${cell.fixture} keeps sampled held state`, async ({
+      page,
+      request,
+    }) => {
+      test.setTimeout(150_000);
+      const design = await createDesign(request, {
+        primaryHtml: ROOT_SCREEN_FIXTURES[cell.fixture],
       });
-    }
-  });
+      try {
+        await gotoEditor(page, design.id);
+        const evidence = await dragHeldAndSampleState(
+          page,
+          request,
+          design.id,
+          design.primaryId,
+          cell.source,
+          cell.target,
+          "leading",
+          cell.axis,
+        );
+        const belowThreshold = evidence.snapshots.find(
+          (snapshot) => snapshot.stage === "below-threshold",
+        );
+        const lifted = evidence.snapshots.find(
+          (snapshot) => snapshot.source?.lifted,
+        );
+        const targetSnapshots = evidence.snapshots.filter((snapshot) =>
+          snapshot.stage.startsWith("target-"),
+        );
+        expect(belowThreshold?.source?.lifted).toBe(false);
+        expect(lifted?.source?.lifted).toBe(true);
+        expect(lifted?.source?.zIndex).toBe("2147483646");
+        expect(lifted?.source?.pointerEvents).toBe("none");
+        expect(targetSnapshots.length).toBe(cell.fixture === "wrap" ? 11 : 8);
+        const targetGuideSamples = targetSnapshots.filter(
+          (snapshot) =>
+            snapshot.guide?.display === "block" &&
+            (snapshot.guide.overlapsTarget ||
+              cell.fixture === "wrap" ||
+              cell.fixture.startsWith("grid-")),
+        );
+        expect(targetGuideSamples.length).toBeGreaterThan(0);
+        if (cell.fixture === "wrap") {
+          expect(
+            targetSnapshots.map((snapshot) =>
+              snapshot.children.map((child) => child.id).join(","),
+            ),
+          ).toContain(cell.expected.join(","));
+          const expectedOrder = cell.expected.join(",");
+          const firstExpected = targetSnapshots.findIndex(
+            (snapshot) =>
+              snapshot.children.map((child) => child.id).join(",") ===
+              expectedOrder,
+          );
+          expect(firstExpected).toBeGreaterThanOrEqual(0);
+          expect(
+            targetSnapshots
+              .slice(firstExpected)
+              .every(
+                (snapshot) =>
+                  snapshot.children.map((child) => child.id).join(",") ===
+                  expectedOrder,
+              ),
+          ).toBe(true);
+          expect(
+            targetSnapshots
+              .slice(-3)
+              .every((snapshot) => snapshot.guide?.display === "block"),
+          ).toBe(true);
+          expect(
+            targetSnapshots.some((snapshot) =>
+              childMoved(evidence.before, snapshot.children, cell.source),
+            ),
+          ).toBe(true);
+          const beforeById = new Map(
+            evidence.before.map((child) => [child.id, child]),
+          );
+          const firstRowTop = beforeById.get("root-a")?.top ?? 0;
+          const wrappedRowTop =
+            firstRowTop +
+            Math.max(
+              beforeById.get("root-a")?.height ?? 0,
+              beforeById.get("root-d")?.height ?? 0,
+            ) +
+            16;
+          const expectedWrapGeometry = {
+            "root-a": {
+              left: beforeById.get("root-b")?.left ?? 0,
+              top: firstRowTop,
+            },
+            "root-b": {
+              left: beforeById.get("root-a")?.left ?? 0,
+              top: wrappedRowTop,
+            },
+            "root-c": {
+              left: beforeById.get("root-b")?.left ?? 0,
+              top: wrappedRowTop,
+            },
+          };
+          expect(
+            targetSnapshots.some((snapshot) =>
+              Object.entries(expectedWrapGeometry).every(([id, expected]) => {
+                const actual = snapshot.children.find(
+                  (child) => child.id === id,
+                );
+                return Boolean(
+                  actual &&
+                  expected &&
+                  Math.abs(actual.left - expected.left) < 1 &&
+                  Math.abs(actual.top - expected.top) < 1,
+                );
+              }),
+            ),
+          ).toBe(true);
+          expect(
+            targetSnapshots.some(
+              (snapshot) =>
+                snapshot.guide?.display === "block" &&
+                snapshot.guide.height > snapshot.guide.width,
+            ),
+          ).toBe(true);
+        }
+        if (cell.expectsSiblingReflow) {
+          expect(
+            targetSnapshots.some((snapshot) =>
+              childMoved(evidence.before, snapshot.children, cell.source),
+            ),
+          ).toBe(true);
+        }
+        expect(evidence.beforeReleaseHtml).toBe(evidence.initialHtml);
+        expect(evidence.after.source?.lifted).toBe(false);
+        expect(evidence.after.source?.zIndex).not.toBe("2147483646");
+        await expect
+          .poll(() => rootChildIds(page, design.primaryId))
+          .toEqual(cell.expected);
+        const droppedGeometry = await rootChildren(page, design.primaryId);
+        await settleReload(page, design.primaryId);
+        await expect
+          .poll(() => rootChildIds(page, design.primaryId))
+          .toEqual(cell.expected);
+        const reloadedGeometry = await rootChildren(page, design.primaryId);
+        expect(reloadedGeometry).toHaveLength(droppedGeometry.length);
+        for (const [index, child] of droppedGeometry.entries()) {
+          expect(reloadedGeometry[index]).toMatchObject({
+            id: child.id,
+            width: child.width,
+            height: child.height,
+            transform: child.transform,
+          });
+          expect(reloadedGeometry[index]?.left).toBeCloseTo(child.left, 0);
+          expect(reloadedGeometry[index]?.top).toBeCloseTo(child.top, 0);
+        }
+        const html = await fileHtml(request, design.id, design.primaryId);
+        expect(html).toContain(`data-agent-native-node-id="${cell.source}"`);
+      } finally {
+        await deleteDesign(request, design.id);
+      }
+    });
+  }
 
   test("authored grid column flow with repeat/minmax keeps held guide and persists insertion", async ({
     page,
@@ -3240,11 +3269,27 @@ test.describe("auto-layout drag/drop matrix", () => {
     const design = await createDesign(request, {
       primaryHtml: MATRIX_HTML,
     });
+    const screenLocalGeometry = () =>
+      designFrame(page, design.primaryId)
+        .locator('[data-agent-native-node-id="free-shape"]')
+        .evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: style.left,
+            top: style.top,
+          };
+        });
     try {
       await gotoEditor(page, design.id);
       await page.keyboard.press("Shift+1");
       const source = await boxFor(page, design.primaryId, "free-shape");
       const before = { ...source };
+      const localBefore = await screenLocalGeometry();
       const orderBefore = (await rootChildren(page, design.primaryId)).map(
         (child) => child.id,
       );
@@ -3287,10 +3332,23 @@ test.describe("auto-layout drag/drop matrix", () => {
       }
       const dropped = await boxFor(page, design.primaryId, "free-shape");
       expect([dropped.x, dropped.y]).not.toEqual([before.x, before.y]);
+      await expect
+        .poll(async () => {
+          const geometry = await screenLocalGeometry();
+          return [geometry.x, geometry.y];
+        })
+        .not.toEqual([localBefore.x, localBefore.y]);
+      const localDropped = await screenLocalGeometry();
+      expect(localDropped.width).toBeCloseTo(localBefore.width, 0);
+      expect(localDropped.height).toBeCloseTo(localBefore.height, 0);
       await settleReload(page, design.primaryId);
-      const reloaded = await boxFor(page, design.primaryId, "free-shape");
-      expect(reloaded.x).toBeCloseTo(dropped.x, 0);
-      expect(reloaded.y).toBeCloseTo(dropped.y, 0);
+      const localReloaded = await screenLocalGeometry();
+      expect(localReloaded.x).toBeCloseTo(localDropped.x, 0);
+      expect(localReloaded.y).toBeCloseTo(localDropped.y, 0);
+      expect(localReloaded.width).toBeCloseTo(localDropped.width, 0);
+      expect(localReloaded.height).toBeCloseTo(localDropped.height, 0);
+      expect(localReloaded.left).toBe(localDropped.left);
+      expect(localReloaded.top).toBe(localDropped.top);
       await expect
         .poll(async () =>
           (await rootChildren(page, design.primaryId)).map((child) => child.id),
@@ -3308,6 +3366,21 @@ test.describe("auto-layout drag/drop matrix", () => {
     const design = await createDesign(request, {
       primaryHtml: FLOW_CHILD_FREE_CANVAS_HTML,
     });
+    const screenLocalGeometry = () =>
+      designFrame(page, design.primaryId)
+        .locator('[data-agent-native-node-id="flow-child"]')
+        .evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: style.left,
+            top: style.top,
+          };
+        });
     try {
       await gotoEditor(page, design.id);
       await selectLayer(page, "Flow child");
@@ -3450,6 +3523,7 @@ test.describe("auto-layout drag/drop matrix", () => {
             .evaluate((node) => getComputedStyle(node).position),
         )
         .toBe("absolute");
+      const droppedLocal = await screenLocalGeometry();
       const droppedHtml = await fileHtml(request, design.id, design.primaryId);
       const originEnd = droppedHtml.indexOf("</section>");
       const childIndex = droppedHtml.indexOf(
@@ -3465,9 +3539,16 @@ test.describe("auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.primaryId, "flow-peer"))
         .toBe("flow-origin");
-      const reloaded = await boxFor(page, design.primaryId, "flow-child");
-      expect(reloaded.x).toBeCloseTo(dropped.x, 0);
-      expect(reloaded.y).toBeCloseTo(dropped.y, 0);
+      const reloadedLocal = await screenLocalGeometry();
+      expect(reloadedLocal.x).toBeCloseTo(droppedLocal.x, 0);
+      expect(reloadedLocal.y).toBeCloseTo(droppedLocal.y, 0);
+      expect(reloadedLocal.width).toBeCloseTo(droppedLocal.width, 0);
+      expect(reloadedLocal.height).toBeCloseTo(droppedLocal.height, 0);
+      expect(reloadedLocal.left).toBe(droppedLocal.left);
+      expect(reloadedLocal.top).toBe(droppedLocal.top);
+      expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+        droppedHtml,
+      );
       await expect
         .poll(logicalRootOrder)
         .toEqual(["flow-origin", "flow-child"]);

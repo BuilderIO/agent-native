@@ -20,6 +20,7 @@ import type {
 import { DESIGN_FILE_STORAGE_REQUIRED_EVENT } from "@/components/design/editor/DesignBottomToolbar";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
+import { readPortableStyleSnapshot } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
   MultiScreenCanvasProps,
   Point,
@@ -48,6 +49,7 @@ import {
 } from "../code-layer-state";
 import type { CanvasLayerClipboardEntry } from "../command-types";
 import { runCopySelection } from "../commands/copy-selection";
+import { runCutSelection } from "../commands/cut-selection";
 import { runDeleteSelection } from "../commands/delete-selection";
 import { runDuplicateSelection } from "../commands/duplicate-selection";
 import { runEditorPaste } from "../commands/editor-paste";
@@ -64,6 +66,7 @@ import { runPasteSelection } from "../commands/paste-selection";
 import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
 import {
+  clientToOverviewCanvasPoint,
   runPastedImageFiles,
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
@@ -152,11 +155,13 @@ export function useEditorClipboard({
     latestClipboardMutationContentRef,
     clipboardPasteUndoStackRef,
     clipboardPasteRedoStackRef,
+    selectedLayerIdsStateRef,
+    overviewSelectedScreenIdsRef,
+    explicitOverviewScreenSelectionRef,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
     contentUndoStackRef,
-    explicitOverviewScreenSelectionRef,
     historyOrderRef,
     clearRedoStacks,
     captureCurrentSelection,
@@ -313,6 +318,31 @@ export function useEditorClipboard({
     ],
   );
 
+  // Cut reads this after an awaited clipboard write; the ref keeps it on the
+  // latest render instead of the closure captured when cut started.
+  const getSelectionContentKey = () => {
+    const layerSnapshots = getSelectedLayerSnapshots();
+    const screenIds =
+      layerSnapshots.length === 0 && viewModeRef.current === "overview"
+        ? overviewSelectedScreenIds
+        : [];
+    return JSON.stringify([
+      layerSnapshots.map((snapshot) => [
+        snapshot.rootNodeId,
+        snapshot.sourceFileId,
+        snapshot.html,
+      ]),
+      screenIds.map((screenId) => [
+        screenId,
+        getScreenContent(screenId),
+        liveScreenSnapshotsById[screenId]?.html,
+        runtimeLayerSnapshotsById[screenId]?.html,
+      ]),
+    ]);
+  };
+  const getSelectionContentKeyRef = useRef(getSelectionContentKey);
+  getSelectionContentKeyRef.current = getSelectionContentKey;
+
   const getCanvasClipboardEntries = useCallback(() => {
     return getDesignClipboardLayerEntries({
       copiedEntries: copiedLayerEntriesRef.current,
@@ -425,12 +455,22 @@ export function useEditorClipboard({
         overviewScreens,
         overviewSelectedScreenIds,
         pasteCascadeRef,
+        readPortableStyleSnapshot: (screenId, target) =>
+          readPortableStyleSnapshot(
+            screenId,
+            target,
+            viewModeRef.current === "overview"
+              ? activeBreakpointWidthStateRef.current
+              : undefined,
+            boardFileId,
+          ),
         runtimeLayerSnapshotsById,
         setHasCanvasClipboard,
         t,
         viewModeRef,
       }),
     [
+      boardFileId,
       canvasFrameGeometryById,
       designSourceType,
       files,
@@ -455,7 +495,9 @@ export function useEditorClipboard({
           canvasFrameGeometryById,
           createFileMutation,
           files,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           id,
+          overviewScreens,
           pasteCascadeRef,
           queryClient,
           queueFrameGeometrySave,
@@ -477,6 +519,7 @@ export function useEditorClipboard({
       createFileMutation,
       files,
       id,
+      overviewScreens,
       queryClient,
       queueFrameGeometrySave,
       t,
@@ -496,6 +539,7 @@ export function useEditorClipboard({
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          canvasFrameGeometryById,
           clearRedoStacks,
           clipboardPasteRedoStackRef,
           clipboardPasteUndoStackRef,
@@ -504,8 +548,11 @@ export function useEditorClipboard({
           getCanvasScreenClipboardEntries,
           getFreshActiveContent,
           getScreenContent,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           historyOrderRef,
           latestClipboardMutationContentRef,
+          overviewScreens,
+          overviewSelectedScreenIds,
           pasteCascadeRef,
           pasteCopiedScreens,
           pendingLocalFileContentsRef,
@@ -534,12 +581,15 @@ export function useEditorClipboard({
       boardFileId,
       canEditDesign,
       canEditLiveScreen,
+      canvasFrameGeometryById,
       getCanvasClipboardEntries,
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
       getScreenContent,
       historyOrderRef,
       files,
+      overviewScreens,
+      overviewSelectedScreenIds,
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
@@ -1124,6 +1174,10 @@ export function useEditorClipboard({
           handlePasteSelection,
           handlePastedImageFiles,
           insertDroppedImageFiles,
+          resolveBoardPoint: (client) =>
+            viewModeRef.current === "overview"
+              ? clientToOverviewCanvasPoint(canvasContainerRef.current, client)
+              : null,
         },
         point,
       ),
@@ -1399,10 +1453,25 @@ export function useEditorClipboard({
   );
 
   const handleCutSelection = useCallback(async () => {
-    const copied = await handleCopySelection();
-    if (!copied) return;
-    handleDeleteSelection();
-  }, [handleCopySelection, handleDeleteSelection]);
+    await runCutSelection({
+      copySelection: handleCopySelection,
+      deleteSelection: handleDeleteSelection,
+      getSelectedLayerIds: () => [
+        ...selectedLayerIdsStateRef.current.map((id) => `layer:${id}`),
+        ...overviewSelectedScreenIdsRef.current.map((id) => `screen:${id}`),
+        ...explicitOverviewScreenSelectionRef.current.map(
+          (id) => `explicit-screen:${id}`,
+        ),
+      ],
+      getSelectionContentKey: () => getSelectionContentKeyRef.current(),
+    });
+  }, [
+    explicitOverviewScreenSelectionRef,
+    handleCopySelection,
+    handleDeleteSelection,
+    overviewSelectedScreenIdsRef,
+    selectedLayerIdsStateRef,
+  ]);
 
   const handleZoomToSelectionFit = useCallback(() => {
     const allFrames = withMeasuredFrameHeights(

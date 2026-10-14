@@ -14,6 +14,7 @@ import {
   imageRefUrl,
   imageSizeFromUnknownBytes,
   renderHtmlTemplates,
+  type FigImportSkipCounts,
   type FigNode,
 } from "../server/lib/fig-file-to-html.js";
 import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
@@ -46,6 +47,7 @@ export interface FigFileImportResult {
     omittedImageCount: number;
     approximatedNodeCount: number;
     unresolvedImageRefCount: number;
+    skipCounts: FigImportSkipCounts;
   };
 }
 
@@ -317,6 +319,7 @@ export interface RenderedFigImport {
   imageCount: number;
   approximatedNodeCount: number;
   unresolvedImageRefCount: number;
+  skipCounts: FigImportSkipCounts;
   frames: RenderedFigImportFrame[];
   imagePlaceholderPrefix: string;
   images: Array<DecodedFigImage & { placeholder: string }>;
@@ -422,6 +425,7 @@ export function renderFigImport(
     imageCount: decoded.images.length,
     approximatedNodeCount: rendered.approximatedNodes.length,
     unresolvedImageRefCount: rendered.unresolvedImageRefs?.size ?? 0,
+    skipCounts: rendered.skipCounts,
     frames,
     imagePlaceholderPrefix,
     images: decoded.images
@@ -550,6 +554,7 @@ export async function completeFigImport(
         omittedImageCount: uploadedImages.omitted,
         approximatedNodeCount: rendered.approximatedNodeCount,
         unresolvedImageRefCount: rendered.unresolvedImageRefCount,
+        skipCounts: rendered.skipCounts,
       },
     };
   } catch (error) {
