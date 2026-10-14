@@ -1262,6 +1262,9 @@ describe("realDataFinalGuard", () => {
     "Could you check the table has 43 rows?",
     "Could you explain what the table represents?",
     "I need the table that has the current data, so I re-ran the query and it shows 43 rows.",
+    "I need the table that holds the current figures, so I re-ran the query and it shows 43 rows.",
+    "Could you show me the table?",
+    "Can you show which table this came from?",
     "I fixed both panels. Can you share anything else that's off:\n- the table shows 43 rows",
     "I need you to confirm the table is current, so I re-ran it and it shows 43 rows.",
   ])(
@@ -1284,6 +1287,35 @@ describe("realDataFinalGuard", () => {
       expect(result).toBeNull();
     },
   );
+
+  it("retries a schema ask even after a verified non-data dashboard save", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Rename the pageviews panel",
+        draftText:
+          "Renamed the panel. Could you provide the BigQuery dataset name?",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: '{"saved":true,"changed":true}',
+            receipt: {
+              changed: true,
+              verified: true,
+              summary: "Saved the dashboard.",
+              checks: [{ id: "intro", ok: true, detail: "is a section panel" }],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "Do not ask the user for warehouse schema identifiers",
+      ),
+    });
+  });
 
   it("keeps the draft once the schema-request retries are spent", () => {
     const draftText =
@@ -1330,6 +1362,7 @@ describe("realDataFinalGuard", () => {
     "I need table names before I can continue.",
     "Could you let me know which table holds monthly usage?",
     "Could you clarify which table holds monthly usage?",
+    "Could you show me the table name?",
     "Could you check which table holds monthly usage?",
     "Could you confirm which table holds monthly usage?",
     "Could you verify the dataset name?",

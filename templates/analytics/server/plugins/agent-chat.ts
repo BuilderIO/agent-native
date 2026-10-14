@@ -343,7 +343,7 @@ const SCHEMA_DETAILS_IMPERATIVE =
 // identifier ("could you confirm which table holds usage" is an ask; "confirm
 // the table has 43 rows" is not).
 const SCHEMA_DETAILS_FEEDBACK_VERB =
-  "(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|explain|describe|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
+  "(?!(?:\\s+please)?\\s+(?:(?:(?:double-)?confirm|verify|check|see|look)(?!\\s+(?:which|what)\\b|\\s+the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|(?:show|display|pull up|open|bring up)(?!\\s+(?:me\\s+)?the\\s+(?:bigquery\\s+)?(?:dataset|table|column|field)s?\\s+(?:names?|identifiers?|details)\\b)|explain|describe|summari[sz]e|walk me through|share anything|let me know (?:if|whether|what else|anything)|tell me (?:if|whether|what else|anything|how|why))\\b)";
 const SCHEMA_DETAILS_FEEDBACK =
   "(?! (?:if|whether|what else|anything|how|why)\\b)";
 const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}|do you know|please\\s+(?:provide|share(?! anything)|send|tell me${SCHEMA_DETAILS_FEEDBACK})|tell me${SCHEMA_DETAILS_FEEDBACK}|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
@@ -351,7 +351,7 @@ const SCHEMA_DETAILS_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DE
 // off:" followed by a summary bullet that mentions a table is feedback.
 const SCHEMA_DETAILS_LIST_ASK = `(?:\\b(?:(?:could|can|would) you(?! like)${SCHEMA_DETAILS_FEEDBACK_VERB}(?: please)? (?:provide|share|send|give|specify|list)|please\\s+(?:provide|share(?! anything)|send)|i need you to${SCHEMA_DETAILS_FEEDBACK_VERB})\\b|${SCHEMA_DETAILS_IMPERATIVE})`;
 const SCHEMA_DETAILS_REQUEST_PATTERN = new RegExp(
-  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
+  `${SCHEMA_DETAILS_ASK}[^.?!:,\\n]{0,200}${SCHEMA_DETAILS_NOUN}|\\bi need (?:to know )?(?:(?:the|an?|your) (?:schema|sql query)\\b|(?:(?:the|an?|your) )?(?:bigquery )?(?:dataset|table|column|field)s? (?:names?|identifiers?|details)\\b|(?:the|an?|your) (?:bigquery )?(?:dataset|table|column|field)s? (?:that|which) (?:holds?|contains?|stores?|tracks?|records?)\\b(?![^.?!\\n]*\\bso\\s+i\\b)|(?:the|an?|your) (?:names?|identifiers?) (?:of|for) (?:the|your|this) (?:bigquery )?(?:dataset|table|column|field)\\b|(?<=to know )(?:which|what)\\b[^.?!\\n]{0,120}${SCHEMA_DETAILS_NOUN})`,
   "i",
 );
 const SCHEMA_DETAILS_LIST_REQUEST_PATTERN = new RegExp(
@@ -1194,6 +1194,28 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
+  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  // The detector is a heuristic over prose. Once its retries are spent the
+  // schema ask is let through (a real ask lets the user answer it, and a false
+  // match keeps a correct answer instead of replacing it with a canned
+  // failure) and the remaining guards below still judge the draft. It runs
+  // before the saved-edit early returns: a verified rename followed by "which
+  // dataset?" is still a request for an identifier.
+  if (
+    context.retryCount < SCHEMA_DETAILS_MAX_RETRIES &&
+    looksLikeSchemaDetailsRequest(context.text)
+  ) {
+    const failedQueryRecovery = failedQueryMessage
+      ? ` ${failedQueryMessage}`
+      : "";
+    return {
+      retryMessage:
+        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
+        failedQueryRecovery,
+      maxRetries: SCHEMA_DETAILS_MAX_RETRIES,
+      expandToolSurface: true,
+    };
+  }
   if (
     hasSuccessfulDashboardSave(context.toolResults) &&
     !draftClaimsAnalyticsMetrics(context.text)
@@ -1220,26 +1242,6 @@ export function realDataFinalGuard(
     };
   }
 
-  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
-  // The detector is a heuristic over prose. Once its retries are spent the
-  // schema ask is let through (a real ask lets the user answer it, and a false
-  // match keeps a correct answer instead of replacing it with a canned
-  // failure) and the remaining guards below still judge the draft.
-  if (
-    context.retryCount < SCHEMA_DETAILS_MAX_RETRIES &&
-    looksLikeSchemaDetailsRequest(context.text)
-  ) {
-    const failedQueryRecovery = failedQueryMessage
-      ? ` ${failedQueryMessage}`
-      : "";
-    return {
-      retryMessage:
-        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
-        failedQueryRecovery,
-      maxRetries: SCHEMA_DETAILS_MAX_RETRIES,
-      expandToolSurface: true,
-    };
-  }
   // A verified dashboard save that rendered a data panel ran its SQL, so its
   // receipt is the live-query evidence for the figures the draft quotes. A
   // save that checked no panel (`noRenderAffected`) or only section and
