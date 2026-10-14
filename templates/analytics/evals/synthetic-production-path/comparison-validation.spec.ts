@@ -66,12 +66,18 @@ const V18_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V19_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v19-before-after.csv",
+    import.meta.url,
+  ),
+);
 function loadMeasuredComparisonCsv(): string {
-  return readFileSync(V18_COMPARISON_CSV, "utf8");
+  return readFileSync(V19_COMPARISON_CSV, "utf8");
 }
 
 describe("Analytics synthetic production-path comparison artifact", () => {
-  it("validates the measured v18 production-path comparison", () => {
+  it("validates the measured v19 production-path comparison", () => {
     const result = validateProductionPathComparisonCsv(
       loadMeasuredComparisonCsv(),
     );
@@ -88,7 +94,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         staleIndexMarked: 4,
         revision: "4715962a57720a2ff5881cb8eea39c1535518cf8",
         codeRevision:
-          "sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a",
+          "sha256:b8e72b194334b790ed13fefe85b4e18eb6e717176c7b337cf7f8c0e5317b7f27",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
@@ -99,14 +105,36 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 0,
         abortedRuns: 0,
         staleIndexMarked: 4,
-        revision: "1e9eb1188e5250d594d43c0a37b0eef7f177fe60",
+        revision: "051ebf123c26257be2058efbfb13468c9226d37a",
         codeRevision:
-          "sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912",
+          "sha256:5e69fc9b513d54f13fbd789d1f21863b2122e7d4a0669d79feaaac20d4940809",
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
+  });
+
+  it("still validates the preserved v18 comparison", () => {
+    const result = validateProductionPathComparisonCsv(
+      readFileSync(V18_COMPARISON_CSV, "utf8"),
+    );
+
+    expect(result).toMatchObject({
+      cases: 24,
+      before: {
+        rows: 48,
+        top1: 44,
+        hitAt5: 46,
+        revision: "4715962a57720a2ff5881cb8eea39c1535518cf8",
+      },
+      after: {
+        rows: 48,
+        top1: 48,
+        hitAt5: 48,
+        revision: "1e9eb1188e5250d594d43c0a37b0eef7f177fe60",
+      },
+    });
   });
 
   it("still validates the preserved v17 comparison", () => {

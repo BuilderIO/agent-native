@@ -24,16 +24,16 @@ runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
 both meet that completion threshold.
 
-## Latest measured v18 comparison
+## Latest measured v19 comparison
 
-The v18 artifact evaluates twenty-four synthetic retrieval cases twice per
+The v19 artifact evaluates twenty-four synthetic retrieval cases twice per
 phase through the Analytics production agent loop. Its baseline is
 `origin/main` at `4715962a57720a2ff5881cb8eea39c1535518cf8`; its candidate source
-snapshot is `1e9eb1188e5250d594d43c0a37b0eef7f177fe60`. Both phases use the same
+snapshot is `051ebf123c26257be2058efbfb13468c9226d37a`. Both phases use the same
 synthetic prompts, expected source IDs, and metadata fixtures.
 
 Top-1 retrieval rose from 44/48 (91.7%) to 48/48 (100%). Hit@5 rose from 46/48
-(95.8%) to 48/48 (100%). The four baseline misses were two aliased-membership
+(95.8%) to 48/48 (100%). The baseline misses were two aliased-membership
 lookups and two runs where an approved stale generated entry ranked above the
 current roster. The candidate ranked the expected source first in all
 twenty-four cases. All 96 runs completed the production path without aborts;
@@ -41,11 +41,11 @@ each made one `find-data` call and no other or failed action. The stale-index
 marker appears in four rows in each phase.
 
 Evaluated-code hashes are
-`sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a`
+`sha256:b8e72b194334b790ed13fefe85b4e18eb6e717176c7b337cf7f8c0e5317b7f27`
 before and
-`sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912`
+`sha256:5e69fc9b513d54f13fbd789d1f21863b2122e7d4a0669d79feaaac20d4940809`
 after. Both phases used the same harness bytes,
-`sha256:16f2826b2bf9e6ebe9ab5c5311ba8b8773bba2867594ba9bcbfdc3b54ae73108`.
+`sha256:1fd351074f83d99df7dbb0e9b67270bd1945f0c293f7db70e36cae8e77268e46`.
 The validator pins the source revisions and hashes, case IDs, and harness
 hash, and checks paired runs, the safe CSV schema, production-path completion,
 and stale-index markers.
@@ -56,6 +56,20 @@ latencies are not production latency measurements. It measures retrieval over
 fixture-backed catalog data, not answer quality on real user chats. The CSV
 contains no prompts, tool inputs, SQL, identities, or source values. The
 artifact is
+[`SYNTHETIC-analytics-production-path-v19-before-after.csv`](./SYNTHETIC-analytics-production-path-v19-before-after.csv).
+
+## Historical measured v18 comparison (superseded)
+
+The v18 artifact has the same case set and completion results, measured on an
+earlier candidate snapshot `1e9eb1188e5250d594d43c0a37b0eef7f177fe60`. It is
+retained for historical comparison; v19 is the current measurement. Its
+evaluated-code hashes were
+`sha256:14d8e0b6b7400765132207c578c268605e30183307067481a91a075e7d46de5a`
+before and
+`sha256:f22d56316f7e06cba5aa5824bcc27e75c885f1f715f21a5786891bb025a5c912`
+after, with harness hash
+`sha256:16f2826b2bf9e6ebe9ab5c5311ba8b8773bba2867594ba9bcbfdc3b54ae73108`.
+The artifact is
 [`SYNTHETIC-analytics-production-path-v18-before-after.csv`](./SYNTHETIC-analytics-production-path-v18-before-after.csv).
 
 ## Historical measured v17 comparison (superseded)
