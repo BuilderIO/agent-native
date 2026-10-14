@@ -6,7 +6,7 @@ const insert = vi.hoisted(() => vi.fn());
 const getDb = vi.hoisted(() => vi.fn());
 const select = vi.hoisted(() => vi.fn());
 const hasCredential = vi.hoisted(() => vi.fn());
-const resolveAnalyticsProviderCredential = vi.hoisted(() => vi.fn());
+const resolveBigQueryOAuthCredential = vi.hoisted(() => vi.fn());
 const getBackend = vi.hoisted(() => vi.fn());
 const getBigQueryMetrics = vi.hoisted(() => vi.fn());
 const getDeliveryHealth = vi.hoisted(() => vi.fn());
@@ -21,7 +21,7 @@ vi.mock("./credentials.js", () => ({
   hasCredential,
 }));
 vi.mock("./provider-credentials.js", () => ({
-  resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential,
 }));
 vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: getBackend,
@@ -49,7 +49,7 @@ beforeEach(() => {
   getDb.mockReset();
   select.mockReset();
   hasCredential.mockReset();
-  resolveAnalyticsProviderCredential.mockReset();
+  resolveBigQueryOAuthCredential.mockReset();
   getBackend.mockReset();
   getBigQueryMetrics.mockReset();
   getDeliveryHealth.mockReset();
@@ -63,7 +63,7 @@ beforeEach(() => {
   });
   getDb.mockReturnValue({ insert, select });
   hasCredential.mockResolvedValue(true);
-  resolveAnalyticsProviderCredential.mockResolvedValue(null);
+  resolveBigQueryOAuthCredential.mockResolvedValue(null);
   getBackend.mockResolvedValue({
     sink: "bigquery",
     table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
@@ -185,7 +185,7 @@ describe("first-party analytics pressure", () => {
     hasCredential.mockImplementation(
       async (key: string) => key === "BIGQUERY_PROJECT_ID",
     );
-    resolveAnalyticsProviderCredential.mockResolvedValue({
+    resolveBigQueryOAuthCredential.mockResolvedValue({
       value: "google-oauth-token",
     });
 
@@ -200,7 +200,7 @@ describe("first-party analytics pressure", () => {
 
   it("does not report BigQuery ready when the selected OAuth grant fails", async () => {
     hasCredential.mockResolvedValue(true);
-    resolveAnalyticsProviderCredential.mockRejectedValueOnce(
+    resolveBigQueryOAuthCredential.mockRejectedValueOnce(
       new Error("Google OAuth grant is no longer valid"),
     );
 
@@ -209,10 +209,9 @@ describe("first-party analytics pressure", () => {
       orgId: "org_builder",
     });
 
-    expect(resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
-      provider: "bigquery",
-      keys: [],
-      ctx: { userEmail: "owner@example.com", orgId: "org_builder" },
+    expect(resolveBigQueryOAuthCredential).toHaveBeenCalledWith({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
     });
     expect(health.bigQuery.configured).toBeNull();
   });
@@ -226,14 +225,10 @@ describe("first-party analytics pressure", () => {
       credentialScope: "org",
     });
 
-    expect(resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
-      provider: "bigquery",
-      keys: [],
-      ctx: {
-        userEmail: "owner@example.com",
-        orgId: "org_builder",
-        credentialScope: "org",
-      },
+    expect(resolveBigQueryOAuthCredential).toHaveBeenCalledWith({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+      credentialScope: "org",
     });
     expect(health.bigQuery.configured).toBe(true);
   });

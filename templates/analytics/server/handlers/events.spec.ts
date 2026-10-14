@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   getCredentialContextFromEvent: vi.fn(),
   readBody: vi.fn(),
   resolveCredential: vi.fn(),
-  resolveAnalyticsProviderCredential: vi.fn(),
+  resolveBigQueryOAuthCredential: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
@@ -22,7 +22,7 @@ vi.mock("../lib/credentials", () => ({
   resolveCredential: mocks.resolveCredential,
 }));
 vi.mock("../lib/provider-credentials", () => ({
-  resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential: mocks.resolveBigQueryOAuthCredential,
 }));
 vi.mock("../lib/bigquery", () => ({
   getAppEventsTable: async () => ({
@@ -50,8 +50,8 @@ describe("handleTrackEvent", () => {
     mocks.getBigQueryAccessToken.mockResolvedValue("token");
     mocks.resolveCredential.mockReset();
     mocks.resolveCredential.mockResolvedValue(undefined);
-    mocks.resolveAnalyticsProviderCredential.mockReset();
-    mocks.resolveAnalyticsProviderCredential.mockResolvedValue(null);
+    mocks.resolveBigQueryOAuthCredential.mockReset();
+    mocks.resolveBigQueryOAuthCredential.mockResolvedValue(null);
   });
 
   it("does not ship a test identity's events to the warehouse", async () => {
@@ -117,7 +117,7 @@ describe("handleTrackEvent", () => {
     await handleTrackEvent({} as any);
 
     expect(mocks.resolveCredential).toHaveBeenCalledTimes(4);
-    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(2);
   });
 
   it("reuses the resolved BigQuery OAuth grant for event inserts", async () => {
@@ -130,9 +130,7 @@ describe("handleTrackEvent", () => {
     mocks.resolveCredential.mockImplementation(async (key: string) =>
       key === "BIGQUERY_PROJECT_ID" ? "test-project" : undefined,
     );
-    mocks.resolveAnalyticsProviderCredential.mockResolvedValueOnce(
-      oauthCredential,
-    );
+    mocks.resolveBigQueryOAuthCredential.mockResolvedValueOnce(oauthCredential);
     mocks.readBody.mockResolvedValueOnce({
       event: "page_view",
       userId: "real@example.com",
@@ -149,7 +147,40 @@ describe("handleTrackEvent", () => {
         projectId: "test-project",
         oauthCredential,
       });
-      expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(1);
+      expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("accepts the event when BigQuery OAuth is unavailable but service-account auth works", async () => {
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "BIGQUERY_PROJECT_ID"
+        ? "test-project"
+        : key === "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+          ? "service-account-json"
+          : undefined,
+    );
+    mocks.resolveBigQueryOAuthCredential.mockResolvedValueOnce(null);
+    mocks.getBigQueryAccessToken.mockResolvedValueOnce("service-account-token");
+    mocks.readBody.mockResolvedValueOnce({
+      event: "page_view",
+      userId: "real@example.com",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}")),
+    );
+
+    try {
+      await expect(handleTrackEvent({} as any)).resolves.toEqual({
+        success: true,
+      });
+      expect(mocks.getBigQueryAccessToken).toHaveBeenCalledWith({
+        projectId: "test-project",
+        oauthCredential: null,
+      });
+      expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -114,6 +114,7 @@ export interface ListWorkspaceConnectionsForAppOptions {
 
 export interface ResolveWorkspaceConnectionForAppOptions extends ListWorkspaceConnectionsForAppOptions {
   connectionId?: string;
+  connectionOwnerEmail?: string;
   requireConnected?: boolean;
 }
 
@@ -1391,6 +1392,7 @@ export async function resolveWorkspaceConnectionForApp({
   provider,
   includeDisabled = false,
   connectionId,
+  connectionOwnerEmail,
   requireConnected = false,
 }: ResolveWorkspaceConnectionForAppOptions): Promise<ResolvedWorkspaceConnectionForApp> {
   const normalizedAppId = normalizeRequiredString(
@@ -1407,18 +1409,28 @@ export async function resolveWorkspaceConnectionForApp({
     requestedConnections,
     scope,
   );
+  const normalizedConnectionOwnerEmail = connectionOwnerEmail
+    ?.trim()
+    .toLowerCase();
   const candidateConnections = normalizedConnectionId
     ? userConnections.filter(
         (connection) => connection.id === normalizedConnectionId,
       )
     : userConnections;
+  const ownerFilteredConnections = normalizedConnectionOwnerEmail
+    ? candidateConnections.filter(
+        (connection) =>
+          connection.ownerEmail.trim().toLowerCase() ===
+          normalizedConnectionOwnerEmail,
+      )
+    : candidateConnections;
   const grants = await listWorkspaceConnectionGrants({
     provider,
     appId: normalizedAppId,
     connectionId: normalizedConnectionId,
   });
 
-  if (normalizedConnectionId && candidateConnections.length === 0) {
+  if (normalizedConnectionId && ownerFilteredConnections.length === 0) {
     return {
       available: false,
       connection: null,
@@ -1427,7 +1439,7 @@ export async function resolveWorkspaceConnectionForApp({
     };
   }
 
-  for (const connection of candidateConnections) {
+  for (const connection of ownerFilteredConnections) {
     const connectionWithAccess = connectionForApp(
       connection,
       normalizedAppId,

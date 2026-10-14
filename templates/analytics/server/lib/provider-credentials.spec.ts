@@ -1,3 +1,4 @@
+import { AgentConnectionRequiredError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -62,6 +63,7 @@ import {
   HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
   resolveAnalyticsGongCredentials,
   resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential,
   resolveWorkspaceConnectionProviderCredential,
 } from "./provider-credentials.js";
 
@@ -309,6 +311,7 @@ describe("analytics provider credentials", () => {
       connection: {
         id: "bigquery-user-connection",
         label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
         config: { credentialMode: "oauth" },
       },
       appAccess: { available: true, mode: "explicit-grant" },
@@ -343,7 +346,57 @@ describe("analytics provider credentials", () => {
         }),
       ],
     });
+    expect(mocks.workspaceConnectionCalls[0]).toMatchObject({
+      connectionOwnerEmail: "analyst@example.test",
+    });
     expect(mocks.coreResolverCalls).toEqual([]);
+  });
+
+  it("allows service-account fallback when BigQuery OAuth needs reauthorization", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthError = new AgentConnectionRequiredError(
+      "BigQuery needs to be reconnected.",
+      { provider: "bigquery", reason: "reauthorize", appId: "analytics" },
+    );
+
+    await expect(
+      resolveBigQueryOAuthCredential({
+        userEmail: "analyst@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves transient BigQuery OAuth resolution failures", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthError = new Error("OAuth refresh service unavailable");
+
+    await expect(
+      resolveBigQueryOAuthCredential({
+        userEmail: "analyst@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow("OAuth refresh service unavailable");
   });
 
   it("does not use a personal BigQuery OAuth connection for org-only credentials", async () => {

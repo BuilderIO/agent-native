@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   } as { userEmail: string; orgId: string | null; credentialScope?: "org" },
   requestContext: {} as Record<string, unknown>,
   resolveCredential: vi.fn(),
-  resolveAnalyticsProviderCredential: vi.fn(),
+  resolveBigQueryOAuthCredential: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -20,7 +22,7 @@ vi.mock("./credentials", () => ({
 }));
 
 vi.mock("./provider-credentials", () => ({
-  resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential: mocks.resolveBigQueryOAuthCredential,
 }));
 
 const { getBigQueryAccessToken } = await import("./gcloud");
@@ -34,8 +36,8 @@ describe("getBigQueryAccessToken", () => {
     mocks.requestContext = {};
     mocks.resolveCredential.mockReset();
     mocks.resolveCredential.mockResolvedValue("warehouse-project");
-    mocks.resolveAnalyticsProviderCredential.mockReset();
-    mocks.resolveAnalyticsProviderCredential.mockResolvedValue({
+    mocks.resolveBigQueryOAuthCredential.mockReset();
+    mocks.resolveBigQueryOAuthCredential.mockResolvedValue({
       value: "user-oauth-token",
       key: "BIGQUERY_ACCESS_TOKEN",
       provider: "bigquery",
@@ -48,7 +50,7 @@ describe("getBigQueryAccessToken", () => {
     await expect(getBigQueryAccessToken()).resolves.toBe("user-oauth-token");
 
     expect(mocks.resolveCredential).toHaveBeenCalledTimes(1);
-    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(1);
   });
 
   it("does not reuse a personal grant across requests", async () => {
@@ -56,7 +58,7 @@ describe("getBigQueryAccessToken", () => {
     mocks.requestContext = {};
     await getBigQueryAccessToken();
 
-    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(2);
   });
 
   it("keeps default and org grants separate within one request", async () => {
@@ -69,6 +71,43 @@ describe("getBigQueryAccessToken", () => {
     await getBigQueryAccessToken();
 
     expect(mocks.resolveCredential).toHaveBeenCalledTimes(2);
-    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveBigQueryOAuthCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the service account when personal BigQuery OAuth needs reauthorization", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const serviceAccountJson = JSON.stringify({
+      type: "service_account",
+      client_email: "analytics@example.test",
+      private_key: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    });
+    mocks.resolveBigQueryOAuthCredential.mockResolvedValue(null);
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+        ? serviceAccountJson
+        : "warehouse-project",
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "service-account-token",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await expect(getBigQueryAccessToken()).resolves.toBe(
+        "service-account-token",
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

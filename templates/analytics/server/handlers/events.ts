@@ -15,7 +15,7 @@ import {
   resolveCredential,
 } from "../lib/credentials";
 import { getBigQueryAccessToken } from "../lib/gcloud";
-import { resolveAnalyticsProviderCredential } from "../lib/provider-credentials";
+import { resolveBigQueryOAuthCredential } from "../lib/provider-credentials";
 
 // The legacy client sends `data` as a JSON string; anything unparseable is
 // stored as it came.
@@ -115,11 +115,7 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
               [
                 resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
                 resolveCredential("BIGQUERY_PROJECT_ID", ctx),
-                resolveAnalyticsProviderCredential({
-                  provider: "bigquery",
-                  keys: [],
-                  ctx,
-                }),
+                resolveBigQueryOAuthCredential(ctx),
               ],
             );
             if ((!credentials && !oauthCredential) || !projectId) return null;

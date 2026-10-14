@@ -15,7 +15,7 @@ import {
   type FirstPartyAnalyticsDeliveryHealth,
 } from "./first-party-analytics-delivery.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
-import { resolveAnalyticsProviderCredential } from "./provider-credentials.js";
+import { resolveBigQueryOAuthCredential } from "./provider-credentials.js";
 
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
   slowQueryMs: 5_000,
@@ -276,11 +276,8 @@ async function externalBackendStatus(
         hasCredential("BIGQUERY_PROJECT_ID", credentialContext),
         hasCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", credentialContext),
       ]);
-      const oauthCredential = await resolveAnalyticsProviderCredential({
-        provider: "bigquery",
-        keys: [],
-        ctx: credentialContext,
-      });
+      const oauthCredential =
+        await resolveBigQueryOAuthCredential(credentialContext);
       const hasAuth = serviceAccountConfigured || Boolean(oauthCredential);
       return {
         id: definition.id,

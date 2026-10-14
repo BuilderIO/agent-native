@@ -1479,6 +1479,51 @@ describe("workspace connection store", () => {
     expect(missing.reason).toMatch(/not found/i);
   });
 
+  it("can constrain implicit connection selection to the authenticated owner", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-alice",
+          provider: "bigquery",
+          label: "Alice Google",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-bob",
+          provider: "bigquery",
+          label: "Bob Google",
+        }),
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          connectionOwnerEmail: " ALICE@example.com ",
+          requireConnected: true,
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      connection: {
+        id: "bigquery-alice",
+        ownerEmail: "alice@example.com",
+      },
+    });
+  });
+
   it("blocks connected OAuth grants that no longer meet provider scopes", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

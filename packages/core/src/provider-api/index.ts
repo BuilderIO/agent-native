@@ -4037,8 +4037,9 @@ async function resolveAuth(
       auth.workspaceProvider &&
       !(auth.workspaceProvider === "bigquery" && ctx.credentialScope === "org")
     ) {
-      const oauthCredential =
-        await resolveOptionalConnectionBoundOAuthBearerToken({
+      let oauthCredential: ProviderApiResolvedCredential | null;
+      try {
+        oauthCredential = await resolveOptionalConnectionBoundOAuthBearerToken({
           auth: {
             type: "oauth-bearer",
             oauthProvider: auth.oauthProvider,
@@ -4051,6 +4052,17 @@ async function resolveAuth(
           connectionId: args.connectionId,
           accountId: args.accountId,
         });
+      } catch (error) {
+        if (
+          auth.workspaceProvider !== "bigquery" ||
+          !(error instanceof AgentConnectionRequiredError) ||
+          error.provider !== "bigquery" ||
+          error.reason !== "reauthorize"
+        ) {
+          throw error;
+        }
+        oauthCredential = null;
+      }
       if (oauthCredential) {
         return {
           headers: { Authorization: `Bearer ${oauthCredential.value}` },
@@ -4810,6 +4822,9 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       appId: options.runtime.appId,
       provider: options.workspaceProvider,
       connectionId: requestedConnectionId,
+      ...(options.workspaceProvider === "bigquery" && !requestedConnectionId
+        ? { connectionOwnerEmail: options.ctx.userEmail }
+        : {}),
       requireConnected: true,
     });
   } catch (error) {

@@ -1,3 +1,4 @@
+import { isAgentConnectionRequiredError } from "@agent-native/core/action";
 import {
   isProviderApiId,
   resolveProviderApiOAuthAccessToken,
@@ -192,6 +193,9 @@ async function resolveWorkspaceOAuthProviderCredential(
     appId: ANALYTICS_APP_ID,
     provider,
     connectionId: requestedConnectionId,
+    ...(provider === "bigquery" && !requestedConnectionId
+      ? { connectionOwnerEmail: options.ctx.userEmail }
+      : {}),
     requireConnected: true,
   });
   if (
@@ -317,6 +321,27 @@ export async function resolveAnalyticsProviderCredential(
   }
 
   return null;
+}
+
+export async function resolveBigQueryOAuthCredential(
+  ctx: CredentialContext,
+): Promise<AnalyticsProviderCredential | null> {
+  try {
+    return await resolveAnalyticsProviderCredential({
+      provider: "bigquery",
+      keys: [],
+      ctx,
+    });
+  } catch (error) {
+    if (
+      isAgentConnectionRequiredError(error) &&
+      error.provider === "bigquery" &&
+      error.reason === "reauthorize"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function resolveAnalyticsGongCredentials(

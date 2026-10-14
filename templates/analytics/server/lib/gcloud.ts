@@ -7,7 +7,7 @@ import {
   scopedCredentialCacheKey,
 } from "./credentials-context";
 import {
-  resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential,
   type AnalyticsProviderCredential,
 } from "./provider-credentials";
 import { signRs256Jwt } from "./sign-jwt";
@@ -348,18 +348,9 @@ export async function getBigQueryAccessToken(
                 bigQueryOAuthCredentialByRequest,
                 requestContext,
                 cacheScope,
-                () =>
-                  resolveAnalyticsProviderCredential({
-                    provider: "bigquery",
-                    keys: [],
-                    ctx,
-                  }),
+                () => resolveBigQueryOAuthCredential(ctx),
               )
-            : resolveAnalyticsProviderCredential({
-                provider: "bigquery",
-                keys: [],
-                ctx,
-              }),
+            : resolveBigQueryOAuthCredential(ctx),
           signal,
         )
       : options.oauthCredential;
