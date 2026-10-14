@@ -3007,6 +3007,83 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
   });
 
+  it.each([
+    {
+      label: "a same-run snapshot with missing sequences",
+      currentRun: { id: "run-current" },
+      staleRun: { id: "run-current" },
+      incomingRunId: "run-current",
+    },
+    {
+      label: "different runs with missing start times",
+      currentRun: { id: "run-current" },
+      staleRun: { id: "run-stale" },
+      incomingRunId: "run-stale",
+    },
+    {
+      label: "an incoming run missing from its snapshot",
+      currentRun: {
+        id: "run-current",
+        startedAt: "2026-10-13T10:02:00.000Z",
+      },
+      staleRun: undefined,
+      incomingRunId: "run-stale",
+    },
+    {
+      label: "an incoming call missing its run ID",
+      currentRun: {
+        id: "run-current",
+        startedAt: "2026-10-13T10:02:00.000Z",
+      },
+      staleRun: {
+        id: "run-stale",
+        startedAt: "2026-10-13T10:01:00.000Z",
+      },
+      incomingRunId: undefined,
+    },
+  ])("preserves a running call with $label", (options) => {
+    const current = {
+      id: "call-1",
+      name: "write",
+      input: { path: "skills/example.md" },
+      status: "running",
+      runId: "run-current",
+    };
+    const staleReplay = {
+      ...current,
+      output: "saved by incomplete replay",
+      status: "completed",
+      ...(options.incomingRunId
+        ? { runId: options.incomingRunId }
+        : { runId: undefined }),
+      metadata: { completedSideEffect: true },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          runs: [options.currentRun],
+          toolCalls: [current],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          runs: options.staleRun ? [options.staleRun] : [],
+          toolCalls: [staleReplay],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        status: "running",
+        runId: "run-current",
+      }),
+    ]);
+  });
+
   it("keeps a running tool call's assistant link when a snapshot completes it", () => {
     const merged = mergeThreadDataForClientSave(
       {

@@ -2100,7 +2100,7 @@ function prefersApprovalReplaySnapshot(
   );
 }
 
-function incomingRunIsOlderOrUnchanged(
+function incomingRunIsNotProvenNewer(
   existing: any,
   incoming: any,
   existingRuns: unknown,
@@ -2108,25 +2108,28 @@ function incomingRunIsOlderOrUnchanged(
 ): boolean {
   const existingRunId = existing?.runId;
   const incomingRunId = incoming?.runId;
-  if (typeof existingRunId !== "string" || typeof incomingRunId !== "string") {
+  if (typeof existingRunId !== "string" && typeof incomingRunId !== "string") {
     return false;
+  }
+  if (typeof existingRunId !== "string" || typeof incomingRunId !== "string") {
+    return true;
   }
   const findRun = (runs: unknown, runId: string): any =>
     Array.isArray(runs) ? runs.find((run) => run?.id === runId) : undefined;
   const existingRun = findRun(existingRuns, existingRunId);
   const incomingRun = findRun(incomingRuns, incomingRunId);
   if (existingRunId === incomingRunId) {
-    return (
+    return !(
       Number.isSafeInteger(existingRun?.lastSequence) &&
       Number.isSafeInteger(incomingRun?.lastSequence) &&
-      incomingRun.lastSequence <= existingRun.lastSequence
+      incomingRun.lastSequence > existingRun.lastSequence
     );
   }
   const existingStartedAt = Date.parse(existingRun?.startedAt ?? "");
   const incomingStartedAt = Date.parse(incomingRun?.startedAt ?? "");
   return (
-    Number.isFinite(existingStartedAt) &&
-    Number.isFinite(incomingStartedAt) &&
+    !Number.isFinite(existingStartedAt) ||
+    !Number.isFinite(incomingStartedAt) ||
     incomingStartedAt <= existingStartedAt
   );
 }
@@ -2160,7 +2163,7 @@ function preferIncomingSnapshotEntry(
     if (
       existing.status === "running" &&
       incoming.status !== "running" &&
-      incomingRunIsOlderOrUnchanged(
+      incomingRunIsNotProvenNewer(
         existing,
         incoming,
         existingRuns,
