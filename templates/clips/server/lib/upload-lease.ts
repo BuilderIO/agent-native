@@ -615,7 +615,6 @@ export async function reapExpiredUploads(
         continue;
       }
 
-      let markerValue: string;
       // A processing row with a session but no persisted URL may have completed
       // its multipart request before the process stopped. Aborting that old
       // upload ID does not prove the completed object is gone.
@@ -635,10 +634,6 @@ export async function reapExpiredUploads(
           hostedCleanupFailed += 1;
           continue;
         }
-        markerValue = await markHostedCleanupConfirmed(
-          id,
-          reapedUpload.videoUrl,
-        );
       }
 
       if (reapedUpload.status === "processing" && !reapedUpload.videoUrl) {
@@ -661,9 +656,11 @@ export async function reapExpiredUploads(
           hostedCleanupFailed += 1;
           continue;
         }
-      } else {
-        markerValue = await markHostedCleanupConfirmed(id);
       }
+      const markerValue = await markHostedCleanupConfirmed(
+        id,
+        reapedUpload.videoUrl,
+      );
 
       try {
         if (!reapedUpload?.ownerEmail) {

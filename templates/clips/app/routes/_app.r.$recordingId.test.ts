@@ -150,7 +150,7 @@ describe("direct recording route shell cue", () => {
       "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
     );
     expect(route).toContain("requestedAt: result?.requestedAt ?? null");
-    expect(route).toContain("duration: Number.POSITIVE_INFINITY");
+    expect(route).toContain("useSonnerLifecycleToast");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
       "transcriptLifecycleRecordingIdRef.current !== recording.id",

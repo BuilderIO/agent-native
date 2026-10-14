@@ -1475,6 +1475,8 @@ const messages = {
     builderGrantAskAdmin:
       "请所有者或管理员连接具有剪辑上传权限的 Builder.io 账户。",
     statusUnavailable: "无法检查视频存储是否已就绪。",
+    hostedStorageUnavailable:
+      "Clips 托管存储暂时不可用。您的免费剪辑额度不变，请稍后重试上传。",
     checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "无法确认 Builder.io 存储已就绪，请重试。",
     builderConnected: "Builder.io 已连接",

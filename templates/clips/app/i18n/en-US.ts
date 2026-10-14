@@ -1479,6 +1479,8 @@ const messages = {
     builderGrantAskAdmin:
       "Ask an owner or admin to connect Builder.io with clip upload access.",
     statusUnavailable: "Couldn't check whether video storage is ready.",
+    hostedStorageUnavailable:
+      "Clips hosted storage is temporarily unavailable. Your free clip allowance is unchanged; try the upload again later.",
     checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Couldn't confirm that Builder.io storage is ready. Try again.",

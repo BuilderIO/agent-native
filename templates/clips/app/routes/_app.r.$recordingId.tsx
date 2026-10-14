@@ -898,6 +898,13 @@ export default function RecordingPage() {
   }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   // A screenshot: an image and no video file, so no finalize step, no
   // transcript, no timeline, and nothing to download as a clip.
   const isImage = isImageRecording(recording ?? null);
@@ -954,17 +961,6 @@ export default function RecordingPage() {
       : Boolean(recording.videoUrl);
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const failureCode =
-      (recording as any).failureCode === "global_storage_cap" ||
-      (recording as any).failureCode === "taken_down"
-        ? (recording as any).failureCode
-        : null;
-    const localizedHostedFailure =
-      failureCode === "global_storage_cap"
-        ? t("clipsFinalRaw.hostedStorageFull")
-        : failureCode === "taken_down"
-          ? t("clipsFinalRaw.hostedRecordingTakenDown")
-          : null;
     const waitingForStorage = isRecordingWaitingForStorage(
       recording,
       rawFailureReason,

@@ -450,7 +450,10 @@ describe("s3FileUploadProvider", () => {
   });
 
   it("requires hosted deletes to match the recording id in the object key", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(null, { status: 204 }),
+    );
     mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
       fetchMock(url, init),
     );

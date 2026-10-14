@@ -14,6 +14,8 @@ export type VideoStorageDenyReason =
   | "exhausted"
   | "sign_in_required";
 
+export type VideoStorageProviderError = "hosted_storage_unavailable";
+
 export interface VideoStorageStatus {
   configured: boolean;
   activeProvider?: { id: string; name: string } | null;
@@ -25,6 +27,7 @@ export interface VideoStorageStatus {
   hostedLimit: number;
   maxClipBytes: number;
   maxClipDurationMs: number;
+  providerError?: VideoStorageProviderError;
   denyReason?: VideoStorageDenyReason;
 }
 
@@ -42,6 +45,9 @@ const denyReasons = new Set<VideoStorageDenyReason>([
   "disabled",
   "exhausted",
   "sign_in_required",
+]);
+const providerErrors = new Set<VideoStorageProviderError>([
+  "hosted_storage_unavailable",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -71,7 +77,9 @@ function normalizeVideoStorageStatus(value: unknown): VideoStorageStatus {
     !isNonNegativeFiniteNumber(value.maxClipBytes) ||
     !isNonNegativeFiniteNumber(value.maxClipDurationMs) ||
     (value.denyReason !== undefined &&
-      !denyReasons.has(value.denyReason as VideoStorageDenyReason))
+      !denyReasons.has(value.denyReason as VideoStorageDenyReason)) ||
+    (value.providerError !== undefined &&
+      !providerErrors.has(value.providerError as VideoStorageProviderError))
   ) {
     throw new Error("Video storage status response is invalid");
   }
@@ -100,6 +108,9 @@ function normalizeVideoStorageStatus(value: unknown): VideoStorageStatus {
     hostedLimit: hostedLimit as number,
     maxClipBytes: value.maxClipBytes,
     maxClipDurationMs: value.maxClipDurationMs,
+    ...(value.providerError
+      ? { providerError: value.providerError as VideoStorageProviderError }
+      : {}),
     ...(value.denyReason
       ? { denyReason: value.denyReason as VideoStorageDenyReason }
       : {}),

@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { captureError } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -8,6 +9,7 @@ import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
   type RecordingFailureCode,
@@ -31,6 +33,7 @@ import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  HOSTED_STORAGE_UNAVAILABLE_REASON,
   releaseHostedClipRecording,
   resolveClipsVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -39,7 +42,10 @@ import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
 
-export function classifyInitialUploadFailure(error: unknown): {
+export function classifyInitialUploadFailure(
+  error: unknown,
+  options: { storageMode?: "own" | "hosted" } = {},
+): {
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
@@ -68,6 +74,8 @@ export function classifyInitialUploadFailure(error: unknown): {
     (messageStatus ? Number(messageStatus) : undefined);
   const httpStatus =
     status && status >= 100 && status <= 599 ? status : undefined;
+  const hostedAuthFailure =
+    options.storageMode === "hosted" ? hostedStorageAuthFailure(error) : null;
   const failureStage =
     details.failureStage === "multipart_start" ||
     details.failureStage === "chunk_upload" ||
@@ -75,6 +83,15 @@ export function classifyInitialUploadFailure(error: unknown): {
       ? details.failureStage
       : "multipart_start";
   const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  if (hostedAuthFailure) {
+    return {
+      failureCode: "hosted_storage_unavailable",
+      failureStage,
+      ...(hostedAuthFailure.status
+        ? { httpStatus: hostedAuthFailure.status }
+        : {}),
+    };
+  }
   // A nested signed-URL response does not mean the account needs reauthorization.
   const storageSetupRequired =
     failureCode === "storage_setup_required" ||
@@ -280,7 +297,10 @@ export default defineAction({
       throw createError({
         statusCode: 503,
         statusMessage: reason,
-        data: { retryable: failure.failureCode !== "storage_setup_required" },
+        data: {
+          errorCode: failure.failureCode,
+          retryable: failure.failureCode !== "storage_setup_required",
+        },
       });
     };
 
@@ -352,11 +372,34 @@ export default defineAction({
               { recordingId: id },
             );
           }
+          const failure = classifyInitialUploadFailure(err, { storageMode });
+          if (failure.failureCode === "hosted_storage_unavailable") {
+            try {
+              captureError(err, {
+                route: "/_agent-native/actions/create-recording",
+                errorMessagePolicy: "omit",
+                tags: {
+                  area: "clips-storage",
+                  source: "clips-hosted-storage",
+                  storageMode: "hosted",
+                  errorCode: "hosted_storage_unavailable",
+                  reportExpected: "true",
+                  ...(failure.httpStatus
+                    ? { providerStatus: String(failure.httpStatus) }
+                    : {}),
+                },
+              });
+            } catch {
+              // Error reporting must not mask the upload failure.
+            }
+          }
           await failUploadSetup(
-            reason
-              ? `Video storage could not start an upload: ${reason}`
-              : "Video storage could not start a resumable upload session. Refresh and try again.",
-            classifyInitialUploadFailure(err),
+            failure.failureCode === "hosted_storage_unavailable"
+              ? HOSTED_STORAGE_UNAVAILABLE_REASON
+              : reason
+                ? `Video storage could not start an upload: ${reason}`
+                : "Video storage could not start a resumable upload session. Refresh and try again.",
+            failure,
             cleanupConfirmed,
           );
         }

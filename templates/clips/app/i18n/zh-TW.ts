@@ -1478,6 +1478,8 @@ const messages = {
     builderGrantAskAdmin:
       "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
     statusUnavailable: "無法檢查影片儲存是否就緒。",
+    hostedStorageUnavailable:
+      "Clips 託管儲存空間暫時無法使用。您的免費片段額度不變，請稍後再試上傳。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",

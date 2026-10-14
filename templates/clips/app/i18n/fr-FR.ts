@@ -1589,6 +1589,8 @@ const messages = {
     builderGrantAskAdmin:
       "Demandez à un propriétaire ou à un administrateur de connecter Builder.io avec l’autorisation d’envoyer des clips.",
     statusUnavailable: "Impossible de vérifier si le stockage vidéo est prêt.",
+    hostedStorageUnavailable:
+      "L’hébergement Clips est temporairement indisponible. Votre quota de clips gratuits reste inchangé ; réessayez l’envoi plus tard.",
     checkingBuilderConnection: "Vérification de la connexion à Builder…",
     builderTimeout:
       "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",

@@ -1591,6 +1591,8 @@ const messages = {
       "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
     statusUnavailable:
       "Der Status des Videospeichers konnte nicht geprüft werden.",
+    hostedStorageUnavailable:
+      "Der Clips-Hostingspeicher ist vorübergehend nicht verfügbar. Dein kostenloses Clip-Kontingent bleibt unverändert. Versuche den Upload später erneut.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",

@@ -1549,6 +1549,8 @@ const messages = {
     builderGrantAskAdmin:
       "اطلب من مالك أو مسؤول ربط Builder.io مع صلاحية رفع المقاطع.",
     statusUnavailable: "تعذر التحقق من جاهزية تخزين الفيديو.",
+    hostedStorageUnavailable:
+      "تخزين Clips المستضاف غير متاح مؤقتًا. لم يتغير رصيد المقاطع المجانية؛ حاول الرفع مرة أخرى لاحقًا.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",

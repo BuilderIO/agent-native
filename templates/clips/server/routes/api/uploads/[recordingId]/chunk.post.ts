@@ -5,6 +5,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import {
+  captureError,
   readBrowserSessionIdHeader,
   getAppConfig,
   runWithRequestContext,
@@ -12,7 +13,7 @@ import {
 import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -29,6 +30,7 @@ import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import {
+  hostedStorageAuthFailure,
   recordingTrackingSource,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
@@ -60,6 +62,7 @@ import {
 } from "../../../../lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  HOSTED_STORAGE_UNAVAILABLE_REASON,
   releaseHostedClipRecording,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -401,12 +404,15 @@ function terminalFinalizeFailureResponse(
   error: string,
   details: Record<string, unknown> = {},
 ) {
-  setResponseStatus(event, 500);
+  const hostedStorageUnavailable =
+    details.errorCode === "hosted_storage_unavailable";
+  setResponseStatus(event, hostedStorageUnavailable ? 503 : 500);
   return {
     ok: false,
     finalized: false,
     status: "failed" as const,
     error,
+    ...(hostedStorageUnavailable ? { retryable: true } : {}),
     ...details,
   };
 }
@@ -1332,13 +1338,23 @@ export async function handleRecordingChunk(
             return acceptedProcessingResponse(event, recordingId, pendingState);
           }
         }
-        const failureReason =
-          err instanceof Error ? err.message : "Finalize failed";
+        const hostedAuthFailure =
+          existing.storageMode === "hosted"
+            ? hostedStorageAuthFailure(err)
+            : null;
+        const failureCode = hostedAuthFailure
+          ? "hosted_storage_unavailable"
+          : "finalize_failed";
+        const failureReason = hostedAuthFailure
+          ? HOSTED_STORAGE_UNAVAILABLE_REASON
+          : err instanceof Error
+            ? err.message
+            : "Finalize failed";
         const failed = await db
           .update(schema.recordings)
           .set({
             status: "failed",
-            failureCode: "finalize_failed",
+            failureCode,
             failureReason,
             updatedAt: new Date().toISOString(),
           })
@@ -1387,7 +1403,7 @@ export async function handleRecordingChunk(
           userId: ownerEmail,
           uploadAttemptId: attemptId,
           platform: existing.recordingPlatform,
-          failureCode: "finalize_failed",
+          failureCode,
           browserSessionId: failureSessionId,
         });
         const repairResult = await repairUploadState({
@@ -1401,8 +1417,8 @@ export async function handleRecordingChunk(
             status: "failed",
             uploadAttemptId: attemptId,
             uploadGenerationId,
-            failureReason:
-              err instanceof Error ? err.message : "Finalize failed",
+            failureCode,
+            failureReason,
             updatedAt: new Date().toISOString(),
           },
         });
@@ -1411,17 +1427,25 @@ export async function handleRecordingChunk(
           repairResult.outcome === "contention" ||
           repairResult.outcome === "write_failed"
         ) {
-          return terminalFinalizeFailureResponse(event, failureReason);
+          return terminalFinalizeFailureResponse(event, failureReason, {
+            ...(hostedAuthFailure
+              ? { errorCode: "hosted_storage_unavailable" }
+              : {}),
+          });
         }
         const repairFailure = uploadStateRepairFailureResponse(
           event,
           repairResult,
         );
         if (repairFailure !== null) return repairFailure;
-        setResponseStatus(event, 500);
+        setResponseStatus(event, hostedAuthFailure ? 503 : 500);
         return {
           ok: false,
-          error: err instanceof Error ? err.message : "Finalize failed",
+          error: failureReason,
+          ...(hostedAuthFailure ? { retryable: true } : {}),
+          ...(hostedAuthFailure
+            ? { errorCode: "hosted_storage_unavailable" }
+            : {}),
         };
       }
     }
@@ -1488,6 +1512,87 @@ async function handleResumableChunk(
     setResponseStatus(event, 502);
     return { ok: false, error: "Upload storage is not configured" };
   }
+
+  const hostedStorageFailureResponse = async (
+    error: unknown,
+    status?: number,
+  ) => {
+    if (storageMode !== "hosted") return null;
+    const authFailure = hostedStorageAuthFailure(
+      status ? { statusCode: status, cause: error } : error,
+    );
+    if (!authFailure) return null;
+
+    try {
+      const [persisted] = await getDb()
+        .update(schema.recordings)
+        .set({
+          failureCode: "hosted_storage_unavailable",
+          failureReason: HOSTED_STORAGE_UNAVAILABLE_REASON,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            inArray(schema.recordings.status, ["uploading", "processing"]),
+            attemptId === null
+              ? isNull(schema.recordings.uploadAttemptId)
+              : eq(schema.recordings.uploadAttemptId, attemptId),
+            uploadGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!persisted) return null;
+    } catch (persistError) {
+      console.error("[chunk] hosted storage failure could not be saved", {
+        recordingId,
+        error:
+          persistError instanceof Error
+            ? persistError.message
+            : String(persistError),
+      });
+      return null;
+    }
+
+    const reportableError =
+      error instanceof Error
+        ? error
+        : Object.assign(new Error("Hosted storage authorization failed"), {
+            cause: error,
+            ...(status ? { statusCode: status } : {}),
+          });
+    try {
+      captureError(reportableError, {
+        route: "/api/uploads/:recordingId/chunk",
+        errorMessagePolicy: "omit",
+        tags: {
+          area: "clips-storage",
+          source: "clips-hosted-storage",
+          storageMode: "hosted",
+          errorCode: "hosted_storage_unavailable",
+          reportExpected: "true",
+          ...(authFailure.status
+            ? { providerStatus: String(authFailure.status) }
+            : {}),
+        },
+        extra: { recordingId },
+      });
+    } catch {
+      console.warn("[chunk] could not report hosted storage failure");
+    }
+
+    setResponseStatus(event, 503);
+    return {
+      ok: false,
+      error: HOSTED_STORAGE_UNAVAILABLE_REASON,
+      errorCode: "hosted_storage_unavailable",
+      retryable: true,
+    };
+  };
+
   console.log(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
@@ -1726,6 +1831,8 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse(error);
+        if (hostedStorageFailure) return hostedStorageFailure;
         const detail = error instanceof Error ? error.message : String(error);
         console.error(
           `[resumable-chunk-${recordingId}] session close threw:`,
@@ -1752,6 +1859,10 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse({
+          statusCode: closeRes.status,
+        });
+        if (hostedStorageFailure) return hostedStorageFailure;
         console.error(
           `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
         );
@@ -1863,6 +1974,8 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse(error);
+        if (hostedStorageFailure) return hostedStorageFailure;
         const detail = error instanceof Error ? error.message : String(error);
         console.error(
           `[resumable-chunk-${recordingId}] provider response was ambiguous:`,
@@ -1896,6 +2009,10 @@ async function handleResumableChunk(
             staleAttempt: true,
           };
         }
+        const hostedStorageFailure = await hostedStorageFailureResponse({
+          statusCode: putResult.status,
+        });
+        if (hostedStorageFailure) return hostedStorageFailure;
         const restartRequired =
           putResult.status === 404 || putResult.status === 410;
         setResponseStatus(event, restartRequired ? 409 : 502);
@@ -2081,14 +2198,22 @@ async function handleResumableChunk(
       }
     }
 
-    const failureReason =
-      err instanceof Error ? err.message : "Finalize failed";
+    const hostedAuthFailure =
+      storageMode === "hosted" ? hostedStorageAuthFailure(err) : null;
+    const failureCode = hostedAuthFailure
+      ? "hosted_storage_unavailable"
+      : "finalize_failed";
+    const failureReason = hostedAuthFailure
+      ? HOSTED_STORAGE_UNAVAILABLE_REASON
+      : err instanceof Error
+        ? err.message
+        : "Finalize failed";
     const failedAt = new Date().toISOString();
     const failed = await db
       .update(schema.recordings)
       .set({
         status: "failed",
-        failureCode: "finalize_failed",
+        failureCode,
         failureReason,
         updatedAt: failedAt,
       })
@@ -2142,7 +2267,7 @@ async function handleResumableChunk(
       userId: ownerEmail,
       uploadAttemptId: failed[0]?.uploadAttemptId,
       platform: failed[0]?.recordingPlatform,
-      failureCode: "finalize_failed",
+      failureCode,
       browserSessionId: failureSessionId,
     });
     const repairResult = await repairUploadState({
@@ -2160,6 +2285,7 @@ async function handleResumableChunk(
         status: "failed",
         uploadAttemptId: attemptId,
         uploadGenerationId,
+        failureCode,
         failureReason,
         updatedAt: failedAt,
       },
@@ -2169,14 +2295,20 @@ async function handleResumableChunk(
       repairResult.outcome === "contention" ||
       repairResult.outcome === "write_failed"
     ) {
-      return terminalFinalizeFailureResponse(event, failureReason);
+      return terminalFinalizeFailureResponse(event, failureReason, {
+        ...(hostedAuthFailure
+          ? { errorCode: "hosted_storage_unavailable" }
+          : {}),
+      });
     }
     const repairFailure = uploadStateRepairFailureResponse(event, repairResult);
     if (repairFailure !== null) return repairFailure;
-    setResponseStatus(event, 500);
+    setResponseStatus(event, hostedAuthFailure ? 503 : 500);
     return {
       ok: false,
       error: failureReason,
+      ...(hostedAuthFailure ? { retryable: true } : {}),
+      ...(hostedAuthFailure ? { errorCode: "hosted_storage_unavailable" } : {}),
     };
   }
 }

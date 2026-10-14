@@ -45,6 +45,25 @@ describe("fetchVideoStorageStatus", () => {
     });
   });
 
+  it("preserves hosted provider failure separately from hosted allowance", async () => {
+    fetchStatus.mockResolvedValue({
+      configured: true,
+      mode: "hosted",
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      providerError: "hosted_storage_unavailable",
+    });
+
+    await expect(fetchVideoStorageStatus()).resolves.toMatchObject({
+      configured: true,
+      mode: "hosted",
+      hostedRemaining: 2,
+      providerError: "hosted_storage_unavailable",
+    });
+  });
+
   it("rejects a malformed status response", async () => {
     fetchStatus.mockResolvedValue({});
 

@@ -1544,6 +1544,8 @@ const messages = {
     builderGrantAskAdmin:
       "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
     statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
+    hostedStorageUnavailable:
+      "Clips 호스팅 저장소를 일시적으로 사용할 수 없습니다. 무료 클립 할당량은 그대로 유지됩니다. 나중에 다시 업로드해 주세요.",
     checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",

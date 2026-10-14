@@ -567,10 +567,12 @@ function uploadAbortMetadata(error: unknown): Record<string, unknown> {
       ? (error as Record<string, unknown>)
       : {};
   const failureCode =
-    details.failureCode === "chunk_html_error" ||
-    details.failureCode === "multipart_start_failed"
-      ? details.failureCode
-      : "upload_failed";
+    details.errorCode === "hosted_storage_unavailable"
+      ? "hosted_storage_unavailable"
+      : details.failureCode === "chunk_html_error" ||
+          details.failureCode === "multipart_start_failed"
+        ? details.failureCode
+        : "upload_failed";
   const failureStage =
     details.failureStage === "chunk_upload" ||
     details.failureStage === "reset_chunks" ||
@@ -744,6 +746,8 @@ function localUploadFailureLabel(
   switch (code) {
     case "session_expired":
       return withNote(t("recordRoute.sessionExpired"));
+    case "hosted_storage_unavailable":
+      return withNote(t("storageSetup.hostedStorageUnavailable"));
     case "recording_too_large":
       return withNote(t("recordRoute.videoTooLarge"));
     case "missing_local_copy":
@@ -1269,6 +1273,9 @@ export default function RecordRoute() {
   const storageQuery = useVideoStorageStatus(!clipIntake);
   const hostedAllowanceExhausted =
     !clipIntake && storageQuery.data?.denyReason === "exhausted";
+  const hostedStorageUnavailable =
+    !clipIntake &&
+    storageQuery.data?.providerError === "hosted_storage_unavailable";
   const connectStorageRequested =
     new URLSearchParams(location.search).get("connectStorage") === "1";
   const pendingUploadFile = hasPendingUploadFile();
@@ -1759,6 +1766,11 @@ export default function RecordRoute() {
                   ? { status: cause.status }
                   : { message: cause.message }),
               });
+              if (cause.kind === "http" && cause.status === 503) {
+                void queryClient.invalidateQueries({
+                  queryKey: VIDEO_STORAGE_STATUS_KEY,
+                });
+              }
             },
           });
 
@@ -2182,7 +2194,10 @@ export default function RecordRoute() {
                       (responseError.errorCode ===
                       "video_storage_status_unavailable"
                         ? t("storageSetup.statusUnavailable")
-                        : responseError.responseText) ||
+                        : responseError.errorCode ===
+                            "hosted_storage_unavailable"
+                          ? t("storageSetup.hostedStorageUnavailable")
+                          : responseError.responseText) ||
                       (responseError.isHtml
                         ? `HTML error response (${chunkRes.status})`
                         : chunkRes.statusText),
@@ -2192,6 +2207,7 @@ export default function RecordRoute() {
                   status: responseError.status,
                   failureCode: responseError.failureCode,
                   failureStage: responseError.failureStage,
+                  errorCode: responseError.errorCode,
                 },
               );
               if (!uploadError) {
@@ -2275,7 +2291,9 @@ export default function RecordRoute() {
                   (responseError.errorCode ===
                   "video_storage_status_unavailable"
                     ? t("storageSetup.statusUnavailable")
-                    : responseError.responseText) ||
+                    : responseError.errorCode === "hosted_storage_unavailable"
+                      ? t("storageSetup.hostedStorageUnavailable")
+                      : responseError.responseText) ||
                   (responseError.isHtml
                     ? `HTML error response (${chunkRes.status})`
                     : chunkRes.statusText),
@@ -2285,6 +2303,7 @@ export default function RecordRoute() {
               status: responseError.status,
               failureCode: responseError.failureCode,
               failureStage: responseError.failureStage,
+              errorCode: responseError.errorCode,
             },
           );
           if (
@@ -2361,8 +2380,18 @@ export default function RecordRoute() {
           }, 50);
         }
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t("recordRoute.uploadFailed");
+        const errorCode =
+          err &&
+          typeof err === "object" &&
+          (err as Record<string, unknown>).errorCode ===
+            "hosted_storage_unavailable"
+            ? "hosted_storage_unavailable"
+            : undefined;
+        const message = errorCode
+          ? t("storageSetup.hostedStorageUnavailable")
+          : err instanceof Error
+            ? err.message
+            : t("recordRoute.uploadFailed");
         const aborted = err instanceof Error && err.name === "AbortError";
         const status =
           err instanceof Error
@@ -2391,9 +2420,11 @@ export default function RecordRoute() {
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
           failUploadToast(
-            isUploadSizeError(message)
-              ? t("recordRoute.videoTooLarge")
-              : t("recordRoute.uploadFailed"),
+            errorCode === "hosted_storage_unavailable"
+              ? t("storageSetup.hostedStorageUnavailable")
+              : isUploadSizeError(message)
+                ? t("recordRoute.videoTooLarge")
+                : t("recordRoute.uploadFailed"),
             {
               description: createdId
                 ? "The clip was marked failed in your library. You can remove it from the card menu."
@@ -3974,6 +4005,14 @@ export default function RecordRoute() {
       {uiState === "idle" && (
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
+            {hostedStorageUnavailable ? (
+              <div
+                className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground"
+                role="status"
+              >
+                {t("storageSetup.hostedStorageUnavailable")}
+              </div>
+            ) : null}
             <div className="min-w-0">
               {showStorageSetupFirst ? (
                 <div className="flex flex-col gap-2">
@@ -4033,7 +4072,7 @@ export default function RecordRoute() {
                       initialRecorderOptions.surface
                     }
                   />
-                  {showHostedClipsRemaining ? (
+                  {showHostedClipsRemaining && storageQuery.data ? (
                     <p className="text-center text-xs text-muted-foreground">
                       {t("recordRoute.freeClipsLeft", {
                         count: storageQuery.data.hostedRemaining,

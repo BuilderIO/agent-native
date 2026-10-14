@@ -35,6 +35,7 @@ export type LocalUploadFailureCode =
   | "copy_kept"
   | "still_processing"
   | "storage_setup_required"
+  | "hosted_storage_unavailable"
   | "session_expired"
   | "recording_too_large"
   | "network"
@@ -57,6 +58,7 @@ const SERVER_FAILURE_CODE: Record<LocalUploadFailureCode, string> = {
   copy_kept: "upload_failed",
   still_processing: "upload_failed",
   storage_setup_required: "storage_setup_required",
+  hosted_storage_unavailable: "hosted_storage_unavailable",
   session_expired: "upload_interrupted",
   recording_too_large: "recording_too_large",
   network: "upload_interrupted",
@@ -92,6 +94,9 @@ export function classifyLocalUploadFailure(input: {
   const message = input.message ?? "";
   if (input.networkError) return "network";
   if (input.errorCode === RECORDING_OWNER_MISMATCH) return "owner_mismatch";
+  if (input.errorCode === "hosted_storage_unavailable") {
+    return "hosted_storage_unavailable";
+  }
   if (
     input.errorCode === "builder_oauth_reauthorization_required" ||
     input.errorCode === "builder_credentials_rejected" ||
@@ -736,6 +741,7 @@ async function postChunkWithRetry(
         status: response.status,
         message,
         isHtml: classified.isHtml,
+        errorCode: classified.errorCode,
       });
       failure = new LocalRecordingUploadError(
         // A finalize that already marked the row failed is terminal; resending

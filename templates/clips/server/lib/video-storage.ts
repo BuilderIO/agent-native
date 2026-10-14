@@ -13,7 +13,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import {
@@ -40,6 +40,8 @@ import {
 
 export const STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.";
+export const HOSTED_STORAGE_UNAVAILABLE_REASON =
+  "Clips hosted storage is temporarily unavailable. Try again later.";
 
 export class VideoStorageStatusUnavailableError extends Error {
   readonly causes: unknown[];
@@ -370,12 +372,28 @@ export async function getClipsVideoStorageStatus(
     ipPrefix: requestIpPrefix(input.requestHeaders),
     policy: hostedPolicy(config),
   });
+  const latestHostedRecording = await getDb()
+    .select({ failureCode: schema.recordings.failureCode })
+    .from(schema.recordings)
+    .where(
+      and(
+        ownerEmailMatches(schema.recordings.ownerEmail, identity.email),
+        eq(schema.recordings.storageMode, "hosted"),
+      ),
+    )
+    .orderBy(desc(schema.recordings.createdAt))
+    .limit(1);
+  const providerError =
+    latestHostedRecording[0]?.failureCode === "hosted_storage_unavailable"
+      ? ("hosted_storage_unavailable" as const)
+      : undefined;
   if (snapshot.status === "available") {
     return {
       configured: true,
       ...legacyStatus,
       mode: "hosted" as const,
       hostedRemaining: snapshot.remainingCount,
+      ...(providerError ? { providerError } : {}),
       ...limits,
     };
   }
@@ -384,6 +402,7 @@ export async function getClipsVideoStorageStatus(
     ...legacyStatus,
     mode: "none" as const,
     hostedRemaining: snapshot.remainingCount,
+    ...(providerError ? { providerError } : {}),
     ...limits,
     denyReason: snapshot.denialReason ?? "exhausted",
   };

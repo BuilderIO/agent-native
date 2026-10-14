@@ -8,13 +8,17 @@ import {
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { captureRouteError, getAppConfig } from "@agent-native/core/server";
+import {
+  captureError,
+  captureRouteError,
+  getAppConfig,
+} from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { retryableUploadInterruptionReason } from "@shared/upload-interruption.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -33,6 +37,7 @@ import {
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
+  hostedStorageAuthFailure,
   recordingTrackingSource,
   trackRecordingFailure,
 } from "../server/lib/recording-failures.js";
@@ -72,6 +77,7 @@ import {
 } from "../server/lib/video-remux.js";
 import {
   consumeHostedClipRecording,
+  HOSTED_STORAGE_UNAVAILABLE_REASON,
   releaseHostedClipRecording,
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -1542,6 +1548,9 @@ export default defineAction({
     debugLog("[finalize] starting", { id, ownerEmail });
 
     let chunkKeysToPurge: string[] = [];
+    let storageMode: "own" | "hosted" | null = null;
+    let uploadAttemptId: string | null = null;
+    let uploadGenerationId: string | null = null;
     try {
       let [existing] = await db
         .select()
@@ -1558,6 +1567,9 @@ export default defineAction({
         chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
       }
+      storageMode = existing.storageMode ?? null;
+      uploadAttemptId = existing.uploadAttemptId ?? null;
+      uploadGenerationId = existing.uploadGenerationId ?? null;
       if (existing.failureCode === "taken_down") {
         fail("Recording is no longer available", {
           errorCode: "recording_taken_down",
@@ -1967,9 +1979,11 @@ export default defineAction({
             );
           }
           console.error("[finalize] resumable complete failed:", err);
-          throw new Error(
+          const wrapped = new Error(
             `Upload completion failed: ${err instanceof Error ? err.message : String(err)}`,
           );
+          Object.assign(wrapped, { cause: err });
+          throw wrapped;
         }
 
         debugLog("[finalize] resumable upload completed", { id, videoUrl });
@@ -2417,30 +2431,34 @@ export default defineAction({
             ? await clipsHostedFileUploadProvider.upload(uploadInput)
             : await uploadFile(uploadInput);
       } catch (err) {
-        try {
-          captureRouteError(err, {
-            route: "finalize-recording",
-            tags: {
-              uploadStep: "finalize-upload",
-              videoFormat,
-            },
-            extra: {
-              recordingId: id,
-              dataBytes: uploadData.byteLength,
-              mimeType,
-              videoFormat,
-              ownerEmail,
-              originalBytes:
-                compressionMeta?.originalBytes ?? assembled.byteLength,
-              compressedBytes: compressionMeta?.compressedBytes,
-              compressionRatio: compressionMeta?.ratio,
-              compressionElapsedMs: compressionMeta?.elapsedMs,
-              compressionOutputMimeType: compressionMeta?.outputMimeType,
-              compressionRan: !!compressionMeta,
-            },
-          });
-        } catch {
-          // Sentry must never mask the real upload error.
+        if (
+          !(existing.storageMode === "hosted" && hostedStorageAuthFailure(err))
+        ) {
+          try {
+            captureRouteError(err, {
+              route: "finalize-recording",
+              tags: {
+                uploadStep: "finalize-upload",
+                videoFormat,
+              },
+              extra: {
+                recordingId: id,
+                dataBytes: uploadData.byteLength,
+                mimeType,
+                videoFormat,
+                ownerEmail,
+                originalBytes:
+                  compressionMeta?.originalBytes ?? assembled.byteLength,
+                compressedBytes: compressionMeta?.compressedBytes,
+                compressionRatio: compressionMeta?.ratio,
+                compressionElapsedMs: compressionMeta?.elapsedMs,
+                compressionOutputMimeType: compressionMeta?.outputMimeType,
+                compressionRan: !!compressionMeta,
+              },
+            });
+          } catch {
+            // Sentry must never mask the real upload error.
+          }
         }
         throw err;
       }
@@ -2726,6 +2744,67 @@ export default defineAction({
         });
       }
       return result;
+    } catch (error) {
+      const authFailure =
+        storageMode === "hosted" ? hostedStorageAuthFailure(error) : null;
+      if (!authFailure) throw error;
+
+      const failedAt = new Date().toISOString();
+      try {
+        captureError(error, {
+          route: "/_agent-native/actions/finalize-recording",
+          errorMessagePolicy: "omit",
+          tags: {
+            area: "clips-storage",
+            source: "clips-hosted-storage",
+            storageMode: "hosted",
+            errorCode: "hosted_storage_unavailable",
+            reportExpected: "true",
+            ...(authFailure.status
+              ? { providerStatus: String(authFailure.status) }
+              : {}),
+          },
+          extra: { recordingId: id },
+        });
+      } catch {
+        // Error reporting must never change the upload result.
+      }
+      try {
+        await db
+          .update(schema.recordings)
+          .set({
+            failureCode: "hosted_storage_unavailable",
+            failureReason: HOSTED_STORAGE_UNAVAILABLE_REASON,
+            updatedAt: failedAt,
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              inArray(schema.recordings.status, ["uploading", "processing"]),
+              uploadAttemptId === null
+                ? isNull(schema.recordings.uploadAttemptId)
+                : eq(schema.recordings.uploadAttemptId, uploadAttemptId),
+              uploadGenerationId === null
+                ? isNull(schema.recordings.uploadGenerationId)
+                : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
+            ),
+          );
+      } catch (persistError) {
+        console.error("[finalize] hosted storage failure could not be saved", {
+          id,
+          error:
+            persistError instanceof Error
+              ? persistError.message
+              : String(persistError),
+        });
+      }
+
+      throw Object.assign(new Error(HOSTED_STORAGE_UNAVAILABLE_REASON), {
+        cause: error,
+        errorCode: "hosted_storage_unavailable",
+        statusCode: 503,
+      });
     } finally {
       if (chunkKeysToPurge.length > 0) {
         let purged = 0;

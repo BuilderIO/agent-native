@@ -8,8 +8,11 @@ const state = vi.hoisted(() => ({
   recordingRows: [] as Array<Record<string, unknown>>,
 }));
 const mockReserveHostedClipAllowance = vi.hoisted(() => vi.fn());
+const mockGetHostedClipAllowanceSnapshot = vi.hoisted(() => vi.fn());
 const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockDbExec = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const hostedProvider = vi.hoisted(() => ({ id: "clips-hosted" }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -45,16 +48,23 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => state.requestContext,
 }));
 vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({ execute: vi.fn() }),
+  getDbExec: () => ({ execute: (...args: unknown[]) => mockDbExec(...args) }),
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
+  desc: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
 }));
 vi.mock("../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
-    recordings: { id: "recordings.id", storageMode: "recordings.storageMode" },
+    recordings: {
+      id: "recordings.id",
+      storageMode: "recordings.storageMode",
+      ownerEmail: "recordings.ownerEmail",
+      failureCode: "recordings.failureCode",
+      createdAt: "recordings.createdAt",
+    },
     hostedClipAllowances: { userId: "allowances.userId" },
   },
 }));
@@ -63,7 +73,8 @@ vi.mock("./recordings.js", () => ({
 }));
 vi.mock("./hosted-clip-allowance.js", () => ({
   canonicalHostedClipIdentityKey: (email: string) => email.toLowerCase(),
-  getHostedClipAllowanceSnapshot: vi.fn(),
+  getHostedClipAllowanceSnapshot: (...args: unknown[]) =>
+    mockGetHostedClipAllowanceSnapshot(...args),
   getHostedClipAllowanceStatus: vi.fn(),
   hostedClipIpPrefix: vi.fn(),
   releaseHostedClipAllowance: vi.fn(),
@@ -75,10 +86,13 @@ vi.mock("./hosted-clip-disposable-domains.js", () => ({
 }));
 vi.mock("./s3-upload-provider.js", () => ({
   clipsHostedFileUploadProvider: hostedProvider,
-  fetchS3ObjectByUrl: vi.fn(),
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
-import { resolveClipsVideoStorage } from "./video-storage.js";
+import {
+  getClipsVideoStorageStatus,
+  resolveClipsVideoStorage,
+} from "./video-storage.js";
 
 describe("hosted Clips storage mode pinning", () => {
   beforeEach(() => {
@@ -104,11 +118,18 @@ describe("hosted Clips storage mode pinning", () => {
         const builder = {
           from: () => builder,
           where: () => builder,
+          orderBy: () => builder,
           limit: async () => state.recordingRows,
         };
         return builder;
       },
     }));
+    mockGetHostedClipAllowanceSnapshot.mockReset();
+    mockDbExec.mockReset();
+    mockDbExec.mockResolvedValue({
+      rows: [{ email: "owner@example.com", email_verified: true }],
+    });
+    mockFetchS3ObjectByUrl.mockReset();
   });
 
   it("always selects the user's own provider before hosted trial storage", async () => {
@@ -142,5 +163,50 @@ describe("hosted Clips storage mode pinning", () => {
     });
     expect(mockGetActiveFileUploadProviderForRequest).not.toHaveBeenCalled();
     expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an observed hosted provider failure separately from an available allowance", async () => {
+    state.activeProvider = null;
+    state.recordingRows = [{ failureCode: "hosted_storage_unavailable" }];
+    mockGetHostedClipAllowanceSnapshot.mockResolvedValue({
+      status: "available",
+      remainingCount: 2,
+      denialReason: null,
+    });
+
+    await expect(
+      getClipsVideoStorageStatus({
+        email: "owner@example.com",
+        userId: "user-1",
+      }),
+    ).resolves.toMatchObject({
+      configured: true,
+      mode: "hosted",
+      hostedRemaining: 2,
+      providerError: "hosted_storage_unavailable",
+    });
+    expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+  });
+
+  it("keeps provider errors separate from an exhausted hosted allowance", async () => {
+    state.activeProvider = null;
+    state.recordingRows = [{ failureCode: "hosted_storage_unavailable" }];
+    mockGetHostedClipAllowanceSnapshot.mockResolvedValue({
+      status: "denied",
+      remainingCount: 0,
+      denialReason: "exhausted",
+    });
+
+    await expect(
+      getClipsVideoStorageStatus({
+        email: "owner@example.com",
+        userId: "user-1",
+      }),
+    ).resolves.toMatchObject({
+      configured: false,
+      mode: "none",
+      denyReason: "exhausted",
+      providerError: "hosted_storage_unavailable",
+    });
   });
 });

@@ -820,6 +820,13 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   useEffect(() => {
     if (recording && !recording.enableComments) {
       // Functional update so this branch doesn't need `panel` as a
@@ -858,17 +865,6 @@ export default function ShareRoute() {
       : Boolean(recording.videoUrl);
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const failureCode =
-      (recording as any).failureCode === "global_storage_cap" ||
-      (recording as any).failureCode === "taken_down"
-        ? (recording as any).failureCode
-        : null;
-    const localizedHostedFailure =
-      failureCode === "global_storage_cap"
-        ? t("clipsFinalRaw.hostedStorageFull")
-        : failureCode === "taken_down"
-          ? t("clipsFinalRaw.hostedRecordingTakenDown")
-          : null;
     const storageSetupFailure = isRecordingWaitingForStorage(
       recording,
       rawFailureReason,

@@ -6,6 +6,7 @@ const calls = vi.hoisted(() => ({
   updateSet: vi.fn(),
   snapshot: vi.fn(async () => false),
   uploadProvider: vi.fn(async () => null),
+  captureError: vi.fn(),
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
@@ -18,6 +19,9 @@ vi.mock("@agent-native/core/action", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => calls.writeState(...args),
+}));
+vi.mock("@agent-native/core/server", () => ({
+  captureError: (...args: unknown[]) => calls.captureError(...args),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => null,
@@ -70,11 +74,14 @@ vi.mock("../server/lib/video-storage.js", () => ({
     calls.resolveStorage(...args),
   releaseHostedClipRecording: vi.fn(),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
+  HOSTED_STORAGE_UNAVAILABLE_REASON:
+    "Clips hosted storage is temporarily unavailable. Try again later.",
 }));
 vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   shouldEnableStreamingUpload: () => calls.streamingEnabled,
 }));
 
+import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import createRecording, {
   classifyInitialUploadFailure,
 } from "./create-recording";
@@ -247,6 +254,74 @@ describe("create-recording policy", () => {
       expect.objectContaining({
         status: "failed",
         storageSetupRequired: false,
+      }),
+    );
+  });
+
+  it("persists and reports hosted provider auth failures without exposing the provider error", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.streamingEnabled = true;
+    const provider = {
+      id: "clips-hosted",
+      resumable: {
+        startSession: vi.fn().mockRejectedValue(new S3MultipartStartError(403)),
+      },
+    };
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: false,
+    });
+
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          recordingPlatform: "web",
+          requestStreaming: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      data: {
+        errorCode: "hosted_storage_unavailable",
+        retryable: true,
+      },
+      statusMessage:
+        "Clips hosted storage is temporarily unavailable. Try again later.",
+    });
+
+    expect(calls.updateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "hosted_storage_unavailable",
+        failureReason:
+          "Clips hosted storage is temporarily unavailable. Try again later.",
+      }),
+    );
+    expect(calls.captureError).toHaveBeenCalledWith(
+      expect.any(S3MultipartStartError),
+      expect.objectContaining({
+        route: "/_agent-native/actions/create-recording",
+        errorMessagePolicy: "omit",
+        tags: expect.objectContaining({
+          area: "clips-storage",
+          errorCode: "hosted_storage_unavailable",
+          providerStatus: "403",
+          reportExpected: "true",
+        }),
       }),
     );
   });

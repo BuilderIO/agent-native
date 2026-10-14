@@ -1523,6 +1523,8 @@ const messages = {
     builderGrantAskAdmin:
       "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
     statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
+    hostedStorageUnavailable:
+      "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",

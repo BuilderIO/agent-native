@@ -1578,6 +1578,8 @@ const messages = {
       "Peça a um proprietário ou administrador para conectar o Builder.io com permissão para enviar clipes.",
     statusUnavailable:
       "Não foi possível verificar se o armazenamento de vídeo está pronto.",
+    hostedStorageUnavailable:
+      "O armazenamento hospedado do Clips está temporariamente indisponível. Sua cota gratuita de clipes não mudou; tente enviar novamente mais tarde.",
     checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
       "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",

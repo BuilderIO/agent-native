@@ -124,6 +124,7 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  captureError: vi.fn(),
   captureRouteError: vi.fn(),
   getAppConfig: () => ({
     clips: { hostedStorage: { maxClipBytes: mockHostedMaxClipBytes.value } },
@@ -142,6 +143,7 @@ vi.mock("@shared/upload-limits.js", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  inArray: vi.fn((column: unknown, values: unknown[]) => ({ column, values })),
   isNull: vi.fn((column: unknown) => ({ column, kind: "isNull" })),
   ne: vi.fn((column: unknown, value: unknown) => ({
     column,
@@ -265,6 +267,8 @@ vi.mock("../server/lib/video-storage.js", () => ({
     mockReleaseHostedClipRecording(...args),
   requiresConfiguredVideoStorage: vi.fn(() => false),
   STORAGE_SETUP_REQUIRED_REASON: "Storage required",
+  HOSTED_STORAGE_UNAVAILABLE_REASON:
+    "Clips hosted storage is temporarily unavailable. Try again later.",
 }));
 
 vi.mock("./lib/ensure-seekable-video.js", () => ({
@@ -1879,7 +1883,7 @@ describe("finalize-recording media serve verification", () => {
 describe("finalize-recording resumable recovery", () => {
   it("fails a confirmed empty hosted session before releasing its allowance", async () => {
     vi.clearAllMocks();
-    const { getResumableSession } =
+    const { deleteResumableSession, getResumableSession } =
       await import("../server/lib/resumable-session.js");
     const { resolveResumableUploadProvider } =
       await import("../server/lib/resumable-upload-provider.js");
@@ -2278,6 +2282,91 @@ describe("finalize-recording resumable recovery", () => {
     });
     expect(deleteResumableSession).not.toHaveBeenCalled();
     expect(mockDeleteS3ObjectByUrl).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("persists and reports hosted provider auth failures during completion", async () => {
+    vi.clearAllMocks();
+    const { deleteResumableSession, getResumableSession } =
+      await import("../server/lib/resumable-session.js");
+    const { resolveResumableUploadProvider } =
+      await import("../server/lib/resumable-upload-provider.js");
+    const completeSession = vi.fn(async () => {
+      throw Object.assign(new Error("provider denied multipart completion"), {
+        statusCode: 403,
+      });
+    });
+    vi.mocked(getResumableSession).mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "hosted-upload-denied",
+      meta: {
+        filename: "rec_1.webm",
+        objectKey: "clips/rec_1.webm",
+      },
+      bytesUploaded: 157_500_000,
+    });
+    vi.mocked(resolveResumableUploadProvider).mockResolvedValue({
+      id: "clips-hosted",
+      name: "Hosted Clips storage",
+      isConfigured: () => true,
+      upload: vi.fn(),
+      resumable: {
+        startSession: vi.fn(),
+        relayChunk: vi.fn(),
+        completeSession,
+        abortSession: vi.fn(async () => undefined),
+      },
+    });
+    mockState.uploadState = {
+      mimeType: "video/webm",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+    };
+    mockState.existingRecording = {
+      ...mockState.existingRecording,
+      status: "uploading",
+      storageMode: "hosted",
+      uploadGenerationId: null,
+    };
+    mockState.selectRows = [];
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-upload-rec_1" ? mockState.uploadState : null,
+    );
+    mockUpdateWhere.mockImplementation(() => ({
+      returning: mockUpdateReturning,
+    }));
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toMatchObject({
+      errorCode: "hosted_storage_unavailable",
+      statusCode: 503,
+      message:
+        "Clips hosted storage is temporarily unavailable. Try again later.",
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "hosted_storage_unavailable",
+        failureReason:
+          "Clips hosted storage is temporarily unavailable. Try again later.",
+      }),
+    );
+    const { captureError } = await import("@agent-native/core/server");
+    expect(captureError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        errorMessagePolicy: "omit",
+        tags: expect.objectContaining({
+          errorCode: "hosted_storage_unavailable",
+          providerStatus: "403",
+        }),
+      }),
+    );
+    expect(deleteResumableSession).not.toHaveBeenCalled();
     expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
   });
 });

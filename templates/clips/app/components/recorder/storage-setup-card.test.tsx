@@ -77,6 +77,22 @@ const EXISTING_ACCOUNT = "agentChat.onboarding.builderExistingAccount";
 const CONNECT = "agentChat.onboarding.builderConnect";
 const CONSENT = "agentChat.onboarding.builderConsentPrefix";
 
+function videoStorageStatusResponse(
+  overrides: Record<string, unknown> = {},
+): Response {
+  return Response.json({
+    configured: true,
+    mode: "own",
+    hostedRemaining: 0,
+    hostedLimit: 3,
+    maxClipBytes: 250 * 1024 * 1024,
+    maxClipDurationMs: 10 * 60 * 1000,
+    builderConfigured: true,
+    builderUploadConfigured: true,
+    ...overrides,
+  });
+}
+
 function flowState(overrides: Record<string, unknown> = {}) {
   return {
     start: mocks.start,
@@ -420,11 +436,7 @@ describe("StorageSetupCard", () => {
 
   it("finishes storage setup if Builder connects after cancellation", async () => {
     const onConfigured = vi.fn();
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ configured: true }), {
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    const fetchMock = vi.fn().mockResolvedValue(videoStorageStatusResponse());
     vi.stubGlobal("fetch", fetchMock);
     await renderCard(onConfigured);
     await createAndActivate();
@@ -459,13 +471,7 @@ describe("StorageSetupCard", () => {
 
   it("finishes setup when Builder upload authorization is ready", async () => {
     const onConfigured = vi.fn();
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({
-        configured: true,
-        builderConfigured: true,
-        builderUploadConfigured: true,
-      }),
-    );
+    const fetchMock = vi.fn().mockResolvedValue(videoStorageStatusResponse());
     vi.stubGlobal("fetch", fetchMock);
     await renderCard(onConfigured);
     await createAndActivate();
@@ -488,13 +494,7 @@ describe("StorageSetupCard", () => {
     const onSkip = vi.fn();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        Response.json({
-          configured: true,
-          builderConfigured: true,
-          builderUploadConfigured: true,
-        }),
-      ),
+      vi.fn().mockResolvedValue(videoStorageStatusResponse()),
     );
     await renderCard(onConfigured, onSkip);
     await createAndActivate();
@@ -528,13 +528,7 @@ describe("StorageSetupCard", () => {
     const onConfigured = vi.fn();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        Response.json({
-          configured: true,
-          builderConfigured: true,
-          builderUploadConfigured: true,
-        }),
-      ),
+      vi.fn().mockResolvedValue(videoStorageStatusResponse()),
     );
     await renderCard(onConfigured);
     await createAndActivate();
@@ -563,8 +557,9 @@ describe("StorageSetupCard", () => {
   it("stops on an AI-only Builder grant that still needs upload authorization", async () => {
     const onConfigured = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({
+      videoStorageStatusResponse({
         configured: false,
+        mode: "none",
         builderConfigured: true,
         builderUploadConfigured: false,
         builderReauthorizationRequired: true,
@@ -595,13 +590,7 @@ describe("StorageSetupCard", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
-      .mockResolvedValueOnce(
-        Response.json({
-          configured: true,
-          builderConfigured: true,
-          builderUploadConfigured: true,
-        }),
-      );
+      .mockResolvedValueOnce(videoStorageStatusResponse());
     vi.stubGlobal("fetch", fetchMock);
     await renderCard(onConfigured);
     await createAndActivate();
@@ -632,11 +621,7 @@ describe("StorageSetupCard", () => {
 
   it("ignores a connection that arrives long after the connect was cancelled", async () => {
     const onConfigured = vi.fn();
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ configured: true }), {
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    const fetchMock = vi.fn().mockResolvedValue(videoStorageStatusResponse());
     vi.stubGlobal("fetch", fetchMock);
     await renderCard(onConfigured);
     await createAndActivate();
@@ -777,13 +762,11 @@ describe("StorageSetupCard", () => {
   it("surfaces the timeout while an available status stays unconfigured", async () => {
     const fetchMock = vi.fn().mockImplementation(() =>
       Promise.resolve(
-        new Response(
-          JSON.stringify({
-            configured: false,
-            builderReauthorizationRequired: false,
-          }),
-          { headers: { "Content-Type": "application/json" } },
-        ),
+        videoStorageStatusResponse({
+          configured: false,
+          mode: "none",
+          builderReauthorizationRequired: false,
+        }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -849,13 +832,7 @@ describe("StorageSetupCard", () => {
     async function connectBuilderAndConfigure() {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(
-          Response.json({
-            configured: true,
-            builderConfigured: true,
-            builderUploadConfigured: true,
-          }),
-        ),
+        vi.fn().mockResolvedValue(videoStorageStatusResponse()),
       );
       await createAndActivate();
       const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {

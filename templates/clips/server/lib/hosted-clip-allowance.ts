@@ -595,13 +595,14 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
         AND lower(owner_email) = lower(${ownerEmail})
       FOR UPDATE
     `);
-    const recording = recordingResult.rows[0] as
-      | {
-          status?: unknown;
-          storage_mode?: unknown;
-          failure_code?: unknown;
-        }
-      | undefined;
+    const recordingRows = recordingResult as {
+      rows: Array<{
+        status?: unknown;
+        storage_mode?: unknown;
+        failure_code?: unknown;
+      }>;
+    };
+    const recording = recordingRows.rows[0];
     if (
       recording?.storage_mode !== "hosted" ||
       (recording.status !== "failed" && recording.status !== "uploading") ||
@@ -959,15 +960,16 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
         AND lower(r.owner_email) = lower(${ownerEmail})
       FOR UPDATE OF r, a
     `);
-    const row = rows.rows[0] as
-      | {
-          status?: unknown;
-          storage_mode?: unknown;
-          failure_code?: unknown;
-          allowance_status?: unknown;
-          allowance_updated_at?: unknown;
-        }
-      | undefined;
+    const typedRows = rows as {
+      rows: Array<{
+        status?: unknown;
+        storage_mode?: unknown;
+        failure_code?: unknown;
+        allowance_status?: unknown;
+        allowance_updated_at?: unknown;
+      }>;
+    };
+    const row = typedRows.rows[0];
     if (
       row?.status !== "failed" ||
       row.storage_mode !== "hosted" ||
@@ -978,11 +980,12 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
       return false;
     }
 
-    const markerRows = await tx.execute(sql`
+    const markerResult = await tx.execute(sql`
       SELECT value FROM application_state
       WHERE key = ${hostedCleanupConfirmedKey(input.recordingId)}
       FOR UPDATE
     `);
+    const markerRows = markerResult as { rows: Array<{ value: string }> };
     if (markerRows.rows[0]?.value !== input.cleanupMarkerValue) return false;
 
     const [allowance] = await tx

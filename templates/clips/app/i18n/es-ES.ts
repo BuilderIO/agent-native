@@ -1588,6 +1588,8 @@ const messages = {
       "Pide a un propietario o administrador que conecte Builder.io con permiso para subir clips.",
     statusUnavailable:
       "No se pudo comprobar si el almacenamiento de vídeo está listo.",
+    hostedStorageUnavailable:
+      "El almacenamiento alojado de Clips no está disponible temporalmente. Tu cuota gratuita de clips no cambia; vuelve a intentarlo más tarde.",
     checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
       "No se pudo confirmar que el almacenamiento de Builder.io esté listo. Inténtalo de nuevo.",

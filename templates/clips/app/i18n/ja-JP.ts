@@ -1565,6 +1565,8 @@ const messages = {
     builderGrantAskAdmin:
       "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
     statusUnavailable: "動画ストレージの状態を確認できませんでした。",
+    hostedStorageUnavailable:
+      "Clips のホストストレージは一時的に利用できません。無料クリップの残り枠は変わりません。時間をおいて再度アップロードしてください。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
